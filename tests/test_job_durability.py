@@ -247,6 +247,12 @@ PUBLISHERS = [
     # ``_optimize`` can; nothing else has been told this row is done yet, so
     # there is no served name for the rename to be a point of no return
     # against. It joins this comment rather than the table.
+    # ``service._jobs_create.import_reference`` (2026-09-29) publishes
+    # ``input.png`` onto a served name through ``safeio.atomic.write_bytes``
+    # (a staged temp, then ``os.replace``) and is deliberately *not* a row: like
+    # ``revert_model`` it is an inline door with no cancel token, and the row it
+    # inserts is born ``done``, so there is nothing for a cancel to unwind.
+    # ``tests/service/test_import_reference_door.py`` pins the rename.
     ("realmspinner._q_mesh", "_remesh", "_publish_model_version"),
     ("realmspinner._q_rig", "_rig", "finalize_rig"),
     ("realmspinner._q_rig", "_sheet", "_publish_text"),

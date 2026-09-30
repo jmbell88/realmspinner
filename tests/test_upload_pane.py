@@ -33,31 +33,32 @@ def test_upload_hands_the_file_read_to_a_task(tmp_path, monkeypatch):
     until the closure runs."""
     seen = {}
     monkeypatch.setattr(
-        settings_3d.svc_jobs, "create_job", lambda svc, **kw: seen.update(kw) or "id"
+        settings_3d.svc_jobs,
+        "import_reference",
+        lambda svc, image, **kw: seen.update(image=image, **kw) or {"id": "id"},
     )
     ctx = _Ctx()
     path = tmp_path / "ref.png"
     settings_3d.upload(ctx, path)
 
-    assert [key for key, *_ in ctx.submitted] == ["submit"]
+    assert [key for key, *_ in ctx.submitted] == [settings_3d.IMPORT_KEY]
     assert seen == {}  # the file has not been touched yet
 
     path.write_bytes(b"png-bytes")
     _key, fn, args, kwargs = ctx.submitted[0]
-    assert fn(*args, **kwargs) == "id"
+    assert fn(*args, **kwargs) == {"id": "id"}
     assert seen["image"] == b"png-bytes"
-    assert seen["kind"] == "image"
 
 
 def test_upload_reads_at_most_one_byte_past_the_cap(tmp_path, monkeypatch):
     """create_job's contract: it only needs MAX_UPLOAD_BYTES + 1 bytes to know
     the upload is too large, so an oversized file is never fully allocated."""
 
-    def fake_create_job(svc, *, image, **kw):
+    def fake_create_job(svc, image, **kw):
         assert len(image) == MAX_UPLOAD_BYTES + 1
         raise TooLarge("Reference image is too large (max 20 MB).")
 
-    monkeypatch.setattr(settings_3d.svc_jobs, "create_job", fake_create_job)
+    monkeypatch.setattr(settings_3d.svc_jobs, "import_reference", fake_create_job)
     ctx = _Ctx()
     path = tmp_path / "huge.png"
     path.write_bytes(b"\x00" * (MAX_UPLOAD_BYTES + 10))
@@ -75,45 +76,6 @@ def test_an_unreadable_file_becomes_a_readable_toast(tmp_path):
     _key, fn, args, kwargs = ctx.submitted[0]
     with pytest.raises(Invalid, match="could not read gone.png"):
         fn(*args, **kwargs)
-
-
-def test_upload_kwargs_sends_custom_triangles_when_profile_is_custom(tmp_path, monkeypatch):
-    """The 2026-09-06 audit (create2-05): ``_upload_kwargs``'s own docstring
-    states the rule -- a form field cannot be honoured for a dropped file and
-    quietly ignored for a rendered one -- but it dropped ``custom_triangles``
-    while ``promote_kwargs`` sent it, so an upload-started mesh job with a
-    custom triangle budget reached ``optimize.resolve`` with ``custom=None``
-    and was refused even though the same form promoting a library reference
-    would have succeeded with the exact count the user set. Covers both
-    upload sites: the file picker's ``upload`` and Clay's ``upload_bytes``,
-    since both are meant to share ``_upload_kwargs`` and must not drift.
-    """
-    ctx = _Ctx()
-    ctx.state.form_3d["profile"] = "custom"
-    ctx.state.form_3d["custom_triangles"] = 5000
-
-    seen = {}
-    monkeypatch.setattr(
-        settings_3d.svc_jobs, "create_job", lambda svc, **kw: seen.update(kw) or "id"
-    )
-
-    path = tmp_path / "ref.png"
-    path.write_bytes(b"png-bytes")
-    settings_3d.upload(ctx, path)
-    _key, fn, args, kwargs = ctx.submitted[0]
-    fn(*args, **kwargs)
-    assert seen["profile"] == "custom"
-    assert seen["custom_triangles"] == 5000
-
-    seen.clear()
-    ctx2 = _Ctx()
-    ctx2.state.form_3d["profile"] = "custom"
-    ctx2.state.form_3d["custom_triangles"] = 5000
-    settings_3d.upload_bytes(ctx2, b"png-bytes")
-    _key, fn, args, kwargs = ctx2.submitted[0]
-    fn(*args, **kwargs)
-    assert seen["profile"] == "custom"
-    assert seen["custom_triangles"] == 5000
 
 
 # --- the 2D pane's conditioning reference ------------------------------------

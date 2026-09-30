@@ -541,6 +541,15 @@ class TasksMixin:
             # leaving them ticked offers to download 7 GB that is already there.
             ctx.toast("Model removed." if key.startswith("remove:") else "Download finished.")
             return
+        if key == "import-source":
+            # The frame-thread half of an upload or drop on the Mesh stage: the
+            # imported row becomes the source and nothing is queued. Make 3D
+            # (cutout check, then Count candidates) is the next press.
+            if isinstance(done.result, dict) and done.result.get("id"):
+                ctx.cache.invalidate()
+                ctx.state.source_job = str(done.result["id"])
+                ctx.toast("Image ready as the source. Make 3D when you are.", "success")
+            return
         if key == "upload" and done.result is not None:
             from ..modes.create.ui.panes import settings_3d
 

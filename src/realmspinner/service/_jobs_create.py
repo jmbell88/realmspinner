@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import guidance, models
+from ..core.safeio import atomic as safeio_atomic
 from . import matte
 from .core import RealmspinnerService
 from .errors import Invalid, TooLarge, invalid_from
@@ -829,6 +830,15 @@ def import_reference(
     ``built``, so it stays out of ``DERIVED_PARAMS`` -- a reroll of one of these
     is already refused, and a promotion carries a true statement about where the
     picture came from.
+
+    **The Mesh stage's upload and drop land here too** (step 5 of the Create
+    redesign): the picture becomes a reference row and ``source_job``, and Make
+    3D then runs the cutout check and ``promote_candidates`` with Count like any
+    library reference. What ``promote_to_model`` reads -- stage ``reference``,
+    status ``done``, ``input.png``, and a measured ``reference_report`` whose
+    ``ok is False`` is refused unless ``force`` -- is all set here, so the
+    imported row needs no special case; the cutout check already sends
+    ``force`` when the modal says the composition is poor.
     """
     from ..pipelines import reference
 
@@ -858,7 +868,13 @@ def import_reference(
     # Written before the row, and cleaned up if the write or the insert fails:
     # the same ordering create_job uses, for the same reason.
     try:
-        dest.write_bytes(normalized)
+        # Staged and renamed, never written in place: ``input.png`` is a served
+        # name (promote_to_model reads it, the Library draws it), and a
+        # disk-full or a kill mid-write must not leave a truncated PNG that
+        # ``measure_file`` then blesses. This is the only publish an inline
+        # door makes with no cancel token, so it is a comment in
+        # ``PUBLISHERS``, not a row (the ``revert_model`` shape).
+        safeio_atomic.write_bytes(dest, normalized)
         params["reference_report"] = reference.measure_file(dest).as_dict()
         svc.store.create(
             "image", prompt or "", params, job_id, stage="reference", status="done"

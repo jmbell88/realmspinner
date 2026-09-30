@@ -132,13 +132,16 @@ apparent winner, and never stops you from pressing **Keep** on an ungraded attem
 reminder, not a gate: what you decide by pressing Keep is yours to decide, and the sentence only asks
 that the mesh you did not choose still teaches the corpus something before it leaves the tray.
 
-The count applies to **Make 3D** only. An upload queues one mesh job, as it always has.
+The count applies to **Make 3D**, and that includes a mesh made from an upload (see below).
 
 ## Starting from an upload
 
 You can skip the reference stage entirely. Press the **Source** chip (it reads **Choose an image...**
 while nothing is chosen), or
-drop an image file onto the window, and the app queues a mesh job directly from it.
+drop an image file onto the window. Nothing is queued: the image is imported as a finished reference,
+the Source chip shows it, and it appears in the Library like any other reference. Then **Make 3D** works
+as it does for a generated one: it opens the cutout check, and once you accept, makes as many candidates
+as **Candidates** says.
 
 Uploads are bounded at the door, and both limits are checked before anything is written:
 

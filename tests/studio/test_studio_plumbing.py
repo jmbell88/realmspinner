@@ -1210,17 +1210,14 @@ def test_the_send_to_3d_render_happens_on_the_frame_thread():
     )
 
 
-def test_both_upload_paths_read_the_same_form():
-    """A form field honoured for a dropped file and ignored for a rendered one
-    is the shape of bug this consolidation exists to prevent.
-
-    ``upload_kwargs`` (``_upload_kwargs`` before the 2026-09-18 restructure)
-    lives in ``modes/create/engine/mesh.py`` now; both of ``settings_3d.py``'s
-    upload paths still call it, as ``create_mesh.upload_kwargs``.
-    """
+def test_neither_upload_path_submits_a_mesh_job():
+    """Both of ``settings_3d.py``'s upload paths import a reference and stop:
+    the form is read where the mesh is made (``promote``), so there is nothing
+    here to keep in step with it any more."""
     from realmspinner.studio.modes.create.ui.panes import settings_3d
 
-    assert len(_calls_to(settings_3d, "upload_kwargs")) == 2
+    assert _calls_to(settings_3d, "upload_kwargs") == []
+    assert _calls_to(settings_3d, "create_job") == []
 
 
 def test_clay_is_a_workspace_rather_than_a_single_pane():

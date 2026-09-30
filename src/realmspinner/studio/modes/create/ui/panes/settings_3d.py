@@ -1225,34 +1225,38 @@ def _matte_image(ctx: Any, preview: Any) -> None:
     imgui.image(widgets.texture_ref(texture), (width * scale, height * scale))
 
 
+IMPORT_KEY = "import-source"
+
+
 def upload_bytes(ctx: Any, data: bytes) -> None:
-    """Start a mesh job from pixels that are already in memory.
+    """Make a reference row from pixels that are already in memory.
 
     The path ``upload`` takes for a file, for a caller that has rendered the
     picture rather than read it -- Clay's "send to 3D", which draws the
-    document offscreen on the frame thread and hands the bytes over. The form
-    values are read here for the same reason ``upload`` reads them here: they
-    are UI state, and the task thread has no business touching them.
+    document offscreen on the frame thread and hands the bytes over. Like
+    ``upload`` it *submits nothing*: the row becomes the source, and Make 3D
+    (the cutout check, then Count candidates) is what spends the GPU.
     """
-    kwargs = create_mesh.upload_kwargs(ctx.state.form_3d)
 
     def run():
-        return svc_jobs.create_job(ctx.svc, image=data, **kwargs)
+        return svc_jobs.import_reference(ctx.svc, data)
 
-    from . import settings_2d
-
-    settings_2d.submit_job(ctx, run)
+    ctx.submit(IMPORT_KEY, run)
 
 
 def upload(ctx: Any, path: Path) -> None:
-    """Start a mesh job from an image on disk (a picker, or a dropped file)."""
-    kwargs = create_mesh.upload_kwargs(ctx.state.form_3d)
+    """Import an image from disk (a picker, or a dropped file) as the source.
 
-    # The form values are read here, on the frame thread, because they are UI
-    # state; the *file* is read in the task, because a large one would freeze
-    # the window for as long as the disk took. Only MAX_UPLOAD_BYTES + 1 bytes
-    # are ever read -- create_job's contract -- so an enormous file is refused
-    # rather than allocated.
+    This used to call ``create_job(kind="image")`` and queue a mesh at once,
+    which skipped the cutout check and ignored Count. It now mints a finished
+    reference row (``svc_jobs.import_reference``) and the task-done handler
+    sets ``source_job`` to it -- the same state picking a library card makes.
+    """
+
+    # The file is read in the task, because a large one would freeze the window
+    # for as long as the disk took. Only MAX_UPLOAD_BYTES + 1 bytes are ever
+    # read -- the door's contract -- so an enormous file is refused rather than
+    # allocated.
     def run():
         try:
             with path.open("rb") as fh:
@@ -1261,8 +1265,6 @@ def upload(ctx: Any, path: Path) -> None:
             # ``field=`` for ``settings_2d``'s reason: the upload control is
             # what is wrong, and a bare refusal points at nothing.
             raise Invalid(f"could not read {path.name}: {exc}", field="image") from exc
-        return svc_jobs.create_job(ctx.svc, image=data, **kwargs)
+        return svc_jobs.import_reference(ctx.svc, data, name=path.stem)
 
-    from . import settings_2d
-
-    settings_2d.submit_job(ctx, run)
+    ctx.submit(IMPORT_KEY, run)
