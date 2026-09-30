@@ -34,9 +34,9 @@ broken. You are at the end of stage one, and stage two is a button.
 ## Stage one: the reference
 
 Open **Create** in the rail on the left. The window splits into three: settings on the left, a
-viewport in the middle, and the library on the right. Above the settings is a row of five
-segments — Reference, Mesh, Rig, Pose, Export — which is the path an asset takes through the app.
-You are on Reference.
+viewport in the middle, and the library on the right. Above the settings is the command bar: a row of five
+segments — Reference, Mesh, Rig, Pose, Export — which is the path an asset takes through the app,
+and, on the Reference and Mesh stages, the controls that make something. You are on Reference.
 
 Three controls matter for a first run, and everything else has a sensible default.
 
@@ -89,7 +89,8 @@ the viewport toolbar opens the reference as a layered drawing, and saving writes
 
 ## Stage two: the mesh
 
-When the picture is right, press **Make 3D** on the card.
+When the picture is right, press **Make 3D** on the card — or select the reference, go to the Mesh
+stage, and press **Make 3D** in its command bar, where the Source chip names the reference it will use.
 
 A panel opens showing a **cutout** — the subject with its background removed. This is not a preview
 of the model; it is the actual image the reconstruction will be run against, and it is shown before

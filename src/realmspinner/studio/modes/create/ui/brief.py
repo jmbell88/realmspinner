@@ -22,15 +22,21 @@ other half of the split: this bar is *what to make*, and that column is *how*.
 A control belongs to exactly one of them, the same one-owner rule the two
 generation panes already keep.
 
-**The four brief controls, Reference stage only.** Mesh, Rig, Pose and Export
-draw the rail alone -- :func:`shows` says so -- and the pane shrinks to the
-rail's own height for them (:func:`bar_height`); nothing reserves an empty
-strip under a bare rail. That is ``create_stages``' own rule about the rail,
-now applied one level down: shipping a row with one live control and three
-dead ones is not honest, and a bar that is present but inert is worse than a
-bar that is absent. The rail itself is unconditional -- it is the breadcrumb
-for every stage, not only Reference's -- which is why :func:`draw` runs at
-every stage while :func:`shows` gates only the brief.
+**One bar on both generating stages, and the rail alone on the rest.** Reference
+and Mesh each *generate*, so each draws the same row: the rail, then what to
+generate (Reference: the type and the prompt; Mesh: a Source chip -- a
+thumbnail and the name of the chosen reference, or "Choose an image..."), then
+Count, Generate and Reset. The Count pills' range and Generate's label come
+from the stage (1/2/4/8 and the asset type's label; 1/2/3 and "Make 3D"), and
+Reset asks and toasts in one pattern ("Reset the {image|mesh} settings?").
+Below the bar, the stage's left column holds settings only and never a submit
+button. Rig, Pose and Export make nothing from this row, so they draw the rail
+alone -- :func:`shows` says so -- and the pane shrinks to the rail's own height
+for them (:func:`bar_height`); nothing reserves an empty strip under a bare
+rail. That is ``create_stages``' own rule about the rail, now applied one level
+down: a bar that is present but inert is worse than a bar that is absent. The
+rail itself is unconditional -- it is the breadcrumb for every stage -- which is
+why :func:`draw` runs at every stage while :func:`shows` gates only the rest.
 
 Drawn through :func:`layout.pane` rather than bare, the way the brief always
 was. That is what puts this row in ``layout.FRAME_PANES``, which is what gives
@@ -53,13 +59,14 @@ own :func:`_row_widths` computes.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from imgui_bundle import imgui
 
 from .... import anchors, controls, dialogs, focus, icons, theme, tokens, widgets
 from ....tokens import sp
 from ..engine import assets as create_assets
+from ..engine import mesh as create_mesh
 from ..engine import recipe as create_recipe
 from . import rail as create_rail
 
@@ -102,90 +109,149 @@ TYPE_W = 138.0
 COUNT_W = 124.0
 GENERATE_W = 158.0
 
+#: The Reference stage's count values. 8 is ``validation.MAX_REFERENCE_COUNT``.
+_COUNTS: tuple[int, ...] = (1, 2, 4, 8)
+
+#: The Mesh stage's, from the service's own ceiling (``MAX_MESH_CANDIDATES``,
+#: 3): the pills are the *same control*, and only their range is the stage's.
+_MESH_COUNTS: tuple[int, ...] = tuple(range(1, create_mesh.MAX_MESH_CANDIDATES + 1))
+
+#: The visible label beside the pills, on both stages -- four bare digits said
+#: nothing about what they choose, and this is the first thing to drop out as
+#: the bar narrows (:func:`_row_widths`).
+COUNT_LABEL = "Candidates"
+
+#: Per-pill hover text for the count control, the same shape as
+#: ``_TYPE_HINTS`` beside it. Four bare pills ("1 2 4 8") carried no label and
+#: no tooltip -- unlike the Type combo, which names each value on hover -- so
+#: a first-time user had nothing on screen or on hover saying they choose how
+#: many candidates one press draws. The 2026-09-05 audit, finding create-11.
+_COUNT_HINTS: dict[str, str] = {
+    "1": "Draw one candidate.",
+    "2": "Draw two candidates to compare.",
+    "4": "Draw four candidates to compare.",
+    "8": "Draw eight, the most one press can generate.",
+}
+
+#: The same shape for Mesh, whose count is attempts on one reference.
+_MESH_COUNT_HINTS: dict[str, str] = {
+    "1": "Reconstruct the reference once.",
+    "2": "Reconstruct it twice, each from a new seed, and keep the better one.",
+    "3": "Reconstruct it three times, each from a new seed -- the most one press buys.",
+}
+
 #: This bar's key in the focus ring. Its own rather than ``settings_2d``'s
 #: "2d": the ring is walked per pane, and the two are two panes.
 FOCUS_PANE = "brief"
 
 
+#: The stages whose bar carries the press. Every other stage is the rail alone.
+GENERATING_STAGES: tuple[str, ...] = ("reference", "mesh")
+
+
 def shows(ctx: Any) -> bool:
-    """Whether the *brief* -- the four controls beside the rail -- has
-    anything true to say. -> only on the Reference stage.
+    """Whether the bar has a press to draw beside the rail. -> on the
+    Reference and Mesh stages, and nowhere else.
 
     Stopped gating the pane itself (2026-09-07): the rail is the row's
     breadcrumb for every stage, so the pane always opens, and this predicate
-    now decides only how much of the row :func:`draw` fills in and how tall
+    decides only how much of the row :func:`draw` fills in and how tall
     :func:`bar_height` makes it.
     """
     from . import stages as create_stages
 
-    return create_stages.at(ctx.state, "reference")
+    return any(create_stages.at(ctx.state, stage) for stage in GENERATING_STAGES)
+
+
+def _is_mesh(ctx: Any) -> bool:
+    from . import stages as create_stages
+
+    return create_stages.at(ctx.state, "mesh")
 
 
 def bar_height(ctx: Any) -> float:
-    """This frame's pane height. The full row on Reference; just the rail's
-    own band everywhere else -- an inert strip under a bare rail is the same
-    complaint the module docstring already makes about a bar with three dead
-    controls, so the four other stages simply do not reserve one.
+    """This frame's pane height. The full row on a generating stage; just the
+    rail's own band everywhere else -- an inert strip under a bare rail is the
+    same complaint the module docstring already makes about a bar with dead
+    controls, so the other stages simply do not reserve one.
     """
     return sp(BAR_H) if shows(ctx) else sp(RAIL_ONLY_H)
 
 
 def draw(ctx: Any, rail: Callable[..., None]) -> None:
-    """The row. Called from ``main._build_ui`` for the one pane that now
-    holds the stage rail and, on the Reference stage, the rest of the brief.
+    """The row. Called from ``main._build_ui`` for the one pane that holds the
+    stage rail and, on Reference and Mesh, the rest of the bar.
 
     ``rail`` is ``App._stage_rail``, bound -- see the module docstring for why
     it is handed in rather than called through an import here.
     """
 
     state = ctx.state
-    form = state.form_2d
+    form_2d = state.form_2d
     # The same synchronisation the settings column runs, and for the same
     # reason: the five derived door fields are a function of the type, and the
     # type is edited *here* now, on the Reference stage. Running it before the
     # early return keeps every stage's rail agreeing with the column about
     # what the asset currently is, not only Reference's.
-    if "asset_type" not in form:
-        form["asset_type"] = create_assets.legacy_asset_type(form)
-    spec = create_assets.sync_legacy_fields(form)
+    if "asset_type" not in form_2d:
+        form_2d["asset_type"] = create_assets.legacy_asset_type(form_2d)
+    spec = create_assets.sync_legacy_fields(form_2d)
 
     if not shows(ctx):
-        # Mesh, Rig, Pose, Export: the rail alone, at whatever the pane has --
+        # Rig, Pose, Export: the rail alone, at whatever the pane has --
         # there is nothing else on the row competing for it, so none of
         # ``_row_widths``' give-way ladder applies.
         rail(ctx, max_width=imgui.get_content_region_avail().x)
         return
 
+    from .panes import settings_3d
+
+    mesh = _is_mesh(ctx)
+    form = state.form_3d if mesh else form_2d
+    counts = _MESH_COUNTS if mesh else _COUNTS
     focus.pump(state, FOCUS_PANE)
     focus.begin(state, FOCUS_PANE)
 
     # **Both sheet doors and the character door make exactly one thing per
     # press.** ``sync_legacy_fields`` has already written ``count = 1`` for all
     # three, so four radios of which three are refusals would be a control
-    # offering what the thing behind it will not do.
-    hide_count = form.get("output") in ("sheet", "character")
-    problems = create_recipe.problems_for(ctx, form)
-    problems = _with_pending_candidates_problem(ctx, problems)
+    # offering what the thing behind it will not do. Mesh has no such door.
+    hide_count = (not mesh) and form.get("output") in ("sheet", "character")
+    if mesh:
+        problems = settings_3d.problems(ctx, settings_3d.bar_source(ctx))
+        current = create_mesh.candidate_count(form)
+    else:
+        problems = create_recipe.problems_for(ctx, form)
+        problems = _with_pending_candidates_problem(ctx, problems)
+        current = int(form["count"])
     busy = ctx.busy("submit")
 
     rail_full_w, rail_floor_w = _rail_measurements(state.create.stage)
-    rail_w, prompt_w, show_count, reset_compact = _row_widths(
-        hide_count, rail_full_w, rail_floor_w
+    rail_w, prompt_w, show_label, show_count, reset_compact = _row_widths(
+        hide_count, rail_full_w, rail_floor_w, counts
     )
 
     rail(ctx, max_width=rail_w, row_height=sp(PROMPT_H))
     imgui.same_line()
-    _type(ctx, form)
-    imgui.same_line()
-    _prompt(ctx, form, prompt_w)
+    if mesh:
+        # The Source chip takes the type combo's slot *and* the prompt's, so
+        # everything after it lands where it does on Reference.
+        _source_chip(ctx, sp(TYPE_W) + imgui.get_style().item_spacing.x + prompt_w)
+    else:
+        _type(ctx, form)
+        imgui.same_line()
+        _prompt(ctx, form, prompt_w)
     imgui.same_line()
     if show_count:
-        _count(ctx, form)
+        _count(ctx, form, counts, current, show_label=show_label)
         imgui.same_line()
-    _generate(ctx, form, spec, enabled=not problems and not busy, problems=problems,
-              show_count=show_count)
+    _generate(ctx, form, label="Make 3D" if mesh else spec.create_label,
+              enabled=not problems and not busy, problems=problems,
+              show_count=show_count, count=current,
+              press=(lambda: settings_3d.promote(ctx, ctx.cache.get(ctx.state.source_job), form))
+              if mesh else None)
     imgui.same_line()
-    _reset(ctx, compact=reset_compact)
+    _reset(ctx, compact=reset_compact, mesh=mesh)
 
 
 def _with_pending_candidates_problem(ctx: Any, problems: list[Any]) -> list[Any]:
@@ -260,45 +326,54 @@ def _rail_measurements(current: str) -> tuple[float, float]:
     return rail_full_w, rail_floor_w
 
 
+class Widths(NamedTuple):
+    """What :func:`_row_widths` decided, by name -- five answers were a tuple
+    nobody could read at a call site."""
+
+    rail_w: float
+    prompt_w: float
+    show_label: bool
+    show_count: bool
+    reset_compact: bool
+
+
 def _row_widths(
-    sheet: bool, rail_full_w: float, rail_floor_w: float
-) -> tuple[float, float, bool, bool]:
-    """-> (rail's max width, prompt width, whether to draw the count, whether
-    Reset is icon-only). **The row's give-way order** -- four rungs now
-    rather than two, because the rail and Reset both joined this line
-    (2026-09-07) and two more things now compete for the width the type combo
-    and Generate never gave up.
+    hide_count: bool,
+    rail_full_w: float,
+    rail_floor_w: float,
+    counts: tuple[int, ...] = _COUNTS,
+) -> Widths:
+    """**The row's give-way order**, one ladder for both stages.
 
-    Measured *before anything on the row has drawn*, which is the one thing
-    that changed about how this is measured rather than only what it now
-    covers. The two-rung version this replaces measured ``avail`` *after* the
-    type combo's own ``same_line`` had already taken ``TYPE_W`` off it, and
-    the shipped bug it warns about was subtracting ``TYPE_W`` a second time on
-    top of that -- double-counting turned a resize floor into a Generate
-    drawn past the pane edge, ``same_line`` past the content region's own
-    "draws a control nowhere." The rail is the row's first element now, ahead
-    of the combo, so nothing has been drawn yet by the time this has to decide
-    how wide to make the rail -- there is no already-narrowed ``avail`` left
-    to read. ``TYPE_W`` is therefore subtracted explicitly, once, here. That
-    is the same "single-count everything" discipline the old bug violated,
-    carried to the new, earlier point where it has to happen.
+    Measured *before anything on the row has drawn*, which is why the type
+    combo's width is subtracted explicitly, once, here: the rail is the row's
+    first element, so nothing has narrowed ``avail`` by the time it has to
+    decide how wide to be, and double-counting ``TYPE_W`` once turned a resize
+    floor into a Generate drawn past the pane edge -- ``same_line`` past the
+    content region "draws a control nowhere". The Mesh stage's Source chip
+    takes the type combo's slot and the prompt's together (its width is
+    ``TYPE_W`` + gap + ``prompt_w``), so the same arithmetic describes it and
+    Generate lands in the same place on both stages.
 
-    1. The **prompt** shrinks to ``PROMPT_MIN_W``.
+    In the order things go as the bar narrows:
+
+    1. The **"Candidates" label** drops (the pills stay, each with its own
+       tooltip).
     2. The **count** is dropped -- ``_generate_tooltip`` restates its value
-       once its pills are gone.
+       once its pills are gone. Each rung runs only while the prompt (the chip,
+       on Mesh) is still under ``PROMPT_MIN_W``.
     3. The **rail** is handed whatever is left as its own ``max_width`` and
        walks its own three rungs (``create_rail.stage_rail``: checks+labels,
        labels, icons). Every rung keeps every stage clickable and tooltipped,
        which is what makes it the right thing to give away next -- unlike the
        count or Reset, nothing about the rail actually disappears; it only
        gets terser. ``rail_full_w`` and ``rail_floor_w`` come from
-       ``create_rail.stage_rail_width`` (see :func:`_rail_items_for_measurement`),
-       never guessed: 304 was a guess once, and wrong the moment a label
-       changed.
+       ``create_rail.stage_rail_width``, never guessed: 304 was a guess once,
+       and wrong the moment a label changed.
     4. **Reset** drops to icon-only, its label moved to a tooltip, only if
        Reset at full width would leave the rail short of its own icon floor.
 
-    The type combo and Generate never give way: they are what the bar is for.
+    The type (or chip) and Generate never give way: they are what the bar is for.
     """
     gap = imgui.get_style().item_spacing.x
     avail = imgui.get_content_region_avail().x
@@ -311,38 +386,45 @@ def _row_widths(
         elements = 5 + (1 if show_count else 0)
         return gap * (elements - 1)
 
-    show_count = not sheet
-    count_w = 0.0 if sheet else _count_width()
-    prompt = avail - fixed - count_w - reset_full - rail_full_w - gaps_for(show_count)
+    def prompt_for(show_count: bool, show_label: bool) -> float:
+        count_w = _count_width(counts, label=show_label) if show_count else 0.0
+        return avail - fixed - count_w - reset_full - rail_full_w - gaps_for(show_count)
 
+    show_count = not hide_count
+    show_label = show_count
+    prompt = prompt_for(show_count, show_label)
+
+    if prompt < sp(PROMPT_MIN_W) and show_label:
+        # Rung 1: the label goes.
+        show_label = False
+        prompt = prompt_for(show_count, show_label)
     if prompt < sp(PROMPT_MIN_W) and show_count:
         # Rung 2: the count goes.
         show_count = False
-        count_w = 0.0
-        prompt = avail - fixed - count_w - reset_full - rail_full_w - gaps_for(show_count)
+        prompt = prompt_for(show_count, show_label)
 
     if prompt >= sp(PROMPT_MIN_W):
-        return rail_full_w, prompt, show_count, False
+        return Widths(rail_full_w, prompt, show_label, show_count, False)
 
     # Rung 3: the prompt is pinned at its floor and the rail gives up the
     # width it would have kept -- handed only what's left, which is where
     # ``create_rail.stage_rail``'s own laddering takes over.
     prompt = sp(PROMPT_MIN_W)
-    rail_w = avail - fixed - count_w - reset_full - prompt - gaps_for(show_count)
+    rail_w = avail - fixed - reset_full - prompt - gaps_for(show_count)
     reset_compact = False
     if rail_w < rail_floor_w:
         # Rung 4: even Reset at full width would leave the rail short of its
         # own icon floor -- Reset gives up its label, freeing the difference.
         reset_compact = True
         rail_w += reset_full - reset_icon
-    return max(rail_w, rail_floor_w), prompt, show_count, reset_compact
+    return Widths(max(rail_w, rail_floor_w), prompt, show_label, show_count, reset_compact)
 
 
-def _count_width() -> float:
+def _count_width(counts: tuple[int, ...] = _COUNTS, *, label: bool = False) -> float:
     """The pills' real drawn width -- ``COUNT_W`` was a reservation nothing
-    enforced.
+    enforced -- plus the "Candidates" label's when it is on screen.
 
-    ``controls.segmented_choice`` chains four ``controls.button`` calls with a
+    ``controls.segmented_choice`` chains ``controls.button`` calls with a
     plain ``same_line()`` and no explicit width, so each pill is exactly as
     wide as ``imgui.button`` draws its own label -- text plus the style's
     frame padding, twice -- which is what ``widgets.button_width`` measures.
@@ -353,8 +435,11 @@ def _count_width() -> float:
     the content region "draws a control nowhere."
     """
     gap = imgui.get_style().item_spacing.x
-    widths = [widgets.button_width(str(n)) for n in _COUNTS]
-    return sum(widths) + gap * (len(widths) - 1)
+    widths = [widgets.button_width(str(n)) for n in counts]
+    total = sum(widths) + gap * (len(widths) - 1)
+    if label:
+        total += imgui.calc_text_size(COUNT_LABEL).x + gap
+    return total
 
 
 def _reset_width(*, compact: bool) -> float:
@@ -406,13 +491,21 @@ def _prompt(ctx: Any, form: dict[str, Any], width: float) -> None:
     _ring(ctx, "prompt")
 
 
-def _count(ctx: Any, form: dict[str, Any]) -> None:
-    """How many alternatives one press should draw.
+def _count(
+    ctx: Any,
+    form: dict[str, Any],
+    counts: tuple[int, ...],
+    current: int,
+    *,
+    show_label: bool,
+) -> None:
+    """How many alternatives one press should draw -- Candidates, on both stages.
 
     Not drawn at all for a sheet: both sheet doors refuse a batch and say why,
     so four radios of which three are refusals would be a control offering
     what the thing behind it will not do. ``sync_legacy_fields`` has already
-    written ``count = 1`` for those.
+    written ``count = 1`` for those. ``counts`` is the stage's range and
+    ``current`` the value it reads back (Mesh clamps a stale stored one).
 
     The pills are ``tokens.CONTROL_HEIGHT_COMPACT`` (26 dp) tall against a
     ``PROMPT_H`` (40 dp) row (B3, 2026-09-07): a bare ``same_line`` left them
@@ -422,19 +515,32 @@ def _count(ctx: Any, form: dict[str, Any]) -> None:
     so the row's shared baseline is exactly where it was without them, and
     only the pills themselves float centred inside it.
     """
+    hints = _MESH_COUNT_HINTS if counts is _MESH_COUNTS else _COUNT_HINTS
     pill_h = sp(tokens.CONTROL_HEIGHT_COMPACT)
     pad = max(0.0, (sp(PROMPT_H) - pill_h) * 0.5)
     imgui.begin_group()
     if pad:
         imgui.dummy((1.0, pad))
+    if show_label:
+        # Centred on the pills by a spacer inside a group of its own:
+        # ``align_text_to_frame_padding`` would make the line as tall as a full
+        # *frame*, which is taller than a 26 dp pill and grows the whole bar.
+        text_h = imgui.get_text_line_height()
+        off = max(0.0, (pill_h - text_h) * 0.5 - imgui.get_style().item_spacing.y)
+        imgui.begin_group()
+        if off:
+            imgui.dummy((1.0, off))
+        widgets.muted(COUNT_LABEL)
+        imgui.end_group()
+        imgui.same_line()
     imgui.push_item_width(sp(COUNT_W))
     with focus.item(ctx.state, FOCUS_PANE, "count") as focused:
         changed, picked = controls.segmented_choice(
             "brief-count",
-            tuple((str(n), str(n)) for n in _COUNTS),
-            str(form["count"]),
+            tuple((str(n), str(n)) for n in counts),
+            str(current),
             compact=True,
-            tooltips=_COUNT_HINTS,
+            tooltips=hints,
         )
         if changed:
             form["count"] = int(picked)
@@ -442,12 +548,12 @@ def _count(ctx: Any, form: dict[str, Any]) -> None:
         # Hand-answered, as it was in the column: a row of radios is one
         # control to the keyboard even though it is four items to imgui.
         if focused:
-            here = _COUNTS.index(form["count"]) if form["count"] in _COUNTS else 0
+            here = counts.index(current) if current in counts else 0
             before_arrow = form["count"]
             if imgui.is_key_pressed(imgui.Key.left_arrow):
-                form["count"] = _COUNTS[(here - 1) % len(_COUNTS)]
+                form["count"] = counts[(here - 1) % len(counts)]
             if imgui.is_key_pressed(imgui.Key.right_arrow):
-                form["count"] = _COUNTS[(here + 1) % len(_COUNTS)]
+                form["count"] = counts[(here + 1) % len(counts)]
             # The click branch above clears the ring on a change; this
             # hand-rolled branch edits ``form["count"]`` the same way and must
             # clear the same error, or a user who fixes an invalid count with
@@ -465,43 +571,50 @@ def _count(ctx: Any, form: dict[str, Any]) -> None:
 def _generate(
     ctx: Any,
     form: dict[str, Any],
-    spec: Any,
     *,
+    label: str,
     enabled: bool,
     problems: list[Any],
     show_count: bool,
+    count: int,
+    press: Callable[[], None] | None = None,
 ) -> None:
     """The press. Always visible, which is the point of the bar.
 
-    The *reason* it is disabled stays in the settings column's plan block,
-    which lists every problem and offers the one-click repairs. Here it is a
-    tooltip: a bar has no room for a list, and a button that says nothing about
-    why it is dead is the complaint this redesign started from.
+    ``label`` is the stage's own (the asset type's on Reference, "Make 3D" on
+    Mesh) and ``press`` the stage's door -- ``None`` means Reference's
+    ``settings_2d.generate``. Width and placement are the stage's business
+    nowhere: :data:`GENERATE_W` on both.
+
+    The *reason* it is disabled is the button's own tooltip, and the pinned
+    plan footer under the stage's column lists every problem and offers the
+    one-click repairs: a bar has no room for a list, and a button that says
+    nothing about why it is dead is the complaint this redesign started from.
 
     ``show_count`` is ``_row_widths``' own answer, not re-derived: the count
     pills carry their own value the moment they are on screen, so restating it
     here as well would be a second control saying the same number an inch to
-    its left. It is only appended once ``_row_widths`` has dropped them --
-    which the settings column's plan block, the count's other echo, cannot be
-    relied on to catch either, since that column is itself a ``layout`` pane a
-    person can collapse (the 2026-09-07 Create review, item 5.9).
+    its left. It is only appended once ``_row_widths`` has dropped them.
     """
     from .panes import settings_2d
 
     with focus.item(ctx.state, FOCUS_PANE, "generate") as focused:
         pressed = widgets.primary_button(
-            spec.create_label,
+            label,
             (sp(GENERATE_W), sp(PROMPT_H)),
             enabled=enabled,
             # ``Problem`` is a str subclass -- the message *is* the object.
             reason=str(problems[0]) if problems else "",
-            tooltip=_generate_tooltip(show_count, int(form["count"])),
+            tooltip=_generate_tooltip(show_count, count),
         )
         anchors.mark("create/generate")
         if focused and enabled and _enter_pressed():
             pressed = True
     if pressed:
-        settings_2d.generate(ctx, form)
+        if press is not None:
+            press()
+        else:
+            settings_2d.generate(ctx, form)
 
 
 def _generate_tooltip(show_count: bool, count: int) -> str:
@@ -542,9 +655,25 @@ _RESET_CONFIRM_MESSAGE = (
 )
 
 
-def _reset(ctx: Any, *, compact: bool) -> None:
+#: The Mesh stage's confirm, the same pattern as the image one above: it says
+#: what *its* Reset replaces (the whole of ``DEFAULT_FORM_3D``) and what it
+#: keeps. The seed goes back to *unset*, not to a rolled number.
+_RESET_MESH_CONFIRM_MESSAGE = (
+    "Every mesh setting -- the resolution, budget, size, background, seed, "
+    "candidate count, rig and engine controls -- goes back to its default, "
+    "with the seed unset. The chosen source is kept, and the image settings "
+    "are untouched."
+)
+
+
+def _reset_title(noun: str) -> str:
+    """One pattern for both stages: "Reset the image settings?" / "... mesh ...?"."""
+    return f"Reset the {noun} settings?"
+
+
+def _reset(ctx: Any, *, compact: bool, mesh: bool = False) -> None:
     """*Reset...*, beside Generate now rather than pinned above the settings
-    column it used to sit atop.
+    column it used to sit atop -- on both generating stages.
 
     ``_reset_row``'s old home in ``settings_2d`` kept a rule its own docstring
     stated: *"Above the submit rather than below it: a destructive control
@@ -558,30 +687,138 @@ def _reset(ctx: Any, *, compact: bool) -> None:
     is the *only* guard against the accidental press now -- placement no
     longer is one.
 
+    ``mesh`` picks the stage's own clearing (``settings_3d._reset`` owns
+    ``form_3d``, ``settings_2d._reset`` owns ``form_2d``) and its noun; the
+    confirm's title and both toasts follow one pattern.
+
     ``compact`` is ``_row_widths``' rung 4: past that width Reset draws as a
     bare glyph with its label moved to the tooltip, the same rule
     ``widgets.icon_button`` states for any control with no visible label --
     applied here through ``controls.button`` directly so the GHOST role
     survives the swap, which ``icon_button``'s own paint does not offer.
     """
-    from .panes import settings_2d
+    from .panes import settings_2d, settings_3d
 
+    noun = "mesh" if mesh else "image"
     label = icons.UNDO if compact else "Reset..."
     if controls.button(
         label,
         (0, sp(PROMPT_H)),
         role=controls.ButtonRole.GHOST,
-        tooltip="Reset the image settings to their defaults." if compact else "",
+        tooltip=f"Reset the {noun} settings to their defaults." if compact else "",
     ):
         ctx.confirms.ask(
             dialogs.Confirm(
-                title="Reset the image settings?",
-                message=_RESET_CONFIRM_MESSAGE,
+                title=_reset_title(noun),
+                message=_RESET_MESH_CONFIRM_MESSAGE if mesh else _RESET_CONFIRM_MESSAGE,
                 confirm_label="Reset",
                 cancel_label="Cancel",
-                on_confirm=lambda: settings_2d._reset(ctx),
+                on_confirm=(lambda: settings_3d._reset(ctx)) if mesh else (
+                    lambda: settings_2d._reset(ctx)
+                ),
             )
         )
+
+
+def _source_chip(ctx: Any, width: float) -> None:
+    """The Mesh stage's "what": the reference this press reconstructs.
+
+    A thumbnail and the reference's name, or "Choose an image..." with a drop
+    hint when there is none. **It is a real button drawn at ``width`` with its
+    picture laid over it**, so it has a hit rect, a keyboard stop and a tooltip
+    like any control, and it is a drop target for a library card dragged out of
+    the Library and for a file dropped on the window (``events`` flashes it).
+    Clicking it opens the file picker -- whose result is still *uploaded* as a
+    new reference, today's behaviour, not a pick of an existing one.
+
+    The name shown is the *effective* source (``settings_3d.bar_source``): the
+    explicit pick, else the reference behind a selected finished mesh -- what
+    the press will actually use, which is the whole job of the line it replaced.
+    """
+    from ....panes import thumbs
+    from ...library.ui.panes import library
+    from .panes import settings_3d
+
+    state = ctx.state
+    height = sp(PROMPT_H)
+    source = settings_3d.bar_source(ctx)
+    derived = source is not None and ctx.cache.get(state.source_job) is None
+    dragging = library.dragged_job(ctx)
+    picker_open = ctx.busy("upload")
+    if source is None:
+        title, sub = "Choose an image...", "or drop a card or a file here"
+        tip = "Click to choose an image, or drop a library card or a file here."
+    else:
+        title = str(source.get("name") or source.get("prompt") or source["id"])
+        sub = "this mesh's reference" if derived else f"reference - {source['id']}"
+        tip = f"{title}\nClick to upload a different image, or drop a library card here."
+    if dragging is not None:
+        sub = "drop it here to use it"
+
+    with focus.item(state, FOCUS_PANE, "source") as focused:
+        clicked = controls.button(
+            "##mesh-source",
+            (width, height),
+            role=controls.ButtonRole.GHOST,
+            enabled=not picker_open,
+            reason="A file picker is already open.",
+            tooltip=tip,
+        )
+        if focused and not picker_open and _enter_pressed():
+            clicked = True
+    low = imgui.get_item_rect_min()
+    high = imgui.get_item_rect_max()
+    if clicked:
+        ctx.submit("upload", dialogs.open_file, "Choose a reference image", dialogs.IMAGE_FILTER)
+    if imgui.begin_drag_drop_target():
+        payload = imgui.accept_drag_drop_payload_py_id(library.DRAG_JOB)
+        if payload is not None and state.dragging_job:
+            # Through ``library.select`` rather than by assigning ``source_job``
+            # here: that function is what also moves the selection, so a
+            # dropped card is the selected card and the inspector on the right
+            # is showing the thing the bar now names.
+            library.select(ctx, state.dragging_job)
+            state.source_job = state.dragging_job
+            state.dragging_job = None
+        imgui.end_drag_drop_target()
+    if dragging is not None:
+        hovered = imgui.is_item_hovered(
+            imgui.HoveredFlags_.allow_when_blocked_by_active_item.value
+        )
+        widgets.ring(
+            low,
+            high,
+            theme.ACCENT if hovered else theme.MUTED,
+            0.9 if hovered else 0.4,
+            2.0 if hovered else 1.0,
+        )
+    else:
+        # The same ring, fading, for a file dropped from Explorer (H70): the
+        # two arrivals look the same because they are the same event.
+        widgets.ring(low, high, theme.ACCENT, widgets.drop_flash(state, "3d-source"))
+
+    # The picture laid over the button. Drawn after the drop target above,
+    # which must attach to the *button* item, and never interactive itself.
+    pad = sp(4.0)
+    side = max(1.0, height - 2 * pad)
+    imgui.set_cursor_screen_pos((low.x + pad, low.y + pad))
+    if source is not None:
+        thumbs.job_thumb(ctx, source, side)
+    else:
+        widgets.thumb_placeholder(side, icons.IMAGE)
+    text_w = max(1.0, width - side - 3 * pad)
+    text_h = imgui.get_text_line_height() * 2 + imgui.get_style().item_spacing.y
+    imgui.set_cursor_screen_pos(
+        (low.x + 2 * pad + side, low.y + max(0.0, (height - text_h) * 0.5))
+    )
+    imgui.begin_group()
+    imgui.text(widgets.fit_text(title, text_w))
+    widgets.muted(widgets.fit_text(sub, text_w))
+    imgui.end_group()
+    # Back to the row: the next control continues from the chip's right edge,
+    # not from wherever the overlay left the cursor.
+    imgui.set_cursor_screen_pos((high.x, low.y))
+    imgui.dummy((0.0, 0.0))
 
 
 def _ring(ctx: Any, field: str) -> bool:
@@ -611,21 +848,6 @@ def _enter_pressed() -> bool:
         imgui.Key.keypad_enter
     )
 
-
-#: The count control's four values. 8 is ``validation.MAX_REFERENCE_COUNT``.
-_COUNTS: tuple[int, ...] = (1, 2, 4, 8)
-
-#: Per-pill hover text for the count control, the same shape as
-#: ``_TYPE_HINTS`` beside it. Four bare pills ("1 2 4 8") carried no label and
-#: no tooltip -- unlike the Type combo, which names each value on hover -- so
-#: a first-time user had nothing on screen or on hover saying they choose how
-#: many candidates one press draws. The 2026-09-05 audit, finding create-11.
-_COUNT_HINTS: dict[str, str] = {
-    "1": "Draw one candidate.",
-    "2": "Draw two candidates to compare.",
-    "4": "Draw four candidates to compare.",
-    "8": "Draw eight, the most one press can generate.",
-}
 
 def _species_count() -> int:
     """How many species the character registry ships. Counted, never typed.
@@ -661,4 +883,12 @@ _TYPE_HINTS: dict[str, str] = {
     ),
 }
 
-__all__ = ["BAR_H", "FOCUS_PANE", "RAIL_ONLY_H", "bar_height", "draw", "shows"]
+__all__ = [
+    "BAR_H",
+    "FOCUS_PANE",
+    "GENERATING_STAGES",
+    "RAIL_ONLY_H",
+    "bar_height",
+    "draw",
+    "shows",
+]

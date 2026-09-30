@@ -29,11 +29,11 @@ from ......service import findings as svc_findings
 from ......service import jobs as svc_jobs
 from ......service import sheets as svc_sheets
 from ......service.errors import Invalid
-from ......service.validation import MAX_MESH_CANDIDATES, MAX_UPLOAD_BYTES, random_seed
-from ..... import controls, dialogs, focus, forms, matte_preview, theme, widgets
+from ......service.validation import MAX_UPLOAD_BYTES, random_seed
+from ..... import controls, dialogs, focus, forms, matte_preview, theme, tokens, widgets
 from .....formvalues import coerce_form_value
 from .....manual import render as manual_render
-from .....panes import remesh_panel, retarget_panel, stage_rig
+from .....panes import model_gate, remesh_panel, retarget_panel, stage_rig
 from .....tokens import sp
 from ...engine import mesh as create_mesh
 from .. import stages as create_stages
@@ -88,32 +88,52 @@ MATTE_SOURCES = {
 PROFILES = list(retarget_panel.TIERS)
 
 
-def draw(ctx: Any) -> None:
-    """Draw the mesh form, including its "Mesh resolution" choice."""
+#: The pinned footer's height in design pixels, fed back frame-late the way
+#: ``settings_2d._submit_px`` is: what a refusal, a repair or the queue line add
+#: is not knowable before the footer has drawn.
+_footer_px = [96.0]
 
+
+def draw(ctx: Any) -> None:
+    """The Mesh column: settings only, with the plan footer pinned under it.
+
+    **No press is drawn here.** *Make 3D*, Candidates and Reset live in the
+    command bar (``ui/brief.py``), one bar for both generating stages; this
+    column is *how*, the bar is *what* and *go*.
+    """
+    state = ctx.state
+    form = state.form_3d
+    source = bar_source(ctx)
     # Form.errors replaces field_error(ctx.state, "platform") and keeps the
     # service's field key attached to the shared control's ring and error copy.
     with forms.Form("create-3d", errors=ctx.state.field_errors) as form_ui:
-        _draw_form(ctx, form_ui, "Mesh resolution")
+        # The keyboard ring (UX.md Phase 3), over this pane's own controls; the
+        # press is in the bar's ring now.
+        focus.pump(state, FOCUS_PANE)
+        focus.begin(state, FOCUS_PANE)
+        if imgui.begin_child("3d-form", (0, -sp(_footer_px[0]))):
+            _draw_form(ctx, form_ui, "Mesh resolution", source)
+        imgui.end_child()
+        top = imgui.get_cursor_pos_y()
+        _footer(ctx, form, source)
+        height = imgui.get_cursor_pos_y() - top
+        if height > 0:
+            _footer_px[0] = height / max(tokens.SCALE, 0.01)
 
 
 def _draw_form(
-    ctx: Any, form_ui: forms.Form, mesh_resolution_label: str
+    ctx: Any,
+    form_ui: forms.Form,
+    mesh_resolution_label: str,
+    source: dict[str, Any] | None = None,
 ) -> None:
     state = ctx.state
     form = state.form_3d
 
-    # The keyboard ring (UX.md Phase 3), over this pane's own controls. Shorter
-    # than 2D's because the pane is: everything here is an override on what the
-    # source reference recorded, so the path to a mesh is pick a source, press
-    # the button -- and both ends of that are in the ring.
-    focus.pump(state, FOCUS_PANE)
-    focus.begin(state, FOCUS_PANE)
-    widgets.section("Source")
-    manual_render.help_button(ctx, "settings-3d")
-    _source(ctx)
-
     widgets.section("Mesh")
+    manual_render.help_button(ctx, "settings-3d")
+    if source is not None:
+        _auto_matte_preview(ctx, source)
     # Labels above rather than beside: a combo here is drawn at -1 width, and
     # imgui puts a widget's label to its *right* -- so every one of these was
     # a full-width select with its name clipped off the edge of the panel, and
@@ -158,38 +178,7 @@ def _draw_form(
         )
     _hint(ctx, form, "bg_removal", form["bg_removal"])
 
-    with focus.item(ctx.state, FOCUS_PANE, "mesh_seed"):
-        changed, seed = form_ui.number(
-            "mesh_seed", "Seed", int(form["mesh_seed"] or 0)
-        )
-    if changed:
-        form["mesh_seed"] = max(0, seed)
-        ctx.state.clear_field_error("mesh_seed")
-    # Rung, the same as the 2D pane's Seed row and for the same reason:
-    # ``service.validation.check_seed`` raises ``Invalid(..., field="mesh_seed")``
-    # for a seed outside 0..MAX_SEED or not an int, and ``create_job`` calls it
-    # as ``check_seed("mesh_seed", mesh_seed)``. This widget's InputInt clamps
-    # to a C int32 that happens to coincide with ``MAX_SEED``, which is the only
-    # thing that keeps the refusal unreachable through it -- a seed loaded from
-    # a hand-edited settings.json has no such ceiling. This pane had no comment
-    # at all about the gap; ``settings_2d._seed_row`` had one and it was wrong
-    # (the 2026-09-11 audit, finding create-07).
-    widgets.field_error(ctx.state, "mesh_seed")
-    if controls.button("Reroll##mesh", role=controls.ButtonRole.GHOST):
-        form["mesh_seed"] = random_seed()
-    # The 2D seed row's Lock, for the 2D seed row's reason: the engine is
-    # deterministic in its seed, so two presses of Make 3D on one reference
-    # with the seed left alone are the identical mesh twice, and that reads as
-    # "the button did nothing". Unlocked, every *accepted* submit rerolls.
-    changed, locked = form_ui.switch(
-        "mesh_seed_locked",
-        "Lock seed",
-        bool(form.get("mesh_seed_locked", False)),
-        help_text="Reuse this seed on the next Make 3D.",
-        helper=create_stages.SEED_LOCK_HINT,
-    )
-    if changed:
-        form["mesh_seed_locked"] = locked
+    _seed(ctx, form, form_ui)
 
     changed, prep = form_ui.switch(
         "reference_prep",
@@ -211,37 +200,70 @@ def _draw_form(
     _rig(ctx, form)
     _engine(ctx, form, form_ui)
     _turnaround(ctx)
-    _reset_row(ctx)
-    _submit(ctx, form)
 
 
 # --- pieces -----------------------------------------------------------------
 
 
-def _reset_row(ctx: Any) -> None:
-    """The 2D pane's *Reset...* had no counterpart here, and the asymmetry was
-    the whole of the reason: both panes accumulate overrides across a session
-    and only one of them offered a way back.
+def _seed(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
+    """The mesh seed, which is *unset* until somebody sets one (or a submit rolls one).
 
-    Above the submit rather than below it, exactly as 2D places it: a
-    destructive control under the primary action is one the hand reaches by
-    accident.
+    ``form["mesh_seed"]`` is None on a fresh form (step 1): "no seed" is what
+    the engine call is sent, and the service draws one. It used to display as
+    ``int(None or 0)`` -- a 0 nobody chose, indistinguishable from a real seed
+    0 -- so an unset seed reads *random* here and no number field is drawn for
+    it at all. **Lock seed is drawn only for a seed that exists**, the 2D row's
+    pattern with the one difference the None makes: there is nothing to lock
+    until there is a value, and *Roll a seed* is what makes one.
     """
-    if controls.button("Reset...", role=controls.ButtonRole.GHOST):
-        ctx.confirms.ask(
-            dialogs.Confirm(
-                title="Reset the model settings?",
-                message=(
-                    "The mesh resolution, size, background removal, seed, "
-                    "candidate count and rig controls go back to their "
-                    "defaults. The chosen source is kept, and the image form "
-                    "is untouched."
-                ),
-                confirm_label="Reset",
-                cancel_label="Cancel",
-                on_confirm=lambda: _reset(ctx),
-            )
-        )
+    seed = form.get("mesh_seed")
+    if seed is None:
+        widgets.field_label("Seed")
+        widgets.muted("random - a new seed every time")
+        with focus.item(ctx.state, FOCUS_PANE, "mesh_seed"):
+            if controls.button("Set a seed##mesh", role=controls.ButtonRole.GHOST):
+                form["mesh_seed"] = random_seed()
+        return
+    with focus.item(ctx.state, FOCUS_PANE, "mesh_seed"):
+        changed, value = form_ui.number("mesh_seed", "Seed", int(seed))
+    if changed:
+        form["mesh_seed"] = max(0, value)
+        ctx.state.clear_field_error("mesh_seed")
+    # Rung, the same as the 2D pane's Seed row and for the same reason:
+    # ``service.validation.check_seed`` raises ``Invalid(..., field="mesh_seed")``
+    # for a seed outside 0..MAX_SEED or not an int, and ``create_job`` calls it
+    # as ``check_seed("mesh_seed", mesh_seed)``. This widget's InputInt clamps
+    # to a C int32 that happens to coincide with ``MAX_SEED``, which is the only
+    # thing that keeps the refusal unreachable through it -- a seed loaded from
+    # a hand-edited settings.json has no such ceiling. This pane had no comment
+    # at all about the gap; ``settings_2d._seed_row`` had one and it was wrong
+    # (the 2026-09-11 audit, finding create-07).
+    widgets.field_error(ctx.state, "mesh_seed")
+    if controls.button("Reroll##mesh", role=controls.ButtonRole.GHOST):
+        form["mesh_seed"] = random_seed()
+    imgui.same_line()
+    if controls.button("Random##mesh-unset", role=controls.ButtonRole.GHOST):
+        form["mesh_seed"] = None
+        form["mesh_seed_locked"] = False
+    # The 2D seed row's Lock, for the 2D seed row's reason: the engine is
+    # deterministic in its seed, so two presses of Make 3D on one reference
+    # with the seed left alone are the identical mesh twice, and that reads as
+    # "the button did nothing". Unlocked, every *accepted* submit rerolls.
+    changed, locked = form_ui.switch(
+        "mesh_seed_locked",
+        "Lock seed",
+        bool(form.get("mesh_seed_locked", False)),
+        help_text="Reuse this seed on the next Make 3D.",
+        helper=create_stages.SEED_LOCK_HINT,
+    )
+    if changed:
+        form["mesh_seed_locked"] = locked
+
+
+#: What Reset says on this stage, in the shape the Reference stage's uses (the
+#: confirm's title and this toast name the stage the way the rail does).
+#: ``ui/brief.py`` reads the title so the two stages cannot drift apart.
+RESET_TOAST = "The mesh settings are back to their defaults."
 
 
 def _reset(ctx: Any) -> None:
@@ -262,7 +284,7 @@ def _reset(ctx: Any) -> None:
     from .....state import DEFAULT_FORM_3D
 
     ctx.state.form_3d = dict(DEFAULT_FORM_3D)
-    ctx.toast("The model settings are back to their defaults.")
+    ctx.toast(RESET_TOAST)
 
 
 def _hint(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
@@ -587,78 +609,6 @@ def _bg_options(ctx: Any) -> list[tuple[str, str]]:
     ]
 
 
-def _source(ctx: Any) -> None:
-    """The 2D asset this job starts from, or an upload.
-
-    The whole block is one drag-and-drop target (I83): a card dragged out of
-    the library lands here. A *group* rather than a child window, because a
-    child clips and this content grows a line whenever a source is picked --
-    the target has to be exactly the area the user is aiming at, at every
-    display scale.
-    """
-    from ....library.ui.panes import library
-
-    state = ctx.state
-    source = ctx.cache.get(state.source_job)
-    mesh = None if source is not None else _selected_mesh(ctx)
-    dragging = library.dragged_job(ctx)
-    imgui.begin_group()
-    origin = imgui.get_cursor_screen_pos()
-    if source is not None:
-        imgui.text_wrapped(source.get("name") or source.get("prompt") or source["id"])
-        widgets.muted(f"reference - {source['id']}")
-        if controls.button("Clear"):
-            state.source_job = None
-        _auto_matte_preview(ctx, source)
-    elif mesh is not None:
-        # The 2026-09-07 review, item 5.2: a finished mesh selected in the
-        # library moves the viewport but never ``state.source_job`` (see
-        # ``library.select``), so without this branch the block below read
-        # "Pick a finished reference" over a mesh that plainly is one.
-        _mesh_source(ctx, mesh)
-    elif dragging is not None:
-        # The invitation replaces the instruction only while something is in
-        # the air: a line about dropping, with nothing to drop, is noise.
-        widgets.muted("Drop it here to use it as the source.")
-    else:
-        widgets.muted("Pick a finished reference in the library, or:")
-    busy = ctx.busy("upload")
-    if widgets.disabled_button(
-        "Choose an image...", not busy, reason="A file picker is already open."
-    ):
-        ctx.submit("upload", dialogs.open_file, "Choose a reference image", dialogs.IMAGE_FILTER)
-    widgets.muted("...or drop an image on the window.")
-    imgui.end_group()
-    end = imgui.get_item_rect_max()
-    if dragging is not None:
-        # A target the pointer is over says so, and one that is merely
-        # *available* says that too but more quietly. Drawn after the group so
-        # the outline is not clipped by it.
-        hovered = imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_blocked_by_active_item.value)
-        widgets.ring(
-            origin,
-            end,
-            theme.ACCENT if hovered else theme.MUTED,
-            0.9 if hovered else 0.4,
-            2.0 if hovered else 1.0,
-        )
-    else:
-        # The same ring, fading, for a file dropped from Explorer (H70): the
-        # two arrivals look the same because they are the same event.
-        widgets.ring(origin, end, theme.ACCENT, widgets.drop_flash(state, "3d-source"))
-    if imgui.begin_drag_drop_target():
-        payload = imgui.accept_drag_drop_payload_py_id(library.DRAG_JOB)
-        if payload is not None and state.dragging_job:
-            # Through ``library.select`` rather than by assigning ``source_job``
-            # here: that function is what also moves the selection, so a
-            # dropped card is the selected card and the inspector on the right
-            # is showing the thing the form now names.
-            library.select(ctx, state.dragging_job)
-            state.source_job = state.dragging_job
-            state.dragging_job = None
-        imgui.end_drag_drop_target()
-
-
 def _selected_mesh(ctx: Any) -> dict[str, Any] | None:
     """The selected job, if it is a finished mesh -- so this column can
     describe it instead of asking for a reference nobody was about to pick.
@@ -684,26 +634,11 @@ def _selected_mesh(ctx: Any) -> dict[str, Any] | None:
     return job
 
 
-def _mesh_source(ctx: Any, mesh: dict[str, Any]) -> None:
-    """Describe an already-built mesh instead of drawing the reference picker.
-
-    Drawn only while no explicit ``source_job`` is picked -- an explicit pick
-    (a card dragged in, or Clear then a fresh choice) always wins, and this is
-    the fallback for the one case that used to read as "nothing is chosen"
-    while the viewport disagreed.
-    """
-    reference = create_stages.parent(ctx, mesh)
-    imgui.text_wrapped(mesh.get("name") or mesh.get("prompt") or mesh["id"])
-    if reference is not None:
-        label = reference.get("name") or reference.get("prompt") or reference["id"]
-        widgets.muted(f"mesh - built from {label}")
-    else:
-        # The parent has scrolled out of the loaded page (create_stages.parent's
-        # own caveat) or the mesh predates parent_id being recorded at all.
-        widgets.muted(f"mesh - {mesh['id']}")
-    widgets.muted_wrapped(
-        "This mesh is already built. Make 3D below rebuilds it from that reference."
-    )
+def bar_source(ctx: Any) -> dict[str, Any] | None:
+    """The reference a Make 3D press would use *right now*: the explicit pick,
+    else the one behind a selected finished mesh. What the bar's Source chip
+    names, the button's refusals judge and the footer describes."""
+    return _effective_source(ctx, ctx.cache.get(ctx.state.source_job))
 
 
 def _effective_source(ctx: Any, source: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -944,56 +879,43 @@ def _turnaround(ctx: Any) -> None:
         )
 
 
-def _submit(ctx: Any, form: dict[str, Any]) -> None:
-    imgui.dummy((0, sp(8)))
+def problems(ctx: Any, source: dict[str, Any] | None) -> list[Any]:
+    """Everything that stops Make 3D right now: the reference, then the engine.
+
+    One list for the bar's button, the footer and Ctrl+Enter, so a press the
+    button refuses is refused the same way from the keyboard. The engine's
+    absence (``create_mesh.engine_problem``) comes last -- a person with no
+    reference has a nearer problem than a download.
+    """
+    out = list(create_mesh.validate(source))
+    engine = create_mesh.engine_problem(getattr(ctx, "model_rows", None))
+    if engine is not None:
+        out.append(engine)
+    return out
+
+
+def _footer(ctx: Any, form: dict[str, Any], source: dict[str, Any] | None) -> None:
+    """The pinned plan footer -- what a press costs and what is stopping it.
+
+    The press itself is in the command bar; this is the half of the decision
+    that used to sit a screen above it and now sits under the column it is about.
+    """
     widgets.divider()
-    state = ctx.state
-    explicit = ctx.cache.get(state.source_job)
-    source = _effective_source(ctx, explicit)
-    problems = create_mesh.validate(source)
-    _candidates(form)
-    if explicit is None and source is not None:
-        # Item 5.2: naming the reference this button would actually use, since
-        # it is not the one the user last explicitly picked -- it is the
-        # parent of a selected finished mesh (``_effective_source``).
-        label = source.get("name") or source.get("prompt") or source["id"]
-        widgets.muted(f"Make 3D uses {label}, this mesh's reference.")
     workspace.plan_footer(
-        ctx, create_mesh.plan(form), problems, lambda problem: _preflight_fix(ctx, problem)
+        ctx,
+        create_mesh.plan(form),
+        problems(ctx, source),
+        lambda problem: _preflight_fix(ctx, problem),
     )
-    busy = ctx.busy("submit")
-    enabled = not problems and not busy
-    with focus.item(ctx.state, FOCUS_PANE, "make3d") as focused:
-        pressed = widgets.primary_button(
-            "Make 3D",
-            (-1, sp(34)),
-            enabled=enabled,
-            # The 2026-09-05 audit, finding create-08: create_brief._generate
-            # states its top refusal as the button's own reason; this button
-            # stated nothing (the refusals above it were the only word on it),
-            # which is the one thing a hover of a greyed Make 3D could answer.
-            reason=str(problems[0]) if problems else "",
-        )
-        # Enter on the ring's last stop; see ``settings_2d.generate``.
-        if focused and enabled and (
-            imgui.is_key_pressed(imgui.Key.enter)
-            or imgui.is_key_pressed(imgui.Key.keypad_enter)
-        ):
-            pressed = True
-    if pressed:
-        promote(ctx, source, form)
-    # Gated on ``enabled``, the other half of create-08: unguarded, this fired
-    # on hover whether or not Make 3D could be pressed, advertising a shortcut
-    # that does nothing while the button is dead.
-    if enabled and imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value):
-        imgui.set_tooltip("Ctrl+Enter")
 
 
 def _preflight_fix(ctx: Any, problem: Any) -> None:
     """The one-press repairs under a Mesh problem, ``settings_2d._preflight_fix``'s twin.
 
     Only the two Mesh can be refused for that a button answers: no reference
-    (the same picker Source offers) and a weight that is not downloaded.
+    (the same picker the bar's Source chip offers) and an engine that is not
+    downloaded (:func:`create_mesh.engine_problem`, the sentence that carries
+    the words this matches).
     """
     if "Choose a reference" in str(problem) and controls.button(
         "Choose a reference##preflight-reference", role=controls.ButtonRole.GHOST
@@ -1002,35 +924,9 @@ def _preflight_fix(ctx: Any, problem: Any) -> None:
     if "not downloaded" in str(problem) and controls.button(
         "Open model setup##preflight-models", role=controls.ButtonRole.GHOST
     ):
-        from .....state import set_mode
-
-        set_mode(ctx.state, "settings")
-
-
-def _candidates(form: dict[str, Any]) -> None:
-    """The Candidates control: how many attempts one press buys.
-
-    A row of radio-style buttons rather than a combo, because there are three
-    values and the number is the label -- and because it sits directly above
-    Make 3D, where the cost sentence under it changes with the choice. It is
-    the *only* control in this pane that multiplies what the button spends, so
-    putting it anywhere else in the form would hide that.
-    """
-    widgets.field_label("Candidates")
-    current = create_mesh.candidate_count(form)
-    for count in range(1, MAX_MESH_CANDIDATES + 1):
-        if count > 1:
-            imgui.same_line()
-        # Never drawn past the panel edge: three 40 px buttons and two spacings
-        # fit inside the 300 px sidebar with room to spare, and the guard in
-        # tests/studio/test_studio_smoke.py measures rather than trusts that.
-        if controls.radio_button(f"{count}##candidates", current == count):
-            form["count"] = count
-    widgets.help_marker(
-        "Reconstruct the same reference more than once and keep the best. The "
-        "engine is deterministic in its seed, so each attempt draws a new one; "
-        "the rest are hidden from the library until you keep one."
-    )
+        # Ticks the engine's own rows before going to Settings, so the download
+        # is one press away rather than a hunt through the model list.
+        model_gate.request_install(ctx, create_mesh.ENGINE_ROWS)
 
 
 def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> None:
@@ -1052,15 +948,15 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
     correction ``_submit`` does.
     """
     source = _effective_source(ctx, source)
-    problems = create_mesh.validate(source)
-    if problems:
+    refused = problems(ctx, source)
+    if refused:
         # ``settings_2d.generate``'s reason exactly: Ctrl+Enter in 3D mode and
         # the palette's promote both land here, and this used to return in
         # silence -- so pressing Ctrl+Enter with nothing selected did nothing
         # at all, which reads as a broken shortcut rather than as a refusal.
         from . import settings_2d
 
-        settings_2d.refuse(ctx, problems)
+        settings_2d.refuse(ctx, refused)
         return
     # ``count`` rides with the overrides because the preview captures the form
     # as it stood when the button was pressed -- the whole point of that

@@ -621,7 +621,8 @@ def _focus_brief(ctx: Any) -> None:
     """
     from ..modes.create.ui import brief as create_brief
 
-    ctx.state.focus_key[create_brief.FOCUS_PANE] = "prompt"
+    stage = getattr(getattr(ctx.state, "create", None), "stage", "")
+    ctx.state.focus_key[create_brief.FOCUS_PANE] = "source" if stage == "mesh" else "prompt"
     ctx.state.focus_moved = True
 
 

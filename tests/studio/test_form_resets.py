@@ -179,7 +179,11 @@ def test_both_resets_are_behind_a_confirm_dialog():
     seed is rerolled, so even retyping the prompt does not get you back), so
     neither button may act on the click that draws it.
     """
-    for source in (_row_source(settings_3d._reset_row), _row_source(create_brief._reset)):
-        assert "dialogs.Confirm(" in source
-        assert "on_confirm=" in source
-        assert "_reset(ctx)" in source
+    # One button now (the command bar's), for both stages: it asks, and only its
+    # confirm clears -- the Mesh column draws no Reset at all.
+    source = _row_source(create_brief._reset)
+    assert "dialogs.Confirm(" in source
+    assert "on_confirm=" in source
+    assert "settings_2d._reset(ctx)" in source
+    assert "settings_3d._reset(ctx)" in source
+    assert not hasattr(settings_3d, "_reset_row")

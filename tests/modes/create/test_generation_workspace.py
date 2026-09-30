@@ -341,7 +341,7 @@ def test_the_mesh_stage_draws_the_plan_footer():
 
     from realmspinner.studio.modes.create.ui.panes import settings_3d
 
-    source = inspect.getsource(settings_3d._submit)
+    source = inspect.getsource(settings_3d._footer)
     assert "workspace.plan_footer(" in source
     assert "Roughly" not in source, "the single muted cost line is the footer's now"
     assert "text_wrapped(problem)" not in source, "red refusal text is the footer's now"

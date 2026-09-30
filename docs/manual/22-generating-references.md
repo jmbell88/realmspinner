@@ -59,24 +59,29 @@ in both.
 
 The command bar itself has two halves that share one line. On the left, the **stage rail** is the
 breadcrumb across Reference, Mesh, Rig, Pose and Export — it is on screen at every stage, including
-the four that draw no brief. On the Reference stage, the rest of the row is the brief: the five
-things a common visit touches, never scrolled.
+the three that make nothing from the bar. On the Reference and Mesh stages, the rest of the row is
+the press: on Reference, the six things a common visit touches, never scrolled.
 
 | Control | What it decides |
 | --- | --- |
 | **Generation type** | The top-level choice, which decides what everything else means. |
 | **Prompt** | The words. Required; everything else has a default. |
-| **Count** | How many alternatives one press draws — 1, 2, 4 or 8. |
+| **Candidates** | How many alternatives one press draws — 1, 2, 4 or 8. The word *Candidates* is drawn beside the pills; the Mesh stage has the same control with its own range (1, 2 or 3). |
 | **Generate** | The press. Its label names what you are making: *Create image*, *Generate reference*, *Create tileset*. |
-| **Reset…** | Puts the whole form back to its first-launch defaults, behind a confirm. See below. |
+| **Reset…** | Puts the image settings back to their first-launch defaults, behind a confirm ("Reset the image settings?"). See below. |
 
-At narrow widths the row gives way in a stated order: the prompt shrinks first, then the count is
-dropped — its value is restated in Generate's tooltip — then the stage rail itself shortens (full
-labels, then labels alone, then icons — every stage stays clickable and tooltipped throughout), and
-last, Reset drops to a bare icon. The type and Generate never give way.
+At narrow widths the row gives way in a stated order: the *Candidates* label goes first, then the
+pills are dropped — their value is restated in Generate's tooltip — then the stage rail itself
+shortens (full labels, then labels alone, then icons — every stage stays clickable and tooltipped
+throughout), and last, Reset drops to a bare icon. The type, the prompt (down to a floor) and
+Generate never give way. The Mesh stage's bar gives way in exactly the same order.
 
-The stage rail draws at every stage; the rest of the bar is Reference only. Mesh, Rig, Pose and
-Export have no brief to state, so they draw the rail alone and their columns simply start higher.
+The stage rail draws at every stage; the rest of the bar is on Reference and Mesh, the two stages that
+generate — see [Generating meshes](23-generating-meshes.md) for the Mesh half, where a **Source**
+chip stands in for the type and the prompt and the button reads **Make 3D**. Rig, Pose and Export
+have nothing to generate from this row, so they draw the rail alone and their columns simply start
+higher. Neither stage's column holds a submit button: the column is settings, with the plan pinned
+at its bottom.
 
 The column below holds **Recipe** (the model, the style LoRA and the seed), **Style strength** once
 a LoRA is chosen, **Negative prompt / Avoid** while the chosen recipe can use one, one section
@@ -126,7 +131,9 @@ defaults after a confirm — the prompt, the negative prompt, the model and LoRA
 run controls, with a freshly rolled seed, and everything else on the form too: the asset type (Image,
 3D Model, Seamless Material, Tileset, Sprite Sheet or Character) and any Tileset, Sprite Sheet or
 Character fields you have filled in. The confirm says so, since it is the only guard against an
-accidental press. It touches nothing outside this pane: the 3D form is left alone.
+accidental press. It touches nothing outside this stage: the Mesh settings are left alone. (The Mesh
+stage's own **Reset...** asks "Reset the mesh settings?" in the same words and toasts "The mesh
+settings are back to their defaults." the same way.)
 
 ## Models and style LoRAs
 

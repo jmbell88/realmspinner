@@ -2,19 +2,26 @@
 
 The mesh stage is where the reconstruction engine runs. It costs roughly two minutes of GPU per
 attempt, so everything in this chapter is arranged around deciding what to spend that on. All of it
-lives at Create's **Mesh** stage, whose column holds no prompt controls whatsoever.
+lives at Create's **Mesh** stage, whose column holds no prompt controls whatsoever and no submit
+button either: the press is in the **command bar** above it, the same bar the Reference stage has.
+
+The bar reads, left to right: the stage rail, the **Source** chip (what the job starts from), the
+**Candidates** pills, **Make 3D** and **Reset...**. Under it, the column is settings only, with the
+generation plan pinned at its bottom.
 
 ## Starting from a reference
 
 The normal path is promotion: take a finished 2D asset and run the mesh stage from its image.
 
 Select a finished reference in the library — its card offers **Make 3D**, and selecting a
-promotable reference also makes it the Mesh stage's source automatically. The **Source** section at
-the top of that column names what the job will start from, and **Make 3D** at the bottom submits it.
+promotable reference also makes it the Mesh stage's source automatically. The **Source** chip in the
+bar shows a thumbnail and the name of what the job will start from — or **Choose an image...**, with a
+hint to drop one, when nothing is chosen. It is a drop target: drag a card out of the library onto
+it, or drop an image file on the window. **Make 3D**, to the right of the pills, submits it.
 
 Selecting an already-finished mesh instead — to look at it again, or to send it through Make 3D a
-second time — has the Source section describe that mesh and the reference it came from, rather than
-asking you to choose one: **Make 3D** rebuilds from that same reference, named on the button.
+second time — has the chip show the reference that mesh came from ("this mesh's reference") rather
+than asking you to choose one: **Make 3D** rebuilds from that same reference.
 
 The new job is an ordinary image job whose input image is the reference's, recorded as a child of
 the reference so the library can show them as one lineage rather than two unrelated rows.
@@ -86,12 +93,16 @@ the identical **Accept**, not a different route to the same job.
 
 The reconstruction engine is deterministic in its seed, and its failure mode is a lottery: the same
 reference comes back clean at one seed and with a hole through the shoulder at another. **Candidates**,
-directly above **Make 3D**, is how many attempts one press buys — 1, 2 or 3. The **generation plan**
-under it (the same footer the Reference stage draws) changes with the choice: it says "N candidates ·
+in the bar beside **Make 3D** (the same control the Reference stage has, with this stage's range), is
+how many attempts one press buys — 1, 2 or 3. The **generation plan** pinned under the column (the
+same footer the Reference stage draws) changes with the choice: it says "N candidates ·
 about N×2 minutes of GPU", because this is the one control in the pane that multiplies what the button
 spends. Under that it shows the queue, then either *Ready to generate.* or, in red, why Make 3D is off
 (*Needs attention*) or what the last press was *Refused* for, with **Choose a reference** and **Open
-model setup** buttons where those are the fix.
+model setup** buttons where those are the fix. **Open model setup** appears when the 3D engine — its
+runtime or its weights — has not been downloaded, and it opens Settings with exactly those rows
+ticked; **Make 3D** stays off until they are installed, so the missing download is a sentence here
+rather than a surprise after the cutout.
 
 Each candidate is an ordinary mesh job: same validation, same VRAM admission, same worker. The first
 keeps the mesh seed you pinned, so a pinned seed still reproduces; the rest draw fresh ones.
@@ -120,7 +131,8 @@ The count applies to **Make 3D** only. An upload queues one mesh job, as it alwa
 
 ## Starting from an upload
 
-You can skip the reference stage entirely. Press **Choose an image...** in the **Source** section, or
+You can skip the reference stage entirely. Press the **Source** chip (it reads **Choose an image...**
+while nothing is chosen), or
 drop an image file onto the window, and the app queues a mesh job directly from it.
 
 Uploads are bounded at the door, and both limits are checked before anything is written:
@@ -215,7 +227,9 @@ existing alpha — any other setting would re-cut the matte you just approved an
 lie.
 
 **Seed** here is the reconstruction's own seed, separate from the image seed on the Reference stage, with
-its own **Reroll** button and its own **Lock seed** switch. Leave it untouched to let the job pick one.
+its own **Reroll** button and its own **Lock seed** switch. Until you set one it reads *random* — a
+new seed every time — rather than a number; **Set a seed** (or the first Make 3D) gives it a value, and
+**Random** puts it back. **Lock seed** appears once there is a seed to lock.
 Unlocked, every Generate draws a fresh seed for the next one — the engine is deterministic in its seed,
 so pressing the button twice on the same reference with the seed left alone would give you the
 identical mesh twice. Lock it when you want exactly that.

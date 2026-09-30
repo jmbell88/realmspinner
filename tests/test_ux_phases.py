@@ -442,9 +442,12 @@ def test_both_generate_panes_carry_a_ring_that_ends_on_the_button():
     assert 'focus.item(ctx.state, FOCUS_PANE, "generate")' in inspect.getsource(
         create_brief._generate
     )
-    assert 'focus.item(ctx.state, FOCUS_PANE, "make3d")' in inspect.getsource(
-        settings_3d._submit
+    # Make 3D is the same button on the same bar (Mesh stage), so it ends the
+    # same ring; the Mesh column keeps a ring of its own for its settings only.
+    assert 'focus.item(state, FOCUS_PANE, "source")' in inspect.getsource(
+        create_brief._source_chip
     )
+    assert "make3d" not in inspect.getsource(settings_3d)
 
 
 # --- Phase 3: undo as forgiveness -------------------------------------------

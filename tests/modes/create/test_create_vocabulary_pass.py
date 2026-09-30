@@ -21,19 +21,22 @@ from realmspinner.studio.state import DEFAULT_FORM_3D
 
 
 def test_the_mesh_stage_labels_its_seed_seed():
-    src = inspect.getsource(settings_3d._draw_form)
-    assert '"Seed", int(form["mesh_seed"]' in src
+    src = inspect.getsource(settings_3d._seed)
+    assert '"Seed", int(seed)' in src
     assert "Mesh seed" not in src
 
 
 def test_both_stages_share_one_lock_seed_hint():
     assert create_stages.SEED_LOCK_HINT == "Unlocked, every Generate draws a fresh seed."
     assert "helper=create_stages.SEED_LOCK_HINT" in inspect.getsource(settings_2d._seed_row)
-    assert "helper=create_stages.SEED_LOCK_HINT" in inspect.getsource(settings_3d._draw_form)
+    assert "helper=create_stages.SEED_LOCK_HINT" in inspect.getsource(settings_3d._seed)
 
 
 def test_the_mesh_stage_image_picker_reads_choose_an_image():
-    src = inspect.getsource(settings_3d._source)
+    """The picker is the command bar's Source chip now, not a column section."""
+    from realmspinner.studio.modes.create.ui import brief as create_brief
+
+    src = inspect.getsource(create_brief._source_chip)
     assert '"Choose an image..."' in src
     assert "Open an image" not in src
 

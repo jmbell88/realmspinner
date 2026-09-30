@@ -108,6 +108,37 @@ def validate(source: dict[str, Any] | None) -> list[problems.Problem]:
     return []
 
 
+#: The two download rows the reconstruction engine needs: the exe and its
+#: CUDA libraries, and the weights. ``service.validation.check_weights`` leaves
+#: both out on purpose (a host missing them has a red banner at startup), so
+#: the only place a Mesh press can learn they are absent *before* the cutout
+#: and the queue is here, against ``ctx.model_rows``.
+ENGINE_ROWS: tuple[str, ...] = ("engine:trellis_runtime", "engine:trellis_gguf")
+
+
+def engine_problem(model_rows: Any) -> problems.Problem | None:
+    """The first sentence for a host with no reconstruction engine, or None.
+
+    Says "not downloaded" in those words because ``settings_3d._preflight_fix``
+    offers *Open model setup* under exactly that phrase -- it used to wait for
+    a problem no validator produced, so the repair never drew. Same doctrine as
+    ``model_gate.missing``: an empty or absent snapshot says nothing, and a row
+    it has never heard of is skipped, so a headless ctx or the first frame
+    cannot lock a fully installed host.
+    """
+    missing = [
+        row
+        for row in (model_rows or ())
+        if str(row.get("row_key")) in ENGINE_ROWS and not row.get("present")
+    ]
+    if not missing:
+        return None
+    labels = " and ".join(str(row.get("label") or row.get("row_key")) for row in missing)
+    return problems.Problem(
+        f"The 3D engine ({labels}) is not downloaded. Install it in Settings."
+    )
+
+
 def engine_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     """The engine axes as override kwargs, with "still at its sentinel" left
     out entirely -- ``promote_kwargs``'s own rule, restated once and shared
