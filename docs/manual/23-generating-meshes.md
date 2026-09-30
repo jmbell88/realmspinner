@@ -86,9 +86,12 @@ the identical **Accept**, not a different route to the same job.
 
 The reconstruction engine is deterministic in its seed, and its failure mode is a lottery: the same
 reference comes back clean at one seed and with a hole through the shoulder at another. **Candidates**,
-directly above **Make 3D**, is how many attempts one press buys — 1, 2 or 3. The cost line under it
-changes with the choice, because this is the one control in the pane that multiplies what the button
-spends.
+directly above **Make 3D**, is how many attempts one press buys — 1, 2 or 3. The **generation plan**
+under it (the same footer the Reference stage draws) changes with the choice: it says "N candidates ·
+about N×2 minutes of GPU", because this is the one control in the pane that multiplies what the button
+spends. Under that it shows the queue, then either *Ready to generate.* or, in red, why Make 3D is off
+(*Needs attention*) or what the last press was *Refused* for, with **Choose a reference** and **Open
+model setup** buttons where those are the fix.
 
 Each candidate is an ordinary mesh job: same validation, same VRAM admission, same worker. The first
 keeps the mesh seed you pinned, so a pinned seed still reproduces; the rest draw fresh ones.

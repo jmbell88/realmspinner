@@ -1208,75 +1208,19 @@ def _generation_plan(
 ) -> None:
     """The persistent, actionable statement of what Generate will do.
 
-    Validation still belongs to :func:`create_recipe.validate` and the service.  This is the
-    in-place account of their answer, kept immediately beside the commitment
-    rather than in a footer whose errors explain nothing about the run.
+    Validation still belongs to :func:`create_recipe.validate` and the service.
+    The drawing is ``workspace.plan_footer``, shared with the Mesh stage; what
+    is 2D's own is the plan it describes and the repairs it offers.
     """
-    widgets.secondary("Generation plan")
-    resolved = create_recipe.resolved_recipe(ctx, form)
-    plan = generation_workspace.plan_for(form, resolved)
-    imgui.text_wrapped(plan.stages)
-    if plan.generations > 0:
-        widgets.muted(
-            f"{plan.candidates} candidate{'s' if plan.candidates != 1 else ''} · "
-            f"{plan.generations} image generation"
-            f"{'s' if plan.generations != 1 else ''} · "
-            f"{plan.duration}"
-        )
-    else:
-        # A character draws no images at all, and "1 candidate · 0 image
-        # generations" is a line that reads as a bug rather than as a fact.
-        # The duration still matters -- it is the whole cost of the press.
-        widgets.muted(plan.duration)
-    widgets.muted(f"Recipe: {plan.recipe}")
-    active = getattr(ctx.cache, "active", None)
-    if active is not None:
-        position = generation_workspace.queue_position(ctx, str(active.get("id") or ""))
-        if active.get("status") == "queued":
-            widgets.muted(f"Queue: position {position}" if position else "Queue: waiting")
-        else:
-            widgets.muted("Queue: one local generation is running")
-    else:
-        widgets.muted("Queue: ready")
-    refusal = str(getattr(ctx.state.create, "submit_refusal", "") or "")
-    advisories = advisories or []
-    if not problems and not refusal:
-        # "Ready to generate" is still true with an advisory standing -- that
-        # is the whole difference between the two lists -- so it is said, and
-        # then the advisory is drawn under it rather than instead of it.
-        widgets.muted("Ready to generate.")
-        _advisories_block(ctx, form, advisories)
-        return
-    if refusal:
-        # Above the form problems: the form is fine -- this is the *door*
-        # saying no, and it is the reason the last press did nothing. It stays
-        # until a press is accepted, because a fading toast is what this
-        # sentence was already tried as.
-        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
-        imgui.text_wrapped(f"Refused: {refusal}")
-        imgui.pop_style_color()
-    for problem in problems:
-        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
-        imgui.text_wrapped(f"Needs attention: {problem}")
-        imgui.pop_style_color()
-        _preflight_fix(ctx, form, problem)
-    _advisories_block(ctx, form, advisories)
-
-def _advisories_block(
-    ctx: Any, form: dict[str, Any], advisories: list[problem_types.Advisory]
-) -> None:
-    """The advisories, under the problems, in the warning colour.
-
-    Under, and in a different colour, because the reading order is the order
-    they matter in: a problem is why the button is off, and an advisory is
-    something to think about while pressing it. "Worth knowing" rather than
-    "Needs attention" for the same reason -- nothing here needs anything.
-    """
-    for advisory in advisories:
-        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.WARN)))
-        imgui.text_wrapped(f"Worth knowing: {advisory}")
-        imgui.pop_style_color()
-        _advisory_fix(ctx, form, advisory)
+    plan = generation_workspace.plan_for(form, create_recipe.resolved_recipe(ctx, form))
+    generation_workspace.plan_footer(
+        ctx,
+        plan,
+        problems,
+        lambda problem: _preflight_fix(ctx, form, problem),
+        advisories=advisories,
+        advisory_repairs=lambda advisory: _advisory_fix(ctx, form, advisory),
+    )
 
 def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Problem) -> None:
     """Offer the safe, direct repairs which do not need another decision."""

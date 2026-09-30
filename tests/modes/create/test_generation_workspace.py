@@ -322,3 +322,48 @@ def test_queue_position_never_answers_for_a_different_cache_object_that_reused_a
         )
     finally:
         generation_workspace._QUEUE_POSITION_CACHE = saved
+
+
+# --- the shared plan footer (Create redesign step 2) ---------------------------
+
+
+def test_the_2d_footer_uses_plan_count_line():
+    import inspect
+
+    from realmspinner.studio.modes.create.ui.panes import settings_2d
+
+    assert "count_line" in inspect.getsource(generation_workspace.plan_footer)
+    assert "image generation" not in inspect.getsource(settings_2d._generation_plan)
+
+
+def test_the_mesh_stage_draws_the_plan_footer():
+    import inspect
+
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
+
+    source = inspect.getsource(settings_3d._submit)
+    assert "workspace.plan_footer(" in source
+    assert "Roughly" not in source, "the single muted cost line is the footer's now"
+    assert "text_wrapped(problem)" not in source, "red refusal text is the footer's now"
+
+
+def test_the_mesh_plan_has_the_same_shape_as_the_2d_plan():
+    from realmspinner.studio.modes.create.engine import mesh as create_mesh
+
+    one = create_mesh.plan({"count": 1})
+    assert isinstance(one, generation_workspace.Plan)
+    assert one.count_line == "1 candidate"
+    assert one.duration == "about 2 minutes of GPU"
+    three = create_mesh.plan({"count": 3})
+    assert three.count_line == "3 candidates"
+    assert three.duration == "about 6 minutes of GPU"
+
+
+def test_the_mesh_footer_offers_both_repairs():
+    import inspect
+
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
+
+    source = inspect.getsource(settings_3d._preflight_fix)
+    assert "Choose a reference" in source
+    assert "Open model setup" in source

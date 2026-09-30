@@ -89,9 +89,11 @@ seed-per-candidate and no conditioning on that type, because nothing is being ge
 picture — so those sections are absent and the Character section is the column. See
 [Characters](#characters).
 
-Pinned at the bottom of the column, never scrolling, is the **generation plan**: what the press will
-cost, what recipe it will use, and — when Generate is disabled — every reason why, each with a
-one-click repair. The button itself carries the first of those reasons as its tooltip.
+Pinned at the bottom of the column, never scrolling, is the **generation plan**: the stages, a count
+line (candidates, image generations and roughly how long), the queue, what recipe it will use, and —
+when Generate is disabled — every reason why, each with a one-click repair. It is the same footer the
+Mesh stage draws, so both read alike. The button itself carries the first of those reasons as its
+tooltip.
 
 Under those, in amber rather than red, the plan may also draw one or more lines starting **Worth
 knowing**. These are *advisories*, and the difference from the red ones is the whole point: an

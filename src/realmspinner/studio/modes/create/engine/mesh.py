@@ -36,6 +36,7 @@ from .....service.validation import (
     random_seed,
 )
 from .... import problems
+from .plan import Plan
 
 
 def findings_hint(ctx: Any, param: str, value: Any) -> str | None:
@@ -67,6 +68,26 @@ def candidate_count(form: dict[str, Any]) -> int:
     except (TypeError, ValueError):
         return 1
     return max(1, min(count, MAX_MESH_CANDIDATES))
+
+
+def plan(form: dict[str, Any]) -> Plan:
+    """What one Make 3D press costs, in ``workspace.plan_for``'s own shape.
+
+    Describes the request and plans nothing: the two-minute figure is the
+    sentence the pane's cost line used to say, moved here so the shared footer
+    reads it from a ``Plan`` rather than each stage phrasing it. Every attempt
+    is a candidate, so the count line carries no second unit.
+    """
+    count = candidate_count(form)
+    minutes = 2 * count
+    return Plan(
+        candidates=count,
+        generations=count,
+        duration=f"about {minutes} minutes of GPU",
+        stages="Reconstruct the reference as a 3D mesh",
+        recipe="",
+        unit="",
+    )
 
 
 def validate(source: dict[str, Any] | None) -> list[problems.Problem]:

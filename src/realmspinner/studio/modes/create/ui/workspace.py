@@ -10,47 +10,24 @@ job cache and services; it does not introduce another generation state.
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 from imgui_bundle import imgui
 
 from .....service import jobs as svc_jobs
 from .....service import sprites as svc_sprites
-from .... import asset_open, controls, widgets
+from .... import asset_open, controls, theme, widgets
 from .... import candidates as candidates_mod
 from ....panes import thumbs
 from ....tokens import sp
 from ..engine import assets as create_assets
+from ..engine.plan import Plan
 
 #: How many finished results the tray shows, and the width of its grid. One
 #: number because they are one fact: the tray is a fixed-height strip, so the
 #: row it can draw whole is the row it should hold.
 _RESULT_COLUMNS = 3
-
-
-@dataclass(frozen=True)
-class Plan:
-    """The human-readable work implied by one Create press."""
-
-    candidates: int
-    generations: int
-    duration: str
-    stages: str
-    recipe: str
-
-    @property
-    def count_line(self) -> str:
-        # The 2026-09-26 audit, finding create-workspace-07: ``generations``
-        # was never pluralised, so a press generating four images read "4
-        # image generation" -- the same singular/plural agreement
-        # ``candidates``/``candidate`` just above already gets right.
-        candidate_noun = "candidate" if self.candidates == 1 else "candidates"
-        generation_noun = "generation" if self.generations == 1 else "generations"
-        return (
-            f"{self.candidates} {candidate_noun} · "
-            f"{self.generations} image {generation_noun}"
-        )
 
 
 def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
@@ -122,6 +99,84 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
     elif resolved is not None:
         recipe = str(getattr(resolved, "base_model", "") or "Automatic recipe")
     return Plan(candidates, generations, duration, stages, recipe)
+
+
+def plan_footer(
+    ctx: Any,
+    plan: Plan,
+    problems: list[Any],
+    repairs: Callable[[Any], None],
+    *,
+    advisories: list[Any] | None = None,
+    advisory_repairs: Callable[[Any], None] | None = None,
+) -> None:
+    """What a press will cost, and what is stopping it -- one footer, both stages.
+
+    Describes a request and plans nothing: ``plan`` is built by the stage's own
+    engine (``plan_for`` here, ``engine.mesh.plan`` for Mesh) and ``problems`` are
+    its validators' answer. ``repairs`` draws the one-press fix under a problem,
+    if it has one. Reference and Mesh each drew their own version of this, and
+    Mesh's was a muted cost line and bare red text with no repair.
+    """
+    widgets.secondary("Generation plan")
+    imgui.text_wrapped(plan.stages)
+    if plan.generations > 0:
+        widgets.muted(f"{plan.count_line} · {plan.duration}")
+    else:
+        # A character draws no images at all, and "1 candidate · 0 image
+        # generations" is a line that reads as a bug rather than as a fact.
+        # The duration still matters -- it is the whole cost of the press.
+        widgets.muted(plan.duration)
+    if plan.recipe:
+        widgets.muted(f"Recipe: {plan.recipe}")
+    active = getattr(ctx.cache, "active", None)
+    if active is not None:
+        position = queue_position(ctx, str(active.get("id") or ""))
+        if active.get("status") == "queued":
+            widgets.muted(f"Queue: position {position}" if position else "Queue: waiting")
+        else:
+            widgets.muted("Queue: one local generation is running")
+    else:
+        widgets.muted("Queue: ready")
+    refusal = str(getattr(ctx.state.create, "submit_refusal", "") or "")
+    advisories = advisories or []
+    if not problems and not refusal:
+        # "Ready to generate" is still true with an advisory standing -- that
+        # is the whole difference between the two lists -- so it is said, and
+        # then the advisory is drawn under it rather than instead of it.
+        widgets.muted("Ready to generate.")
+        _advisories(advisories, advisory_repairs)
+        return
+    if refusal:
+        # Above the form problems: the form is fine -- this is the *door*
+        # saying no, and it is the reason the last press did nothing. It stays
+        # until a press is accepted, because a fading toast is what this
+        # sentence was already tried as.
+        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
+        imgui.text_wrapped(f"Refused: {refusal}")
+        imgui.pop_style_color()
+    for problem in problems:
+        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
+        imgui.text_wrapped(f"Needs attention: {problem}")
+        imgui.pop_style_color()
+        repairs(problem)
+    _advisories(advisories, advisory_repairs)
+
+
+def _advisories(advisories: list[Any], repair: Callable[[Any], None] | None) -> None:
+    """The advisories, under the problems, in the warning colour.
+
+    Under, and in a different colour, because the reading order is the order
+    they matter in: a problem is why the button is off, and an advisory is
+    something to think about while pressing it. "Worth knowing" rather than
+    "Needs attention" for the same reason -- nothing here needs anything.
+    """
+    for advisory in advisories:
+        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.WARN)))
+        imgui.text_wrapped(f"Worth knowing: {advisory}")
+        imgui.pop_style_color()
+        if repair is not None:
+            repair(advisory)
 
 
 def _species_label(form: dict[str, Any]) -> str:

@@ -37,6 +37,7 @@ from .....panes import remesh_panel, retarget_panel, stage_rig
 from .....tokens import sp
 from ...engine import mesh as create_mesh
 from .. import stages as create_stages
+from .. import workspace
 
 MATTE_TITLE = "Check the cutout"
 
@@ -950,22 +951,15 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
     explicit = ctx.cache.get(state.source_job)
     source = _effective_source(ctx, explicit)
     problems = create_mesh.validate(source)
-    for problem in problems:
-        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
-        imgui.text_wrapped(problem)
-        imgui.pop_style_color()
     _candidates(form)
-    count = create_mesh.candidate_count(form)
     if explicit is None and source is not None:
         # Item 5.2: naming the reference this button would actually use, since
         # it is not the one the user last explicitly picked -- it is the
         # parent of a selected finished mesh (``_effective_source``).
         label = source.get("name") or source.get("prompt") or source["id"]
         widgets.muted(f"Make 3D uses {label}, this mesh's reference.")
-    widgets.muted(
-        "Roughly two minutes of GPU."
-        if count == 1
-        else f"Roughly {count * 2} minutes of GPU - {count} attempts, one queue."
+    workspace.plan_footer(
+        ctx, create_mesh.plan(form), problems, lambda problem: _preflight_fix(ctx, problem)
     )
     busy = ctx.busy("submit")
     enabled = not problems and not busy
@@ -993,6 +987,24 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
     # that does nothing while the button is dead.
     if enabled and imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value):
         imgui.set_tooltip("Ctrl+Enter")
+
+
+def _preflight_fix(ctx: Any, problem: Any) -> None:
+    """The one-press repairs under a Mesh problem, ``settings_2d._preflight_fix``'s twin.
+
+    Only the two Mesh can be refused for that a button answers: no reference
+    (the same picker Source offers) and a weight that is not downloaded.
+    """
+    if "Choose a reference" in str(problem) and controls.button(
+        "Choose a reference##preflight-reference", role=controls.ButtonRole.GHOST
+    ):
+        ctx.submit("upload", dialogs.open_file, "Choose a reference image", dialogs.IMAGE_FILTER)
+    if "not downloaded" in str(problem) and controls.button(
+        "Open model setup##preflight-models", role=controls.ButtonRole.GHOST
+    ):
+        from .....state import set_mode
+
+        set_mode(ctx.state, "settings")
 
 
 def _candidates(form: dict[str, Any]) -> None:

@@ -571,7 +571,7 @@ def test_the_plan_names_the_species_the_cells_and_no_gpu(species):
 
 def test_the_plan_footer_prints_no_count_line_when_there_is_nothing_to_count():
     """"1 candidate - 0 image generations" reads as a bug rather than a fact."""
-    source = inspect.getsource(settings_2d._generation_plan)
+    source = inspect.getsource(generation_workspace.plan_footer)
     assert "if plan.generations > 0:" in source
     assert "widgets.muted(plan.duration)" in source
 
