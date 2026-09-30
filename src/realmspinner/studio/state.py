@@ -364,7 +364,9 @@ DEFAULT_FORM_3D: dict[str, Any] = {
     "custom_triangles": 0,
     "size_m": 0.0,
     "bg_removal": "",
-    "mesh_seed": 0,
+    # None is "unset": the door mints one. 0 is a legal seed, so it cannot
+    # also be the sentinel.
+    "mesh_seed": None,
     "mesh_seed_locked": False,
     # How many meshes one Make 3D queues. 1 is the old behaviour exactly.
     # Reliability rather than variety: trellis is deterministic in its seed and
@@ -372,7 +374,7 @@ DEFAULT_FORM_3D: dict[str, Any] = {
     # cheapest answer to a hole through the shoulder. Bounded at
     # validation.MAX_MESH_CANDIDATES, because each one is two minutes of a
     # serial worker.
-    "candidates": 1,
+    "count": 1,
     "rig": False,
     "rig_template": "",
     # Whether the host recentres and rescales the subject before the trellis

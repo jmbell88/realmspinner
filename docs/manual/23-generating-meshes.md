@@ -117,7 +117,7 @@ The count applies to **Make 3D** only. An upload queues one mesh job, as it alwa
 
 ## Starting from an upload
 
-You can skip the reference stage entirely. Press **Open an image...** in the **Source** section, or
+You can skip the reference stage entirely. Press **Choose an image...** in the **Source** section, or
 drop an image file onto the window, and the app queues a mesh job directly from it.
 
 Uploads are bounded at the door, and both limits are checked before anything is written:
@@ -211,9 +211,9 @@ A cutout you approved in the panel overrides this and pins `auto`, which is the 
 existing alpha — any other setting would re-cut the matte you just approved and make the approval a
 lie.
 
-**Mesh seed** is the reconstruction's own seed, separate from the image seed, with its own **Reroll**
-button and its own **Lock seed** switch. Leave it at zero to let the job pick one. Unlocked, every
-accepted **Make 3D** draws a fresh seed for the next one — the engine is deterministic in its seed,
+**Seed** here is the reconstruction's own seed, separate from the image seed on the Reference stage, with
+its own **Reroll** button and its own **Lock seed** switch. Leave it untouched to let the job pick one.
+Unlocked, every Generate draws a fresh seed for the next one — the engine is deterministic in its seed,
 so pressing the button twice on the same reference with the seed left alone would give you the
 identical mesh twice. Lock it when you want exactly that.
 
@@ -221,8 +221,9 @@ identical mesh twice. Lock it when you want exactly that.
 sees it. It is off by default: the engine does its own cropping, and whether doing it twice helps or
 hurts has not been measured. Treat it as an experiment rather than an improvement.
 
-The **Rig** section, present only when Blender is installed, holds **Rig when the mesh lands** and a
-skeleton picker. See [Rigging and posing](25-rigging-and-posing.md).
+The **Rig** section holds **Rig when the mesh lands** and a skeleton picker. Without Blender it stays on
+screen, greyed, and its tooltip gives the same reason as the Rig segment in the stage rail.
+See [Rigging and posing](25-rigging-and-posing.md).
 
 ## Engine (advanced)
 

@@ -102,7 +102,7 @@ undo. Create's sidebar walks the same list with Up and Down alone, its rows bein
 
 | Keys | Action |
 | --- | --- |
-| Ctrl+Enter | Run the stage: Generate, or Make 3D |
+| Ctrl+Enter | Generate on Reference, Make 3D on Mesh; not Rig, Pose, Export |
 | Tab / Shift+Tab | Move between the form's controls |
 | Enter | Press the stage's button when it is the one focused |
 | Up / Down | Previous / next asset in the library |

@@ -40,6 +40,9 @@ from .... import icons
 # shipping a rail with two segments while the rig and pose panels are still
 # inspector tabs is honest, and shipping five segments of which three are dead
 # is not.
+#: The one Lock seed hint, drawn by the Reference and the Mesh stage alike.
+SEED_LOCK_HINT = "Unlocked, every Generate draws a fresh seed."
+
 STAGES: tuple[str, ...] = ("reference", "mesh", "rig", "pose", "export")
 
 # What each segment is called. Sentence case, one word each: the rail is a
@@ -278,6 +281,19 @@ def shows(stage: str, job: Any) -> bool:
     return _stage_of(job) == "model"
 
 
+def blender_reason(stage: str, ctx: Any) -> str | None:
+    """Why ``stage`` ("rig" or "pose") is closed for want of Blender, or None.
+
+    One sentence for the rail's disabled segment and for the Rig section the
+    Mesh form keeps drawn (disabled) without Blender, so the two cannot drift.
+    A missing ctx counts as "available", as in :func:`available`.
+    """
+    if ctx is not None and not getattr(ctx, "rigging_available", True):
+        noun = "Rigging" if stage == "rig" else "Posing"
+        return f"{noun} needs Blender, which is not installed."
+    return None
+
+
 def available(stage: str, job: Any, ctx: Any = None) -> str | None:
     """Why ``stage`` cannot be entered from ``job``, or None when it can.
 
@@ -328,12 +344,12 @@ def available(stage: str, job: Any, ctx: Any = None) -> str | None:
             return not_done_message("That reference", str(job.get("status") or ""))
         return None
     if stage in ("rig", "pose"):
-        if ctx is not None and not getattr(ctx, "rigging_available", True):
-            # Hidden would be worse: without Blender the whole feature is
-            # absent, and a user who never sees the segment concludes the app
-            # cannot rig at all. ``pose_panel``'s own sentence.
-            noun = "Rigging" if stage == "rig" else "Posing"
-            return f"{noun} needs Blender, which is not installed."
+        # Hidden would be worse: without Blender the whole feature is
+        # absent, and a user who never sees the segment concludes the app
+        # cannot rig at all. ``pose_panel``'s own sentence.
+        blocked = blender_reason(stage, ctx)
+        if blocked is not None:
+            return blocked
         if (
             not _reached_mesh(job, None, None)
             or (job or {}).get("status") != "done"

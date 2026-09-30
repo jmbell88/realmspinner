@@ -234,7 +234,7 @@ a fan-out of four is the cheapest way to find out whether an idea works at all.
 **Seed** is the number itself. **Reroll** replaces it with a fresh random one. **Lock** decides what
 happens when you press Generate:
 
-- Unlocked (the default): the seed is rerolled on every submit, so pressing Generate twice on an
+- Unlocked (the default): every Generate draws a fresh seed, so pressing Generate twice on an
   unchanged form gives you two different images rather than the same one twice.
 - Locked: the seed is reused, so an unchanged form reproduces exactly. Lock it when you want to
   change one guidance field and see only that field's effect.

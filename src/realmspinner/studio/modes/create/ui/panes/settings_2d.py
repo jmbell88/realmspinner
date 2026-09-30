@@ -40,15 +40,13 @@ from .....widgets import field_options as _options
 from ...engine import assets as create_assets
 from ...engine import character as character_engine
 from ...engine import recipe as create_recipe
+from .. import stages as create_stages
 from .. import workspace as generation_workspace
 from . import settings_character
 
 # This pane's key in the focus ring (UX.md Phase 3). The controls on the common
 # path take a place in it: the ring exists so a first job can be composed and
 # submitted without the mouse.
-FOCUS_PANE = "2d"
-
-
 FOCUS_PANE = "2d"
 
 _submit_px = [96.0]
@@ -1165,7 +1163,7 @@ def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         "Lock seed",
         bool(form["seed_locked"]),
         help_text="Reuse this seed when the form is unchanged.",
-        helper="Unlocked, every submit rerolls it.",
+        helper=create_stages.SEED_LOCK_HINT,
     )
     if changed:
         form["seed_locked"] = locked

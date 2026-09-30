@@ -159,7 +159,7 @@ def _draw_form(
 
     with focus.item(ctx.state, FOCUS_PANE, "mesh_seed"):
         changed, seed = form_ui.number(
-            "mesh_seed", "Mesh seed", int(form["mesh_seed"])
+            "mesh_seed", "Seed", int(form["mesh_seed"] or 0)
         )
     if changed:
         form["mesh_seed"] = max(0, seed)
@@ -185,7 +185,7 @@ def _draw_form(
         "Lock seed",
         bool(form.get("mesh_seed_locked", False)),
         help_text="Reuse this seed on the next Make 3D.",
-        helper="Unlocked, every accepted Make 3D draws a fresh one.",
+        helper=create_stages.SEED_LOCK_HINT,
     )
     if changed:
         form["mesh_seed_locked"] = locked
@@ -623,7 +623,7 @@ def _source(ctx: Any) -> None:
         widgets.muted("Pick a finished reference in the library, or:")
     busy = ctx.busy("upload")
     if widgets.disabled_button(
-        "Open an image...", not busy, reason="A file picker is already open."
+        "Choose an image...", not busy, reason="A file picker is already open."
     ):
         ctx.submit("upload", dialogs.open_file, "Choose a reference image", dialogs.IMAGE_FILTER)
     widgets.muted("...or drop an image on the window.")
@@ -735,15 +735,19 @@ def _auto_matte_preview(ctx: Any, source: dict[str, Any]) -> None:
 
 
 def _rig(ctx: Any, form: dict[str, Any]) -> None:
-    if not ctx.rigging_available:
-        # Hidden rather than disabled: without bpy the whole feature is absent,
-        # and a greyed control implies it could be turned on from here.
-        return
     widgets.section("Rig")
-    changed, rig = controls.checkbox("Rig when the mesh lands", bool(form["rig"]))
+    # Shown disabled, with the rail's own sentence: hiding it made a user
+    # without Blender conclude the app cannot rig at all.
+    blocked = create_stages.blender_reason("rig", ctx)
+    changed, rig = controls.checkbox(
+        "Rig when the mesh lands",
+        bool(form["rig"]) and blocked is None,
+        enabled=blocked is None,
+        reason=blocked or "",
+    )
     if changed:
         form["rig"] = rig
-    if form["rig"]:
+    if blocked is None and form["rig"]:
         # The 2026-09-07 review, item 5.1: this combo used to be a second,
         # near-verbatim copy of ``stage_rig._skeleton_picker`` -- same field,
         # same create-05 fix, same comment -- which is exactly the shape that
@@ -976,7 +980,7 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
             # which is the one thing a hover of a greyed Make 3D could answer.
             reason=str(problems[0]) if problems else "",
         )
-        # Enter on the ring's last stop; see ``settings_2d._submit``.
+        # Enter on the ring's last stop; see ``settings_2d.generate``.
         if focused and enabled and (
             imgui.is_key_pressed(imgui.Key.enter)
             or imgui.is_key_pressed(imgui.Key.keypad_enter)
@@ -1009,7 +1013,7 @@ def _candidates(form: dict[str, Any]) -> None:
         # fit inside the 300 px sidebar with room to spare, and the guard in
         # tests/studio/test_studio_smoke.py measures rather than trusts that.
         if controls.radio_button(f"{count}##candidates", current == count):
-            form["candidates"] = count
+            form["count"] = count
     widgets.help_marker(
         "Reconstruct the same reference more than once and keep the best. The "
         "engine is deterministic in its seed, so each attempt draws a new one; "

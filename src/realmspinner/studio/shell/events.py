@@ -706,8 +706,11 @@ class EventsMixin:
 
             if create_stages.at(ctx.state, "reference"):
                 settings_2d.generate(ctx, ctx.state.form_2d)
-            else:
+            elif create_stages.at(ctx.state, "mesh"):
                 settings_3d.promote(ctx, ctx.cache.get(ctx.state.source_job), ctx.state.form_3d)
+            # Rig, Pose and Export have no Generate of their own, so the chord
+            # does nothing there rather than queueing a mesh job from a stage
+            # that is not the mesh form.
         elif event.key == pygame.K_ESCAPE:
             from ..panes import pose_panel
 

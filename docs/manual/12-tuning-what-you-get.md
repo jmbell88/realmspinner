@@ -11,7 +11,7 @@ that reward learning properly.
 A seed makes generation repeatable. Same prompt, same settings, same seed, same picture.
 
 Next to the seed field are **Reroll**, which picks a fresh random one, and **Lock seed**. Unlocked —
-the default — every submit rerolls, which is what you want while exploring. Locked, the seed is
+the default — every Generate draws a fresh seed, which is what you want while exploring. Locked, the seed is
 reused, which is what you want when you are changing *one other thing* and need the comparison to
 mean something.
 
@@ -23,7 +23,8 @@ Generating four and picking
 one is usually a better use of the same time than generating one and rerolling it four times,
 because you see the spread rather than a sequence.
 
-The mesh stage has its own separate seed, and its own **Candidates** control offering up to three
+The mesh stage has its own separate **Seed** (same label, its own field), and its own **Candidates**
+control offering up to three
 reconstruction attempts to pick the best from. Mesh geometry varies a great deal between seeds — more
 than most people expect — so this is often the more valuable of the two.
 

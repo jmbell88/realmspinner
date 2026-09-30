@@ -63,7 +63,7 @@ def candidate_count(form: dict[str, Any]) -> int:
     would arrive as an error toast on a control the user cannot see is wrong.
     """
     try:
-        count = int(form.get("candidates", 1))
+        count = int(form.get("count", 1))
     except (TypeError, ValueError):
         return 1
     return max(1, min(count, MAX_MESH_CANDIDATES))
@@ -211,7 +211,7 @@ def promote_kwargs(form: dict[str, Any]) -> dict[str, Any]:
         # and a caller that upload_kwargs and promote_kwargs disagree with is
         # exactly the bug this pane's own docstring names for every field.
         out["lowpoly_triangles"] = int(form["lowpoly_triangles"])
-    if int(form["mesh_seed"]) > 0:
+    if form.get("mesh_seed") is not None:
         out["mesh_seed"] = int(form["mesh_seed"])
     # An explicit False, not an omission: it has to clear a rig request the
     # reference inherited, or a reference generated with rigging on would rig
@@ -276,7 +276,7 @@ def upload_kwargs(form: dict[str, Any]) -> dict[str, Any]:
             kwargs["custom_triangles"] = int(form["custom_triangles"])
     if int(form.get("lowpoly_triangles") or 0) > 0:
         kwargs["lowpoly_triangles"] = int(form["lowpoly_triangles"])
-    if int(form["mesh_seed"]) > 0:
+    if form.get("mesh_seed") is not None:
         kwargs["mesh_seed"] = int(form["mesh_seed"])
     kwargs["reference_prep"] = bool(form["reference_prep"])
     if form["rig"]:

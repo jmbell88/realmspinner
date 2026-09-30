@@ -46,7 +46,7 @@ class _Ctx:
 def test_resetting_the_model_form_restores_every_default():
     ctx = _Ctx()
     ctx.state.form_3d.update(
-        platform="high", size_m=2.5, mesh_seed=1234, candidates=3, rig=True
+        platform="high", size_m=2.5, mesh_seed=1234, count=3, rig=True
     )
     settings_3d._reset(ctx)
     assert ctx.state.form_3d == DEFAULT_FORM_3D
