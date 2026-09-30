@@ -19,6 +19,7 @@ from .....service import jobs as svc_jobs
 from .....service import sprites as svc_sprites
 from .... import asset_open, controls, theme, widgets
 from .... import candidates as candidates_mod
+from ....manual import render as manual_render
 from ....panes import thumbs
 from ....tokens import sp
 from ..engine import assets as create_assets
@@ -208,7 +209,36 @@ def _about_minutes(minutes: float) -> str:
     return f"about {value} minute" + ("s" if value != 1 else "")
 
 
-def should_draw(ctx: Any) -> bool:
+#: The stages whose canvas carries the results tray. Every other stage keeps
+#: the progress row in its column (``shell.frame._stage_pane``), so there is
+#: exactly one "Working now" per stage and this tuple is the fact that says
+#: which of the two draws it.
+TRAY_STAGES = ("reference", "mesh")
+
+#: What the progress row adds to the tray's height while a job is on it, in
+#: design pixels: a name, a bar, a label and a Cancel button.
+_PROGRESS_DP = 104.0
+
+
+def _in_stage(job: dict[str, Any], stage: str | None) -> bool:
+    """Whether ``job`` belongs in ``stage``'s tray. ``None`` means every job.
+
+    A mesh row is Mesh's result and everything else (a reference, a tile, a
+    sheet) is Reference's, so neither stage's strip is padded with the other's
+    cards and "Rig" is only ever offered on the stage that owns it.
+    """
+    if stage is None:
+        return True
+    is_mesh = job.get("stage") == "model"
+    return is_mesh if stage == "mesh" else not is_mesh
+
+
+def tray_extra(ctx: Any) -> float:
+    """Extra design pixels the tray needs while its progress row is drawn."""
+    return _PROGRESS_DP if getattr(getattr(ctx, "cache", None), "active", None) else 0.0
+
+
+def should_draw(ctx: Any, stage: str | None = None) -> bool:
     """Whether Create has work worth reserving central space for.
 
     **The same question :func:`draw` answers**, which is the fix: this asked
@@ -218,6 +248,9 @@ def should_draw(ctx: Any) -> bool:
     directions: a corpus of nothing but candidate rows reserved a strip and
     drew the empty state into it, and the viewer lost ``tray_height`` for a
     tray with nothing in it from the first finished job onward, permanently.
+
+    ``stage`` narrows both questions to that stage's own results; the shell
+    always passes it, and ``None`` keeps the stage-blind answer.
     """
 
     cache = getattr(ctx, "cache", None)
@@ -225,39 +258,38 @@ def should_draw(ctx: Any) -> bool:
         return False
     if getattr(cache, "active", None) is not None:
         return True
-    if candidates_mod.pending_cached(cache) is not None:
+    if stage in (None, "mesh") and candidates_mod.pending_cached(cache) is not None:
         return True
-    return bool(_recent_results(ctx))
+    return bool(_recent_results(ctx, stage))
 
 
-def draw(ctx: Any, height: float = 0.0) -> None:
-    """Draw the persistent results-and-iteration tray in the Create canvas.
+def draw(ctx: Any, height: float = 0.0, stage: str | None = None) -> None:
+    """Draw the results tray under the canvas -- Reference and Mesh, one tray.
 
-    No longer draws "Working now" itself (2026-09-07 Create review, item
-    5.7): on the Reference stage that used to be the *third* restatement of
-    a running job's status, after the plan block's "Queue: ..." line
-    (``panes.settings_2d``) and the floating card (``panes.overlay``). Of the
-    two this module could actually retire -- the Queue line lives in a pane
-    this change does not own -- this was the one that said least: it never
-    carried anything the floating card did not already show more prominently,
-    and while queued it only repeated the plan block's own position count.
-    :func:`progress_row` is what is left of it, now drawn once per stage by
-    ``main._stage_pane`` instead of here.
+    **The one place a result is picked between**: thumbnails, then Open, Vary,
+    Keep/Discard, Rerun and the next stage's action (Make 3D on an image, Rig
+    on a mesh). The inspector used to draw a second candidate picker for Mesh
+    with its own Keep; that is gone, and ``panes.candidates_panel`` keeps only
+    the keep/discard logic both stages call.
+
+    The "Working now" row is the tray's first line (:func:`progress_row`),
+    so a running job is stated once on the two stages that carry the tray. Rig,
+    Pose and Export have no tray and keep it in their column instead.
     """
     if height > 0 and not imgui.begin_child("generation-results", (0, height), False):
         imgui.end_child()
         return
     widgets.pane_header("Generations")
     widgets.muted(_brief_caption(ctx))
-    active = getattr(ctx.cache, "active", None)
-    group = candidates_mod.pending_cached(ctx.cache)
+    active = progress_row(ctx)
+    group = candidates_mod.pending_cached(ctx.cache) if stage in (None, "mesh") else None
     if group is not None:
         _candidate_grid(ctx, group)
     else:
-        jobs = _recent_results(ctx)
+        jobs = _recent_results(ctx, stage)
         if jobs:
             _result_grid(ctx, jobs)
-        elif active is None:
+        elif not active:
             # Only reachable from a caller that draws the tray without asking
             # ``should_draw`` first; the shell always asks.
             widgets.muted_wrapped(
@@ -269,17 +301,14 @@ def draw(ctx: Any, height: float = 0.0) -> None:
 
 
 def progress_row(ctx: Any) -> bool:
-    """The tray's "Working now" narration and Cancel, for any stage. -> True
-    if a job was drawn.
+    """The "Working now" narration and Cancel. -> True if a job was drawn.
 
-    2026-09-07 Create review, item 5.7: this used to be reachable only from
-    the Reference stage's tray, so a remesh or a rig bake started from its
-    own stage showed nothing here but the floating card -- three restatements
-    of "something is running" on Reference and one everywhere else. Pulled
-    out to a name of its own so ``main._stage_pane`` can draw it on every
-    stage the way it always could have been drawn on any of them: the
-    narration reads ``ctx.cache.active``, which is not stage-scoped, so a job
-    the user started from Rig reports here while they are standing on Rig.
+    Drawn at the top of the results tray on Reference and Mesh, and by
+    ``shell.frame._stage_pane`` on the stages that have no tray. The narration
+    reads ``ctx.cache.active``, which is not stage-scoped, so a job started
+    from Rig reports here while standing on Rig -- and never twice on one
+    stage (2026-09-07 review item 5.7 removed the third copy; the Create
+    redesign's tray step made Mesh's column copy the fourth and removed it).
     """
     active = getattr(ctx.cache, "active", None)
     if active is None:
@@ -340,10 +369,16 @@ def _candidate_grid(ctx: Any, group: Any) -> None:
     means eight candidates and choosing between them is the entire purpose, so
     the grid is put in a scrolling child rather than being cut short.
     """
+    from ....panes import candidates_panel
+
     widgets.secondary("Compare candidates")
+    manual_render.help_button(ctx, "candidates")
     widgets.muted_wrapped(
         "Choose one when every candidate settles. Seeds and scores stay with each result."
     )
+    nudge = candidates_panel._nudge_text(group, candidates_panel._grades(ctx, group))
+    if nudge is not None:
+        widgets.muted(nudge)
     if not imgui.begin_child("generation-candidate-scroll", (0, 0), False):
         imgui.end_child()
         return
@@ -432,21 +467,20 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
                 from ....panes import candidates_panel
 
                 candidates_panel.discard(ctx, group)
-        else:
-            ready = group.finished and done
-            if widgets.disabled_button(
-                f"Keep##result-keep-{job_id}",
-                ready,
-                half,
-                reason=(
-                    "Wait for every candidate to finish."
-                    if not group.finished
-                    else "This result did not finish."
-                ),
-            ):
-                from ....panes import candidates_panel
+        elif (done or not group.finished) and widgets.disabled_button(
+            # **One disabled reason.** Keep is only ever greyed for the wait:
+            # a settled member that did not finish gets no Keep at all (its
+            # status pill and Rerun say what happened), rather than a second
+            # sentence for a button that could never open on it. The inspector's
+            # picker carried both sentences, and a third of its own.
+            f"Keep##result-keep-{job_id}",
+            group.finished and done,
+            half,
+            reason="Wait for every candidate to finish.",
+        ):
+            from ....panes import candidates_panel
 
-                candidates_panel.keep(ctx, group, job_id)
+            candidates_panel.keep(ctx, group, job_id)
         # No ``same_line()`` here (the 2026-09-07 audit, finding create-08):
         # five actions do not divide into rows of two, and pairing Keep with
         # Rerun was what pushed the *next* button -- Make 3D, the primary
@@ -485,14 +519,31 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     if widgets.disabled_button(f"Rerun##result-rerun-{job_id}", can_rerun, half, reason=reason):
         ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
     imgui.same_line()
-    is_reference = job.get("stage") == "reference" and "input.png" in (job.get("files") or [])
-    if widgets.disabled_button(
-        f"Make 3D##result-3d-{job_id}",
-        done and is_reference,
-        half,
-        reason="A finished reference image is required.",
-    ):
-        _make_3d(ctx, job)
+    from . import stages as create_stages
+
+    if job.get("stage") == "model":
+        # The next stage's action on a mesh card, in the slot Make 3D holds on
+        # an image card. Disabled with Blender's own sentence (the rail's
+        # segment and the Rig section say the same words), never hidden: a
+        # user who never sees Rig concludes the app cannot rig at all.
+        blocked = create_stages.blender_reason("rig", ctx)
+        ready = done and "model.glb" in (job.get("files") or [])
+        if widgets.disabled_button(
+            f"Rig##result-rig-{job_id}",
+            ready and blocked is None,
+            half,
+            reason=blocked or "A finished mesh is required.",
+        ):
+            _rig(ctx, job)
+    else:
+        is_reference = job.get("stage") == "reference" and "input.png" in (job.get("files") or [])
+        if widgets.disabled_button(
+            f"Make 3D##result-3d-{job_id}",
+            done and is_reference,
+            half,
+            reason="A finished reference image is required.",
+        ):
+            _make_3d(ctx, job)
 
 
 #: Statuses a job can end in without producing artifacts.
@@ -521,23 +572,61 @@ def _half_width() -> float:
 
 
 def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
+    """Move to Mesh, *then* open the cutout check.
+
+    This used to start the check from wherever the card was drawn, so the
+    matte dialog appeared over the Reference stage and the job it queued
+    finished on a stage that could not show it. ``follow=False``: a promotion
+    carries its own source, and walking the selection onto a mesh this
+    reference already has would describe the wrong asset while the form builds
+    another (``stages.go``'s own rule for a press that is about to make one).
+    """
+    from . import stages as create_stages
     from .panes import settings_3d
 
+    create_stages.go(ctx, "mesh", follow=False)
     ctx.state.source_job = str(job["id"])
     settings_3d.promote(ctx, job, ctx.state.form_3d)
 
 
-def _vary(ctx: Any, job: dict[str, Any]) -> None:
-    """Copy a result's recorded brief back to the live form for a controlled edit."""
-    from ...library.ui.panes import library
+def _rig(ctx: Any, job: dict[str, Any]) -> None:
+    """Move to the Rig stage with this mesh selected. The stage's own panel
+    then owns the skeleton choice and the press; a card never rigs blind."""
     from . import stages as create_stages
+
+    create_stages.go(ctx, "rig", select=str(job["id"]))
+
+
+def _vary(ctx: Any, job: dict[str, Any]) -> None:
+    """Copy a result's recorded brief back to the live form for a controlled edit.
+
+    An image's brief goes to the Reference form; a mesh's own settings go to
+    the Mesh form and the reference it was built from becomes the source, so
+    the same card verb edits the stage it sits on.
+    """
+    from ....state import DEFAULT_FORM_3D
+    from . import stages as create_stages
+
+    if job.get("stage") == "model":
+        params = job.get("params") or {}
+        form = ctx.state.form_3d
+        for key in DEFAULT_FORM_3D:
+            if key in params and key not in ("count", "rig"):
+                form[key] = params[key]
+        parent = job.get("parent_id")
+        if parent:
+            ctx.state.source_job = str(parent)
+        create_stages.go(ctx, "mesh", follow=False)
+        ctx.toast("Loaded these mesh settings. Change one thing, then make it again.")
+        return
+    from ...library.ui.panes import library
 
     library.copy_settings(ctx, job)
     create_stages.go(ctx, "reference", follow=False)
     ctx.toast("Loaded this brief. Change one thing, then generate a variation.")
 
 
-def _recent_results(ctx: Any) -> list[dict[str, Any]]:
+def _recent_results(ctx: Any, stage: str | None = None) -> list[dict[str, Any]]:
     """The most recent finished results. **One row of the grid, not two.**
 
     Six filled the tray's three columns twice over, and the tray is a
@@ -555,7 +644,9 @@ def _recent_results(ctx: Any) -> list[dict[str, Any]]:
     matches = (
         job
         for job in ctx.cache.jobs
-        if job.get("status") in ("done", "error", "cancelled") and not job.get("candidate_group")
+        if job.get("status") in ("done", "error", "cancelled")
+        and not job.get("candidate_group")
+        and _in_stage(job, stage)
     )
     return list(itertools.islice(matches, _RESULT_COLUMNS))
 

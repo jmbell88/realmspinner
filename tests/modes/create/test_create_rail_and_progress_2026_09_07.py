@@ -157,12 +157,12 @@ def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
     assert calls == [ctx], "the Rig stage never asked the tray for its progress row"
 
 
-def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypatch):
-    """Reference already carries the canvas tray and the floating card; a
-    third copy from ``_stage_pane`` would put the count back up to three
-    instead of trading one restatement for reach on every other stage."""
+def test_the_tray_stages_do_not_draw_a_column_progress_row(monkeypatch):
+    """Reference and Mesh carry the canvas tray, and the tray draws "Working
+    now" at its top. A column copy on top of it is the second row per stage
+    (Mesh drew one before the tray step, Reference none)."""
     from realmspinner.studio.modes.create.ui import workspace as generation_workspace
-    from realmspinner.studio.modes.create.ui.panes import settings_2d
+    from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
     from realmspinner.studio.shell import frame
 
     calls: list[object] = []
@@ -170,28 +170,53 @@ def test_the_reference_stage_does_not_draw_the_tray_progress_row_twice(monkeypat
         generation_workspace, "progress_row", lambda ctx: calls.append(ctx) or False
     )
     monkeypatch.setattr(settings_2d, "draw", lambda ctx: None)
+    monkeypatch.setattr(settings_3d, "draw", lambda ctx: None)
 
-    ctx = SimpleNamespace(state=SimpleNamespace(create=SimpleNamespace(stage="reference")))
-    frame._stage_pane(ctx)
+    for stage in ("reference", "mesh"):
+        ctx = SimpleNamespace(state=SimpleNamespace(create=SimpleNamespace(stage=stage)))
+        frame._stage_pane(ctx)
 
     assert calls == []
 
 
-def test_the_canvas_tray_no_longer_draws_its_own_working_now_row():
-    """The restatement dropped from the Reference stage (2026-09-07 Create
-    review, item 5.7): the tray used to call ``_progress`` on the active job
-    directly from ``draw``. That call moved out to ``progress_row``, which
-    ``shell.frame.FrameMixin._stage_pane`` now calls instead -- the pick was
-    forced rather than chosen, since the other two restatements (the settings
-    column's "Queue: ..." line and the floating card) live in panes this
-    change does not own.
-    """
+def test_each_stage_draws_exactly_one_progress_row(monkeypatch):
+    """The tray owns it on Reference and Mesh; the column owns it on Rig, Pose
+    and Export. The two sets partition the five stages."""
+    import inspect
+
+    from realmspinner.studio.modes.create.ui import workspace as generation_workspace
+    from realmspinner.studio.shell import frame
+
+    assert generation_workspace.TRAY_STAGES == ("reference", "mesh")
+    assert "progress_row(ctx)" in inspect.getsource(generation_workspace.draw)
+
+    # Rig is the one column stage that draws with no imgui context behind it
+    # (Pose and Export open on an empty state); the guard is the same line for
+    # all three, so the source pins that and the call pins the behaviour.
+    assert "stage not in generation_workspace.TRAY_STAGES" in inspect.getsource(
+        frame._stage_pane
+    )
+    from realmspinner.studio.panes import stage_rig
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        generation_workspace, "progress_row", lambda ctx: calls.append("row") or False
+    )
+    monkeypatch.setattr(stage_rig, "draw", lambda ctx: None)
+    ctx = SimpleNamespace(state=SimpleNamespace(create=SimpleNamespace(stage="rig")))
+    frame._stage_pane(ctx)
+    assert calls == ["row"]
+
+
+def test_the_canvas_tray_draws_the_working_now_row_at_its_top():
+    """The tray's first line, on both stages, through the one function the
+    column also calls -- not a private copy of the narration."""
     import inspect
 
     from realmspinner.studio.modes.create.ui import workspace as gw
 
     draw_source = inspect.getsource(gw.draw)
-    assert "_progress(ctx, active)" not in draw_source
+    assert draw_source.index("progress_row(ctx)") < draw_source.index("_result_grid(")
     assert "_progress(ctx, active)" in inspect.getsource(gw.progress_row)
 
 

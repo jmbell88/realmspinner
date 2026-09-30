@@ -197,14 +197,15 @@ def _stage_pane(ctx: Any) -> None:
     from ..panes import inspector, pose_panel, stage_rig
 
     stage = ctx.state.create.stage
-    # 2026-09-07 Create review, item 5.7: progress used to be visible only
-    # from the Reference stage's canvas tray, so a remesh or a rig bake
-    # started from its own stage showed nothing here but the floating card
-    # until it finished. Reference keeps its own copy out of this --
-    # ``generation_workspace.draw`` no longer draws it either, since
-    # Reference already states a running job twice more (the plan block's
-    # "Queue: ..." line and the floating card) and did not need a third.
-    if stage != "reference" and generation_workspace.progress_row(ctx):
+    # One "Working now" per stage. Reference and Mesh carry the results tray
+    # on the canvas and it draws the row at its top (``workspace.draw``); the
+    # stages with no tray -- Rig, Pose, Export -- draw it here, so a remesh or
+    # a rig bake started from its own stage still shows more than the floating
+    # card (2026-09-07 review, item 5.7).
+    if (
+        stage not in generation_workspace.TRAY_STAGES
+        and generation_workspace.progress_row(ctx)
+    ):
         imgui.separator()
     if stage == "mesh":
         settings_3d.draw(ctx)
@@ -1028,7 +1029,10 @@ class FrameMixin:
                 # results tray.  The viewer remains above it, so a reference
                 # can still be judged at useful scale while progress and the
                 # next variation stay in the same creative loop.
-                tray = reference_stage and generation_workspace.should_draw(ctx)
+                stage = ctx.state.create.stage
+                tray = stage in generation_workspace.TRAY_STAGES and (
+                    generation_workspace.should_draw(ctx, stage)
+                )
                 # The floor is **one whole card**, not a round number: heading,
                 # caption, a 72 dp thumbnail and the two rows of actions under
                 # it come to a little over 200 dp, and at the old 180 the
@@ -1037,7 +1041,13 @@ class FrameMixin:
                 # scrolls is a button that does nothing; ``/exercise-mode
                 # create`` reported twelve of them, and no test can, because a
                 # clipped button is still drawn.
-                tray_height = min(sp(320), max(sp(232), height * 0.36)) if tray else 0.0
+                # The progress row is drawn inside the tray on both stages, so a
+                # running job adds its own height to the floor rather than
+                # pushing a card's actions below the fold.
+                extra = sp(generation_workspace.tray_extra(ctx))
+                tray_height = (
+                    min(sp(320) + extra, max(sp(232) + extra, height * 0.36)) if tray else 0.0
+                )
                 gap = imgui.get_style().item_spacing.y if tray else 0
                 canvas_height = max(height - tray_height - gap, sp(64))
                 if tray:
@@ -1048,7 +1058,11 @@ class FrameMixin:
                         "generation-canvas", (0, canvas_height), False,
                         imgui.WindowFlags_.no_scroll_with_mouse.value,
                     ):
-                        if self.viewer.reference is not None:
+                        if not reference_stage and self.viewer.has_model:
+                            self._draw_viewport_image(
+                                imgui.get_cursor_screen_pos(), width, canvas_height
+                            )
+                        elif self.viewer.reference is not None:
                             self._draw_reference(width, canvas_height)
                         else:
                             overlay.placeholder(ctx)
@@ -1061,7 +1075,7 @@ class FrameMixin:
                     overlay.placeholder(ctx)
                 if tray:
                     imgui.separator()
-                    generation_workspace.draw(ctx, tray_height)
+                    generation_workspace.draw(ctx, tray_height, stage)
 
     def _draw_viewport_image(self, pos: Any, width: float, height: float) -> None:
         from imgui_bundle import imgui

@@ -1,9 +1,11 @@
-"""The mesh-candidate picker: three attempts at one asset, and which to keep.
+"""The mesh-candidate decisions: three attempts at one asset, and which to keep.
 
-Drawn at the top of the 3D inspector, above the identity header, because it is
-a question the user is being asked rather than a description of what they are
-looking at -- and because the rows it lists are hidden from the library, so
-this is the only way back to them.
+**Logic only -- nothing here draws any more.** The picker used to be drawn at
+the top of the 3D inspector; the Create results tray (``modes/create/ui/
+workspace.py``) is the one place candidates are compared now, and it calls
+:func:`keep` and :func:`discard` below as the one implementation. The rows are
+hidden from the library while a group is undecided, so the tray is the only way
+back to them.
 
 Two rules are worth stating here rather than in a comment at the call site.
 
@@ -41,15 +43,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from imgui_bundle import imgui
-
 from ...service import jobs as svc_jobs
 from .. import candidates as candidates_mod
-from .. import controls, dialogs, widgets
-from ..manual import render as manual_render
+from .. import dialogs
 from ..modes.library.ui.panes import library
 from ..modes.review import mode as review_mode
-from ..tokens import sp
 
 #: The nudge, drawn once per group while some finished attempt has no grade.
 #: Basic-Latin only (imgui's default atlas), so " - " and not an em dash --
@@ -62,37 +60,6 @@ _NUDGE = "Grade each attempt before you keep one - they feed What works."
 #: candidate group offered at a time (``candidates.pending`` says so), so one
 #: slot is the whole cache rather than something keyed per group.
 _GRADES_CACHE: tuple[Any, dict[str, int | None]] | None = None
-
-
-def draw(ctx: Any) -> None:
-    """Draw the picker for the newest undecided group, if there is one."""
-    group = candidates_mod.pending_cached(ctx.cache)
-    if group is None:
-        return
-    widgets.section("Candidates")
-    manual_render.help_button(ctx, "candidates")
-    if group.finished:
-        if group.all_failed:
-            # The 2026-09-14 audit, finding create-04: this caption used to
-            # say "Keep one" even when every attempt had failed, over a
-            # picker whose Keep button can never open for a single member --
-            # there is nothing to keep, and the caption said otherwise.
-            widgets.muted(f"None of the {len(group.members)} attempts finished. Discard them?")
-        else:
-            widgets.muted(f"{len(group.members)} meshes from one reference. Keep one.")
-    else:
-        widgets.muted(
-            f"{group.done_count} of {len(group.members)} finished. "
-            "Keep becomes available once they all have."
-        )
-    selected = ctx.state.selected
-    grades = _grades(ctx, group)
-    for member in group.members:
-        _member(ctx, group, member, selected == member["id"], grades)
-    nudge = _nudge_text(group, grades)
-    if nudge is not None:
-        widgets.muted(nudge)
-    widgets.divider()
 
 
 def _grades(ctx: Any, group: Any) -> dict[str, int | None]:
@@ -177,61 +144,6 @@ def _nudge_text(group: Any, grades: dict[str, int | None]) -> str | None:
     if any(m.get("status") == "done" and grades.get(m["id"]) is None for m in group.members):
         return _NUDGE
     return None
-
-
-#: How wide a candidate's "A"/"B" picker button is, in design pixels. Wide
-#: enough for two characters and the frame padding, narrow enough that the
-#: status line beside it still fits a sidebar.
-_PICKER_BUTTON = 44.0
-
-
-def _member(
-    ctx: Any, group: Any, member: dict[str, Any], current: bool, grades: dict[str, int | None]
-) -> None:
-    job_id = member["id"]
-    label = candidates_mod.label(member)
-    # ``sp``, not raw pixels: this is a design measurement like every other
-    # size in the app, and unscaled it shrinks against a 150%-scaled sidebar.
-    width = (sp(_PICKER_BUTTON), 0.0)
-    if current:
-        if widgets.primary_button(f"{label}##candidate-{job_id}", width):
-            select(ctx, job_id)
-    elif controls.button(f"{label}##candidate-{job_id}", width):
-        select(ctx, job_id)
-    # Safe against the pane edge: a 44 dp button plus one item spacing inside a
-    # 300 dp sidebar leaves most of the line. The smoke-test guard measures it.
-    imgui.same_line()
-    widgets.muted(_status_text(member, grades))
-    # Keep is offered on the selected candidate only, and only once every
-    # member has settled: keeping one dissolves the group, so a member still
-    # queued would quietly become an asset nobody chose.
-    if current:
-        # The 2026-09-14 audit, finding create-04: when every member has
-        # failed, Keep's gate (``group.finished and member done``) can never
-        # open -- no member is ever ``done`` -- and nothing offered a way out
-        # of a group ``Filters.matches`` hides from the library forever.
-        # Discard takes Keep's place here rather than sitting beside it: a
-        # button that can never become enabled is not a second option, it is
-        # dead weight next to the one that works.
-        if group.all_failed:
-            if controls.button(f"Discard all##discard-{group.group}", (-1, 0)):
-                discard(ctx, group)
-        else:
-            ready = group.finished and member.get("status") == "done"
-            if widgets.disabled_button(
-                f"Keep this one##keep-{job_id}",
-                ready,
-                (-1, 0),
-                # Keeping one dissolves the group, so a member still queued would
-                # quietly become an asset nobody chose -- which is why the gate is
-                # about the *group* even though the button is on one candidate.
-                reason="The other attempts have not finished yet."
-                if not group.finished
-                else "This one did not finish, so there is nothing to keep.",
-            ):
-                keep(ctx, group, job_id)
-            if not ready and member.get("status") != "done":
-                widgets.hint_text("This one did not finish; keep another.")
 
 
 def select(ctx: Any, job_id: str) -> None:

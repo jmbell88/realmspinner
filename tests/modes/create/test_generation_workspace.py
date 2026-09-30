@@ -367,3 +367,90 @@ def test_the_mesh_footer_offers_both_repairs():
     source = inspect.getsource(settings_3d._preflight_fix)
     assert "Choose a reference" in source
     assert "Open model setup" in source
+
+
+# --- one results tray (Create redesign step 4) -----------------------------------
+
+
+def _job(job_id, stage, status="done", **extra):
+    return {"id": job_id, "stage": stage, "status": status, **extra}
+
+
+def test_the_mesh_stage_draws_the_results_tray():
+    import inspect
+
+    from realmspinner.studio.shell import frame
+
+    assert generation_workspace.TRAY_STAGES == ("reference", "mesh")
+    source = inspect.getsource(frame.FrameMixin._viewport_pane)
+    assert "TRAY_STAGES" in source
+    assert "reference_stage and generation_workspace.should_draw" not in source
+    # A mesh result is Mesh's tray and a reference is Reference's.
+    ctx = SimpleNamespace(cache=SimpleNamespace(jobs=[_job("m", "model")], active=None))
+    assert generation_workspace.should_draw(ctx, "mesh") is True
+    assert generation_workspace.should_draw(ctx, "reference") is False
+    ref = SimpleNamespace(cache=SimpleNamespace(jobs=[_job("r", "reference")], active=None))
+    assert generation_workspace.should_draw(ref, "reference") is True
+    assert generation_workspace.should_draw(ref, "mesh") is False
+
+
+def test_make_3d_on_a_tray_card_moves_to_the_mesh_stage_first(monkeypatch):
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+    from realmspinner.studio.modes.create.ui.panes import settings_3d
+
+    order: list[str] = []
+    monkeypatch.setattr(
+        create_stages, "go", lambda ctx, stage, **kw: order.append(f"go:{stage}:{kw}")
+    )
+    monkeypatch.setattr(settings_3d, "promote", lambda ctx, job, form: order.append("promote"))
+    ctx = SimpleNamespace(state=SimpleNamespace(source_job=None, form_3d={}))
+
+    generation_workspace._make_3d(ctx, {"id": "ref1"})
+
+    assert order == ["go:mesh:{'follow': False}", "promote"]
+    assert ctx.state.source_job == "ref1"
+
+
+def test_rig_on_a_mesh_card_moves_to_the_rig_stage_and_names_blender_when_absent(monkeypatch):
+    import inspect
+
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+
+    seen: list[tuple] = []
+    monkeypatch.setattr(create_stages, "go", lambda ctx, stage, **kw: seen.append((stage, kw)))
+    generation_workspace._rig(SimpleNamespace(), {"id": "mesh1"})
+    assert seen == [("rig", {"select": "mesh1"})]
+
+    source = inspect.getsource(generation_workspace._result_card)
+    assert "Rig##result-rig-{job_id}" in source
+    assert 'create_stages.blender_reason("rig", ctx)' in source
+
+
+def test_keep_has_one_disabled_reason():
+    import inspect
+
+    from realmspinner.studio.panes import candidates_panel
+
+    body = inspect.getsource(generation_workspace)
+    assert body.count("Wait for every candidate to finish.") == 1
+    assert "This result did not finish." not in body
+    assert "have not finished yet" not in inspect.getsource(candidates_panel)
+
+
+def test_the_inspector_no_longer_draws_candidate_picking():
+    import inspect
+
+    from realmspinner.studio.panes import candidates_panel, inspector
+
+    assert "candidates_panel" not in inspect.getsource(inspector)
+    assert not hasattr(candidates_panel, "draw"), "the drawing is the tray's now"
+    # The one implementation of the decision stays.
+    assert callable(candidates_panel.keep) and callable(candidates_panel.discard)
+
+
+def test_the_tray_hands_keep_and_discard_to_the_one_implementation():
+    import inspect
+
+    source = inspect.getsource(generation_workspace._result_card)
+    assert "candidates_panel.keep(ctx, group, job_id)" in source
+    assert "candidates_panel.discard(ctx, group)" in source

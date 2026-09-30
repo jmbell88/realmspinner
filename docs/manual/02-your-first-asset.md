@@ -89,8 +89,10 @@ the viewport toolbar opens the reference as a layered drawing, and saving writes
 
 ## Stage two: the mesh
 
-When the picture is right, press **Make 3D** on the card — or select the reference, go to the Mesh
-stage, and press **Make 3D** in its command bar, where the Source chip names the reference it will use.
+When the picture is right, press **Make 3D** on its card in the results tray under the canvas. That
+moves you to the Mesh stage first, with the reference as its source, and then opens the cutout check.
+You can also select the reference, go to the Mesh stage yourself, and press **Make 3D** in its command
+bar, where the Source chip names the reference it will use.
 
 A panel opens showing a **cutout** — the subject with its background removed. This is not a preview
 of the model; it is the actual image the reconstruction will be run against, and it is shown before

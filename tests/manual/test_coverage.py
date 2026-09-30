@@ -28,6 +28,9 @@ NO_HELP_BUTTON = {
     # (?) beside: the inspector's button opens the Library chapter that
     # describes it.
     "followup_preview",
+    # Keep/discard logic only since the results tray took over drawing; the (?)
+    # for "candidates" sits beside the tray's own Compare candidates heading.
+    "candidates_panel",
     "inker_canvas",  # the canvas itself; its tools are inker-tools
     # The three pieces T7 split off the canvas on 2026-09-04. Not panes: they
     # are the canvas's own drag, slice and multi-click-gesture halves, drawn

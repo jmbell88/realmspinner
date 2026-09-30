@@ -556,6 +556,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.create.ui import workspace as generation_workspace
     from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
     from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
     from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
@@ -565,7 +566,6 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     from realmspinner.studio.modes.library.ui.panes import library
     from realmspinner.studio.modes.settings.ui.panes import app_settings
     from realmspinner.studio.panes import (
-        candidates_panel,
         inspector,
         pose_panel,
         retarget_panel,
@@ -628,7 +628,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
                 app_ctx.state.preview[app_settings.CATEGORY_SLOT] = before
 
     panes = [
-        ("candidates", lambda: candidates_panel.draw(app_ctx)),
+        ("results-tray", lambda: generation_workspace.draw(app_ctx, sp(320), "mesh")),
         ("app-settings-health", _settings_health),
         # Joined the list when its model list stopped being read-only: a row is
         # now a checkbox, a coloured label and a button, and the sidebar it is

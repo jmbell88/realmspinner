@@ -263,3 +263,16 @@ def test_the_turnaround_key_matches_the_pose_stages_own_sheet_submit():
     pose_stage_src = inspect.getsource(sheet_panel._submit)
     assert 'f"sheet:{job_id}"' in turnaround_src
     assert 'f"sheet:{job_id}"' in pose_stage_src
+
+
+# --- one place picks between candidates ---------------------------------------
+
+
+def test_the_mesh_inspector_has_no_second_candidate_picker():
+    """The 2026-09-07 review's "same fact twice" sweep, finished by the results
+    tray: Mesh's candidates are compared on the canvas tray only, so the
+    inspector draws nothing above its identity header."""
+    from realmspinner.studio.panes import candidates_panel, inspector
+
+    assert "candidates_panel" not in inspect.getsource(inspector.draw)
+    assert not hasattr(candidates_panel, "draw")

@@ -252,6 +252,13 @@ Seeds are whole numbers from 0 to 2147483647. The seed shown when the app opens 
 startup and is deliberately not remembered between sessions — otherwise every launch would open on
 the same seed and a first Generate would reproduce last week's image.
 
+Every candidate lands in the **results tray** under the canvas, the same tray the Mesh stage uses.
+Each card has **Open**, **Vary** (load its brief back into the form, then change one thing),
+**Rerun** and **Make 3D**. **Make 3D** moves you to the Mesh stage first and then opens the cutout
+check, so the job it starts is on the stage that will show it. While something runs, the tray's first
+line is "Working now", the progress bar and **Cancel**; the floating card says the same from other
+modes.
+
 The mesh has its own separate seed, at the Mesh stage. See
 [Mesh parameters](23-generating-meshes.md#mesh-parameters).
 

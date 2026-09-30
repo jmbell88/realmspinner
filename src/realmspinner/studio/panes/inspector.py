@@ -25,7 +25,6 @@ from ..manual import render as manual_render
 from ..modes.create.ui import stages as create_stages
 from ..tokens import sp
 from . import (
-    candidates_panel,
     followup_preview,
     history_panel,
     overlay,
@@ -150,12 +149,6 @@ def draw(ctx: Any) -> None:
         flush_unsent_for(ctx, _last_job_id)
     _last_job_id = selected
 
-    if create_stages.at(ctx.state, "mesh"):
-        # Above the header, and above the "select an asset" empty state, on
-        # purpose: an undecided candidate group is a question being asked, and
-        # its rows are hidden from the library -- so this is the only way back
-        # to them, and it has to be visible whatever is (or is not) selected.
-        candidates_panel.draw(ctx)
     job = ctx.job()
     if job is None:
         widgets.empty_state(icons.BOX, "Select an asset.", "Its details and exports live here.")

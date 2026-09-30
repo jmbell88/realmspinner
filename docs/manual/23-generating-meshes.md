@@ -108,24 +108,29 @@ Each candidate is an ordinary mesh job: same validation, same VRAM admission, sa
 keeps the mesh seed you pinned, so a pinned seed still reproduces; the rest draw fresh ones.
 
 While a group is undecided its members are **hidden from the library** — three near-identical cards
-are not a workshop — and the **Candidates** picker at the top of the inspector is where they live
-instead. Selecting one shows it in the viewport exactly as selecting any other asset does. Once every
-attempt has finished, **Keep this one** settles the group: the one you kept and the ones you did not
-all become ordinary assets, and only then are you *asked* whether to delete the ones you did not keep.
-Nothing is ever deleted on your behalf, and declining leaves you with ordinary assets rather than
-hidden ones. When every attempt in a group fails there is nothing to keep, so the picker offers
-**Discard all** in the same place instead. It settles the group exactly as keeping one does — every
-attempt becomes an ordinary asset — and only then asks whether to delete them.
+are not a workshop — and the **results tray** under the Mesh canvas is where they live instead. It is
+the same tray the Reference stage has: each candidate is a thumbnail (a placeholder while it runs, the
+viewer's snapshot once it has finished) with **Open**, **Vary**, **Keep**, **Rerun** and **Rig**. The
+tray's first line is "Working now", the bar and **Cancel**. **Open** shows the candidate in the
+viewport exactly as selecting any other asset does. **Keep** is greyed with *Wait for every candidate
+to finish.* until the last attempt has settled; then it settles the group: the one you kept and the ones
+you did not all become ordinary assets, and only then are you *asked* whether to delete the ones you
+did not keep. Nothing is ever deleted on your behalf, and declining leaves you with ordinary assets
+rather than hidden ones. When every attempt in a group fails there is nothing to keep, so each card
+offers **Discard** in Keep's place. It settles the group exactly as keeping one does — every attempt
+becomes an ordinary asset — and only then asks whether to delete them.
+
+**Rig** on a mesh card moves you to the Rig stage with that mesh selected; it is greyed, with the reason,
+when Blender is not installed or the mesh has not finished. **Vary** on a mesh card loads that mesh's
+settings and its reference back into the Mesh form.
 
 Verdicts work on a candidate like any other mesh, so judging the group feeds the same findings pool.
-See [Review](37-review.md). The picker itself shows what has been graded so far: a candidate you have
-already graded carries its grade — `+4`, `-2` — beside its status, read once for the whole group rather
-than asked about candidate by candidate. While any finished attempt in the group is still ungraded, a
-line under the picker says so: *"Grade each attempt before you keep one - they feed What works."* That
+See [Review](37-review.md). While any finished attempt in the group is still ungraded, a line above the
+cards says so: *"Grade each attempt before you keep one - they feed What works."* That
 line is the whole of what grading does here — it never reorders the candidates, never marks one as the
-apparent winner, and never stops you from pressing **Keep this one** on an ungraded attempt. It is a
+apparent winner, and never stops you from pressing **Keep** on an ungraded attempt. It is a
 reminder, not a gate: what you decide by pressing Keep is yours to decide, and the sentence only asks
-that the mesh you did not choose still teaches the corpus something before it leaves the picker.
+that the mesh you did not choose still teaches the corpus something before it leaves the tray.
 
 The count applies to **Make 3D** only. An upload queues one mesh job, as it always has.
 
