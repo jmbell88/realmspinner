@@ -107,6 +107,11 @@ class TasksMixin:
                 # not *that something happened*, and a pane the user has since
                 # navigated away from can draw no ring at all.
                 named = getattr(done.error, "field", None)
+                current_submit = (
+                    done.key != "submit" or getattr(done, "tag", None) == ctx.state.create.workspace
+                )
+                if not current_submit:
+                    named = None
                 if isinstance(named, str):
                     # ``rows`` is the refusal's other half: which registry rows
                     # would fix it. Written since the class was, and until now
@@ -131,7 +136,7 @@ class TasksMixin:
                     # off ``ctx.pack_rows`` when it draws the button.
                     packs = tuple(getattr(done.error, "packs", ()) or ())
                     ctx.state.note_field_error(named, done.message or "", rows, gib, packs)
-                elif done.key == "submit":
+                elif done.key == "submit" and current_submit:
                     # A refusal with no control to point at -- the VRAM door is
                     # the one of these, by its own recorded argument. It is
                     # kept so the plan block can say it, because a toast cannot
@@ -678,7 +683,17 @@ class TasksMixin:
             # no longer the state of things.
             ctx.state.create.submit_refusal = ""
             ctx.cache.invalidate()
-            if isinstance(done.result, dict) and done.result.get("kind") == "character":
+            if (
+                isinstance(done.result, dict)
+                and ctx.state.selected is None
+                and getattr(done, "tag", None) == ctx.state.create.workspace
+            ):
+                ctx.state.select(str(done.result.get("id") or "") or None)
+            if (
+                isinstance(done.result, dict)
+                and done.result.get("kind") == "character"
+                and getattr(done, "tag", None) == ctx.state.create.workspace
+            ):
                 self._landed_character(done.result)
                 return
             # Say where in line it landed: five rapid submits used to produce
@@ -843,6 +858,11 @@ class TasksMixin:
                 from ..modes.poser import mode as poser_mode
 
                 poser_mode.invalidate_riggable(ctx)
+            return
+        if key == "create-preview":
+            from ..modes.create.ui import preview as create_preview
+
+            create_preview.adopt(ctx, done)
             return
         if key == VIEWER_KEY:
             self._adopt_model(done)
@@ -1049,9 +1069,7 @@ class TasksMixin:
             return
         from ...service import updates as svc_updates
 
-        self.app_ctx.submit(
-            app_ctx_mod.UPDATE_CHECK_KEY, svc_updates.check, self.svc, tag="auto"
-        )
+        self.app_ctx.submit(app_ctx_mod.UPDATE_CHECK_KEY, svc_updates.check, self.svc, tag="auto")
 
     def _request_storage(self, job_id: str | None = None) -> None:
         """Re-measure the data directory off the frame thread.

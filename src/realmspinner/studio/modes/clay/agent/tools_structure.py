@@ -76,6 +76,7 @@ from .validate import (
     Session,
     _json,
     _label_top,
+    _over_frame_budget,
     _resolve_uid,
     _resolve_uids,
     _round,
@@ -366,9 +367,21 @@ def _h_separate(ctx: Any, session: Session, args: dict) -> dict:
     except OpError as error:
         return fail(str(error))
 
-    return _json(
-        {"uids": [o.uid for o in new_objs], "objects": [_scene_row(doc, o) for o in new_objs]}
-    )
+    payload: dict = {
+        "uids": [o.uid for o in new_objs],
+        "objects": [_scene_row(doc, o) for o in new_objs],
+    }
+    # The 2026-10-03 audit's clay-01: the rows scale with the piece count (up to
+    # 20,000) and the document is already changed, so a reply past the frame
+    # budget cannot be a refusal. Drop the per-piece rows, keep the uids.
+    if _over_frame_budget(payload) is not None:
+        payload = {
+            "uids": payload["uids"],
+            "objects_omitted": True,
+            "note": "Too many pieces to describe in one reply; the split happened. "
+            "Read clay_scene (or a few uids) for the rows.",
+        }
+    return _json(payload)
 
 
 # --- clay_set_origin -------------------------------------------------------------

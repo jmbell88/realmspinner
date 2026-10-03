@@ -82,7 +82,7 @@ def test_generate_sends_an_emptied_avoid_box_as_an_explicit_empty_string(monkeyp
 
     monkeypatch.setattr(settings_2d.svc_jobs, "create_job", fake_create_job)
 
-    def _submit(key, run):
+    def _submit(key, run, *, tag=None):
         run()
         return True
 

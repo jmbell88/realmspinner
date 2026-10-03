@@ -1228,9 +1228,17 @@ def start_2d(ctx: Any) -> None:
     """
     if not _create_door(ctx):
         return
-    ctx.state.form_2d = default_form_2d()
-    ctx.state.select(None)
-    create_stages.go(ctx, "reference")
+    from ....create.ui import session
+
+    # The same reset the header's New... menu performs (create-02): a bare
+    # form replacement left ``create.workspace`` set, so the next save_draft
+    # overwrote the previous creation's draft with this blank form and the
+    # next press was filed under the old creation.
+    def fresh() -> None:
+        ctx.state.form_2d = default_form_2d()
+        create_stages.go(ctx, "reference")
+
+    session.new(ctx, reuse=True, then=fresh)
 
 
 def start_3d(ctx: Any) -> None:
@@ -1242,9 +1250,13 @@ def start_3d(ctx: Any) -> None:
     """
     if not _create_door(ctx):
         return
-    ctx.state.form_3d = dict(DEFAULT_FORM_3D)
-    ctx.state.select(None)
-    create_stages.go(ctx, "mesh")
+    from ....create.ui import session
+
+    def fresh() -> None:
+        ctx.state.form_3d = dict(DEFAULT_FORM_3D)
+        create_stages.go(ctx, "mesh")
+
+    session.new(ctx, reuse=True, then=fresh)
 
 
 def start_inker(ctx: Any) -> None:

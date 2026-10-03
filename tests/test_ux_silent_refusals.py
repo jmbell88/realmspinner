@@ -22,6 +22,9 @@ from realmspinner.studio.state import default_form_2d
 
 class _State:
     def __init__(self) -> None:
+        from realmspinner.studio.modes.create.engine.state import CreateState
+
+        self.create = CreateState()
         self.field_errors: dict[str, str] = {}
         self.toasts: list[tuple[str, str]] = []
         self.prompts: list[str] = []
@@ -107,7 +110,7 @@ def test_promote_says_why_it_refused_too():
 
 
 def test_a_refusal_about_the_library_rings_no_widget():
-    """"Choose a reference first" is about the library, not about a control in
+    """ "Choose a reference first" is about the library, not about a control in
     the promotion form. Ringing one would point at the wrong thing, which is
     why ``note_field_error`` treats an empty field as toast-only."""
     ctx = _Ctx()
@@ -181,9 +184,7 @@ def test_fix_matte_records_what_happened_rather_than_swallowing_it(monkeypatch, 
     from realmspinner.service import files as svc_files
 
     monkeypatch.setattr(svc_files, "inker_working_path", lambda svc, job_id: None)
-    monkeypatch.setattr(
-        svc_files, "inker_working_status", lambda svc, job_id: {"fresh": False}
-    )
+    monkeypatch.setattr(svc_files, "inker_working_status", lambda svc, job_id: {"fresh": False})
     monkeypatch.setattr(svc_files, "reference_edit_status", lambda svc, job_id: {})
 
     class _Svc:
@@ -220,10 +221,7 @@ def test_a_matte_nobody_asked_for_records_nothing():
 
 
 def _rows(*entries):
-    return [
-        {"row_key": key, "label": label, "present": present}
-        for key, label, present in entries
-    ]
+    return [{"row_key": key, "label": label, "present": present} for key, label, present in entries]
 
 
 def test_a_selected_model_that_is_not_downloaded_is_named_before_the_submit():
@@ -276,9 +274,7 @@ def test_the_optional_selections_are_checked_too():
     row claims a style that never ran -- and then joins the findings corpus as
     evidence about it."""
     ctx = _Ctx()
-    ctx.model_rows = _rows(
-        ("base:sdxl_cfg", "SDXL 1.0", True), ("lora:ps1", "PS1 style", False)
-    )
+    ctx.model_rows = _rows(("base:sdxl_cfg", "SDXL 1.0", True), ("lora:ps1", "PS1 style", False))
     form = dict(default_form_2d())
     form["base_model"] = "sdxl_cfg"
     form["style_lora"] = "ps1"

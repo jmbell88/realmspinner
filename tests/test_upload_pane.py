@@ -23,7 +23,7 @@ class _Ctx:
         self.svc = object()
         self.submitted: list = []
 
-    def submit(self, key, fn, *args, **kwargs):
+    def submit(self, key, fn, *args, tag=None, **kwargs):
         self.submitted.append((key, fn, args, kwargs))
         return True
 
@@ -106,7 +106,7 @@ class _Ctx2D:
         )
         self.submitted: list = []
 
-    def submit(self, key, fn, *args, **kwargs):
+    def submit(self, key, fn, *args, tag=None, **kwargs):
         self.submitted.append((key, fn, args, kwargs))
         return True
 

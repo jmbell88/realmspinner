@@ -202,10 +202,7 @@ def _stage_pane(ctx: Any) -> None:
     # stages with no tray -- Rig, Pose, Export -- draw it here, so a remesh or
     # a rig bake started from its own stage still shows more than the floating
     # card (2026-09-07 review, item 5.7).
-    if (
-        stage not in generation_workspace.TRAY_STAGES
-        and generation_workspace.progress_row(ctx)
-    ):
+    if stage not in generation_workspace.TRAY_STAGES and generation_workspace.progress_row(ctx):
         imgui.separator()
     if stage == "mesh":
         settings_3d.draw(ctx)
@@ -229,6 +226,17 @@ def _stage_pane(ctx: Any) -> None:
             # The inspector's own grid, called rather than copied: it is the
             # one answer to "what can I take away from this", and a second
             # version of it is a second place for an artifact to be missed.
+            from ..modes.create.engine import assets as create_assets
+
+            if (
+                create_assets.asset_type_from_params(
+                    job.get("params") or {}, stage=job.get("stage", "")
+                )
+                == "sprite_sheet"
+            ):
+                from ..panes import sprite_panel
+
+                sprite_panel.exports(ctx, job)
             inspector.downloads(ctx, job)
     else:
         settings_2d.draw(ctx)
@@ -655,7 +663,6 @@ class FrameMixin:
         from .. import tokens as tokens_mod
         from ..main import _SINGLE_PANE_MODES
         from ..modes.home.ui.panes import landing
-        from ..modes.library.ui.panes import library
         from ..modes.settings.ui.panes import app_settings
         from ..panes import inspector
 
@@ -876,7 +883,6 @@ class FrameMixin:
                     else:
                         self._inker_workspace()
                 else:
-
                     # The library used to share the left sidebar with settings, split by
                     # settings_share; it shares the right sidebar with the inspector now
                     # instead, so the left column is settings alone (nothing left to split
@@ -918,13 +924,16 @@ class FrameMixin:
                     self._viewport_pane()
                     _column_boundary(self.layouts, "create", "right")
 
-                    _right_column(
-                        ctx,
-                        lay,
-                        right_w,
-                        inspector_draw=inspector.draw,
-                        library_draw=library.draw,
-                    )
+                    if ctx.state.create.inspector_open:
+                        from ..modes.create.ui import workspace as generation_workspace
+
+                        _right_column(
+                            ctx,
+                            lay,
+                            right_w,
+                            inspector_draw=inspector.draw,
+                            library_draw=generation_workspace.history,
+                        )
 
         imgui.end_child()
         imgui.end()
@@ -960,6 +969,8 @@ class FrameMixin:
         """
         from imgui_bundle import imgui
 
+        from ..modes.create.engine import assets as create_assets
+        from ..modes.create.engine import workspace as create_families
         from ..modes.create.ui import rail as create_rail
         from ..modes.create.ui import stages as create_stages
         from ..panes import inspector
@@ -978,7 +989,10 @@ class FrameMixin:
                 create_stages.ICONS[stage],
                 create_stages.available(stage, job, ctx),
             )
-            for stage in create_stages.STAGES
+            for stage in create_families.journey(
+                create_assets.selected(ctx.state.form_2d).key,
+                has_mesh=(job or {}).get("stage") == "model",
+            )
         ]
         picked = create_rail.stage_rail(
             "create-stages",
@@ -1004,6 +1018,7 @@ class FrameMixin:
         from imgui_bundle import imgui
 
         from .. import layout as layout_mod
+        from ..modes.create.ui import preview as create_preview
         from ..modes.create.ui import stages as create_stages
         from ..modes.create.ui import workspace as generation_workspace
         from ..panes import overlay
@@ -1013,6 +1028,8 @@ class FrameMixin:
         # Leave room for the inspector; the progress card floats over the image
         # now, so the full height is the image's.
         width = layout_mod.centre_width()
+        if not ctx.state.create.inspector_open:
+            width += layout_mod.sidebar_width("right") + imgui.get_style().item_spacing.x
         # no_scroll_with_mouse: over the viewport the wheel can only mean dolly.
         with layout_mod.pane(
             "viewport",
@@ -1045,9 +1062,7 @@ class FrameMixin:
                 # running job adds its own height to the floor rather than
                 # pushing a card's actions below the fold.
                 extra = sp(generation_workspace.tray_extra(ctx))
-                tray_height = (
-                    min(sp(320) + extra, max(sp(232) + extra, height * 0.36)) if tray else 0.0
-                )
+                tray_height = min(sp(186) + extra, height * 0.48) if tray else 0.0
                 gap = imgui.get_style().item_spacing.y if tray else 0
                 canvas_height = max(height - tray_height - gap, sp(64))
                 if tray:
@@ -1055,24 +1070,40 @@ class FrameMixin:
                     # height, so it needs its own top child; otherwise it would
                     # consume the tray's room before the tray is drawn.
                     if imgui.begin_child(
-                        "generation-canvas", (0, canvas_height), False,
+                        "generation-canvas",
+                        (0, canvas_height),
+                        False,
                         imgui.WindowFlags_.no_scroll_with_mouse.value,
                     ):
-                        if not reference_stage and self.viewer.has_model:
+                        if generation_workspace.image_comparison(
+                            ctx, width, canvas_height
+                        ) or create_preview.draw(ctx, width, canvas_height):
+                            pass
+                        elif not reference_stage and self.viewer.has_model:
                             self._draw_viewport_image(
-                                imgui.get_cursor_screen_pos(), width, canvas_height
+                                imgui.get_cursor_screen_pos(),
+                                width,
+                                max(64, imgui.get_content_region_avail().y),
                             )
                         elif self.viewer.reference is not None:
-                            self._draw_reference(width, canvas_height)
+                            self._draw_reference(width, max(64, imgui.get_content_region_avail().y))
                         else:
-                            overlay.placeholder(ctx)
+                            generation_workspace.empty_canvas(ctx)
                     imgui.end_child()
+                elif generation_workspace.image_comparison(
+                    ctx, width, height
+                ) or create_preview.draw(ctx, width, height):
+                    pass
                 elif not reference_stage and self.viewer.has_model:
-                    self._draw_viewport_image(imgui.get_cursor_screen_pos(), width, height)
+                    self._draw_viewport_image(
+                        imgui.get_cursor_screen_pos(),
+                        width,
+                        max(64, imgui.get_content_region_avail().y),
+                    )
                 elif reference_stage and self.viewer.reference is not None:
-                    self._draw_reference(width, height)
+                    self._draw_reference(width, max(64, imgui.get_content_region_avail().y))
                 else:
-                    overlay.placeholder(ctx)
+                    generation_workspace.empty_canvas(ctx)
                 if tray:
                     imgui.separator()
                     generation_workspace.draw(ctx, tray_height, stage)

@@ -62,7 +62,7 @@ of exporter problem where a posed model arrives at rest with the pose demoted to
 plays.
 
 **Export for Godot...**, on a rigged asset with clips authored for it, writes a folder named after
-the character, holding a `.glb` and a `.tscn` sharing that same name — into your export folder, or
+the character with `-godot` added, holding a `.glb` and a `.tscn` sharing that same name — into your export folder, or
 one you pick. The GLB is a copy of the animated model with its looping clips renamed for Godot 4's
 importer (a `walk` clip becomes `walk-loop`); the scene instances it and wires an `AnimationTree`
 state machine over its clips — idle, walk and run blended
@@ -89,13 +89,22 @@ Packwright's sidecar is TexturePacker's format instead, which a great many 2D to
 understand.
 
 A Poser character sheet has a third way out: **Export frames...** writes a folder named after the
-character, one subfolder per movement inside it, one subfolder per compass direction inside that
+character with `-frames` added, one subfolder per movement inside it, one subfolder per compass direction inside that
 (`N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW`; `S` is the character facing you, `W` its left profile),
 and `000.png`, `001.png` and so on inside that — plus a
 `manifest.json` (format `realmspinner-frames`, version 1) stating the frame size, whether the sheet is
 pixel art or HD, and each clip's own `loop`, `frames`, `duration_ms`, `fps` and `directions`. It is
 for an engine that wants `AnimatedSprite2D`-style frame folders rather than one atlas plus one
-sidecar, and a re-export replaces the folder whole.
+sidecar.
+
+**An export never overwrites what is already in your export folder.** If `Knight-frames`,
+`Knight-godot` or `Knight.png` and `Knight.json` are already there — from an earlier export, from a
+second character that is also called Knight, or from a folder of your own — the new export takes the
+next free name (`Knight-frames-2`, `Knight-godot-2`, `Knight-2.png`) and leaves the existing one exactly
+as it was. A Godot scene's `.glb` and `.tscn` take the new name with it, so the folder stays
+self-consistent. The one exception is a deliberate one: an export asked to replace (the app only does
+so when you say so) swaps the folder whole, and even then it refuses a folder that Realmspinner did not
+write. An agent's `character_export` never replaces anything; a repeat export lands beside the first.
 
 ## Tiled and Aseprite: read this before relying on it
 

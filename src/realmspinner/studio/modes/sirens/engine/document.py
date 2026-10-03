@@ -586,7 +586,7 @@ class SongDoc:
         index = self.patterns.index(pattern)
         after = tuple(one for one in self.order if one != uid)
         loop_before = self.loop_order
-        loop_after = -1 if loop_before >= len(after) else loop_before
+        loop_after = _carry_loop(tuple(self.order), after, loop_before)
         self.history.push(
             E.PatternRemoveEdit(
                 pattern=pattern, index=index, order_before=tuple(self.order), order_after=after,
@@ -595,6 +595,7 @@ class SongDoc:
         )
         self._detach_pattern(uid)
         self._apply_order(after)
+        self.loop_order = loop_after
         return True
 
     def duplicate_pattern(self, uid: int) -> Pattern:
@@ -684,13 +685,19 @@ class SongDoc:
 
     # --- the order ------------------------------------------------------------
 
-    def set_order(self, order: Any) -> bool:
+    def set_order(self, order: Any, loop_order: int | None = None) -> bool:
         """Replace the whole order list. Every order change goes through here.
 
         Insert, remove, move and retarget are all one assignment away from each
         other over a list of at most :data:`MAX_ORDER` integers, and giving each
         an edit type of its own would be four classes that reverse to the same
         thing.
+
+        sirens-01 (2026-10-03 audit): the loop point is an index, so it is
+        carried through the change in the same step -- by position, through
+        the entries that were inserted or removed -- rather than left to point
+        at whatever landed there. ``loop_order`` overrides the mapping for a
+        caller that knows better (a move).
         """
         after = tuple(int(one) for one in order)
         # sirens-02 (2026-09-18 audit, second run): every sibling ceiling in
@@ -707,7 +714,12 @@ class SongDoc:
         if after == tuple(self.order):
             return False
         loop_before = self.loop_order
-        loop_after = -1 if loop_before >= len(after) else loop_before
+        if loop_order is None:
+            loop_after = _carry_loop(tuple(self.order), after, loop_before)
+        else:
+            loop_after = int(loop_order)
+            if not -1 <= loop_after < len(after):
+                raise ValueError("the loop point must name an order entry")
         self.history.push(
             E.OrderEdit(
                 before=tuple(self.order), after=after,
@@ -715,6 +727,7 @@ class SongDoc:
             )
         )
         self._apply_order(after)
+        self.loop_order = loop_after
         return True
 
     def _apply_order(self, order: tuple[int, ...]) -> None:
@@ -1049,3 +1062,29 @@ def new_song() -> SongDoc:
         patterns=[pattern],
         order=[pattern.uid],
     )
+
+
+def _carry_loop(before: tuple[int, ...], after: tuple[int, ...], loop: int) -> int:
+    """Where an order index lands after the list changed from ``before``.
+
+    sirens-01 (2026-10-03 audit): entries above the loop point being removed
+    or inserted used to leave the index alone, so the loop silently moved to
+    whatever now sat there. The common prefix and suffix of the two lists say
+    which entries survived: one in the prefix keeps its index, one in the
+    suffix shifts by the length change. A loop on an entry that was itself
+    changed keeps the old rule (the same index, or off the end -> none).
+    """
+    if loop < 0:
+        return -1
+    n, m = len(before), len(after)
+    prefix = 0
+    while prefix < min(n, m) and before[prefix] == after[prefix]:
+        prefix += 1
+    if loop < prefix:
+        return loop
+    suffix = 0
+    while suffix < min(n, m) - prefix and before[n - 1 - suffix] == after[m - 1 - suffix]:
+        suffix += 1
+    if loop >= n - suffix:
+        return loop + (m - n)
+    return -1 if loop >= m else loop

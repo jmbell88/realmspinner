@@ -697,3 +697,37 @@ def test_the_fit_is_unset_until_a_frame_measures_one() -> None:
     assert layout.SIDEBAR_FIT is None or isinstance(layout.SIDEBAR_FIT, float)
     if layout.SIDEBAR_FIT is None:
         assert layout.sidebar_width() == pytest.approx(sp(layout.SIDEBAR_W))
+
+
+@pytest.mark.parametrize("palette", sorted(tokens.PALETTES))
+def test_a_primary_and_a_destructive_button_label_clears_the_copy_bar_in_every_palette(
+    palette: str,
+) -> None:
+    """shell-09: the label of a filled button is drawn on ACCENT or ERR, a pair
+    no test measured; TEXT on those came out 1.98-4.05:1."""
+    colours = tokens.PALETTES[palette]
+    for role in ("ACCENT", "ERR"):
+        label = tokens.label_on(colours[role], palette)
+        ratio = tokens.contrast(label, colours[role])
+        assert ratio >= tokens.CONTRAST_TEXT, f"{palette}: label on {role} is {ratio:.2f}:1"
+
+
+@pytest.mark.parametrize("palette", sorted(tokens.PALETTES))
+def test_toast_text_is_readable_on_every_status_background_in_every_palette(
+    palette: str,
+) -> None:
+    """shell-10: a toast paints OK/WARN/ERR as its window background; its
+    sentence and glyph must be the label colour for that fill, not TEXT."""
+    from realmspinner.studio import widgets
+
+    colours = tokens.PALETTES[palette]
+    previous = tokens.THEME
+    tokens.set_theme(palette)
+    try:
+        for level in ("success", "warn", "error"):
+            fill, _glyph = widgets.toast_style(level)
+            label = widgets.toast_text_colour(level)
+            assert tokens.contrast(label, fill) >= tokens.CONTRAST_TEXT, (palette, level)
+    finally:
+        tokens.set_theme(previous)
+    assert colours  # the palette exists

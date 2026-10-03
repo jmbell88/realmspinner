@@ -136,6 +136,8 @@ class Text2ImageClient:
         tile: bool = False,
         sheet: bool = False,
         tilesheet: bool = False,
+        generation_type: str | None = None,
+        prompt_policy: int = 8,
         size: tuple[int, int] | None = None,
     ) -> Path:
         """Generate a reference image and save it to ``output_path``.
@@ -164,6 +166,8 @@ class Text2ImageClient:
             "tile": bool(tile),
             "sheet": bool(sheet),
             "tilesheet": bool(tilesheet),
+            "generation_type": generation_type,
+            "prompt_policy": int(prompt_policy),
             "size": [int(size[0]), int(size[1])] if size is not None else None,
         }
         # PIL images cannot cross the JSON process boundary.  Keep the files

@@ -21,6 +21,7 @@ the facade; the binding is early, and no test redirects it.
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import uuid
 from typing import Any
@@ -282,6 +283,12 @@ def rerun_job(
             # one key that tuple deliberately does not strip. See
             # ``_jobs_music.TASK_PARAMS`` for why it does not.
             params["retake_seed"] = random_seed()
+        if source["params"].get("task") and "seed" in source["params"]:
+            # muse-02 (2026-10-03 audit): a derived take's ``seed`` is the
+            # parent's inherited noise draw; the reroll above refreshed it
+            # for every kind, which made "another like this" an unrelated
+            # piece. Only ``retake_seed`` rolls.
+            params["seed"] = source["params"]["seed"]
     params["rerun_of"] = job_id
     # A reroll of a reference-stage job is "try another": it must stop at the
     # reference again, not fall through to the default "model" stage and
@@ -511,13 +518,29 @@ def rerun_job(
     # is why the except below now covers a case it never did.
     src_ref = svc.job_dir(job_id) / "ref.png"
     carry_ref = mode == "reroll" and src_ref.exists()
+    # The other files a reroll's params go on to name: the inpaint mask beside
+    # an img2img start image (service-05: without it "same prompt, new seed"
+    # silently repainted the protected region) and every FLUX.2 native
+    # reference (service-04: the key was copied, the files were not, so the
+    # reroll failed at dispatch). Plain names only -- the stored list is data.
+    carry_extra: list[str] = []
+    if mode == "reroll":
+        if params.get("init_image") and (svc.job_dir(job_id) / "mask.png").exists():
+            carry_extra.append("mask.png")
+        for stored_name in params.get("native_reference_files") or ():
+            name = str(stored_name)
+            if (
+                re.fullmatch(r"native_reference_\d+\.png", name)
+                and (svc.job_dir(job_id) / name).exists()
+            ):
+                carry_extra.append(name)
     # A derived take reads a ``source.wav`` the *door* wrote, so a reroll of one
     # has to bring it along or the child dispatches into a missing file. The
     # ``input.png`` argument on a different noun.
     src_wav = svc.job_dir(job_id) / "source.wav"
     carry_wav = kind == "music" and src_wav.exists()
     try:
-        if kind == "image" or carry_ref or carry_wav:
+        if kind == "image" or carry_ref or carry_wav or carry_extra:
             # Before the row exists, for the same reason create_job does it:
             # next_queued can otherwise claim the job in the gap and find no
             # input.png on disk.
@@ -527,6 +550,8 @@ def rerun_job(
                 shutil.copyfile(src_png, new_dir / "input.png")
             if carry_ref:
                 shutil.copyfile(src_ref, new_dir / "ref.png")
+            for carried in carry_extra:
+                shutil.copyfile(svc.job_dir(job_id) / carried, new_dir / carried)
             if carry_wav:
                 shutil.copyfile(src_wav, new_dir / "source.wav")
         # A derived take's lineage survives its reroll: "another one of these"
@@ -595,6 +620,7 @@ def promote_to_model(
     profile: str | None = None,
     custom_triangles: int | None = None,
     lowpoly_triangles: int | None = None,
+    mesh_finishing: str | None = None,
     trellis_band: int | None = None,
     trellis_tex_res: int | None = None,
     trellis_gss: float | None = None,
@@ -609,6 +635,7 @@ def promote_to_model(
     prepared: matte.Prepared | None = None,
     candidate_group: str | None = None,
     candidate_index: int = 0,
+    create_workspace: str | None = None,
 ) -> dict[str, Any]:
     """Run the 3D stage from a reference the user approved.
 
@@ -701,6 +728,8 @@ def promote_to_model(
     # parent_id, and carrying it would claim the mesh is a rerun of a
     # reference it never was.
     params.pop("rerun_of", None)
+    if create_workspace:
+        params["create_workspace"] = create_workspace
     # No ref.png is copied either: the promotion is an image job, and the
     # conditioning already did its work in the reference this promotes.
 
@@ -733,6 +762,10 @@ def promote_to_model(
     params.update(_normalize_guidance(svc, raw))
     resolve_profile(svc, params, profile, custom_triangles)
     resolve_lowpoly(svc, params, profile, lowpoly_triangles)
+    if mesh_finishing is not None:
+        if mesh_finishing not in ("preserve_shape", "repair"):
+            raise Invalid("mesh_finishing must be preserve_shape or repair", field="mesh_finishing")
+        params["mesh_finishing"] = mesh_finishing
     # create_job's own unset-follows-config rule, restated rather than
     # re-derived: an inherited value describes the *source* reference's mesh
     # stage, which never ran these flags (a reference is text/image, not

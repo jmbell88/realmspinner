@@ -120,7 +120,18 @@ def _letterbox(png: bytes, size: int) -> Image.Image:
             flat.paste(rgba, mask=rgba.split()[-1])
         else:
             flat = src.convert("RGB")
-        flat.thumbnail((size, size), Image.LANCZOS)
+        # Fit the cell in both directions: thumbnail() never enlarges, so a
+        # 256 px reference that fills its frame covered 6% of a 1024 cell
+        # while the render filled the whole cell, and the compare read as a
+        # proportion mismatch that was not there (2026-10-03 audit, agents-07).
+        scale = size / max(flat.width, flat.height)
+        if scale > 1.0:
+            flat = flat.resize(
+                (max(1, round(flat.width * scale)), max(1, round(flat.height * scale))),
+                Image.LANCZOS,
+            )
+        else:
+            flat.thumbnail((size, size), Image.LANCZOS)
         cell = Image.new("RGB", (size, size), "white")
         x = (size - flat.width) // 2
         y = (size - flat.height) // 2

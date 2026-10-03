@@ -331,7 +331,7 @@ def test_a_frame_export_that_fails_part_way_leaves_nothing_at_the_destination(sv
     assert not dest_root.exists() or list(dest_root.iterdir()) == []
 
 
-def test_re_exporting_replaces_the_character_folder_whole(svc, tmp_path):
+def test_re_exporting_with_overwrite_replaces_the_character_folder_whole(svc, tmp_path):
     layout = _two_movement_layout()
     job_id, sheet_id, _colors = _build_sheet(svc, layout, with_troupe_block=True, name="Ranger")
     dest_root = tmp_path / "out"
@@ -341,10 +341,93 @@ def test_re_exporting_replaces_the_character_folder_whole(svc, tmp_path):
     stray.write_text("stale", "utf-8")
     assert stray.exists()
 
-    dest2 = svc_characters.export_frames(svc, job_id, sheet_id, dest_dir=dest_root)
+    dest2 = svc_characters.export_frames(
+        svc, job_id, sheet_id, dest_dir=dest_root, overwrite=True
+    )
     assert dest2 == dest
     assert not stray.exists()
     assert (dest2 / "manifest.json").exists()
+
+
+def test_re_exporting_never_replaces_an_existing_folder_unless_told_to(svc, tmp_path):
+    """The user's rule: a duplicate folder is never overwritten unless they say so."""
+    layout = _two_movement_layout()
+    job_id, sheet_id, _colors = _build_sheet(svc, layout, with_troupe_block=True, name="Ranger")
+    dest_root = tmp_path / "out"
+
+    first = svc_characters.export_frames(svc, job_id, sheet_id, dest_dir=dest_root)
+    stray = first / "mine.txt"
+    stray.write_text("keep", "utf-8")
+    second = svc_characters.export_frames(svc, job_id, sheet_id, dest_dir=dest_root)
+    third = svc_characters.export_frames(svc, job_id, sheet_id, dest_dir=dest_root)
+
+    assert stray.read_text("utf-8") == "keep"
+    assert [first.name, second.name, third.name] == [
+        "Ranger-frames", "Ranger-frames-2", "Ranger-frames-3",
+    ]
+    assert (second / "manifest.json").exists() and (third / "manifest.json").exists()
+
+
+def test_two_characters_with_one_name_get_two_folders_in_every_format(svc, tmp_path):
+    layout = _two_movement_layout()
+    job_a, sheet_a, _ = _build_sheet(svc, layout, with_troupe_block=True, name="Knight")
+    job_b, sheet_b, _ = _build_sheet(svc, layout, with_troupe_block=True, name="Knight")
+    out = tmp_path / "out"
+
+    pkg_a = svc_characters.export_package(svc, job_a, sheet_a, dest_dir=out)
+    pkg_b = svc_characters.export_package(svc, job_b, sheet_b, dest_dir=out)
+    assert pkg_a["png"] != pkg_b["png"] and pkg_a["json"] != pkg_b["json"]
+    assert Path(pkg_a["png"]).exists() and Path(pkg_b["png"]).exists()
+    assert Path(pkg_b["png"]).name == "Knight-2.png"
+    assert Path(pkg_b["json"]).name == "Knight-2.json"
+
+    before = Path(pkg_a["png"]).read_bytes()
+    pkg_c = svc_characters.export_package(svc, job_a, sheet_a, dest_dir=out, overwrite=True)
+    assert pkg_c["png"] == pkg_a["png"]
+    assert Path(pkg_a["png"]).read_bytes() == before
+    assert not (out / "Knight-3.png").exists()
+
+
+def test_a_godot_re_export_takes_a_new_name_and_overwrite_replaces(svc, tmp_path):
+    job_id = _rigged_and_animated(svc, animation_names=["idle"], loops=["idle"], name="Ranger")
+    out = tmp_path / "out"
+    first = svc_characters.export_godot(svc, job_id, dest_dir=out)
+    (first / "hand_attached.gd").write_text("extends Node", "utf-8")
+    second = svc_characters.export_godot(svc, job_id, dest_dir=out)
+    assert second.name == "Ranger-godot-2" and first.name == "Ranger-godot"
+    assert (first / "hand_attached.gd").exists()
+    # the scene inside names itself after its own (new) folder
+    assert (second / "Ranger-godot-2.tscn").exists() and (second / "Ranger-godot-2.glb").exists()
+    third = svc_characters.export_godot(svc, job_id, dest_dir=out, overwrite=True)
+    assert third == first and not (first / "hand_attached.gd").exists()
+
+
+def test_a_repeat_agent_export_lands_beside_the_first_not_over_it(svc, tmp_path):
+    job_id = _rigged_and_animated(svc, animation_names=["idle"], loops=["idle"], name="Knight")
+    svc.config.export_dir = tmp_path / "out"
+    stem = svc_characters.agent_export_stem(svc, job_id)
+    svc_export.run_character_export(svc, "animated_glb", job_id, stem=stem)
+    first = svc.config.export_dir / f"{stem}.glb"
+    first.write_bytes(b"user edited")
+    svc_export.run_character_export(svc, "animated_glb", job_id, stem=stem)
+    assert first.read_bytes() == b"user edited"
+    assert (svc.config.export_dir / f"{stem}-2.glb").exists()
+    svc_export.run_character_export(svc, "animated_glb", job_id, stem=stem, overwrite=True)
+    assert first.read_bytes() != b"user edited"
+    assert not (svc.config.export_dir / f"{stem}-3.glb").exists()
+
+
+def test_a_repeat_human_animated_glb_export_keeps_the_first_file(svc, tmp_path):
+    job_id = _rigged_and_animated(svc, animation_names=["idle"], loops=["idle"], name="Ranger")
+    svc.config.export_dir = tmp_path / "out"
+    svc_export.run_character_export(svc, "animated_glb", job_id)
+    first = svc.config.export_dir / job_id / "animated.glb"
+    first.write_bytes(b"user edited")
+    svc_export.run_character_export(svc, "animated_glb", job_id)
+    assert first.read_bytes() == b"user edited"
+    assert (svc.config.export_dir / job_id / "animated-2.glb").exists()
+    svc_export.run_character_export(svc, "animated_glb", job_id, overwrite=True)
+    assert first.read_bytes() != b"user edited"
 
 
 def test_a_sheet_export_without_a_sheet_is_refused_on_sheet_id(svc):

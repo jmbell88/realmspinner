@@ -1167,14 +1167,15 @@ register(
         reason=_REDO[1],
     )
 )
+_UNDO_HISTORY = when_ready(has_doc, NO_DOC)
 register(
     Op(
         "undo_history",
         "Undo history...",
         dialog("inker-undo-history"),
         menu="Edit",
-        enabled=has_doc,
-        reason=NO_DOC,
+        enabled=_UNDO_HISTORY[0],
+        reason=_UNDO_HISTORY[1],
         hint=(
             "Every step the stack is holding, with the head marked. Clicking "
             "one walks there through undo and redo -- it is the operation you "

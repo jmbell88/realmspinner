@@ -1163,7 +1163,11 @@ def bridge_dispatch(
     """
     try:
         parsed = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
+        # ValueError is the parent of UnicodeDecodeError and JSONDecodeError and
+        # also what json.loads raises for an integer literal over 4300 digits
+        # (the 2026-10-03 audit, agents-02): one ~4 KB line escaped this guard
+        # and ended the whole bridge process.
         # The 2026-09-14 audit (agents-02): this dispatcher's own parse is a
         # second site with the same gap `decode()` had -- a deeply nested
         # JSON frame well under MAX_FRAME raises RecursionError, which

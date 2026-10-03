@@ -671,7 +671,6 @@ class PoseEditor:
     # that bookkeeping runs, which is what keeps ``@_undoable``'s "no state
     # changed" promise true on a refusal.
 
-    @_undoable
     def enter_skeleton_mode(self, rig: dict[str, Any]) -> None:
         """Seed ``draft`` from ``rig`` and switch to skeleton mode.
 
@@ -704,8 +703,11 @@ class PoseEditor:
             dtype="f8",
         )
         self._recompute_skeleton_handles()
+        # The boundary is not a step a later undo may cross: Ctrl+Z over it
+        # flipped ``mode`` back to "pose" under a pane still showing the
+        # skeleton editor (poser-02), so the history is dropped here instead.
+        self._reset_history()
 
-    @_undoable
     def exit_skeleton_mode(self) -> None:
         """Back to pose mode. The draft is discarded, saved or not: a caller
         that wants to keep it queues the re-rig (via :meth:`skeleton_payload`)
@@ -717,6 +719,7 @@ class PoseEditor:
         self.draft_dirty = False
         self.selected = None
         self._resync_handles()
+        self._reset_history()
 
     def skeleton_payload(self) -> dict[str, Any]:
         """The draft, in ``service.rig.edit_skeleton``'s payload shape."""

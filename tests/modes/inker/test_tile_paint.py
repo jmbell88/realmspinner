@@ -920,3 +920,39 @@ def test_an_undo_after_a_removal_rebuilds_the_index_on_demand():
     doc.history.undo(doc)
     assert any(slot.uid == uid for slot in doc.tilesets)
     assert doc._tile_hash_index(uid) is not None
+
+
+def test_stack_and_auto_paint_on_a_multi_column_imported_tileset_refuses_by_name_or_keeps_pixels_equal_to_the_materialization():  # noqa: E501
+    """The 2026-10-03 audit (inker-23): ``tiles.grow``/``shrink`` assumed a
+    one-column strip, so the first Stack stroke or Auto stroke over an empty
+    cell on a ``.tsx``-shaped tileset (columns, spacing, margin) raised a numpy
+    ValueError after the raw pixels were already on the cel."""
+    from realmspinner.kernels.grid2d.tileset import Tileset
+
+    image = np.zeros((11, 11, 4), dtype=np.uint8)  # margin 1, spacing 1, 2x2 tiles of 4x4
+    for local, colour in ((1, RED), (2, GREEN), (3, WHITE)):
+        col, row = local % 2, local // 2
+        image[1 + row * 5 : 5 + row * 5, 1 + col * 5 : 5 + col * 5] = colour
+    for behavior, rect in (("stack", (0, 0, 4, 4)), ("auto", (4, 0, 8, 4))):
+        doc = _doc()
+        slot = doc.add_tileset(
+            Tileset(name="t", pixels=image, tile_w=4, tile_h=4, spacing=1, margin=1)
+        )
+        assert slot.tileset.columns == 2 and slot.tileset.tile_count == 4
+        cel = doc.add_tilemap_layer(slot.uid)
+        doc.place_tiles(cel.uid, (0, 0), np.array([[1]], dtype=np.uint32))
+        doc.tile_behavior = behavior
+        _activate(doc, cel)
+        doc.history.clear()
+        try:
+            wrote = _paint(doc, rect, BLUE)
+        except ValueError:
+            pytest.fail(f"{behavior}: the stroke raised out of the canvas commit")
+        assert wrote is True
+        grown = slot.tileset
+        assert grown.tile_count > 4
+        assert np.array_equal(grown.tile_pixels(4), _tile(BLUE))
+        _assert_synced(doc)
+        doc.history.undo(doc)
+        assert slot.tileset.tile_count == 4
+        _assert_synced(doc)

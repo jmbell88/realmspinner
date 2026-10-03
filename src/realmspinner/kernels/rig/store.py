@@ -114,6 +114,13 @@ def finalize_rig(job_dir: Path) -> None:
     request, only its cached bake is invalidated.
     """
     (job_dir / "animated.glb").unlink(missing_ok=True)
+    # The previous rig's deformation review (poser-09, 2026-10-03): the QA tail
+    # only replaces these when it renders, so a re-rig whose QA is skipped
+    # (no battery for the template, kill switch, cancel) or fails would serve
+    # the old skeleton's sheet beside the new one. JSON first, PNG second, so a
+    # reader never finds a verdict without its picture's absence meaning "none".
+    rig_qa_path(job_dir).unlink(missing_ok=True)
+    rig_qa_png_path(job_dir).unlink(missing_ok=True)
     poses_dir = job_dir / POSE_DIR_NAME
     if poses_dir.is_dir():
         for stale in poses_dir.glob("*.glb"):

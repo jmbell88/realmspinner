@@ -120,10 +120,13 @@ Select something you expect to place repeatedly — a crate, a lamp post, the wa
 A **Prefabs** panel appears in the left column. Click your new row and place it three times, the same
 way you placed an asset.
 
-Those three are **instances**, not copies. Select the original, change it — scale it, retint it — and
-all three change with it, immediately, with no step to apply and nothing to get out of step. An
-instance carries its own transform — position, rotation and scale — and nothing else: move, rotate or
-resize one without touching the others, and everything else about it still follows the template.
+Those three are **instances**, not copies. Select any one of them and look at its **Properties**
+panel: under **template** is the material override. Tick **Override** and change the colour, and all
+three change with it, immediately, with no step to apply and nothing to get out of step. (That
+control exists when the prefab was made from a single mesh; a prefab made from a group has no one
+material to retint, and the panel says so.) An instance carries its own transform — position,
+rotation and scale — and nothing else: move, rotate or resize one without touching the others, and
+everything else about it still follows the template.
 
 When you want *one* of them to differ, select it and choose **Unpack instance**. It becomes a real
 copy of the template's contents, editable like anything else, and the link is gone. That is the

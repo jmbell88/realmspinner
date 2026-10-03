@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--stage",
         default="reference",
-        choices=("reference", "model"),
+        choices=("reference", "model", "create"),
         help="reference is ~10-45 min for 160 jobs; model is 6-8 h of GPU",
     )
     run.add_argument("--seeds", type=_seeds, default=(), help="override the suite's seeds")
@@ -97,6 +97,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="an existing run directory; its own item/seed selection is reused",
     )
     run.add_argument("--dry-run", action="store_true")
+    run.add_argument(
+        "--reference-run", type=Path,
+        help="reuse identical reference images for mesh comparisons or reference editing",
+    )
+
+    quality = sub.add_parser(
+        "quality", help="report acceptance with equal weight per output family"
+    )
+    quality.add_argument("run_dir", type=Path)
+    quality.add_argument("--grades", type=Path)
+    blind = sub.add_parser(
+        "blind-review", help="prepare anonymous paired artifacts and grading rubrics"
+    )
+    blind.add_argument("left", type=Path)
+    blind.add_argument("right", type=Path)
+    blind.add_argument("out", type=Path)
+    blind.add_argument("--seed", type=int, default=42)
+    grading = sub.add_parser(
+        "import-review", help="import completed blind rubrics into quality reports"
+    )
+    grading.add_argument("review_dir", type=Path)
 
     score = sub.add_parser("score", help="score a finished run's rendered views")
     score.add_argument("run_dir", type=Path, help="a run directory under bench/runs")
@@ -280,6 +301,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "score":
         return _score(config, args)
+    if args.command in ("quality", "blind-review", "import-review"):
+        from . import quality
+
+        if args.command == "quality":
+            print(quality.report(args.run_dir, args.grades))
+        elif args.command == "blind-review":
+            print(quality.blind_review(args.left, args.right, args.out, args.seed))
+        else:
+            quality.import_review(args.review_dir)
+        return 0
 
     if args.command == "compare":
         return _compare(config, args)
@@ -340,6 +371,7 @@ def _run(config, args) -> int:
     run_dir, todo, doc = runner_mod.plan_run(
         config, suite, recipe,
         stage=args.stage, started=started, run_dir=args.resume, **selection,
+        reference_run=args.reference_run,
     )
     print(f"{len(todo)} job(s): {len(doc['items'])} items x {len(doc['seeds'])} seeds")
     print(f"stage: {args.stage}   run dir: {run_dir}")
@@ -355,6 +387,7 @@ def _run(config, args) -> int:
             started=started, categories=args.categories, ids=args.ids,
             limit=args.limit, seeds=args.seeds, render=args.render,
             keep_source=args.keep_source, resume=args.resume, on_event=print,
+            reference_run=args.reference_run,
         )
     except KeyboardInterrupt:
         print("interrupted")

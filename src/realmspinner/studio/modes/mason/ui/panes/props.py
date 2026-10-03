@@ -24,16 +24,21 @@ package asks of a caller, restated in that module's own docstring), then the
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
+import numpy as np
 from imgui_bundle import imgui
 
+from ......kernels.geom3d import gltf
 from ......kernels.geom3d import math3d as m3
 from ..... import controls, icons, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as mason_mode
+from ...engine import document as md
 from ...engine import gltfout
+from ...engine import nodes as nd
 from ...engine import scene as mscene
 
 
@@ -68,9 +73,8 @@ def _body(ctx: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
     _kind_block(doc, node)
     imgui.dummy((0, sp(tokens.SP_2)))
-    _properties(doc, node)
+    _properties(doc, node, state)
     imgui.end_disabled()
-    del state
 
 
 def _selected(doc: Any) -> Any:
@@ -120,6 +124,11 @@ def _transform(doc: Any, node: Any) -> None:
     widgets.help_marker("A quaternion, XYZW -- the gizmo is the way to set one by eye.")
     changed |= edited
     if changed:
+        # Every keystroke passes through here: a half-typed component leaves a
+        # non-unit quaternion that shears the node, so normalise before storing
+        # (a zero quaternion is not a rotation -- keep the old one).
+        if float(np.linalg.norm(np.asarray(rotation, dtype="f8"))) == 0.0:
+            rotation = was[1]
         doc.set_transform(
             node.uid, translation=translation, rotation=rotation, scale=scale, was=was
         )
@@ -185,6 +194,13 @@ def _mesh_block(doc: Any, node: Any) -> None:
     widgets.muted(f"source: {node.ref}")
     if (node.uid, node.ref) in {(n.uid, r) for n, r in doc.missing_refs()}:
         widgets.secondary("Missing -- the source could not be resolved.")
+    # The 2026-10-03 audit's mason-07: manual 31 and Chapter 17 promise a
+    # material override ("retint it") that nothing in the UI ever authored.
+    changed, material = _material_override(
+        doc, f"m{node.uid}", node.material, required=False
+    )
+    if changed:
+        doc.set_props(node.uid, material=material)
 
 
 def _light_block(doc: Any, node: Any) -> None:
@@ -270,10 +286,115 @@ def _prefab_block(doc: Any, node: Any) -> None:
     space in the viewport with no explanation anywhere in the UI.
     """
     widgets.muted(f"instance of '{node.template}'")
-    if node.template in doc.prefabs:
-        widgets.muted("edit the template through any instance of it")
+    template = doc.prefabs.get(node.template)
+    if template is not None:
+        _template_block(doc, node.template, template)
         return
     widgets.secondary("No template of that name -- this instance draws nothing.")
+
+
+def _new_override() -> gltf.Material:
+    """What a fresh override starts as: white, non-metal, mostly matte. The
+    glTF default (metallic 1.0) would turn a just-ticked override near-black."""
+    return gltf.Material(
+        name="override",
+        base_color_factor=(1.0, 1.0, 1.0, 1.0),
+        metallic_factor=0.0,
+        roughness_factor=0.8,
+    )
+
+
+def retinted(
+    material: gltf.Material,
+    *,
+    colour: tuple[float, ...] | None = None,
+    metallic: float | None = None,
+    roughness: float | None = None,
+) -> gltf.Material:
+    """A *new* material with the given factors changed -- never an in-place
+    write. A material is shared by identity (``nodes.copy_subtree``'s own
+    argument), so mutating one would retint every node and export that shares
+    it, and an undo step holding "the same object before and after" would
+    record nothing (``set_props``'s ``was`` warning)."""
+    changes: dict[str, Any] = {}
+    if colour is not None:
+        changes["base_color_factor"] = tuple(min(1.0, max(0.0, float(c))) for c in colour[:4])
+    if metallic is not None:
+        changes["metallic_factor"] = min(1.0, max(0.0, float(metallic)))
+    if roughness is not None:
+        changes["roughness_factor"] = min(1.0, max(0.0, float(roughness)))
+    return replace(material, **changes)
+
+
+def _material_override(
+    doc: Any, tag: str, material: gltf.Material | None, *, required: bool
+) -> tuple[bool, gltf.Material | None]:
+    """Draw the override controls for ``material`` -> ``(changed, new)``.
+
+    ``required`` is the terrain's case (a ground always has a material, so
+    there is no on/off switch); a mesh or template root gets the switch, and
+    switching off reports ``(True, None)`` so the caller clears the override.
+    The caller writes the undoable step; this only draws, folds, and reports
+    (draw, fold, act -- every other door in this pane).
+    """
+    widgets.field_label("material")
+    if not required:
+        changed, on = widgets.toggle("Override", material is not None, tag=f"ovr{tag}")
+        if changed:
+            return True, (_new_override() if on else None)
+        if material is None:
+            return False, None
+        widgets.help_marker(
+            "Replaces the source's own material on this node, textures included."
+        )
+    assert material is not None
+    changed = False
+    edited, colour = controls.color_edit4(
+        f"colour##mmatcol{tag}", [float(c) for c in material.base_color_factor]
+    )
+    controls.fold_undo(doc.history)
+    new = material
+    if edited:
+        new = retinted(new, colour=tuple(colour))
+        changed = True
+    widgets.field_label("metallic")
+    edited, metallic = controls.input_float(
+        f"##mmatmet{tag}", float(material.metallic_factor), 0.05, 0.0
+    )
+    controls.fold_undo(doc.history)
+    if edited:
+        new = retinted(new, metallic=metallic)
+        changed = True
+    widgets.field_label("roughness")
+    edited, rough = controls.input_float(
+        f"##mmatrough{tag}", float(material.roughness_factor), 0.05, 0.0
+    )
+    controls.fold_undo(doc.history)
+    if edited:
+        new = retinted(new, roughness=rough)
+        changed = True
+    return changed, new
+
+
+def _template_block(doc: Any, name: str, template: Any) -> None:
+    """The template this instance follows, editable through it.
+
+    mason-08: Chapter 17 says changing the original retints every instance,
+    but an instance holds only its own transform, so the retint has to be made
+    on the template -- here, through any instance of it. Only a mesh root can
+    carry a material; a group template says so instead of drawing a control
+    that would write a field nothing reads.
+    """
+    widgets.muted("template (every instance follows it)")
+    if not isinstance(template, nd.MeshNode):
+        widgets.muted_wrapped(
+            "This template is a group: unpack an instance to edit its parts, "
+            "then Make prefab again under the same name."
+        )
+        return
+    changed, material = _material_override(doc, f"t{name}", template.material, required=False)
+    if changed:
+        doc.set_template_material(name, material)
 
 
 def _terrain_block(doc: Any) -> None:
@@ -308,13 +429,25 @@ def _terrain_block(doc: Any) -> None:
         # ``.rscn``), and a spinbox that can be dragged to zero must not be
         # able to raise out of a draw call.
         doc.set_terrain_config(size_x=max(0.01, size_x), size_z=max(0.01, size_z))
+    # mason-07: the ground's material had no control either. Always present on
+    # a ``Terrain`` (no "clear"), so the editor is the colour and surface
+    # factors alone.
+    changed, material = _material_override(doc, "terrain", terrain.material, required=True)
+    if changed and material is not None:
+        doc.set_terrain_config(material=material)
 
 
-def _properties(doc: Any, node: Any) -> None:
+def _properties(doc: Any, node: Any, state: Any = None) -> None:
     """The user ``properties`` table that reaches the engine manifest
-    untouched -- name/value rows, added and removed here rather than typed
-    into a generic dict editor, since a per-key widget for an open-ended
-    string-keyed dict is a door this pane does not need to build twice."""
+    untouched -- name/value rows, edited, added and removed here rather than
+    typed into a generic dict editor.
+
+    mason-08: the table used to list and delete only, though manual 31 calls
+    it where "your own key-and-value pairs" are made. A value edits in place
+    (committed on leaving the field, one step); the last row is a draft
+    name/value pair and **Add**, whose engine door is
+    ``MasonDoc.set_user_property``.
+    """
     widgets.field_label("properties")
     if not node.properties:
         widgets.muted("none")
@@ -322,12 +455,34 @@ def _properties(doc: Any, node: Any) -> None:
     for key, value in sorted(node.properties.items()):
         imgui.text(f"{key}:")
         imgui.same_line()
-        widgets.muted(str(value))
+        text = widgets.input_text(
+            f"##mpropval{node.uid}{key}",
+            str(value),
+            max_length=md.MAX_PROPERTY_VALUE,
+            commit=True,
+        )
+        if text != str(value):
+            doc.set_user_property(node.uid, key, text)
         imgui.same_line()
         if controls.small_button(f"{icons.TRASH}##mpropdel{key}"):
             remove_key = key
     if remove_key is not None:
-        props = dict(node.properties)
-        was = dict(node.properties)
-        del props[remove_key]
-        doc.set_props(node.uid, was={"properties": was}, properties=props)
+        doc.set_user_property(node.uid, remove_key, None)
+    if state is None:
+        return
+    state.prop_key = widgets.input_text(
+        "##mpropnewkey", state.prop_key, max_length=md.MAX_PROPERTY_KEY, hint="name"
+    )
+    state.prop_value = widgets.input_text(
+        "##mpropnewval", state.prop_value, max_length=md.MAX_PROPERTY_VALUE, hint="value"
+    )
+    imgui.begin_disabled(not state.prop_key.strip())
+    if controls.button("Add property##mpropadd"):
+        try:
+            doc.set_user_property(node.uid, state.prop_key, state.prop_value)
+        except ValueError:
+            pass
+        else:
+            state.prop_key = ""
+            state.prop_value = ""
+    imgui.end_disabled()

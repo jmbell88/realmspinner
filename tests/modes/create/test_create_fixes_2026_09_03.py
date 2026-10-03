@@ -48,6 +48,7 @@ def test_the_door_keeps_an_explicit_empty_negative_prompt(svc):
 
 def _ctx(accept: bool) -> SimpleNamespace:
     state = SimpleNamespace(
+        create=SimpleNamespace(workspace=None),
         form_3d=dict(state_mod.DEFAULT_FORM_3D),
         filters=SimpleNamespace(kind="all"),
         clear_field_errors=lambda: None,

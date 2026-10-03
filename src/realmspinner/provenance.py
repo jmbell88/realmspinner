@@ -35,6 +35,37 @@ RECIPE_VERSION = 1
 
 # (path, st_size, st_mtime_ns) -> fingerprint
 _cache: dict[tuple[str, int, int], str] = {}
+_engine_digests: dict[tuple[str, int, int], str] = {}
+
+
+def native_engine_identity(config: Any) -> dict[str, Any]:
+    """Identify the pinned executable by content; custom builds stay unknown.
+
+    Never infer an installed engine's release from the download catalog alone.
+    The complete digest is cached, unlike the inexpensive model fingerprints.
+    """
+    from . import models
+
+    path = config.resolve_trellis_exe()
+    digest = None
+    try:
+        st = path.stat()
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        digest = _engine_digests.get(key)
+        if digest is None:
+            with path.open("rb") as fh:
+                digest = hashlib.file_digest(fh, "sha256").hexdigest()
+            _engine_digests[key] = digest
+    except OSError:
+        pass
+    pinned = dict(models.TRELLIS_RUNTIME_DIGESTS)["trellis-server.exe"]
+    return {
+        "backend": "trellis2",
+        "engine": "trellis.cpp",
+        "engine_version": models.TRELLIS_RUNTIME_VERSION if digest == pinned else None,
+        "engine_sha256": digest,
+        "version_verified": digest == pinned,
+    }
 
 # Libraries whose version can change a generated image. Read from sys.modules
 # when already imported and from distribution metadata when not -- reading only
@@ -187,6 +218,7 @@ def trellis_recipe(config: Any, params: Mapping[str, Any], *, mesh_seed: int) ->
     """
     return {
         "version": RECIPE_VERSION,
+        **native_engine_identity(config),
         "seed": mesh_seed,
         "band": params.get("trellis_band", config.trellis_band),
         "tex_res": params.get("trellis_tex_res", config.trellis_tex_res),

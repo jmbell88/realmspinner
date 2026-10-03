@@ -63,8 +63,6 @@ def draw(ctx: Any) -> None:
     _history(ctx, tab)
     imgui.dummy((0, sp(tokens.SP_2)))
     _outputs(ctx, tab)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _game_check(ctx, tab)
     _recent(ctx)
 
 
@@ -130,9 +128,7 @@ def _files(ctx: Any, tab: Any) -> None:
         save=lambda: clay_mode.save(ctx, tab),
         save_as=lambda: clay_mode.save_as(ctx, tab),
     )
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _import_mesh(ctx, tab)
-    imgui.dummy((0, sp(tokens.SP_2)))
+    _generate_status(tab, clay_mode.ensure(ctx))
 
 
 #: Scale choices for "Import Mesh...", key is the multiplier ``import_file``
@@ -151,48 +147,41 @@ IMPORT_SCALE_OPTIONS = (
 IMPORT_UP_OPTIONS = (("y", "Y up"), ("z", "Z up"))
 
 
-def _import_mesh(ctx: Any, tab: Any) -> None:
-    """"Import Mesh...", plus the units/up-axis combo beside it a drop uses too.
+def import_settings(ctx: Any) -> None:
+    """The units and up-axis the next mesh import uses, beside nothing.
 
-    ``ClayState.import_scale``/``import_up`` are what both this button and a
-    file dropped on the viewport read (``clay_mode.import_mesh_path``'s own
-    defaults) -- set here, remembered for the next import in either form.
+    ``ClayState.import_scale``/``import_up`` are what the Add menu's "Import
+    Mesh..." row and a file dropped on the viewport both read
+    (``clay_mode.import_mesh_path``'s own defaults) -- set here, in the
+    Properties pane's Scene tab, and remembered for the next import in either
+    form. The row that *runs* the import moved to the menu strip with the rest
+    of the verbs; these two are settings, and the Scene tab is where the
+    document-wide settings are.
     """
     state = clay_mode.ensure(ctx)
-    if widgets.disabled_button(
-        f"{icons.FOLDER_OPEN} Import Mesh...",
-        not tab.saving,
-        reason="Saving..." if tab.saving else "",
-    ):
-        clay_mode.ask_import_mesh(ctx)
-    imgui.same_line()
+    widgets.field_label("import units")
     scale_key = f"{state.import_scale:g}"
-    picked = widgets.combo("##clay-import-scale", scale_key, IMPORT_SCALE_OPTIONS, sp(70))
+    picked = widgets.combo("##clay-import-scale", scale_key, IMPORT_SCALE_OPTIONS, sp(90))
     if picked != scale_key:
         state.import_scale = float(picked)
-    imgui.same_line()
+    widgets.field_label("import up axis")
     state.import_up = widgets.combo("##clay-import-up", state.import_up, IMPORT_UP_OPTIONS, sp(90))
-    imgui.dummy((0, sp(tokens.SP_1)))
-    _generate_row(ctx, tab, state)
 
 
 # --- generate into this document ---------------------------------------------
 #
-# "Import Mesh..." above brings in something built elsewhere; this builds it,
-# and lands it here rather than opening a second tab the way a Library row's
-# own "Edit in Clay" still does. See ``studio/modes/clay/generate.py`` for
-# every rule (the two-step text approval, the ceilings, the frame-thread
-# split) -- this file draws only what that module's own pure helpers already
-# decided.
+# "Import Mesh..." (in the Add menu) brings in something built elsewhere; this
+# builds it, and lands it here rather than opening a second tab the way a
+# Library row's own "Edit in Clay" still does. See ``studio/modes/clay/
+# generate.py`` for every rule (the two-step text approval, the ceilings, the
+# frame-thread split) -- this file draws only what that module's own pure
+# helpers already decided. The row that opens the popup is in the menu strip,
+# which also hosts the popup; the status line stays here, under the file.
 
 GENERATE_POPUP = "clay-generate"
 
 
-def _generate_row(ctx: Any, tab: Any, state: Any) -> None:
-    why = "Saving..." if tab.saving else ""
-    if widgets.disabled_button(f"{icons.SPARKLES} Generate...", not tab.saving, reason=why):
-        imgui.open_popup(GENERATE_POPUP)
-    _generate_popup(ctx, tab, state)
+def _generate_status(tab: Any, state: Any) -> None:
     # Visible with the popup closed too -- the same reason ``ClayTab.bg_busy``
     # (which this mirrors) is read by the hint line: a multi-minute wait with
     # nothing on screen saying so is the clay-41 defect this door must not
@@ -206,7 +195,8 @@ def _generate_row(ctx: Any, tab: Any, state: Any) -> None:
             widgets.muted(line)
 
 
-def _generate_popup(ctx: Any, tab: Any, state: Any) -> None:
+def generate_popup(ctx: Any, tab: Any, state: Any) -> None:
+    """The Generate popup's body. Called by the menu strip, which opens it."""
     if not imgui.begin_popup(GENERATE_POPUP):
         return
     widgets.popup_chrome(_imgui=imgui)
@@ -513,12 +503,15 @@ def _run_fix(ctx: Any, tab: Any, fix: str, uids: tuple[int, ...]) -> None:
         ctx.toast("Nothing to fix.", "warn")
 
 
-def _game_check(ctx: Any, tab: Any) -> None:
-    """"Game check": a profile combo, a Check button, and one row per check."""
-    from ......kernels.mesh import readiness
+def game_check(ctx: Any, tab: Any) -> None:
+    """"Game check": a profile combo, a Check button, and one row per check.
 
-    if not widgets.header("Game check", default_open=False, persist_key="clay-game-check"):
-        return
+    Drawn by the Properties pane's Scene tab (it measures the *document*, so it
+    sits beside the other document-wide settings rather than under the file's
+    Recent list in a pane titled "Model file"). It is still defined here, next
+    to ``validator_rows`` and ``_run_fix``, which are its tested halves.
+    """
+    from ......kernels.mesh import readiness
 
     profile = tab.readiness_profile or readiness.DEFAULT_PROFILE
     options = [(key, prof.label) for key, prof in readiness.PROFILES.items()]

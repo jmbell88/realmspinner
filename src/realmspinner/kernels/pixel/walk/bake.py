@@ -53,15 +53,20 @@ def composite_frames(
     settings: gait.WalkSettings,
     size: tuple[int, int],
     count: int = gait.WALK_FRAMES,
+    *,
+    rendered: list[Any] | None = None,
 ) -> list[np.ndarray]:
     """One flattened RGBA plane per frame -- what the preview shows.
+
+    *rendered* is ``render.frames(rest, settings, count)`` when the caller has
+    already made it (the preview also needs it for ``clipping``).
 
     Folded through the same ``composite.over`` the editor composites layers with,
     off the same placed planes the bake writes, so the preview and the baked
     document cannot disagree about what the walk looks like.
     """
     out: list[np.ndarray] = []
-    for frame in render.frames(rest, settings, count):
+    for frame in rendered if rendered is not None else render.frames(rest, settings, count):
         flat = to_float(np.zeros((size[1], size[0], 4), dtype=np.uint8))
         for name in rest.order:
             drawn = frame.get(name)

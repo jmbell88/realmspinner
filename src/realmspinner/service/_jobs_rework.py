@@ -72,6 +72,7 @@ def optimize_job(
     job = svc.require_job(job_id)
     if job["status"] in ("queued", "running"):
         raise Conflict(f"job is {job['status']}; re-optimize it once it finishes")
+    _refuse_cancelled(job, "re-optimize")
     _require_no_dependents(svc, job_id, "re-optimize")
     job_dir = svc.job_dir(job_id)
     source = job_dir / "source.glb"
@@ -205,7 +206,9 @@ def optimize_job(
     # ``model_history`` (2026-09-22): the row went on claiming a skin
     # that a retarget had just discarded -- now recoverable under Earlier
     # meshes, but no longer true of the row's own top-level "retexture" key.
-    drop = ["mesh_audit", "mesh_report", "remesh", "retexture"]
+    # "lowpoly" is the in-job Game-ready remesh record (2026-10-03 audit,
+    # pipelines-04): the inspector prints it as the finished mesh.
+    drop = ["mesh_audit", "mesh_report", "remesh", "retexture", "lowpoly"]
     if transform is None:
         drop += ["transform", "scale_factor"]
     else:
@@ -418,6 +421,7 @@ def retexture_job(
     job = svc.require_job(job_id)
     if job["status"] in ("queued", "running"):
         raise Conflict(f"job is {job['status']}; re-texture it once it finishes")
+    _refuse_cancelled(job, "re-texture")
     _require_no_dependents(svc, job_id, "re-texture")
     job_dir = svc.job_dir(job_id)
     if not (job_dir / "model.glb").exists():
@@ -547,6 +551,7 @@ def remesh_job(
     job = svc.require_job(job_id)
     if job["status"] in ("queued", "running"):
         raise Conflict(f"job is {job['status']}; remesh it once it finishes")
+    _refuse_cancelled(job, "remesh")
     _require_no_dependents(svc, job_id, "remesh")
     job_dir = svc.job_dir(job_id)
     if not (job_dir / "model.glb").exists():
@@ -655,6 +660,17 @@ def separate_job(
     new_id = svc.store.create("separate", job["prompt"], params, uuid.uuid4().hex[:12])
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id}
+
+
+def _refuse_cancelled(job: dict[str, Any], verb: str) -> None:
+    """A cancelled model job can still hold ``source.glb`` and ``model.glb``
+    (a finishing job checkpoints a complete reconstruction, see
+    ``_q_jobs._discard_artifacts``), but they are a half-finished, ungrounded,
+    un-audited pair kept for recovery -- not an asset. Every rework door
+    refusing the row is what stops a cancelled job being re-optimized, remeshed
+    or re-textured back into existence (2026-10-03 audit, service-03)."""
+    if job["status"] == "cancelled":
+        raise Conflict(f"job was cancelled; run it again instead of trying to {verb} it")
 
 
 def _require_no_dependents(

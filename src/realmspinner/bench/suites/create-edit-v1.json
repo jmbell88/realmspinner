@@ -1,0 +1,10 @@
+{
+  "key": "create-edit-v1",
+  "label": "Create reference editing v1",
+  "seeds": [42, 1337],
+  "notes": "Use --stage create --reference-run with a create-v1 image run. Fixed source hashes distinguish editing from text generation. Preserve composition and identity while applying each edit.",
+  "items": [
+    {"id": "image-landscape", "category": "environment", "output_family": "image", "prompt": "Keep the cottages, river and aerial composition; change the season to snowy winter and the lighting to sunset", "guidance": {}},
+    {"id": "image-interior", "category": "environment", "output_family": "image", "prompt": "Keep the tavern interior, table, two chairs and window in the same positions; change the furnishings to aged dark oak and the lighting to a cool moonlit night", "guidance": {}}
+  ]
+}

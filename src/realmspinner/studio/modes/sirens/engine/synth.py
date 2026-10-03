@@ -539,6 +539,22 @@ def _render(
                     tail_left = 0
                     player.halted = True
 
+    if produced >= ceiling and 0 <= player.order_index < len(order) and not player.halted:
+        last = player.order_index == len(order) - 1
+        end_pattern = doc.pattern(order[player.order_index]) if last else None
+        # A song that ends exactly on the ceiling is finished, not cut: only
+        # a player with rows still to play is a refusal.
+        if not (end_pattern is not None and player.row >= end_pattern.rows):
+            # sirens-02 (2026-10-03 audit): this used to return the truncated
+            # PCM (and a loop end equal to the cut) with no word said, though
+            # play.py/fileio.py and the manual promise the engine's own
+            # sentence with the ceiling in it.
+            raise ValueError(
+                f"the song runs longer than the {MAX_RENDER_SECONDS // 60} minute"
+                f" render limit ({MAX_RENDER_SECONDS} seconds) -- shorten the"
+                " order list, use fewer rows or speed up the tempo"
+            )
+
     if not left:
         return np.zeros((0, 2), dtype=np.float32), None, ()
     out = np.stack([np.concatenate(left), np.concatenate(right)], axis=1)

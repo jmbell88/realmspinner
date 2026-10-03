@@ -158,6 +158,12 @@ def _clay_props_ctx(monkeypatch, selection: set[str]):
     monkeypatch.setattr(clay_props.clay_mode, "ensure", lambda ctx: state)
     monkeypatch.setattr(clay_props.widgets, "section", lambda *a, **k: None)
     monkeypatch.setattr(clay_props.manual_render, "help_button", lambda *a, **k: None)
+    # The tab strip (a segmented choice) and its spacer need an imgui context
+    # this test deliberately does not build; the claim is the empty-state text.
+    monkeypatch.setattr(
+        clay_props.controls, "segmented_choice", lambda _id, _opts, current, **k: (False, current)
+    )
+    monkeypatch.setattr(clay_props.imgui, "dummy", lambda *a, **k: None)
     monkeypatch.setattr(
         clay_props.widgets,
         "empty_state",

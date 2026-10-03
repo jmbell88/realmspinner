@@ -28,10 +28,18 @@ from typing import Any
 
 from .. import leases, models
 from .prompt import (
-    PROMPT_TEMPLATE,
-    SHEET_TEMPLATE,
-    TILE_TEMPLATE,
-    TILESHEET_TEMPLATE,
+    PROMPT_TEMPLATE as PROMPT_TEMPLATE,
+)
+from .prompt import (
+    SHEET_TEMPLATE as SHEET_TEMPLATE,
+)
+from .prompt import (
+    TILE_TEMPLATE as TILE_TEMPLATE,
+)
+from .prompt import (
+    TILESHEET_TEMPLATE as TILESHEET_TEMPLATE,
+)
+from .prompt import (
     chunk,
     pad_pair,
 )
@@ -931,6 +939,8 @@ class Text2Image:
         tile: bool = False,
         sheet: bool = False,
         tilesheet: bool = False,
+        generation_type: str | None = None,
+        prompt_policy: int = 8,
         size: tuple[int, int] | None = None,
     ) -> Path:
         """Generate a reference image and save it to ``output_path``.
@@ -982,6 +992,8 @@ class Text2Image:
                 tile=tile,
                 sheet=sheet,
                 tilesheet=tilesheet,
+                generation_type=generation_type,
+                prompt_policy=prompt_policy,
                 size=size,
             )
 
@@ -1002,6 +1014,8 @@ class Text2Image:
         tile: bool = False,
         sheet: bool = False,
         tilesheet: bool = False,
+        generation_type: str | None = None,
+        prompt_policy: int = 8,
         size: tuple[int, int] | None = None,
     ) -> Path:
         if tile and (sheet or tilesheet):
@@ -1133,18 +1147,11 @@ class Text2Image:
             # The individual tiles are not seamless either, and are not meant
             # to be -- a grid sheet is a library to place from, not a surface
             # to repeat.
-            template = (
-                TILESHEET_TEMPLATE
-                if tilesheet
-                else (
-                    SHEET_TEMPLATE
-                    if sheet
-                    else (
-                        TILE_TEMPLATE
-                        if tile
-                        else PROMPT_TEMPLATE
-                    )
-                )
+            from .prompt import template_for
+
+            template = template_for(
+                generation_type=generation_type, policy_version=prompt_policy,
+                tile=tile, sheet=sheet, tilesheet=tilesheet,
             )
             text = template.format(prompt=prompt)
             if style is not None and style.trigger and lora in self._adapters:
@@ -1191,6 +1198,7 @@ class Text2Image:
         self.last_used = time.monotonic()
         self.last_recipe = self._recipe(seed, text, negative_prompt, lora, lora_weight,
                                         conditioning, chunks, tile, size)
+        self.last_recipe.update(generation_type=generation_type, prompt_policy=prompt_policy)
         return output_path
 
     def _init_frame(

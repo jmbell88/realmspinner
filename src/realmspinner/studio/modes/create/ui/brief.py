@@ -1,59 +1,8 @@
-"""Create's command bar: the stage rail and, on the Reference stage, the
-brief -- one row, drawn through one pane.
+"""Create's navigation header and reusable draft controls.
 
-**What a press needs, on one row, never scrolled.** The four brief controls
-here -- what to make, the words, how many, and the button -- were the top and
-the bottom of a 316 dp column with six sections between them, so the prompt
-sat fourth behind two dropdowns and Generate sat under a scroll. They are the
-only four a common visit touches, and they are the four that never fit
-together.
-
-**The rail joined this row rather than sitting above it (2026-09-07).** It
-used to draw bare, full width, into ``##content`` above a *second*, separate
-pane holding the brief -- two vertical strips (~90 dp together) for what a
-common visit reads as one control bar: where this asset is, and what to make
-next. Sharing one line costs real width -- see :func:`_row_widths` for the
-give-way order that pays for it -- but it is what turns "breadcrumb, then a
-second bar" back into one row, which is the same trade the brief itself made
-against the six-section column it replaced.
-
-The recipe stays in the settings column (``panes/settings_2d``), which is the
-other half of the split: this bar is *what to make*, and that column is *how*.
-A control belongs to exactly one of them, the same one-owner rule the two
-generation panes already keep.
-
-**One bar on both generating stages, and the rail alone on the rest.** Reference
-and Mesh each *generate*, so each draws the same row: the rail, then what to
-generate (Reference: the type and the prompt; Mesh: a Source chip -- a
-thumbnail and the name of the chosen reference, or "Choose an image..."), then
-Count, Generate and Reset. The Count pills' range and Generate's label come
-from the stage (1/2/4/8 and the asset type's label; 1/2/3 and "Make 3D"), and
-Reset asks and toasts in one pattern ("Reset the {image|mesh} settings?").
-Below the bar, the stage's left column holds settings only and never a submit
-button. Rig, Pose and Export make nothing from this row, so they draw the rail
-alone -- :func:`shows` says so -- and the pane shrinks to the rail's own height
-for them (:func:`bar_height`); nothing reserves an empty strip under a bare
-rail. That is ``create_stages``' own rule about the rail, now applied one level
-down: a bar that is present but inert is worse than a bar that is absent. The
-rail itself is unconditional -- it is the breadcrumb for every stage -- which is
-why :func:`draw` runs at every stage while :func:`shows` gates only the rest.
-
-Drawn through :func:`layout.pane` rather than bare, the way the brief always
-was. That is what puts this row in ``layout.FRAME_PANES``, which is what gives
-it the role fill, the divider, ``guard``'s error isolation, and a pane slot
-for ``probe._pane_at`` -- the rail did not have any of that while it drew
-straight into the shared content child, and without it ``/exercise-mode
-create`` reported the bar's controls against the empty-string pane, which
-reads downstream as controls nobody owns.
-
-**The rail is drawn through a callable, never imported and called here.**
-``App._stage_rail`` reads a job, an on-disk rig and the preview state to
-build ``done``/``optional``, and its click writes ``state.create.stage``
-through ``create_stages.go`` -- documented as "the one stage switch." Giving
-this module that logic directly would make it a second place the switch could
-fire from; instead ``main.py`` hands its own bound ``_stage_rail`` in as
-``rail`` and this module only ever calls what it is given, at the width its
-own :func:`_row_widths` computes.
+The header holds the asset journey, New and Inspector. The settings pane owns
+the brief and candidate count, with one persistent submit action below its plan.
+Inspecting an attempt does not load its settings or replace the chosen source.
 """
 
 from __future__ import annotations
@@ -79,14 +28,14 @@ from . import rail as create_rail
 #: row's last item (Reset), which a bare arithmetic guess has no way to know
 #: to add -- ``test_the_bar_fits_the_height_it_declares`` draws the row for
 #: real and this is what it measured, not what the arithmetic guessed.
-BAR_H = 96.0
+BAR_H = 72.0
 
 #: The pane's height at the four stages that draw the rail alone -- see
 #: :func:`bar_height`. Also measured by the same test, for the same reason:
 #: the rail's own content is ~25 dp (see ``create_rail.stage_rail``'s
 #: ``row_height`` note) but the pane it sits in also has to fit imgui's
 #: trailing ``item_spacing`` past it.
-RAIL_ONLY_H = 65.0
+RAIL_ONLY_H = 72.0
 
 #: The prompt field's own height. Two lines rather than one, because
 #: ``MAX_PROMPT`` is a thousand characters and a single-line input for a
@@ -175,7 +124,7 @@ def bar_height(ctx: Any) -> float:
     same complaint the module docstring already makes about a bar with dead
     controls, so the other stages simply do not reserve one.
     """
-    return sp(BAR_H) if shows(ctx) else sp(RAIL_ONLY_H)
+    return sp(RAIL_ONLY_H)
 
 
 def draw(ctx: Any, rail: Callable[..., None]) -> None:
@@ -186,6 +135,9 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     it is handed in rather than called through an import here.
     """
 
+    from . import session
+
+    session.sync(ctx)
     state = ctx.state
     form_2d = state.form_2d
     # The same synchronisation the settings column runs, and for the same
@@ -195,63 +147,95 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     # what the asset currently is, not only Reference's.
     if "asset_type" not in form_2d:
         form_2d["asset_type"] = create_assets.legacy_asset_type(form_2d)
-    spec = create_assets.sync_legacy_fields(form_2d)
+    create_assets.sync_legacy_fields(form_2d)
+    reserve = widgets.button_width("New...") + widgets.button_width("Inspector") + sp(24)
+    rail(ctx, max_width=max(sp(160), imgui.get_content_region_avail().x - reserve))
+    imgui.same_line()
+    if controls.button("New...", role=controls.ButtonRole.GHOST):
+        imgui.open_popup("create-new")
+    if imgui.begin_popup("create-new"):
+        if controls.button("New creation"):
+            session.new(ctx)
+            imgui.close_current_popup()
+        if controls.button("New with previous settings"):
+            session.new(ctx, reuse=True)
+            imgui.close_current_popup()
+        imgui.end_popup()
+    imgui.same_line()
+    if controls.button(
+        "Inspector",
+        role=controls.ButtonRole.GHOST,
+        tooltip="Show or hide details for the selected result.",
+    ):
+        state.create.inspector_open = not state.create.inspector_open
 
-    if not shows(ctx):
-        # Rig, Pose, Export: the rail alone, at whatever the pane has --
-        # there is nothing else on the row competing for it, so none of
-        # ``_row_widths``' give-way ladder applies.
-        rail(ctx, max_width=imgui.get_content_region_avail().x)
-        return
 
+def inputs(ctx: Any, *, mesh: bool = False) -> None:
+    """The draft's essential controls, above artistic and technical settings."""
+    form = ctx.state.form_3d if mesh else ctx.state.form_2d
+    focus.pump(ctx.state, FOCUS_PANE)
+    focus.begin(ctx.state, FOCUS_PANE)
+    widgets.pane_header("Build from a reference" if mesh else "Your brief")
+    if mesh:
+        _source_chip(ctx, imgui.get_content_region_avail().x)
+    else:
+        widgets.secondary("What are you making?")
+        _type(ctx, form, width=imgui.get_content_region_avail().x)
+        widgets.muted_wrapped(_TYPE_HINTS.get(create_assets.selected(form).key, ""))
+        widgets.secondary(
+            "Describe the asset" if form.get("asset_type") != "tileset" else "Shared style"
+        )
+        _prompt(ctx, form, imgui.get_content_region_avail().x, height=104)
+        widgets.field_error(ctx.state, "prompt")
+    if mesh or form.get("output") not in ("sheet", "character"):
+        widgets.secondary("Candidates")
+        _count(
+            ctx,
+            form,
+            _MESH_COUNTS if mesh else _COUNTS,
+            create_mesh.candidate_count(form) if mesh else int(form["count"]),
+            show_label=False,
+        )
+    if controls.button("Reset settings...", role=controls.ButtonRole.GHOST):
+        from .panes import settings_2d, settings_3d
+
+        ctx.confirms.ask(
+            dialogs.Confirm(
+                title=_reset_title("mesh" if mesh else "image"),
+                message=_RESET_MESH_CONFIRM_MESSAGE if mesh else _RESET_CONFIRM_MESSAGE,
+                confirm_label="Reset",
+                cancel_label="Cancel",
+                on_confirm=(lambda: settings_3d._reset(ctx))
+                if mesh
+                else (lambda: settings_2d._reset(ctx)),
+            )
+        )
+
+
+def submit_control(ctx: Any, *, mesh: bool = False) -> None:
+    """One persistent action directly below the scrollable generation plan."""
     from .panes import settings_3d
 
-    mesh = _is_mesh(ctx)
-    form = state.form_3d if mesh else form_2d
-    counts = _MESH_COUNTS if mesh else _COUNTS
-    focus.pump(state, FOCUS_PANE)
-    focus.begin(state, FOCUS_PANE)
-
-    # **Both sheet doors and the character door make exactly one thing per
-    # press.** ``sync_legacy_fields`` has already written ``count = 1`` for all
-    # three, so four radios of which three are refusals would be a control
-    # offering what the thing behind it will not do. Mesh has no such door.
-    hide_count = (not mesh) and form.get("output") in ("sheet", "character")
-    if mesh:
-        problems = settings_3d.problems(ctx, settings_3d.bar_source(ctx))
-        current = create_mesh.candidate_count(form)
-    else:
-        problems = create_recipe.problems_for(ctx, form)
-        problems = _with_pending_candidates_problem(ctx, problems)
-        current = int(form["count"])
-    busy = ctx.busy("submit")
-
-    rail_full_w, rail_floor_w = _rail_measurements(state.create.stage)
-    rail_w, prompt_w, show_label, show_count, reset_compact = _row_widths(
-        hide_count, rail_full_w, rail_floor_w, counts
+    form = ctx.state.form_3d if mesh else ctx.state.form_2d
+    if not mesh:
+        create_assets.sync_legacy_fields(form)
+    source = settings_3d.bar_source(ctx) if mesh else None
+    problems = (
+        settings_3d.problems(ctx, source)
+        if mesh
+        else _with_pending_candidates_problem(ctx, create_recipe.problems_for(ctx, form))
     )
-
-    rail(ctx, max_width=rail_w, row_height=sp(PROMPT_H))
-    imgui.same_line()
-    if mesh:
-        # The Source chip takes the type combo's slot *and* the prompt's, so
-        # everything after it lands where it does on Reference.
-        _source_chip(ctx, sp(TYPE_W) + imgui.get_style().item_spacing.x + prompt_w)
-    else:
-        _type(ctx, form)
-        imgui.same_line()
-        _prompt(ctx, form, prompt_w)
-    imgui.same_line()
-    if show_count:
-        _count(ctx, form, counts, current, show_label=show_label)
-        imgui.same_line()
-    _generate(ctx, form, label="Make 3D" if mesh else spec.create_label,
-              enabled=not problems and not busy, problems=problems,
-              show_count=show_count, count=current,
-              press=(lambda: settings_3d.promote(ctx, ctx.cache.get(ctx.state.source_job), form))
-              if mesh else None)
-    imgui.same_line()
-    _reset(ctx, compact=reset_compact, mesh=mesh)
+    _generate(
+        ctx,
+        form,
+        label="Make 3D" if mesh else create_assets.selected(form).create_label,
+        enabled=not problems and not ctx.busy("submit"),
+        problems=problems,
+        show_count=True,
+        count=int(form.get("count", 1)),
+        press=(lambda: settings_3d.promote(ctx, source, form)) if mesh else None,
+        width=imgui.get_content_region_avail().x,
+    )
 
 
 def _with_pending_candidates_problem(ctx: Any, problems: list[Any]) -> list[Any]:
@@ -449,7 +433,7 @@ def _reset_width(*, compact: bool) -> float:
     return widgets.button_width(icons.UNDO if compact else "Reset...")
 
 
-def _type(ctx: Any, form: dict[str, Any]) -> None:
+def _type(ctx: Any, form: dict[str, Any], *, width: float | None = None) -> None:
     """What to make. The one choice that decides what everything else means."""
     before = create_assets.selected(form).key
     with focus.item(ctx.state, FOCUS_PANE, "asset_type"):
@@ -457,7 +441,7 @@ def _type(ctx: Any, form: dict[str, Any]) -> None:
             "##generation-type",
             before,
             list(create_assets.ASSET_TYPE_OPTIONS),
-            width=sp(TYPE_W),
+            width=sp(TYPE_W) if width is None else width,
             tooltip=_TYPE_HINTS.get(before, ""),
         )
     form["asset_type"] = picked if picked in create_assets.ASSET_TYPES else before
@@ -467,7 +451,7 @@ def _type(ctx: Any, form: dict[str, Any]) -> None:
     _ring(ctx, "asset_type")
 
 
-def _prompt(ctx: Any, form: dict[str, Any], width: float) -> None:
+def _prompt(ctx: Any, form: dict[str, Any], width: float, *, height: float = PROMPT_H) -> None:
     """The words. The field this whole rearrangement is about.
 
     An explicit ``width``, which is the one thing that matters here:
@@ -480,7 +464,7 @@ def _prompt(ctx: Any, form: dict[str, Any], width: float) -> None:
     before = form["prompt"]
     with focus.item(ctx.state, FOCUS_PANE, "prompt"):
         form["prompt"] = widgets.multiline(
-            "##brief-prompt", before, sp(PROMPT_H), _max_prompt(), width=width
+            "##brief-prompt", before, sp(height), _max_prompt(), width=width
         )
         anchors.mark("create/prompt")
         widgets.char_count(form["prompt"], _max_prompt())
@@ -578,6 +562,7 @@ def _generate(
     show_count: bool,
     count: int,
     press: Callable[[], None] | None = None,
+    width: float | None = None,
 ) -> None:
     """The press. Always visible, which is the point of the bar.
 
@@ -601,7 +586,7 @@ def _generate(
     with focus.item(ctx.state, FOCUS_PANE, "generate") as focused:
         pressed = widgets.primary_button(
             label,
-            (sp(GENERATE_W), sp(PROMPT_H)),
+            (sp(GENERATE_W) if width is None else width, sp(PROMPT_H)),
             enabled=enabled,
             # ``Problem`` is a str subclass -- the message *is* the object.
             reason=str(problems[0]) if problems else "",
@@ -713,9 +698,9 @@ def _reset(ctx: Any, *, compact: bool, mesh: bool = False) -> None:
                 message=_RESET_MESH_CONFIRM_MESSAGE if mesh else _RESET_CONFIRM_MESSAGE,
                 confirm_label="Reset",
                 cancel_label="Cancel",
-                on_confirm=(lambda: settings_3d._reset(ctx)) if mesh else (
-                    lambda: settings_2d._reset(ctx)
-                ),
+                on_confirm=(lambda: settings_3d._reset(ctx))
+                if mesh
+                else (lambda: settings_2d._reset(ctx)),
             )
         )
 
@@ -782,9 +767,7 @@ def _source_chip(ctx: Any, width: float) -> None:
             state.dragging_job = None
         imgui.end_drag_drop_target()
     if dragging is not None:
-        hovered = imgui.is_item_hovered(
-            imgui.HoveredFlags_.allow_when_blocked_by_active_item.value
-        )
+        hovered = imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_blocked_by_active_item.value)
         widgets.ring(
             low,
             high,
@@ -808,9 +791,7 @@ def _source_chip(ctx: Any, width: float) -> None:
         widgets.thumb_placeholder(side, icons.IMAGE)
     text_w = max(1.0, width - side - 3 * pad)
     text_h = imgui.get_text_line_height() * 2 + imgui.get_style().item_spacing.y
-    imgui.set_cursor_screen_pos(
-        (low.x + 2 * pad + side, low.y + max(0.0, (height - text_h) * 0.5))
-    )
+    imgui.set_cursor_screen_pos((low.x + 2 * pad + side, low.y + max(0.0, (height - text_h) * 0.5)))
     imgui.begin_group()
     imgui.text(widgets.fit_text(title, text_w))
     widgets.muted(widgets.fit_text(sub, text_w))
@@ -830,9 +811,7 @@ def _ring(ctx: Any, field: str) -> bool:
     """
     if not (getattr(ctx.state, "field_errors", None) or {}).get(field):
         return False
-    widgets.ring(
-        imgui.get_item_rect_min(), imgui.get_item_rect_max(), theme.ERR, 0.9, thick=1.5
-    )
+    widgets.ring(imgui.get_item_rect_min(), imgui.get_item_rect_max(), theme.ERR, 0.9, thick=1.5)
     return True
 
 
@@ -844,9 +823,7 @@ def _max_prompt() -> int:
 
 
 def _enter_pressed() -> bool:
-    return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(
-        imgui.Key.keypad_enter
-    )
+    return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(imgui.Key.keypad_enter)
 
 
 def _species_count() -> int:

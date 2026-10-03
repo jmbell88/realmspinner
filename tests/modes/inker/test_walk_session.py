@@ -67,6 +67,12 @@ class _Ctx:
     def progress(self, key):
         return None
 
+    def submit(self, key, fn, *args, **kwargs):
+        """Inline: these tests are about the model, not the thread (the
+        ``_ThreadCtx`` below is)."""
+        fn(*args, **kwargs)
+        return True
+
 
 def _scene():
     ctx = _Ctx()
@@ -510,7 +516,7 @@ def test_baking_opens_a_new_tab_and_leaves_the_source_open_and_unedited():
     ctx, tab = _scene()
     _rigged(ctx, tab)
     before = tab.doc.flatten().copy()
-    baked = inker_walk.bake(ctx, tab)
+    baked = inker_walk.bake_now(ctx, tab)
     assert baked is not None
     assert baked is not tab
     assert tab in ctx.state.inker.docs
@@ -522,7 +528,7 @@ def test_baking_opens_a_new_tab_and_leaves_the_source_open_and_unedited():
 def test_baking_closes_the_session():
     ctx, tab = _scene()
     _rigged(ctx, tab)
-    inker_walk.bake(ctx, tab)
+    inker_walk.bake_now(ctx, tab)
     assert ctx.state.inker.walk is None
 
 
@@ -530,7 +536,7 @@ def test_the_baked_tab_is_named_after_the_drawing_it_came_from():
     ctx, tab = _scene()
     tab.title = "ogre"
     _rigged(ctx, tab)
-    assert inker_walk.bake(ctx, tab).title == "ogre walk"
+    assert inker_walk.bake_now(ctx, tab).title == "ogre walk"
 
 
 # -- the panel ----------------------------------------------------------------
@@ -669,7 +675,7 @@ def test_the_preview_slot_appears_for_a_walk_on_a_still_drawing():
 def test_the_panel_is_gone_again_after_a_bake():
     ctx, tab = _scene()
     _rigged(ctx, tab)
-    baked = inker_walk.bake(ctx, tab)
+    baked = inker_walk.bake_now(ctx, tab)
     assert baked is not None
     assert "inker-walk" not in _right(ctx)
     assert "inker-tools" in _right(ctx)
@@ -701,3 +707,64 @@ def test_copying_a_limb_carries_where_its_art_came_from():
     session.assigned_from["near_thigh"] = "selection"
     inker_walk.copy_near_to_far(ctx, tab, "leg")
     assert session.assigned_from["far_thigh"] == "selection"
+
+
+# -- the frame thread ---------------------------------------------------------
+
+
+class _ThreadCtx(_Ctx):
+    """A ``submit`` that runs the task on a real worker thread and joins it,
+    as ``tests/test_frame_thread_doors.py`` does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.done: list = []
+
+    def submit(self, key, fn, *args, **kwargs):
+        import threading
+
+        box: dict = {}
+        thread = threading.Thread(target=lambda: box.update(result=fn(*args, **kwargs)))
+        thread.start()
+        thread.join()
+        self.done.append(SimpleNamespace(key=key, result=box.get("result")))
+        return True
+
+
+def test_walk_preview_and_bake_never_render_on_the_frame_thread(monkeypatch):
+    """The 2026-10-03 audit (inker-19): the preview and the bake rendered up to
+    fifteen RotSprite-turned parts on the pygame frame thread, per joint drag."""
+    import threading
+
+    from realmspinner.studio.modes.inker import mode as inker_mode
+
+    ctx = _ThreadCtx()
+    doc = inker.Document.blank(*SIZE)
+    doc.stack.active.pixels[18:38, 28:36] = (200, 80, 80, 255)
+    tab = inker_state.InkerDoc(doc=doc)
+    ctx.state.inker.docs.append(tab)
+    ctx.state.inker.active_uid = tab.uid
+    _rigged(ctx, tab)
+    session = ctx.state.inker.walk
+    main = threading.current_thread()
+    seen: dict[str, threading.Thread] = {}
+    for name in ("frames", "composite_frames", "document"):
+        real = getattr(inker_walk.walk, name)
+
+        def spy(*a, _real=real, _name=name, **k):
+            seen[_name] = threading.current_thread()
+            return _real(*a, **k)
+
+        monkeypatch.setattr(inker_walk.walk, name, spy)
+
+    inker_walk.frames(session, ctx)  # requests
+    shown = inker_walk.frames(session, ctx)  # adopts
+    assert len(shown) == walk.WALK_FRAMES
+    assert seen["composite_frames"] is not main and seen["frames"] is not main
+
+    assert inker_walk.bake(ctx, tab) is True
+    assert seen["document"] is not main
+    bake_done = next(d for d in ctx.done if d.key.startswith("inker-walkbake:"))
+    inker_mode.on_task_done(ctx, bake_done)
+    assert ctx.state.inker.walk is None
+    assert any(t.title.endswith("walk") for t in ctx.state.inker.docs)

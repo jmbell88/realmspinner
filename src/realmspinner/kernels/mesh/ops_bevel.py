@@ -450,6 +450,12 @@ def bevel_edges(
         return slides[key]
 
     miters: dict[int, int] = {}
+    normals_cache: list[np.ndarray] = []
+
+    def _normals() -> np.ndarray:
+        if not normals_cache:
+            normals_cache.append(face_normals(mesh))
+        return normals_cache[0]
 
     def miter(corner: int) -> int:
         if corner not in miters:
@@ -463,8 +469,15 @@ def bevel_edges(
             if float(np.linalg.norm(bisector)) < _BISECTOR_EPS:
                 # A straight-through corner: the bisector is degenerate, so take
                 # the in-face perpendicular instead of dividing by zero.
-                normal = face_normals(mesh)[int(a.corner_face[corner])]
+                normal = _normals()[int(a.corner_face[corner])]
                 bisector = np.cross(normal.astype("f8"), d2)
+            else:
+                # clay-06: d1 + d2 bisects the *smaller* angle, which is the
+                # outside of a reflex corner of a concave face. Flip it when
+                # cross(fore, back) points against the face normal.
+                normal = _normals()[int(a.corner_face[corner])].astype("f8")
+                if float(np.cross(fore, back) @ normal) < 0.0:
+                    bisector = -bisector
             bisector = bisector / max(float(np.linalg.norm(bisector)), _BISECTOR_EPS)
             half = np.arccos(np.clip(float(d1 @ d2), -1.0, 1.0)) * 0.5
             reach = abs(float(width)) / max(float(np.sin(half)), 1e-6)

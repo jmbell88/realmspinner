@@ -73,6 +73,11 @@ def popups(ctx: Any) -> None:
             open_convert(ctx, tab)
         elif wanted == CONVERT_MODE_POPUP:
             open_convert(ctx, tab, to_mode="indexed")
+        elif wanted == TO_TILEMAP_POPUP:
+            # The 2026-10-03 audit, finding inker-22: nothing opened (or
+            # drew) this popup since v0.0.25 removed the bridge's call, so
+            # Sprite > Convert to tilemap... was a row that did nothing.
+            imgui.open_popup(TO_TILEMAP_POPUP)
         elif wanted == inker_flourish_pane.FLOURISH_POPUP:
             inker_flourish_pane.open_popup(ctx, tab)
         elif wanted == inker_flourish_pane.SNIPPET_POPUP:
@@ -91,11 +96,21 @@ def popups(ctx: Any) -> None:
         state.sheet_import_open = True
         imgui.open_popup(SHEET_IMPORT_POPUP)
     _sheet_import_popup(ctx, state)
+    # Drawn in this (the canvas) window because this is the window every
+    # opener now asks, and an imgui popup is matched by the window that began
+    # it. Unconditionally, tab or no tab: it is the session's only per-frame
+    # hook, and "there is no active tab any more" strands a session too.
+    convert_popup(ctx, tab)
     if tab is None:
         return
     # ``opening`` is threaded from the dispatcher rather than sniffed with
     # ``is_popup_open``: ``popover_enter`` needs *the frame it appeared on*,
     # and this is the only place that knows which one that was.
+    from . import tiles as inker_tiles
+
+    # In this window, beside the other popups the menu rows open by name: a
+    # popup belongs to the window that begins it.
+    inker_tiles.convert_row(ctx, state, tab)
     _scale_dialog(ctx, tab, opening=(wanted == "inker-scale"))
     _canvas_dialog(ctx, tab, opening=(wanted == "inker-resize"))
     # The 2026-09-26 audit, finding inker-panes-04: this popup is non-modal
@@ -1165,6 +1180,8 @@ def _sheet_import_popup(ctx: Any, state: Any) -> None:
 # controls belong anyway.
 
 CONVERT_POPUP = "inker-convert"
+#: Sprite > Convert to tilemap...; drawn by ``tiles.convert_row``.
+TO_TILEMAP_POPUP = "inker-to-tilemap"
 #: A second *request* key for the same popup, asking it in mode-change flavour.
 #: Two keys rather than a parameter on ``pending_dialog`` because that field is
 #: one string and the flavour has to survive the frame between the click and the
@@ -1371,7 +1388,7 @@ def apply_convert(ctx: Any, tab: Any) -> bool:
 def convert_popup(ctx: Any, tab: Any) -> None:
     """Draw the open session's popup, or settle a session nothing will answer.
 
-    Called unconditionally from ``inker_colors.draw`` -- including with no tab
+    Called unconditionally from ``popups`` (the canvas window, inker-21) -- including with no tab
     at all -- because this is the only per-frame hook the session has, and every
     way it can be stranded is a frame where the popup does not get drawn.
 

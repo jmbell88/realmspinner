@@ -471,7 +471,11 @@ def _clay_document():
 # Re-pinned 2026-09-19 for the product rename: every glTF this writer emits
 # carries ``asset.generator``, which is the product name, so "Warlock Studio"
 # -> "Realmspinner" moved the bytes of every .glb without moving a vertex.
-_CLAY_GLB_SHA256 = "adab5b100ec5286452a92620f63e120de7662595fd7cbfefae52b1ac6db6bfb2"
+# Re-pinned 2026-10-03 for the audit's clay-11 (kernels/mesh/uv.py ``_AXES``): box
+# unwrap now uses the right-handed cyclic axis pairs, so every X- and Y-facing
+# face's UVs are un-mirrored. Verified: restoring the old pairs reproduces the
+# previous digest exactly, so this is the only byte that moved. Not a writer change.
+_CLAY_GLB_SHA256 = "beb197d6cdde3529482440fdd6bd091787ae90a4ae233cb29f68ee83e3578091"
 
 
 def test_an_existing_clay_document_writes_the_same_bytes_as_before_lights_arrived() -> None:

@@ -261,15 +261,11 @@ def test_the_tile_arm_asks_for_no_adapter_without_a_reference():
     """Its IP-Adapter is optional, and a gate that demanded one would tell a
     user who has everything the common request uses that they are missing a
     download."""
-    assert create_recipe.sheet_rows(_sheet_form(tile_mode=GRID)) == (
-        svc_tilesheets.TILE_SHEET_ROWS
-    )
+    assert create_recipe.sheet_rows(_sheet_form(tile_mode=GRID)) == (svc_tilesheets.TILE_SHEET_ROWS)
 
 
 def test_attaching_a_reference_adds_the_adapter_to_what_is_needed():
-    rows = create_recipe.sheet_rows(
-        _sheet_form(tile_mode=GRID, ref_path="C:/somewhere/style.png")
-    )
+    rows = create_recipe.sheet_rows(_sheet_form(tile_mode=GRID, ref_path="C:/somewhere/style.png"))
     assert rows == svc_tilesheets.TILE_SHEET_REFERENCE_ROWS
     assert any("adapter" in row for row in rows)
 
@@ -332,10 +328,7 @@ def test_a_fully_installed_host_has_no_sheet_problem():
 def test_a_sprite_checks_its_selected_reference_model_before_the_locked_recipe():
     form = _sheet_form(sheet_type="sprite")
     form["base_model"] = "turbo"
-    rows = [
-        {"row_key": key, "present": True, "label": key}
-        for key in svc_sprites.SPRITE_ROWS
-    ]
+    rows = [{"row_key": key, "present": True, "label": key} for key in svc_sprites.SPRITE_ROWS]
     rows.append({"row_key": "base:turbo", "present": False, "label": "Turbo"})
     problem = create_recipe.weights_problem(SimpleNamespace(model_rows=rows), form)
     assert problem is not None
@@ -376,8 +369,11 @@ def test_a_restored_form_with_the_old_projection_word_still_validates():
     """A profile saved before the vocabulary widened carries "orthogonal". The
     form reads it through the service's alias table rather than holding a second
     opinion, so an old profile opens on Top-down instead of being refused."""
-    assert not [p for p in create_recipe.validate(_sheet_form(projection="orthogonal"))
-                if p.field == "projection"]
+    assert not [
+        p
+        for p in create_recipe.validate(_sheet_form(projection="orthogonal"))
+        if p.field == "projection"
+    ]
 
 
 def test_every_view_the_grid_layout_offers_validates():
@@ -529,7 +525,7 @@ class _SubmitCtx:
         self.result: dict | None = None
         self.model_rows: list[dict] = []
 
-    def submit(self, key, run, *args, **kwargs):
+    def submit(self, key, run, *args, tag=None, **kwargs):
         self.keys.append(key)
         self.result = run(*args, **kwargs)
         return True
@@ -540,6 +536,9 @@ class _SubmitCtx:
 
 class _SubmitState:
     def __init__(self) -> None:
+        from realmspinner.studio.modes.create.engine.state import CreateState
+
+        self.create = CreateState()
         self.field_errors: dict[str, str] = {}
         self.history: list[str] = []
         self.preview: dict = {}
@@ -572,9 +571,7 @@ def _sent(monkeypatch, form, *, through_generate: bool = False):
         seen["svc"] = svc
         return {"id": "abc123", "mode": kwargs.get("mode"), "tiles": 1}
 
-    monkeypatch.setattr(
-        settings_2d.svc_tilesheets, "create_tile_sheet", fake_create_tile_sheet
-    )
+    monkeypatch.setattr(settings_2d.svc_tilesheets, "create_tile_sheet", fake_create_tile_sheet)
     ctx = _SubmitCtx()
     if through_generate:
         settings_2d.generate(ctx, form)
@@ -598,9 +595,7 @@ def test_a_materials_sheet_submits_its_lines_and_its_variants(monkeypatch):
 
 
 def test_a_terrain_set_submits_both_surfaces_and_its_shared_setting(monkeypatch):
-    sent, _ctx = _sent(
-        monkeypatch, _terrain_form(boundary="a temperate coastline", tile_size="16")
-    )
+    sent, _ctx = _sent(monkeypatch, _terrain_form(boundary="a temperate coastline", tile_size="16"))
     assert sent["mode"] == TERRAIN
     assert sent["inner_terrain"] == "wet grass"
     assert sent["outer_terrain"] == "dark water"
@@ -656,9 +651,7 @@ def test_every_layout_the_form_offers_is_queued_by_the_real_door(svc, mode):
     the difference.
     """
     form = _terrain_form() if mode == TERRAIN else _sheet_form(tile_mode=mode)
-    made = svc_tilesheets.create_tile_sheet(
-        svc, **create_recipe.tile_sheet_kwargs(form)
-    )
+    made = svc_tilesheets.create_tile_sheet(svc, **create_recipe.tile_sheet_kwargs(form))
     assert made["mode"] == mode
     block = svc.store.get(made["id"])["params"]["sheet"]
     assert block["mode"] == mode
@@ -787,9 +780,7 @@ def test_every_outline_the_sprite_arm_offers_survives_the_sprite_checker(svc):
     from realmspinner.service import sprites as sprites_door
 
     for mode in pixelize.OUTLINE_MODES:
-        block = create_recipe.sprite_sheet_kwargs(
-            _sheet_form(sheet_type="sprite", outline=mode)
-        )
+        block = create_recipe.sprite_sheet_kwargs(_sheet_form(sheet_type="sprite", outline=mode))
         assert sprites_door._check_options(svc, block)["outline"] == mode
 
 
@@ -1064,9 +1055,7 @@ def test_an_action_sheet_press_is_admitted_by_the_real_door(svc, sprite_weights)
     assert block["candidates"] == 1
 
 
-def test_a_press_the_size_gate_would_have_stopped_is_refused_at_that_door(
-    svc, sprite_weights
-):
+def test_a_press_the_size_gate_would_have_stopped_is_refused_at_that_door(svc, sprite_weights):
     """The same refusal from the other side: if the picker ever offered a size
     the action cannot take, this is what the press would meet -- a sentence
     naming both numbers, on the field the control is drawn under."""
@@ -1120,14 +1109,15 @@ def test_the_request_document_and_the_form_field_are_the_same_choice():
     assert gen.sprite_from_layout("dance9") == ("turnaround", "idle", 4)
     for layout in ("turnaround", "walk", "idle8", "walk4"):
         mode, action, directions = gen.sprite_from_layout(layout)
-        assert gen.sprite_layout_of(
-            gen.SpriteSettings(mode=mode, action=action, directions=directions)
-        ) == layout
+        assert (
+            gen.sprite_layout_of(
+                gen.SpriteSettings(mode=mode, action=action, directions=directions)
+            )
+            == layout
+        )
 
 
-def test_a_structured_request_no_longer_collapses_every_action_onto_walk(
-    svc, sprite_weights
-):
+def test_a_structured_request_no_longer_collapses_every_action_onto_walk(svc, sprite_weights):
     """It read ``"turnaround" if mode == "turnaround" else "walk"``, which
     answered all seven actions and both direction counts with the legacy 4x4
     walk -- admitted, queued and published as a sheet nobody asked for, with the
@@ -1188,9 +1178,7 @@ def test_provenance_is_on_the_row_before_the_row_exists(svc, tmp_path, monkeypat
     assert set(named) <= set(seen[0]["files"])
 
 
-def test_a_structured_request_can_still_name_the_two_legacy_atlases(
-    svc, sprite_weights
-):
+def test_a_structured_request_can_still_name_the_two_legacy_atlases(svc, sprite_weights):
     from realmspinner import generation as gen
 
     for mode in gen.SPRITE_LEGACY_MODES:

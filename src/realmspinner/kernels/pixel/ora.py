@@ -911,14 +911,31 @@ def _read_flourish_assets(doc, zf: zipfile.ZipFile) -> None:
     """Decode the members ``_read_flourish`` noted. A member that is missing
     or will not decode costs that one texture -- the layer that named it
     renders nothing on the next regenerate -- and never the document."""
+    # The 2026-10-03 audit, finding inker-10: the count cap alone let one
+    # 256x256 PNG named under 4096 ids retain 4096 arrays. Each distinct
+    # member is decoded once and its array shared across the ids that name
+    # it, and the pixels of every distinct texture are charged against the
+    # same ceiling tiles.json's tilesets use. Past it, the remaining textures
+    # cost themselves (the degradation contract above), never the document.
+    decoded: dict[str, np.ndarray | None] = {}
+    charged = 0
     for state in getattr(doc, "flourish", {}).values():
         pending = getattr(state, "_asset_members", None) or {}
         for asset_id, member in pending.items():
             try:
-                data = zf.read(member)
-                with pixelguard.opened(io.BytesIO(data), "an effect texture") as im:
-                    im.load()
-                    state.assets[asset_id] = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+                if member not in decoded:
+                    data = zf.read(member)
+                    with pixelguard.opened(io.BytesIO(data), "an effect texture") as im:
+                        # Header only: the size is known before the allocation.
+                        charged += im.size[0] * im.size[1]
+                        if charged > pixelguard.MAX_DECODE_PIXELS:
+                            raise ValueError(
+                                "effect textures declare more than the"
+                                f" {pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
+                            )
+                        im.load()
+                        decoded[member] = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+                state.assets[asset_id] = decoded[member]
             except (KeyError, OSError, ValueError) as exc:
                 log.warning("ignoring effect texture %s: %s", member, exc)
         if hasattr(state, "_asset_members"):
@@ -1210,6 +1227,19 @@ def write_ora(doc, path: Path) -> None:
     path = Path(path)
     anim = getattr(doc, "anim", None)
     names = _cel_names(anim) if anim is not None else {}
+    # The 2026-10-03 audit, findings inker-01 and inker-05: the reader refuses
+    # more layers (flat) or tracks (animated) than ``_layer_budget`` for the
+    # canvas, and neither count was checked here -- 20 layers over one cel
+    # saved cleanly and reopened as a flat one-frame drawing, a still 20-layer
+    # document as a file this build refused. One number, shared with the
+    # reader, so save and open cannot disagree.
+    layer_count = len(doc.stack) if anim is None else len(anim.tracks)
+    layer_allowed = _layer_budget(*doc.size)
+    if layer_count > layer_allowed:
+        raise ValueError(
+            f"this drawing holds more than the {layer_allowed} layers of "
+            f"{doc.size[0]}x{doc.size[1]} this build can reopen"
+        )
     if anim is not None:
         # The 2026-09-26 audit, finding inker-codecs-01: ``add_frame`` and the
         # rest of the editor's frame/layer verbs carry no budget of their own,
@@ -2535,6 +2565,7 @@ def read_ora(path: Path, *, budget: int | None = None):
 
         layers: list[Layer] = []
         planes_data: list[bytes] = []
+        decoded_members: dict[str, tuple[bytes, np.ndarray]] = {}
         tree: tuple[dict, dict] = ({}, {})
         parents: dict[int, int] = {}
         # From the document's own root ``<stack>``, not from ``<image>``: the
@@ -2549,14 +2580,27 @@ def read_ora(path: Path, *, budget: int | None = None):
             src = element.get("src")
             if not src:
                 continue
+            # One read and one decode per distinct member: a member named by
+            # many <layer> elements is a cache hit, not another copy of its
+            # bytes (the memo holds the *decoded* plane, which ``_place`` or
+            # ``.copy()`` below never mutates in place).
             try:
-                data = zf.read(src)
+                if src in decoded_members:
+                    data, decoded = decoded_members[src]
+                else:
+                    data = zf.read(src)
+                    decoded = None
             except KeyError:
                 continue
             try:
-                with pixelguard.opened(io.BytesIO(data), "a layer in this drawing") as im:
-                    im.load()
-                    pixels = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+                if decoded is None:
+                    with pixelguard.opened(io.BytesIO(data), "a layer in this drawing") as im:
+                        im.load()
+                        decoded = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+                    # Raw bytes are kept in the memo only when an indexed
+                    # reader will want them.
+                    decoded_members[src] = (data if reader is not None else b"", decoded)
+                pixels = decoded.copy()
             except OSError as exc:
                 # A member that is not an image (Pillow's
                 # ``UnidentifiedImageError`` is an ``OSError``) costs that one
@@ -2564,7 +2608,10 @@ def read_ora(path: Path, *, budget: int | None = None):
                 # the degradation contract every optional member here follows.
                 log.warning("skipping undecodable %s in %s: %s", src, path, exc)
                 continue
-            planes_data.append(data)
+            # Only an indexed read consumes the raw bytes (``reader.attach``);
+            # holding one copy per <layer> element amplified an 11 KB archive
+            # to 1 GB (2026-10-03 audit, inker-09).
+            planes_data.append(data if reader is not None else b"")
             if not width or not height:
                 width, height = pixels.shape[1], pixels.shape[0]
             # Counted here rather than before the decode: until the first PNG

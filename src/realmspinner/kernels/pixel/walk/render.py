@@ -46,8 +46,9 @@ RESAMPLE = "rotsprite"
 #: nearest-neighbour for a turn the module's own docstring says never happens
 #: -- "RESAMPLE='rotsprite' throughout". ``ROTSPRITE_MAX_PIXELS`` is sized for
 #: a live free-transform drag re-rendering on every mouse-move
-#: (frame-thread cost, see its own docstring); a walk bake runs once, off the
-#: frame thread (``_q_*`` job machinery), so it may spend more per turn.
+#: (frame-thread cost, see its own docstring); the walk's preview and bake run
+#: off the frame thread on a ``TaskRunner`` task (``inker.walk``; there is no
+#: ``_q_*`` job), so they may spend more per turn.
 #: Four times the interactive budget comfortably covers an ordinarily
 #: proportioned limb's worst-case pivot padding without reopening the
 #: interactive ceiling itself, which stays a `dev/measurements/`-keyed

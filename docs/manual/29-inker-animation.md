@@ -321,9 +321,10 @@ sheet's own settings.
 
 On an **indexed** drawing each frame can carry a colour table of its own, which is how palette
 cycling is done: the drawing does not move and the colours do. **Frame ▸ Give this frame its own
-palette** starts one off as a copy of the drawing's, and every edit you make to the palette from
-then on applies to that frame alone. **Use the drawing's palette here** takes the override away
-again.
+palette** starts one off as a copy of the drawing's, and recolouring a swatch from then on applies
+to that frame alone; the palette panel shows the colours the frame is drawn with. Adding or removing
+a swatch still changes the drawing's palette, because slot numbers are shared by every frame.
+**Use the drawing's palette here** takes the override away again.
 
 Nothing about the pixels changes — slot 4 stays slot 4 and becomes a different colour — so this is
 not an edit you can lose track of: undo puts the table back in one step, and clearing the override

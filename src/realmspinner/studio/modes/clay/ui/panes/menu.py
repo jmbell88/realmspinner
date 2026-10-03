@@ -25,6 +25,7 @@ from imgui_bundle import imgui
 
 from ..... import controls, theme, tokens, widgets
 from .....tokens import sp
+from ... import menutree as clay_menutree
 from ... import mode as clay_mode
 from ... import ops as clay_ops
 
@@ -66,29 +67,38 @@ def _rows(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
         # rows with no reason attached.
         widgets.secondary("Saving...")
         controls.menu_separator()
-    for op in clay_ops.menu(doc.element_mode):
-        if op.separator_before:
+    for index, run in enumerate(clay_menutree.flat(doc.element_mode)):
+        # One run per group, in the menu strip's order: the separators are the
+        # group boundaries rather than a flag each op carried, which is what
+        # put Shade Smooth under Duplicate.
+        if index:
             controls.menu_separator()
-        enabled = op.enabled(doc) and not tab.saving
-        # A saving document greys everything for one shared reason (the
-        # "Saving..." row above); an op's own reason only applies once that
-        # gate has already passed. clay-07 (2026-09-06 audit): this row used to
-        # grey out with no reason at all, for every op that refuses -- Merge
-        # Objects needing two visible objects, Bridge Loops needing edge mode,
-        # every bevel/inset/weld needing an element selection.
-        reason = "" if tab.saving else clay_ops.reason_for(op, doc)
-        clicked, _ = controls.menu_item(op.label, op.key, False, enabled, reason=reason)
-        if not clicked:
-            continue
-        if op.params:
-            state.pending_op = op.name
-            state.op_params.setdefault(op.name, clay_ops.defaults_for(op))
-            imgui.close_current_popup()
-            # Here the id stack *is* a window's, so this opens directly rather
-            # than going through open_op_popup.
-            imgui.open_popup(PARAM_POPUP)
-        else:
-            clay_ops.run(ctx, doc, op)
+        for op in run:
+            _row(ctx, state, tab, doc, op)
+
+
+def _row(ctx: Any, state: Any, tab: Any, doc: Any, op: Any) -> None:
+    """One op's row: greyed with its reason, or run (or its dialog opened)."""
+    enabled = op.enabled(doc) and not tab.saving
+    # A saving document greys everything for one shared reason (the
+    # "Saving..." row above); an op's own reason only applies once that
+    # gate has already passed. clay-07 (2026-09-06 audit): this row used to
+    # grey out with no reason at all, for every op that refuses -- Merge
+    # Objects needing two visible objects, Bridge Loops needing edge mode,
+    # every bevel/inset/weld needing an element selection.
+    reason = "" if tab.saving else clay_ops.reason_for(op, doc)
+    clicked, _ = controls.menu_item(op.label, op.key, False, enabled, reason=reason)
+    if not clicked:
+        return
+    if op.params:
+        state.pending_op = op.name
+        state.op_params.setdefault(op.name, clay_ops.defaults_for(op))
+        imgui.close_current_popup()
+        # Here the id stack *is* a window's, so this opens directly rather
+        # than going through open_op_popup.
+        imgui.open_popup(PARAM_POPUP)
+    else:
+        clay_ops.run(ctx, doc, op)
 
 
 def params_popup(ctx: Any, state: Any, tab: Any) -> None:

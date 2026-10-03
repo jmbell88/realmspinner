@@ -1349,7 +1349,10 @@ def _write_frame_palettes(
         return
     width = len(base)
     previous = list(base)
-    for index in range(1, min(len(anim.frames), len(per_frame))):
+    # From frame 0 (2026-10-03 audit, inker-06): the head chunks above write the
+    # document table, so a frame-0 override is a later chunk that wins; starting
+    # at 1 silently dropped it while the manual promised it round-trips.
+    for index in range(0, min(len(anim.frames), len(per_frame))):
         table = [
             tuple(int(v) for v in colour)
             for colour in (doc.palette_for(anim.frames[index]) or base)
@@ -1423,6 +1426,20 @@ def dropped_by_aseprite(doc) -> list[str]:
             "group opacity (written as full opacity; the format cannot store"
             " any other value)"
         )
+    # The 2026-10-03 audit, finding inker-07: the layer chunk of a group is
+    # written at blend Normal and carries no isolation flag, so a Multiply or
+    # isolated group reopened as a pass-through Normal one whose composite is
+    # a different picture -- and this list, which exists so a lossy save says
+    # so, was silent. Whether real Aseprite honours a group's blend byte is
+    # unverified, so the loss is reported rather than the byte invented.
+    if any(
+        getattr(node, "blend", "normal") != "normal" or getattr(node, "isolate", False)
+        for node in groups
+    ):
+        out.append(
+            "group blend mode and isolation (groups are written as plain"
+            " pass-through folders)"
+        )
     return out
 
 
@@ -1476,6 +1493,19 @@ def aseprite_bytes(doc) -> bytes:
             raise ValueError(
                 f"this animation holds more than the {allowed} distinct cels of "
                 f"{width}x{height} this build can reopen"
+            )
+    else:
+        # The 2026-10-03 audit, finding inker-05: the budget above covered
+        # animations only, but ``_read_cel`` charges every cel's own pixels
+        # against the same ceiling for a still document too -- a 17-layer
+        # 2048x2048 drawing wrote 278 KB that this build then refused. Layers
+        # x canvas is the reader's own charge for full-canvas cels.
+        layers_held = len(doc.stack)
+        if layers_held * width * height > pixelguard.MAX_DECODE_PIXELS:
+            raise ValueError(
+                f"this drawing holds more layers of {width}x{height} than the"
+                f" {max(1, pixelguard.MAX_DECODE_PIXELS // (width * height))}"
+                " this build can reopen"
             )
     tilesets = list(getattr(doc, "tilesets", None) or ())
     # Ids are slot *positions*: the reader keys its own table on the id a

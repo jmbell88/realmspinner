@@ -207,10 +207,8 @@ def _reorder(ctx: Any, tab: Any, index: int, to: int) -> None:
         return
     after = moved_loop(doc.loop_order, index, to)
     order.insert(to, order.pop(index))
-    if not doc.set_order(order):
+    if not doc.set_order(order, loop_order=after):
         return
-    if after != doc.loop_order:
-        doc.set_song(loop_order=after)
     sirens_mode.request_rerender(ctx, tab)
 
 

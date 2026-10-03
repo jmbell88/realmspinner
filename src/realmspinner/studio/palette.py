@@ -576,6 +576,16 @@ def commands(ctx: Any) -> list[Command]:
 
         rail.request("layouts")
 
+    def rearrange_panes(ctx: Any) -> None:
+        from . import layout_edit
+
+        layout_edit.toggle(ctx.state, ctx)
+
+    def _has_skeleton(ctx: Any) -> bool:
+        from . import skeletons
+
+        return bool(skeletons.for_mode(ctx, ctx.state.mode))
+
     def shortcuts(ctx: Any) -> None:
         # A flag rather than a call, because a palette command cannot open an
         # imgui popup: the palette's own window is closing on this frame, and
@@ -756,6 +766,15 @@ def commands(ctx: Any) -> list[Command]:
             label="Workspace layout...",
             group="Application",
             run=workspace_layout,
+        ),
+        Command(
+            key="rearrange-panes",
+            label="Rearrange panes",
+            group="Application",
+            run=rearrange_panes,
+            hint="Shift+W",
+            enabled=_has_skeleton,
+            why="This workspace's panes cannot be rearranged.",
         ),
         Command(
             key="show-trash",

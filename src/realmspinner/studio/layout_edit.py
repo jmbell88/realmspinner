@@ -86,10 +86,20 @@ def moved(order: list[str], slot: str, index: int) -> list[str]:
     return out
 
 
-def toggle(state: Any) -> None:
-    """Shift+W. Enter and leave the editor."""
+def toggle(state: Any, ctx: Any = None) -> None:
+    """Shift+W. Enter and leave the editor.
+
+    Given *ctx*, it refuses to *enter* in a mode with no skeleton: the editor
+    there only says "cannot be rearranged yet" while ``layout.begin_frame``
+    switches the workspace's own splitters off (shell-02).
+    """
 
     edit = ensure(state)
+    if ctx is not None and not edit.open:
+        from . import skeletons
+
+        if not skeletons.for_mode(ctx, state.mode):
+            return
     edit.open = not edit.open
     edit.dragging = ""
     edit.dragging_column = ""

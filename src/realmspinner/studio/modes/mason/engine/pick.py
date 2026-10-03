@@ -69,7 +69,7 @@ from __future__ import annotations
 
 import math
 import weakref
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -192,6 +192,7 @@ def ray_scene(
     *,
     terrain: Terrain | None = None,
     terrain_world: np.ndarray | None = None,
+    exclude: Collection[int] = (),
 ) -> Hit | None:
     """The nearest thing ``origin``/``direction`` hits among ``placed`` (and
     ``terrain``, if given), or ``None``.
@@ -218,6 +219,10 @@ def ray_scene(
     everything else the resolver worked out. A ``terrain`` with no matching
     :class:`~.nodes.TerrainNode` in ``placed`` (or no ``terrain_world``)
     contributes nothing -- there would be no owner to report a hit against.
+
+    ``exclude`` is a set of owner uids the ray passes straight through -- what
+    X-ray picking is built on (the 2026-10-03 audit's mason-06): excluding
+    what is already selected lets a click reach the node behind it.
     """
     origin = np.asarray(origin, dtype="f8")
     direction = np.asarray(direction, dtype="f8")
@@ -226,8 +231,9 @@ def ray_scene(
     best_t: float | None = None
     best_item: Placed | None = None
 
+    skipped = frozenset(int(u) for u in exclude)
     for item in placed:
-        if not item.visible:
+        if not item.visible or item.owner in skipped:
             continue
         if item.ref is None:
             # A light or a camera: a sphere around where its symbol is drawn.
@@ -260,7 +266,12 @@ def ray_scene(
     terrain_hit: tuple[float, np.ndarray, Placed] | None = None
     if terrain is not None and terrain_world is not None:
         terrain_placed = next(
-            (p for p in placed if isinstance(p.node, TerrainNode) and p.visible), None
+            (
+                p
+                for p in placed
+                if isinstance(p.node, TerrainNode) and p.visible and p.owner not in skipped
+            ),
+            None,
         )
         if terrain_placed is not None:
             found = ray_terrain(terrain, terrain_world, origin, direction)

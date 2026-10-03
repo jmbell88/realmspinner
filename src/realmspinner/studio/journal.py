@@ -822,7 +822,7 @@ def _unlist(ctx: Any, found: Recovered) -> None:
 
 
 def take(ctx: Any, found: Recovered) -> bool:
-    """Reopen one crash copy and drop its row. -> whether a provider took it.
+    """Reopen one crash copy and drop its row once taken. -> whether a provider took it.
 
     The files are **left on disk**. :func:`drop` owns deletion and fires when
     the recovered document is saved or closed; removing them here would take
@@ -830,7 +830,12 @@ def take(ctx: Any, found: Recovered) -> bool:
     precisely the window a second crash would land in.
     """
     taken = adopt(ctx, [found]) > 0
-    _unlist(ctx, found)
+    # A declined copy stays offered (shell-06): the snapshot is read once, so
+    # dropping the row here made a provider's own "open the rig it belongs to
+    # and it will be offered again" false for the rest of the session. Discard
+    # is still the way to remove a row the user does not want.
+    if taken:
+        _unlist(ctx, found)
     return taken
 
 

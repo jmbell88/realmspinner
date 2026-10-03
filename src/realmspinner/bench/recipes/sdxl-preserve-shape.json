@@ -1,0 +1,9 @@
+{
+  "key": "sdxl-preserve-shape",
+  "label": "SDXL CFG with geometry-preserving 5k finishing",
+  "guidance": {"base_model": "sdxl_cfg"},
+  "profile": "raw",
+  "lowpoly_triangles": 5000,
+  "mesh_finishing": "preserve_shape",
+  "notes": "Pair with sdxl-repair using identical --reference-run images. No quality qualification claimed."
+}

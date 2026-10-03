@@ -94,6 +94,9 @@ VECTOR_PARAMS = (
     # including ``None`` for "no lowpoly ran" -- so a corpus reader can tell a
     # 5k-remeshed mesh from a 268k raw one at the same nominal ``profile``.
     "lowpoly_triangles",
+    "mesh_finishing",
+    "prompt_policy",
+    "generation_type",
     "trellis_band",
     "trellis_tex_res",
     "trellis_gss",

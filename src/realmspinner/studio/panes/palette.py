@@ -60,6 +60,13 @@ def draw(ctx: Any) -> None:
     state = ctx.state
     if not state.palette_open:
         return
+    # A question is pending (the window's X, a task-driven confirm): the two
+    # would fight for the one popup slot, so the palette yields (shell-01).
+    if getattr(ctx, "confirms", None) is not None and (
+        ctx.confirms.pending is not None or ctx.prompts.pending is not None
+    ):
+        close(ctx)
+        return
     appearing = not imgui.is_popup_open(POPUP)
     if appearing:
         imgui.open_popup(POPUP)

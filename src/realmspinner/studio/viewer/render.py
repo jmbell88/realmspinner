@@ -382,6 +382,11 @@ class Renderer:
                     program["u_normal_matrix"].write(
                         np.ascontiguousarray(normal_matrix.T, dtype="f4").tobytes()
                     )
+            # glTF defines winding by the sign of the world matrix's
+            # determinant: a part mirrored with scale -1 on one axis has its
+            # triangles flipped, so the front-face rule flips with it or the
+            # part is culled and lit inside-out (create-04).
+            self.ctx.front_face = "cw" if np.linalg.det(world[:3, :3]) < 0.0 else "ccw"
             primitive.material.bind(program)
             if tint is not None and "u_base_color_factor" in program:
                 program["u_base_color_factor"].value = tint
@@ -397,6 +402,7 @@ class Renderer:
                 # matter to fill rate.
                 self.ctx.enable(moderngl.CULL_FACE)
             primitive.vao(program).render()
+        self.ctx.front_face = "ccw"
         self.ctx.disable(moderngl.CULL_FACE)
 
     # -- helpers -----------------------------------------------------------

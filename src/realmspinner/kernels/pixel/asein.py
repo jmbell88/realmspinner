@@ -989,6 +989,16 @@ def _read_cel(state: _Parse, r: _Reader) -> None:
         y_mask = r.u32()
         d_mask = r.u32()
         r.take(10)
+        # The 2026-10-03 audit, finding inker-08: tilemap cels were exempt from
+        # the running total, so 20 cels of 3000x3000 tiles from a 0.7 MB file
+        # peaked at 837 MB. Charged in cells before the inflate, against the
+        # same ceiling the raw/compressed cels above use.
+        state.cel_pixels += grid_w * grid_h
+        if state.cel_pixels > pixelguard.MAX_DECODE_PIXELS:
+            raise ValueError(
+                f"a tilemap cel on layer {layer} declares more than the"
+                f" {pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
+            )
         raw = r.rest()
         wanted = grid_w * grid_h * 4
         decompressed = _inflate(raw, wanted, f"a tilemap cel on layer {layer}")

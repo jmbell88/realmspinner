@@ -124,7 +124,7 @@ import itertools
 import threading
 import weakref
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
 import numpy as np
@@ -546,6 +546,16 @@ class ClayDoc:
             matrix = matrix @ m3.compose(obj.translation, obj.rotation, obj.scale)
         return matrix
 
+    def _require_invertible(self, uid: int) -> np.ndarray:
+        """The inverse of *uid*'s world matrix, or an OpError naming it."""
+        try:
+            return np.linalg.inv(self.world_matrix(uid))
+        except np.linalg.LinAlgError as error:
+            raise el.OpError(
+                f"{self.by_uid(uid).name!r} has a zero scale, so nothing can be "
+                "placed relative to it."
+            ) from error
+
     def _local_relative(self, world: np.ndarray, parent: int | None) -> tuple[Any, Any, Any]:
         """*world* re-expressed as local TRS relative to *parent* (or as-is
         for a root) -- ``(t, r, s)``, via :func:`~.viewer.math3d.decompose`.
@@ -558,14 +568,7 @@ class ClayDoc:
         if parent is None:
             target = np.asarray(world, dtype="f8")
         else:
-            parent_world = self.world_matrix(parent)
-            try:
-                inverse = np.linalg.inv(parent_world)
-            except np.linalg.LinAlgError as error:
-                raise el.OpError(
-                    f"{self.by_uid(parent).name!r} has a zero scale, so nothing can be "
-                    "placed relative to it."
-                ) from error
+            inverse = self._require_invertible(parent)
             target = inverse @ np.asarray(world, dtype="f8")
         return m3.decompose(target)
 
@@ -1156,6 +1159,17 @@ class ClayDoc:
         doomed = sorted({int(u) for u in others} - {target_uid}, key=self.index_of, reverse=True)
         if mesh is obj.mesh and not doomed:
             return False
+        # The 2026-10-03 audit's clay-04: re-parenting an absorbed object's
+        # children raises OpError under a zero-scale ancestor, and used to do so
+        # after the target's mesh was already replaced -- a refusal with the
+        # document half-changed and no history step. Every refusal is raised
+        # here, before the first assignment. An ancestor's world matrix is
+        # unchanged by re-parenting (world placement is kept), so checking the
+        # current one is the same question the loop below asks.
+        for uid in doomed:
+            new_parent = self.by_uid(uid).parent
+            if new_parent is not None and self.children_of(uid):
+                self._require_invertible(new_parent)
         before, obj.mesh = obj.mesh, mesh
         edits: list[Any] = [MeshEdit(target_uid, before, mesh)]
         props_before: dict[str, Any] = {}
@@ -1283,6 +1297,17 @@ class ClayDoc:
             arr = np.asarray(new, dtype="f8")
             if arr.shape != (length,) or not np.isfinite(arr).all():
                 raise ValueError(f"{name} must be {length} finite numbers.")
+            # The 2026-10-03 audit's clay-03: ``serialize._vector`` refuses an
+            # all-zero scale and an all-zero quaternion on read, so a document
+            # carrying either saved fine and could never be reopened (crash
+            # recovery then lost the whole document). The writer and the reader
+            # now agree: this door refuses what the reader would.
+            if name in ("rotation", "scale") and not np.any(arr):
+                raise el.OpError(
+                    "A scale of zero on every axis collapses the object to a point."
+                    if name == "scale"
+                    else "A rotation of (0, 0, 0, 0) is not a rotation."
+                )
         before = tuple(np.array(v, dtype="f8", copy=True) for v in (was or obj.trs()))
         after = tuple(
             obj.trs()[i] if new is None else np.array(new, dtype="f8", copy=True)
@@ -1399,7 +1424,22 @@ class ClayDoc:
             # honest shrink -- see that function's own docstring.
             existing = self.element_sel.get(uid)
             if existing is not None:
-                self.set_element_sel(uid, el.restrict(mesh, existing, prior=was_mesh))
+                # clay-05 (2026-10-03): one changed key at the same face count
+                # moves positions only (the same rule ``regen.carry_over``
+                # trusts), so the same faces are still selected; ``prior`` is
+                # withheld there. Anything else keeps the drop-on-same-count
+                # policy, since several keys can reorder faces.
+                old_params = before["params"]
+                changed = [
+                    k
+                    for k in set(old_params) | set(params)
+                    if old_params.get(k) != params.get(k)
+                ]
+                same_faces = len(changed) <= 1 and len(mesh.starts) == len(was_mesh.starts)
+                self.set_element_sel(
+                    uid,
+                    el.restrict(mesh, existing, prior=None if same_faces else was_mesh),
+                )
             # Tranche 6: the exact same range check, for the exact same
             # reason -- see ``_restrict_seams``'s own docstring, which names
             # this method as one of its two callers.
@@ -1909,7 +1949,36 @@ class ClayDoc:
         self.touch()
         return True
 
-    def add_material_and_assign(self, uid: int, material: gltf.Material | None = None) -> int:
+    def repaint_object(self, uid: int, index: int) -> bool:
+        """Point *uid*'s default slot **and every face** at palette entry *index*,
+        as one step. -> whether anything changed.
+
+        The 2026-10-03 audit's clay-17: ``Obj.material`` is only the slot new
+        faces are stamped with; what renders and exports is the per-face
+        ``mesh.material`` array, so a lone ``set_props(material=...)`` left an
+        existing object looking exactly as before. Refuses a locked object
+        (it rewrites geometry) before pushing anything.
+        """
+        if not 0 <= index < len(self.materials):
+            raise el.OpError(f"there is no palette entry {index}.")
+        self._refuse_if_locked(uid)
+        obj = self.by_uid(uid)
+        head = self.history.head
+        mark = self.history.mark()
+        try:
+            if obj.mesh.material.size and not np.all(obj.mesh.material == index):
+                painted = replace(
+                    obj.mesh, material=np.full(len(obj.mesh.material), index, dtype="i4")
+                )
+                self.set_mesh(uid, painted, keep_generator=True)
+            self.set_props(uid, material=index)
+        finally:
+            self.history.collapse_since(mark)
+        return self.history.head != head
+
+    def add_material_and_assign(
+        self, uid: int, material: gltf.Material | None = None, *, repaint: bool = False
+    ) -> int:
         """Append a palette entry and point an object's default slot at it, as
         **one** step. -> the new entry's index.
 
@@ -1928,10 +1997,15 @@ class ClayDoc:
         session. The ``finally`` closes the gesture on every path, including
         this one, whether or not there was a run to fold.
         """
+        if repaint:
+            self._refuse_if_locked(uid)
         mark = self.history.mark()
         try:
             index = self.add_material(material)
-            self.set_props(uid, material=index)
+            if repaint:
+                self.repaint_object(uid, index)
+            else:
+                self.set_props(uid, material=index)
         finally:
             self.history.collapse_since(mark)
         return index

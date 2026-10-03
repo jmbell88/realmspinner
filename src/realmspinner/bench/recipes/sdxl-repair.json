@@ -1,0 +1,9 @@
+{
+  "key": "sdxl-repair",
+  "label": "SDXL CFG with repair, hole closing and 5k rebake",
+  "guidance": {"base_model": "sdxl_cfg"},
+  "profile": "raw",
+  "lowpoly_triangles": 5000,
+  "mesh_finishing": "repair",
+  "notes": "Pair with sdxl-preserve-shape using identical --reference-run images. No quality qualification claimed."
+}

@@ -467,6 +467,7 @@ def shift_by_cells(
     dy: int,
     *,
     wrap: tuple[int, int] | None = None,
+    to: Lattice | None = None,
 ) -> tuple[float, float]:
     """Move a point by whole cells along this lattice -- not by a flat pixel step.
 
@@ -492,7 +493,31 @@ def shift_by_cells(
     position, which is what keeps the round trip exact: wrapping the pixel
     position of a diamond or a staggered cell by the map's pixel bounding box
     is not the same operation as the map wrapping by one cell.
+
+    ``to`` is the lattice the result is projected *onto*, for a resize that
+    changes the lattice itself: an isometric or oblique origin depends on the
+    map's size, so the cell is read off the old lattice and drawn on the new
+    one (2026-10-03 audit, plotter-05). It defaults to ``lat``.
+
+    **The offset lattices keep the point's place inside its cell instead.**
+    ``cell_point`` has no inverse for a staggered or hexagonal map (it falls
+    through to the orthogonal division), so the round trip moved every object
+    even for a zero shift (plotter-04); here the point's whole cell and its
+    offset from that cell's origin are the exact decomposition.
     """
+    dest = lat if to is None else to
+    if lat.projection in OFFSET_PROJECTIONS:
+        column, row = cell_at(lat, x, y)
+        ox, oy = _offset_origin(lat, column, row)
+        new_column, new_row = column + dx, row + dy
+        if wrap is not None:
+            width, height = wrap
+            if width:
+                new_column %= width
+            if height:
+                new_row %= height
+        nx, ny = _offset_origin(dest, new_column, new_row)
+        return (nx + (float(x) - ox), ny + (float(y) - oy))
     column, row = cell_point(lat, x, y)
     column, row = column + dx, row + dy
     if wrap is not None:
@@ -501,7 +526,25 @@ def shift_by_cells(
             column %= width
         if height:
             row %= height
-    return cell_corner(lat, column, row)
+    return cell_corner(dest, column, row)
+
+
+def rescale_point(old: Lattice, new: Lattice, x: float, y: float) -> tuple[float, float]:
+    """A point's pixel position after the lattice changes under it, cell kept.
+
+    The fractional cell under ``old`` projected with ``new`` -- except on the
+    offset lattices, where the point keeps its place inside its cell, scaled by
+    the tile-size ratio (see :func:`shift_by_cells`).
+    """
+    if old.projection in OFFSET_PROJECTIONS:
+        column, row = cell_at(old, x, y)
+        ox, oy = _offset_origin(old, column, row)
+        nx, ny = _offset_origin(new, column, row)
+        return (
+            nx + (float(x) - ox) * new.tile_w / old.tile_w,
+            ny + (float(y) - oy) * new.tile_h / old.tile_h,
+        )
+    return cell_corner(new, *cell_point(old, x, y))
 
 
 def cell_bounds(

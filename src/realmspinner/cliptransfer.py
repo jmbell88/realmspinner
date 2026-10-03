@@ -632,6 +632,14 @@ def _slug_from_action_name(name: str) -> str:
     return slug or "clip"
 
 
+def _facing_named(name: str) -> bool:
+    try:
+        cliplib.reject_direction_named_clip(name)
+    except ValueError:
+        return True
+    return False
+
+
 def _validate_clip_name(name: str) -> str:
     name = str(name or "").strip()
     if not name:
@@ -718,7 +726,12 @@ def transfer(
             proposed = _slug_from_action_name(action.get("name"))
             candidate = proposed
             n = 2
-            while candidate in taken:
+            # poser-06 (2026-10-03): an action named ``strafe_left`` slugs to a
+            # name ending in one of Troupe's facings, which ``_validate_clip_name``
+            # refuses -- failing the whole multi-action import with no name
+            # control to follow the advice. An auto-named action is renamed
+            # (``strafe_left_2``) instead; only an explicit ``clip_name`` is refused.
+            while candidate in taken or _facing_named(candidate):
                 candidate = f"{proposed}_{n}"
                 n += 1
             taken.add(candidate)

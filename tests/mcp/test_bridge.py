@@ -673,3 +673,72 @@ def test_call_tool_task_returns_the_real_operation_id_and_status_when_one_is_min
     result = session.call_tool_task("t", {})
     assert result == ("op-1", "working")
 
+
+
+# --- the 2026-10-03 audit: set-up drops are "unreachable", not a traceback -------
+
+
+def test_bridge_dispatch_answers_parse_error_for_an_integer_literal_over_the_digit_limit() -> None:
+    """agents-02: json.loads raises a bare ValueError for a 4300+ digit integer;
+    only JSONDecodeError/RecursionError were caught, so one ~4.3 KB stdin line
+    killed the whole bridge process."""
+    raw = b'{"jsonrpc":"2.0","id":' + b"9" * 5000 + b',"method":"ping"}'
+    era = protocol.BridgeEra()
+    reply = protocol.bridge_dispatch(
+        raw,
+        era,
+        catalogue={"tools": []},
+        call_tool=lambda *a, **k: b"",
+        read_resource=lambda *a, **k: b"",
+        get_prompt=lambda *a, **k: b"",
+    )
+    assert reply is not None
+    assert json.loads(reply)["error"]["code"] == -32700
+
+
+class _HelloDrops:
+    def send_bytes(self, data: bytes) -> None:
+        pass
+
+    def poll(self, timeout=None) -> bool:
+        raise EOFError
+
+    def recv_bytes(self, maxlength=None) -> bytes:
+        raise EOFError
+
+    def close(self) -> None:
+        pass
+
+
+def test_main_falls_back_to_the_snapshot_when_studio_drops_the_connection_during_hello(
+    home, monkeypatch
+) -> None:
+    """agents-10: EOFError out of hello escaped main with a traceback."""
+    (home / "mcp.catalogue.json").write_text(
+        json.dumps({"hash": "h", "tools": [], "instructions": "", "server": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bridge, "_connect", lambda h: _HelloDrops())
+    _patch_stdio(monkeypatch, b"")
+    assert bridge.main([]) == 0
+
+
+@pytest.mark.parametrize("exc_name", ["eof", "auth", "badtoken"])
+def test_bridge_connect_treats_a_handshake_eof_or_rejected_token_as_not_reachable(
+    home, monkeypatch, exc_name
+) -> None:
+    """agents-11: EOFError / AuthenticationError / a corrupt token's ValueError
+    must read as "could not dial" (None), like OSError does."""
+    import multiprocessing
+
+    exc = {
+        "eof": EOFError(),
+        "auth": multiprocessing.AuthenticationError("digest received was wrong"),
+        "badtoken": ValueError("non-hexadecimal number found"),
+    }[exc_name]
+
+    def boom(h):
+        raise exc
+
+    monkeypatch.setattr(pipe, "connect", boom)
+    assert bridge._connect(home) is None

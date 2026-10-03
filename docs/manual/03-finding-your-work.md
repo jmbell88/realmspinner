@@ -49,8 +49,9 @@ rendering of one fact is a third place to keep in step.
 ## The library
 
 **Library** in the rail opens the full-window version: a filter rail on the left, a grid of
-thumbnails, and an inspector that appears when something is selected. The same list, narrower, is
-the right-hand column of Create.
+thumbnails, and an inspector that appears when something is selected. Create's right-hand column
+shows what this session generated, not the library; Library in the rail is the one place to browse,
+tick and act on everything.
 
 **Filtering** is one text box with a small vocabulary of prefixes — `tag:`, `status:`, `kind:`,
 `stage:`, `id:`, `name:` — and clickable chips that insert them for you, so you can discover the

@@ -184,7 +184,7 @@ not listed here and cannot be removed.
 ## Packs
 
 Models are weights; **packs** are the code that reads them. The installed build carries the app, its
-renderer and the reconstruction engine — around a gigabyte — and the three heavy dependency sets
+renderer — the reconstruction engine is a Models download — and the three heavy dependency sets
 arrive here, chosen:
 
 | Pack | What it turns on |
@@ -322,9 +322,8 @@ banner and through no check row at all, so this is the only copy.
 
 ## Advanced
 
-**Layout.** *Sidebar width* offers narrow, default and wide (260, 300 and 360 px). Three named sizes
-rather than a drag: a form has a width that reads well, and what a free drag bought was a way to make
-the app look broken — but one number cannot suit a 1600-wide window and a 5120 one. *Reset pane
+**Layout.** The sidebars are not a size you pick: each side column takes a fixed share of the window, the
+same in every mode, so there is no width control. *Reset pane
 sizes* puts the split between the inspector and the library — both on the right sidebar — back to its
 default, undoing any dragging of that divider. *Reset collapsed sections* re-opens every section that
 has been collapsed anywhere in the app.

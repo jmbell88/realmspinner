@@ -446,3 +446,21 @@ def test_a_missing_font_is_named_rather_than_asserted(monkeypatch, tmp_path):
     with pytest.raises(fonts.FontsUnavailable):
         fonts.reload(type("I", (), {"get_io": staticmethod(lambda: _Io())})())
     assert cleared == [], "a rebuild that cannot happen leaves the atlas it had"
+
+
+def test_a_startup_refusal_raised_in_setup_window_reaches_run_locked_as_its_own_dialog():
+    """shell-08: ``App.run``'s catch-all absorbed ``StartupRefused``, so the
+    OpenGL 3.3 and missing-fonts sentences never reached the user."""
+    from realmspinner.studio.shell.app import App, StartupRefused
+
+    app = object.__new__(App)
+    torn_down: list[bool] = []
+
+    def refuse() -> None:
+        raise StartupRefused("No OpenGL 3.3", "Update the graphics driver.")
+
+    app.setup_window = refuse
+    app.teardown = lambda: torn_down.append(True)
+    with pytest.raises(StartupRefused):
+        app.run()
+    assert torn_down == [True]

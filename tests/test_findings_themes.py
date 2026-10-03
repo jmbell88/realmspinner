@@ -32,22 +32,15 @@ def test_the_plotter_layer_menu_does_not_blame_a_save_for_a_missing_layer():
     assert menu._layer_reason(None) == menu.NO_MAP
     assert menu._layer_reason(busy) == menu.BUSY
     assert menu._layer_reason(idle) == ""
-    assert (
-        menu._layer_reason(idle, active=None, need_active=True) == menu.NO_LAYER
-    )
+    assert menu._layer_reason(idle, active=None, need_active=True) == menu.NO_LAYER
     assert (
         menu._layer_reason(idle, active=0, need_active=True, need_many=True, many=False)
         == menu.ONE_LAYER
     )
-    assert (
-        menu._layer_reason(idle, active=0, need_active=True, need_many=True, many=True)
-        == ""
-    )
+    assert menu._layer_reason(idle, active=0, need_active=True, need_many=True, many=True) == ""
     # Busy still wins over the shape gates: it is the one that will pass on its
     # own, so it is the one worth waiting for.
-    assert (
-        menu._layer_reason(busy, active=None, need_active=True) == menu.BUSY
-    )
+    assert menu._layer_reason(busy, active=None, need_active=True) == menu.BUSY
 
 
 def test_the_inker_tileset_doors_do_not_say_open_a_drawing_while_one_is_open():
@@ -246,9 +239,7 @@ def test_a_primitive_measures_its_own_box_once():
     prim.positions[:] = 99.0
     assert prim.box()[1] is high
 
-    empty = Primitive(
-        positions=np.zeros((0, 3), dtype="f4"), indices=np.zeros((0,), dtype="u4")
-    )
+    empty = Primitive(positions=np.zeros((0, 3), dtype="f4"), indices=np.zeros((0,), dtype="u4"))
     assert empty.box() is None
 
 
@@ -564,9 +555,7 @@ def test_the_remesh_line_is_not_a_ranking():
     assert quality.remesh_line([{"worst": 0.5}]) == []
 
     # A kept reading the audit cannot tell from a solid slab carries the caveat.
-    assert quality.UNINFORMATIVE_CAVEAT in quality.remesh_line(
-        [{"worst": 0.5}, {"worst": 0.001}]
-    )
+    assert quality.UNINFORMATIVE_CAVEAT in quality.remesh_line([{"worst": 0.5}, {"worst": 0.001}])
     assert "unmeasured" in " ".join(quality.remesh_line([{"worst": None}, {"worst": 0.5}]))
 
 
@@ -609,8 +598,11 @@ def test_the_tray_and_the_shell_agree_about_whether_there_is_a_tray():
     unreachable -- while a corpus of candidate rows reserved the strip and drew
     that empty state into it."""
     from realmspinner.studio.modes.create.ui import workspace as gw
+    from realmspinner.studio.state import AppState
 
-    empty = SimpleNamespace(cache=SimpleNamespace(jobs=[], active=None))
+    state = AppState(mode="create")
+    state.create.workspace = "job:a"
+    empty = SimpleNamespace(state=state, cache=SimpleNamespace(jobs=[], active=None))
     assert gw.should_draw(empty) is False
 
     candidate = SimpleNamespace(
@@ -624,7 +616,8 @@ def test_the_tray_and_the_shell_agree_about_whether_there_is_a_tray():
     )
 
     done = SimpleNamespace(
-        cache=SimpleNamespace(jobs=[{"id": "a", "status": "done"}], active=None)
+        state=state,
+        cache=SimpleNamespace(jobs=[{"id": "a", "kind": "text", "status": "done"}], active=None),
     )
     assert gw.should_draw(done) is True
     assert gw.should_draw(SimpleNamespace(cache=None)) is False

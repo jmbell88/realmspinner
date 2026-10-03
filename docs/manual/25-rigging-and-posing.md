@@ -90,7 +90,9 @@ the previous rig; cancelling a re-rig leaves the previous one intact.
 
 By default a skeleton is fitted by proportion: the template's landmarks are scaled onto the mesh's
 bounding box, so a shoulder lands where the template says a shoulder is in a body of that height.
-That is right for a subject standing in a T-pose and increasingly wrong the further from one it is.
+That is right for a subject standing in the template's own A-pose (arms angled down) and increasingly
+wrong the further from one it is — a T-posed mesh is the case it fits worst; see
+[the A-pose trap](08-rigging-and-posing.md#the-a-pose-trap).
 
 For **humanoid** rigs there is a better first guess, and it is on by default when the pose model is
 installed. Realmspinner measures the subject's joints off the reference image the mesh was reconstructed

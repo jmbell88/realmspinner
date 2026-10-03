@@ -2295,7 +2295,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
             state.pending_negative = True
             return True
         if name == "s":
-            advance(state)
+            advance(state, unverdicted_only=True)
             return True
     # ``a`` deliberately falls through unconsumed *outside a pass*. It was
     # Accept, and a mesh verdict is a grade now: silently mapping it onto +3

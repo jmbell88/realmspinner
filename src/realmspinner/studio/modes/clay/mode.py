@@ -1374,6 +1374,26 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
 
 
 
+def _settle_uv_gesture(doc: Any, view_state: Any, *, commit: bool) -> None:
+    """End the UV pane's armed live rotate/scale from the key layer --
+    ``ui/panes/uv.py``'s ``commit_live_transform``/``cancel_live_transform``
+    restated on the same ``UvPaneState`` fields, because this module cannot
+    import the pane."""
+    mark, kind = view_state.drag_mark, view_state.drag_mode
+    view_state.drag_mode = ""
+    history = doc.history
+    if history.head != mark:
+        history.collapse_since(mark)
+        if commit:
+            top = history.top
+            if top is not None:
+                top.label = kind.capitalize()
+        else:
+            history.undo(doc, redoable=False)
+    view_state.drag_base = None
+    view_state.drag_islands = frozenset()
+
+
 def handle_key(ctx: Any, event: Any) -> bool:
     """Clay's shortcuts. -> whether the key was consumed.
 
@@ -1434,6 +1454,21 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # and the drag's own commit then measured from ``_drag_start``, the
         # pre-drag baseline, and reverted it. The rule the comment above states
         # is only a rule if it holds for the keys the drag does *not* know.
+        return True
+
+    # The 2026-10-03 audit's clay-18: an armed UV live rotate/scale is a drag
+    # too, and its own Esc check lives in a pane that returns early with
+    # nothing selected -- so Esc here ran the staged clear (deselecting the
+    # object) and the gesture stayed armed with its undo gesture open; E/R
+    # flipped the 3-D tool and E ran Extrude. Duck-typed on ``tab.uv_view`` (the
+    # mode root may not import ``ui/``): Esc cancels, Enter commits, and every
+    # other bare key is consumed, exactly as for a 3-D drag above.
+    uv_view = getattr(tab, "uv_view", None)
+    if not ctrl and uv_view is not None and uv_view.drag_mode in ("rotate", "scale"):
+        if event.key == pygame.K_ESCAPE:
+            _settle_uv_gesture(doc, uv_view, commit=False)
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            _settle_uv_gesture(doc, uv_view, commit=True)
         return True
 
     if ctrl:
@@ -1549,6 +1584,12 @@ def _fire_op(ctx: Any, doc: Any, op: Any) -> bool:
         state.open_op_popup = True
         return True
     return clay_ops.run(ctx, doc, op)
+
+
+fire_op = _fire_op
+"""The same door, named for the menu strip: a submenu row asks for its dialog by
+state (``open_op_popup``) exactly as a key does, because an ``imgui.open_popup``
+made inside a submenu names the popup in the submenu's own id stack."""
 
 
 def _escape(state: ClayState, tab: ClayTab, doc: Any, view: Any = None) -> None:

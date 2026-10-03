@@ -208,15 +208,20 @@ def catmull_rom(
     return out
 
 
-def _translated(pixels: np.ndarray, dx: int, dy: int) -> np.ndarray:
+def _translated(pixels: np.ndarray, dx: int, dy: int, fill: int = 0) -> np.ndarray:
     """A canvas-sized plane shifted by (dx, dy), cropped, zero-filled behind.
 
     Not ``np.roll``: a layer is canvas-sized and its edge *is* the canvas edge,
     so what leaves one side is gone rather than arriving on the other. Rolling
     would put a sprite's head on the far side of the frame the moment somebody
     nudged it past the border, which reads as corruption.
+
+    ``fill`` is what the vacated strip holds. Zero is right for pixels, but an
+    *index* plane vacates to the document's transparent index, which is not 0
+    unless the palette says so (2026-10-03 audit, inker-03: the strip said
+    "opaque slot 0" over transparent pixels, and a save wrote the colour).
     """
-    out = np.zeros_like(pixels)
+    out = np.full_like(pixels, fill) if fill else np.zeros_like(pixels)
     height, width = pixels.shape[:2]
     sx0, sx1 = max(0, -dx), min(width, width - dx)
     sy0, sy1 = max(0, -dy), min(height, height - dy)
@@ -384,11 +389,10 @@ class PaintOps:
         # layer's target by coincidence (finding #2).
         if self.write_locked(layer):
             return False
-        if self.anim is not None and self.anim.is_placeholder(layer):
-            self._ensure_cel_for(layer_uid)
-            layer = self.layer_by_uid(layer_uid)
-            if self.anim.is_placeholder(layer):
-                return False
+        # Every refusal happens before the autovivify below: a cel minted for
+        # a write that then bails out stayed queued on ``_pending_cels`` and
+        # attached to (or was discarded by) whichever unrelated write
+        # committed next (2026-10-03 audit, inker-11).
         self._refuse_tilemap_layer(layer_uid, "regenerating")
         box = self.clip(rect)
         if box is None:
@@ -396,6 +400,12 @@ class PaintOps:
         x0, y0, x1, y1 = box
         if pixels.shape[0] != y1 - y0 or pixels.shape[1] != x1 - x0:
             return False
+        if self.anim is not None and self.anim.is_placeholder(layer):
+            self._ensure_cel_for(layer_uid)
+            layer = self.layer_by_uid(layer_uid)
+            if self.anim.is_placeholder(layer):
+                self._discard_pending_cel()
+                return False
         before = layer.pixels[y0:y1, x0:x1].copy()
         layer.pixels[y0:y1, x0:x1] = masked_apply(
             before, pixels.astype(np.uint8), weight, alpha_lock=layer.alpha_lock
@@ -668,7 +678,9 @@ class PaintOps:
         # ``layer.pixels`` would silently break every link in the row.
         layer.pixels[:] = _translated(source, int(dx), int(dy))
         if plane is not None and layer.indices is not None:
-            layer.indices[:] = _translated(plane, int(dx), int(dy))
+            layer.indices[:] = _translated(
+                plane, int(dx), int(dy), fill=int(self.transparent_index)
+            )
         width, height = self.size
         self.invalidate((0, 0, width, height), layer_uid=layer.uid)
         return True
@@ -699,6 +711,20 @@ class PaintOps:
             # ``offset_layer``'s door: the plane has already moved, so the
             # funnel's "re-resolve after from the colours" contract does not
             # hold and the caller hands its own ``before`` crop over.
+            # Widened to every cell whose *index* changed: the pixel box alone
+            # cannot see a vacated cell whose pixels were already zero, and
+            # an unrecorded cell is one undo cannot repair (inker-03).
+            moved = np.flatnonzero((plane != layer.indices).any(axis=1))
+            moved_cols = np.flatnonzero((plane != layer.indices).any(axis=0))
+            if moved.size:
+                changed = (
+                    int(moved_cols[0]),
+                    int(moved[0]),
+                    int(moved_cols[-1]) + 1,
+                    int(moved[-1]) + 1,
+                )
+                box = _union(box, changed)
+                x0, y0, x1, y1 = box
             self._commit_permuted_indices(layer, box, plane[y0:y1, x0:x1])
             return True
         self._commit_patch(layer, box, source[y0:y1, x0:x1])

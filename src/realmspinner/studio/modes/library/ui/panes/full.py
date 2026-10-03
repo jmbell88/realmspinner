@@ -396,6 +396,39 @@ def should_open_on_double_click(job: Any) -> bool:
     )
 
 
+def _cell_controls(ctx: Any, job: Any, top: Any, thumb: float) -> None:
+    """The per-card tick and primary action, over the picture's corners.
+
+    shell-12 (2026-10-03 audit): the sidebar's ``library.draw`` was the only
+    host of ``_card_actions`` (tick, primary action, star) and Create's right
+    column stopped drawing it, so this composition -- the one Library
+    surface left -- offered "Select every asset shown" and nothing to build a
+    hand-picked bulk selection with. The tick sits top-right (the pill and
+    favourite star hold top-left) and the primary action bottom-left, both
+    drawn inside the cell's own child window, so a press on either never
+    reaches the cell's select-on-click. A trashed row gets neither, for
+    ``_card_actions``' reason: the tick set is cleared on entering the trash
+    and the live primary actions are not served there (its right-click menu
+    keeps Restore / Delete permanently).
+    """
+    if job.get("deleted_at"):
+        return
+    inset = sp(4)
+    box = imgui.get_frame_height()
+    imgui.set_cursor_screen_pos((top.x + thumb - box - inset, top.y + inset))
+    checked = job["id"] in ctx.state.checked
+    changed, value = controls.checkbox("##pick", checked)
+    if imgui.is_item_hovered():
+        imgui.set_tooltip("Select for bulk actions")
+    if changed and value != checked:
+        ctx.state.toggle_check(job["id"])
+    action = library.primary_action(job, rigging_available=ctx.rigging_available)
+    if action is not None:
+        imgui.set_cursor_screen_pos((top.x + inset, top.y + thumb - box - inset))
+        if controls.small_button(library.ACTIONS[action]):
+            library.run_action(ctx, job, action)
+
+
 def _cell(ctx: Any, job: Any, size: tuple[float, float], thumb: float, pad: Any) -> None:
     """One asset: its picture, its state on top of it, its name under it.
 
@@ -429,6 +462,7 @@ def _cell(ctx: Any, job: Any, size: tuple[float, float], thumb: float, pad: Any)
             if job.get("favorite"):
                 imgui.same_line()
                 widgets.text_colored(theme.WARN, icons.STAR)
+            _cell_controls(ctx, job, top, thumb)
             imgui.set_cursor_screen_pos(after)
             imgui.text(widgets.fit_text(name, thumb))
             imgui.unindent(pad.x)

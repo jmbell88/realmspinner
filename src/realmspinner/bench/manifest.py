@@ -34,6 +34,7 @@ CONFIG_FIELDS = (
     "trellis_atlas",
     "trellis_webp",
     "mesh_profile",
+    "lowpoly_triangles",
     "vram_exclusive",
 )
 
@@ -66,6 +67,7 @@ def build_manifest(
         "seeds": list(seeds),
         "config": {name: _plain(getattr(config, name, None)) for name in CONFIG_FIELDS},
         "models": _model_fingerprints(config, recipe),
+        "engine": provenance.native_engine_identity(config),
         "versions": provenance.versions(),
     }
 
@@ -124,8 +126,12 @@ def compare_manifests(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
     covers a subset, and the timestamp always differs.
     """
     out: list[str] = []
+    if old.get("references") != new.get("references"):
+        out.append("paired reference images changed")
     if old.get("stage") != new.get("stage"):
         out.append(f"stage: {old.get('stage')} -> {new.get('stage')}")
+    if old.get("engine") and old.get("engine") != new.get("engine"):
+        out.append("native engine identity changed")
     for section in ("suite", "recipe"):
         a, b = old.get(section) or {}, new.get(section) or {}
         for key in ("key", "file"):

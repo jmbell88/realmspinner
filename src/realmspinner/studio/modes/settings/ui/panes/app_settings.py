@@ -136,7 +136,7 @@ SEARCH_INDEX: tuple[SearchRow, ...] = (
     SearchRow("storage", "Storage", "What the library and the model store hold on disk."),
     SearchRow("storage", "Maintenance", "Check, back up, prune or clean the library."),
     SearchRow("health", "Checks", "What doctor found, and what to do about it."),
-    SearchRow("advanced", "Layout", "Pane sizes, collapsed sections, the sidebar width."),
+    SearchRow("advanced", "Layout", "Pane sizes and collapsed sections."),
     SearchRow("advanced", "Workspace layouts", "Which panes are in which column."),
     SearchRow(
         "advanced",
@@ -603,6 +603,29 @@ def _layout_pick_reason(chosen: str, active: str, readable: bool) -> str:
     )
 
 
+def hidden_pane_rows(ctx: Any) -> list[tuple[str, str, str]]:
+    """``(workspace, slot id, label)`` for every pane the active layout hides.
+
+    Labels come from the workspace's skeleton where it still has the slot, and
+    fall back to the id, so a pane that has since been renamed or removed is
+    still listed rather than lost (shell-11).
+    """
+    from ..... import skeletons
+
+    library = getattr(ctx, "layouts", None)
+    if library is None:
+        return []
+    rows = []
+    for workspace, slot_id in library.hidden_everywhere():
+        label = slot_id
+        for column in skeletons.for_mode(ctx, workspace).values():
+            for slot in column.live(ctx):
+                if slot.id == slot_id:
+                    label = slot.label
+        rows.append((workspace, slot_id, label))
+    return rows
+
+
 def _layouts(ctx: Any) -> None:
     """Saved workspace layouts: the administration, and **the canonical path**.
 
@@ -691,6 +714,9 @@ def _layouts(ctx: Any) -> None:
         "A layout can only reorder and hide panes -- never delete one -- and a "
         "hidden pane is always listed here with one click to bring it back."
     )
+    for workspace, slot_id, label in hidden_pane_rows(ctx):
+        if controls.button(f"Show {label} ({workspace})##unhide-{workspace}-{slot_id}"):
+            library.unhide(workspace, slot_id)
 
 
 def _agents(ctx: Any) -> None:
@@ -760,7 +786,9 @@ def _agents(ctx: Any) -> None:
         "The key that proves an agent is allowed to connect lives in "
         "mcp.token in your Realmspinner home, written the moment this switches "
         "on -- a program that cannot read your files cannot connect either. "
-        "Turning this off (or deleting that file) revokes it at once."
+        "Turning this off revokes it at once. Deleting the file only stops new "
+        "connections: an agent that is already attached, or already holds the "
+        "key, keeps working until you turn this off."
     )
 
 
@@ -1070,9 +1098,7 @@ def _health_actions(ctx: Any, rows: list[HealthRow]) -> None:
 
 # --- layout -----------------------------------------------------------------
 
-
 def _layout(ctx: Any) -> None:
-    from ..... import layout as layout_mod
 
     widgets.section("Layout")
     lay = getattr(ctx, "layout", None)
@@ -1091,17 +1117,9 @@ def _layout(ctx: Any) -> None:
         # default-open when it finds nothing stored.
         ctx.settings.set("panels_open", {})
         ctx.toast("Section states reset.")
-    # M106. Named sizes rather than a drag: the module docstring's argument
-    # against dragging a form's width stands, and what it did not answer is
-    # that one number cannot suit a 1600-wide window and a 5120 one.
-    chosen = widgets.labeled_combo(
-        "Sidebar width",
-        getattr(lay, "sidebar", "default"),
-        [(key, f"{key} ({int(width)} px)") for key, width in layout_mod.SIDEBAR_WIDTHS.items()],
-        sp(FIELD_W),
-    )
-    if chosen != getattr(lay, "sidebar", "default"):
-        lay.set_sidebar_width(chosen)
+    # No sidebar-width combo here (shell-03): since the proportional shell
+    # ``layout.measure`` takes each side column as a fixed share of the room,
+    # so a chosen width reached nothing the shell measures.
 
 
 # --- storage ----------------------------------------------------------------

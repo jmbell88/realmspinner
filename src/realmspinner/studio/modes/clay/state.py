@@ -164,6 +164,13 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     #: that did not live with the others.
     frame_pending: bool = False
 
+    #: The tab whose camera the shared viewport is showing right now -- written
+    #: by ``ui/viewport.py`` after its handoff. The 2026-10-03 audit's clay-12:
+    #: the per-frame camera sync keyed on ``active_uid``, which a keyboard tab
+    #: switch or a close moves before the draw, so it wrote the outgoing tab's
+    #: live camera onto the incoming tab. ``None`` until something is drawn.
+    camera_tab: Any = None
+
     # Tool and snap settings: shared across documents on purpose.
     tool: str = "select"
     snap: bool = False
@@ -301,6 +308,18 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # op set ``pending_op`` and nothing ever opened the popup, leaving the mode
     # holding a request it could not act on. Cleared by the pane that opens it.
     open_op_popup: bool = False
+
+    # Which tab of the Properties pane is showing (``props.TABS`` keys). App
+    # level rather than per document, like ``tool``: it is a place you are
+    # *looking*, and switching documents should not move you back to Object.
+    # An unknown key (a tab since removed) is read as ``"object"`` by the pane.
+    props_tab: str = "object"
+
+    # Set by the Add menu's "Generate..." row, consumed by the menu strip, which
+    # hosts the popup: a menu row cannot open a popup itself (a submenu is a
+    # window of its own, so the popup would be named in *its* id stack) -- the
+    # ``open_op_popup`` / ``resize_pending`` pattern, for the same reason.
+    generate_open_pending: bool = False
 
     # Where a Shift+click range in the outliner is measured from. A uid, for the
     # reason every address in this package is one: the list reorders, and an

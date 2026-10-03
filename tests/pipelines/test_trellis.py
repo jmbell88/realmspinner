@@ -1040,3 +1040,25 @@ def test_atomic_write_stages_through_a_dotfile(tmp_path, monkeypatch):
     assert staged and staged[0].startswith(".source.glb.")
     assert staged[0].endswith(".tmp")
     assert [p.name for p in tmp_path.iterdir()] == ["source.glb"]
+
+
+def test_the_trellis_clients_ignore_proxy_environment_variables(monkeypatch, tmp_path) -> None:
+    """The 2026-10-03 audit (pipelines-01): both loopback clients kept
+    trust_env=True, so an HTTP(S)_PROXY without a NO_PROXY entry sent the
+    /health poll and the reference-image POST /generate to the proxy."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(trellis_mod))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "AsyncClient"
+    ]
+    assert len(calls) == 2
+    for call in calls:
+        kw = {k.arg: k.value for k in call.keywords}
+        assert "trust_env" in kw, f"line {call.lineno}: AsyncClient trusts the proxy environment"
+        assert isinstance(kw["trust_env"], ast.Constant) and kw["trust_env"].value is False

@@ -179,6 +179,8 @@ class _Server:
                 tile=bool(req.get("tile")),
                 sheet=bool(req.get("sheet")),
                 tilesheet=bool(req.get("tilesheet")),
+                generation_type=req.get("generation_type"),
+                prompt_policy=int(req.get("prompt_policy", 8)),
                 size=(int(size[0]), int(size[1])) if size else None,
             )
         except JobCancelled:

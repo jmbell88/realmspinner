@@ -2,10 +2,28 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 from realmspinner import provenance
 from realmspinner.config import Config
+
+
+def test_custom_engine_release_is_unknown_until_digest_is_verified(tmp_path, monkeypatch):
+    from realmspinner import models
+
+    exe = tmp_path / "trellis-server.exe"
+    exe.write_bytes(b"isolated native engine")
+    config = Config(trellis_server_exe=exe)
+    identity = provenance.native_engine_identity(config)
+    assert identity["engine_version"] is None
+    assert identity["version_verified"] is False
+    digest = hashlib.sha256(exe.read_bytes()).hexdigest()
+    monkeypatch.setattr(models, "TRELLIS_RUNTIME_DIGESTS", (("trellis-server.exe", digest),))
+    verified = provenance.native_engine_identity(config)
+    assert verified["engine_version"] == models.TRELLIS_RUNTIME_VERSION
+    assert verified["engine_sha256"] == digest
+    assert verified["version_verified"] is True
 
 
 def test_a_missing_path_says_so_rather_than_raising(tmp_path):
@@ -89,6 +107,8 @@ def test_versions_records_the_prompt_compiler(monkeypatch):
 
 def test_trellis_recipe_is_serialisable():
     recipe = provenance.trellis_recipe(Config(), {"platform": "pc"}, mesh_seed=42)
+    assert recipe["backend"] == "trellis2"
+    assert recipe["engine"] == "trellis.cpp"
     json.dumps(recipe)
     assert recipe["seed"] == 42
     assert recipe["version"] == provenance.RECIPE_VERSION

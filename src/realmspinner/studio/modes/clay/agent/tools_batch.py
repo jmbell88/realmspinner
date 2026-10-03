@@ -288,12 +288,22 @@ def _fold_run(
     mark = doc.history.mark()
     results: list[dict] = []
     stopped_at: int | None = None
-    for i, entry in enumerate(entries):
-        result = _run_entry(ctx, session, doc, entry)
-        results.append(result)
-        if result.get("isError"):
-            stopped_at = i
-            break
+    try:
+        for i, entry in enumerate(entries):
+            result = _run_entry(ctx, session, doc, entry)
+            results.append(result)
+            if result.get("isError"):
+                stopped_at = i
+                break
+    except BaseException:
+        # An exception escaping an entry must still leave the document at its
+        # mark: earlier steps otherwise stayed applied as separate undo steps
+        # under a "failed unexpectedly, changed: false" reply (2026-10-03
+        # audit, agents-06).
+        doc.history.collapse_since(mark)
+        if rollback and doc.history.head != mark:
+            doc.history.undo(doc, redoable=False)
+        raise
     doc.history.collapse_since(mark)
 
     rolled_back = False
@@ -679,6 +689,11 @@ def _run_live_transform(ctx: Any, session: Session, doc: Any, kind: str, argumen
     return call(ctx, session, "clay_transform", {"uid": uid, "scale": scale})
 
 
+#: The four names clay_reference_add may read from a job directory, in the
+#: order "first one ready" tries them.
+REFERENCE_FILES = ("input.png", "ref.png", "reference.png", "thumb.png")
+
+
 def _run_live_assert(doc: Any, arguments: dict, groups: dict[str, tuple[str, ...]]) -> dict:
     """Run one compiled ``assert`` entry: evaluate its condition against
     *doc*, right now, through :func:`agent_program.evaluate_condition`. A
@@ -954,13 +969,21 @@ def _h_reference_add(ctx: Any, session: Session, args: dict) -> dict:
             return fail(error.message, field="job_id")
         job_dir = ctx.svc.job_dir(job_id)
         file_arg = args.get("file")
+        # Only the four documented names: anything else ("../x", an absolute
+        # path) reached path.exists() inside ready() and answered differently
+        # for a path that exists, an existence oracle outside the job dir
+        # (2026-10-03 audit, agents-09).
+        if isinstance(file_arg, str) and file_arg and file_arg not in REFERENCE_FILES:
+            return fail(
+                f"file must be one of {', '.join(REFERENCE_FILES)}.", field="file"
+            )
         # The schema declares this a string; unchecked, a non-string reached
         # ``job_dir / name`` inside ``svc_files.ready`` and raised a bare
         # ``TypeError`` there, caught only by ``call()``'s generic backstop.
         if file_arg is not None and not isinstance(file_arg, str):
             return fail("file must be a string.", field="file")
         candidates = (
-            [file_arg] if file_arg else ["input.png", "ref.png", "reference.png", "thumb.png"]
+            [file_arg] if file_arg else list(REFERENCE_FILES)
         )
         chosen = next((c for c in candidates if svc_files.ready(job, job_dir, c)), None)
         if chosen is None:

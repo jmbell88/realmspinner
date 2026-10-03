@@ -546,6 +546,13 @@ def despeckle(pixels: np.ndarray, *, speck: float = 0.0) -> np.ndarray:
     # Pillow takes an odd *window size*, not a radius: 1 is the identity, 3 is
     # the 3x3 median every despeckle means by "1".
     size = min(int(round(float(speck))) * 2 + 1, DESPECKLE_MAX)
+    if size < 3:
+        # The 2026-10-03 audit, finding inker-04: a speck in (0, 0.5] rounds to
+        # a window of 1, and Pillow 12.3's ``MedianFilter(1)`` divides by zero
+        # in native code (exit 0xC0000094) -- no traceback, the whole process
+        # and every unsaved document gone. A one-pixel median is the identity
+        # by definition, so the slider's first notch is a no-op instead.
+        return pixels.copy()
     rgb, alpha = _premultiplied(pixels)
     flat = np.empty(pixels.shape, dtype=np.uint8)
     flat[..., :3] = cp.to_uint8_255(rgb)

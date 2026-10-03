@@ -178,7 +178,30 @@ def test_the_default_composition_is_byte_identical_across_the_retirement():
     # deletion of the scene template with the expander that was its only
     # reader; the literal above still holding is the proof the object path did
     # not move with any of them.
-    assert prompt.PROMPT_VERSION == 8
+    assert prompt.PROMPT_VERSION == 9
+
+
+def test_new_images_keep_the_requested_composition():
+    subject = "a wide forest landscape with three cottages seen from above"
+    assert prompt.build(subject, {}, generation_type="image", policy_version=9) == subject
+    assert prompt.build(subject, {}, generation_type="3d_model", policy_version=9) == (
+        prompt.PROMPT_TEMPLATE.format(prompt=subject)
+    )
+
+
+def test_stored_images_reproduce_legacy_framing():
+    assert prompt.build("a castle", {}, generation_type="image", policy_version=8) == (
+        prompt.PROMPT_TEMPLATE.format(prompt="a castle")
+    )
+
+
+@pytest.mark.parametrize("flag,template", [
+    ("tile", prompt.TILE_TEMPLATE), ("sheet", prompt.SHEET_TEMPLATE),
+    ("tilesheet", prompt.TILESHEET_TEMPLATE),
+])
+def test_specialized_templates_override_image_routing(flag, template):
+    assert prompt.build("moss", {}, generation_type="image", policy_version=9,
+                        **{flag: True}) == template.format(prompt="moss")
 
 
 def test_the_tilesheet_template_asks_for_separate_tiles_not_one_scene():

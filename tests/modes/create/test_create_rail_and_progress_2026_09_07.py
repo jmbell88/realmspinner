@@ -216,7 +216,7 @@ def test_the_canvas_tray_draws_the_working_now_row_at_its_top():
     from realmspinner.studio.modes.create.ui import workspace as gw
 
     draw_source = inspect.getsource(gw.draw)
-    assert draw_source.index("progress_row(ctx)") < draw_source.index("_result_grid(")
+    assert draw_source.index("progress_row(ctx)") < draw_source.index("_attempt_strip(")
     assert "_progress(ctx, active)" in inspect.getsource(gw.progress_row)
 
 

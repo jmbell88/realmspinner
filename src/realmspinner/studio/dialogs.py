@@ -403,6 +403,11 @@ class ConfirmQueue:
         widgets.pop_surface_rounding()
         if not opened:
             imgui.pop_style_var()
+            # Displaced by another popup taking the single slot (the palette's
+            # own re-open, shell-01): forget that it was opened so the next
+            # frame opens it again, rather than leaving a pending head that is
+            # never drawn and a ``modal_open`` that swallows every key.
+            confirm._open = False
             return
         # The deepest step of the ramp: a modal is the one surface that stops
         # the app underneath it, and the shadow is what says so before the text
@@ -561,6 +566,11 @@ class PromptQueue:
         widgets.pop_surface_rounding()
         if not opened:
             imgui.pop_style_var()
+            # Displaced by another popup taking the single slot (the palette's
+            # own re-open, shell-01): forget that it was opened so the next
+            # frame opens it again, rather than leaving a pending head that is
+            # never drawn and a ``modal_open`` that swallows every key.
+            prompt._open = False
             return
         widgets.window_shadow("overlay", radius=radius)
         if frosted:

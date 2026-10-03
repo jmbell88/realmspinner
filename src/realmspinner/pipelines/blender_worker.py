@@ -2322,10 +2322,8 @@ def _bake_image(bpy: Any, name: str, size: int, *, data: bool) -> Any:
 def _source_metallic(source: Any) -> float:
     """The source's metallic factor, when it is a constant.
 
-    Cycles has no metallic bake type, and rewiring every source material's
-    metallic input into an emission is a second bake pipeline for a channel a
-    reconstruction almost never varies. The constant is honest: it is what the
-    importer wrote, averaged over the slots, and the report says "constant".
+    Used only by the separate selective bake operation when no metallic map
+    was requested. Remeshing transfers metallic through emission instead.
     """
     values = []
     for material in source.data.materials:
@@ -2343,10 +2341,50 @@ _BAKE_MAP_KINDS: dict[str, tuple[str, dict[str, Any], bool]] = {
     # key -> (the bake() operator's ``type``, its extra kwargs, whether the
     # target image is data rather than colour -- ``_bake_image``'s own
     # Non-Color reasoning applies to roughness and normal alike).
-    "base_color": ("DIFFUSE", {}, False),
+    "base_color": ("EMIT", {}, False),
     "roughness": ("ROUGHNESS", {}, True),
     "normal": ("NORMAL", {"normal_space": "TANGENT"}, True),
+    "metallic": ("EMIT", {}, True),
+    "alpha": ("EMIT", {}, True),
 }
+
+
+@contextlib.contextmanager
+def _emit_material_channel(highs: Sequence[Any], channel: str):
+    """Bake a Principled input as data, restoring every source graph afterwards."""
+    restorations = []
+    seen = set()
+    try:
+        for high in highs:
+            for material in high.data.materials:
+                if material is None or not material.use_nodes or material in seen:
+                    continue
+                seen.add(material)
+                tree = material.node_tree
+                bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+                if bsdf is None:
+                    raise RuntimeError(f"cannot transfer {channel} from {material.name}")
+                socket = bsdf.inputs[channel]
+                for output in [n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"]:
+                    surface = output.inputs["Surface"]
+                    previous = [link.from_socket for link in surface.links]
+                    emit = tree.nodes.new("ShaderNodeEmission")
+                    restorations.append((tree, surface, previous, emit))
+                    if socket.is_linked:
+                        tree.links.new(socket.links[0].from_socket, emit.inputs["Color"])
+                    else:
+                        if channel == "Base Color":
+                            emit.inputs["Color"].default_value = socket.default_value
+                        else:
+                            value = float(socket.default_value)
+                            emit.inputs["Color"].default_value = (value, value, value, 1.0)
+                    tree.links.new(emit.outputs[0], surface)
+        yield
+    finally:
+        for tree, surface, previous, emit in reversed(restorations):
+            tree.nodes.remove(emit)
+            for socket in previous:
+                tree.links.new(socket, surface)
 
 
 def _remesh_object(
@@ -2477,9 +2515,8 @@ def _bake_maps(
     than layering onto a mesh's own palette -- with one image node per
     requested map, wired into the Principled BSDF the glTF exporter reads
     (roughness straight into Roughness, normal through a Normal Map node).
-    Metallic is never a bake target here: Cycles has no metallic bake type,
-    so every caller that wants it carries it over as a constant
-    (``_source_metallic``/``_metallic_constant``, called separately).
+    Metallic and alpha use emission bakes of the source input graph, so linked
+    maps and differing constants across source materials survive spatially.
 
     Split out of ``op_remesh`` with no change to its behaviour when called
     with ``maps=("base_color", "roughness", "normal")`` and the defaults
@@ -2525,18 +2562,83 @@ def _bake_maps(
             on_bake(key)
         kind, extra, _is_data = _BAKE_MAP_KINDS[key]
         tree.nodes.active = nodes[key]
-        bpy.ops.object.bake(type=kind, **extra)
+        channel = {"base_color": "Base Color", "metallic": "Metallic", "alpha": "Alpha"}.get(key)
+        with _emit_material_channel(highs, channel) if channel else contextlib.nullcontext():
+            bpy.ops.object.bake(type=kind, **extra)
         nodes[key].image.pack()
 
     if "base_color" in images:
         tree.links.new(nodes["base_color"].outputs["Color"], principled.inputs["Base Color"])
     if "roughness" in images:
         tree.links.new(nodes["roughness"].outputs["Color"], principled.inputs["Roughness"])
+    if "metallic" in images:
+        tree.links.new(nodes["metallic"].outputs["Color"], principled.inputs["Metallic"])
+    if "alpha" in images:
+        tree.links.new(nodes["alpha"].outputs["Color"], principled.inputs["Alpha"])
     if "normal" in images:
         normal_map = tree.nodes.new("ShaderNodeNormalMap")
         tree.links.new(nodes["normal"].outputs["Color"], normal_map.inputs["Color"])
         tree.links.new(normal_map.outputs["Normal"], principled.inputs["Normal"])
     return material, images
+
+
+def _preserve_alpha_mode(source: Any, material: Any, gltf_materials: Sequence[Any]) -> None:
+    """Keep glTF opacity semantics when several source materials share an atlas."""
+    materials = [m for m in source.data.materials if m is not None]
+    modes = {m.get("alphaMode", "OPAQUE") for m in gltf_materials}
+    if "MASK" in modes and "BLEND" in modes:
+        raise RuntimeError("repair cannot combine MASK and BLEND alpha modes in one atlas")
+    # A shared atlas can retain opaque areas in a blended material. It cannot
+    # express several different cutoffs; keep the highest one and report it.
+    mode = "BLEND" if "BLEND" in modes else "MASK" if "MASK" in modes else "OPAQUE"
+    material["gltf_alpha_mode"] = mode
+    tree = material.node_tree
+    principled = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
+    alpha = principled.inputs["Alpha"]
+    if mode == "OPAQUE":
+        for link in list(alpha.links):
+            tree.links.remove(link)
+        alpha.default_value = 1.0
+    else:
+        material.surface_render_method = "BLENDED" if mode == "BLEND" else "DITHERED"
+    if mode == "MASK":
+        cutoff = max(float(m.get("alphaCutoff", 0.5)) for m in gltf_materials)
+        material["gltf_alpha_cutoff"] = cutoff
+        # The glTF exporter reads clipping from the node graph in Blender 5.
+        # Alpha was baked after the source clip, so values are already binary.
+        incoming = alpha.links[0].from_socket
+        less = tree.nodes.new("ShaderNodeMath")
+        less.operation = "LESS_THAN"
+        less.inputs[1].default_value = cutoff
+        invert = tree.nodes.new("ShaderNodeMath")
+        invert.operation = "SUBTRACT"
+        invert.inputs[0].default_value = 1.0
+        tree.links.new(incoming, less.inputs[0])
+        tree.links.new(less.outputs[0], invert.inputs[1])
+        tree.links.new(invert.outputs[0], alpha)
+    material.use_backface_culling = all(m.use_backface_culling for m in materials)
+
+
+def _simplify_preserving_surface(bpy: Any, obj: Any, triangles: int) -> None:
+    """Collapse edges with Blender's UV and material data still attached."""
+    count = _tri_count(obj)
+    if count <= triangles:
+        return
+    # glTF splits positions at UV/material seams. Collapse on those disconnected
+    # triangles tears thin surfaces apart. Merge only coincident positions;
+    # Blender keeps UVs on face corners and keeps material assignments.
+    lo, hi = _world_bounds(obj)
+    distance = weld_distance(lo, hi)
+    if distance > 0:
+        original, _merged = _weld(bpy, obj, distance)
+        bpy.data.meshes.remove(original)
+    bpy.context.view_layer.objects.active = obj
+    modifier = obj.modifiers.new("wl_preserve_shape", "DECIMATE")
+    modifier.ratio = min(triangles / max(count, 1), 1.0)
+    modifier.use_collapse_triangulate = True
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    if not obj.data.polygons:
+        raise RuntimeError("simplification produced an empty mesh")
 
 
 def _set_metallic_constant(material: Any, metallic: float) -> None:
@@ -2562,8 +2664,8 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     3. **Bake.** Selected-to-active from the *original* object: base colour
        (the diffuse colour pass alone -- no lighting, ``op_views``' rule),
        roughness, and tangent-space normals, which carry the high-resolution
-       geometry the budget threw away. Metallic is a constant, see
-       ``_source_metallic``.
+       geometry the budget threw away. Metallic and alpha are transferred
+       through emission so linked maps and mixed materials survive.
     4. **Export** the new object alone, textures packed into the GLB.
     """
     source_path = Path(spec["source_glb"])
@@ -2580,6 +2682,20 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     faces_before, _ = _face_stats(source)
     lo, hi = _world_bounds(source)
     diagonal = max(math.dist(lo, hi), 1e-6)
+
+    if spec.get("preserve_shape"):
+        progress(0.15, "Simplifying while preserving materials")
+        _simplify_preserving_surface(bpy, source, target * 2)
+        faces, quads = _face_stats(source)
+        triangles = _tri_count(source)
+        progress(0.92, "Exporting")
+        _export(bpy, out_glb)
+        progress(1.0, "Simplified")
+        return {
+            "ok": True, "method": "preserve_shape", "faces_before": faces_before,
+            "faces": faces, "triangles": triangles, "quads": quads,
+            "materials": "preserved", "texture_size": None,
+        }
 
     # A working copy: the original keeps its materials and UVs as the bake
     # source, and is deleted before export.
@@ -2638,12 +2754,14 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         "base_color": (0.55, "Baking colour"),
         "roughness": (0.70, "Baking roughness"),
         "normal": (0.82, "Baking normals"),
+        "metallic": (0.86, "Baking metallic"),
+        "alpha": (0.89, "Baking opacity"),
     }
     material, _images = _bake_maps(
         bpy,
         work,
         [source],
-        maps=("base_color", "roughness", "normal"),
+        maps=("base_color", "roughness", "normal", "metallic", "alpha"),
         texture_size=texture_size,
         cage_extrusion=diagonal * 0.02,
         max_ray_distance=diagonal * 0.05,
@@ -2651,14 +2769,16 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     )
 
     # glTF packs roughness in G and metallic in B of one image; the exporter
-    # builds that image itself when roughness is a texture and metallic a
-    # constant.
-    metallic = _source_metallic(source)
-    _set_metallic_constant(material, metallic)
+    # builds that image from the two data textures.
+    from ..kernels.geom3d import glbio
+
+    source_gltf, _ = glbio.read_glb(source_path)
+    _preserve_alpha_mode(source, material, source_gltf.get("materials") or [])
 
     progress(0.92, "Exporting")
     bpy.data.objects.remove(source, do_unlink=True)
     faces, quads = _face_stats(work)
+    triangles = _tri_count(work)
     _export(bpy, out_glb)
     progress(1.0, "Remeshed")
     return {
@@ -2666,9 +2786,11 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         "method": method,
         "faces_before": faces_before,
         "faces": faces,
+        "triangles": triangles,
         "quads": quads,
         "texture_size": texture_size,
-        "metallic": metallic,
+        "metallic": "baked",
+        "alpha_mode": material.get("gltf_alpha_mode", "OPAQUE"),
     }
 
 

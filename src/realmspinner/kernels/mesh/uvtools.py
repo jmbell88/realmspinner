@@ -637,7 +637,8 @@ def _tri_tri_overlap_2d(t1: np.ndarray, t2: np.ndarray) -> bool:
                 continue
             axis = axis / n
             p1, p2 = t1 @ axis, t2 @ axis
-            if p1.max() < p2.min() - 1e-9 or p2.max() < p1.min() - 1e-9:
+            # clay-07: touching, or a gap within the tolerance, is separated.
+            if p1.max() <= p2.min() + 1e-9 or p2.max() <= p1.min() + 1e-9:
                 return False
     return True
 
@@ -693,7 +694,12 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     res = max(1, int(math.sqrt(len(corners))))
     cell = np.maximum(span / res, 1e-9)
     lo_cell = np.floor((lo - origin) / cell).astype("i8")
-    hi_cell = np.floor((hi - origin) / cell).astype("i8")
+    # clay-08: a triangle whose far edge lies exactly on a cell boundary does
+    # not register in the next cell (touching is not overlap, see
+    # _tri_tri_overlap_2d), or every cell-aligned layout doubled its pairs.
+    hi_cell = np.maximum(
+        np.ceil((hi - origin) / cell - 1e-9).astype("i8") - 1, lo_cell
+    )
 
     # See MAX_OVERLAP_REGISTRATIONS: estimate what the bucket-building loop
     # below will cost -- one cell-span product per triangle, summed over the
@@ -728,18 +734,18 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     # skips same-face pairs and dedupes a pair tested from two shared cells),
     # so it only ever refuses early, never lets more through than the real
     # loop would do.
-    sizes = np.array([len(v) for v in buckets.values()], dtype=np.int64)
-    total_pairs = int((sizes * (sizes - 1) // 2).sum())
-    if total_pairs > MAX_OVERLAP_PAIRS:
-        raise OpError(
-            f"This uv layout would run {total_pairs:,} pairwise overlap "
-            f"tests, past the {MAX_OVERLAP_PAIRS:,} an overlap check reads -- "
-            f"too many triangles share too few grid cells. Check a smaller "
-            f"selection."
-        )
-
-    tested: set[tuple[int, int]] = set()
+    # clay-08: gather exactly the pairs worth a SAT test -- cross-face,
+    # bounding boxes that genuinely overlap (touching boxes cannot hold an
+    # interior overlap), each pair once however many cells it shares -- and
+    # count *those* against the ceiling, so an ordinary dense layout is not
+    # refused by pairs the loop never needed to run. Vectorised per bucket;
+    # a bucket past MAX_OVERLAP_BUCKET is refused before its matrix is built.
+    keys: list[np.ndarray] = []
+    total_pairs = 0
+    n_tri = len(corners)
     for members in buckets.values():
+        if len(members) < 2:
+            continue
         if len(members) > MAX_OVERLAP_BUCKET:
             raise OpError(
                 f"{len(members)} uv triangles share one grid cell, past the "
@@ -747,16 +753,28 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
                 f"extents are too large for a grid to narrow the work down. "
                 f"Check a smaller selection."
             )
-        for i in range(len(members)):
-            for j in range(i + 1, len(members)):
-                ta, tb = members[i], members[j]
-                if tri_face[ta] == tri_face[tb]:
-                    continue
-                key = (ta, tb) if ta < tb else (tb, ta)
-                if key in tested:
-                    continue
-                tested.add(key)
-                if _tri_tri_overlap_2d(tris[ta], tris[tb]):
-                    out[tri_face[ta]] = True
-                    out[tri_face[tb]] = True
+        idx = np.asarray(members, dtype=np.int64)
+        ii, jj = np.triu_indices(len(idx), k=1)
+        ta, tb = idx[ii], idx[jj]
+        keep = tri_face[ta] != tri_face[tb]
+        keep &= (lo[ta] < hi[tb] - 1e-9).all(axis=1) & (lo[tb] < hi[ta] - 1e-9).all(axis=1)
+        ta, tb = ta[keep], tb[keep]
+        if len(ta):
+            keys.append(np.minimum(ta, tb) * n_tri + np.maximum(ta, tb))
+            total_pairs += len(ta)
+            if total_pairs > 4 * MAX_OVERLAP_PAIRS:
+                break  # far past the ceiling: refuse without finishing the count
+    pairs = np.unique(np.concatenate(keys)) if keys else np.zeros(0, dtype=np.int64)
+    if len(pairs) > MAX_OVERLAP_PAIRS:
+        raise OpError(
+            f"This uv layout would run {len(pairs):,} pairwise overlap "
+            f"tests, past the {MAX_OVERLAP_PAIRS:,} an overlap check reads -- "
+            f"too many triangles share too few grid cells. Check a smaller "
+            f"selection."
+        )
+    for key in pairs.tolist():
+        ta, tb = divmod(key, n_tri)
+        if _tri_tri_overlap_2d(tris[ta], tris[tb]):
+            out[tri_face[ta]] = True
+            out[tri_face[tb]] = True
     return out

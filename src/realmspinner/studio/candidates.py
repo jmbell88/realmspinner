@@ -76,7 +76,7 @@ def pending(jobs: list[dict[str, Any]]) -> Group | None:
     groups: dict[str, list[dict[str, Any]]] = {}
     for job in jobs:
         group = job.get("candidate_group")
-        if group:
+        if group and not (job.get("params") or {}).get("create_workspace"):
             groups.setdefault(str(group), []).append(job)
     if not groups:
         return None

@@ -81,8 +81,10 @@ def test_a_single_face_has_no_seams_and_one_island() -> None:
     assert ut.islands(quad).tolist() == [0]
 
 
-def test_box_unwrap_of_a_unit_cube_merges_every_face_into_one_island() -> None:
-    """Real, measured behaviour, not the naive "6 faces, 6 islands" guess.
+def test_box_unwrap_of_a_unit_cube_gives_every_face_its_own_island() -> None:
+    """Since clay-11 (outward-positive winding on every axis) the coincidence
+    below no longer chains the faces together: six faces, six islands. The
+    older note follows for the history.
 
     A unit cube's :func:`~.uv.box_unwrap` uv values only ever take the
     normalised extremes 0 and 1 (the cube's own extent is the same on every
@@ -99,7 +101,7 @@ def test_box_unwrap_of_a_unit_cube_merges_every_face_into_one_island() -> None:
     """
     cube = prim.box((1.0, 1.0, 1.0))
     ids = ut.islands(cube)
-    assert len(set(ids.tolist())) == 1
+    assert len(set(ids.tolist())) == 6
     # Round-trip: the seams this reports back are exactly the edges
     # islands_by_seams needs to recover the same grouping from topology
     # alone, with no uv in hand.
@@ -107,14 +109,14 @@ def test_box_unwrap_of_a_unit_cube_merges_every_face_into_one_island() -> None:
     assert np.array_equal(ut.islands_by_seams(cube, seams), ids)
 
 
-def test_box_unwrap_of_an_asymmetric_box_gives_partial_connectivity() -> None:
+def test_box_unwrap_of_an_asymmetric_box_gives_every_face_its_own_island() -> None:
     """A box whose three extents are all different breaks most, not all, of
     the unit-cube coincidence above -- three islands out of six faces here,
     not six and not one, and that is the honest answer for this box's own
     proportions rather than a rule good for every box."""
     box = prim.box((2.0, 1.0, 0.5))
     ids = ut.islands(box)
-    assert len(set(ids.tolist())) == 3
+    assert len(set(ids.tolist())) == 6  # clay-11: was 3 by coincidence
     seams = ut.seams_from_uv(box)
     assert np.array_equal(ut.islands_by_seams(box, seams), ids)
 
@@ -447,3 +449,26 @@ def test_flipped_uv_faces_reports_a_degenerate_face_as_clean() -> None:
     degenerate_uv = [(0.5, 0.5), (0.5, 0.5), (0.5, 0.5), (0.5, 0.5)]
     quad = _quad(degenerate_uv)
     assert ut.flipped_uv_faces(quad).tolist() == [False]
+
+
+def _planar_grid(divisions: int) -> bm.Mesh:
+    from dataclasses import replace
+
+    mesh = prim.grid((1.0, 1.0), divisions)
+    uv = mesh.positions[mesh.loops][:, [0, 2]].astype("f4") + 0.5
+    return replace(mesh, uv=uv)
+
+
+def test_overlap_faces_does_not_flag_two_faces_that_only_share_an_edge() -> None:
+    """clay-07: the SAT test called touching triangles overlapping."""
+    mesh = _planar_grid(2)
+    assert not ut.overlap_faces(mesh).any()
+
+
+def test_overlap_faces_accepts_a_clean_two_thousand_triangle_layout() -> None:
+    """clay-08: the pair ceiling refused a plain non-overlapping layout past
+    roughly 500 faces because boundary-touching triangles registered in the
+    neighbouring cells and same-face pairs were counted."""
+    mesh = _planar_grid(32)  # 1,024 quads -> 2,048 triangles
+    assert len(mesh.starts) - 1 == 1024
+    assert not ut.overlap_faces(mesh).any()

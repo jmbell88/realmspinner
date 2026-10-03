@@ -401,3 +401,28 @@ def test_beveling_one_interior_edge_of_an_open_sheet_caps_the_interior_end() -> 
     assert len(sel.faces) == 2
     assert_consistently_oriented(out)
     assert len(adj.check_manifold(out).nonmanifold_edges) == 0
+
+
+def test_bevel_miter_at_a_reflex_corner_lands_inside_the_face() -> None:
+    """clay-06: the miter went along d1+d2, the smaller-angle bisector, so at a
+    reflex corner of a concave face it landed in the notch outside the face."""
+    pts = [(0, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2)]  # L, CCW seen from +Z
+    n = len(pts)
+    pos = [[x, y, 1] for x, y in pts] + [[x, y, 0] for x, y in pts]
+    faces = [list(range(n)), [n + i for i in reversed(range(n))]]
+    for i in range(n):
+        j = (i + 1) % n
+        faces.append([n + i, n + j, j, i])  # outward side, CCW from outside
+    m = bm.Mesh(
+        positions=np.array(pos, dtype="f4"),
+        loops=np.array([c for f in faces for c in f], dtype="i4"),
+        starts=topo.starts_from_counts([len(f) for f in faces]),
+        material=np.zeros(len(faces), dtype="i4"),
+        smooth=np.zeros(len(faces), dtype=bool),
+    )
+    assert_consistently_oriented(m)
+    out, _ = ob.bevel_edges(m, el.ElementSel(edges=[[2, 3], [3, 4]]), width=0.1)
+    near = [p for p in out.positions if abs(p[0] - 1) < 0.4 and abs(p[1] - 1) < 0.4 and p[2] > 0.5]
+    inside = [p for p in near if p[0] < 1 - 1e-4 and p[1] < 1 - 1e-4]
+    assert inside, f"no miter inside the L's inner corner: {out.positions.tolist()}"
+    assert not [p for p in near if p[0] > 1 + 1e-4 and p[1] > 1 + 1e-4], "a miter sits in the notch"

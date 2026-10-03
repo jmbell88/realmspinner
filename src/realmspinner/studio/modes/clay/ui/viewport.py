@@ -157,6 +157,7 @@ class ClayViewport:
             clay_mode.remember_camera(ctx, state.get(self._clay_camera_tab))
             clay_mode.apply_camera(ctx, tab)
             self._clay_camera_tab = tab.uid
+        state.camera_tab = tab.uid
         # The shading mode decides two of the renderer's three switches and the
         # overlay decides the third: *Wire* is the surface replaced by its
         # edges, *Solid* is the surface drawn unlit, and the Wireframe overlay
@@ -182,7 +183,7 @@ class ClayViewport:
             overlay.centred_empty(
                 icons.BOX,
                 "Add a shape",
-                "Pick one from Tools.",
+                "Pick one from Add.",
                 action=overlay.action_for(ctx, "clay"),
             )
         self._clay_marquee(imgui, view, rect)

@@ -31,7 +31,7 @@ from ......service import sprites as svc_sprites
 from ......service import tilesheets as svc_tilesheets
 from ......service.errors import Invalid
 from ......service.validation import MAX_PROMPT, MAX_UPLOAD_BYTES, random_seed
-from ..... import controls, dialogs, focus, forms, theme, tokens, widgets
+from ..... import controls, dialogs, focus, forms, theme, widgets
 from ..... import problems as problem_types
 from .....formvalues import coerce_form_value
 from .....manual import render as manual_render
@@ -40,6 +40,8 @@ from .....widgets import field_options as _options
 from ...engine import assets as create_assets
 from ...engine import character as character_engine
 from ...engine import recipe as create_recipe
+from .. import brief as create_brief
+from .. import session as create_session
 from .. import stages as create_stages
 from .. import workspace as generation_workspace
 from . import settings_character
@@ -50,6 +52,7 @@ from . import settings_character
 FOCUS_PANE = "2d"
 
 _submit_px = [96.0]
+
 
 def draw(ctx: Any) -> None:
     state = ctx.state
@@ -80,7 +83,7 @@ def draw(ctx: Any) -> None:
         # when the press itself is in the bar above.
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
-        if imgui.begin_child("2d-form", (0, -sp(_submit_px[0]))):
+        if imgui.begin_child("2d-form", (0, -sp(220))):
             # The block scope opens *inside* the child: section() fills go to
             # the current window's draw list, and a scope opened outside would
             # paint onto the parent pane's list, where this child's opaque
@@ -88,6 +91,7 @@ def draw(ctx: Any) -> None:
             # ``with`` closes before end_child -- an unbalanced splitter
             # corrupts the next frame (widgets.py, _BlockScope).
             with widgets.section_blocks():
+                create_brief.inputs(ctx)
                 # **This column is "how"; the bar above is "what".** The type,
                 # the prompt, the count and Generate moved to
                 # ``create_brief``; what is left is the recipe, whatever the
@@ -111,30 +115,6 @@ def draw(ctx: Any) -> None:
                     # frame-corrupting version of that once.
                     settings_character.draw_block(ctx, form, form_ui)
                 else:
-                    widgets.section("Recipe")
-                    manual_render.help_button(ctx, "settings-2d")
-                    if intent == "tileset":
-                        _locked_sheet_recipe(ctx, "Tile-set recipe", part="model")
-                        _locked_sheet_recipe(
-                            ctx, "Locked for coherent pixel tiles", part="lora"
-                        )
-                    else:
-                        _model(ctx, form, findings_doc)
-                        _lora(ctx, form, show_strength=False, findings_doc=findings_doc)
-                    if intent == "sprite":
-                        _locked_sheet_recipe(ctx, "Final sheet recipe", sprite=True)
-                    _seed_row(ctx, form, form_ui)
-                    if form.get("style_lora") and intent != "tileset":
-                        widgets.section("Style strength")
-                        _lora_strength(ctx, form, findings_doc)
-                    if create_recipe.negative_supported(ctx, form):
-                        widgets.section("Negative prompt / Avoid")
-                        _negative(ctx, form)
-                    _history(ctx, form)
-                    # One contextual section, for the one type that needs it.
-                    # Image and 3D Model draw none at all, which is the whole
-                    # point: a control that cannot apply is not shown greyed, it
-                    # is not shown.
                     if create_recipe.is_tile_arm(form):
                         widgets.section("Tileset")
                         manual_render.help_button(ctx, "settings-sheet")
@@ -149,6 +129,30 @@ def draw(ctx: Any) -> None:
                         _sprite_size(ctx, form, form_ui)
                         _target_cell(ctx, form, form_ui)
                         _pixel_look(ctx, form, form_ui, sprite=True)
+                    widgets.section("Recipe")
+                    manual_render.help_button(ctx, "settings-2d")
+                    if intent == "tileset":
+                        _locked_sheet_recipe(ctx, "Tile-set recipe", part="model")
+                        _locked_sheet_recipe(ctx, "Locked for coherent pixel tiles", part="lora")
+                    else:
+                        _model(ctx, form, findings_doc)
+                        _lora(ctx, form, show_strength=False, findings_doc=findings_doc)
+                    if intent == "sprite":
+                        _locked_sheet_recipe(ctx, "Final sheet recipe", sprite=True)
+                    if form.get("style_lora") and intent != "tileset":
+                        widgets.section("Style strength")
+                        _lora_strength(ctx, form, findings_doc)
+                    _history(ctx, form)
+                    # One contextual section, for the one type that needs it.
+                    # Image and 3D Model draw none at all, which is the whole
+                    # point: a control that cannot apply is not shown greyed, it
+                    # is not shown.
+                    tail = " - seed locked" if form.get("seed_locked") else ""
+                    if controls.collapsing_header(f"Advanced{tail}##create-generation"):
+                        _seed_row(ctx, form, form_ui)
+                        if create_recipe.negative_supported(ctx, form):
+                            widgets.section("Negative prompt / Avoid")
+                            _negative(ctx, form)
                     # The one disclosure left, and it holds one thing.
                     # Collapsed by default because most runs attach no image at
                     # all; the tail says when one is attached, so a closed
@@ -159,19 +163,15 @@ def draw(ctx: Any) -> None:
                     if opened:
                         _references(ctx, form)
         imgui.end_child()
-        top = imgui.get_cursor_pos_y()
-        _plan_footer(ctx, form)
-        height = imgui.get_cursor_pos_y() - top
-        if height > 0:
-            _submit_px[0] = height / max(tokens.SCALE, 0.01)
+        if imgui.begin_child("2d-plan", (0, -sp(52))):
+            _plan_footer(ctx, form)
+        imgui.end_child()
+        create_brief.submit_control(ctx)
 
-def _locked_sheet_recipe(
-    ctx: Any, note: str, *, part: str = "both", sprite: bool = False
-) -> None:
+
+def _locked_sheet_recipe(ctx: Any, note: str, *, part: str = "both", sprite: bool = False) -> None:
     """Say what the pinned sheet stage really loads; never draw fake pickers."""
-    base_key = (
-        svc_sprites.SPRITE_BASE_MODEL if sprite else svc_tilesheets.TILE_SHEET_BASE_MODEL
-    )
+    base_key = svc_sprites.SPRITE_BASE_MODEL if sprite else svc_tilesheets.TILE_SHEET_BASE_MODEL
     lora_key = modelslib.PIXEL_SHEET_LORA
     if part in ("model", "both"):
         if part == "both":
@@ -183,11 +183,14 @@ def _locked_sheet_recipe(
         imgui.text_wrapped(modelslib.STYLE_LORAS[lora_key].label)
     widgets.muted_wrapped(note)
 
+
 def _tile_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Only the editable dimension of a tileset asset type."""
     sizes = create_recipe.tile_sizes_for(form)
     changed, picked = form_ui.segmented_choice(
-        "tile_size", "Tile size", str(form.get("tile_size", "32")),
+        "tile_size",
+        "Tile size",
+        str(form.get("tile_size", "32")),
         tuple((str(size), str(size)) for size in sizes),
         help_text="How many pixels across one tile is.",
         # Why the menu is shorter here than it is for the grid layout. Said
@@ -205,7 +208,9 @@ def _tile_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         form["tile_size"] = picked
         ctx.state.clear_field_error("tile_size")
 
+
 TILE_MODE_CLEARED_KEY = "tile_mode_cleared"
+
 
 def _tile_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """What this sheet is a sheet *of*, and therefore which request it compiles.
@@ -246,6 +251,7 @@ def _tile_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     else:
         _tile_grid(ctx, form, form_ui, options)
 
+
 _TILE_FIELDS = (
     "mode",
     "prompt_items",
@@ -256,6 +262,7 @@ _TILE_FIELDS = (
     "tile_size",
     "projection",
 )
+
 
 def _tile_materials(
     ctx: Any, form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]
@@ -328,6 +335,7 @@ def _tile_materials(
         form["seam_erase"] = erase
     _tile_description_note()
 
+
 def _tile_terrain(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Two surfaces and the world they share.
 
@@ -376,6 +384,7 @@ def _tile_terrain(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         ctx.state.clear_field_error("boundary")
     _tile_description_note()
 
+
 def _tile_grid(
     ctx: Any, form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]
 ) -> None:
@@ -406,6 +415,7 @@ def _tile_grid(
         "rerunning a sheet made under it."
     )
 
+
 def _tile_description_note() -> None:
     """What the Description above actually does in the two seamless layouts.
 
@@ -419,6 +429,7 @@ def _tile_description_note() -> None:
         "The Description above names this sheet in the library. What each tile is "
         "painted from is what you type here."
     )
+
 
 def _sprite_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """What the sheet depicts: an action, and how many ways it is drawn.
@@ -483,6 +494,7 @@ def _sprite_layout(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
                 form["sheet_layout"] = create_recipe.sprite_layout_for(options, action, int(count))
     widgets.muted_wrapped(create_recipe.sprite_cost(create_recipe.sprite_plan(form)))
 
+
 def _sprite_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Only the editable dimension of a sprite asset type.
 
@@ -505,9 +517,12 @@ def _sprite_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         # this section.
         form["cell_size"] = current
     changed, picked = form_ui.segmented_choice(
-        "cell_size", "Cell size", current,
+        "cell_size",
+        "Cell size",
+        current,
         tuple((str(size), str(size)) for size in sizes),
-        help_text="How many pixels across one frame is.", compact=True,
+        help_text="How many pixels across one frame is.",
+        compact=True,
     )
     if changed:
         form["cell_size"] = picked
@@ -523,9 +538,8 @@ def _sprite_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
             "one generation."
         )
 
-def _pixel_look(
-    ctx: Any, form: dict[str, Any], form_ui: forms.Form, *, sprite: bool
-) -> None:
+
+def _pixel_look(ctx: Any, form: dict[str, Any], form_ui: forms.Form, *, sprite: bool) -> None:
     """An authored palette, dithering, and -- on the sprite arm only -- outlines.
 
     The three settings both sheet doors have taken since they started sharing
@@ -633,6 +647,7 @@ def _pixel_look(
         form["outline"] = picked
         ctx.state.clear_field_error("outline")
 
+
 def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """Optional final reduction; blank means keep the high-resolution cell."""
     values = [("", "Keep working resolution")]
@@ -685,6 +700,7 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         ctx.state.clear_field_error("target_cell_px")
     widgets.muted_wrapped("Blank preserves the 256px/512px working cell; reduction never upscales.")
 
+
 def _hint(
     ctx: Any,
     form: dict[str, Any],
@@ -706,6 +722,7 @@ def _hint(
         widgets.hint_text(hint)
     _best_value_offer(ctx, form, param, value, findings_doc)
 
+
 def _best_value_offer(
     ctx: Any,
     form: dict[str, Any],
@@ -713,7 +730,7 @@ def _best_value_offer(
     value: Any,
     findings_doc: Any = create_recipe.LOAD_FINDINGS,
 ) -> None:
-    """"7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
+    """ "7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
     evidence favours a value other than the one already set.
 
     **Offered, never applied** -- ``settings_3d._size_suggestion``'s shape: a
@@ -742,6 +759,7 @@ def _best_value_offer(
     if controls.button(f"Use {value_str}##best-{param}"):
         form[param] = coerce_form_value(form[param], value_str)
 
+
 def _reset(ctx: Any) -> None:
     """The 2D form back to first-launch defaults.
 
@@ -764,6 +782,7 @@ def _reset(ctx: Any) -> None:
     ctx.state.preview.pop(CLEARED_KEY, None)
     ctx.toast("The image settings are back to their defaults.")
 
+
 def _history(ctx: Any, form: dict[str, Any]) -> None:
     """Reuse a prompt from this session.
 
@@ -783,6 +802,7 @@ def _history(ctx: Any, form: dict[str, Any]) -> None:
             if controls.menu_item(f"{label}##{hash(entry)}", "", False)[0]:
                 form["prompt"] = entry
         imgui.end_popup()
+
 
 def _references(ctx: Any, form: dict[str, Any]) -> None:
     """Conditioning: an image to steer appearance and/or structure.
@@ -807,6 +827,7 @@ def _references(ctx: Any, form: dict[str, Any]) -> None:
             theme.ACCENT,
             widgets.drop_flash(ctx.state, "2d-ref"),
         )
+
 
 def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
     path = form["ref_path"]
@@ -871,9 +892,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
     inert = create_recipe.img2img_note(ctx, form)
     if inert is not None:
         imgui.begin_disabled()
-    changed, on = controls.checkbox(
-        "Start from this image (img2img)", bool(form.get("init_image"))
-    )
+    changed, on = controls.checkbox("Start from this image (img2img)", bool(form.get("init_image")))
     widgets.help_marker(
         "The reference is the picture the drawing starts from rather than only "
         "what it looks at. Low strength keeps its layout and repaints the surface; "
@@ -937,6 +956,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
             "the shape to the end and tends to look traced."
         )
 
+
 def _range(ctx: Any, key: str, low: float, high: float) -> tuple[float, float]:
     """The bounds the service will actually enforce, so a slider can never
     produce a value the submit rejects."""
@@ -945,7 +965,9 @@ def _range(ctx: Any, key: str, low: float, high: float) -> tuple[float, float]:
         return (float(bounds[0]), float(bounds[1]))
     return (low, high)
 
+
 CLEARED_KEY = "base_model_cleared"
+
 
 def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS) -> None:
     auto = str(form.get("model_mode") or "auto") == "auto"
@@ -1015,6 +1037,7 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOA
     _hint(ctx, form, "base_model", form["base_model"], findings_doc)
     _licence_note(form["base_model"])
 
+
 def _licence_note(key: str) -> None:
     """What this checkpoint's weights permit, under the picker that chose them.
 
@@ -1044,6 +1067,7 @@ def _licence_note(key: str) -> None:
         widgets.hint_text(f"Licence: {spec.license}. {spec.license_note}")
         return
     widgets.muted_wrapped(f"Licence: {spec.license} — commercial use permitted.")
+
 
 def _lora(
     ctx: Any,
@@ -1087,6 +1111,7 @@ def _lora(
         if narrowed is not None:
             widgets.muted_wrapped(narrowed)
 
+
 def _lora_strength(
     ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS
 ) -> None:
@@ -1110,6 +1135,7 @@ def _lora_strength(
     widgets.muted_wrapped(f"tuned default: {default:g}")
     _hint(ctx, form, "lora_weight", form["lora_weight"], findings_doc)
 
+
 def _negative(ctx: Any, form: dict[str, Any]) -> None:
     inert = create_recipe.negative_prompt_note(ctx, form)
     if inert is not None:
@@ -1126,6 +1152,7 @@ def _negative(ctx: Any, form: dict[str, Any]) -> None:
     if inert is not None:
         imgui.end_disabled()
         widgets.muted_wrapped(inert)
+
 
 def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """The seed, and the two controls that act on it.
@@ -1168,6 +1195,7 @@ def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     if changed:
         form["seed_locked"] = locked
 
+
 def _advisory_fix(ctx: Any, form: dict[str, Any], advisory: problem_types.Advisory) -> None:
     """The one-press repair for an advisory, where there is a safe one.
 
@@ -1180,11 +1208,10 @@ def _advisory_fix(ctx: Any, form: dict[str, Any], advisory: problem_types.Adviso
     prompt = str(form.get("prompt") or "")
     if create_recipe.CLOSED_FORM_CLAUSE in prompt:
         return
-    if controls.button(
-        "Ask for a closed form##advisory-open-form", role=controls.ButtonRole.GHOST
-    ):
+    if controls.button("Ask for a closed form##advisory-open-form", role=controls.ButtonRole.GHOST):
         form["prompt"] = f"{prompt.rstrip().rstrip(',')}, {create_recipe.CLOSED_FORM_CLAUSE}"
         ctx.state.clear_field_error("prompt")
+
 
 def _plan_footer(ctx: Any, form: dict[str, Any]) -> None:
     """What a press will cost, and what is stopping it. Pinned, never scrolled.
@@ -1199,6 +1226,7 @@ def _plan_footer(ctx: Any, form: dict[str, Any]) -> None:
     _generation_plan(
         ctx, form, create_recipe.problems_for(ctx, form), create_recipe.advisories_for(ctx, form)
     )
+
 
 def _generation_plan(
     ctx: Any,
@@ -1221,6 +1249,7 @@ def _generation_plan(
         advisories=advisories,
         advisory_repairs=lambda advisory: _advisory_fix(ctx, form, advisory),
     )
+
 
 def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Problem) -> None:
     """Offer the safe, direct repairs which do not need another decision."""
@@ -1275,6 +1304,7 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Proble
 
         set_mode(ctx.state, "settings")
 
+
 def submit_job(ctx: Any, run: Any) -> bool:
     """Queue ``run`` under the shared ``"submit"`` key. -> whether it was taken.
 
@@ -1283,13 +1313,15 @@ def submit_job(ctx: Any, run: Any) -> bool:
     the first was still at the door queued nothing and said nothing.
     ``submit_promotion`` had the check; this is it, once, for every door.
     """
-    if ctx.submit("submit", run):
+    if ctx.submit("submit", run, tag=ctx.state.create.workspace):
         return True
     ctx.toast("Still submitting the last one - try again in a moment.")
     return False
 
+
 def _enter_pressed() -> bool:
     return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(imgui.Key.keypad_enter)
+
 
 def _generate_tile_sheet(ctx: Any, form: dict[str, Any]) -> bool:
     """Submit the tile set, on the shared ``submit`` key.
@@ -1305,6 +1337,7 @@ def _generate_tile_sheet(ctx: Any, form: dict[str, Any]) -> bool:
     kept.
     """
     kwargs = create_recipe.tile_sheet_kwargs(form)
+    kwargs["extra_params"] = {**kwargs.get("extra_params", {}), **create_session.metadata(ctx)}
     ref_path = form.get("ref_path") or ""
 
     def run():
@@ -1323,6 +1356,7 @@ def _generate_tile_sheet(ctx: Any, form: dict[str, Any]) -> bool:
 
     return submit_job(ctx, run)
 
+
 def refuse(ctx: Any, problems: list[problem_types.Problem]) -> None:
     """Say no where the user can see it, whichever door they came through.
 
@@ -1339,6 +1373,7 @@ def refuse(ctx: Any, problems: list[problem_types.Problem]) -> None:
         ctx.state.note_field_error(getattr(problem, "field", ""), str(problem))
     if problems:
         ctx.toast(str(problems[0]), "warn")
+
 
 def generate(ctx: Any, form: dict[str, Any]) -> None:
     character = create_recipe.is_character(form)
@@ -1441,6 +1476,7 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
             },
         }
     ref_path = form.get("ref_path")
+    kwargs["extra_params"] = {**kwargs.get("extra_params", {}), **create_session.metadata(ctx)}
 
     # The form values are read here, on the frame thread, because they are UI
     # state; the *file* is read in the task, because a large one would freeze

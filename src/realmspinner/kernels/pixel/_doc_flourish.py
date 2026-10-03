@@ -158,9 +158,51 @@ def _layer_keys(baked: Any) -> list[tuple[int, str]]:
     return [(layer.uid, layer.name or layer.kind) for layer in baked.recipe.layers]
 
 
+def _track_blend(baked: Any, key: int) -> str:
+    """The document blend a layer's track needs to composite as the bake did.
+
+    The 2026-10-03 audit, finding inker-16: the track used to carry no blend,
+    so a glow, whose primitive forces "add" (``render._blend_of``), landed as a
+    normal-blend cel and the stack stopped matching the bake's composite."""
+    if baked.pixel:
+        return "normal"
+    for layer in baked.recipe.layers:
+        if layer.uid == key:
+            from .flourish import prims
+
+            forced = (
+                getattr(prims.module(layer.kind), "FORCE_BLEND", None)
+                if layer.kind in prims.KINDS
+                else None
+            )
+            return "add" if (forced or layer.blend) == "add" else "normal"
+    return "normal"
+
+
+def _replaced(baked: Any, key: int, phase_name: str) -> bool:
+    """Whether a REPLACES_BELOW layer above ``key`` is active in this phase.
+
+    That layer's plane is the whole composite beneath it, distorted (inker-16),
+    so the layers under it must hold no pixels in the phase or the stack would
+    draw them twice, once raw and once through the distortion."""
+    from .flourish import prims
+
+    layers = baked.recipe.layers
+    at = next((i for i, layer in enumerate(layers) if layer.uid == key), None)
+    if at is None:
+        return False
+    return any(
+        layer.kind in prims.KINDS
+        and prims.module(layer.kind).REPLACES_BELOW
+        and layer.active_in(phase_name)
+        for layer in layers[at + 1 :]
+    )
+
+
 def _cel_for(baked: Any, key: int, flat_index: int) -> np.ndarray | None:
     """The bake's pixels for one track at one flat frame, or None when the
-    layer is not active in that frame's phase."""
+    layer is not active in that frame's phase (or sits under a layer that
+    replaces the composite below it)."""
     cursor = 0
     for facing in baked.facings:
         for phase in baked.recipe.phases:
@@ -170,7 +212,9 @@ def _cel_for(baked: Any, key: int, flat_index: int) -> np.ndarray | None:
                 if key == COMPOSITE:
                     return facing.composites[phase.name][i]
                 cels = facing.layers.get(phase.name, {}).get(key)
-                return None if cels is None else cels[i]
+                if cels is None or _replaced(baked, key, phase.name):
+                    return None
+                return cels[i]
             cursor += n
     return None
 
@@ -243,7 +287,7 @@ class FlourishOps:
         digests: dict[tuple[int, int], str] = {}
         members: list[int] = []
         for k, (key, name) in enumerate(_layer_keys(baked)):
-            track = Track(name=name)
+            track = Track(name=name, blend=_track_blend(baked, key))
             cels: dict[int, Layer] = {}
             for i, frame_uid in enumerate(frame_uids):
                 cel = _cel_for(baked, key, i)
@@ -391,7 +435,9 @@ class FlourishOps:
         for key, name in _layer_keys(baked):
             track_uid = tracks.get(key)
             if track_uid is None or track_uid not in present:
-                track_uid = self._flourish_add_track(group_uid, name, edits)
+                track_uid = self._flourish_add_track(
+                    group_uid, name, edits, _track_blend(baked, key)
+                )
                 tracks[key] = track_uid
                 counts["added"] += 1
             self._track_by_uid(track_uid)  # raises if the track has gone
@@ -522,14 +568,16 @@ class FlourishOps:
         self.invalidate_all()
         return FlourishCounts(**counts)
 
-    def _flourish_add_track(self: Document, group_uid: int, name: str, edits: list[Any]) -> int:
+    def _flourish_add_track(
+        self: Document, group_uid: int, name: str, edits: list[Any], blend: str = "normal"
+    ) -> int:
         """A new empty track at the top of the group's span, as a member."""
         self._require_anim()
         order = self.member_uids()
         leaves = gp.leaves_of(self.group_of, order, group_uid)
         top = max((order.index(uid) for uid in leaves), default=self.stack.active_index)
         index = top + 1
-        track = Track(name=name)
+        track = Track(name=name, blend=blend)
         self._put_track(index, track, {})
         edits.append(TrackAddEdit(index, track, {}, pinned=False))
         self._set_membership(track.uid, group_uid)

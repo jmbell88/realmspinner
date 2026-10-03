@@ -4,8 +4,8 @@ The 2026-09-08 panel-grammar pass replaced three affordances stacked in one
 sidebar -- primitives as an unlabelled icon grid, figures as a column of
 full-width text buttons, and the ops as a ragged two-column grid with a
 hand-rolled Delete -- with one selection field every add-tool writes
-(``state.generator``), one options block that reads it, and one width rule
-(``widgets.grid_width``) for the ops grid. Each test's name is the claim it
+(``state.generator``) and one options block that reads it. The ops grid itself
+left for the header's menu strip on 2026-10-02. Each test's name is the claim it
 makes about the *redesigned* panel, and each is checked below to fail against
 the code as it stood before this pass (never with git -- a scratch copy with
 the fix reverted by hand).
@@ -15,11 +15,10 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
 from _ui_context import imgui_context
 
 from realmspinner.kernels.mesh import document as bd
-from realmspinner.studio import icons, probe, theme, tokens, widgets
+from realmspinner.studio import icons, probe
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
@@ -158,155 +157,44 @@ def test_clicking_the_box_button_selects_it_and_places_it(monkeypatch):
         assert doc.objects[0].generator == "box"
 
 
-# --- the ops grid keeps one width, even at UI scale 1.5 ---------------------
+# --- the operations left this pane for the menu strip ------------------------
 
 
-def test_the_action_grid_uses_one_width_at_ui_scale_one_point_five(monkeypatch):
-    """The measured failure class ``widgets.grid_width`` documents: an
-    unscaled gap literal is right at 1.0x and short by 4.8px per gap at 1.5x.
-    Before this pass every action button auto-sized to its own label
-    (``widgets.disabled_button(..., enabled, reason=...)`` with no ``size``),
-    so "Duplicate" and "Smooth" were never the same width to begin with --
-    ragged at *any* scale, and asserted here at the one the incident is about.
-    """
+def test_the_add_palette_draws_no_operation_buttons(monkeypatch):
+    """The ~50-button op grid is gone from the left pane: every operation is a
+    row in the header's menu strip and the right-click menu now, grouped by
+    ``menutree``. A pane that drew them again would be a second list of what
+    Clay can do -- the thing the registry exists to prevent."""
     with imgui_context(monkeypatch) as imgui:
-        tokens.set_scale(1.5)
-        theme.apply(imgui)
-        try:
-            ctx = FakeCtx()
-            state = clay_mode.ensure(ctx)
-            doc = bd.ClayDoc()
-            expected = None
+        ctx = FakeCtx()
+        state = clay_mode.ensure(ctx)
+        doc = bd.ClayDoc()
 
-            def frame():
-                nonlocal expected
-                probe.begin_frame()
-                imgui.new_frame()
-                # A 300 dp sidebar *at this scale*, which is 450 physical px.
-                # The window used to be 300 px wide regardless, i.e. a 200 dp
-                # column at 1.5x -- narrower than any sidebar the app offers,
-                # so the test was asserting about a layout nobody can produce.
-                imgui.set_next_window_size((450.0, 900.0))
-                imgui.begin("##host")
-                # Measured *before* the ops draw, at the cursor they start
-                # from: ``grid_width`` reads the remaining content region, so
-                # asking afterwards asks about the space they did not use.
-                labels = [
-                    op.label.rstrip(".")
-                    for op in clay_ops.menu(doc.element_mode)
-                    if not op.name.startswith("select-") and op.name != "delete"
-                ]
-                expected = widgets.grid_width(widgets.grid_columns_for(labels, maximum=2))
-                clay_tools._actions(ctx, state, doc)
-                imgui.end()
-                imgui.end_frame()
-                return list(probe.FRAME_CONTROLS)
+        def frame():
+            probe.begin_frame()
+            imgui.new_frame()
+            imgui.set_next_window_size((450.0, 900.0))
+            imgui.begin("##host")
+            clay_tools._add(ctx, state, doc)
+            imgui.end()
+            imgui.end_frame()
+            return list(probe.FRAME_CONTROLS)
 
-            controls_ = frame()
-        finally:
-            tokens.set_scale(1.0)
-            theme.apply(imgui)
-
-    action_buttons = [
-        c for c in controls_ if c.kind == "button" and "##clayop" in c.label
-    ]
-    assert action_buttons, "no ops offered in object mode on an empty document"
-    widths = {round(c.rect[2], 3) for c in action_buttons}
-    assert len(widths) == 1, f"the action grid is ragged again: {widths}"
-    assert abs(widths.pop() - expected) < 0.01
+        controls_ = frame()
+    labels = {c.text for c in controls_}
+    assert not any("##clayop" in c.label for c in controls_)
+    assert not labels & {op.label.rstrip(".") for op in clay_ops.OPS}, (
+        "an op is drawn in the Add palette"
+    )
 
 
-# --- the local destructive-button reimplementation is gone -------------------
-
-
-def test_no_local_destructive_button_reimplementation_remains():
-    """``widgets.destructive_button`` grew the ``reason`` keyword that forced
-    ``clay_tools._destructive_button`` to exist (the 2026-09-08
-    button-vocabulary pass); this file's own copy is dead weight once it does,
-    and two implementations of "a destructive button with a disabled-reason
-    tooltip" is exactly the kind of drift this codebase's own style rejects."""
+def test_the_tools_pane_no_longer_carries_the_action_grid_or_its_popup_call():
     source = inspect.getsource(clay_tools)
-    assert "_destructive_button" not in source
-    assert "widgets.destructive_button(" in source
-
-
-def test_delete_is_drawn_through_the_shared_destructive_button(monkeypatch):
-    """Not just absent from the source -- actually reached, with a reason, on
-    an empty document where Delete is refused."""
-    with imgui_context(monkeypatch) as imgui:
-        ctx = FakeCtx()
-        state = clay_mode.ensure(ctx)
-        doc = bd.ClayDoc()
-
-        probe.begin_frame()
-        imgui.new_frame()
-        imgui.set_next_window_size((300.0, 900.0))
-        imgui.begin("##host")
-        clay_tools._actions(ctx, state, doc)
-        imgui.end()
-        imgui.end_frame()
-        controls_ = list(probe.FRAME_CONTROLS)
-
-    delete_row = next(c for c in controls_ if icons.TRASH in c.label)
-    assert delete_row.enabled is False
-    assert delete_row.reason
-
-
-@pytest.mark.parametrize("window_w", (300.0, 240.0, 190.0))
-def test_no_action_button_is_narrower_than_its_own_label(monkeypatch, window_w):
-    """An even grid that is one character too narrow loses the end of a word.
-
-    Making this grid even (``grid_width(2)``) fixed the raggedness and bought a
-    clipped label with it: "Smooth (Catmull-Clark)..." was the longest string in
-    the actions list by a wide margin, imgui drew it straight past its frame,
-    and the child cut the closing bracket off. Two things answer that together
-    and this pins both -- the column count comes from
-    ``widgets.grid_columns_for`` so the grid fits what it holds, and the
-    algorithm's name moved out of the label into the op's ``hint``, because the
-    reader picks this op to round a shape rather than because it is
-    Catmull-Clark.
-
-    Parametrised over three widths, and the narrow ones are the point. Once the
-    label was shortened, two columns fit a 300 dp sidebar again -- so a test at
-    that width alone passes against a hard-coded ``grid_width(2)`` and proves
-    nothing about the derivation. At 240 and 190 two columns cannot hold
-    "Bake Transform", and the grid has to drop to one rather than clip; those
-    are the widths a narrow sidebar and a 1.5x scale actually produce.
-    """
-    with imgui_context(monkeypatch) as imgui:
-        ctx = FakeCtx()
-        state = clay_mode.ensure(ctx)
-        doc = bd.ClayDoc()
-        probe.begin_frame()
-        imgui.new_frame()
-        imgui.set_next_window_size((window_w, 900.0))
-        imgui.begin("##host")
-        clay_tools._actions(ctx, state, doc)
-        rows = [c for c in probe.FRAME_CONTROLS if c.kind == "button" and "##clayop" in c.label]
-        # The census keeps the imgui id; only the part before ``##`` is drawn.
-        seen = [(row.label.split("##", 1)[0], row.rect[2]) for row in rows]
-        measured = {label: (frame, imgui.calc_text_size(label).x) for label, frame in seen}
-        imgui.end()
-        imgui.end_frame()
-
-    assert measured, "no ops offered in object mode on an empty document"
-    for label, (frame, text) in sorted(measured.items()):
-        assert frame >= text, f"{label!r} is drawn {frame:.0f} px wide for {text:.0f} px of label"
-
-
-def test_delete_never_shares_a_row_with_an_ordinary_action():
-    """The one arrangement this grid has always refused.
-
-    ``_actions``' own comment says a destructive button beside an ordinary one
-    invites the wrong click of the two, and Delete is drawn after the loop for
-    that reason. It is not enough on its own: the op count is odd, so the last
-    op leaves its row open and Delete lands in the gap unless the loop declines
-    to ``same_line`` after its final item. That is what the stride's second
-    condition is for, and it is the half a reader would delete as redundant.
-    """
-    source = inspect.getsource(clay_tools._actions)
-    stride = source.split("if (index + 1) % columns", 1)[1].split(":", 1)[0]
-    assert "index + 1 < len(ops_here)" in stride, "Delete can land beside the last op"
+    assert "_actions" not in source
+    assert "params_popup" not in source, (
+        "the viewport owns the op dialog; a second caller steals open_op_popup"
+    )
+    assert 'widgets.section("Add")' in source
 
 
 # --- the op-params popup's Apply button greys with a reason, like its siblings

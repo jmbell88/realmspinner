@@ -386,10 +386,18 @@ def test_the_mesh_stage_draws_the_results_tray():
     assert "TRAY_STAGES" in source
     assert "reference_stage and generation_workspace.should_draw" not in source
     # A mesh result is Mesh's tray and a reference is Reference's.
-    ctx = SimpleNamespace(cache=SimpleNamespace(jobs=[_job("m", "model")], active=None))
+    from realmspinner.studio.state import AppState
+
+    state = AppState(mode="create")
+    state.create.workspace = "job:m"
+    ctx = SimpleNamespace(state=state, cache=SimpleNamespace(
+        jobs=[_job("m", "model", kind="text")], active=None))
     assert generation_workspace.should_draw(ctx, "mesh") is True
     assert generation_workspace.should_draw(ctx, "reference") is False
-    ref = SimpleNamespace(cache=SimpleNamespace(jobs=[_job("r", "reference")], active=None))
+    state = AppState(mode="create")
+    state.create.workspace = "job:r"
+    ref = SimpleNamespace(state=state, cache=SimpleNamespace(
+        jobs=[_job("r", "reference", kind="text")], active=None))
     assert generation_workspace.should_draw(ref, "reference") is True
     assert generation_workspace.should_draw(ref, "mesh") is False
 

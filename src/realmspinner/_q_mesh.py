@@ -92,6 +92,17 @@ def _effective_triangle_budget(params: dict[str, Any]) -> int | None:
     return None
 
 
+class _TierCheckRejected(RuntimeError):
+    """The Game-ready remesh failed its check against the mesh it replaced."""
+
+    def __init__(self, verdict: Any) -> None:
+        self.verdict = verdict
+        super().__init__(
+            "the remesh failed its check against the optimized mesh: "
+            + ", ".join(verdict.failures)
+        )
+
+
 class MeshPostOps:
     """Mesh post-processing, mixed into :class:`~.queue.Worker`."""
 
@@ -341,7 +352,7 @@ class MeshPostOps:
         params["remesh"] = report
         await asyncio.to_thread(self.store.set_params, job_id, params)
         changes: dict[str, Any] = {"remesh": report}
-        drop = ["mesh_audit", "mesh_report", "optimize"]
+        drop = ["mesh_audit", "mesh_report", "optimize", "lowpoly"]
         if transform is not None:
             changes["transform"] = transform
             changes["scale_factor"] = transform["scale"]
@@ -565,12 +576,9 @@ class MeshPostOps:
                         job_dir,
                         target_faces=target,
                         texture_size=texture_size,
-                        # Always on: measured 2026-09-23, without the voxel
-                        # pre-pass the decimate fallback a trellis mesh always
-                        # takes collapses the mesh rather than producing
-                        # something usable, and every trellis reconstruction
-                        # is exactly the input this step ever runs against.
-                        close_holes=True,
+                        # Missing on stored rows means the previous repair path.
+                        close_holes=params.get("mesh_finishing", "repair") == "repair",
+                        preserve_shape=params.get("mesh_finishing") == "preserve_shape",
                         seed=remesh.QUADRIFLOW_SEED,
                     ),
                     on_progress=on_progress,
@@ -579,11 +587,30 @@ class MeshPostOps:
                 )
             )
             if self._cancel is not None and self._cancel.event.is_set():
+                params["lowpoly"] = {
+                    "requested": triangles, "status": "cancelled", "source": "source.glb",
+                    "finishing": params.get("mesh_finishing", "repair"),
+                }
+                await asyncio.to_thread(self.store.set_params, job_id, params)
                 return
             if not temp.exists():
                 raise RuntimeError("Blender reported success but wrote no mesh")
             after = await asyncio.to_thread(tiercheck.survey, temp)
             verdict = tiercheck.compare(before, after)
+            comparison = await asyncio.to_thread(remesh.compare_geometry, glb_path, temp)
+            if self._cancel is not None and self._cancel.event.is_set():
+                params["lowpoly"] = {
+                    "requested": triangles, "status": "cancelled", "source": "source.glb",
+                }
+                await asyncio.to_thread(self.store.set_params, job_id, params)
+                return
+            if not verdict.ok:
+                # Manual 23: a remesh that dropped UVs, a PBR map or a material
+                # assignment is checked "against the mesh it replaced, and a
+                # failure there keeps the optimized mesh". It used to be
+                # published anyway with the failures only recorded (2026-10-03
+                # audit, pipelines-05).
+                raise _TierCheckRejected(verdict)
             await asyncio.to_thread(os.replace, temp, glb_path)
         except Exception as exc:
             log.exception(
@@ -595,16 +622,34 @@ class MeshPostOps:
                 f"the game-ready remesh did not run ({exc}); this mesh is the "
                 f"optimized reconstruction, not a {triangles:,}-triangle remesh",
             )
+            params["lowpoly"] = {
+                "requested": triangles,
+                "status": "cancelled" if self._cancel and self._cancel.event.is_set() else "failed",
+                "error": str(exc),
+                "finishing": params.get("mesh_finishing", "repair"),
+                "source": "source.glb",
+            }
+            if isinstance(exc, _TierCheckRejected):
+                params["lowpoly"]["tiercheck"] = {
+                    "ok": False,
+                    "failures": list(exc.verdict.failures),
+                    "notes": list(exc.verdict.notes),
+                }
             await asyncio.to_thread(self.store.set_params, job_id, params)
             return
         finally:
             with contextlib.suppress(OSError):
                 temp.unlink(missing_ok=True)
         params["lowpoly"] = {
+            "status": "complete",
+            "finishing": params.get("mesh_finishing", "repair"),
+            "source": "source.glb",
             "requested": triangles,
-            "achieved": result.get("faces"),
+            "achieved": result.get("triangles", result.get("faces")),
             "method": result.get("method"),
-            "texture_size": texture_size,
+            "triangles": result.get("triangles", result.get("faces")),
+            "geometry": comparison,
+            "texture_size": result.get("texture_size", texture_size),
             "tiercheck": {
                 "ok": verdict.ok,
                 "failures": list(verdict.failures),

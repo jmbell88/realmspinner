@@ -173,6 +173,7 @@ def driven(monkeypatch, patch_canvas):
         keys=(),
         hovered=True,
         region=REGION,
+        owner=True,
     ):
         mouse.at = (float(at[0]), float(at[1]))
         mouse.clicked = {0: False, 1: False, 2: False}
@@ -191,8 +192,9 @@ def driven(monkeypatch, patch_canvas):
         mouse.shift = shift
         mouse.ctrl = ctrl
         mouse.keys = set(keys)
+        kwargs = {} if owner else {"owner": False}
         inker_canvas._input(
-            None, state, tab, (0.0, 0.0), region, active=True, hovered=hovered
+            None, state, tab, (0.0, 0.0), region, active=True, hovered=hovered, **kwargs
         )
 
     frame.mouse = mouse
@@ -1032,3 +1034,33 @@ def test_the_connectivity_option_reaches_both_the_fill_and_the_wand(scene):
     state.wand_eight = True
     _press(state, tab, (0.0, 0.0))
     assert tuple(int(v) for v in doc.stack.active.pixels[4, 4]) == FG
+
+
+def test_a_drag_started_in_one_duplicate_view_is_driven_by_that_view_alone(driven):
+    """The 2026-10-03 audit (inker-20): with Duplicate View on, ``_input`` ran
+    once per pane and the drag, release and pan arms were gated on
+    ``drag_kind`` only, so the other pane walked the same stroke through its
+    own origin and view."""
+    state, tab, frame = driven
+    frame((5, 5), click=0, down=(0,))
+    assert state.drag_kind == "paint"
+    before = state.last_point
+    # The *other* pane's pass of the same frame: it does not own the gesture.
+    frame((20, 20), down=(0,), owner=False)
+    assert state.last_point == before and state.drag_kind == "paint"
+    frame((20, 20), owner=False)  # the button is up, but it is not its release
+    assert state.drag_kind == "paint"
+    # A middle-drag pan started elsewhere is not continued here either.
+    frame((20, 20), dragging=(2,), drag=(7.0, 7.0), owner=False)
+    assert state.drag_kind == "paint" and tab.view.pan == (0.0, 0.0)
+    # The owner still finishes its own gesture.
+    frame((6, 5))
+    assert state.drag_kind == ""
+
+
+def test_the_gesture_owner_is_the_pane_that_started_it():
+    state = inker_state.InkerState()
+    assert inker_canvas._owns_gesture(state, 0) and inker_canvas._owns_gesture(state, 1)
+    state.drag_kind, state.drag_view = "paint", 1
+    assert inker_canvas._owns_gesture(state, 1)
+    assert not inker_canvas._owns_gesture(state, 0)

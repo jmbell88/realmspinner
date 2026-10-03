@@ -439,7 +439,14 @@ class QuitMixin:
         ctx = self.app_ctx
         state = ctx.state if ctx is not None else None
         marked = bool(
-            state is not None and (state.pose_dirty or docmodes.any_unsaved(ctx))
+            state is not None
+            and (
+                state.pose_dirty
+                or docmodes.any_unsaved(ctx)
+                # Poser's clip working copy is not a document mode, so
+                # ``any_unsaved`` cannot see it (poser-07, 2026-10-03).
+                or bool(getattr(getattr(state, "poser", None), "clips_unsaved", False))
+            )
         )
         # Called once a frame now that it tracks five more things; setting the
         # caption is a window-manager round trip, so only a *change* is sent.

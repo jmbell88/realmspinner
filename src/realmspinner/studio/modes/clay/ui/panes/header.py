@@ -36,6 +36,7 @@ from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as clay_mode
 from ... import state as clay_state
+from . import strip as clay_strip
 from . import tools as clay_tools
 
 #: This bar's imgui id and the prefix every one of its controls is keyed from.
@@ -75,6 +76,10 @@ def draw(ctx: Any, view: Any = None) -> None:
     tab = state.active
     if tab is None:
         return
+    # The menu names first, on a row of their own above the bar (Plotter's and
+    # Inker's arrangement): the bar below is settings changed between clicks,
+    # and these are verbs, which is the split Blender's header also makes.
+    clay_strip.draw(ctx, state, tab)
     hit = toolbar.toolbar(
         BAR,
         _items(state),

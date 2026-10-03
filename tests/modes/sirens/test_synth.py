@@ -309,8 +309,9 @@ def test_the_render_ceiling_stops_a_hand_edited_order_list(monkeypatch):
     monkeypatch.setattr(synth, "MAX_RENDER_SECONDS", 0.5)
     doc = _song(rows=64)
     doc.set_order([doc.patterns[0].uid] * 64)
-    pcm, _ = synth.render(doc)
-    assert _seconds(pcm) <= 0.6
+    # sirens-02 (2026-10-03 audit): refused by name, no longer cut silently.
+    with pytest.raises(ValueError, match="render limit"):
+        synth.render(doc)
 
 
 # --- the two other entry points -----------------------------------------------

@@ -171,6 +171,9 @@ def draw(ctx: Any) -> None:
     viewer = getattr(ctx, "viewer", None)
     if viewer is not None and getattr(viewer, "pending", None) is not None:
         widgets.busy(f"Loading {job.get('name') or job['id']}")
+    if create_stages.in_create(ctx.state):
+        from ..modes.create.ui import workspace
+        workspace.selected_actions(ctx, job)
     _meta(ctx, job)
     if job.get("status") == "error":
         _error(ctx, job)
@@ -179,7 +182,9 @@ def draw(ctx: Any) -> None:
     # what puts "Take it somewhere" at all five Create stages instead of two,
     # and above the Library's tabs instead of buried inside Details -- see the
     # comment on ``_STAGE_SECTIONS`` for the two copies this replaced.
-    _edit_actions(ctx, job)
+    if not create_stages.in_create(ctx.state) or widgets.header("Open in...", default_open=False,
+                                                              persist_key="create/destinations"):
+        _edit_actions(ctx, job)
 
     if create_stages.in_create(ctx.state):
         _stage_body(ctx, job)
@@ -1338,10 +1343,16 @@ def _quality(ctx: Any, job: Any) -> None:
     params = job.get("params") or {}
     report = params.get("mesh_report")
     audit = params.get("mesh_audit")
-    if not (report or audit):
+    finishing = params.get("lowpoly")
+    if not (report or audit or finishing):
         return
     if not widgets.header("Mesh quality"):
         return
+    if finishing:
+        from ...pipelines.remesh import finishing_lines
+
+        for line in finishing_lines(finishing):
+            widgets.muted(line)
     if isinstance(report, dict):
         widgets.quality_badge(job)
         for reason in report.get("reasons") or []:

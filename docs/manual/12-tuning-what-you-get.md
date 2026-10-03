@@ -93,9 +93,11 @@ before concluding anything about the words.
 in metres, where zero means "keep whatever the reference implied". **Background** chooses the
 matting method. **Normalise the reference** recentres and rescales the subject before upload.
 
-**Triangle budget** exists but currently offers only one tier, so you will usually not see it. The
-alternatives have not qualified against the test corpus — zero of twenty meshes passed — so they are
-not offered rather than being offered and disappointing.
+**Budget** is the Mesh column's control for how the finished mesh reaches a game-sized triangle
+count. It offers Game-ready rungs (2k, 5k, 10k and 20k, with 5k the default), the gltfpack
+"Simplify:" tiers, Custom... and Raw, each drawn only when this machine can run it. Every pass is
+checked per job rather than qualified in advance. [Generating meshes](23-generating-meshes.md)
+describes each family and what it needs.
 
 ## Re-texturing
 

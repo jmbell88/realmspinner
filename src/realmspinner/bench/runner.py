@@ -97,6 +97,7 @@ def plan_run(
     limit: int = 0,
     seeds: tuple[int, ...] = (),
     run_dir: Path | None = None,
+    reference_run: Path | None = None,
 ) -> tuple[Path, list[Unit], dict[str, Any]]:
     """Everything decided before a single job is submitted.
 
@@ -119,6 +120,19 @@ def plan_run(
         seeds=list(use_seeds),
         started=started,
     )
+    if reference_run is not None:
+        from .quality import reference_hash
+
+        references = {}
+        for unit in todo:
+            if getattr(unit.item, "output_family", "3d_model") not in ("3d_model", "image"):
+                continue
+            path = reference_run / "items" / unit.key / "input.png"
+            if not path.is_file():
+                raise ValueError(f"missing paired reference: {path}")
+            references[unit.key] = reference_hash(path)
+        doc["reference_run"] = str(reference_run.resolve())
+        doc["references"] = references
     return directory, todo, doc
 
 
@@ -213,6 +227,7 @@ def run(
     render: bool = False,
     keep_source: bool = False,
     resume: Path | None = None,
+    reference_run: Path | None = None,
     on_event: Callable[[str], None] | None = None,
 ) -> Path:
     """Execute a run and return its directory."""
@@ -242,6 +257,8 @@ def run(
         # "5 of 160 already done". assert_resumable cannot catch it either: it
         # deliberately excludes the item and seed lists, because a resume
         # legitimately covers a subset.
+        if reference_run is None and stored.get("reference_run"):
+            reference_run = Path(stored["reference_run"])
         if categories or ids or limit or seeds:
             say("resume: ignoring the selection flags; using the run's own")
         run_dir, todo, doc = plan_run(
@@ -250,6 +267,7 @@ def run(
             ids=tuple(stored.get("items") or ()),
             seeds=tuple(stored.get("seeds") or ()),
             run_dir=resume,
+            reference_run=reference_run,
         )
         # Refuse before a single job is submitted: a run half-measured against
         # two checkpoints is worse than no run.
@@ -264,6 +282,7 @@ def run(
             config, suite, recipe,
             stage=stage, started=started, categories=categories, ids=ids,
             limit=limit, seeds=seeds, run_dir=None,
+            reference_run=reference_run,
         )
         manifest_mod.write_manifest(run_dir, doc)
 
@@ -279,6 +298,7 @@ def run(
                 record = _run_unit(
                     svc, config, run_dir, recipe, unit,
                     stage=stage, render=render, keep_source=keep_source,
+                    reference_run=reference_run,
                 )
             except KeyboardInterrupt:
                 say("interrupted; the in-flight job has been cancelled")
@@ -297,26 +317,68 @@ def _run_unit(
     stage: str,
     render: bool,
     keep_source: bool = False,
+    reference_run: Path | None = None,
 ) -> dict[str, Any]:
     from ..service import jobs as svc_jobs
 
     item_dir = run_dir / "items" / unit.key
     item_dir.mkdir(parents=True, exist_ok=True)
 
-    kwargs = recipe_mod.job_kwargs(recipe, unit.item, unit.seed, stage=stage)
     started = time.monotonic()
-    job_id = svc_jobs.create_job(svc, **kwargs)["id"]
+    family = getattr(unit.item, "output_family", "3d_model")
+    from .quality import MemorySampler, reference_hash
+
+    sampler = MemorySampler()
+    sampler.start()
+    job_id = None
+    chain = []
+    active_followups = []
     try:
+        submitted = _submit_unit(svc, recipe, unit, stage, reference_run)
+        job_id = submitted["id"]
         job = _await_job(svc, job_id)
+        if stage == "create" and family in ("sprite_sheet", "authored_character"):
+            next_id = submitted.get("rig")
+            if next_id:
+                active_followups.append(next_id)
+                rig = _await_job(svc, next_id)
+                chain.append(rig)
+                if rig["status"] != "done":
+                    job = {**job, "status": rig["status"], "error": rig.get("error")}
+                else:
+                    next_id = _followup(svc, job_id, "charsheet")
+            else:
+                next_id = (
+                    _followup(svc, job_id, "sprite_synthesis") if job["status"] == "done" else None
+                )
+            if next_id and job["status"] == "done":
+                active_followups.append(next_id)
+                child = _await_job(svc, next_id)
+                chain.append(child)
+                job = {**job, "status": child["status"], "error": child.get("error")}
+            elif job["status"] == "done":
+                job = {**job, "status": "error", "error": "follow-up output was not queued"}
+    except Exception as exc:
+        with _suppressed():
+            for active_id in [job_id, *active_followups]:
+                if active_id is not None:
+                    svc_jobs.cancel_job(svc, active_id)
+        job = {"id": job_id, "status": "error", "error": f"{type(exc).__name__}: {exc}"}
     except BaseException:
         # Includes KeyboardInterrupt: the queue is serial, so leaving a job
         # running would block whatever the user does next.
         with _suppressed():
-            svc_jobs.cancel_job(svc, job_id)
+            if job_id is not None:
+                svc_jobs.cancel_job(svc, job_id)
+            for active_id in active_followups:
+                svc_jobs.cancel_job(svc, active_id)
         raise
+    finally:
+        sampler.stop()
 
     elapsed = time.monotonic() - started
-    _copy_artifacts(config.job_dir(job_id), item_dir, keep_source=keep_source)
+    if job_id is not None:
+        _copy_artifacts(config.job_dir(job_id), item_dir, keep_source=keep_source)
     (item_dir / "job.json").write_text(json.dumps(job, indent=2, default=str), encoding="utf-8")
 
     record = {
@@ -328,7 +390,23 @@ def _run_unit(
         "status": job.get("status"),
         "error": job.get("error"),
         "seconds": round(elapsed, 2),
+        "output_family": family,
+        "prompt": unit.item.prompt,
+        "character_recipe": (
+            getattr(unit.item, "settings", {}) if family == "authored_character" else None
+        ),
+        "memory": sampler.report(),
+        "measurements": {key: (job.get("params") or {}).get(key) for key in (
+            "mesh_report", "lowpoly", "seam_report", "sheet_report",
+        )},
+        "followups": [child["id"] for child in chain],
     }
+    if (item_dir / "input.png").is_file():
+        record["reference_sha256"] = reference_hash(item_dir / "input.png")
+    if reference_run is not None:
+        reference = reference_run / "items" / unit.key / "input.png"
+        record["conditioning_sha256"] = reference_hash(reference)
+        shutil.copyfile(reference, item_dir / "conditioning.png")
     if render and job.get("status") == "done" and (item_dir / "model.glb").exists():
         record["views"] = _render_views(item_dir)
     return record
@@ -352,6 +430,81 @@ def _copy_artifacts(job_dir: Path, item_dir: Path, *, keep_source: bool = False)
         src = job_dir / name
         if src.exists():
             shutil.copyfile(src, item_dir / name)
+    for name in ("sheets", "sprites", "tiles"):
+        source = job_dir / name
+        if source.is_dir():
+            shutil.copytree(source, item_dir / name, dirs_exist_ok=True)
+
+
+def _submit_unit(svc: Any, recipe: Any, unit: Unit, stage: str,
+                 reference_run: Path | None) -> dict[str, Any]:
+    from .. import generation
+    from ..service import jobs
+
+    family = getattr(unit.item, "output_family", "3d_model")
+    if reference_run is not None and family == "3d_model":
+        kwargs = recipe_mod.job_kwargs(recipe, unit.item, unit.seed, stage="model")
+        kwargs.update(
+            kind="image", image=(reference_run / "items" / unit.key / "input.png").read_bytes(),
+            asset_type="3d_model",
+        )
+        return jobs.create_job(svc, **kwargs)
+    if reference_run is not None and family == "image":
+        from .. import models
+
+        if stage != "create":
+            raise ValueError("reference editing requires --stage create")
+        base = models.BASE_MODELS[recipe.guidance["base_model"]]
+        request = generation.GenerationRequest.from_dict({
+            "generation_type": "image", "prompt": unit.item.prompt, "seed": unit.seed,
+            "model_mode": "advanced", "model_override": recipe.guidance.get("base_model"),
+            "references": [str(reference_run / "items" / unit.key / "input.png")],
+            "reference_mode": "single", "init_image": base.family == models.FAMILY_SDXL,
+            "init_strength": 0.6 if base.family == models.FAMILY_SDXL else None,
+        })
+        return jobs.create_generation_request(svc, request)
+    if stage != "create":
+        kwargs = recipe_mod.job_kwargs(recipe, unit.item, unit.seed, stage=stage)
+        if family == "image":
+            kwargs["asset_type"] = "image"
+        return jobs.create_job(svc, **kwargs)
+    settings = getattr(unit.item, "settings", {})
+    if family == "authored_character":
+        from ..service import characters
+
+        return characters.create_character(
+            svc, {**settings, "seed": unit.seed}, prompt=unit.item.prompt
+        )
+    if family == "3d_model":
+        kwargs = recipe_mod.job_kwargs(recipe, unit.item, unit.seed, stage="model")
+        return jobs.create_job(svc, **kwargs, asset_type=family)
+    if family in ("image", "seamless_material"):
+        kwargs = recipe_mod.job_kwargs(recipe, unit.item, unit.seed, stage="reference")
+        if family == "seamless_material":
+            kwargs["output"] = "tile"
+        return jobs.create_job(svc, **kwargs, asset_type=family)
+    request = generation.GenerationRequest.from_dict({
+        **settings, "generation_type": family, "prompt": unit.item.prompt,
+        "seed": unit.seed, "model_mode": "advanced",
+        "model_override": recipe.guidance.get("base_model", "sdxl_cfg"),
+        "style_lora": recipe.guidance.get("style_lora"),
+        "negative_prompt": recipe.negative_prompt or "", "lora_weight": recipe.lora_weight,
+    })
+    return jobs.create_generation_request(svc, request)
+
+
+def _followup(svc: Any, parent: str, kind: str) -> str | None:
+    # Completion is published before the worker queues its follow-up. Wait for
+    # that small handoff, then follow the actual row rather than guessing an ID.
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        for row in svc.store.list(limit=1000, kind=kind):
+            if (row.get("params") or {}).get("source_job") == parent:
+                return row["id"]
+        if (svc.store.get(parent).get("params") or {}).get("followup_failures"):
+            return None
+        time.sleep(POLL_INTERVAL)
+    return None
 
 
 def _await_job(svc: Any, job_id: str, timeout: float = JOB_TIMEOUT) -> dict[str, Any]:

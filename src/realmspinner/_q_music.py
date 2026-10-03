@@ -337,6 +337,11 @@ class MusicOps:
         # them -- is unaffected.
         source_prompt = params.get("edit_source_prompt")
         prompt = str(source_prompt) if source_prompt is not None else str(job["prompt"] or "")
+        # muse-01 (2026-10-03 audit): an edit row's own ``lyrics`` is the new
+        # text; the source conditioning is the parent's words.
+        source_lyrics = params.get("edit_source_lyrics")
+        if source_lyrics is None:
+            source_lyrics = params.get("lyrics") or ""
 
         assert self._cancel is not None
         client, handoff = await self._acquire_music(spec)
@@ -346,7 +351,7 @@ class MusicOps:
                     client.generate,
                     prompt,
                     output,
-                    lyrics=str(params.get("lyrics") or ""),
+                    lyrics=str(source_lyrics),
                     audio_duration=float(params.get("duration", 60.0)),
                     infer_step=int(params.get("infer_step", 60)),
                     guidance_scale=float(params.get("guidance_scale", 15.0)),

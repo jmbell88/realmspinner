@@ -197,6 +197,8 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     verts_arg = args.get("verts")
     vert_arr: list[int] | None = None
     if verts_arg is not None:
+        if not isinstance(verts_arg, (list, tuple)):
+            return fail("verts must be a list of integers.", field="verts")
         try:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
             # ``int(float("inf"))`` raises it, uncaught here before this fix.
@@ -214,6 +216,8 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     faces_arg = args.get("faces")
     face_arr: list[int] | None = None
     if faces_arg is not None:
+        if not isinstance(faces_arg, (list, tuple)):
+            return fail("faces must be a list of integers.", field="faces")
         try:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
             # ``int(float("inf"))`` raises it, uncaught here before this fix.
@@ -230,6 +234,10 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     edges_arg = args.get("edges")
     edge_arr: list[list[int]] | None = None
     if edges_arg is not None:
+        if not isinstance(edges_arg, (list, tuple)) or any(
+            not isinstance(row, (list, tuple)) for row in edges_arg
+        ):
+            return fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
         try:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
             # ``int(float("inf"))`` raises it, uncaught here before this fix.

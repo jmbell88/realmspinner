@@ -540,6 +540,21 @@ class EventsMixin:
             if tour_pane.has_focus():
                 return
 
+        # Shift+W, ahead of the workspace arms (shell-02): every one of them
+        # returns after its own ``handle_key``, so the chord used to reach the
+        # layout editor only in Create -- the one mode with no skeleton to
+        # rearrange. Plain W stays each mode's own.
+        if (
+            event.type == pygame.KEYDOWN
+            and event.key == pygame.K_w
+            and getattr(event, "mod", 0) & pygame.KMOD_SHIFT
+            and not getattr(event, "mod", 0) & (pygame.KMOD_CTRL | pygame.KMOD_ALT)
+        ):
+            from .. import layout_edit
+
+            layout_edit.toggle(ctx.state, ctx)
+            return
+
         if ctx.state.mode not in modes.WORK_MODES:
             # The Manual, Settings and Profiles have no form to submit and no
             # viewport to frame; every one of these would act on a pane that is
@@ -745,13 +760,6 @@ class EventsMixin:
             library.delete_asset(ctx, ctx.state.selected)
         elif event.key == pygame.K_f:
             self.viewer.frame()
-        elif event.key == pygame.K_w and event.mod & pygame.KMOD_SHIFT:
-            # Shift+W: the layout editor (P5.4). Verified free -- plain W is
-            # wireframe below, and every mode that takes W takes it before this
-            # handler is reached.
-            from .. import layout_edit
-
-            layout_edit.toggle(ctx.state)
         elif event.key == pygame.K_w:
             ctx.state.wireframe = not ctx.state.wireframe
             self.viewer.set_wireframe(ctx.state.wireframe)

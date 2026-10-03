@@ -159,8 +159,22 @@ class UnmappedUidError(ValueError):
     """
 
 
+#: Uid-valued arguments whose names do not contain "uid", so :data:`UID_KEYS`
+#: (and its pinned derivation) cannot see them: ``clay_parent``'s ``parent``
+#: and ``clay_render``'s ``focus`` list. A boolean modifier's ``params.target``
+#: is the third; it is name-ambiguous (``clay_uv``/``clay_op`` have a numeric
+#: ``target`` of their own) so :func:`remap` reads it only under a
+#: ``clay_modifier_*`` tool. The 2026-10-03 audit (agents-08): a replay left
+#: all three stale.
+EXTRA_UID_KEYS: frozenset[str] = frozenset({"parent", "focus"})
+
+
 def remap(
-    arguments: dict, mapping: dict[int, int], transcript: str, line_no: int
+    arguments: dict,
+    mapping: dict[int, int],
+    transcript: str,
+    line_no: int,
+    tool: str | None = None,
 ) -> dict:
     """*arguments*, with every recorded uid under a :data:`UID_KEYS` key
     replaced by its live counterpart in *mapping* -- built fresh, since the
@@ -189,7 +203,11 @@ def remap(
 
     def remap_value(value: Any) -> Any:
         if isinstance(value, dict):
-            return value  # a {"$ref": ...} placeholder -- batch-only, left alone.
+            if "$ref" in value:
+                return value  # a {"$ref": ...} placeholder -- batch-only, left alone.
+            # A program's live reference, {"uid": {"uid": n}}: the wrapper
+            # carries a real uid one level down.
+            return walk(value, tool)
         if isinstance(value, list):
             return [remap_value(item) for item in value]
         if isinstance(value, bool):
@@ -203,17 +221,29 @@ def remap(
             return mapping[value]
         return value
 
-    def walk(node: Any) -> Any:
+    def walk(node: Any, current: str | None, in_params: bool = False) -> Any:
         if isinstance(node, dict):
-            return {
-                key: (remap_value(value) if key in UID_KEYS else walk(value))
-                for key, value in node.items()
-            }
+            # A clay_batch entry names its own tool beside its arguments.
+            entry_tool = node.get("tool") if isinstance(node.get("tool"), str) else None
+            out: dict = {}
+            for key, value in node.items():
+                child_tool = entry_tool if (key == "arguments" and entry_tool) else current
+                modifier_target = (
+                    key == "target"
+                    and in_params
+                    and current is not None
+                    and current.startswith("clay_modifier_")
+                )
+                if key in UID_KEYS or key in EXTRA_UID_KEYS or modifier_target:
+                    out[key] = remap_value(value)
+                else:
+                    out[key] = walk(value, child_tool, key == "params")
+            return out
         if isinstance(node, list):
-            return [walk(item) for item in node]
+            return [walk(item, current, in_params) for item in node]
         return node
 
-    return walk(arguments)
+    return walk(arguments, tool)
 
 
 # --- writing a transcript, one line at a time --------------------------------

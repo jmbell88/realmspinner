@@ -465,8 +465,26 @@ class IndexedOps:
         """
         if not self.palette or not 0 <= index < len(self.palette):
             return False
-        old = self.palette[index]
         new = tuple(colour)
+        # The 2026-10-03 audit, finding inker-14: on a frame that has its own
+        # table the palette pane shows (and the manual promises edits to) that
+        # frame's colours, but this rewrote the *document's* table and left the
+        # frame's override untouched -- recolouring every other frame and not
+        # the one being looked at. Palette cycling is exactly this edit, so it
+        # goes to the frame's table, in the one undo step ``set_frame_palette``
+        # already is. Add/remove stay on the document's table: they renumber
+        # slots, and slot numbers are shared by every frame.
+        anim = self.anim
+        if self.is_indexed and anim is not None and anim.frames:
+            own = anim.frame_palette(anim.frame.uid)
+            if own:
+                if not 0 <= index < len(own) or tuple(own[index]) == new:
+                    return False
+                self.commit_floating()
+                edited = [tuple(entry) for entry in own]
+                edited[index] = new
+                return self.set_frame_palette(edited)
+        old = self.palette[index]
         if old == new:
             return False
         table = [*self.palette]

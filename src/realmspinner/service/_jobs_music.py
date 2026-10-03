@@ -406,6 +406,7 @@ TASK_PARAMS = (
     "edit_n_min",
     "edit_n_max",
     "edit_source_prompt",
+    "edit_source_lyrics",
     "ref_audio_strength",
     "roll",
 )
@@ -655,6 +656,12 @@ def derive_music_job(
         # rather than restating it. Named in ``TASK_PARAMS`` below like every
         # other edit-only key, so a reroll of a repaint never inherits it.
         block["edit_source_prompt"] = was_prompt
+        # muse-01 (2026-10-03 audit). The same split for the words: the row's
+        # own ``lyrics`` becomes the new text (below, after the parent's
+        # params are copied) so every later derivation starts from what the
+        # take now says, and the parent's words ride here as the edit's source
+        # conditioning.
+        block["edit_source_lyrics"] = was_lyrics
 
     else:  # audio2audio
         # **service-02 (2026-09-15 audit).** Every other task in this family
@@ -693,6 +700,8 @@ def derive_music_job(
     }
     params["duration"] = duration
     params.update(block)
+    if task == "edit":
+        params["lyrics"] = block["edit_lyrics"]
     # The parent's noise draw, carried deliberately: see the docstring.
     params["seed"] = parent["params"].get("seed")
     prompt = str(block.get("edit_prompt") or parent["prompt"] or "")

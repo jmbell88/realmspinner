@@ -641,3 +641,124 @@ def test_the_symmetry_axis_field_shows_and_preserves_the_real_centre(ui, monkeyp
     assert state.symmetry_axis == (99.0, 15.5), (
         "editing X must not jump the untouched Y mirror to 0"
     )
+
+
+def test_the_indexed_mode_button_opens_a_convert_popup_that_is_drawn(monkeypatch):
+    """The 2026-10-03 audit (inker-21): the Mode row's "Indexed" request was
+    answered in the canvas window (``bridge.popups`` -> ``open_popup``) while
+    the only ``begin_popup`` for it ran in the Colour pane's window, so the
+    popup never drew and its session was cancelled the same frame. An imgui
+    popup is matched by the window that opened it; here the fake imgui keys on
+    the window the call is made from."""
+    from types import SimpleNamespace
+
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker.ui.panes import bridge, colors
+
+    window = {"now": "canvas"}
+    opened: set[tuple[str, str]] = set()
+    drawn: list[str] = []
+
+    def begin_popup(name, *a, **k):
+        if (window["now"], name) in opened:
+            drawn.append(window["now"])
+            return True
+        return False
+
+    fake = SimpleNamespace(
+        open_popup=lambda name, *a, **k: opened.add((window["now"], name)),
+        begin_popup=begin_popup,
+        end_popup=lambda: None,
+        close_current_popup=lambda: None,
+        is_popup_open=lambda name: (window["now"], name) in opened,
+    )
+    monkeypatch.setattr(bridge, "imgui", fake)
+    # Everything in ``popups`` but the convert popup is somebody else's.
+    for name in (
+        "_sheet_import_popup", "_scale_dialog", "_canvas_dialog", "_filter_popup",
+        "_inpaint_popup", "poll_inpaint",
+    ):
+        monkeypatch.setattr(bridge, name, lambda *a, **k: None)
+    for name in ("popup", "snippet_popup", "texture_popup", "restyle_popup"):
+        monkeypatch.setattr(bridge.inker_flourish_pane, name, lambda *a, **k: None)
+    from realmspinner.studio.modes.inker.ui.panes import tiles as _tiles
+
+    monkeypatch.setattr(_tiles, "convert_row", lambda *a: None)
+    monkeypatch.setattr(bridge, "_convert_table", lambda *a, **k: [(0, 0, 0, 255)])
+    monkeypatch.setattr(bridge.widgets, "popup_chrome", lambda **k: None)
+    monkeypatch.setattr(bridge.widgets, "labeled_combo", lambda label, v, o: v)
+    monkeypatch.setattr(
+        bridge.widgets, "labeled_slider_int", lambda label, v, lo, hi: (False, v)
+    )
+    monkeypatch.setattr(
+        bridge.imgui, "is_item_deactivated_after_edit", lambda: False, raising=False
+    )
+    monkeypatch.setattr(bridge.widgets, "muted", lambda *a, **k: None)
+    monkeypatch.setattr(bridge.widgets, "help_marker", lambda *a, **k: None)
+    monkeypatch.setattr(bridge.controls, "button", lambda *a, **k: False)
+    monkeypatch.setattr(bridge.imgui, "begin_disabled", lambda *a: None, raising=False)
+    monkeypatch.setattr(bridge.imgui, "end_disabled", lambda: None, raising=False)
+    monkeypatch.setattr(bridge.imgui, "same_line", lambda: None, raising=False)
+    monkeypatch.setattr(bridge.imgui, "dummy", lambda *a: None, raising=False)
+
+    state = inker_state.InkerState()
+    tab = inker_state.InkerDoc(doc=inker.Document.blank(8, 8), uid="t1", title="t")
+    state.add(tab)
+    ctx = SimpleNamespace(
+        state=SimpleNamespace(inker=state), toast=lambda *a, **k: None, settings={}
+    )
+
+    # What the Colour pane's Mode row does, as colors.py spells it.
+    window["now"] = "colour"
+    assert "CONVERT_MODE_POPUP" in __import__("inspect").getsource(colors)
+    state.pending_dialog = bridge.CONVERT_MODE_POPUP
+
+    window["now"] = "canvas"
+    bridge.popups(ctx)
+    assert state.convert_uid == "t1", "the session was cancelled the frame it opened"
+    window["now"] = "colour"
+    colors_source = __import__("inspect").getsource(colors)
+    assert "convert_popup(" not in colors_source
+    window["now"] = "canvas"
+    bridge.popups(ctx)
+    assert drawn and set(drawn) == {"canvas"}
+    assert state.convert_uid == "t1"
+
+
+def test_convert_to_tilemap_menu_row_opens_the_tile_size_popup(monkeypatch):
+    """The 2026-10-03 audit (inker-22): the menu row set
+    ``pending_dialog = "inker-to-tilemap"`` and nothing opened or drew it."""
+    from types import SimpleNamespace
+
+    from realmspinner.kernels import pixel as inker
+    from realmspinner.studio.modes.inker import state as inker_state
+    from realmspinner.studio.modes.inker.ui.panes import bridge, tiles
+
+    opened: list[str] = []
+    drawn: list[str] = []
+    fake = SimpleNamespace(
+        open_popup=opened.append,
+        is_popup_open=lambda name: name in opened,
+    )
+    monkeypatch.setattr(bridge, "imgui", fake)
+    for name in (
+        "_sheet_import_popup", "convert_popup", "_scale_dialog", "_canvas_dialog",
+        "_filter_popup", "_inpaint_popup", "poll_inpaint",
+    ):
+        monkeypatch.setattr(bridge, name, lambda *a, **k: None)
+    for name in ("popup", "snippet_popup", "texture_popup", "restyle_popup"):
+        monkeypatch.setattr(bridge.inker_flourish_pane, name, lambda *a, **k: None)
+    monkeypatch.setattr(tiles, "convert_row", lambda *a: drawn.append("row"))
+
+    state = inker_state.InkerState()
+    tab = inker_state.InkerDoc(doc=inker.Document.blank(8, 8), uid="t1", title="t")
+    state.add(tab)
+    ctx = SimpleNamespace(
+        state=SimpleNamespace(inker=state), toast=lambda *a, **k: None, settings={}
+    )
+    state.pending_dialog = "inker-to-tilemap"
+    bridge.popups(ctx)
+    assert opened == ["inker-to-tilemap"]
+    assert drawn == ["row"]
+    assert state.pending_dialog == "", "the request is answered, not handed back"

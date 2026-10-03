@@ -638,7 +638,10 @@ def resolved_for(doc: MasonDoc, uid: int) -> Placed | None:
             )
 
     try:
-        walk(doc, visit, include_hidden=True, expand_prefabs=True)
+        # ``enter=visit``: an expanded instance is never ``visit``ed (the walk
+        # ``continue``s past it), so without this hook its own uid answered
+        # None and the gizmo/Properties treated a drawable instance as locked.
+        walk(doc, visit, include_hidden=True, expand_prefabs=True, enter=visit)
     except _Found as found:
         return found.placed
     return None

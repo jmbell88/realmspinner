@@ -687,8 +687,21 @@ class JobOps:
             # Both halves of the contract: model.glb is what the user would
             # see, source.glb is what it was derived from. Leaving the source
             # behind would let a cancelled job be re-optimized back into
-            # existence.
+            # existence. (A finishing job below keeps the pair instead, so the
+            # rework doors -- optimize/remesh/retexture -- refuse a cancelled
+            # row to keep that guarantee: 2026-10-03 audit, service-03.)
             job_dir = self.config.job_dir(job["id"])
+            if params.get("mesh_finishing") and (job_dir / "source.glb").is_file():
+                # New finishing jobs checkpoint a complete reconstruction. A
+                # cancelled Blender child owns only its staged output; keep
+                # the usable pair and the reference for recovery.
+                paths = [job_dir / name for name in (
+                    ".model.lowpoly.glb", "best.glb", "best.source.glb",
+                )]
+                for path in paths:
+                    with contextlib.suppress(OSError):
+                        path.unlink(missing_ok=True)
+                return
             paths = [
                 job_dir / "model.glb",
                 job_dir / "source.glb",

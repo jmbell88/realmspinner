@@ -1224,3 +1224,40 @@ def test_set_width_seed_clears_widths_in_every_saved_layout_not_only_the_active_
 
     assert "left" not in library.layouts["default"].workspaces["inker"].widths
     assert "left" not in library.layouts["mine"].workspaces["inker"].widths
+
+
+def test_settings_does_not_offer_a_sidebar_width_the_shell_ignores():
+    """shell-03: the Settings combo and manual 42 promised three sidebar sizes,
+    but ``layout.measure`` takes each column as a fixed share of the room."""
+    import inspect
+    from pathlib import Path
+
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    assert '"Sidebar width"' not in inspect.getsource(app_settings)
+    manual = Path(__file__).resolve().parents[2] / "docs" / "manual" / "42-app-settings.md"
+    assert "260, 300 and 360" not in manual.read_text(encoding="utf-8")
+
+
+def test_a_hidden_pane_is_listed_in_settings_with_a_way_back(monkeypatch):
+    """shell-11: a hidden slot is dropped before it is drawn, so the editor has
+    no rect to badge, and Settings listed nothing -- the only way back was to
+    reset the whole layout."""
+    from realmspinner.studio import skeletons
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    slot = skeleton.Slot(id="swatches", label="Swatches", draw=lambda ctx: None)
+    monkeypatch.setattr(
+        skeletons, "for_mode", lambda ctx, mode: {"left": skeleton.Column("left", (slot,))}
+    )
+    library = layouts.Library(_Settings())
+    library.record("inker", {"left": ["swatches"]}, {"swatches"})
+    ctx = SimpleNamespace(layouts=library, state=SimpleNamespace(mode="inker"))
+
+    assert app_settings.hidden_pane_rows(ctx) == [("inker", "swatches", "Swatches")]
+
+    library.unhide("inker", "swatches")
+
+    assert library.hidden("inker") == set()
+    assert library.arrangement("inker").columns == {"left": ["swatches"]}
+    assert app_settings.hidden_pane_rows(ctx) == []

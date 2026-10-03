@@ -100,6 +100,10 @@ class GeometryOps:
         # orthogonal grid. See ``project.shift_by_cells`` (the 2026-09-26
         # audit, finding plotter-map-03).
         lat = self._lattice()
+        # The cell is read off the lattice as it was and drawn on the one the
+        # new size makes: an isometric origin depends on the height
+        # (2026-10-03 audit, plotter-05).
+        new_lat = lat._replace(width=width, height=height)
         before_objects: dict[int, list[tuple[float, float]]] = {}
         after_objects: dict[int, list[tuple[float, float]]] = {}
         # ``all_layers`` rather than ``self.layers``: an object layer inside a
@@ -110,7 +114,8 @@ class GeometryOps:
                 continue
             before_objects[layer.uid] = [(o.x, o.y) for o in layer.objects]
             after_objects[layer.uid] = [
-                project.shift_by_cells(lat, o.x, o.y, dx, dy) for o in layer.objects
+                project.shift_by_cells(lat, o.x, o.y, dx, dy, to=new_lat)
+                for o in layer.objects
             ]
 
         self.history.push(
@@ -356,7 +361,10 @@ class GeometryOps:
                 continue
             before_objects[other.uid] = [(o.x, o.y) for o in other.objects]
             after_objects[other.uid] = [
-                project.shift_by_cells(lat, o.x, o.y, left, top) for o in other.objects
+                project.shift_by_cells(
+                    lat, o.x, o.y, left, top, to=lat._replace(width=width, height=height)
+                )
+                for o in other.objects
             ]
         self.history.push(
             ResizeEdit(
@@ -565,7 +573,7 @@ class GeometryOps:
             before_objects[layer.uid] = [(o.x, o.y, o.shape) for o in layer.objects]
             after_objects[layer.uid] = [
                 (
-                    *project.cell_corner(new_lat, *project.cell_point(old_lat, o.x, o.y)),
+                    *project.rescale_point(old_lat, new_lat, o.x, o.y),
                     scaled_shape(o.shape, scale_x, scale_y),
                 )
                 for o in layer.objects

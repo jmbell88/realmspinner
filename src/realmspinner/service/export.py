@@ -549,7 +549,7 @@ def staged_tree(dest_root: Path, name: str, write: Callable[[Path], None]) -> Pa
 class CharacterExport:
     """One row of the character-export menu.
 
-    ``door`` is called uniformly as ``door(svc, job_id, sheet_id, stem)`` --
+    ``door`` is called uniformly as ``door(svc, job_id, sheet_id, stem, overwrite=...)`` --
     ``sheet_id`` is ``None`` for the two rows that export the mesh alone, and
     ``stem`` is ``None`` for an ordinary (human) export, which names its own
     folder/file after the job the way it always has -- so
@@ -560,11 +560,15 @@ class CharacterExport:
     key: str
     label: str
     needs_sheet: bool
-    door: Callable[[RealmspinnerService, str, str | None, str | None], Any]
+    door: Callable[..., Any]
 
 
 def _export_animated_glb(
-    svc: RealmspinnerService, job_id: str, sheet_id: str | None, stem: str | None
+    svc: RealmspinnerService,
+    job_id: str,
+    sheet_id: str | None,
+    stem: str | None,
+    overwrite: bool = False,
 ) -> Any:
     """Bake or refresh ``animated.glb``, then copy it out.
 
@@ -588,14 +592,34 @@ def _export_animated_glb(
 
     check_job_id(job_id)
     animated_path = svc_derive.get_file(svc, job_id, "animated.glb")
+    dest_dir = svc.config.export_dir
     if not stem:
-        return export_to_folder(svc, [job_id], ["animated.glb"])
+        if dest_dir is None or overwrite:
+            # ``export_to_folder`` states the missing-folder refusal itself.
+            return export_to_folder(svc, [job_id], ["animated.glb"])
+        # The job-named path stays; a repeat export no longer replaces it unless
+        # ``overwrite`` says so -- it lands beside it as ``animated-2.glb``, ...
+        first = dest_dir / job_id / "animated.glb"
+        if not first.exists():
+            return export_to_folder(svc, [job_id], ["animated.glb"])
+        n = 2
+        while (first.with_name(f"animated-{n}.glb")).exists():
+            n += 1
+        staged_copy(animated_path, first.with_name(f"animated-{n}.glb"))
+        return {
+            "copied": 1,
+            "dir": str(dest_dir),
+            "degraded": degraded_ids(svc, [job_id]),
+        }
 
     safe_stem = _safe_export_name(stem)
-    dest_dir = svc.config.export_dir
     if dest_dir is None:
         raise NotFound("no export folder configured (set REALMSPINNER_EXPORT_DIR)")
     dest_dir.mkdir(parents=True, exist_ok=True)
+    if not overwrite:
+        from . import characters as svc_characters
+
+        safe_stem = svc_characters._free_stem(dest_dir, safe_stem, (".glb",))
     dest = dest_dir / f"{safe_stem}.glb"
     staged_copy(animated_path, dest)
     return {
@@ -606,27 +630,43 @@ def _export_animated_glb(
 
 
 def _export_sheet_package(
-    svc: RealmspinnerService, job_id: str, sheet_id: str | None, stem: str | None
+    svc: RealmspinnerService,
+    job_id: str,
+    sheet_id: str | None,
+    stem: str | None,
+    overwrite: bool = False,
 ) -> Any:
     from . import characters as svc_characters
 
-    return svc_characters.export_package(svc, job_id, str(sheet_id or ""), stem=stem)
+    return svc_characters.export_package(
+        svc, job_id, str(sheet_id or ""), stem=stem, overwrite=overwrite
+    )
 
 
 def _export_godot_scene(
-    svc: RealmspinnerService, job_id: str, sheet_id: str | None, stem: str | None
+    svc: RealmspinnerService,
+    job_id: str,
+    sheet_id: str | None,
+    stem: str | None,
+    overwrite: bool = False,
 ) -> Any:
     from . import characters as svc_characters
 
-    return svc_characters.export_godot(svc, job_id, stem=stem)
+    return svc_characters.export_godot(svc, job_id, stem=stem, overwrite=overwrite)
 
 
 def _export_frame_folders(
-    svc: RealmspinnerService, job_id: str, sheet_id: str | None, stem: str | None
+    svc: RealmspinnerService,
+    job_id: str,
+    sheet_id: str | None,
+    stem: str | None,
+    overwrite: bool = False,
 ) -> Any:
     from . import characters as svc_characters
 
-    return svc_characters.export_frames(svc, job_id, str(sheet_id or ""), stem=stem)
+    return svc_characters.export_frames(
+        svc, job_id, str(sheet_id or ""), stem=stem, overwrite=overwrite
+    )
 
 
 #: Every character export a card may offer, in menu order. Additive: a fifth
@@ -655,6 +695,7 @@ def run_character_export(
     sheet_id: str | None = None,
     *,
     stem: str | None = None,
+    overwrite: bool = False,
 ) -> Any:
     """The one door every character-export control calls.
 
@@ -670,10 +711,16 @@ def run_character_export(
     its own export can only ever replace its own earlier export of the same
     asset (and never a human's). Every door honours it, ``animated_glb``
     included.
+
+    ``overwrite`` defaults to False: an export never replaces a folder or file
+    that is already in the export folder, it takes the next free name
+    (``<stem>-2``, ...). Pass True only when the user has said to replace.
+    ``agent_export_stem`` now only keeps two assets from sharing a name; a repeat
+    agent export lands beside the first one rather than over it.
     """
     row = CHARACTER_EXPORTS.get(key)
     if row is None:
         raise Invalid(f"{key!r} is not a character export format", field="format")
     if row.needs_sheet and not sheet_id:
         raise Invalid("choose a sheet to export", field="sheet_id")
-    return row.door(svc, job_id, sheet_id, stem)
+    return row.door(svc, job_id, sheet_id, stem, overwrite=overwrite)

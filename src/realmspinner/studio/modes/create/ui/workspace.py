@@ -23,7 +23,9 @@ from ....manual import render as manual_render
 from ....panes import thumbs
 from ....tokens import sp
 from ..engine import assets as create_assets
+from ..engine import workspace as families
 from ..engine.plan import Plan
+from . import session
 
 #: How many finished results the tray shows, and the width of its grid. One
 #: number because they are one fact: the tray is a fixed-height strip, so the
@@ -68,9 +70,8 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
         candidates = int(sprite["candidates"])
         generations = 1 + int(sprite["generations"])
         duration = svc_sprites.generation_time_phrase(generations)
-        stages = (
-            f"1 character reference + {int(sprite['generations'])} sheet generation"
-            + ("s" if int(sprite["generations"]) != 1 else "")
+        stages = f"1 character reference + {int(sprite['generations'])} sheet generation" + (
+            "s" if int(sprite["generations"]) != 1 else ""
         )
     elif spec.key == "character":
         # **Zero image generations, and the plan says so out loud.** Every other
@@ -122,21 +123,21 @@ def plan_footer(
     widgets.secondary("Generation plan")
     imgui.text_wrapped(plan.stages)
     if plan.generations > 0:
-        widgets.muted(f"{plan.count_line} · {plan.duration}")
+        widgets.muted_wrapped(f"{plan.count_line} · {plan.duration}")
     else:
         # A character draws no images at all, and "1 candidate · 0 image
         # generations" is a line that reads as a bug rather than as a fact.
         # The duration still matters -- it is the whole cost of the press.
         widgets.muted(plan.duration)
     if plan.recipe:
-        widgets.muted(f"Recipe: {plan.recipe}")
+        widgets.muted_wrapped(f"Recipe: {plan.recipe}")
     active = getattr(ctx.cache, "active", None)
     if active is not None:
         position = queue_position(ctx, str(active.get("id") or ""))
         if active.get("status") == "queued":
             widgets.muted(f"Queue: position {position}" if position else "Queue: waiting")
         else:
-            widgets.muted("Queue: one local generation is running")
+            widgets.muted_wrapped("Queue: one local generation is running")
     else:
         widgets.muted("Queue: ready")
     refusal = str(getattr(ctx.state.create, "submit_refusal", "") or "")
@@ -260,7 +261,7 @@ def should_draw(ctx: Any, stage: str | None = None) -> bool:
         return True
     if stage in (None, "mesh") and candidates_mod.pending_cached(cache) is not None:
         return True
-    return bool(_recent_results(ctx, stage))
+    return bool(families.results(session.index(ctx), ctx.state.create.workspace, stage))
 
 
 def draw(ctx: Any, height: float = 0.0, stage: str | None = None) -> None:
@@ -279,25 +280,255 @@ def draw(ctx: Any, height: float = 0.0, stage: str | None = None) -> None:
     if height > 0 and not imgui.begin_child("generation-results", (0, height), False):
         imgui.end_child()
         return
-    widgets.pane_header("Generations")
-    widgets.muted(_brief_caption(ctx))
+    widgets.pane_header("Attempts")
     active = progress_row(ctx)
     group = candidates_mod.pending_cached(ctx.cache) if stage in (None, "mesh") else None
     if group is not None:
         _candidate_grid(ctx, group)
     else:
-        jobs = _recent_results(ctx, stage)
+        jobs = families.results(session.index(ctx), ctx.state.create.workspace, stage)
         if jobs:
-            _result_grid(ctx, jobs)
+            _attempt_strip(ctx, jobs)
         elif not active:
             # Only reachable from a caller that draws the tray without asking
             # ``should_draw`` first; the shell always asks.
             widgets.muted_wrapped(
-                "Your completed generations will appear here for comparison "
-                "and variation."
+                "Your completed generations will appear here for comparison and variation."
             )
     if height > 0:
         imgui.end_child()
+
+
+def inspect_result(ctx: Any, job: dict[str, Any]) -> None:
+    """Inspect without editing the draft or choosing a reconstruction source."""
+    asset_open.open_asset(ctx, job, inspect_only=True)
+
+
+def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
+    flags = imgui.WindowFlags_.horizontal_scrollbar.value
+    if imgui.begin_child("create-attempt-strip", (0, 0), False, flags):
+        for i, job in enumerate(jobs):
+            if i:
+                imgui.same_line()
+            imgui.push_id(str(job["id"]))
+            imgui.begin_group()
+            side = sp(82)
+            thumbs.job_thumb(ctx, job, side)
+            if imgui.is_item_clicked():
+                inspect_result(ctx, job)
+            selected = ctx.state.selected == job["id"]
+            name = str(job.get("name") or job.get("prompt") or job["id"])
+            if controls.button(
+                widgets.fit_text(name, side) + "##select",
+                (side, 0),
+                role=controls.ButtonRole.PRIMARY if selected else controls.ButtonRole.GHOST,
+                tooltip=name,
+            ):
+                inspect_result(ctx, job)
+            widgets.status_pill(str(job.get("status") or "queued"))
+            if ctx.state.source_job == job["id"]:
+                widgets.muted("Chosen source")
+            elif ctx.state.create.comparison_pin == job["id"]:
+                widgets.muted("Pinned for comparison")
+            elif job.get("favorite"):
+                widgets.muted("Preferred")
+            imgui.end_group()
+            imgui.pop_id()
+    imgui.end_child()
+
+
+def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
+    """Actions act on the result; loading settings is an explicit operation."""
+    from .... import asset_exits
+    from ...library.ui.panes import library
+    from . import stages
+
+    job_id = str(job["id"])
+    done = job.get("status") == "done"
+    widgets.section("Next step")
+    kind = create_assets.asset_type_from_params(job.get("params") or {}, stage=job.get("stage", ""))
+    if (
+        job.get("stage") == "reference"
+        and kind in ("", "image", "3d_model")
+        and "input.png" in (job.get("files") or [])
+    ):
+        if widgets.primary_button(
+            "Use as source for 3D",
+            (-1, 0),
+            enabled=done,
+            reason=_why_not_finished(job, str(job.get("status") or "")),
+        ):
+            ctx.state.source_job = job_id
+            stages.go(ctx, "mesh", follow=False)
+    elif kind == "sprite_sheet":
+        if widgets.primary_button(
+            "Export sprite sheet...",
+            (-1, 0),
+            enabled=done,
+            reason=_why_not_finished(job, str(job.get("status") or "")),
+        ):
+            stages.go(ctx, "export", follow=False)
+    else:
+        exits = [e for e in asset_exits.exits_for(ctx, job) if not e.reason]
+        if exits and widgets.primary_button(exits[0].label, (-1, 0)):
+            exits[0].open(ctx, job)
+    if widgets.disabled_button(
+        "Use these settings",
+        done,
+        (-1, 0),
+        reason=_why_not_finished(job, str(job.get("status") or "")),
+    ):
+        _vary(ctx, job)
+    if svc_jobs.rerollable(job) and controls.button(
+        "Generate another attempt",
+        (-1, 0),
+        tooltip="Reuse this attempt's recipe with a fresh seed. Your draft stays unchanged.",
+    ):
+        ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
+    if svc_jobs.rerollable(job) and controls.button(
+        "Reproduce recorded attempt",
+        (-1, 0),
+        tooltip="Reuse this attempt's recorded recipe and seed. Results can vary by runtime.",
+    ):
+        seed = recorded_seed(job)
+        ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll", seed=seed)
+    pin = ctx.state.create.comparison_pin
+    if controls.button("Unpin comparison" if pin == job_id else "Pin for comparison", (-1, 0)):
+        ctx.state.create.comparison_pin = None if pin == job_id else job_id
+        ctx.state.create.image_comparing = None
+    baseline = ctx.cache.get(pin) if pin and pin != job_id else None
+    if baseline is not None:
+        same_kind = (baseline.get("stage") == "model") == (job.get("stage") == "model")
+        ready = done and baseline.get("status") == "done" and same_kind
+        if widgets.disabled_button(
+            "Compare with pinned",
+            ready,
+            (-1, 0),
+            reason="Choose two finished images or two finished meshes.",
+        ):
+            if job.get("stage") == "model":
+                ctx.state.compare_baseline = None
+                library.compare(ctx, str(baseline["id"]))
+            else:
+                ctx.state.create.image_comparing = str(baseline["id"])
+    if done and controls.button(
+        "Unmark preferred" if job.get("favorite") else "Mark preferred", (-1, 0)
+    ):
+        ctx.submit(
+            f"fav:{job_id}",
+            svc_jobs.update_job,
+            ctx.svc,
+            job_id,
+            {"favorite": not job.get("favorite")},
+        )
+    if widgets.disabled_button(
+        "Export...",
+        stages.available("export", job, ctx) is None,
+        (-1, 0),
+        reason=stages.available("export", job, ctx) or "",
+    ):
+        stages.go(ctx, "export", follow=False)
+
+
+def history(ctx: Any) -> None:
+    """Recent creations, grouped by lineage, rather than a second Library."""
+    widgets.pane_header("Creations")
+    idx = session.index(ctx)
+    ordered = sorted(
+        idx.families.items(),
+        key=lambda pair: max(j.get("created_at") or 0 for j in pair[1]),
+        reverse=True,
+    )
+    for key, _family in ordered:
+        assets = families.results(idx, key)
+        if not assets:
+            continue
+        job = assets[0]
+        label = str(job.get("name") or job.get("prompt") or job["id"])
+        if controls.button(
+            widgets.fit_text(label, imgui.get_content_region_avail().x - sp(20))
+            + f"##creation-{key}",
+            (-1, 0),
+            tooltip=f"{label}\n{len(assets)} attempts",
+        ):
+            asset_open.open_asset(ctx, job)
+        widgets.muted(f"{len(assets)} attempts")
+    if not ordered:
+        widgets.muted_wrapped("Your creations will appear here. Every attempt is saved.")
+    if ordered and ctx.cache.can_load_more() and controls.button("Load older creations", (-1, 0)):
+        ctx.cache.load_more()
+
+
+def empty_canvas(ctx: Any) -> None:
+    from . import brief
+
+    widgets.pane_header("What would you like to make?")
+    widgets.muted_wrapped(
+        "Choose an output, describe it in your brief, or drop an image to build a 3D model."
+    )
+    columns = 2 if imgui.get_content_region_avail().x < sp(760) else 3
+    if imgui.begin_table(
+        "create-output-cards", columns, imgui.TableFlags_.sizing_stretch_same.value
+    ):
+        for key, label in create_assets.ASSET_TYPE_OPTIONS:
+            imgui.table_next_column()
+            current = create_assets.selected(ctx.state.form_2d).key == key
+            if controls.button(
+                label + "##output-card",
+                (-1, sp(56)),
+                role=controls.ButtonRole.PRIMARY if current else controls.ButtonRole.SECONDARY,
+            ):
+                form = ctx.state.form_2d
+                form["asset_type"] = form["generation_type"] = key
+                create_assets.sync_legacy_fields(form)
+                ctx.state.clear_field_errors()
+            widgets.muted_wrapped(brief._TYPE_HINTS[key])
+        imgui.end_table()
+    imgui.spacing()
+    widgets.secondary("How it works")
+    widgets.muted_wrapped(plan_for(ctx.state.form_2d).stages)
+
+
+def image_comparison(ctx: Any, width: float, height: float) -> bool:
+    pinned = ctx.state.create.image_comparing
+    if not pinned:
+        return False
+    pair = [ctx.job(), ctx.cache.get(pinned)]
+    if any(
+        j is None or j.get("deleted_at") or "input.png" not in (j.get("files") or []) for j in pair
+    ):
+        ctx.state.create.image_comparing = None
+        return False
+    if controls.button("Exit image comparison"):
+        ctx.state.create.image_comparing = None
+        return False
+    cell = max(1, (width - imgui.get_style().item_spacing.x) / 2)
+    for i, job in enumerate(pair):
+        if i:
+            imgui.same_line()
+        imgui.begin_group()
+        name = str(job.get("name") or job.get("prompt") or job["id"])
+        widgets.secondary(widgets.fit_text(name, cell))
+        texture = (
+            ctx.textures.get(
+                f"create-compare:{job['id']}",
+                ctx.job_dir(job["id"]) / "input.png",
+                max_side=1600,
+                background=True,
+            )
+            if ctx.textures
+            else None
+        )
+        if texture is None:
+            widgets.muted("Loading image...")
+            imgui.dummy((cell, max(1, height - sp(80))))
+        else:
+            factor = min(cell / texture.size[0], max(1, height - sp(80)) / texture.size[1])
+            imgui.image(
+                widgets.texture_ref(texture), (texture.size[0] * factor, texture.size[1] * factor)
+            )
+        imgui.end_group()
+    return True
 
 
 def progress_row(ctx: Any) -> bool:
@@ -356,9 +587,7 @@ def _cancel(ctx: Any, job_id: str) -> None:
     if not job_id:
         return
     busy = ctx.busy(f"cancel:{job_id}")
-    if widgets.disabled_button(
-        f"Cancel##tray-cancel-{job_id}", not busy, reason="Cancelling..."
-    ):
+    if widgets.disabled_button(f"Cancel##tray-cancel-{job_id}", not busy, reason="Cancelling..."):
         ctx.submit(f"cancel:{job_id}", svc_jobs.cancel_job, ctx.svc, job_id)
 
 
@@ -401,6 +630,20 @@ def _result_grid(ctx: Any, jobs: list[dict[str, Any]]) -> None:
         imgui.end_table()
 
 
+def recorded_seed(job: dict[str, Any]) -> Any:
+    """The seed that reproduces what is on disk for this attempt (create-06).
+
+    ``params["seed"]`` is the draw the attempt asked for; when the reference
+    reroll budget redrew, ``reference_seed`` was rewritten to the one that
+    shipped ``input.png`` and ``seed`` still names the refused first draw. A
+    mesh is reproduced by ``mesh_seed`` alone.
+    """
+    params = job.get("params") or {}
+    if job.get("stage") == "model":
+        return params.get("mesh_seed", params.get("seed"))
+    return params.get("reference_seed", params.get("seed", params.get("mesh_seed")))
+
+
 def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     job_id = str(job["id"])
     thumbs.job_thumb(ctx, job, sp(72))
@@ -408,7 +651,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     imgui.begin_group()
     widgets.status_pill(str(job.get("status") or "queued"))
     params = job.get("params") or {}
-    seed = params.get("seed", params.get("mesh_seed"))
+    seed = recorded_seed(job)
     if seed is not None:
         widgets.muted(f"seed {seed}")
     rank = params.get("rank")

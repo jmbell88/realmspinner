@@ -80,6 +80,7 @@ MODEL_PARAMS: tuple[str, ...] = (
     "custom_triangles",
     "optimize",
     "remesh",
+    "lowpoly",
     "retexture",
     "transform",
     "scale_factor",

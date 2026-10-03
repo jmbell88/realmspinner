@@ -794,16 +794,17 @@ strip is a document whose layers cannot be seen or reached. Make it taller when 
 stack and shorter when you are painting.
 
 **Rows run bottom-up**: the background is the bottom row, which is Aseprite's order and Photoshop's.
-Above the grid are the **Blend** mode, the **Opacity** slider, the
-two lock toggles and — on an animated document — the **Cels** toggle, and they always describe the
-*active* layer. Each row in the list is an eye
-(visibility), a thumbnail and the layer's name — hovering a row shows its blend, opacity and locks,
-and a locked layer wears a small padlock beside its name. Rows are faintly banded, every other one,
+The **Layer properties...** popup holds the **Blend** mode, the
+**Opacity** slider, the two lock toggles and — on an animated document — the **Cels** toggle, and
+it describes the layer you opened it on. Each row in the list is an eye
+(visibility) and the layer's name, with a small lock beside it when the layer is locked — hovering a
+row shows its blend, opacity and locks, and thumbnails belong to the cels, behind the **Thumbs**
+toggle. Rows are faintly banded, every other one,
 so a name can be tracked across to its cels on a stack too tall to hold in the eye; group headers
 are not banded, because they are not layers and banding them would break the alternation of the
-layers under them. Under the list is the action strip:
-**add**, **duplicate**, **group**, **merge down**, **flatten** and **delete**, as icon buttons whose
-names are in their tooltips. Dragging the opacity slider previews live but records a single undo
+layers under them. There is no action strip under the list: **add**, **duplicate**, **group**,
+**merge down**, **flatten** and **delete** are verbs in the **Layer** menu and in a row's own
+context menu. Dragging the opacity slider previews live but records a single undo
 step when you let go, rather than one step per pixel of drag.
 
 Two of the panel's states reach out to the canvas. A **locked** layer refuses to be painted on: the
@@ -1314,8 +1315,10 @@ in (see [Importing an Aseprite file](29-inker-animation.md#from-an-aseprite-file
 
 Saving is a background operation, and it shows: while a save is in flight the layer panel and the
 structural shortcuts are disabled, because a save is encoding the layer stack on another thread and
-restructuring it underneath would corrupt the file. Brush strokes are still allowed, since they
-write pixels in place. If a save fails, the tab is released again and a toast says so.
+restructuring it underneath would corrupt the file. Brush strokes are refused too, for the same
+reason (and while a clip is playing): a stroke in flight is dropped, not queued, so wait for the
+"saving..." word under the canvas to clear before you paint on. If a save fails, the tab is
+released again and a toast says so.
 
 Closing a tab or quitting with unsaved changes asks first. Every dialog in Inker runs off the frame
 thread, so the window never freezes behind one.

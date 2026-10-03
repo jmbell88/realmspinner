@@ -124,8 +124,7 @@ def _controls(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     options = svc_sprites.sprite_options()
     types = options.get("sheet_types") or []
     labels = {
-        entry["key"]: f"{entry['key']} ({entry['columns']}x{entry['rows']})"
-        for entry in types
+        entry["key"]: f"{entry['key']} ({entry['columns']}x{entry['rows']})" for entry in types
     }
     _changed, form["sheet_type"] = form_ui.combo(
         "sheet_type",
@@ -188,9 +187,7 @@ def cost_text(plan: dict[str, Any]) -> str:
         return str(plan.get("refusal") or "This sheet cannot be drawn at this size.")
     generations = int(plan["generations"])
     count = (
-        "One full image generation"
-        if generations == 1
-        else f"{generations} full image generations"
+        "One full image generation" if generations == 1 else f"{generations} full image generations"
     )
     if plan["bands"] > 1:
         count += (
@@ -335,6 +332,11 @@ def draft_records(ctx: Any, job_id: str) -> list[dict[str, Any]]:
     return records
 
 
+def exports(ctx: Any, job: Any) -> None:
+    """The existing saved drafts and export actions, without generation controls."""
+    _drafts(ctx, str(job["id"]))
+
+
 def _drafts(ctx: Any, job_id: str) -> None:
     widgets.section("Drafts")
     records = draft_records(ctx, job_id)
@@ -351,9 +353,7 @@ def _draft(ctx: Any, job_id: str, record: dict[str, Any]) -> None:
         return
     imgui.push_id(draft_id)
     try:
-        seeds = " / ".join(
-            str(c.get("seed")) for c in record.get("candidates") or []
-        )
+        seeds = " / ".join(str(c.get("seed")) for c in record.get("candidates") or [])
         widgets.muted(f"{record.get('sheet_type', 'sheet')} - seeds {seeds}")
         if ctx.state.preview.get("sprite_focus") == draft_id:
             # Which of several drafts is the one the toast was about.
@@ -392,9 +392,7 @@ def _candidate(
             # ``nearest`` for the reason ``inspector._pixel`` gives: this is a
             # pixel-art atlas of 32-64px cells and a bilinear filter would show
             # the user a blurred version of the thing they are judging.
-            texture = ctx.textures.get(
-                f"{job_id}:sprite:{draft_id}:{letter}", path, nearest=True
-            )
+            texture = ctx.textures.get(f"{job_id}:sprite:{draft_id}:{letter}", path, nearest=True)
         if texture is None:
             widgets.muted(f"{letter}: rendering...")
         else:
@@ -409,9 +407,7 @@ def _candidate(
         if candidate.get("front_note"):
             widgets.muted_wrapped(str(candidate["front_note"]))
         for warning in candidate.get("warnings") or []:
-            widgets.muted_wrapped(
-                f"{warning.get('cell')}: {warning.get('detail')}"
-            )
+            widgets.muted_wrapped(f"{warning.get('cell')}: {warning.get('detail')}")
         if controls.small_button(verbs.open_in("inker")):
             from ..modes.inker import mode as inker_mode
 

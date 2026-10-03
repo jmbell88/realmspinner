@@ -78,3 +78,19 @@ def test_the_lora_import_and_train_buttons_never_open_a_picker_on_the_frame_thre
 
     source = APP_SETTINGS.read_text(encoding="utf-8")
     assert _inline_picker_calls(source) == []
+
+
+def test_deleting_the_token_file_while_running_does_not_claim_a_revocation_it_cannot_deliver() -> (
+    None
+):
+    """The 2026-10-03 audit (agents-01): the listener holds the key in memory and
+    nothing watches mcp.token, so deleting the file revokes nothing for a client
+    already attached -- only switching the setting off does. The pane must not
+    say otherwise."""
+    import inspect
+
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    src = inspect.getsource(app_settings)
+    assert "(or deleting that file) revokes it" not in src
+    assert "Deleting the file only stops new" in src

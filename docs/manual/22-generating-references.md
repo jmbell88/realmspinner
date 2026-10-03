@@ -1,17 +1,19 @@
 # Generating references
 
 A reference is the picture the mesh will be reconstructed from. Everything in this chapter lives on
-the Reference stage: the command bar across the top, and the recipe column in the left sidebar below it.
-
-![The Reference stage: the rail and brief on one row, then the recipe column and the preview](img/22-reference.png)
+the Reference stage. Your brief and settings are on the left, the canvas and attempts are in the middle,
+and the selected result and recent creations are on the right.
 
 ## The prompt
 
 The large text box under **Prompt** is where you describe the object. Write the subject and nothing
 else — "a weathered wooden crate bound with iron", "a compact energy rifle with panel seams". You do
-not need to ask for a plain background, a single object, or a studio render: the app wraps whatever
-you write in a fixed template that already asks for all of that, because those are the properties
-that make an image reconstruct cleanly.
+not need to ask for a plain background, a single object, or a studio render on a 3D Model: for
+that type (and for Seamless Material, Tileset and Sprite Sheet, each with its own template) the app
+wraps whatever you write in a fixed template that already asks for all of that, because those are
+the properties that make an image reconstruct cleanly. The **Image** type is the exception: it
+sends your text exactly as written, with no template, so ask for the framing and background you
+want. Jobs recorded before that change keep the old wrap when you rerun them.
 
 The prompt is capped at 1000 characters and a counter in the bottom-right corner of the box shows
 how much you have used once you have typed anything. The counter turns amber inside the last hundred
@@ -25,10 +27,10 @@ it is per prompt text only — if you want a whole recipe back, use **Copy setti
 job's overflow menu instead, which is described in [Rerun and
 promotion](36-library-and-jobs.md#rerun-and-promotion).
 
-Under **Avoid**, further down the pane, is a second box listing what the image must not
+Under **Advanced → Avoid**, further down the pane, is a second box listing what the image must not
 contain. It is pre-filled with the things that most often ruin a reconstruction, and it is yours:
 delete the text and the job runs with no negative prompt at all, which is a different request from
-the default rather than a way back to it. **Reset…**, beside Generate in the command bar, brings the
+the default rather than a way back to it. **Reset settings…**, below the brief, brings the
 default text back along with the rest of the form.
 
 ```text
@@ -42,8 +44,9 @@ you have to discover. You can edit it freely, or empty it deliberately. Note tha
 only has an effect on a model that runs with real classifier-free guidance; the two four-step
 distilled defaults ignore it. See [Models and style LoRAs](#models-and-style-loras).
 
-Your text is composed into a fixed template before the image model sees it; the finished job records
-the result as `composed_prompt`, which the inspector shows.
+For the types that use a template, your text is composed into it before the image model sees it; an
+Image job's composed prompt is simply your text. The finished job records the result as
+`composed_prompt`, which the inspector shows.
 
 The composed prompt has no hard length ceiling. CLIP's text encoders stop at 77 tokens, but the app
 splits a longer prompt into several chunks on comma boundaries — never mid-phrase — encodes each
@@ -53,52 +56,37 @@ longer conditioning sequence dilutes attention, so your prompt is best kept to a
 
 ## The screen at a glance
 
-Create's top row is a **command bar** and, under it, a **recipe column** down the left. The split is
-the whole design: the bar is *what to make*, the column is *how to make it*, and no control appears
-in both.
+The header shows the asset's **stage rail**, **New…** and **Inspector**. Images, materials,
+tilesets and sprite sheets use Reference → Export. A 3D model or character also has Mesh, Rig and Pose.
+Unavailable stages explain their requirements on hover.
 
-The command bar itself has two halves that share one line. On the left, the **stage rail** is the
-breadcrumb across Reference, Mesh, Rig, Pose and Export — it is on screen at every stage, including
-the three that make nothing from the bar. On the Reference and Mesh stages, the rest of the row is
-the press: on Reference, the six things a common visit touches, never scrolled.
+The left column begins with **Your brief**: what you are making, a multiline description,
+and **Candidates** where the output supports multiple attempts. Output-specific artistic controls
+follow, then the model and style recipe. Seed and Avoid are under **Advanced**; reference images
+are under **Conditioning**. Character has its own controls and uses no image model.
 
-| Control | What it decides |
-| --- | --- |
-| **Generation type** | The top-level choice, which decides what everything else means. |
-| **Prompt** | The words. Required; everything else has a default. |
-| **Candidates** | How many alternatives one press draws — 1, 2, 4 or 8. The word *Candidates* is drawn beside the pills; the Mesh stage has the same control with its own range (1, 2 or 3). |
-| **Generate** | The press. Its label names what you are making: *Create image*, *Generate reference*, *Create tileset*. |
-| **Reset…** | Puts the image settings back to their first-launch defaults, behind a confirm ("Reset the image settings?"). See below. |
+The generation plan sits above a persistent **Create image**, **Generate reference** or other
+output-specific button at the bottom. The settings and plan each scroll within their own space;
+the submit button stays visible. The plan states stages, candidate count, recipe, estimated work,
+queue position and validation problems, with repair buttons where available. Ctrl+Enter still submits.
 
-At narrow widths the row gives way in a stated order: the *Candidates* label goes first, then the
-pills are dropped — their value is restated in Generate's tooltip — then the stage rail itself
-shortens (full labels, then labels alone, then icons — every stage stays clickable and tooltipped
-throughout), and last, Reset drops to a bare icon. The type, the prompt (down to a floor) and
-Generate never give way. The Mesh stage's bar gives way in exactly the same order.
+Every new attempt belongs to the current creation and is saved. The **Attempts** strip below the
+canvas scrolls horizontally through that creation's results; it does not mix in unrelated recent jobs.
+Clicking an attempt inspects it without changing your draft or chosen reconstruction source.
+**Use these settings** explicitly loads a result's recipe. **Generate another attempt** uses a fresh
+seed; **Reproduce recorded attempt** reuses the recorded recipe and seed, with results still subject
+to runtime differences. Pin one result, select another and choose **Compare with pinned** for a
+side-by-side comparison. **Mark preferred** records a favourite; it does not delete alternatives.
 
-The stage rail draws at every stage; the rest of the bar is on Reference and Mesh, the two stages that
-generate — see [Generating meshes](23-generating-meshes.md) for the Mesh half, where a **Source**
-chip stands in for the type and the prompt and the button reads **Make 3D**. Rig, Pose and Export
-have nothing to generate from this row, so they draw the rail alone and their columns simply start
-higher. Neither stage's column holds a submit button: the column is settings, with the plan pinned
-at its bottom.
+The right column holds the selected result's **Next step**, details and **Creations** history.
+**Inspector** hides this column to give the canvas more room. Choosing another creation restores its
+draft. **New… → New creation** starts with defaults; **New with previous settings** keeps the recipe
+but clears the selected result and source. Both preserve prior attempts.
 
-The column below holds **Recipe** (the model, the style LoRA and the seed), **Style strength** once
-a LoRA is chosen, **Negative prompt / Avoid** while the chosen recipe can use one, one section
-belonging to the chosen type — **Tileset**, **Sprite sheet** or **Character**, and nothing at all
-for the other three — and one collapsed **Conditioning** disclosure. Its header counts how many of
-its controls are switched on, so a closed section never hides a setting that is doing something.
-
-**Character replaces the column rather than adding to it.** There is no model, no style LoRA, no
-seed-per-candidate and no conditioning on that type, because nothing is being generated from a
-picture — so those sections are absent and the Character section is the column. See
-[Characters](#characters).
-
-Pinned at the bottom of the column, never scrolling, is the **generation plan**: the stages, a count
-line (candidates, image generations and roughly how long), the queue, what recipe it will use, and —
-when Generate is disabled — every reason why, each with a one-click repair. It is the same footer the
-Mesh stage draws, so both read alike. The button itself carries the first of those reasons as its
-tooltip.
+Tilesets can show the exported sheet or an individual cell, and blob terrain has a small assembled
+terrain preview. Sprite sheets show the exported sheet, cells or animation tags, with pause and restart
+controls. Playback uses the exported frame durations. Character meshes can switch between the model
+and exported sheets once those sheets exist.
 
 Under those, in amber rather than red, the plan may also draw one or more lines starting **Worth
 knowing**. These are *advisories*, and the difference from the red ones is the whole point: an
@@ -126,14 +114,9 @@ rest) behind a "More options" reveal. It was retired on 2026-08-17: no taxonomy 
 a quality win, and your prompt is the brief. Assets generated under it are unaffected — rerolling
 or promoting one simply composes without the retired fragments.
 
-**Reset...**, in the command bar beside Generate, puts the whole form back to its first-launch
-defaults after a confirm — the prompt, the negative prompt, the model and LoRA, the reference and the
-run controls, with a freshly rolled seed, and everything else on the form too: the asset type (Image,
-3D Model, Seamless Material, Tileset, Sprite Sheet or Character) and any Tileset, Sprite Sheet or
-Character fields you have filled in. The confirm says so, since it is the only guard against an
-accidental press. It touches nothing outside this stage: the Mesh settings are left alone. (The Mesh
-stage's own **Reset...** asks "Reset the mesh settings?" in the same words and toasts "The mesh
-settings are back to their defaults." the same way.)
+**Reset settings…**, below the brief, resets this stage's form after a confirmation. Image reset
+includes the output type, description and all output-specific settings. Mesh reset keeps the chosen
+source. Neither reset deletes generated attempts or changes the other stage's form.
 
 ## Models and style LoRAs
 
@@ -235,7 +218,7 @@ noticeably stronger on the SDXL entries than on Turbo.
 Generation is deterministic in its seed: the same form and the same seed produce the same image
 every time. The **Seed** section is where you control that.
 
-The **Count** control in the command bar picks how many candidates one submit queues: 1, 2, 4 or 8.
+The **Candidates** control below the brief picks how many candidates one submit queues: 1, 2, 4 or 8.
 Each is a real job holding
 a place in the serial queue, which is why eight is the ceiling. Because each one gets its own seed,
 a fan-out of four is the cheapest way to find out whether an idea works at all.
@@ -252,12 +235,12 @@ Seeds are whole numbers from 0 to 2147483647. The seed shown when the app opens 
 startup and is deliberately not remembered between sessions — otherwise every launch would open on
 the same seed and a first Generate would reproduce last week's image.
 
-Every candidate lands in the **results tray** under the canvas, the same tray the Mesh stage uses.
-Each card has **Open**, **Vary** (load its brief back into the form, then change one thing),
-**Rerun** and **Make 3D**. **Make 3D** moves you to the Mesh stage first and then opens the cutout
-check, so the job it starts is on the stage that will show it. While something runs, the tray's first
-line is "Working now", the progress bar and **Cancel**; the floating card says the same from other
-modes.
+Every candidate appears in the creation's **Attempts** strip under the canvas. Click a thumbnail
+to inspect it. Actions live in the inspector: **Use these settings**, **Generate another attempt**,
+**Reproduce recorded attempt**, pin and compare, and **Mark preferred**. These actions preserve
+other attempts. For a 3D reference, **Use as source for 3D** opens the Mesh stage with that image
+chosen explicitly; press **Make 3D** there to check the cutout and submit. While a job runs, the
+strip shows Working now, progress and Cancel.
 
 The mesh has its own separate seed, at the Mesh stage. See
 [Mesh parameters](23-generating-meshes.md#mesh-parameters).
@@ -563,7 +546,7 @@ maintainer's own corpus.
 One palette is applied across the whole sheet in one pass, never per tile — quantized per tile, the
 same moss comes out two different greens in two tiles. *Which* palette is yours to choose; see
 **The pixel look** below. In the Materials and Terrain set layouts the words that are actually
-generated are the ones you type in the layout section, and the prompt field on the bar
+generated are the ones you type in the layout section, and the prompt field in the brief
 only names the sheet in the library. A **reference image**, if you attach one under
 *References*, shapes the style but is never required.
 

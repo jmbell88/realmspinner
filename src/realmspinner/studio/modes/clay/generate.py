@@ -438,7 +438,11 @@ def _sync_active_camera(ctx: Any) -> None:
     state = ctx.state.clay
     if state is None:
         return
-    tab = state.get(state.active_uid)
+    # clay-12 (2026-10-03): the live camera belongs to the tab the viewport last
+    # drew, not to whatever ``active_uid`` says now -- an event-layer switch
+    # (Ctrl+Tab, closing a tab) moves ``active_uid`` before the draw.
+    drawn = getattr(state, "camera_tab", None)
+    tab = state.get(state.active_uid if drawn is None else drawn)
     if tab is not None:
         clay_mode.camera_of(ctx, tab)
 

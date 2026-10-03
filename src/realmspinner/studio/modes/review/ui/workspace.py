@@ -1006,7 +1006,7 @@ class ReviewPanes:
                 enabled,
                 reason="A scan is running; the queue is being rebuilt.",
             ):
-                review_mode.advance(state)
+                review_mode.advance(state, unverdicted_only=True)
 
         if unit["verdict"]:
             # ``grade_text`` rather than the verdict word: the word is the

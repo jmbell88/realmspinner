@@ -249,7 +249,7 @@ def _replay(name: str) -> dict[int, int]:
         # has no business knowing this file uses assertions for its gate.
         try:
             arguments = agent_transcript.remap(
-                record.get("arguments") or {}, mapping, name, line_no
+                record.get("arguments") or {}, mapping, name, line_no, tool=record["tool"]
             )
         except agent_transcript.UnmappedUidError as exc:
             raise AssertionError(str(exc)) from exc

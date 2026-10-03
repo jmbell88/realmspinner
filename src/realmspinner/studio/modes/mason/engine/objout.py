@@ -433,7 +433,10 @@ def _emit_node(
             lines.append(f"v {x:.6f} {y:.6f} {z:.6f}")
         if has_uv:
             for u, w in prim.uvs:
-                lines.append(f"vt {float(u):.6f} {float(w):.6f}")
+                # glTF UVs have their origin top-left, OBJ's bottom-left; the
+                # PNG is stored as-is, so v is flipped here (what
+                # ``glb_to_obj_zip`` writes for the same primitive).
+                lines.append(f"vt {float(u):.6f} {1.0 - float(w):.6f}")
         if has_normals:
             assert normals_out is not None  # narrows for the loop below
             for x, y, z in normals_out:

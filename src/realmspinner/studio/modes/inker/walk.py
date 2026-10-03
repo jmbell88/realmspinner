@@ -1,11 +1,13 @@
 """The walk-cycle session: the shell side of ``inker/walk/``.
 
-Flourish's three-file split, one file shorter. There is no off-thread half here
-and there does not need to be: a bake of eight frames is a few RotSprite turns of
-limb-sized planes, which is milliseconds, so the preview re-renders inline on a
-revision comparison rather than through ``TaskRunner``. If a drawing ever arrives
-big enough for that to show, the ceiling refuses it first
-(``walk.WALK_MAX_PIXELS``) -- and a refusal is a better answer than a spinner.
+Flourish's three-file split, one file shorter. **The render is off the frame
+thread** (the 2026-10-03 audit, finding inker-19): eight frames of up to fifteen
+RotSprite-turned parts measured 0.15 s at 128x128, 0.72 s at 256x256 and 3.0 s at
+512x512, so a joint drag re-rendering inline stalled the window per mouse move.
+``frames``/``clipping`` hand the work to ``TaskRunner`` (one key per tab, on a
+snapshot of the rig) and keep showing the last render until the new one lands;
+``bake`` builds its document on a task too and lands it from ``on_task_done``.
+Without a ``ctx`` they still render inline, which is what the headless tests use.
 
 **Nothing in this module writes to the source document.** Parts are lifted with
 ``selection_cutout`` (which pushes no edit) or copied off a layer's pixels, the
@@ -95,6 +97,9 @@ class WalkSession:
     #: budget, and real rigs are larger).
     _raw: list[Any] = field(default_factory=list)
     _raw_stamp: tuple[Any, ...] = ()
+    #: A finished background render, ``(stamp, composites, raw)``, written by the
+    #: task thread (one attribute store) and adopted by the frame thread.
+    _ready: tuple[Any, ...] | None = None
 
 
 # -- opening and closing ---------------------------------------------------------------
@@ -429,15 +434,47 @@ def ready(open_session: WalkSession) -> bool:
     return walk.refusal(open_session.rig) == ""
 
 
-def frames(open_session: WalkSession) -> list[np.ndarray]:
+def _adopt_ready(open_session: WalkSession) -> None:
+    """Frame thread: take a finished background render, if there is one."""
+    landed, open_session._ready = open_session._ready, None
+    if landed is not None:
+        stamp, composites, raw = landed
+        open_session._frames, open_session._raw = composites, raw
+        open_session._stamp = open_session._raw_stamp = stamp
+
+
+def _request(ctx: Any, open_session: WalkSession, stamp: tuple[Any, ...]) -> None:
+    """Start the background render for *stamp* unless one is already running
+    (``TaskRunner.submit`` refuses a key in flight; the next frame asks again)."""
+    rig, settings, size = open_session.rig.copy(), open_session.settings, open_session.size
+
+    def work() -> None:
+        raw = walk.frames(rig, settings)
+        open_session._ready = (
+            stamp,
+            walk.composite_frames(rig, settings, size, rendered=raw),
+            raw,
+        )
+
+    ctx.submit(f"inker-walkview:{open_session.tab_uid}", work)
+
+
+def frames(open_session: WalkSession, ctx: Any = None) -> list[np.ndarray]:
     """The eight composites, re-rendered only when the rig or the settings move.
 
     Keyed on ``rig.rev`` rather than on the rig's contents, which is why every
-    mutator in ``walk.rig`` bumps it.
+    mutator in ``walk.rig`` bumps it. With a *ctx* the render runs on a task
+    and the previous composites stay on screen until it lands; without one it
+    is inline (headless callers). **The frame thread must pass its ctx.**
     """
     if not ready(open_session):
         return []
     stamp = (open_session.rig.rev, open_session.settings)
+    if ctx is not None:
+        _adopt_ready(open_session)
+        if stamp != open_session._stamp:
+            _request(ctx, open_session, stamp)
+        return open_session._frames
     if stamp != open_session._stamp or not open_session._frames:
         open_session._frames = walk.composite_frames(
             open_session.rig, open_session.settings, open_session.size
@@ -446,9 +483,23 @@ def frames(open_session: WalkSession) -> list[np.ndarray]:
     return open_session._frames
 
 
-def clipping(open_session: WalkSession) -> tuple[int, int, int, int]:
+def clipping(
+    open_session: WalkSession, ctx: Any = None, *, cached: bool = False
+) -> tuple[int, int, int, int]:
+    """How far the walk runs off the canvas. *cached* reads whatever render has
+    landed and never starts one (for a second reader beside the preview)."""
     if not ready(open_session):
         return (0, 0, 0, 0)
+    if cached:
+        _adopt_ready(open_session)
+        if not open_session._raw:
+            return (0, 0, 0, 0)
+        return walk.clipping(open_session._raw, open_session.size)
+    if ctx is not None:
+        frames(open_session, ctx)  # adopts / requests; the raw half rides along
+        if not open_session._raw:
+            return (0, 0, 0, 0)
+        return walk.clipping(open_session._raw, open_session.size)
     return walk.clipping(_raw_frames(open_session), open_session.size)
 
 
@@ -531,14 +582,46 @@ def bake_reason(state: Any, tab: Any) -> str:
     return walk.refusal(open_session.rig) or walk.too_large(open_session.size)
 
 
-def bake(ctx: Any, tab: Any) -> Any:
-    """Land the cycle as a new document and open it in a new tab.
+def bake(ctx: Any, tab: Any) -> bool:
+    """Start the bake on a task; the new tab opens from ``on_task_done``.
 
-    The source is left exactly as it was -- it was never written to -- so the
-    user comes back to a still drawing beside a walking one.
+    The document is built off the frame thread (audit inker-19: 3.0 s at
+    512x512), from a snapshot of the rig, so a drag after the press cannot reach
+    into it. -> whether the request was accepted.
     """
+    state = ctx.state.inker
+    open_session = session(state, tab)
+    if open_session is None or not can_bake(state, tab):
+        return False
+    rig = open_session.rig.copy()
+    settings, size = open_session.settings, open_session.size
+    matte = getattr(tab.doc, "matte", None)
+
+    def work() -> Any:
+        return walk.document(rig, settings, size, matte=matte)
+
+    return bool(ctx.submit(f"inker-walkbake:{tab.uid}", work))
+
+
+def land_bake(ctx: Any, tab: Any, doc: Any) -> Any:
+    """Frame thread: close the session and open *doc* in a new tab."""
     from . import mode as inker_mode
 
+    state = ctx.state.inker
+    title = f"{getattr(tab, 'title', 'Untitled')} walk"
+    cancel(ctx, tab)
+    # ``inker_open``'s call, verbatim: this is the one door a generated
+    # document comes through, and a public alias for it would be a second name.
+    return inker_mode._adopt(ctx, state, doc, path=None, title=title, file_format="ora")
+
+
+def bake_now(ctx: Any, tab: Any) -> Any:
+    """Land the cycle as a new document and open it in a new tab, inline.
+
+    For headless callers only -- the frame thread uses :func:`bake`. The source
+    is left exactly as it was -- it was never written to -- so the user comes
+    back to a still drawing beside a walking one.
+    """
     state = ctx.state.inker
     open_session = session(state, tab)
     if open_session is None or not can_bake(state, tab):
@@ -549,8 +632,4 @@ def bake(ctx: Any, tab: Any) -> Any:
         open_session.size,
         matte=getattr(tab.doc, "matte", None),
     )
-    title = f"{getattr(tab, 'title', 'Untitled')} walk"
-    cancel(ctx, tab)
-    # ``inker_open``'s call, verbatim: this is the one door a generated
-    # document comes through, and a public alias for it would be a second name.
-    return inker_mode._adopt(ctx, state, doc, path=None, title=title, file_format="ora")
+    return land_bake(ctx, tab, doc)

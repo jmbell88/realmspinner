@@ -1,0 +1,20 @@
+{
+  "key": "create-v1",
+  "label": "Create usability v1: all output families",
+  "seeds": [42, 1337],
+  "notes": "Immutable text-generation suite. Grade all six families equally. Compare editing separately with fixed local references. Engine and finishing comparisons must reuse reference images. Every missing measurement or grade remains unknown.",
+  "items": [
+    {"id": "image-landscape", "category": "environment", "output_family": "image", "prompt": "A wide landscape at dawn, three small cottages on the left, a winding river on the right, viewed from above", "guidance": {}},
+    {"id": "image-interior", "category": "environment", "output_family": "image", "prompt": "An atmospheric tavern interior viewed at eye level, a table and two chairs beside a large window, warm evening light", "guidance": {}},
+    {"id": "mesh-lantern", "category": "prop", "output_family": "3d_model", "prompt": "A wooden lantern with a brass frame, a thin curved handle and open gaps between its bars", "guidance": {}},
+    {"id": "mesh-sword", "category": "weapon", "output_family": "3d_model", "prompt": "A steel sword with a thin blade, an open ring guard and a wooden grip", "guidance": {}},
+    {"id": "material-stone", "category": "environment", "output_family": "seamless_material", "prompt": "Weathered mossy stone paving, detailed irregular stones", "guidance": {}},
+    {"id": "material-wood", "category": "environment", "output_family": "seamless_material", "prompt": "Dark oak planks with fine visible grain and subtle wear", "guidance": {}},
+    {"id": "tiles-grass", "category": "environment", "output_family": "tileset", "prompt": "Readable pixel art grass and dirt terrain, consistent green and brown palette", "guidance": {}, "settings": {"tile": {"mode": "terrain_transition", "view": "top_down", "inner_terrain": "grass", "outer_terrain": "dirt", "target_cell_px": 32}}},
+    {"id": "tiles-stone", "category": "environment", "output_family": "tileset", "prompt": "Readable pixel art stone path and grass terrain, consistent gray and green palette", "guidance": {}, "settings": {"tile": {"mode": "path", "view": "top_down", "path": "stone paving", "ground": "grass", "target_cell_px": 32}}},
+    {"id": "sprite-knight", "category": "character", "output_family": "sprite_sheet", "prompt": "A small knight in blue armor with a red scarf, readable pixel art", "guidance": {}, "settings": {"sprite": {"mode": "turnaround", "target_cell_px": 32, "candidate_count": 1}}},
+    {"id": "sprite-mage", "category": "character", "output_family": "sprite_sheet", "prompt": "A small mage in a purple robe carrying a wooden staff, readable pixel art", "guidance": {}, "settings": {"sprite": {"mode": "walk", "target_cell_px": 32, "candidate_count": 1}}},
+    {"id": "character-ogre", "category": "character", "output_family": "authored_character", "prompt": "An authored ogre character, idle and walk views", "guidance": {}, "settings": {"family": "ogre", "animations": {"idle": 4, "walk": 8}, "directions": 4, "logical_size": 32}},
+    {"id": "character-ogre-idle", "category": "character", "output_family": "authored_character", "prompt": "An authored ogre character with a large head, idle views", "guidance": {}, "settings": {"family": "ogre", "animations": {"idle": 4}, "directions": 4, "logical_size": 32}}
+  ]
+}

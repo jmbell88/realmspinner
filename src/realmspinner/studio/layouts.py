@@ -265,6 +265,30 @@ class Library:
         )
         self.save()
 
+    def hidden_everywhere(self) -> list[tuple[str, str]]:
+        """Every ``(workspace, slot id)`` the active layout hides, sorted.
+
+        A hidden slot is dropped before it is drawn, so it has no rect for the
+        layout editor to hang an un-hide badge on; this is the list Settings
+        draws its way back from (shell-11).
+        """
+
+        if not self.current().readable:
+            return []
+        return sorted(
+            (workspace, slot)
+            for workspace, arrangement in self.current().workspaces.items()
+            for slot in arrangement.hidden
+        )
+
+    def unhide(self, workspace: str, slot_id: str) -> None:
+        """Bring one hidden pane back, leaving the rest of the arrangement."""
+
+        arrangement = self.arrangement(workspace)
+        if slot_id not in arrangement.hidden:
+            return
+        self.record(workspace, arrangement.columns, set(arrangement.hidden) - {slot_id})
+
     def set_width(self, workspace: str, side: str, value: float) -> None:
         """Persist one desired side width after a real splitter edit."""
 

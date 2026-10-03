@@ -226,7 +226,7 @@ def clipping_warning(state: Any, tab: Any) -> str:
     session = inker_walk.session(state, tab)
     if session is None or not inker_walk.ready(session):
         return ""
-    over = inker_walk.clipping(session)
+    over = inker_walk.clipping(session, cached=True)
     if not any(over):
         return ""
     return f"The walk runs off the canvas by {max(over)} px -- it will be cropped."

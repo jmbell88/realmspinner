@@ -92,9 +92,7 @@ def _family(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str,
         character_engine.touched(form, "character_family")
         # The sliders and the look belong to the species that had them.
         form["character_body"] = "{}"
-        if not character_engine.theme_offered(
-            opts, picked, str(form.get("character_theme") or "")
-        ):
+        if not character_engine.theme_offered(opts, picked, str(form.get("character_theme") or "")):
             form["character_theme"] = character_engine.THEME_UNSET
         ctx.state.clear_field_error("character_family")
 
@@ -199,9 +197,7 @@ def _pixels(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str,
         ctx.state.clear_field_error("character_colors")
 
 
-def _appearance(
-    ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]
-) -> None:
+def _appearance(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:
     """One slider per channel the *species' archetype* declares.
 
     Never a fixed column of sliders: the channel set belongs to the body plan,
@@ -310,12 +306,20 @@ def submit(ctx: Any, form: dict[str, Any]) -> bool:
     prompt = str(form.get("prompt") or "")
     resolution = character_engine.resolution_of(form).to_dict()
     name = str(form.get("character_name") or "").strip() or None
+    from .. import session
+
+    metadata = session.metadata(ctx)
 
     def run():
         from ......service import characters as svc_characters
 
         return svc_characters.create_character(
-            ctx.svc, kwargs, name=name, prompt=prompt, resolution=resolution
+            ctx.svc,
+            kwargs,
+            name=name,
+            prompt=prompt,
+            resolution=resolution,
+            extra_params=metadata,
         )
 
     taken = settings_2d.submit_job(ctx, run)

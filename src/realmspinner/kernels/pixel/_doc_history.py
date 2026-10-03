@@ -9,6 +9,7 @@ half that *reverses* it: ``undo``/``redo`` are the user-facing pair, and
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import fields
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -18,6 +19,21 @@ from .selection import SelectionMask
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .document import Document
+
+
+def _adopt(live: Any, restored: Any) -> Any:
+    """Write ``restored``'s fields into ``live`` and return ``live``.
+
+    ``restored`` is a fresh copy the snapshot owns no part of, so handing its
+    arrays to the live object shares nothing with the snapshot. Only the same
+    type adopts: a Layer standing where a TilemapCel was is a different thing
+    and keeps the plain copy.
+    """
+    if live is None or type(live) is not type(restored):
+        return restored
+    for spec in fields(restored):
+        setattr(live, spec.name, getattr(restored, spec.name))
+    return live
 
 
 class HistoryOps:
@@ -98,9 +114,27 @@ class HistoryOps:
                 f"{'still' if grid is None else 'animated'} document and this "
                 f"one is {'still' if self.anim is None else 'animated'}"
             )
-        copies = [layer.copy(uid=layer.uid) for layer in layers]
+        # The 2026-10-03 audit, findings inker-02 and inker-13: ``LayerAddEdit``,
+        # ``LayerRemoveEdit``, ``CelSetEdit`` and the slice add/remove edits
+        # *hold* the live object, and a whole-canvas op rewrites that same
+        # object in place. Swapping the stack for fresh copies left every held
+        # object in its post-op state, so a later redo of the add put back a
+        # cropped layer (a "canvas-sized" refusal, or a document that silently
+        # changed size) or a rotated slice. The snapshot is therefore written
+        # *back into* the objects that are live now, matched by uid, so object
+        # identity -- which those edits rely on -- survives the restore.
+        # Objects the snapshot names that are not live (a layer the op itself
+        # replaced) come back as the copies, as before.
+        if grid is None:
+            live_layers = {layer.uid: layer for layer in self.stack}
+        else:
+            live_layers = {layer.uid: layer for layer in self.anim.unique_cel_layers()}
+        copies = [
+            _adopt(live_layers.get(layer.uid), layer.copy(uid=layer.uid)) for layer in layers
+        ]
         if slices is not None:
-            self.slices = [entry.copy() for entry in slices]
+            live_slices = {entry.uid: entry for entry in self.slices}
+            self.slices = [_adopt(live_slices.get(entry.uid), entry.copy()) for entry in slices]
         width, height = size
         if grid is None:
             self.stack = LayerStack(copies, active)

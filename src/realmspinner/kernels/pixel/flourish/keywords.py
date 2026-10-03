@@ -273,7 +273,13 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
                 # while the toast reported only "brighter: x1.3" as if
                 # nothing else had moved.
                 continue
-            for name in names & set(prims.params_of(layer.kind)):
+            specs = prims.params_of(layer.kind)
+            for name in names & set(specs):
+                # The 2026-10-03 audit, finding inker-17: flame's "rise" is a
+                # direction in degrees, so "faster" turned the flame instead
+                # of speeding it. Only smoke's px/s "rise" is a speed.
+                if what == "speed" and specs[name].label == "degrees":
+                    continue
                 layers[j] = _scaled(layers[j], name, factor)
         notes.append(f"{word}: x{factor}")
 

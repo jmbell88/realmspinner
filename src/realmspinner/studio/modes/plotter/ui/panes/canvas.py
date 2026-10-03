@@ -2882,10 +2882,11 @@ def object_menu_rows(ctx: Any, state: Any, tab: Any, layer: Any) -> None:
 
     doc = tab.doc
     uid = state.selected_object
-    editable = uid is not None and not tab.busy and not layer.locked
+    locked = plotter_mode.layer_locked(doc, layer)
+    editable = uid is not None and not tab.busy and not locked
     reason = (
         "This layer is locked."
-        if layer.locked
+        if locked
         else "Select an object first."
         if uid is None
         else "This map is being written."

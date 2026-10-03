@@ -299,10 +299,15 @@ def _button_colours(
     imgui.push_style_color(c.button.value, imgui.ImVec4(*normal))
     imgui.push_style_color(c.button_hovered.value, imgui.ImVec4(*hovered))
     imgui.push_style_color(c.button_active.value, imgui.ImVec4(*active))
+    # A filled role draws its label on ACCENT or ERR, which TEXT was never
+    # qualified against (shell-09).
+    fill = {ButtonRole.PRIMARY: theme.ACCENT, ButtonRole.DESTRUCTIVE: theme.ERR}.get(role)
+    if fill is not None:
+        imgui.push_style_color(c.text.value, imgui.ImVec4(*theme.rgba(tokens.label_on(fill))))
     try:
         yield
     finally:
-        imgui.pop_style_color(3)
+        imgui.pop_style_color(3 if fill is None else 4)
 
 
 def button(

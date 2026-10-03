@@ -185,6 +185,7 @@ class SpriteSettings:
 class ModelSettings:
     output_profile: str = "raw"
     custom_triangles: int | None = None
+    mesh_finishing: str = "preserve_shape"
 
 
 @dataclass(frozen=True, slots=True)
@@ -755,6 +756,10 @@ def validate_request(
         issues.append(CompatibilityIssue("quality", "Quality must be Fast or Quality."))
     if request.model_mode not in MODEL_MODES:
         issues.append(CompatibilityIssue("model_mode", "Model mode must be automatic or Advanced."))
+    if request.model.mesh_finishing not in ("preserve_shape", "repair"):
+        issues.append(CompatibilityIssue(
+            "model.mesh_finishing", "Choose Preserve shape or Repair."
+        ))
     if request.reference_mode not in REFERENCE_MODES:
         issues.append(CompatibilityIssue("reference_mode", "Unknown reference mode."))
     if request.reference_mode == "multi" and len(request.references) < 2:
@@ -1348,6 +1353,7 @@ _SPRITE_COERCIONS: dict[str, tuple[type, Any]] = {
 #: other optional-int sub-fields, not listed here.
 _MODEL_COERCIONS: dict[str, tuple[type, Any]] = {
     "output_profile": (str, ModelSettings.output_profile),
+    "mesh_finishing": (str, ModelSettings.mesh_finishing),
 }
 
 

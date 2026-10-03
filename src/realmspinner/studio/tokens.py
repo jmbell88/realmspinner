@@ -488,6 +488,19 @@ def contrast(fg: int, bg: int) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
+def label_on(fill: int, palette: str | None = None) -> int:
+    """The label colour for text drawn on a solid *fill* (shell-09/10).
+
+    TEXT is qualified against the four surfaces, not against ACCENT or the
+    status colours, and on those fills it came out at 1.5-4.0:1. The palette's
+    own two ends (``BG``, ``TEXT``) are the candidates, and the one that reads
+    better on this fill wins, so a role colour moved in one palette cannot
+    quietly strand its label.
+    """
+    colours = PALETTES[palette or THEME]
+    return max((colours["BG"], colours["TEXT"]), key=lambda c: contrast(c, fill))
+
+
 def composite(fg: int, bg: int, alpha: float) -> int:
     """``fg`` drawn over ``bg`` at ``alpha``, as a packed colour.
 

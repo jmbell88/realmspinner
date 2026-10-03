@@ -66,8 +66,11 @@ where you are not making something.
   single list of everything you were recently working on. Returning here is never destructive.
 - **Library.** Every asset that has ever been generated, filtered, sorted and searched, with the
   trash and the prune. Covered in [The library and jobs](36-library-and-jobs.md).
-- **Create.** One mode for the whole asset pipeline, drawn as five **stages** on a rail above the
-  settings column. **Reference** owns the prompt and every control that composes it — the
+- **Create.** One workspace for an asset and its attempts. The header shows the stages relevant to
+  the output; 3D assets have Reference, Mesh, Rig, Pose and Export, while image outputs have
+  Reference and Export. The brief is on the left, previews and attempts in the centre, and the
+  selected result and grouped creation history on the right. **Reference** owns the prompt and every
+  control that composes it — the
   negative prompt, the image model and style LoRA, the seed and the candidate count.
   **Mesh** owns no prompt controls at all: a mesh job starts from a finished reference or from an
   uploaded image, and the column holds only the reconstruction decisions. **Rig** fits a skeleton,

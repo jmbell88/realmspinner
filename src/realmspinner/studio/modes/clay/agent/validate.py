@@ -430,6 +430,12 @@ def _resolve_uids(
     back out of this list (``clay_delete``'s own deletion order,
     ``clay_analyze``'s ``pairs_among``).
     """
+    # The 2026-10-03 audit's clay-02: a string of digits is iterable, so
+    # ``"123"`` used to read as uids 1, 2 and 3. Only a real list is an array.
+    if values is not None and not isinstance(values, (list, tuple)):
+        return None, fail(
+            f"{field} must be a list of integers.", field=field, recovery="fix_arguments"
+        )
     try:
         # The 2026-09-26 audit's clay-agent-tools-09: ``int(float("inf"))``
         # raises ``OverflowError``, which this tuple did not name -- see

@@ -168,7 +168,7 @@ def to_png(data: bytes) -> bytes:
     """
     import io
 
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     with Image.open(io.BytesIO(data)) as im:
         # Checked from the header, before any pixel is decoded: a flat 20 MP
@@ -179,8 +179,13 @@ def to_png(data: bytes) -> bytes:
                 f"image is {im.width}x{im.height}; the limit is {MAX_IMAGE_PIXELS:,} pixels"
             )
         has_alpha = im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info
+        # Apply the EXIF orientation before the tag is dropped by the PNG
+        # re-encode: a portrait phone photo was otherwise stored sideways and
+        # everything downstream (matte, composition gate, reconstruction) ran on
+        # the rotated picture (2026-10-03 audit, service-02).
+        upright = ImageOps.exif_transpose(im)
         out = io.BytesIO()
-        im.convert("RGBA" if has_alpha else "RGB").save(out, "PNG")
+        upright.convert("RGBA" if has_alpha else "RGB").save(out, "PNG")
         return out.getvalue()
 
 

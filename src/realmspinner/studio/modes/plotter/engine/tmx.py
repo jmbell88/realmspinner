@@ -1312,6 +1312,14 @@ def _settle_infinite(doc: MapDoc, placed: list[tuple[Any, int, int]]) -> None:
     y0 = min(oy for _layer, _ox, oy in placed)
     x1 = max(ox + layer.data.shape[1] for layer, ox, _oy in placed)
     y1 = max(oy + layer.data.shape[0] for layer, _ox, oy in placed)
+    # The per-layer cap in ``_dense`` cannot see two layers whose own extents
+    # are legal but whose union is not (2026-10-03 audit, plotter-06): a few
+    # hundred bytes of file would ask for a 64 GB array per layer.
+    if x1 - x0 > MAX_DIMENSION or y1 - y0 > MAX_DIMENSION:
+        raise ValueError(
+            f"this map's chunks span {x1 - x0}x{y1 - y0} cells, past the"
+            f" {MAX_DIMENSION} a side this build reads"
+        )
     doc.width, doc.height = max(1, x1 - x0), max(1, y1 - y0)
     doc.origin_x, doc.origin_y = x0, y0
     for layer, ox, oy in placed:

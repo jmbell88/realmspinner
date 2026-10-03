@@ -48,7 +48,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .errors import Invalid, NotFound, invalid_from
+from .errors import Conflict, Invalid, NotFound, invalid_from
 from .validation import (
     MAX_JOB_NAME,
     check_job_id,
@@ -390,6 +390,7 @@ def create_character(
     name: str | None = None,
     prompt: str = "",
     resolution: Any = None,
+    extra_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a character and queue its sheet. Two rows, one press.
 
@@ -471,6 +472,7 @@ def create_character(
     job_id = uuid.uuid4().hex[:12]
     job_dir = svc.config.job_dir(job_id)
     params: dict[str, Any] = {
+        **(extra_params or {}),
         # 0 for the reference stage that never ran, exactly as a built mesh
         # records it: there is no image behind this body.
         "seed": 0,
@@ -717,6 +719,7 @@ def export_package(
     dest_dir: Any = None,
     *,
     stem: str | None = None,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Copy one character sheet and its sidecar out as a pair.
 
@@ -736,6 +739,10 @@ def export_package(
     already raise for a bad name -- this door writes the pair directly rather
     than through ``staged_tree``, so it is the one door that has to check by
     hand rather than inheriting the check.
+
+    ``overwrite`` is the one way to replace what is already there. By default the
+    export lands under the first free name (``<stem>``, ``<stem>-2``, ...) and
+    nothing in the export folder is touched or removed.
     """
     from ..kernels.rig import store
     from . import export as svc_export
@@ -760,6 +767,8 @@ def export_package(
     # thing the user actually chose. Falls back to the id when there is none.
     stem = svc_export._safe_export_name(stem) if stem else _package_stem(job, str(sheet_id))
     dest.mkdir(parents=True, exist_ok=True)
+    if not overwrite:
+        stem = _free_stem(dest, stem, (".png", ".json"))
     svc_export.staged_copy_all(
         [(png, dest / f"{stem}.png"), (sidecar, dest / f"{stem}.json")]
     )
@@ -851,6 +860,7 @@ def export_frames(
     dest_dir: Any = None,
     *,
     stem: str | None = None,
+    overwrite: bool = False,
 ) -> Path:
     """One folder per clip, one subfolder per compass direction, one PNG per frame.
 
@@ -877,6 +887,10 @@ def export_frames(
     :func:`export_package`'s own paragraph about it. Reaches ``staged_tree``
     unchanged, which is what actually validates it (``_safe_export_name``,
     ``field="name"``); this door does not check it twice.
+
+    ``overwrite`` is the one way to replace what is already there. By default the
+    export lands under the first free name (``<stem>``, ``<stem>-2``, ...) and
+    nothing in the export folder is touched or removed.
     """
     from PIL import Image
 
@@ -934,7 +948,16 @@ def export_frames(
             field="sheet_id",
         )
 
-    stem = stem or _package_stem(job, str(sheet_id))
+    if not stem:
+        # Its own namespace beside Godot's: both folders were named after the
+        # character, so exporting one format deleted the other (2026-10-03
+        # audit, service-01).
+        stem = f"{_package_stem(job, str(sheet_id))}-frames"
+    if overwrite:
+        # Explicit opt-in, but still never onto a folder this app did not write.
+        _refuse_foreign_folder(dest, stem)
+    else:
+        stem = _free_stem(dest, stem)
     # **Top-level first, then the recipe, then True.** ``_q_troupe`` writes
     # the worker's own D5 answer at the sidecar's top level (``"pixel_art":
     # False``, absent when the render was pixel art) -- the recipe's nested
@@ -1122,6 +1145,7 @@ def export_godot(
     dest_dir: Any = None,
     *,
     stem: str | None = None,
+    overwrite: bool = False,
 ) -> Path:
     """A Godot 4 scene beside a renamed copy of the served ``animated.glb``.
 
@@ -1140,6 +1164,10 @@ def export_godot(
     ``stem``, when given, replaces the folder (and ``.glb``/``.tscn`` file)
     name -- see :func:`export_package`'s own paragraph about it. Reaches
     ``staged_tree`` unchanged, which is what actually validates it.
+
+    ``overwrite`` is the one way to replace what is already there. By default the
+    export lands under the first free name (``<stem>``, ``<stem>-2``, ...) and
+    nothing in the export folder is touched or removed.
     """
     from .. import godotscene
     from ..kernels.geom3d import glbio
@@ -1165,7 +1193,12 @@ def export_godot(
     loops = set(stamp.get("loops") or []) if isinstance(stamp, Mapping) else set()
     names = glbio.animation_names(data)
 
-    stem = stem or _package_stem(job, job_id)
+    if not stem:
+        stem = f"{_package_stem(job, job_id)}-godot"
+    if overwrite:
+        _refuse_foreign_folder(dest, stem)
+    else:
+        stem = _free_stem(dest, stem)
     try:
         # **Inside the try, not before it.** ``godot_clip_name`` raises
         # ``ValueError`` for a clip name Godot's ``&"..."`` StringName syntax
@@ -1833,6 +1866,57 @@ def _moved_joints(
     # is the function that put these joints in Blender axes in the first place.
     matrix[0, 3], matrix[1, 3], matrix[2, 3] = tx, -tz, ty
     return transformed_joints(joints, matrix)
+
+
+def _free_stem(dest_root: Path, stem: str, suffixes: tuple[str, ...] = ("",)) -> str:
+    """*stem*, or ``<stem>-2``, ``-3`` ... for the first name where **none** of
+    ``<stem><suffix>`` exists under *dest_root*.
+
+    The rule (2026-10-03, after the service-01 fix): an existing folder or file in
+    the export folder is never replaced unless the caller says so out loud with
+    ``overwrite=True``. A same-named second character, a repeat export, or a
+    user's own ``Player/`` folder all get a fresh name instead. A pair
+    (``.png`` + ``.json``) moves to the next number together, so a half-matching
+    set is never produced. ``-N`` is ``export.keep_both``'s own spelling.
+    """
+    from . import export as svc_export
+
+    base = svc_export._safe_export_name(stem)
+    root = Path(dest_root)
+    n = 1
+    while True:
+        candidate = base if n == 1 else f"{base}-{n}"
+        if not any((root / f"{candidate}{suffix}").exists() for suffix in suffixes):
+            return candidate
+        n += 1
+
+
+def _refuse_foreign_folder(dest_root: Path, stem: str) -> None:
+    """``staged_tree`` replaces ``<dest_root>/<stem>`` whole, so a folder this app
+    did not write -- a user's own ``Player/``, a Godot ``.import`` beside a scene --
+    must never be the thing it replaces (2026-10-03 audit, service-01). A folder
+    is ours if it holds a frames manifest or a Godot scene."""
+    from . import export as svc_export
+
+    target = Path(dest_root) / svc_export._safe_export_name(stem)
+    if not target.exists():
+        return
+    ours = False
+    if target.is_dir():
+        manifest = target / "manifest.json"
+        try:
+            ours = (
+                manifest.is_file()
+                and "realmspinner-frames" in manifest.read_text(encoding="utf-8")
+            ) or any(target.glob("*.tscn"))
+        except OSError:
+            ours = False
+    if not ours:
+        raise Conflict(
+            f"{target.name!r} already exists in the export folder and was not written by "
+            "Realmspinner; move it or export under another name.",
+            field="name",
+        )
 
 
 def _package_stem(job: Mapping[str, Any], sheet_id: str) -> str:

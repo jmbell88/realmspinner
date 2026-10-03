@@ -654,6 +654,11 @@ def _axis_index(axis: float) -> int:
     program already uses for an axis (``mirror``'s own ``axis`` is the one
     exception, spelled out because it is a fixed enum of exactly three
     values chosen up front, not a computed expression)."""
+    # int(inf) is an OverflowError and int(nan) a ValueError: neither is a
+    # ConditionError, so they escaped the assert and left a half-built program
+    # (2026-10-03 audit, agents-06).
+    if not math.isfinite(axis):
+        raise ConditionError(f"axis must be 0, 1 or 2; got {axis!r}.")
     i = int(axis)
     if float(i) != axis or i not in (0, 1, 2):
         raise ConditionError(f"axis must be 0, 1 or 2; got {axis!r}.")

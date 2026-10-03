@@ -2,9 +2,9 @@
 
 Side panels tile around a fixed centre canvas: they may be resized, reordered
 inside their column, or hidden, but never float, tab together, or cross through
-the canvas. Version-2 named layouts retain each workspace's desired left and
-right widths plus its internal vertical shares. Narrow windows compress those
-widths for the current frame without changing the saved preference.
+the canvas. Each side column is a fixed share of the room (:func:`proportions`),
+the same in every mode; a named layout retains pane order, visibility and each
+workspace's internal vertical shares, not a width.
 
 Sizes are design pixels and are multiplied by :data:`tokens.SCALE` at use, so
 a saved width has the same meaning on every display scale.

@@ -1462,6 +1462,9 @@ class InkerState(docmodes.DocTabs[InkerDoc]):
     # Drag state, decided on press because several tools start the same way.
     drag_kind: str = ""  # "" | paint | spray | shape | marquee | lasso | move |
     #                       layer_move | gradient | pan | scale | rotate | pivot
+    #: Index of the Duplicate View pane whose press started ``drag_kind``;
+    #: only that pane continues or ends the gesture (audit inker-20).
+    drag_view: int = 0
     drag_anchor: tuple[float, float] | None = None
     last_point: tuple[float, float] | None = None
     lasso: list[tuple[float, float]] = field(default_factory=list)

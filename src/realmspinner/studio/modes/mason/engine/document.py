@@ -50,6 +50,12 @@ from .nodes import Node
 from .refs import Ref, ref_key
 from .terrain import Rect, Terrain
 
+#: Caps on one user-property row (:meth:`MasonDoc.set_user_property`): a name
+#: is an identifier an engine looks up, a value is a short note, and neither is
+#: a place to park a document.
+MAX_PROPERTY_KEY = 120
+MAX_PROPERTY_VALUE = 1000
+
 # "The parent you already have." ``None`` is a real parent -- the root list --
 # so a nullable default could not tell "move to the root" apart from "leave it
 # where it is", and those are two different gestures. ``plotter/_map_layers.py``
@@ -600,6 +606,13 @@ class MasonDoc:
             arr = np.asarray(new, dtype="f8")
             if arr.shape != (length,) or not np.isfinite(arr).all():
                 raise ValueError(f"{name} must be {length} finite numbers.")
+            if name == "rotation":
+                norm = float(np.linalg.norm(arr))
+                if norm == 0.0:
+                    raise ValueError("rotation must not be the zero quaternion.")
+                # A typed component leaves a non-unit quaternion that shears
+                # the node and exports an invalid glTF rotation; store unit.
+                rotation = arr / norm
         before = tuple(np.array(v, dtype="f8", copy=True) for v in (was or node.trs()))
         after = tuple(
             node.trs()[i] if new is None else np.array(new, dtype="f8", copy=True)
@@ -631,6 +644,65 @@ class MasonDoc:
         self.history.push(ed.NodePropsEdit(uid, before, dict(props)))
         self._apply_props(uid, dict(props))
         self.touch()
+        return True
+
+    def set_user_property(self, uid: int, key: str, value: str | None) -> bool:
+        """Add, change or (``value=None``) remove one row of a node's user
+        ``properties`` table, as one step.
+
+        The 2026-10-03 audit's mason-08: the Properties pane could list and
+        delete rows but never make one, although the manual says it is where a
+        scene's own key-and-value pairs are authored. The pane's draft
+        key/value fields end here, so the refusals are the engine's and not a
+        widget's: a blank key is not a row, and a key or value past the caps
+        would bloat every save and every manifest. ``was`` hands
+        :meth:`set_props` a *copy* of the dict (its own warning about
+        in-place edits), so the step records a real before and after.
+        """
+        node = self._require(uid)
+        key = str(key).strip()
+        if not key:
+            raise ValueError("a property needs a name.")
+        if len(key) > MAX_PROPERTY_KEY:
+            raise ValueError(f"a property name is at most {MAX_PROPERTY_KEY} characters.")
+        was = dict(node.properties)
+        after = dict(node.properties)
+        if value is None:
+            after.pop(key, None)
+        else:
+            value = str(value)
+            if len(value) > MAX_PROPERTY_VALUE:
+                raise ValueError(
+                    f"a property value is at most {MAX_PROPERTY_VALUE} characters."
+                )
+            after[key] = value
+        return self.set_props(uid, was={"properties": was}, properties=after)
+
+    def set_template_material(self, name: str, material: gltf.Material | None) -> bool:
+        """Retint a prefab template's root mesh, so every instance follows --
+        one step, through :meth:`define_prefab` (so the same recursion and
+        ``MAX_PLACED`` charges apply, and undo is its :class:`~.edits.PrefabEdit`).
+
+        The 2026-10-03 audit's mason-08: Chapter 17 promised that changing "the
+        original" retints every instance, yet an instance carries only its own
+        transform and the one template-editing route was unpack, edit, Make
+        prefab again under the same name. Only a *mesh* root can carry a
+        material (``scene.resolve`` reads ``material`` off a mesh or terrain
+        node, never a group), so a group template refuses with a ``TypeError``
+        rather than storing a field nothing reads. Position, rotation and scale
+        are deliberately not editable here: those are the instance's own.
+        """
+        template = self.prefabs.get(name)
+        if template is None:
+            raise KeyError(f"no prefab named {name!r}")
+        if not isinstance(template, nd.MeshNode):
+            raise TypeError("only a prefab whose root is a mesh can carry a material")
+        if template.material == material:
+            return False
+        copy = nd.copy_subtree(template, fresh_uids=False)
+        assert isinstance(copy, nd.MeshNode)
+        copy.material = material
+        self.define_prefab(name, copy)
         return True
 
     def set_ref(self, uid: int, ref: Ref | None) -> bool:
@@ -673,7 +745,19 @@ class MasonDoc:
     def isolate(self, uids: Iterable[int]) -> bool:
         """Show only these nodes. One step, and its own inverse is
         :meth:`show_all` rather than a second isolate."""
+        # An isolated node stays visible together with its ancestors (a hidden
+        # ancestor hides the whole subtree under ``scene.walk``'s visible-ANDs
+        # rule) and its descendants (a hidden group's children vanish with it).
         keep = {int(u) for u in uids}
+        for uid in list(keep):
+            found = self.locate(uid)
+            if found is None:
+                continue
+            node, parent_uid, _index = found
+            while parent_uid is not None:
+                keep.add(parent_uid)
+                parent_uid = self.parent_uid_of(parent_uid)
+            keep.update(n.uid for n, _p, _i, _d in nd.walk([node]))
         return self.set_visibility({node.uid: node.uid in keep for node in self.all_nodes()})
 
     def show_all(self) -> bool:

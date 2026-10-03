@@ -155,7 +155,24 @@ TILESHEET_TEMPLATE = (
 # composed prompt was a function of the expander's weights and seed, and this
 # compiler can no longer produce it, so a benchmark comparing across the bump
 # has to know that.
-PROMPT_VERSION = 8
+PROMPT_VERSION = 9
+LEGACY_PROMPT_VERSION = 8
+
+
+def template_for(
+    *, generation_type: str | None = None, policy_version: int = LEGACY_PROMPT_VERSION,
+    tile: bool = False, sheet: bool = False, tilesheet: bool = False,
+) -> str:
+    """Select framing without changing the meaning of stored jobs."""
+    if tilesheet:
+        return TILESHEET_TEMPLATE
+    if sheet:
+        return SHEET_TEMPLATE
+    if tile:
+        return TILE_TEMPLATE
+    if policy_version >= 9 and generation_type in ("image", "image_2d"):
+        return "{prompt}"
+    return PROMPT_TEMPLATE
 
 _tokenizer_cache: dict[Path, list[Any]] = {}
 
@@ -305,6 +322,8 @@ def build(
     tile: bool = False,
     sheet: bool = False,
     tilesheet: bool = False,
+    generation_type: str | None = None,
+    policy_version: int = LEGACY_PROMPT_VERSION,
 ) -> str:
     """The final positive prompt.
 
@@ -327,13 +346,9 @@ def build(
     from .. import guidance
 
     composed = guidance.compose_prompt(user_prompt, params)
-    if tilesheet:
-        template = TILESHEET_TEMPLATE
-    elif sheet:
-        template = SHEET_TEMPLATE
-    elif tile:
-        template = TILE_TEMPLATE
-    else:
-        template = PROMPT_TEMPLATE
+    template = template_for(
+        generation_type=generation_type, policy_version=policy_version,
+        tile=tile, sheet=sheet, tilesheet=tilesheet,
+    )
     text = template.format(prompt=composed)
     return f"{trigger}, {text}" if trigger else text

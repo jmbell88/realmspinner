@@ -100,14 +100,10 @@ def draw(ctx: Any) -> None:
     _palette_files(ctx, state)
     imgui.dummy((0, sp(tokens.SP_2)))
     _indexed(ctx, state)
-    # Unconditionally, and at *this* level rather than inside ``_indexed``: a
-    # popup is matched by an id computed off the id stack that opened it, which
-    # is this one, and a conversion session's only per-frame hook is this call.
-    # ``_indexed`` returns early when there is no active tab -- and "there is no
-    # active tab any more" is one of the ways a session gets stranded, so it has
-    # to be a frame this still runs on. It takes the tab or None and settles the
-    # session against whichever document actually owns it.
-    inker_bridge.convert_popup(ctx, inker_mode.active(ctx))
+    # The Convert popup is drawn by ``inker_bridge.popups`` in the canvas
+    # window, not here: a popup belongs to the window that opens it (the
+    # 2026-10-03 audit, finding inker-21), and the Mode row and the Sprite menu
+    # open it by ``pending_dialog``, which the canvas window answers.
 
 
 # --- indexed colour ---------------------------------------------------------
@@ -235,7 +231,7 @@ def _not_indexed(ctx: Any, state: Any, tab: Any) -> None:
     if controls.button(
         "Convert...", tooltip="Build a palette out of this drawing's own colours"
     ):
-        inker_bridge.open_convert(ctx, tab)
+        ctx.state.inker.pending_dialog = inker_bridge.CONVERT_POPUP
     widgets.help_marker(
         "Convert builds a palette out of this drawing's own colours and shows "
         "the result before you commit to it -- including the dither, which is "
@@ -330,7 +326,10 @@ def _hole_marker(at: Any, side: float) -> None:
 
 def _slots(ctx: Any, state: Any, tab: Any) -> None:
     doc = tab.doc
-    palette = list(doc.palette)
+    # The table in force on the frame being looked at, not the document's: on
+    # a frame with its own palette the swatches must be the colours the frame
+    # is drawn with (2026-10-03 audit, inker-14). Same length either way.
+    palette = list(doc.palette_for() or doc.palette)
     state.clamp_slots(len(palette))
     counts = _usage(state, tab, len(palette))
     # ``is_indexed`` and not ``bool(palette)``: a palette-constrained RGB
@@ -449,7 +448,7 @@ def _slots(ctx: Any, state: Any, tab: Any) -> None:
     ):
         inker_mode.export_palette_image(ctx)
     if controls.small_button("Re-convert..."):
-        inker_bridge.open_convert(ctx, tab)
+        ctx.state.inker.pending_dialog = inker_bridge.CONVERT_POPUP
     imgui.same_line()
     widgets.muted("try a dither")
 

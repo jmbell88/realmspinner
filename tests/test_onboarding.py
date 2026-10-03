@@ -318,7 +318,8 @@ def test_homes_new_menu_still_opens_create_once_the_door_is_open(monkeypatch):
 
     landing.start_3d(ctx)
 
-    assert called == [(ctx, "mesh")]
+    # The shared New... reset goes to Reference first; the entry lands on Mesh last.
+    assert called[-1] == (ctx, "mesh")
     assert ctx.state.mode != "settings"
 
 
@@ -384,3 +385,24 @@ def test_starting_a_gated_tour_toasts_the_reason_instead_of_hanging_on_step_one(
     assert not ctx.state.tour.running
     assert toasts, "a refused tour must say why rather than doing nothing"
     assert toasts[0][1] == "warn"
+
+
+def test_first_hour_does_not_wait_on_a_create_door_a_fresh_install_keeps_shut():
+    """tour-01: on a fresh install ``set_mode`` refuses Create, so the six
+    Create steps after ``open-create`` ring controls that never draw. Moving
+    past ``open-create`` must stop the tour and say why."""
+    from realmspinner.studio.panes import tour as tour_pane
+    from realmspinner.studio.tour import scripts as tour_scripts
+
+    toasts: list[str] = []
+    ctx = _gated_ctx(model_rows=_MISSING_CREATE_ROWS)
+    ctx.toast = lambda text, *_a, **_k: toasts.append(text)
+    tour_pane.start(ctx, "first-hour")
+    assert ctx.state.tour.running
+    ids = [step.id for step in tour_scripts.FIRST_HOUR.steps]
+    ctx.state.tour.index = ids.index("open-create")
+
+    tour_pane.advance(ctx)
+
+    assert not ctx.state.tour.running
+    assert toasts and "tour stops here" in toasts[0]

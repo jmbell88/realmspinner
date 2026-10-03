@@ -2,26 +2,22 @@
 
 The mesh stage is where the reconstruction engine runs. It costs roughly two minutes of GPU per
 attempt, so everything in this chapter is arranged around deciding what to spend that on. All of it
-lives at Create's **Mesh** stage, whose column holds no prompt controls whatsoever and no submit
-button either: the press is in the **command bar** above it, the same bar the Reference stage has.
-
-The bar reads, left to right: the stage rail, the **Source** chip (what the job starts from), the
-**Candidates** pills, **Make 3D** and **Reset...**. Under it, the column is settings only, with the
-generation plan pinned at its bottom.
+lives at Create's **Mesh** stage. The left column starts with the **Source** chip and
+**Candidates** (1, 2 or 3), followed by reconstruction settings. The generation plan has its own
+scrollable space above the persistent **Make 3D** button. **Reset settings…** resets mesh controls
+after confirmation while keeping the chosen source.
 
 ## Starting from a reference
 
 The normal path is promotion: take a finished 2D asset and run the mesh stage from its image.
 
-Select a finished reference in the library — its card offers **Make 3D**, and selecting a
-promotable reference also makes it the Mesh stage's source automatically. The **Source** chip in the
-bar shows a thumbnail and the name of what the job will start from — or **Choose an image...**, with a
-hint to drop one, when nothing is chosen. It is a drop target: drag a card out of the library onto
-it, or drop an image file on the window. **Make 3D**, to the right of the pills, submits it.
+Inspect a finished reference in the Attempts strip, then choose **Use as source for 3D** in
+the inspector. This explicitly chooses the source and opens the Mesh stage; it does not spend GPU
+time until you press **Make 3D**. Inspecting a different attempt keeps the chosen source and draft.
+Library promotion remains available too.
 
-Selecting an already-finished mesh instead — to look at it again, or to send it through Make 3D a
-second time — has the chip show the reference that mesh came from ("this mesh's reference") rather
-than asking you to choose one: **Make 3D** rebuilds from that same reference.
+The **Source** chip names and previews the image that Make 3D will use. It accepts a library card
+drop or an image file. With no explicit source, a selected mesh can use the reference it came from.
 
 The new job is an ordinary image job whose input image is the reference's, recorded as a child of
 the reference so the library can show them as one lineage rather than two unrelated rows.
@@ -93,7 +89,7 @@ the identical **Accept**, not a different route to the same job.
 
 The reconstruction engine is deterministic in its seed, and its failure mode is a lottery: the same
 reference comes back clean at one seed and with a hole through the shoulder at another. **Candidates**,
-in the bar beside **Make 3D** (the same control the Reference stage has, with this stage's range), is
+near the top of the left column (the same control the Reference stage has, with this stage's range), is
 how many attempts one press buys — 1, 2 or 3. The **generation plan** pinned under the column (the
 same footer the Reference stage draws) changes with the choice: it says "N candidates ·
 about N×2 minutes of GPU", because this is the one control in the pane that multiplies what the button
@@ -107,30 +103,14 @@ rather than a surprise after the cutout.
 Each candidate is an ordinary mesh job: same validation, same VRAM admission, same worker. The first
 keeps the mesh seed you pinned, so a pinned seed still reproduces; the rest draw fresh ones.
 
-While a group is undecided its members are **hidden from the library** — three near-identical cards
-are not a workshop — and the **results tray** under the Mesh canvas is where they live instead. It is
-the same tray the Reference stage has: each candidate is a thumbnail (a placeholder while it runs, the
-viewer's snapshot once it has finished) with **Open**, **Vary**, **Keep**, **Rerun** and **Rig**. The
-tray's first line is "Working now", the bar and **Cancel**. **Open** shows the candidate in the
-viewport exactly as selecting any other asset does. **Keep** is greyed with *Wait for every candidate
-to finish.* until the last attempt has settled; then it settles the group: the one you kept and the ones
-you did not all become ordinary assets, and only then are you *asked* whether to delete the ones you
-did not keep. Nothing is ever deleted on your behalf, and declining leaves you with ordinary assets
-rather than hidden ones. When every attempt in a group fails there is nothing to keep, so each card
-offers **Discard** in Keep's place. It settles the group exactly as keeping one does — every attempt
-becomes an ordinary asset — and only then asks whether to delete them.
+New candidate batches are saved immediately as attempts in the current creation, and remain
+visible in the Library. The horizontally scrolling **Attempts** strip contains every loaded attempt
+for this creation. Click one to inspect it; **Use these settings** loads its mesh settings and source
+explicitly. Mark a preferred result without discarding the rest, or pin one and compare it with another
+finished mesh using synchronised views. Rig and Export remain stages on the header's rail.
 
-**Rig** on a mesh card moves you to the Rig stage with that mesh selected; it is greyed, with the reason,
-when Blender is not installed or the mesh has not finished. **Vary** on a mesh card loads that mesh's
-settings and its reference back into the Mesh form.
-
-Verdicts work on a candidate like any other mesh, so judging the group feeds the same findings pool.
-See [Review](37-review.md). While any finished attempt in the group is still ungraded, a line above the
-cards says so: *"Grade each attempt before you keep one - they feed What works."* That
-line is the whole of what grading does here — it never reorders the candidates, never marks one as the
-apparent winner, and never stops you from pressing **Keep** on an ungraded attempt. It is a
-reminder, not a gate: what you decide by pressing Keep is yours to decide, and the sentence only asks
-that the mesh you did not choose still teaches the corpus something before it leaves the tray.
+Older undecided candidate batches retain their Keep/Discard picker so existing work can still be
+settled. Keeping or discarding a legacy group never deletes files without the separate confirmation.
 
 The count applies to **Make 3D**, and that includes a mesh made from an upload (see below).
 

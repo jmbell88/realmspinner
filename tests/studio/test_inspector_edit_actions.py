@@ -83,7 +83,7 @@ def test_neither_offers_it_for_something_that_cannot_be_edited(svc):
 
 
 def test_edit_actions_runs_ahead_of_the_stage_dispatch_at_every_host(svc):
-    """"Take it somewhere" used to be wired into ``_STAGE_SECTIONS`` at only
+    """ "Take it somewhere" used to be wired into ``_STAGE_SECTIONS`` at only
     two of Create's five stages, and duplicated into ``_details_tab`` for the
     Library -- so Rig, Pose and Export had no exit at all, and the Library
     carried a second copy of the call. ``draw`` now calls ``_edit_actions``
@@ -98,7 +98,7 @@ def test_edit_actions_runs_ahead_of_the_stage_dispatch_at_every_host(svc):
 
     source = inspect.getsource(inspector.draw)
     edit_call = source.index("_edit_actions(ctx, job)")
-    dispatch = source.index("create_stages.in_create(ctx.state)")
+    dispatch = source.index("_stage_body(ctx, job)")
     assert edit_call < dispatch
 
     # And it must not still be duplicated into a per-stage list or the

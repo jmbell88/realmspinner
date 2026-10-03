@@ -301,9 +301,7 @@ def test_the_quit_chain_stops_at_the_first_cancel():
         viewer=None,
         poser_viewer=None,
     )
-    app = SimpleNamespace(
-        app_ctx=ctx, _quit=lambda: quit_calls.append("quit")
-    )
+    app = SimpleNamespace(app_ctx=ctx, _quit=lambda: quit_calls.append("quit"))
     # Nothing dirty anywhere: every guard proceeds, so the chain runs to the
     # end without a single question.
     main.App._request_quit(app)
@@ -325,8 +323,14 @@ def test_the_quit_chain_stops_at_the_first_cancel():
     positions = [source.index(name) for name in order]
     assert positions == sorted(positions)
     assert all(
-        (inker_mode.guard, clay_mode.guard, plotter_mode.guard, packwright_mode.guard,
-         pose_panel.guard, poser_mode.guard)
+        (
+            inker_mode.guard,
+            clay_mode.guard,
+            plotter_mode.guard,
+            packwright_mode.guard,
+            pose_panel.guard,
+            poser_mode.guard,
+        )
     )
 
 
@@ -348,6 +352,7 @@ def _library_app(jobs: list[dict], selected: str | None = None) -> SimpleNamespa
         app_ctx=SimpleNamespace(
             state=state,
             cache=SimpleNamespace(
+                jobs=jobs,
                 visible=lambda _filters: jobs,
                 get=lambda job_id: by_id.get(job_id),
             ),
@@ -414,9 +419,7 @@ def test_a_modal_takes_the_keyboard_away_from_the_shortcuts():
 
 
 def test_modal_open_sees_both_queues():
-    ctx = SimpleNamespace(
-        confirms=dialogs.ConfirmQueue(), prompts=dialogs.PromptQueue()
-    )
+    ctx = SimpleNamespace(confirms=dialogs.ConfirmQueue(), prompts=dialogs.PromptQueue())
     app = SimpleNamespace(app_ctx=ctx)
     assert main.App._modal_open(app) is False
     ctx.prompts.ask(dialogs.Prompt(title="A", label="name"))
@@ -592,3 +595,19 @@ def test_the_shared_block_binds_nothing_this_test_does_not_press() -> None:
     for name in ("K_DELETE", "K_RETURN", "K_UP", "K_DOWN", "K_f", "K_w", "K_s"):
         assert f"pygame.{name}" in tail, f"{name} left the shared block"
         assert getattr(pygame, name) in pressed
+
+
+def test_the_layout_editor_opens_in_every_mode_that_has_a_skeleton(no_mods):
+    """shell-02: every workspace arm returned after its own ``handle_key``, so
+    Shift+W reached ``layout_edit.toggle`` only in Create -- the mode with no
+    skeleton, where it switched the splitters off for nothing."""
+    from realmspinner.studio import layout_edit, skeletons
+
+    for mode in sorted(skeletons.BUILDERS):
+        app = _app(mode)
+        app.app_ctx.state.mode = mode
+        _press(app, pygame.K_w, pygame.KMOD_SHIFT)
+        assert layout_edit.ensure(app.app_ctx.state).open is True, mode
+    app = _app("create")
+    _press(app, pygame.K_w, pygame.KMOD_SHIFT)
+    assert layout_edit.ensure(app.app_ctx.state).open is False, "create has no skeleton"

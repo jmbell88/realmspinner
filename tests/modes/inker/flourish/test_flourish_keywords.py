@@ -208,3 +208,11 @@ def test_the_model_view_has_no_uids_and_names_every_range():
     assert core["params"]["radius"]["range"] == [0.0, 512.0]
     assert "choices" in core["params"]["color_inner"] or "value" in core["params"]["color_inner"]
     assert keywords.DIFF_SCHEMA.startswith("{")
+
+
+def test_faster_leaves_a_flames_rise_direction_alone():
+    """The 2026-10-03 audit (inker-17): "faster" multiplied flame's "rise",
+    a direction in degrees, turning the flame instead of speeding it."""
+    before = _fireball()
+    rec, _ = keywords.apply(before, "faster")
+    assert _layer(rec, "flame").params.get("rise") == _layer(before, "flame").params.get("rise")

@@ -609,6 +609,16 @@ def redo(ctx: Any, tab: Any) -> None:
     _prune_stale_brush(ctx, tab)
 
 
+def _names_missing_tileset(doc: Any, cells: Any) -> bool:
+    """Whether a gid array holds a tile no tileset in ``doc`` accounts for."""
+    import numpy as np
+
+    from ....kernels.grid2d import gid as gidlib
+
+    tile_ids = np.unique(gidlib.tile_ids(np.asarray(cells)))
+    return any(tile_id and doc.ref_for(int(tile_id)) is None for tile_id in tile_ids.tolist())
+
+
 def _prune_stale_brush(ctx: Any, tab: Any) -> None:
     """Drop a brush or terrain naming a tileset this document no longer holds.
 
@@ -633,6 +643,17 @@ def _prune_stale_brush(ctx: Any, tab: Any) -> None:
         tile_ids = np.unique(gidlib.tile_ids(np.asarray(state.brush)))
         if any(tile_id and doc.ref_for(int(tile_id)) is None for tile_id in tile_ids.tolist()):
             state.brush = None
+    clip = state.clipboard
+    if (
+        clip is not None
+        and not isinstance(clip, ObjectClip)
+        and state.clipboard_doc == tab.uid
+        and _names_missing_tileset(doc, clip)
+    ):
+        # The tile clipboard is a bare gid array too, and Ctrl+V loads it
+        # straight into the brush (plotter-01).
+        state.clipboard = None
+        state.clipboard_doc = ""
     if state.terrain is not None:
         ts_index, terrain_index = state.terrain
         ref = doc.tilesets[ts_index] if 0 <= ts_index < len(doc.tilesets) else None
@@ -757,6 +778,7 @@ def remove_tileset(ctx: Any, index: int) -> None:
     state.tileset_index = max(0, min(state.tileset_index, len(tab.doc.tilesets) - 1))
     state.brush = None
     state.terrain = None
+    _prune_stale_brush(ctx, tab)
     ctx.toast(f"{name} removed.")
 
 
@@ -985,6 +1007,22 @@ def handle_key(ctx: Any, event: Any) -> bool:
     return False
 
 
+def layer_locked(doc: Any, layer: Any) -> bool:
+    """Whether ``layer`` is locked by its own flag *or by any group above it*.
+
+    The canvas has always enforced the resolved lock (a group's lock is
+    inherited); the 2026-10-03 audit (plotter-07) found every other content
+    door -- Delete/Cut of cells, object Cut/Paste/Duplicate/Delete, the
+    right-click rows and the property forms -- reading only the leaf's own
+    flag, so locking a group protected nothing from a stray Delete. One
+    answer, read off :func:`engine.scene.resolved_for`.
+    """
+    from .engine import scene as plotter_scene
+
+    entry = plotter_scene.resolved_for(doc, getattr(layer, "uid", None))
+    return bool(getattr(layer, "locked", False)) if entry is None else bool(entry.locked)
+
+
 def _locked_toast(ctx: Any, layer: Any) -> None:
     """"*Name* is locked", with the Unlock that undoes it.
 
@@ -1036,7 +1074,7 @@ def _selected_tiles(ctx: Any, state: PlotterState, tab: PlotterDoc, *, writing: 
     if not isinstance(layer, TileLayer):
         docmodes.refuse(ctx, "Pick a tile layer first.")
         return None, None
-    if writing and layer.locked:
+    if writing and layer_locked(tab.doc, layer):
         _locked_toast(ctx, layer)
         return None, None
     return layer, rect
@@ -1116,6 +1154,13 @@ def _paste(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
         where = f" from {source.title}" if source is not None else ""
         docmodes.refuse(ctx, f"That copy{where} belongs to another map.")
         return
+    if _names_missing_tileset(tab.doc, state.clipboard):
+        # The tileset was removed (or its add undone) after the copy; the
+        # brush would paint a gid the saved map refuses to reopen.
+        state.clipboard = None
+        state.clipboard_doc = ""
+        docmodes.refuse(ctx, "That copy used a tileset this map no longer has.")
+        return
     state.brush = state.clipboard.copy()
     state.tool = "stamp"
 
@@ -1155,7 +1200,7 @@ def _copy_object(
     # blocks content edits and nothing else) -- and a refused cut copies
     # nothing, because a cut that quietly became a copy would leave the user
     # pasting what they believe they moved.
-    if cut and getattr(layer, "locked", False):
+    if cut and layer_locked(tab.doc, layer):
         _locked_toast(ctx, layer)
         return
     found = next((o for o in layer.objects if o.uid == state.selected_object), None)
@@ -1192,7 +1237,7 @@ def _paste_object(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
         return
     # A paste adds an object, which is a content edit -- the same door
     # ``_delete`` holds, because the lock is enforced at the studio layer.
-    if getattr(layer, "locked", False):
+    if layer_locked(tab.doc, layer):
         _locked_toast(ctx, layer)
         return
     copy = dataclasses.replace(
@@ -1231,7 +1276,7 @@ def _duplicate_object(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
         return
     # A duplicate adds an object, which is a content edit -- the same door
     # ``_delete`` holds, because the lock is enforced at the studio layer.
-    if getattr(layer, "locked", False):
+    if layer_locked(tab.doc, layer):
         _locked_toast(ctx, layer)
         return
     found = next((o for o in layer.objects if o.uid == state.selected_object), None)
@@ -1288,7 +1333,7 @@ def remove_selected_objects(ctx: Any, doc: Any, state: PlotterState) -> int:
     removed_total = 0
     for layer_uid, uids in by_layer.items():
         layer = doc.layer(layer_uid)
-        if getattr(layer, "locked", False):
+        if layer_locked(doc, layer):
             _locked_toast(ctx, layer)
             continue
         removed_total += doc.remove_objects(layer_uid, uids)

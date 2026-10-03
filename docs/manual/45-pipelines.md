@@ -67,9 +67,9 @@ applies to the mesh audit and the mesh report.
 
 A retarget refuses a job that is still queued or running, with a conflict rather than a wait. Its
 half of the write takes a lock the worker's own optimise, scale and audit steps do not, and two
-writers on one mesh is not a race worth having. A cancelled job has both `source.glb` and
-`model.glb` deleted, not just the second — otherwise a cancelled reconstruction could be retargeted
-back into existence.
+writers on one mesh is not a race worth having. A cancelled job is refused
+the same way — retarget, remesh and re-texture all say so — because a cancelled finishing job can keep
+its reconstruction and mesh for recovery, and none of them may be retargeted back into existence.
 
 ## Derived artifacts
 

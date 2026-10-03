@@ -6,7 +6,9 @@ Five of them, and each is chosen rather than convenient.
 it runs on a machine with no GPU and no weights** -- the one step that could ask
 for a generation asks politely and advances on Next instead of waiting, because
 a point-and-wait step that waits for something the machine cannot do is a trap
-rather than a lesson.
+rather than a lesson. A machine whose Create door is still shut (a fresh install
+has none of its weights) is walked as far as ``open-create``; the next card stops
+the tour with the reason, rather than ringing controls that will never draw.
 
 ``inker-basics`` proves the same machinery against a real document editor, and
 it was picked over Create for the same reason: drawing needs no card, no weights

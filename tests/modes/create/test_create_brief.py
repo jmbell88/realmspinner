@@ -95,6 +95,7 @@ _SOURCE = {
     "files": ["input.png"],
 }
 
+
 def _synthetic_rail_items() -> list[tuple[str, str, str, str | None]]:
     """The rail's five entries with no job behind them -- for the tests below
     that need *a* rail to draw, not the real ``App._stage_rail`` (which reads
@@ -211,14 +212,11 @@ def test_the_bar_holds_the_same_controls_on_both_generating_stages(frames, monke
         ordered = sorted(probe.census(), key=lambda c: c.rect[0])
         seen[stage] = [c.text for c in ordered if c.where == "brief"]
 
-    from realmspinner.studio.modes.create.engine import assets as create_assets
-
     rail = [create_stages.LABELS[stage] for stage in create_stages.STAGES]
-    label = create_assets.selected(_real_ctx().state.form_2d).create_label
     # The unnamed control after the rail is *what to generate*: the type combo
     # on Reference (the prompt is not a probed control), the Source chip on Mesh.
-    assert seen["reference"] == [*rail, "", "1", "2", "4", "8", label, "Reset..."]
-    assert seen["mesh"] == [*rail, "", "1", "2", "3", "Make 3D", "Reset..."]
+    assert seen["reference"] == [*rail, "New...", "Inspector"]
+    assert seen["mesh"] == [*rail, "New...", "Inspector"]
 
 
 def test_the_mesh_stage_draws_the_command_bar(frames, monkeypatch):
@@ -241,13 +239,17 @@ def test_the_mesh_stage_draws_the_command_bar(frames, monkeypatch):
     )
 
     ctx = _real_ctx(stage="mesh")
-    frames(lambda: create_brief.draw(ctx, _synthetic_rail))
+    frames(
+        lambda: (create_brief.inputs(ctx, mesh=True), create_brief.submit_control(ctx, mesh=True))
+    )
     assert labels == ["Make 3D"]
     assert titles[0] == "Choose an image..."
 
     titles.clear()
     ctx = _real_ctx(stage="mesh", source=_SOURCE)
-    frames(lambda: create_brief.draw(ctx, _synthetic_rail))
+    frames(
+        lambda: (create_brief.inputs(ctx, mesh=True), create_brief.submit_control(ctx, mesh=True))
+    )
     assert titles[0] == "mossy well"
     assert "reference - ref-1" in titles
 
@@ -269,7 +271,7 @@ def test_the_source_chip_names_the_reference_behind_a_selected_mesh(frames, monk
     )
     ctx.job = lambda: mesh
     monkeypatch.setattr(create_stages, "parent", lambda _ctx, _job: _SOURCE)
-    frames(lambda: create_brief.draw(ctx, _synthetic_rail))
+    frames(lambda: create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh"))
     assert "mossy well" in titles
     assert "this mesh's reference" in titles
 
@@ -286,10 +288,12 @@ def test_the_mesh_bar_disables_make_3d_for_a_missing_engine(frames, monkeypatch)
 
     monkeypatch.setattr(create_brief.widgets, "primary_button", spy)
     rows = [{"row_key": "engine:trellis_runtime", "present": False, "label": "TRELLIS.2 runtime"}]
-    frames(lambda: create_brief.draw(
-        _real_ctx(stage="mesh", source=_SOURCE, model_rows=rows), _synthetic_rail
-    ))
-    frames(lambda: create_brief.draw(_real_ctx(stage="mesh", source=_SOURCE), _synthetic_rail))
+    frames(
+        lambda: create_brief.submit_control(
+            _real_ctx(stage="mesh", source=_SOURCE, model_rows=rows), mesh=True
+        )
+    )
+    frames(lambda: create_brief.submit_control(_real_ctx(stage="mesh", source=_SOURCE), mesh=True))
     assert seen[0][0] is False and "not downloaded" in seen[0][1]
     assert seen[1] == (True, "")
 
@@ -303,7 +307,7 @@ def test_generate_has_the_same_width_and_placement_on_both_stages(frames):
 
         def build(ctx=ctx, stage=stage) -> None:
             anchors.begin_frame()
-            create_brief.draw(ctx, _synthetic_rail)
+            create_brief.submit_control(ctx, mesh=ctx.state.create.stage == "mesh")
             seen[stage] = anchors.rect("create/generate")
 
         frames(build, (1200.0, 300.0))
@@ -322,13 +326,16 @@ def test_generate_is_labelled_by_the_stage(frames, monkeypatch):
         monkeypatch.setattr(
             create_brief.widgets,
             "primary_button",
-            lambda label, *a, stage=stage, **k: labels.setdefault(stage, label)
-            and real_button(label, *a, **k),
+            lambda label, *a, stage=stage, **k: (
+                labels.setdefault(stage, label) and real_button(label, *a, **k)
+            ),
         )
         ctx = _real_ctx(stage=stage, source=_SOURCE)
         if stage == "reference":
             ctx.state.form_2d["asset_type"] = "tileset"
-        frames(lambda ctx=ctx: create_brief.draw(ctx, _synthetic_rail))
+        frames(
+            lambda ctx=ctx: create_brief.submit_control(ctx, mesh=ctx.state.create.stage == "mesh")
+        )
     assert labels["reference"] == create_assets.ASSET_TYPES["tileset"].create_label
     assert labels["mesh"] == "Make 3D"
 
@@ -348,21 +355,23 @@ def test_the_count_pills_take_their_range_from_the_stage(frames, monkeypatch):
             ),
         )
         ctx = _real_ctx(stage=stage, source=_SOURCE)
-        frames(lambda ctx=ctx: create_brief.draw(ctx, _synthetic_rail))
+        frames(lambda ctx=ctx: create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh"))
     assert offered["reference"] == ("1", "2", "4", "8")
     assert offered["mesh"] == tuple(str(n) for n in range(1, MAX_MESH_CANDIDATES + 1))
 
 
 def test_both_stages_show_a_visible_candidates_label(frames, monkeypatch):
     texts: dict[str, list[str]] = {}
-    real = create_brief.widgets.muted
+    real = create_brief.widgets.secondary
     for stage in ("reference", "mesh"):
         seen = texts.setdefault(stage, [])
         monkeypatch.setattr(
-            create_brief.widgets, "muted", lambda text, seen=seen: seen.append(text) or real(text)
+            create_brief.widgets,
+            "secondary",
+            lambda text, seen=seen: seen.append(text) or real(text),
         )
         ctx = _real_ctx(stage=stage, source=_SOURCE)
-        frames(lambda ctx=ctx: create_brief.draw(ctx, _synthetic_rail))
+        frames(lambda ctx=ctx: create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh"))
     assert "Candidates" in texts["reference"]
     assert "Candidates" in texts["mesh"]
     assert create_brief.COUNT_LABEL == "Candidates"
@@ -439,12 +448,9 @@ def test_a_sheet_hides_the_count_rather_than_offering_refusals(asset_type):
     create_assets.sync_legacy_fields(form)
     assert form["output"] == "sheet"
     assert form["count"] == 1
-    # The width calculation is the observable half of "the control is skipped".
-    source = inspect.getsource(create_brief.draw)
-    assert "if show_count:" in source
-    assert "_count(ctx, form, counts, current" in source
-    # And _row_widths gives the count no width at all for a sheet.
-    assert "show_count = not hide_count" in inspect.getsource(create_brief._row_widths)
+    source = inspect.getsource(create_brief.inputs)
+    assert 'form.get("output") not in ("sheet", "character")' in source
+    assert "_count(" in source
 
 
 def test_the_row_gives_way_in_a_stated_order():
@@ -627,7 +633,7 @@ def test_the_bar_is_a_registered_pane_not_a_bare_row():
     assert "create_brief.draw(ctx, self._stage_rail)" in source
     # The gate moved *into* create_brief.draw, not away entirely.
     assert "create_brief.shows(ctx)" not in source
-    assert "if not shows(ctx):" in inspect.getsource(create_brief.draw)
+    assert "submit_control" not in inspect.getsource(create_brief.draw)
 
 
 # --- the disabled button's reason -------------------------------------------
@@ -700,8 +706,7 @@ def test_the_bar_only_reaches_the_settings_door_on_the_generating_stages(frames)
         ctx.busy = lambda key, stage=stage: busy_calls.append(stage) or False
         frames(lambda ctx=ctx: create_brief.draw(ctx, rail_stub))
 
-    assert set(busy_calls) == {"reference", "mesh"}
-    assert busy_calls.index("reference") < busy_calls.index("mesh")
+    assert busy_calls == []
 
 
 def test_the_bar_fits_the_height_it_declares(frames):
@@ -779,17 +784,15 @@ def test_reset_is_censused_against_the_bars_own_pane(frames, monkeypatch):
         def build(ctx=ctx) -> None:
             layout.begin_frame()
             probe.begin_frame()
-            with layout.pane(
-                "brief", (900.0, create_brief.bar_height(ctx)), layout.PaneRole.CONTENT
-            ) as visible:
+            with layout.pane("settings_2d", (300.0, 750.0), layout.PaneRole.CONTENT) as visible:
                 if visible:
-                    create_brief.draw(ctx, _synthetic_rail)
+                    create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh")
 
         frames(build)
 
         census = probe.census()
         reset = next(c for c in census if c.text.startswith("Reset"))
-        assert reset.where == "brief", (stage, census)
+        assert reset.where == "settings_2d", (stage, census)
 
 
 def test_reset_no_longer_draws_from_the_settings_column():
@@ -812,7 +815,7 @@ def test_reset_no_longer_draws_from_the_settings_column():
 
 
 def test_both_stages_reset_in_one_pattern(frames, monkeypatch):
-    """"Reset the {image|mesh} settings?" for the confirm's title and "The
+    """ "Reset the {image|mesh} settings?" for the confirm's title and "The
     {image|mesh} settings are back to their defaults." for the toast -- the
     same sentence with the stage's own noun, read off a real press."""
     real = create_brief.controls.button
@@ -824,7 +827,7 @@ def test_both_stages_reset_in_one_pattern(frames, monkeypatch):
     monkeypatch.setattr(create_brief.controls, "button", press_reset)
     for stage, noun in (("reference", "image"), ("mesh", "mesh")):
         ctx = _real_ctx(stage=stage, source=_SOURCE)
-        frames(lambda ctx=ctx: create_brief.draw(ctx, _synthetic_rail))
+        frames(lambda ctx=ctx: create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh"))
         dialog = ctx.asked[0]
         assert dialog.title == f"Reset the {noun} settings?"
         dialog.on_confirm()
@@ -855,14 +858,34 @@ def test_a_second_undecided_group_does_not_hide_the_older_one():
     first to disappear behind.
     """
     jobs = [
-        {"id": "a1", "candidate_group": "groupA", "candidate_index": 0,
-         "status": "done", "created_at": 100.0},
-        {"id": "a2", "candidate_group": "groupA", "candidate_index": 1,
-         "status": "done", "created_at": 100.0},
-        {"id": "b1", "candidate_group": "groupB", "candidate_index": 0,
-         "status": "queued", "created_at": 200.0},
-        {"id": "b2", "candidate_group": "groupB", "candidate_index": 1,
-         "status": "queued", "created_at": 200.0},
+        {
+            "id": "a1",
+            "candidate_group": "groupA",
+            "candidate_index": 0,
+            "status": "done",
+            "created_at": 100.0,
+        },
+        {
+            "id": "a2",
+            "candidate_group": "groupA",
+            "candidate_index": 1,
+            "status": "done",
+            "created_at": 100.0,
+        },
+        {
+            "id": "b1",
+            "candidate_group": "groupB",
+            "candidate_index": 0,
+            "status": "queued",
+            "created_at": 200.0,
+        },
+        {
+            "id": "b2",
+            "candidate_group": "groupB",
+            "candidate_index": 1,
+            "status": "queued",
+            "created_at": 200.0,
+        },
     ]
     ctx = SimpleNamespace(cache=SimpleNamespace(jobs=jobs))
 

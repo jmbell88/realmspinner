@@ -178,7 +178,7 @@ def _primitives(ctx: Any, state: Any) -> None:
 
 def _sections() -> list[tuple[str, tuple[str, ...]]]:
     """``primitives.CATEGORIES``, plus anything the table forgot --
-    ``clay_tools._sections``, verbatim, for the identical reason: the table is
+    ``clay_tools.sections``, verbatim, for the identical reason: the table is
     a partition of ``GENERATORS`` and this is the fallback for the day it
     stops being one."""
     out = [(label, tuple(names)) for label, names in bp.CATEGORIES]

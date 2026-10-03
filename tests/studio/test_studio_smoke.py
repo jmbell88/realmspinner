@@ -118,12 +118,21 @@ def imgui_ctx(gl):
     io.set_ini_filename(None)
     io.display_size = (1600, 950)
     io.delta_time = 1 / 60
-    io.fonts.add_font_default()
+    import os
+
+    from realmspinner.studio import fonts
+
+    previous_fonts = (fonts.REGULAR, fonts.MEDIUM, fonts.SEMIBOLD)
+    if os.environ.get("REALMSPINNER_UI_CAPTURE"):
+        fonts.load(imgui)
+    else:
+        io.fonts.add_font_default()
     theme.apply(imgui)
     renderer = imgui_backend.ImguiRenderer(gl)
     yield imgui, renderer
     renderer.shutdown()
     imgui.destroy_context()
+    fonts.REGULAR, fonts.MEDIUM, fonts.SEMIBOLD = previous_fonts
     widgets.FORCE_SECTIONS_OPEN = prev_force
     if prev_screen is not None:
         type(gl).screen = prev_screen
@@ -139,6 +148,188 @@ def _frame(imgui_ctx, build):
     imgui.end()
     imgui.render()
     renderer.render(imgui.get_draw_data())
+
+
+@pytest.mark.parametrize("output", ["empty", "tileset", "sprite_sheet", "comparison"])
+@pytest.mark.parametrize("size", [(1600, 950), (1000, 720)])
+def test_create_workspace_controls_and_exported_previews_fit(
+    app_ctx, imgui_ctx, gl, monkeypatch, output, size
+):
+    """Build the real columns and assert the primary action stays on screen."""
+    import os
+
+    from PIL import Image, ImageDraw
+
+    from realmspinner.studio import anchors, layout, probe, widgets
+    from realmspinner.studio.modes.create.ui import brief, preview, session, workspace
+    from realmspinner.studio.panes import inspector
+    from realmspinner.studio.shell import frame
+
+    ctx = app_ctx
+    ctx.state.mode = "create"
+    ctx.state.form_2d.update(asset_type="image", prompt="A mossy stone well")
+    records = []
+    if output != "empty":
+        ctx.state.form_2d["asset_type"] = "image" if output == "comparison" else output
+        for attempt in range(4):
+            job_id = svc_jobs.create_job(
+                ctx.svc,
+                kind="text",
+                prompt="A mossy stone well",
+                output="reference",
+                extra_params={
+                    "create_workspace": "review",
+                    "asset_type": ctx.state.form_2d["asset_type"],
+                },
+            )["id"]
+            directory = ctx.job_dir(job_id)
+            directory.mkdir(parents=True, exist_ok=True)
+            image = Image.new("RGBA", (256, 256), (28, 45 + attempt * 15, 42, 255))
+            paint = ImageDraw.Draw(image)
+            for row in range(4):
+                for col in range(4):
+                    paint.rectangle(
+                        (col * 64 + 8, row * 64 + 8, col * 64 + 55, row * 64 + 55),
+                        fill=(90 + row * 25, 120 + col * 20, 78, 255),
+                    )
+            image.save(directory / "input.png")
+            image.save(directory / "thumb.png")
+            ctx.svc.store.set_stage(job_id, "reference")
+            ctx.svc.store.merge_params(job_id, {"generation_type": ctx.state.form_2d["asset_type"]})
+            ctx.svc.store.set_status(job_id, "done")
+        ctx.cache.invalidate()
+        ctx.cache.tick()
+        job = ctx.cache.jobs[0]
+        ctx.state.select(job["id"])
+        session.resume(ctx, job)
+        if output == "comparison":
+            ctx.state.create.image_comparing = ctx.cache.jobs[1]["id"]
+        else:
+            cells = [
+                {"x": col * 64, "y": row * 64, "w": 64, "h": 64}
+                for row in range(4)
+                for col in range(4)
+            ]
+            records = [
+                {
+                    "name": "Exported tiles" if output == "tileset" else "Walk cycle",
+                    "path": ctx.job_dir(job["id"]) / "input.png",
+                    "cells": cells,
+                    "columns": 4,
+                    "rows": 4,
+                }
+            ]
+            if output == "sprite_sheet":
+                records[0]["animation"] = {
+                    "frames": [{"cell_index": i, "duration_ms": 100} for i in range(16)],
+                    "tags": [{"name": "walk_front", "start": 0, "end": 3}],
+                }
+            key = (job["id"], ctx.cache._generation)
+            ctx.state.preview["create_preview_requested"] = key
+            ctx.state.preview["create_preview"] = (key, records)
+            ctx.textures.get(
+                f"create-atlas:{records[0]['path']}",
+                records[0]["path"],
+                nearest=True,
+                max_side=4096,
+            )
+
+    # Capture real benchmark sheets when explicitly producing review artifacts.
+    samples = os.environ.get("REALMSPINNER_UI_SAMPLES")
+    if samples and records:
+        name = "tiles-grass--s42" if output == "tileset" else "sprite-mage--s42"
+        directory = Path(samples) / name
+        job_data = __import__("json").loads((directory / "job.json").read_text(encoding="utf-8"))
+        exported = preview.load(directory, job_data.get("params") or {})
+        if exported:
+            from realmspinner.studio.state import form_from_params
+
+            ctx.state.form_2d = form_from_params(
+                job_data.get("params") or {}, stage=job_data.get("stage", "")
+            )
+            ctx.state.form_2d["prompt"] = job_data.get("prompt", "")
+            ctx.state.preview["create_preview"] = (key, exported)
+            ctx.textures.get(
+                f"create-atlas:{exported[0]['path']}",
+                exported[0]["path"],
+                nearest=True,
+                max_side=4096,
+            )
+
+    shell = frame.FrameMixin()
+    shell.app_ctx = ctx
+    shell.viewer = ctx.viewer
+    shell._viewport_hovered = False
+    lay = layout.Layout(ctx.settings)
+    monkeypatch.setattr(probe, "ENABLED", True)
+    monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", False)
+    monkeypatch.setattr(layout, "RAIL_RESERVED", 0)
+    imgui, renderer = imgui_ctx
+    io = imgui.get_io()
+    original_size = tuple(io.display_size)
+    io.display_size = size
+    try:
+        for _ in range(4):
+            ctx.textures.begin_frame()
+            gl.screen.clear(0.04, 0.05, 0.06, 1)
+            imgui.new_frame()
+            imgui.set_next_window_pos((0, 0))
+            imgui.set_next_window_size(size)
+            imgui.begin("##create-review", None, imgui.WindowFlags_.no_decoration.value)
+            layout.begin_frame()
+            anchors.begin_frame()
+            probe.begin_frame()
+            layout.measure()
+            with layout.pane("brief", (0, brief.bar_height(ctx)), layout.PaneRole.CONTENT):
+                brief.draw(ctx, shell._stage_rail)
+            with layout.pane("settings_2d", (layout.sidebar_width(), 0), layout.PaneRole.SIDEBAR):
+                frame._stage_pane(ctx)
+            imgui.same_line()
+            shell._viewport_pane()
+            imgui.same_line()
+            frame._right_column(
+                ctx,
+                lay,
+                layout.sidebar_width("right"),
+                inspector_draw=inspector.draw,
+                library_draw=workspace.history,
+            )
+            imgui.end()
+            imgui.render()
+            renderer.render(imgui.get_draw_data())
+        action = anchors.rect("create/generate")
+        assert action is not None
+        assert action[0] >= 0 and action[1] >= 0
+        assert action[0] + action[2] <= size[0]
+        assert action[1] + action[3] <= size[1]
+        assert any(c.text == "Inspector" for c in probe.census())
+        capture = os.environ.get("REALMSPINNER_UI_CAPTURE")
+        if capture:
+            directory = Path(capture)
+            directory.mkdir(parents=True, exist_ok=True)
+            image = Image.frombytes("RGB", gl.screen.size, gl.screen.read(components=3))
+            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+            image.crop((0, gl.screen.size[1] - size[1], size[0], gl.screen.size[1])).save(
+                directory / f"create-{output}-{size[0]}.png"
+            )
+    finally:
+        io.display_size = original_size
+
+
+def test_sprite_export_stage_includes_the_saved_sheet_exports(app_ctx, imgui_ctx, monkeypatch):
+    from realmspinner.studio.panes import inspector, sprite_panel
+    from realmspinner.studio.shell import frame
+
+    job_id = _seeded(app_ctx, generation_type="sprite_sheet")
+    app_ctx.state.mode = "create"
+    app_ctx.state.create.stage = "export"
+    seen = []
+    monkeypatch.setattr(
+        sprite_panel, "exports", lambda ctx, job: seen.append(("sheets", job["id"]))
+    )
+    monkeypatch.setattr(inspector, "downloads", lambda ctx, job: seen.append(("files", job["id"])))
+    _frame(imgui_ctx, lambda: frame._stage_pane(app_ctx))
+    assert seen == [("sheets", job_id), ("files", job_id)]
 
 
 def _seeded(ctx, kind="text", **overrides):
@@ -594,6 +785,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     app_ctx.cache.tick()
     app_ctx.state.select(candidate)
     app_ctx.model_rows = _model_rows()
+
     def _settings_health() -> None:
         """The Health category, with rows in it.
 
@@ -1248,9 +1440,7 @@ def test_pressing_enter_in_an_unrelated_text_field_does_not_advance_the_tour(
     start_index = app_ctx.state.tour.index
 
     monkeypatch.setattr(tour_pane.imgui, "is_window_focused", lambda *_a, **_kw: False)
-    monkeypatch.setattr(
-        tour_pane.imgui, "is_key_pressed", lambda key: key == imgui.Key.enter
-    )
+    monkeypatch.setattr(tour_pane.imgui, "is_key_pressed", lambda key: key == imgui.Key.enter)
 
     _frame(imgui_ctx, lambda: tour_pane.draw(app_ctx))
 
@@ -1259,9 +1449,7 @@ def test_pressing_enter_in_an_unrelated_text_field_does_not_advance_the_tour(
     assert not tour_pane.has_focus()
 
 
-def test_the_tours_own_arrow_does_not_also_move_the_library_grid_underneath(
-    app_ctx, monkeypatch
-):
+def test_the_tours_own_arrow_does_not_also_move_the_library_grid_underneath(app_ctx, monkeypatch):
     """tour-01 (2026-09-07 audit), the other direction: with the tour card
     focused, ``App._shortcut`` still ran its own Left/Right/Enter handling for
     whatever mode was underneath -- so the same press that stepped the tour
@@ -1589,9 +1777,7 @@ def test_the_settings_rail_and_body_get_their_own_window_padding(app_ctx, imgui_
     assert seen.get("app-settings-body", 0) & want, seen
 
 
-def test_the_health_pane_draws_its_actions_before_the_checks_table(
-    app_ctx, imgui_ctx, monkeypatch
-):
+def test_the_health_pane_draws_its_actions_before_the_checks_table(app_ctx, imgui_ctx, monkeypatch):
     """Task D: the three actions -- Detail Log, Health Checks, Troubleshooting
     -- act on the whole page, not on any one row, and used to sit *under* the
     list: a reader who only wanted to copy the report scrolled past thirty
@@ -1636,9 +1822,7 @@ def test_the_settings_pane_draws_one_category_at_a_time(app_ctx, imgui_ctx, monk
     from realmspinner.studio.modes.settings.ui.panes import app_settings
 
     drawn: list[str] = []
-    for name in (
-        "_interface", "_models", "_packs", "_storage", "_health", "_layout", "_config"
-    ):
+    for name in ("_interface", "_models", "_packs", "_storage", "_health", "_layout", "_config"):
         monkeypatch.setattr(app_settings, name, lambda _ctx, _n=name: drawn.append(_n))
 
     for key, expected in [
@@ -1883,13 +2067,6 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
             # "nothing yet" branch and the block at the end draws the picker.
             inker_tiles.draw(app_ctx)
             inker_colors.draw(app_ctx)
-            # The conversion popup is opened *and* begun from the colours pane,
-            # so its opener belongs here rather than in the right column: imgui
-            # namespaces a popup id by the id stack that opened it, and the two
-            # panes are different child windows.
-            if wants_convert:
-                wants_convert.pop()
-                inker_bridge.open_convert(app_ctx, tab)
         imgui.end_child()
         imgui.same_line()
         if imgui.begin_child("##paint-centre", (sp(560), 0)):
@@ -1902,6 +2079,13 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
             if wants_filter:
                 wants_filter.pop()
                 inker_bridge._open_filter(app_ctx, tab)
+            # The conversion popup is drawn by ``inker_bridge.popups`` in this same
+            # canvas window (inker-21/22 moved it out of the colours pane), so its
+            # opener is here for the same id-stack reason; opened from the colours
+            # pane the canvas's begin_popup misses it and the session is dropped.
+            if wants_convert:
+                wants_convert.pop()
+                inker_bridge.open_convert(app_ctx, tab)
         imgui.end_child()
         imgui.same_line()
         # The right column is the preview alone now: the layers panel is
@@ -2132,9 +2316,7 @@ def test_the_context_bar_draws_every_tools_own_options(app_ctx, imgui_ctx):
 
     app_ctx.state.mode = "inker"
     state = inker_mode.ensure(app_ctx)
-    tab = inker_mode._adopt(
-        app_ctx, state, inker.Document.blank(16, 16), path=None, title="tools"
-    )
+    tab = inker_mode._adopt(app_ctx, state, inker.Document.blank(16, 16), path=None, title="tools")
     for tool, _label, _key in inker_state.TOOLS:
         state.set_tool(tool)
         assert state.tool == tool
@@ -2709,7 +2891,7 @@ def test_the_clay_viewport_draws_through_the_real_imgui_backend(app_ctx, imgui_c
 def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, monkeypatch):
     """A document with a tab open but no objects in it used to be an empty
     grid with nothing on screen to say what to do next -- the ``Tools`` panel
-    was the only place that said "add a shape", and only if you looked there
+    (the Add palette now) was the only place that said "add a shape", and only if you looked there
     (W1.5). The viewport now says so itself, through the same
     ``overlay.centred_empty`` every other empty viewport in the app uses.
     """
@@ -2747,7 +2929,8 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
 
     assert seen, "an empty Clay scene must draw the centred empty state"
     assert seen["title"] == "Add a shape"
-    assert "Tools" in seen["hint"]
+    assert "Add" in seen["hint"], "the palette it points at is called Add now"
+    assert "Tools" not in seen["hint"]
 
 
 def test_a_built_document_renders_the_flat_reference_trellis_is_given(app_ctx, gl):
@@ -4522,6 +4705,27 @@ def _stage_items(blocked=()):
     ]
 
 
+def _hover(imgui_ctx, build, at, frames=3):
+    """Rest the pointer on ``at`` for a few frames, pressing nothing.
+
+    A submenu opens on hover, not on a click, and needs a frame or two after the
+    pointer arrives to submit its rows -- which is what ``_click``'s press
+    cannot give it, since a click on an already-open header may toggle it shut.
+    """
+    imgui, renderer = imgui_ctx
+    io = imgui.get_io()
+    for _ in range(frames):
+        io.add_mouse_pos_event(at[0], at[1])
+        imgui.new_frame()
+        imgui.set_next_window_pos((0, 0))
+        imgui.set_next_window_size((1200, 900))
+        imgui.begin("##click-host", None, imgui.WindowFlags_.no_decoration.value)
+        build()
+        imgui.end()
+        imgui.render()
+        renderer.render(imgui.get_draw_data())
+
+
 def _click(imgui_ctx, build, at):
     """Press and release over ``at``, one frame each. -> what ``build`` returned.
 
@@ -4880,9 +5084,7 @@ def test_the_sprite_form_locks_its_submit_while_weights_are_missing(app_ctx, img
     assert not app_ctx.busy(f"sprite:{job_id}")
 
 
-def test_the_sprite_button_and_note_state_what_the_door_will_actually_do(
-    app_ctx, imgui_ctx
-):
+def test_the_sprite_button_and_note_state_what_the_door_will_actually_do(app_ctx, imgui_ctx):
     """The two shapes the old literals were wrong about, drawn for real.
 
     A turnaround at 64px is the pair the panel always claimed; an eight-direction
@@ -5049,8 +5251,6 @@ def _transport_items():
     return items
 
 
-
-
 def _bulk_items():
     # The workshop shape, which is the wider of the two -- the trash's row is
     # Clear/Restore/Delete permanently and is a subset of this one's demands.
@@ -5167,9 +5367,7 @@ def test_every_symmetry_button_actually_moves_the_setting():
         settings=SimpleNamespace(get=lambda *a: None, set=lambda *a: None),
     )
     for axis, _label, _tip in inker_context.SYMMETRY_TOGGLES:
-        state = SimpleNamespace(
-            symmetry="none", symmetry_axis=None, radial_count=6, swatches=[]
-        )
+        state = SimpleNamespace(symmetry="none", symmetry_axis=None, radial_count=6, swatches=[])
         inker_context._symmetry_hit(ctx, state, f"sym/{axis}")
         assert brush.axes_of(state.symmetry) == (axis,), axis
         # And again is off: these are toggles, not a radio group.
@@ -5668,8 +5866,7 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
     # refusal (already toasted right here) from "something is already
     # running" (not toasted here at all) -- see ``SubmitResult``.
     assert (
-        inker_flourish.submit_render(ctx, tab, 1, maxed)
-        is inker_flourish.SubmitResult.TOO_COSTLY
+        inker_flourish.submit_render(ctx, tab, 1, maxed) is inker_flourish.SubmitResult.TOO_COSTLY
     )
     assert ctx.submitted is False
     assert len(ctx.toasts) == 1
@@ -5868,9 +6065,7 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
     tab = _plotter_tab(app_ctx)
     layer = tab.doc.tile_layers()[0]
     for column in range(3):
-        tab.doc.write_region(
-            layer.uid, column, 0, np.array([[column + 1]], gidlib.DTYPE)
-        )
+        tab.doc.write_region(layer.uid, column, 0, np.array([[column + 1]], gidlib.DTYPE))
     depth = len(tab.doc.history)
 
     # Click the real "N step(s)" button. ``history_block`` opens the popup
@@ -5934,9 +6129,7 @@ def test_go_to_coordinate_draws_a_dialog_that_moves_the_view(app_ctx, imgui_ctx)
     state = plotter_mode.ensure(app_ctx)
     state.goto_pending = True
 
-    labels = _drawn_labels(
-        imgui, lambda: plotter_canvas.goto_popup(app_ctx, state, tab), "##goto"
-    )
+    labels = _drawn_labels(imgui, lambda: plotter_canvas.goto_popup(app_ctx, state, tab), "##goto")
     # "Column"/"Row" beside two boxes became one field_label("Coordinate")
     # above short letters (2026-09-08 consistency pass, matching this same
     # file's own ``_setup_body`` W/H precedent), so the ids to look for
@@ -6258,10 +6451,7 @@ def _clay_header_tiers(imgui, avail: float) -> list[str]:
     fields = [clay_header._tool_field(state)]
     style = imgui.get_style()
     square = imgui.get_frame_height()
-    full = [
-        imgui.calc_text_size(item.label).x + style.frame_padding.x * 2.0
-        for item in items
-    ]
+    full = [imgui.calc_text_size(item.label).x + style.frame_padding.x * 2.0 for item in items]
     icon = [square for _item in items]
     for field in fields:
         wide, narrow = field.widths()
@@ -6450,9 +6640,7 @@ def test_the_plotter_objects_dock_lists_and_filters(app_ctx, imgui_ctx):
         obj = plotter_layers.add_object(
             doc, doc.layer(layer.uid), "rect", float(index * 8), 0.0, 8.0, 8.0
         )
-        doc.set_object(
-            layer.uid, obj.uid, name=f"door_{index}", obj_class="trigger"
-        )
+        doc.set_object(layer.uid, obj.uid, name=f"door_{index}", obj_class="trigger")
     labels = _drawn_labels(imgui, lambda: plotter_objects.draw(app_ctx), title)
     assert _index_of(labels, f"##find-{plotter_objects.FILTER_TAG}") >= 0, labels
 
@@ -6711,3 +6899,192 @@ def test_a_failed_loop_search_clears_finding_instead_of_spinning_forever():
     muse_mode.on_task_failed(ctx, done)
 
     assert state.player.finding is False, "a failed search must not leave the spinner running"
+
+
+class _Pointer:
+    """Where the synthetic mouse was last left.
+
+    A popup menu closes when the pointer wanders off it, so locating the next
+    row from (-100, -100) -- as ``_click`` does for a plain button -- would shut
+    the submenu it is about to look inside. The pointer stays where the last
+    press left it for the locating frames and jumps to the row only to press.
+    """
+
+    def __init__(self) -> None:
+        self.at = (-100.0, -100.0)
+
+
+def _press(imgui_ctx, build, probe, pointer, text):
+    """Find the control named ``text`` in a frame's census and click it.
+
+    The locating frames keep the pointer where it was; the press then moves it
+    to the control. Whatever popup the click opens renders on the next call,
+    which is the caller's next ``_press``.
+    """
+    probe.begin_frame()
+    _hover(imgui_ctx, build, pointer.at, frames=2)
+    found = [one for one in probe.census() if one.text == text and one.visible]
+    assert found, (
+        text,
+        [(one.kind, one.text, one.visible) for one in probe.census() if one.kind != "button"],
+    )
+    assert found[-1].enabled, (text, found[-1].reason)
+    pointer.at = found[-1].centre
+    probe.begin_frame()
+    if found[-1].kind == "menu":
+        _hover(imgui_ctx, build, pointer.at)
+    else:
+        _click(imgui_ctx, build, pointer.at)
+
+
+def test_the_clay_menu_strip_adds_a_box_when_pressed(app_ctx, imgui_ctx, monkeypatch):
+    """**Pressed, not called.** Add > Primitives > Box through the real strip.
+
+    The strip is generated from ``menutree`` and the generator registries, so
+    the unit tests prove what it would draw; this proves the wiring -- that a
+    submenu row inside a popup inside the strip reaches ``add_primitive`` and
+    that the document gains the object.
+    """
+    from realmspinner.studio import probe
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
+
+    monkeypatch.setattr(probe, "ENABLED", True)
+    tab = _clay_tab(app_ctx, objects=0)
+    state = clay_mode.ensure(app_ctx)
+    assert not tab.doc.objects
+
+    def build():
+        clay_strip.draw(app_ctx, state, tab)
+
+    pointer = _Pointer()
+    _press(imgui_ctx, build, probe, pointer, "Add")
+    _press(imgui_ctx, build, probe, pointer, "Primitives")
+    _press(imgui_ctx, build, probe, pointer, "Box")
+    assert [obj.generator for obj in tab.doc.objects] == ["box"]
+    assert state.generator == "box"
+
+
+def test_the_clay_menu_strip_runs_an_op_and_asks_for_a_parameter_dialog(
+    app_ctx, imgui_ctx, monkeypatch
+):
+    """An op row inside a submenu runs it; a parameterised one asks for its
+    dialog by state, because a popup opened from inside a submenu is named in
+    the submenu's id stack and the viewport's ``params_popup`` would never find
+    it."""
+    from realmspinner.studio import probe
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
+
+    monkeypatch.setattr(probe, "ENABLED", True)
+    tab = _clay_tab(app_ctx, objects=1)
+    state = clay_mode.ensure(app_ctx)
+    tab.doc.set_element_mode("object")
+    tab.doc.select([tab.doc.objects[0].uid])
+
+    def build():
+        clay_strip.draw(app_ctx, state, tab)
+
+    pointer = _Pointer()
+    _press(imgui_ctx, build, probe, pointer, "Object")
+    _press(imgui_ctx, build, probe, pointer, "Array")
+    _press(imgui_ctx, build, probe, pointer, "Array Linear...")
+    assert state.pending_op == "array-linear"
+    assert state.open_op_popup is True
+    assert len(tab.doc.objects) == 1, "the dialog's Apply runs it, not the row"
+
+
+def _press_tab(imgui_ctx, build, probe, key):
+    """Click the Properties tab ``key`` (an icon button, found by its id)."""
+    # Located inside ``_click``'s own host window: a rect read from ``_frame``'s
+    # is empty space in it (see the palette-folder test).
+    probe.begin_frame()
+    _hover(imgui_ctx, build, (-100.0, -100.0), frames=2)
+    found = [
+        one
+        for one in probe.census()
+        if one.kind == "button" and f"clay-props-tab/{key}" in one.label
+    ]
+    assert found, [one.label for one in probe.census()]
+    probe.begin_frame()
+    _click(imgui_ctx, build, found[-1].centre)
+
+
+def test_the_clay_properties_tabs_show_their_own_sections_when_pressed(
+    app_ctx, imgui_ctx, monkeypatch
+):
+    """**Pressed, not called.** Each tab draws its own sections and only those:
+    the Scene tab holds the export engine and the game check (and works with
+    nothing selected), Modifiers holds the modifier stack, and Object holds the
+    identity block -- through the real pane, with the real tab strip."""
+    from realmspinner.studio import probe
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+
+    monkeypatch.setattr(probe, "ENABLED", True)
+    tab = _clay_tab(app_ctx, objects=1)
+    state = clay_mode.ensure(app_ctx)
+    tab.doc.set_element_mode("object")
+    tab.doc.select([tab.doc.objects[0].uid])
+
+    def build():
+        clay_props.draw(app_ctx)
+
+    def drawn():
+        probe.begin_frame()
+        _frame(imgui_ctx, build)
+        return {one.text for one in probe.census()}
+
+    assert state.props_tab == "object"
+    on_object = drawn()
+    assert "Check" not in on_object and "Add modifier" not in " ".join(on_object)
+
+    _press_tab(imgui_ctx, build, probe, "scene")
+    assert state.props_tab == "scene"
+    on_scene = drawn()
+    assert "Check" in on_scene, "the game check moved into the Scene tab"
+
+    # Nothing selected: the Scene tab is about the document, so it still draws.
+    tab.doc.select([])
+    assert "Check" in drawn()
+
+    _press_tab(imgui_ctx, build, probe, "modifiers")
+    assert state.props_tab == "modifiers"
+    assert "Check" not in drawn()
+
+
+def test_the_clay_add_menu_imports_and_opens_the_generate_popup_when_pressed(
+    app_ctx, imgui_ctx, monkeypatch
+):
+    """The two rows that moved out of the Document pane: Import Mesh... runs the
+    picker, and Generate... asks for its popup by state, which the strip -- its
+    host -- consumes and opens in the same window that draws it."""
+    from realmspinner.studio import probe
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
+
+    monkeypatch.setattr(probe, "ENABLED", True)
+    asked: list[bool] = []
+    monkeypatch.setattr(clay_mode, "ask_import_mesh", lambda ctx: asked.append(True))
+    tab = _clay_tab(app_ctx, objects=0)
+    state = clay_mode.ensure(app_ctx)
+
+    def build():
+        clay_strip.draw(app_ctx, state, tab)
+
+    pointer = _Pointer()
+    _press(imgui_ctx, build, probe, pointer, "Add")
+    _press(imgui_ctx, build, probe, pointer, "Import Mesh...")
+    assert asked == [True]
+
+    pointer = _Pointer()
+    _press(imgui_ctx, build, probe, pointer, "Add")
+    _press(imgui_ctx, build, probe, pointer, "Generate...")
+    assert state.generate_open_pending is False, "the strip consumed the request"
+    probe.begin_frame()
+    _hover(imgui_ctx, build, (-100.0, -100.0), frames=2)
+    assert any(one.text == "Generate" for one in probe.census()), (
+        "the popup, hosted by the strip, is open with its prompt body"
+    )
+    assert clay_bridge.GENERATE_POPUP == "clay-generate"

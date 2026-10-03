@@ -38,8 +38,8 @@ else the app is doing and run one at a time — a music job holds about the same
 as an image model does, so it does not overlap with a mesh reconstruction.
 
 The progress bar is music-shaped: a load phase while 8.3 GB comes off disk, then a sampling phase
-that counts steps. The load is the slow part on a cold cache and it happens once — a second take
-against the same model reuses the loaded pipeline unless the queue has evicted it in between.
+that counts steps. The load is the slow part on a cold cache, and every take pays it: each job loads the model afresh,
+which is the price of handing the memory back to the rest of the app between jobs.
 
 ## Listening to what came out
 

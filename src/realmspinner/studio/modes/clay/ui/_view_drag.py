@@ -1255,6 +1255,8 @@ class DragOps:
         drag keeps its own ``transform`` step and a drag that moved nothing
         pushes nothing -- no empty compound either way.
         """
+        from .....kernels.mesh.elements import OpError
+
         history = getattr(doc, "history", None)
         head = None if history is None else history.head
         mark = 0 if history is None else history.mark()
@@ -1263,6 +1265,14 @@ class DragOps:
                 doc.set_transform(uid, was=was)
             except KeyError:
                 continue  # deleted mid-drag
+            except OpError:
+                # clay-03 (2026-10-03): the drag landed on a scale/rotation
+                # the document refuses (all-zero); put the pre-drag values
+                # back rather than leave a live value no step records.
+                obj = doc.by_uid(uid)
+                obj.translation, obj.rotation, obj.scale = (
+                    np.array(v, copy=True) for v in was
+                )
         if history is not None:
             history.collapse_since(mark)
             top = history.top
@@ -1697,4 +1707,10 @@ class DragOps:
         obj.translation, obj.rotation, obj.scale = t, r, s
 
     def _is_scale(self: ClayView, state: Any) -> bool:
+        # The 2026-10-03 audit's clay-19: a keyboard drag is what its *key*
+        # said (G move, S scale), whatever tool is active -- reading the tool
+        # made S under Select translate by the scale factor and G under Scale
+        # scale by the displacement. A gizmo drag is still the tool's.
+        if self._grab == "keydrag":
+            return self._key_kind == "scale"
         return getattr(state, "tool", "") == "scale"

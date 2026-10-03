@@ -787,6 +787,8 @@ class FakeText2Image:
         tile=False,
         sheet=False,
         tilesheet=False,
+        generation_type=None,
+        prompt_policy=8,
         size=None,
     ):
         self.prompts.append(prompt)
@@ -795,6 +797,7 @@ class FakeText2Image:
         self.tilesheets.append(tilesheet)
         self.sizes.append(size)
         self.last_prompt = prompt
+        self.last_recipe = {"seed": seed, "prompt": prompt, "prompt_policy": prompt_policy}
         self.lora_calls.append((lora, lora_weight))
         self.negatives.append(negative_prompt)
         self.conditionings.append(conditioning)

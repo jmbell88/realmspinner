@@ -3071,10 +3071,16 @@ def primary_button(
     imgui.push_style_color(imgui.Col_.button.value, fill)
     imgui.push_style_color(imgui.Col_.button_hovered.value, fill)
     imgui.push_style_color(imgui.Col_.button_active.value, pressed)
+    # The label of a filled button is drawn on ACCENT, not on a surface TEXT
+    # was qualified against (shell-09); a disabled one sits on ELEV_2.
+    if enabled:
+        imgui.push_style_color(
+            imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(tokens.label_on(theme.ACCENT)))
+        )
     with fonts.label(imgui):
         clicked, hovered = _button_with_note(label, enabled, size, reason=reason, tooltip=tooltip)
     note_hover(key, enabled and hovered)
-    imgui.pop_style_color(3)
+    imgui.pop_style_color(4 if enabled else 3)
     return clicked
 
 
@@ -3580,6 +3586,19 @@ def toast_style(level: str) -> tuple[int, str]:
     }.get(level, (theme.ELEV_2, ""))
 
 
+def toast_text_colour(level: str) -> int:
+    """The sentence and glyph colour on a toast's background (shell-10).
+
+    The status fills are 1.5-3.4:1 against TEXT in some palettes; the label
+    colour is whichever palette end reads better on the fill. The plain notice
+    sits on ELEV_2 and keeps TEXT.
+    """
+    colour, _glyph = toast_style(level)
+    if colour == theme.ELEV_2:
+        return theme.TEXT
+    return tokens.label_on(colour)
+
+
 def toasts(
     state: Any,
     viewport_size: tuple[float, float],
@@ -3629,6 +3648,8 @@ def toasts(
         )
         imgui.set_next_window_size((sp(tokens.SURFACE_W_POPOVER), 0))
         imgui.push_style_color(imgui.Col_.window_bg.value, imgui.ImVec4(*theme.rgba(colour)))
+        text_colour = toast_text_colour(toast.level)
+        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(text_colour)))
         imgui.push_style_var(imgui.StyleVar_.alpha.value, alpha)
         flags = (
             imgui.WindowFlags_.no_decoration.value
@@ -3660,7 +3681,7 @@ def toasts(
                     dismissed.append(toast)
                 imgui.same_line()
             if glyph:
-                text_colored(theme.TEXT, glyph)
+                text_colored(text_colour, glyph)
                 imgui.same_line()
             imgui.text_wrapped(toast.text)
             # ``install_remedy`` composes a host-accurate two-line command and
@@ -3678,7 +3699,7 @@ def toasts(
         height = imgui.get_window_height()
         imgui.end()
         imgui.pop_style_var()
-        imgui.pop_style_color()
+        imgui.pop_style_color(2)
         y -= height + sp(8)
     if hidden:
         # Above the stack, in the direction the older ones went. A count rather

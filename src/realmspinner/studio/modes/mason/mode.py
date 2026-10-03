@@ -1068,6 +1068,13 @@ def save_as(ctx: Any, tab: MasonTab | None = None) -> None:
 # --- export -----------------------------------------------------------------------
 
 
+def _pending_refs(doc: Any, export: Any) -> list[Any]:
+    """The unresolved refs that are still loading, not permanently missing."""
+    from .engine.refs import ref_key
+
+    return [(i, r) for i, r in export.unresolved if ref_key(r) not in doc.missing]
+
+
 def export_glb(ctx: Any, tab: MasonTab | None = None) -> None:
     """Write ``scene.glb`` plus its ``scene.json`` sidecar, an engine can read
     directly."""
@@ -1095,6 +1102,19 @@ def export_glb(ctx: Any, tab: MasonTab | None = None) -> None:
     export = gltfout.scene_model(doc, source)
 
     def run() -> dict[str, Any] | None:
+        from ....service.errors import NotReady
+
+        # Only a ref still *loading* refuses; one whose library job is gone
+        # (``doc.missing``) never will load, so it exports as a meshless node
+        # and the manifest names it (mason-05, 2026-10-03). Checked before the
+        # picker so a refusal does not follow a closed dialog.
+        pending = _pending_refs(doc, export)
+        if pending:
+            raise NotReady(
+                f"{len(pending)} placed asset(s) have not finished "
+                "loading yet -- export again once they do.",
+                field="export",
+            )
         path = dialogs.save_file(
             "Export Mason scene as GLB", f"{title}.glb", mason_io.GLB_FILTER
         )
@@ -1117,12 +1137,6 @@ def export_glb(ctx: Any, tab: MasonTab | None = None) -> None:
         from ....service.errors import NotReady
         from .engine import manifest
 
-        if export.unresolved:
-            raise NotReady(
-                f"{len(export.unresolved)} placed asset(s) have not finished "
-                "loading yet -- export again once they do.",
-                field="export",
-            )
         # mason-mode-13, the 2026-09-26 audit: the manifest sidecar used to be
         # written at the fixed name ``manifest.MANIFEST`` ("scene.json")
         # beside whatever the GLB was actually called, so exporting "Barrel.glb"
@@ -1249,7 +1263,8 @@ def export_library(ctx: Any, tab: MasonTab | None = None) -> None:
         from ....service import jobs as svc_jobs
         from ....service.errors import NotReady
 
-        if export.unresolved:
+        pending = _pending_refs(doc, export)
+        if pending:
             # The 2026-09-26 audit's mason-mode-11: an unparsed library ref
             # resolves to no primitives (``gltfout._Builder._mesh_for``), so
             # this used to mint a *permanent* library row from a GLB missing
@@ -1258,7 +1273,7 @@ def export_library(ctx: Any, tab: MasonTab | None = None) -> None:
             # ``svc_jobs.import_mesh`` ever runs, so nothing is written for a
             # scene whose references have not all finished loading yet.
             raise NotReady(
-                f"{len(export.unresolved)} placed asset(s) have not finished "
+                f"{len(pending)} placed asset(s) have not finished "
                 "loading yet -- export again once they do.",
                 field="export",
             )

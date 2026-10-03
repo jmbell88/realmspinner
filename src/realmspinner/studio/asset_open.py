@@ -186,7 +186,7 @@ def destination(job: Any) -> str:
     return target.mode.capitalize()
 
 
-def open_asset(ctx: Any, job_or_id: Any) -> None:
+def open_asset(ctx: Any, job_or_id: Any, *, inspect_only: bool = False) -> None:
     """Open a row wherever its artifacts actually are. **The one door.**
 
     Takes a row or an id, because the toast has an id and the panes have the
@@ -246,9 +246,42 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
         create_stages.go(ctx, "pose", select=target.job_id)
         return
 
+    # Defer draft adoption together with navigation when a pose needs saving.
+    # Cancelling the guard must leave both the viewer and draft untouched.
+    if (
+        hasattr(ctx.state, "create")
+        and create_stages.at(ctx.state, "pose")
+        and (target.stage != "pose" or target.job_id != ctx.state.selected)
+    ):
+        from .panes import pose_panel
+
+        def proceed() -> None:
+            pose_panel.leave(ctx)
+            open_asset(ctx, job, inspect_only=inspect_only)
+
+        viewer = getattr(ctx, "viewer", None)
+        if viewer is not None and viewer.pose_mode and viewer.editor.has_unsaved_edits():
+            pose_panel.guard(ctx, "open another result", proceed)
+            return
+
+    from .modes.create.ui import session as create_session
+
+    source = ctx.cache.get(target.job_id) or job
+    chosen_source = ctx.state.source_job if inspect_only else None
+    if not inspect_only and hasattr(ctx.state, "create"):
+        create_session.resume(ctx, source)
+        chosen_source = ctx.state.source_job
     create_stages.go(ctx, target.stage, select=target.job_id)
+    if hasattr(ctx.state, "create"):
+        ctx.state.source_job = chosen_source
+        if inspect_only:
+            ctx.state.create.workspace_selection = target.job_id
+            ctx.state.create.image_comparing = None
+            ctx.state.create.preview_mode = "result"
     if target.section:
         widgets.request_open(target.section)
+    if hasattr(ctx.state, "create") and target.detail:
+        ctx.state.preview["create_atlas_focus"] = (target.job_id, target.detail)
     if target.section == SPRITES_SECTION and target.detail:
         # Which of several drafts is the one that just landed.
         # ``store.list_sprite_drafts`` is documented oldest-first, so the new

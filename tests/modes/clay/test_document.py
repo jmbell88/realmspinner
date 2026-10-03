@@ -636,6 +636,31 @@ def test_a_params_edit_that_shrinks_a_mesh_restricts_the_element_selection_inste
     assert obj.uid in doc.selection, "the derived-selection invariant: still selected"
 
 
+def test_a_radius_edit_with_same_topology_keeps_the_element_selection_as_the_manual_promises() -> None:  # noqa: E501
+    """clay-05: a radius edit leaves the same faces in the same order (the
+    manual says so), but restrict(prior=...) saw equal counts and dropped it."""
+    doc = bd.ClayDoc()
+    obj = doc.add_object(
+        _obj(
+            "Cyl",
+            bp.cylinder(segments=16),
+            generator="cylinder",
+            params={"radius": 0.5, "height": 1.0, "segments": 16},
+        )
+    )
+    doc.set_element_mode("face")
+    doc.set_element_sel(obj.uid, el.ElementSel(faces=[1, 3]))
+    doc.set_generator_params(
+        obj.uid,
+        {"radius": 0.75, "height": 1.0, "segments": 16},
+        bp.cylinder(segments=16, radius=0.75),
+        was={"params": {"radius": 0.5, "height": 1.0, "segments": 16}},
+    )
+    sel = doc.element_sel.get(obj.uid)
+    assert sel is not None and sel.faces.tolist() == [1, 3]
+    assert obj.uid in doc.selection
+
+
 def test_every_mesh_the_document_converts_is_valid() -> None:
     doc = bd.ClayDoc()
     for name, (defaults, build) in bp.GENERATORS.items():

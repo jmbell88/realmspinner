@@ -148,6 +148,7 @@ def engine_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     other field here.
     """
     out: dict[str, Any] = {}
+    out["mesh_finishing"] = form.get("mesh_finishing", "repair")
     if int(form["trellis_band"]) > 0:
         out["trellis_band"] = int(form["trellis_band"])
     if int(form["trellis_tex_res"]) > 0:
@@ -309,6 +310,7 @@ def upload_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     dropped file and quietly ignored for a rendered one.
     """
     kwargs: dict[str, Any] = {"kind": "image"}
+    kwargs["mesh_finishing"] = form.get("mesh_finishing", "repair")
     if form["platform"]:
         kwargs["guidance_fields"] = {"platform": form["platform"]}
     if float(form["size_m"]) > 0:

@@ -43,6 +43,20 @@ def _create(svc, **kwargs):
     return svc.store.get(out["id"])["params"]
 
 
+def test_new_jobs_record_shape_preservation_and_prompt_policy(svc, blender_present):
+    params = _create(svc)
+    assert params["mesh_finishing"] == "preserve_shape"
+    assert params["prompt_policy"] == 9
+    assert params["generation_type"] == "3d_model"
+    assert _create(svc, mesh_finishing="repair")["mesh_finishing"] == "repair"
+
+
+def test_unknown_finishing_choice_is_refused(svc):
+    with pytest.raises(Invalid) as error:
+        _create(svc, mesh_finishing="unknown")
+    assert error.value.field == "mesh_finishing"
+
+
 def test_nothing_named_with_blender_defaults_to_the_configured_lowpoly_budget(
     svc, blender_present
 ):

@@ -177,8 +177,29 @@ def grow(ts: Tileset, tiles: np.ndarray) -> Tileset:
         or array.shape[3] != 4
     ):
         raise ValueError(f"a grow batch is (N, {ts.tile_h}, {ts.tile_w}, 4)")
-    added = array.reshape(-1, ts.tile_w, 4)
-    return replace(ts, pixels=np.concatenate([ts.pixels, added], axis=0))
+    if ts.collection is not None:
+        raise ValueError("a collection-of-images tileset cannot grow: import it as a sheet first")
+    count = int(array.shape[0])
+    if count == 0:
+        return ts
+    # The 2026-10-03 audit, finding inker-23: this used to concatenate onto the
+    # image as if it were a one-column strip, so a ``.tsx`` import with several
+    # columns, spacing or a margin raised a numpy ValueError out of the first
+    # Stack/Auto stroke. New tiles go where ``tile_rect`` says id ``n`` lives,
+    # on rows added below the last whole one; for a plain strip that is exactly
+    # the old concatenation.
+    cols, first = ts.columns, ts.tile_count
+    rows = -(-(first + count) // cols)
+    height = 2 * ts.margin + rows * ts.tile_h + (rows - 1) * ts.spacing
+    pixels = np.zeros((height, ts.image_w, 4), dtype=np.uint8)
+    keep = min(height, ts.image_h)
+    pixels[:keep] = ts.pixels[:keep]
+    grown = replace(ts, pixels=pixels)
+    pixels = grown.pixels.copy()
+    for i in range(count):
+        x, y, w, h = grown.tile_rect(first + i)
+        pixels[y : y + h, x : x + w] = array[i]
+    return replace(ts, pixels=pixels)
 
 
 def shrink(ts: Tileset, count: int) -> Tileset:
@@ -187,12 +208,16 @@ def shrink(ts: Tileset, count: int) -> Tileset:
     ``count`` is bounded below at 1 -- the blank tile at local id 0 is never
     optional, so an undo cannot walk a strip back past it -- and above at the
     tileset's own ``tile_count``, since a larger count names tiles this
-    tileset does not have.
+    tileset does not have. On a multi-column tileset whole rows are kept, so a
+    ``count`` that is not a multiple of the column count keeps the rest of its
+    row (``grow`` always starts at a row, which makes its undo exact).
     """
     count = int(count)
     if count < 1 or count > ts.tile_count:
         raise ValueError(f"shrink keeps 1..{ts.tile_count} tiles, not {count}")
-    return replace(ts, pixels=ts.pixels[: count * ts.tile_h])
+    rows = -(-count // ts.columns)
+    height = 2 * ts.margin + rows * ts.tile_h + (rows - 1) * ts.spacing
+    return replace(ts, pixels=ts.pixels[: min(height, ts.image_h)])
 
 
 def with_tiles(ts: Tileset, tiles: list[tuple[int, np.ndarray]]) -> Tileset:

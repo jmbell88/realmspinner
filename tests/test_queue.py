@@ -55,6 +55,56 @@ def _make_image_job(worker: Worker) -> str:
     return job_id
 
 
+async def test_ordinary_images_do_not_retry_reconstruction_framing(worker, monkeypatch):
+    from realmspinner.pipelines import reference
+
+    def measure(*args):
+        pytest.fail("ordinary image reached reconstruction composition checks")
+
+    monkeypatch.setattr(reference, "measure_file", measure)
+    worker.config.reference_retries = 2
+    job_id = worker.store.create("text", "a landscape with three houses", {
+        "seed": 42, "generation_type": "image", "prompt_policy": 9,
+    }, stage="reference")
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
+    await worker.shutdown()
+    params = worker.store.get(job_id)["params"]
+    assert "reference_report" not in params
+    assert "reference_attempts" not in params
+    assert params["recipe"]["reference"]["prompt_policy"] == 9
+    assert worker._text2image.seeds == [42]
+
+
+async def test_cancellation_after_reconstruction_preserves_complete_meshes(worker, monkeypatch):
+    from pathlib import Path
+
+    from realmspinner.pipelines import blender_run
+
+    def cancel_finishing(spec, **kwargs):
+        Path(spec["out_glb"]).write_bytes(b"unfinished staged mesh")
+        worker._cancel.event.set()
+        return {"ok": True, "faces": 10, "method": "preserve_shape"}
+
+    monkeypatch.setattr(blender_run, "run_worker", cancel_finishing)
+    job_id = worker.store.create("image", None, {
+        "seed": 42, "resolution": 512, "lowpoly_triangles": 5000,
+        "mesh_finishing": "preserve_shape",
+    })
+    directory = worker.config.job_dir(job_id)
+    directory.mkdir(parents=True)
+    (directory / "input.png").write_bytes(b"fake-png")
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "cancelled")
+    await worker.shutdown()
+    from realmspinner.kernels.geom3d import glbio
+
+    for filename in ("source.glb", "model.glb"):
+        document, _binary = glbio.read_glb(directory / filename)
+        assert document["meshes"]
+    assert not (directory / ".model.lowpoly.glb").exists()
+
+
 async def test_shutdown_with_job_running_returns_promptly(worker):
     # Written first: cancelling from inside teardown while the fake "GPU"
     # work is in flight is the fiddliest path in this file.
@@ -1756,6 +1806,11 @@ async def test_lowpoly_publishes_over_model_glb_before_apply_scale(worker, monke
     # grounding is not the subject here, so it is stubbed the way
     # test_remesh.py's _no_normalize fixture stubs it for the same reason.
     monkeypatch.setattr(postprocess_mod, "normalize_glb", lambda *a, **k: {"scale": 1.0})
+    # The fake GLBs are bytes, not glTF, so the real check cannot read them and
+    # would (correctly) refuse the remesh; this test is about publishing order.
+    from realmspinner import tiercheck
+
+    monkeypatch.setattr(tiercheck, "compare", lambda before, after: tiercheck.Verdict(True, (), ()))
 
     calls: list[dict] = []
 
@@ -1815,11 +1870,51 @@ async def test_a_failing_lowpoly_keeps_the_optimized_mesh_and_notes_it(worker, m
     await worker.shutdown()
 
     row = worker.store.get(job_id)
-    assert "lowpoly" not in row["params"]
+    assert row["params"]["lowpoly"]["status"] == "failed"
     assert "lowpoly" in row["params"]["degraded"]
     # The mesh is still on disk and non-empty -- the optimized (here, raw)
     # reconstruction the failed lowpoly step never touched.
     assert (job_dir / "model.glb").stat().st_size > 0
+
+
+async def test_a_remesh_that_fails_its_tiercheck_keeps_the_optimized_mesh(worker, monkeypatch):
+    """The 2026-10-03 audit (pipelines-05): the manual says a Game-ready remesh
+    is checked against the mesh it replaced and "a failure there keeps the
+    optimized mesh", but _lowpoly os.replaced the remesh onto model.glb
+    whatever the verdict."""
+    from pathlib import Path
+
+    import realmspinner.pipelines.blender_run as blender_run_mod
+    from realmspinner import tiercheck
+    from realmspinner.pipelines import postprocess as postprocess_mod
+
+    monkeypatch.setattr(postprocess_mod, "normalize_glb", lambda *a, **k: {"scale": 1.0})
+    monkeypatch.setattr(
+        tiercheck, "compare", lambda before, after: tiercheck.Verdict(False, ("uv_primitives",), ())
+    )
+
+    def fake_run_worker(spec, *, on_progress=None, on_start=None, timeout=0.0):
+        Path(spec["out_glb"]).write_bytes(b"lowpoly-mesh")
+        return {"ok": True, "method": "decimate", "faces": 4996, "texture_size": 1024}
+
+    monkeypatch.setattr(blender_run_mod, "run_worker", fake_run_worker)
+
+    job_id = worker.store.create(
+        "image", None, {"seed": 1, "resolution": 512, "lowpoly_triangles": 5000}
+    )
+    job_dir = worker.config.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "input.png").write_bytes(b"fake-png")
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
+    await worker.shutdown()
+
+    row = worker.store.get(job_id)
+    assert (job_dir / "model.glb").read_bytes() != b"lowpoly-mesh"
+    assert row["params"]["lowpoly"]["status"] == "failed"
+    assert row["params"]["lowpoly"]["tiercheck"]["failures"] == ["uv_primitives"]
+    assert "lowpoly" in row["params"]["degraded"]
 
 
 async def test_a_legacy_row_with_no_lowpoly_triangles_key_runs_no_lowpoly(worker, monkeypatch):
@@ -2696,9 +2791,11 @@ async def test_a_failed_measurement_still_records_the_seed_that_shipped(
     assert store.get(job_id)["status"] == "done"
     # The seed on record is the one whose image is on disk, not the refused one.
     assert params["reference_seed"] == seeds[1]
+    assert params["recipe"]["reference"]["seed"] == seeds[1]
+    assert params["recipe"]["reference"]["prompt"] == params["composed_prompt"]
     attempts = params["reference_attempts"]
     assert [a["seed"] for a in attempts] == seeds
-    assert attempts[0] == {
+    assert {key: attempts[0][key] for key in ("seed", "ok", "reasons")} == {
         "seed": seeds[0],
         "ok": False,
         "reasons": ["the subject runs off the frame"],
@@ -2808,6 +2905,8 @@ async def test_an_exhausted_budget_keeps_the_best_attempt_not_the_last(
     assert params["reference_seed"] == seeds[1]
     assert [a["seed"] for a in params["reference_attempts"]] == seeds
     assert [a["ok"] for a in params["reference_attempts"]] == [False, False, False]
+    assert params["recipe"]["reference"]["seed"] == seeds[1]
+    assert params["recipe"]["reference"]["prompt"] == params["composed_prompt"]
     # The stored verdict is the winner's, not the last draw's.
     assert params["reference_report"]["codes"] == ["edge"]
     # The one pixel claim, and it needs the stamped fixture above to mean

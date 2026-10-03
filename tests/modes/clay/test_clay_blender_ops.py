@@ -16,6 +16,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from realmspinner.kernels.geom3d import glbwrite
@@ -341,8 +342,10 @@ def test_bake_detail_inline_gives_the_low_object_a_new_material_slot_in_one_step
 
     assert len(doc.history) == depth + 1
     assert doc.history.top.label == "Bake Detail"
-    # Geometry is untouched -- only the palette entry changes.
-    assert doc.by_uid(low_uid).mesh is low_mesh_before
+    # Geometry is untouched (clay-13: only its per-face slots follow the new
+    # palette entry, so the bake actually shows).
+    assert np.array_equal(doc.by_uid(low_uid).mesh.positions, low_mesh_before.positions)
+    assert np.array_equal(doc.by_uid(low_uid).mesh.loops, low_mesh_before.loops)
 
     new_index = doc.by_uid(low_uid).material
     assert new_index != 0, "the low object must move to a fresh slot, not overwrite the shared one"

@@ -721,9 +721,18 @@ def _one_canvas(
                     view, (origin.x, origin.y), focus, view.pending_zoom_rung, **_BOUNDS
                 )
                 view.pending_zoom_rung = 0
+            # The 2026-10-03 audit, finding inker-20: with Duplicate View on
+            # this runs once per pane, and every continue/release/pan arm was
+            # gated on ``drag_kind`` alone -- so the pane that did not start a
+            # gesture walked it through its own origin and view as well.
+            owner = _owns_gesture(state, index)
+            had_gesture = bool(state.drag_kind)
             _input(
-                ctx, state, tab, (origin.x, origin.y), region, active=active, hovered=hovered
+                ctx, state, tab, (origin.x, origin.y), region,
+                active=active, hovered=hovered, owner=owner,
             )
+            if state.drag_kind and not had_gesture:
+                state.drag_view = index
             # **After every gesture and before anything is drawn.** The three
             # writers of ``view.pan`` cannot all clamp at source: two of them
             # (``_place`` and ``_anchor``) are shared with Plotter, whose canvas
@@ -980,8 +989,22 @@ def _remedy(ctx: Any, state: Any, tip: Any) -> None:
 # --- input ------------------------------------------------------------------
 
 
+def _owns_gesture(state: Any, index: int) -> bool:
+    """Whether the pane at *index* may continue or end the open gesture: no
+    gesture is open, or this pane is the one whose press started it."""
+    return not state.drag_kind or state.drag_view == index
+
+
 def _input(
-    ctx: Any, state: Any, tab: Any, origin, region, *, active: bool, hovered: bool
+    ctx: Any,
+    state: Any,
+    tab: Any,
+    origin,
+    region,
+    *,
+    active: bool,
+    hovered: bool,
+    owner: bool = True,
 ) -> None:
     from . import drag as inker_drag
     io = imgui.get_io()
@@ -1019,6 +1042,9 @@ def _input(
                 )
 
     _os_cursor(state, tab, hovered=hovered)
+
+    if not owner:
+        return
 
     # Middle-drag always pans; space-drag pans with the left button, which is
     # what every paint program does and what makes a tablet usable.

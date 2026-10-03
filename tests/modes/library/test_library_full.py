@@ -45,7 +45,14 @@ def _ctx(jobs: dict[str, dict]):
         state.compare_baseline = None
 
     state.select = select
+    state.checked = set()
+
+    def toggle_check(job_id):
+        state.checked.symmetric_difference_update({job_id})
+
+    state.toggle_check = toggle_check
     return SimpleNamespace(
+        rigging_available=True,
         state=state,
         cache=SimpleNamespace(get=lambda jid: jobs.get(jid)),
         textures=None,
@@ -214,3 +221,67 @@ def test_double_clicking_a_grid_cell_opens_that_cell_and_a_single_click_only_sel
         frame(centre, down=True)  # second press inside the double-click window
 
     assert opened == ["a"], opened
+
+
+def test_the_full_window_library_offers_a_per_card_tick_for_the_bulk_bar(monkeypatch):
+    """shell-12 (2026-10-03 audit): nothing hosts ``library.draw`` any more, so
+    the per-card tick and primary action had no home and "Select every asset
+    shown" was the only way into a bulk selection. The full-window cell now
+    draws both over its picture; pressing either must act without selecting
+    the cell, and a trashed cell draws neither."""
+    ran: list[tuple[str, str]] = []
+    jobs = {"a": _job("a"), "t": {**_job("t"), "deleted_at": 1.0}}
+    ctx = _ctx(jobs)
+    pad_holder: dict = {}
+
+    with imgui_context(monkeypatch) as imgui:
+        monkeypatch.setattr(library, "_overflow", lambda _ctx, _job: None)
+        monkeypatch.setattr(library, "primary_action", lambda job, **_kw: "open")
+        monkeypatch.setattr(library, "run_action", lambda c, j, a: ran.append((j["id"], a)))
+        rects: dict[str, tuple] = {}
+
+        def frame(pos, *, down, job="a"):
+            io = imgui.get_io()
+            io.add_mouse_pos_event(pos[0], pos[1])
+            io.add_mouse_button_event(0, down)
+            imgui.new_frame()
+            imgui.set_next_window_pos((0.0, 0.0))
+            imgui.set_next_window_size((500.0, 300.0))
+            imgui.begin("##host")
+            imgui.begin_child("library-full/cells", (400.0, 200.0))
+            pad = imgui.get_style().window_padding
+            pad_holder["pad"] = pad
+            library_full._cell(ctx, jobs[job], (150.0, 150.0), 130.0, pad)
+            mn, mx = imgui.get_item_rect_min(), imgui.get_item_rect_max()
+            rects[job] = ((mn.x, mn.y), (mx.x, mx.y))
+            imgui.end_child()
+            imgui.end()
+            imgui.end_frame()
+
+        frame((-100.0, -100.0), down=False)
+        frame((-100.0, -100.0), down=False)
+        (mn, mx) = rects["a"]
+        pad = pad_holder["pad"]
+        # Inside the thumbnail's top-right corner, where the tick is drawn.
+        tick = (mx[0] - pad.x - 14.0, mn[1] + pad.y + 14.0)
+        frame(tick, down=False)
+        frame(tick, down=True)
+        frame(tick, down=False)
+        assert ctx.state.checked == {"a"}, ctx.state.checked
+        assert ctx.state.selected is None, "the tick press also selected the cell"
+
+        # Bottom-left of the thumbnail: the primary action.
+        act = (mn[0] + pad.x + 14.0, mn[1] + pad.y + 130.0 - 12.0)
+        frame(act, down=False)
+        frame(act, down=True)
+        frame(act, down=False)
+        assert ran == [("a", "open")], ran
+        assert ctx.state.selected is None
+
+        # A trashed cell draws neither control.
+        frame((-100.0, -100.0), down=False, job="t")
+        (tmn, tmx) = rects["t"]
+        tick_t = (tmx[0] - pad.x - 14.0, tmn[1] + pad.y + 14.0)
+        frame(tick_t, down=False, job="t")
+        frame(tick_t, down=True, job="t")
+        assert "t" not in ctx.state.checked

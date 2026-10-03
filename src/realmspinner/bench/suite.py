@@ -10,7 +10,7 @@ means core-v2.json.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,8 @@ class Item:
     guidance: dict[str, Any]
     tags: tuple[str, ...] = ()
     notes: str = ""
+    output_family: str = "3d_model"
+    settings: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +101,11 @@ def parse(raw: dict[str, Any], path: Path) -> Suite:
                 f"expected one of {list(CATEGORIES)}"
             )
         fields = dict(entry.get("guidance") or {})
+        family = str(entry.get("output_family") or "3d_model")
+        from .quality import CRITERIA
+
+        if family not in CRITERIA:
+            raise ValueError(f"{path.name}: item {item_id} has unknown output family {family!r}")
         unknown = sorted(set(fields) - known)
         if unknown:
             raise ValueError(f"{path.name}: item {item_id} names unknown guidance {unknown}")
@@ -118,6 +125,8 @@ def parse(raw: dict[str, Any], path: Path) -> Suite:
                 guidance=fields,
                 tags=tuple(str(t) for t in entry.get("tags") or ()),
                 notes=str(entry.get("notes") or ""),
+                output_family=family,
+                settings=dict(entry.get("settings") or {}),
             )
         )
     if not items:

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import inspect
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -112,6 +113,29 @@ def test_unwrap_apply_on_an_object_with_a_modifier_stack_does_not_apply_the_stac
         f"expected {before_tris} triangles (the modifier baked in exactly "
         f"once), got {after_tris} -- the stack ran a second time"
     )
+
+
+def test_smart_unwrap_keeps_the_faces_and_shading_it_was_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clay-16 (2026-10-03): Smart Unwrap rebuilt the object as all triangles
+    with auto-smooth shading yet kept its generator and the manual says it
+    changes no geometry. Only the UVs may come back from Blender."""
+    monkeypatch.setattr(clay_blender, "available", lambda: (True, ""))
+    monkeypatch.setattr(clay_blender, "unwrap_bytes", _fake_unwrap_bytes)
+
+    for build in (bp.box, bp.uv_sphere):
+        doc = bd.ClayDoc()
+        mesh = build()
+        flat = replace(mesh, smooth=np.zeros(len(mesh.starts) - 1, dtype=bool))
+        obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Shape", mesh=flat))
+        doc.select([obj.uid])
+        ctx = _InlineCtx()
+        assert clay_ops.run(ctx, doc, clay_ops.get("smart-unwrap")) is True
+        after = doc.by_uid(obj.uid).mesh
+        assert len(after.starts) == len(flat.starts), "quads must stay quads"
+        assert not after.smooth.any(), "deliberate flat shading must survive"
+        assert after.uv is not None
 
 
 def test_retopo_apply_on_an_object_with_a_modifier_stack_also_clears_it(

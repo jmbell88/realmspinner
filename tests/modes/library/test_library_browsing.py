@@ -712,6 +712,61 @@ def test_load_older_fetches_the_next_page_rather_than_re_reading_the_window(svc,
     assert len(cache.jobs) == cache_mod_local.LIST_LIMIT + 5
 
 
+def _seed_rows(svc, count):
+    ids = []
+    for i in range(count):
+        job_id = svc.store.create("text", f"asset {i}", {})
+        svc.store._conn.execute(
+            "UPDATE jobs SET created_at = ? WHERE id = ?", (float(i), job_id)
+        )
+        ids.append(job_id)
+    svc.store._conn.commit()
+    return ids
+
+
+def test_an_edit_to_a_row_past_the_first_page_is_seen_after_load_older(svc):
+    """shell-04: once "Load older" widened the window, ``read`` reused the held
+    older rows verbatim, so a favourite, rename or delete of any row beyond the
+    newest page never reached the cache and the user clicked again."""
+    from realmspinner.studio import jobs_cache as mod
+
+    ids = _seed_rows(svc, mod.LIST_LIMIT + 20)
+    cache = cache_mod.JobsCache(svc)
+    cache.tick()
+    cache.load_more()
+    cache.tick()
+    oldest = ids[0]
+    assert oldest in cache.by_id
+
+    svc.store.delete(oldest)
+    cache.invalidate()
+    cache.tick()
+
+    assert oldest not in cache.by_id
+
+
+def test_a_new_job_does_not_open_a_gap_between_the_first_page_and_the_older_rows(svc):
+    """shell-05: a new job pushes the 200th row out of the top page while
+    ``read`` kept the previous older slice, so that row sat in neither list."""
+    from realmspinner.studio import jobs_cache as mod
+
+    ids = _seed_rows(svc, mod.LIST_LIMIT + 20)
+    cache = cache_mod.JobsCache(svc)
+    cache.tick()
+    cache.load_more()
+    cache.tick()
+    assert len(cache.jobs) == mod.LIST_LIMIT + 20
+
+    new_id = svc.store.create("text", "newest", {})
+    svc.store._conn.execute("UPDATE jobs SET created_at = ? WHERE id = ?", (1e9, new_id))
+    svc.store._conn.commit()
+    cache._next_refresh = 0.0
+    cache.tick()
+
+    assert len(cache.jobs) == mod.LIST_LIMIT + 21
+    assert {j["id"] for j in cache.jobs} == set(ids) | {new_id}
+
+
 def test_the_size_sort_notices_a_measurement_landing(svc):
     """The storage walk is deferred and lands on a task thread long after the
     list did; without its own generation the memo would never reorder."""

@@ -299,6 +299,7 @@ def render_layer(
         if entry is None:
             continue
         tileset, local = entry
+        local = first_frame_local(tileset, local)
         mask = int(flags[row, column])
         pixels = oriented.get((tile_id, mask))
         if pixels is None:
@@ -511,11 +512,42 @@ def render_map(doc: MapDoc, *, include_hidden: bool = False) -> np.ndarray:
 # is therefore tied to its array's lifetime by :func:`weakref.finalize` below:
 # the weakref callback runs during the array's deallocation, before the block
 # can be handed out again, so a stale entry never outlives its key.
-_LUT_CACHE: dict[int, np.ndarray] = {}
+_LUT_CACHE: dict[int, tuple[tuple, np.ndarray]] = {}
+
+
+def first_frame_local(tileset: Any, local: int) -> int:
+    """The local id whose pixels an export or minimap draws for ``local``.
+
+    The manual promises an animated tile is "drawn as its first frame in every
+    export, on the minimap"; the renderers drew the carrying tile's own pixels
+    instead (2026-10-03 audit, plotter-02), so an export disagreed with the
+    canvas at clock 0. A first frame naming a tile the set does not hold keeps
+    the carrying tile -- a plausible wrong picture beats a raise mid-export.
+    """
+    meta = tileset.tiles.get(int(local))
+    if meta is None or not meta.animation:
+        return int(local)
+    target = int(meta.animation[0].local_id)
+    try:
+        tileset.tile_rect(target)
+    except IndexError:
+        return int(local)
+    return target
+
+
+def _local_ids(tileset: Any) -> tuple[int, ...]:
+    """The local id of each slot: ``range(tile_count)`` unless a collection is sparse."""
+    if tileset.collection is not None:
+        return tuple(tileset.collection.ids)
+    return tuple(range(tileset.tile_count))
 
 
 def tile_colours(tileset: Any) -> np.ndarray:
-    """``(tile_count, 4)`` of each tile's alpha-weighted mean colour.
+    """``(tile_count, 4)`` of each tile's alpha-weighted mean colour, by *slot*.
+
+    A slot is the local id for a sliced atlas and the position in ``ids`` for a
+    collection, whose ids may be sparse (plotter-03: indexing by raw local id
+    raised IndexError). An animated tile carries its first frame's colour.
 
     Weighted, because an unweighted mean over a tile that is mostly transparent
     is dominated by whatever colour happens to be stored under the zero alpha --
@@ -523,21 +555,23 @@ def tile_colours(tileset: Any) -> np.ndarray:
     """
     pixels = tileset.pixels
     key = id(pixels)
+    ids = _local_ids(tileset)
+    firsts = tuple(first_frame_local(tileset, local) for local in ids)
     cached = _LUT_CACHE.get(key)
-    if cached is not None and len(cached) == tileset.tile_count:
-        return cached
+    if cached is not None and cached[0] == (ids, firsts) and len(cached[1]) == tileset.tile_count:
+        return cached[1]
     out = np.zeros((tileset.tile_count, 4), dtype=np.uint8)
-    for local in range(tileset.tile_count):
+    for slot, local in enumerate(firsts):
         tile = tileset.tile_pixels(local).astype(np.float32)
         alpha = tile[..., 3]
         total = float(alpha.sum())
         if total <= 0.0:
             continue
-        out[local, :3] = np.clip(
+        out[slot, :3] = np.clip(
             np.rint((tile[..., :3] * alpha[..., None]).sum(axis=(0, 1)) / total), 0, 255
         )
-        out[local, 3] = int(round(float(alpha.mean())))
-    _LUT_CACHE[key] = out
+        out[slot, 3] = int(round(float(alpha.mean())))
+    _LUT_CACHE[key] = ((ids, firsts), out)
     # Registered once per entry -- the early return above means a cache hit
     # never adds a second finaliser for the same array. Holding the array
     # instead would fix the id just as well and pin every superseded atlas in
@@ -570,20 +604,30 @@ def minimap(doc: MapDoc) -> np.ndarray:
     question about the grid.
     """
     out = np.zeros((int(doc.height), int(doc.width), 4), dtype=np.uint8)
-    luts = [(ref, tile_colours(ref.tileset)) for ref in doc.tilesets]
+    luts = []
+    for ref in doc.tilesets:
+        lut = tile_colours(ref.tileset)
+        # Local id -> slot, -1 for the holes of a sparse collection.
+        slot_of = np.full(max(ref.tileset.max_local_id, -1) + 1, -1, dtype=np.int64)
+        for slot, local in enumerate(_local_ids(ref.tileset)):
+            slot_of[local] = slot
+        luts.append((ref, lut, slot_of))
     for entry in scene.resolve(doc):
         layer = entry.layer
         if not isinstance(layer, TileLayer) or entry.opacity <= 0.0:
             continue
         cells = np.zeros_like(out)
         ids = np.asarray(layer.data) & np.uint32(gidlib.GID_MASK)
-        for ref, lut in luts:
+        for ref, lut, slot_of in luts:
             if not len(lut):
                 continue
             picked = (ids >= ref.firstgid) & (ids <= ref.last_gid)
             if not picked.any():
                 continue
-            cells[picked] = lut[ids[picked] - np.uint32(ref.firstgid)]
+            slots = slot_of[(ids[picked] - np.uint32(ref.firstgid)).astype(np.int64)]
+            known = slots >= 0
+            target = np.flatnonzero(picked.ravel())[known]
+            cells.reshape(-1, 4)[target] = lut[slots[known]]
         _over(
             out,
             _tinted(cells, entry.tint),

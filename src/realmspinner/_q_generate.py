@@ -325,6 +325,8 @@ class GenerateOps:
                 # because ``attempts`` is *stored* -- it is the provenance a
                 # later reader parses -- and a Report is not JSON.
                 reports: list[reference.Report | None] = []
+                recipes: list[dict[str, Any]] = []
+                prompts: list[str] = []
                 # Every refused draw, kept on disk for as long as the budget
                 # runs, so the exhausted-budget exit can ship the best
                 # attempt rather than whichever one happened to be drawn
@@ -352,9 +354,29 @@ class GenerateOps:
                             on_step=lambda i, n: self._t2i_step(job_id, i, n),
                             cancel_event=self._cancel.event,
                             tile=is_tile,
+                            generation_type=params.get("generation_type"),
+                            prompt_policy=int(params.get("prompt_policy", 8)),
                         )
                     )
                     params["composed_prompt"] = t2i.last_prompt or composed
+                    from copy import deepcopy
+
+                    recipes.append(deepcopy(t2i.last_recipe))
+                    prompts.append(params["composed_prompt"])
+                    selected_recipe = recipes[-1]
+                    selected_recipe["prompt_policy"] = int(params.get("prompt_policy", 8))
+                    selected_recipe["generation_type"] = params.get("generation_type")
+                    params.setdefault("recipe", {})["reference"] = selected_recipe
+                    params["reference_seed"] = seed
+                    await asyncio.to_thread(self.store.set_params, job_id, params)
+                    ordinary_image = (
+                        int(params.get("prompt_policy", 8)) >= 9
+                        and params.get("generation_type") in ("image", "image_2d")
+                    )
+                    if ordinary_image:
+                        # Reconstruction framing heuristics cannot judge a landscape
+                        # or a scene. Preserve the requested composition and seed.
+                        break
                     if is_tile:
                         # A seam verdict, never a composition one: the rejection
                         # rules below are all about where a *subject* sits, and
@@ -401,6 +423,7 @@ class GenerateOps:
                         attempts.append(
                             {"seed": seed, "ok": True, "reasons": [], "measured": False}
                         )
+                        params.pop("reference_report", None)
                         reports.append(None)
                         break
                     if is_reference:
@@ -489,6 +512,8 @@ class GenerateOps:
                         # measurement-failed branch above is already commented
                         # against.
                         seed = attempts[best]["seed"]
+                        selected_recipe = recipes[best]
+                        params["composed_prompt"] = prompts[best]
                         log.info(
                             "job %s: budget exhausted; keeping attempt %d of %d "
                             "(seed %s), the best measured",
@@ -501,8 +526,11 @@ class GenerateOps:
                     # Only when it actually retried: a single-attempt job's
                     # provenance is already the seed in params.
                     params["reference_attempts"] = attempts
+                    for i, attempt in enumerate(attempts):
+                        attempt["recipe"] = recipes[i]
+                        attempt["prompt"] = prompts[i]
                     params["reference_seed"] = seed
-                if is_reference:
+                if is_reference and not ordinary_image:
                     try:
                         params["rank"] = await asyncio.to_thread(
                             self._rank_reference, image_path, params
@@ -511,8 +539,10 @@ class GenerateOps:
                         # Advisory: the image is on disk and fine. The UI shows
                         # no score rather than a wrong one.
                         log.exception("ranking failed for job %s", job_id)
-                if t2i.last_recipe:
-                    params.setdefault("recipe", {})["reference"] = t2i.last_recipe
+                if selected_recipe:
+                    selected_recipe["prompt_policy"] = int(params.get("prompt_policy", 8))
+                    selected_recipe["generation_type"] = params.get("generation_type")
+                    params.setdefault("recipe", {})["reference"] = selected_recipe
                 await asyncio.to_thread(self.store.set_params, job_id, params)
             finally:
                 # Whatever the reroll kept and did not publish, on every path

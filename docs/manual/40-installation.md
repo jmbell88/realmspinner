@@ -64,7 +64,8 @@ shipped product was ever on 3.12 anyway.
 ### If you installed rather than cloned
 
 Everything above is what a *source checkout* does. The Windows installer works the other way round:
-it carries the app, its renderer and the reconstruction engine, and nothing else. The three heavy
+it carries the app and its renderer, and nothing else; the reconstruction engine is a Settings →
+Models download. The three heavy
 extras — `text2image`, `rig` and `music` — travel as **packs**, and each is a button in
 [Settings → Packs](42-app-settings.md#packs). The download is around a gigabyte instead of three,
 and someone who only ever draws pixel art never downloads torch at all.

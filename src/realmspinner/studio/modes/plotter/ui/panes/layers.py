@@ -739,7 +739,7 @@ def draw_properties(ctx: Any) -> None:
     # model has supported these since the format did; only the way in was
     # missing. Rides ``LayerPropsEdit``, so it undoes with the rest.
     if widgets.header("Properties", default_open=False, persist_key="plotter/layer-props"):
-        imgui.begin_disabled(layer.locked)
+        imgui.begin_disabled(plotter_mode.layer_locked(doc, layer))
         property_editor(
             ctx,
             f"plotter_layer_prop:{layer.uid}",
@@ -1109,7 +1109,7 @@ def _object_form(
     if not editable:
         widgets.busy("Saving")
         return
-    if layer.locked:
+    if plotter_mode.layer_locked(doc, layer):
         # Read-only rather than hidden: the form is how you *look* at an
         # object's properties, and a lock is not a reason to stop seeing them.
         # Said in words as well as greyed, because a pane full of dead controls

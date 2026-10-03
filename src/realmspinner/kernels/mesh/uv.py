@@ -46,8 +46,11 @@ __all__ = ["box_unwrap", "planar_unwrap"]
 # the *negative* way has its u mirrored within the object's own footprint, which
 # is what keeps lettering on the far side of a box the right way round.
 _AXES: tuple[tuple[int, int], ...] = (
-    (2, 1),  # X-facing: u from Z, v from Y
-    (0, 2),  # Y-facing: u from X, v from Z
+    # clay-11: the right-handed cyclic pairs, so a face pointing the + way has
+    # positive signed uv area seen from outside (the old (Z,Y) and (X,Z) pairs
+    # mirrored every X and Y face); the negative way flips u below.
+    (1, 2),  # X-facing: u from Y, v from Z
+    (2, 0),  # Y-facing: u from Z, v from X
     (0, 1),  # Z-facing: u from X, v from Y
 )
 

@@ -101,6 +101,7 @@ from .....manual import render as manual_render
 from .....shell import paintview
 from .....tokens import sp
 from ... import mode as clay_mode
+from ... import ops as clay_ops
 
 log = logging.getLogger(__name__)
 
@@ -698,6 +699,7 @@ def _body(ctx: Any) -> None:
             "No UVs",
             f"{obj.name!r} has no texture coordinates -- unwrap it first.",
         )
+        _unwrap_row(ctx, tab, doc)
         return
 
     view_state: UvPaneState = tab.uv_view
@@ -809,9 +811,55 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
         apply_scale(doc, obj.uid, selected, view_state.pending_scale, ctx=ctx)
         view_state.pending_scale = 1.0
 
-    if controls.small_button(f"{icons.SQUARE} Pack islands##uvpack", enabled=not live):
-        apply_pack(doc, obj.uid, ctx=ctx)
+    # Through the op, so the margin and the rotate switch are the same two
+    # numbers here as in the UV menu: this button used to call ``apply_pack``
+    # with its own fixed defaults while ``pack-uv`` took both as parameters.
+    pack = clay_ops.get("pack-uv")
+    if controls.small_button(
+        f"{icons.SQUARE} Pack islands...##uvpack",
+        enabled=not live and pack.enabled(doc),
+        reason=clay_ops.reason_for(pack, doc),
+    ):
+        clay_mode.fire_op(ctx, doc, pack)
     imgui.end_disabled()
+    imgui.dummy((0, sp(4)))
+    _unwrap_row(ctx, tab, doc)
+
+
+#: The three ways to make a layout, in the order Blender's UV menu lists them:
+#: the projection that cannot fail, the cut-along-seams unwrap, then the
+#: Blender-backed one for anything organic.
+_UNWRAP_OPS = ("unwrap", "unwrap-seams", "smart-unwrap")
+
+
+def _unwrap_row(ctx: Any, tab: Any, doc: Any) -> None:
+    """The unwrap verbs, where the layout is.
+
+    The pane told you "unwrap it first" and then offered no way to: the three
+    ops were rows in a flat object-mode list on the other side of the window.
+    They are the same registry ops the UV menu in the viewport header runs, so
+    gating, reasons and parameter dialogs cannot differ.
+    """
+    from imgui_bundle import imgui
+
+    in_object_mode = doc.element_mode == "object"
+    for index, name in enumerate(_UNWRAP_OPS):
+        op = clay_ops.get(name)
+        if index:
+            imgui.same_line()
+        why = (
+            "Saving..."
+            if tab.saving
+            else "Switch to object mode (4) to unwrap."
+            if not in_object_mode
+            else clay_ops.reason_for(op, doc)
+        )
+        if controls.small_button(
+            f"{op.label}##uvunwrap-{name}",
+            enabled=in_object_mode and not tab.saving and op.enabled(doc),
+            reason=why,
+        ):
+            clay_mode.fire_op(ctx, doc, op)
 
 
 def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:

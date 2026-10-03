@@ -165,7 +165,7 @@ def test_game_check_reads_ctx_busy_before_offering_the_check_button():
     """The 2026-09-26 audit's clay-panes-08 (the in-flight half): a second
     press while a check was already running reached ``TaskRunner.submit``'s
     own "refused rather than queued" door with nothing on screen saying so.
-    ``_game_check`` must read ``ctx.busy`` (the same in-flight check
+    ``game_check`` must read ``ctx.busy`` (the same in-flight check
     ``_texture_slots`` already uses) before drawing the Check button, driven
     by source inspection the same way ``test_clay_props_undo.py`` checks a
     positional contract no headless frame can attribute to one field over
@@ -177,7 +177,7 @@ def test_game_check_reads_ctx_busy_before_offering_the_check_button():
     claim."""
     import inspect
 
-    source = inspect.getsource(clay_bridge._game_check)
+    source = inspect.getsource(clay_bridge.game_check)
     busy_at = source.index("ctx.busy(")
     button_at = source.index('"Check"')
     assert busy_at < button_at, "ctx.busy must be read before the Check button is drawn"

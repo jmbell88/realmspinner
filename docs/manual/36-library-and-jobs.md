@@ -1,9 +1,9 @@
 # The library and jobs
 
 Everything the app has ever made is a **job**, and the library is where you find one. It has two
-shapes, and they are the same library: a compact list in the lower half of the right sidebar of the
-Create mode, for picking something while you are looking at something else, and a **full window**
-from the rail, for finding something you cannot name. This chapter covers what a job goes through,
+shapes in earlier releases; today the library is the **full window** from the rail, where you find
+something you cannot name, tick a set of assets and act on them. Create's right-hand column is its
+own history of what this session generated. This chapter covers what a job goes through,
 how to find one, how to run one again, how to save a reusable style, and how to keep the disk under
 control.
 
@@ -13,11 +13,12 @@ Three columns. On the left, a rail: the search box, then the collections — **F
 **Trash**, then every **status** and every **kind** as a list you can read rather than a combo you
 have to open — then the sort, and the disk figure at the foot. In the middle, a grid of thumbnails:
 each asset at a size you can recognise it by, with its status pill drawn on the picture and a star in
-the corner if you favourited it. On the right, the **inspector** — the same one the sidebar shows,
-and only there when something is selected, because an empty column beside a grid is an empty column.
+the corner if you favourited it. Two controls sit on the picture's other corners: a **tick** at the
+top right that adds the asset to the bulk selection without selecting it, and, at the bottom left,
+the asset's one **primary action** (below). A trashed asset shows neither. On the right, the
+**inspector**, and only there when something is selected, because an empty column beside a grid is an empty column.
 
-Every control writes the same filters the sidebar's combos write, so switching between the two views
-never loses a filter, and every card offers the same actions and the same right-click menu.
+Every card offers the same actions in its right-click menu.
 
 Arrow keys walk the grid: left and right by one, up and down by a row. **Double-click** a picture, or
 press Enter, to open the highlighted asset in the pane that made it — a single click only selects.
@@ -93,8 +94,8 @@ obvious next step is always the button on offer:
   LoRA run offers **Open**. Any other finished row that the rungs above do not claim has no card
   button, but **Open** is still the first item of its right-click menu.
 
-Everything else lives behind the card's overflow menu. Beside it are a checkbox for bulk selection
-and a star for favouriting.
+Everything else lives behind the card's right-click menu. The tick for bulk selection is the
+checkbox on the picture's top-right corner.
 
 When a job reaches a terminal state, a toast says so — finished, failed with its reason, or
 cancelled. Errors linger about twice as long as ordinary toasts, because they usually say what to
@@ -109,8 +110,7 @@ reference also makes it the Mesh stage's promotion source, so stepping to Mesh i
 it; selecting anything else leaves that source alone, so browsing your meshes never silently changes
 what **Make 3D** would submit.
 
-In the sidebar these are four controls above the list, plus a select-all; in the full window the
-same values are the rail. Either way:
+These values are the rail's controls, plus a select-all above the grid.
 
 - A free-text box, matched against the job's name, prompt, tags and id. Every word has to match,
   so typing more narrows. It also understands field prefixes: `tag:wood`, `status:error`,
@@ -146,14 +146,11 @@ Under the date sort the list is grouped by **today**, **yesterday**, **this week
 The grouping is only shown under that sort: a "today" heading above a list ordered by size would be a
 claim about what separates the rows below it that is not true.
 
-**Density.** The last button on the fourth row of the *sidebar* switches between comfortable and
-compact rows. A compact row is the thumbnail, the name and the status pill — about twice as many
-assets per screen — and everything else is one click away in the right-click menu. The full window
-has no such control: a compact card is a shorter row, and a grid has no rows.
+**Density.** The full window has no density control: a compact card is a shorter row, and a grid
+has no rows.
 
-**Keyboard and mouse.** In Create, Up and Down move the selection through the list and scroll
-it into view; in the full window they move by a row of the grid and Left and Right by one card.
-Right-clicking a card opens the same actions menu the `...` button does, and works on a
+**Keyboard and mouse.** In the full window, Up and Down move by a row of the grid and Left and Right by one card.
+Right-clicking a card opens its actions menu, and works on a
 running job, where the button is replaced by the progress bar. A finished reference can also be
 dragged from the library onto the Mesh stage's **Source** slot.
 
@@ -304,8 +301,7 @@ queue first.
 question is asked — the trash *is* the question, and an undo you can take an hour later is a better
 one than a confirm answered in half a second while looking at something else.
 
-The trash icon on the third row of the sidebar's filter bar switches the list to it, and so does
-**Trash** in the full window's collections. A trashed asset offers
+**Trash** in the full window's collections switches the list to it. A trashed asset offers
 exactly two actions, **Restore** and **Delete permanently...**, and the bulk bar offers the same two
 for a ticked set. Beside them the bar reports what is in there — `12 assets - 4.1 GB` — which is
 the number **Empty trash...** is about, since that button deletes all of it including anything

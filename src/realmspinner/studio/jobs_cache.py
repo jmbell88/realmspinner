@@ -106,6 +106,10 @@ class JobsCache:
         # was the defect: every row past the first page paid its
         # ``attach_files`` stat again, forever, for rows nothing had changed.
         self._old_rows: list[dict[str, Any]] = []
+        # The id of the top page's last row when ``_old_rows`` was adopted:
+        # the older rows are only a continuation of *this* page while its tail
+        # is still the same row (shell-05).
+        self._old_anchor: str | None = None
         # What ``_dirty`` was the moment the in-flight read was started, for
         # the COUNT(*) cadence in :meth:`adopt` -- ``was_dirty`` used to be a
         # local in ``tick``; now the read and the adopt are different calls,
@@ -218,7 +222,16 @@ class JobsCache:
             top_size = min(self.limit, LIST_LIMIT)
             top = svc_jobs.list_jobs(self.svc, top_size, files_cache=files_snapshot)
             target_old = max(0, self.limit - LIST_LIMIT)
-            old = list(self._old_rows[:target_old])
+            # Reused only while they still continue the top page and nothing
+            # the UI did could have touched them: an edit (``invalidate``) to
+            # a row past the first page was never seen (shell-04), and a new
+            # job pushing the 200th row out of the top page left it in
+            # neither list (shell-05). Either re-fetches the older slice from
+            # the top page's tail by keyset cursor; ``files_cache`` keeps the
+            # stat walk cheap for the rows that did not change.
+            anchor = top[-1].get("id") if top else None
+            reusable = (not self._read_was_dirty) and anchor == self._old_anchor
+            old = list(self._old_rows[:target_old]) if reusable else []
             while len(old) < target_old:
                 tail = old[-1] if old else (top[-1] if top else None)
                 if tail is None:
@@ -277,6 +290,7 @@ class JobsCache:
             return False
         old = reading.get("old") or []
         self._old_rows = old
+        self._old_anchor = top[-1].get("id") if top else None
         jobs = top + old
         self.error = None
         self.jobs = jobs
@@ -349,10 +363,15 @@ class JobsCache:
         # this method retrying next frame -- cheap, since a refused submit is
         # just a dict lookup -- until the in-flight read frees the key.
         was_dirty = self._dirty
+        # Set before the submit: ``read`` consults it on the task thread
+        # (shell-04), and assigning after would race the read it describes.
+        previous = self._read_was_dirty
+        self._read_was_dirty = was_dirty
         accepted = bool(runner.submit("jobs-list", self.read, dict(self._files)))
         if accepted:
-            self._read_was_dirty = was_dirty
             self._dirty = False
+        else:
+            self._read_was_dirty = previous
         return accepted
 
     def tick(self, on_transition: Callable[[dict[str, Any], str | None], None] | None = None):

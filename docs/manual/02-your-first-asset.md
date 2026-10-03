@@ -33,14 +33,13 @@ broken. You are at the end of stage one, and stage two is a button.
 
 ## Stage one: the reference
 
-Open **Create** in the rail on the left. The window splits into three: settings on the left, a
-viewport in the middle, and the library on the right. Above the settings is the command bar: a row of five
-segments — Reference, Mesh, Rig, Pose, Export — which is the path an asset takes through the app,
-and, on the Reference and Mesh stages, the controls that make something. You are on Reference.
+Open **Create** in the rail on the left. The brief and settings are on the left, the canvas
+and attempts in the middle, and the inspector and recent creations on the right. The header shows
+Reference, Mesh, Rig, Pose and Export for a 3D model, plus New and Inspector controls. You are on Reference.
 
 Three controls matter for a first run, and everything else has a sensible default.
 
-**The type combo**, the first control on the bar. Leave it on *3D Model*. This one choice quietly
+**The type combo**, under **Your brief**. Leave it on *3D Model*. This one choice quietly
 sets several things at once, which is why it is a single combo rather than three: what the job
 produces, how the prompt is composed, and which follow-up work is offered. The other five entries
 make plain images, seamless materials, tilesets and sprite sheets — and Character, the one entry
@@ -48,7 +47,7 @@ that needs no GPU at all: it builds, rigs and renders a mesh straight from the c
 rather than going through SDXL and reconstruction (see [A character sprite
 sheet](11-a-character-sprite-sheet.md)).
 
-**The prompt field**, right after the type combo on the bar. Write a subject, not a scene:
+**The prompt field**, below the type combo. Write a subject, not a scene:
 
 ```text
 a mossy stone well, weathered, fantasy game prop
@@ -64,8 +63,8 @@ because it was measured against the alternatives rather than chosen for speed. N
 yourself when you want a specific one; the four-step entries are for hunting, not for a picture you
 mean to reconstruct.
 
-Press **Generate reference** — the button in the bar, whose label names whatever you are making.
-The job appears in the library on the right, immediately, as a queued row with a progress bar. A
+Press **Generate reference** — the persistent button at the bottom of the left column.
+The job appears in this creation’s Attempts strip, immediately, as a queued result. A
 few seconds later it is a picture.
 
 ## Looking at it
@@ -89,10 +88,9 @@ the viewport toolbar opens the reference as a layered drawing, and saving writes
 
 ## Stage two: the mesh
 
-When the picture is right, press **Make 3D** on its card in the results tray under the canvas. That
-moves you to the Mesh stage first, with the reference as its source, and then opens the cutout check.
-You can also select the reference, go to the Mesh stage yourself, and press **Make 3D** in its command
-bar, where the Source chip names the reference it will use.
+When the picture is right, select its thumbnail in **Attempts** and choose **Use as source for 3D**
+in the inspector. This opens the Mesh stage with that reference chosen. Check the Source chip near
+the top of the left column, then press the persistent **Make 3D** button at its bottom.
 
 A panel opens showing a **cutout** — the subject with its background removed. This is not a preview
 of the model; it is the actual image the reconstruction will be run against, and it is shown before

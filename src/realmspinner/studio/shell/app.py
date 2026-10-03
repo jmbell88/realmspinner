@@ -743,7 +743,11 @@ class App(
         except Exception as exc:
             from ...db import StoreUnreadable
 
-            if isinstance(exc, StoreUnreadable):
+            if isinstance(exc, (StoreUnreadable, StartupRefused)):
+                # shell-08: ``StartupRefused`` (no OpenGL 3.3, missing fonts)
+                # carries its own sentence for ``_run_locked``'s dialog and
+                # was absorbed here into the generic one. Same re-raise as
+                # shell-03 below; ``teardown`` still runs from ``finally``.
                 # shell-03 (2026-09-07 audit): this catch-all used to absorb
                 # every setup failure, including a corrupt job database, so
                 # ``_run_locked``'s own ``except StoreUnreadable`` -- which

@@ -100,9 +100,9 @@ Selecting the root joint and ticking **Move root** swaps its gizmo from rotation
 arrows. This is how you author a crouch or a hop — moving the whole figure rather than bending it.
 
 One thing to know: the offset is stored in **character-height units**, not metres, so the same
-crouch applies sensibly to a gnome and a giant. Applying a library pose to an asset previews the
-offset along with the rotations — the same root translation lands in the baked GLB and in rendered
-sheet rows.
+crouch applies sensibly to a gnome and a giant. Applying a library pose to an asset here previews
+the **rotations only** — the offset is real and the same root translation lands in the baked GLB and
+in rendered sheet rows, but only [Poser's own asset session](26-poser.md) shows it on screen.
 
 ## Poses and clips are stored differently
 

@@ -737,6 +737,26 @@ def test_an_adopter_that_declines_is_counted_honestly(tmp_path, kind):
     assert payload.exists()
 
 
+def test_a_declined_recovery_stays_offered_for_the_rest_of_the_session(tmp_path, kind):
+    """shell-06: ``take`` dropped the Home row even when the provider declined,
+    and the snapshot is read once, so "it will be offered again" was false."""
+    journal.register(
+        journal.Provider(**{**kind.provider.__dict__, "adopt": lambda *a: False})
+    )
+    ctx = _Ctx(tmp_path)
+    ctx.state.recovery = None
+    payload = tmp_path / "p-x.probe"
+    payload.write_bytes(b"x")
+    journal.meta_path(payload).write_text(
+        json.dumps({"version": journal.VERSION, "kind": "probe", "title": "p", "at": 1})
+    , encoding="utf-8")
+    (found,) = journal.snapshot(ctx)
+
+    assert journal.take(ctx, found) is False
+
+    assert [row.path for row in journal.snapshot(ctx)] == [found.path]
+
+
 # --- the whole span, 1 through 5 ----------------------------------------------
 
 

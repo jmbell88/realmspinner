@@ -20,7 +20,7 @@ this module reaches for nothing else, so it needs no entry there at all.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -68,3 +68,15 @@ class CreateState:
     # whether the pattern *reads* as repeating, which is a question the user
     # asks deliberately; the seam question already has the wrapped view.
     tile_preview: bool = False
+    workspace: str | None = None
+    workspace_selection: str | None = None
+    index_memo: Any = None
+    drafts: dict[str, Any] = field(default_factory=dict)
+    # (source_job, selected) as the last ``session.sync`` left them: the draft
+    # of the creation being left is filed from this, not from whatever the
+    # incoming selection has already overwritten (create-01).
+    synced: Any = None
+    comparison_pin: str | None = None
+    image_comparing: str | None = None
+    inspector_open: bool = True
+    preview_mode: str = "result"

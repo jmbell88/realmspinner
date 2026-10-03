@@ -123,8 +123,13 @@ def test_resolving_a_group_clears_membership_and_keeps_the_index(store):
 def test_the_library_hides_an_undecided_candidate_and_shows_a_decided_one():
     filters = Filters()
     undecided = {"id": "a", "status": "done", "stage": "model", "candidate_group": "g1"}
-    decided = {"id": "a", "status": "done", "stage": "model", "candidate_group": None,
-               "candidate_index": 1}
+    decided = {
+        "id": "a",
+        "status": "done",
+        "stage": "model",
+        "candidate_group": None,
+        "candidate_index": 1,
+    }
     assert filters.matches(undecided) is False
     assert filters.matches(decided) is True
 
@@ -133,9 +138,9 @@ def test_the_library_hides_an_undecided_candidate_and_shows_a_decided_one():
 
 
 def _reference(svc, *, ok: bool = True) -> str:
-    job_id = svc_jobs.create_job(
-        svc, kind="text", prompt="a wooden chest", output="reference"
-    )["id"]
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="a wooden chest", output="reference")[
+        "id"
+    ]
     job_dir = svc.job_dir(job_id)
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "input.png").write_bytes(b"x")
@@ -164,6 +169,25 @@ def test_candidate_zero_keeps_the_requested_seed_and_the_rest_draw_fresh_ones(sv
     assert [r["params"]["seed"] for r in rows] == seeds
 
 
+def test_managed_workspace_candidates_remain_visible_and_reruns_keep_identity(svc):
+    from realmspinner.studio.modes.create.engine import workspace
+    from realmspinner.studio.state import Filters
+
+    source = _reference(svc)
+    batch = svc_jobs.promote_candidates(svc, source, count=3, create_workspace="creation")
+    rows = [svc.store.get(i) for i in batch["ids"]]
+    assert all(r["params"]["create_workspace"] == "creation" for r in rows)
+    assert candidates_mod.pending(rows) is None
+    assert all(Filters().matches(r) for r in rows)
+    winner = rows[0]["id"]
+    svc.store.set_status(winner, "done")
+    rerun = svc_jobs.rerun_job(svc, winner, mode="remesh")
+    repeated = svc.store.get(rerun["id"])
+    assert repeated["params"]["create_workspace"] == "creation"
+    index = workspace.build_index([svc.store.get(source), *rows, repeated])
+    assert len(workspace.results(index, "creation:creation", "mesh")) == 4
+
+
 def test_every_candidate_is_a_member_of_one_group_numbered_from_zero(svc):
     source = _reference(svc)
     result = svc_jobs.promote_candidates(svc, source, count=3)
@@ -180,9 +204,7 @@ def test_the_count_is_bounded_at_the_door(svc):
     for bad in (0, 4, 99):
         with pytest.raises(Invalid):
             svc_jobs.promote_candidates(svc, source, count=bad)
-    assert svc.store.list(100) == [] or all(
-        j["stage"] != "model" for j in svc.store.list(100)
-    )
+    assert svc.store.list(100) == [] or all(j["stage"] != "model" for j in svc.store.list(100))
 
 
 def test_admission_is_all_or_nothing(svc):
@@ -729,8 +751,13 @@ def test_an_unset_engine_axis_writes_no_param_so_the_exe_default_runs(svc):
     )
     params = svc.store.get(result["id"])["params"]
     for key in (
-        "trellis_band", "trellis_tex_res", "trellis_gss", "trellis_gsh",
-        "trellis_max_tokens", "trellis_decim", "trellis_atlas",
+        "trellis_band",
+        "trellis_tex_res",
+        "trellis_gss",
+        "trellis_gsh",
+        "trellis_max_tokens",
+        "trellis_decim",
+        "trellis_atlas",
     ):
         assert key not in params
 
@@ -762,9 +789,7 @@ def test_a_bad_engine_value_is_refused_at_promotion_with_its_field(svc):
 
     # A refusal must not leave a row behind -- the same all-or-nothing rule
     # ``test_admission_is_all_or_nothing`` states for the reference report.
-    assert svc.store.list(100) == [] or all(
-        j["stage"] != "model" for j in svc.store.list(100)
-    )
+    assert svc.store.list(100) == [] or all(j["stage"] != "model" for j in svc.store.list(100))
 
 
 # --- the 3D pane's control ---------------------------------------------------

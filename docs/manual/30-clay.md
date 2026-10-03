@@ -9,9 +9,9 @@ It is a mode, not a takeover. Switching away leaves every open document exactly 
 reconstruction started before you switched keeps running with its progress card floating over the
 viewport. Only quitting the app can lose unsaved work, and it asks first.
 
-The layout follows the rest of the app: tools and the selected object's properties on the left, the
-viewport in the middle, the outliner and the document panel on the right. Several documents stay
-open at once.
+The layout follows the rest of the app and Blender's: the **Add** palette on the left; in the middle the
+menu strip and the header over the viewport; on the right the outliner, the Properties tabs, the UV
+view and the file panel. Several documents stay open at once.
 
 ## Starting a document
 
@@ -28,10 +28,11 @@ work, and entering the mode is not a reason to disturb them.
 ## Adding a primitive
 
 A document with nothing in it says so in the viewport itself — "Add a shape", with "Pick one from
-Tools" underneath and a button that drops a box at the origin — rather than leaving you to notice an
-empty grid and go looking for the **add** row on your own.
+Add" underneath and a button that drops a box at the origin — rather than leaving you to notice an
+empty grid and go looking for the **Add** palette on your own.
 
-The **add** row is one icon grid, in three groups. **Primitives**: box, plane, grid, cylinder,
+The **Add** palette on the left is one icon grid, in three groups, and the **Add** menu in the menu
+strip lists the same shapes (see [The menu strip](#the-menu-strip)). **Primitives**: box, plane, grid, cylinder,
 cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch, column, lathe,
 sweep and tube. **Game**: wedge, ramp, rounded box, stairs, wall and doorway. Clicking one places
 it at the origin, selects it, and marks it the tool in hand — its icon stays lit until another
@@ -158,6 +159,29 @@ A rebuild keeps your shading. Change something that leaves the face count alone 
 something that alters the faces themselves, like a segment count, and the shading is worked out
 again by the same rule the object arrived with, because they are not the same faces any more.
 
+## The menu strip
+
+The names across the very top of the viewport — **Select**, **Add**, **Object** (or **Mesh** and the
+menu of the element mode you are in) and **UV** — are where every operation Clay has lives. They are
+Blender's menus, grouped the way Blender groups them, and they change with the mode: object mode shows
+Object, vertex mode shows Mesh and Vertex, edge mode Mesh, Edge and UV, face mode Mesh and Face. A
+menu with nothing to offer in the current mode is not drawn, which is why vertex mode has no UV menu.
+In a narrow window the names fold into a `…` menu with the words back.
+
+**Select** holds select all, none and invert in every mode, and linked, more, less and boundary in
+the element modes. **Add** holds the shapes (Primitives, Structures, Game), **Figures**, **Collider**
+(a box, sphere, capsule, convex hull or compound fitted to the selection), **Import Mesh...** and
+**Generate...**. **Object** groups what applies to whole objects into submenus: Transform, Set Origin,
+Mirror, Array, Parent, Join & Boolean, Shading, Subdivide, Clean Up, Separate and Lock, with
+Duplicate and Delete outside them. **Mesh** is what every element mode shares — extrude, dissolve,
+collapse, bisect, knife, subdivide, set origin, delete — and **Vertex**, **Edge** and **Face** each
+hold what only that mode has. **UV** is the unwrap family: Box Unwrap, Unwrap Seams, Smart Unwrap,
+Pack Islands, Texel Density, Bake Detail and, in edge mode, Mark and Clear Seam.
+
+A row that cannot run is greyed and hovering it says why; a row with an ellipsis opens a small
+dialog of numbers first. The right-click menu in the viewport lists exactly the same operations, in the
+same order and with the same groups separated by rules — one table decides both.
+
 ## The viewport header
 
 The row across the top of the viewport is where everything you change *between* clicks lives: which
@@ -224,8 +248,8 @@ to read this chapter.
 ## Element modes
 
 Every object starts as one thing you can move about. Press `1`, `2` or `3` and it becomes a mesh you
-can take apart: vertices, edges, faces. `4` goes back to object mode. The buttons above the add row
-say the same thing, and highlight whichever mode the document is in.
+can take apart: vertices, edges, faces. `4` goes back to object mode. The **Mode** pill in the
+viewport header says the same thing, and highlights whichever mode the document is in.
 
 | Key | Mode | What clicking selects |
 | --- | --- | --- |
@@ -248,7 +272,7 @@ rectangle dragged over a blockout means.
 it is how you look at what you are about to click.
 
 Right-click opens the context menu, listing exactly the operations that apply in the current mode
-with the ones that cannot run greyed out. The same list drives the buttons in the tools column, so
+with the ones that cannot run greyed out. The same table drives the menu strip, so
 neither can offer something the other refuses. Operations that take a number — bevel, inset, weld,
 loop cut, smooth — open a small dialog with the fields and an **Apply** button, and remember what you
 last used.
@@ -496,6 +520,23 @@ selecting by accident is the floor. It can still be selected here in the outline
 unlock it again. The eye and the padlock are deliberately different: hiding is about what you can
 see, locking about what you can change.
 
+## The Properties tabs
+
+Properties on the right is a strip of five tabs, Blender's Properties editor reduced to what Clay
+has. Hover a glyph for its name.
+
+| Tab | What it holds |
+| --- | --- |
+| **Object** | Name, visibility and lock, the parent, tags, transform and size, and the shape's own numbers |
+| **Modifiers** | The non-destructive stack on the selected object |
+| **Material** | The palette, the selected slot, its textures and the material library |
+| **Data** | The selected object's counts and its mesh check |
+| **Scene** | The whole document: export engine, import units and up axis, and the game check |
+
+The tab is remembered while the app is open and is the same for every document. Scene is the one tab
+that needs no object selected, since it is about the document rather than a part of it; the others
+say "Nothing selected" or how many objects are selected until exactly one is.
+
 ## Parents, groups and tags
 
 **Parenting** makes one object follow another. Drag a row onto another in the outliner, or select
@@ -630,7 +671,7 @@ axis doubles what the first one made: one table leg, mirrored across X and then 
 ## Modifiers
 
 A modifier changes how an object looks without changing the mesh you edit. Each object carries a
-**stack** of them, drawn in the **Modifiers** section of the properties panel, and what the viewport
+**stack** of them, drawn in the **Modifiers** tab of the Properties pane, and what the viewport
 shows, what gets exported and what the game check measures is the mesh run through that stack from
 top to bottom. The mesh underneath, the *base*, is still the one element modes select and edit, so
 you can model half a character with a Mirror modifier on and watch the other half follow.
@@ -717,8 +758,11 @@ whatever is being dragged is never its own target.
 
 Every primitive comes with texture coordinates already on it — a box's six faces, a cylinder's band
 with its two caps tucked into the corners, a sphere laid out pole to pole, a torus wrapped both
-ways. They are laid out so that no two parts of one shape sit on top of each other in the square,
-because a texture cannot be baked onto a layout whose pieces overlap.
+ways. The round shapes (cylinder, cone, sphere, torus, capsule and the like) are laid out so that
+no two parts of one shape sit on top of each other in the square. The flat-panelled ones — box,
+wedge, ramp, rounded box, stairs, wall and doorway — and the icosphere are box-projected instead:
+faces that point opposite ways share the same square on purpose, which paints well but cannot be
+baked onto, so unwrap one by seams (below) first if you need a bake.
 
 **Box Unwrap** recomputes them for whatever is selected, projecting each face along whichever axis
 it points along most. It is the same projection the box primitive uses, and it is the right answer
@@ -748,7 +792,10 @@ producing a tangle. For anything dense, **Smart Unwrap** through Blender is the 
 ### The UV view
 
 The **UV** panel shows the selected object's texture layout: its islands, which of their edges are
-seams, and the element selection highlighted inside them. The wheel zooms, the middle button pans,
+seams, and the element selection highlighted inside them. An object with no layout yet says so and offers
+**Box Unwrap**, **Unwrap Seams** and **Smart Unwrap...** right there; the same three sit under the
+toolbar once there is a layout, beside **Pack islands...**, which asks for its margin the way the UV
+menu's Pack Islands does. The wheel zooms, the middle button pans,
 and dragging either box-selects islands or moves whichever ones are selected. `E` and `R` rotate and
 scale what is selected — the same letters the viewport uses — following the mouse until you click to
 keep the result or press `Esc` to drop it. The fields beside the canvas do the same thing to an
@@ -763,7 +810,7 @@ what keeps two props next to each other in a game looking equally sharp.
 
 ## Checking a mesh
 
-The properties panel has a **mesh check** under the generator's parameters. It measures the selected
+The **Data** tab of Properties has a **mesh check**. It measures the selected
 object against the defects a mesh can carry without anything noticing: holes, non-manifold edges
 (three or more faces on one edge), inconsistently wound faces, duplicate faces and vertices no face
 uses. Each finding is a button — clicking it switches to the element mode the defect lives in and
@@ -805,7 +852,7 @@ your edit, and the toast names it.
 
 ## The game check
 
-The **Game check** section at the bottom of the side panel measures the whole document against a
+The **Game check** in the **Scene** tab of Properties measures the whole document against a
 target: Godot desktop, Godot mobile, Unity, Unreal or WebGL. Pick one and press **Check**.
 
 Each row is one question with a pass, warn or fail mark: triangle and vertex budgets, how many
@@ -852,7 +899,7 @@ it, then bake the original's detail onto it.
 
 ## Materials
 
-Every object points at a slot in the document's material palette, chosen in the properties panel.
+Every object points at a slot in the document's material palette, chosen in the Material tab of Properties.
 The slot's **base colour**, **metallic** and **roughness** are edited there too, and the change
 reaches every object using that slot at once — which is the point of a palette rather than a
 material per object.
@@ -901,12 +948,12 @@ selected the properties panel names it **Collider** and gives its kind. That las
 because the auto-generated name used to be the only place a collider announced itself, and renaming
 the object does not change what the exporters and the game check still treat it as.
 
-Which engine you are exporting to is a setting, and it decides two things. Colliders are **renamed
-on the way out** to whatever that engine recognises — `UCX_Crate_00` for Unreal, a `-convcolonly`
-suffix for Godot — while the names in your document stay as you wrote them. And an OBJ export is
-converted to the engine's axis and scale convention. A GLB is deliberately left alone: every engine's
-glTF importer does that conversion itself, and doing it twice is the classic way to end up with an
-asset lying on its side at a hundred times the size.
+Which engine you are exporting to is a setting — the **export engine** in the Scene tab — and it
+decides two things. Colliders are **renamed on the way out** to whatever that engine recognises —
+`UCX_Crate_00` for Unreal, a `-convcolonly` suffix for Godot — while the names in your document stay
+as you wrote them. And an OBJ export is converted to the engine's axis and scale convention. A GLB
+is deliberately left alone: every engine's glTF importer does that conversion itself, and doing it
+twice is the classic way to end up with an asset lying on its side at a hundred times the size.
 
 The game check reads the same engine choice, so its budgets, its collider rows and the naming all
 come from one place rather than three.
@@ -979,11 +1026,11 @@ is to open the document and change it.
 
 ## Importing an asset
 
-**Import Mesh** in the side panel opens a `.glb`, `.obj`, `.stl` or `.ply` file, and dropping one on
+**Add ▸ Import Mesh...** opens a `.glb`, `.obj`, `.stl` or `.ply` file, and dropping one on
 the window while Clay is on screen does the same. The library card's overflow menu has **Open in
 Clay** for any finished model.
 
-Beside the button are two choices a drop uses too: the file's **units** (metres, centimetres,
+In the Scene tab are two choices a drop uses too: the file's **import units** (metres, centimetres,
 millimetres, inches or feet) and which way is **up** (Y or Z). Clay works in metres with Y up, so a
 file from a Z-up tool imported as Y-up lies on its back, and one in centimetres arrives a hundred
 times too big.
@@ -1018,7 +1065,7 @@ since every edit rebuilds the whole mesh and you should know that before you pre
 
 ## Generating into a document
 
-**Import Mesh** brings in something built elsewhere. **Generate...**, beside it, builds one and lands
+**Import Mesh** brings in something built elsewhere. **Generate...**, beside it in the Add menu, builds one and lands
 it in the document you already have open — new objects, beside whatever is selected, in one press of
 Ctrl+Z if you change your mind. The job it queues is an ordinary Library row, exactly as if you had
 pressed Generate in Create; nothing about it is special to Clay except where the result ends up.

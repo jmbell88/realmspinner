@@ -717,11 +717,28 @@ def _lookup(
     key = tuple(span)
     if key in table:
         return table[key]
+    # -ing/-ed stems are only meant for the action and theme tables ("walking",
+    # "flaming"); on a species table they turned "bearing" into bear and
+    # "being" into bee, so a plural is the only inflection a species gets.
     for variant in _variants(span[-1])[1:]:
         candidate = (*span[:-1], variant)
         if candidate in table:
-            return table[candidate]
+            hits = table[candidate]
+            if _is_verbal(span[-1], variant):
+                hits = [h for h in hits if h[0] in _VERBAL_CATEGORIES]
+            if hits:
+                return hits
     return []
+
+
+_VERBAL_CATEGORIES = ("action", "theme")
+
+
+def _is_verbal(token: str, variant: str) -> bool:
+    """Whether ``variant`` came from stripping -ing/-ed rather than a plural."""
+    if token in _IRREGULAR and _IRREGULAR[token] == variant:
+        return False
+    return token.endswith(("ing", "ed")) and variant != token
 
 
 # --- the scan ----------------------------------------------------------------

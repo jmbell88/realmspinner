@@ -53,6 +53,10 @@ def _validate_edges_arg(mesh: Any, edges_arg: Any) -> tuple[list[list[int]] | No
     """*edges_arg* as ``[[v, v], ...]``, every pair a real edge of *mesh* --
     the identical check ``agent_clay_tools_ops._h_select_elements`` already
     runs for its own ``edges`` argument, reused rather than re-derived."""
+    if not isinstance(edges_arg, (list, tuple)) or any(
+        not isinstance(row, (list, tuple)) for row in edges_arg
+    ):
+        return None, fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
     try:
         pairs = [[int(a), int(b)] for a, b in edges_arg]
     except (TypeError, ValueError):

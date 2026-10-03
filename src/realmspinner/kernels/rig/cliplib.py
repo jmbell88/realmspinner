@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import charsheet
-from ..sheet import EASINGS, POSE_SPACES
+from ..sheet import EASINGS, MAX_CLIP_FRAMES, POSE_SPACES
 from .poses import validate_bones
 from .templates import TEMPLATE_DIR, _read_json_capped, catalog, get_template
 
@@ -358,6 +358,17 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     f"clip {name!r} has a segment of {n} frames; each is "
                     f"{MIN_CLIP_SEGMENT}-{MAX_CLIP_SEGMENT}"
+                )
+        # poser-05 (2026-10-03): each segment may be 1-64, but the clip's
+        # expansion (segments, plus the landing frame when open) must still
+        # fit ``sheet.MAX_CLIP_FRAMES`` or ``sheet.interpolate_clip`` raises
+        # for the whole rig's animated.glb bake.
+        if len(keys) >= 2:
+            total = sum(segments) + (0 if closed else 1)
+            if total > MAX_CLIP_FRAMES:
+                raise ValueError(
+                    f"clip {name!r} expands to {total} frames; a clip holds "
+                    f"at most {MAX_CLIP_FRAMES}"
                 )
         if version >= 3:
             if "duration_ms" not in clip:

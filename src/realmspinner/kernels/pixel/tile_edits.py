@@ -103,12 +103,20 @@ class TilesetGrowEdit(Edit):
         # did -- truncated to the number of tiles *appended* instead: a
         # one-tile Stack-mode grow onto a two-tile set undid to a *one*-tile
         # set, silently destroying the tileset's only real tile.
+        #
+        # The 2026-10-03 audit (inker-23): on a multi-column tileset a grow
+        # also mints the blank cells that finish its last row, so "minus what
+        # this step added" over-counts; the count ``redo`` saw going in is the
+        # exact answer, and the subtraction stays as the fallback for an edit
+        # that was never applied through ``redo``.
         slot = doc.tileset_slot(self.tileset_uid)
-        doc._apply_tileset_grow(
-            self.tileset_uid, int(slot.tileset.tile_count) - int(self.added.shape[0])
-        )
+        before = getattr(self, "_before_count", None)
+        if before is None:
+            before = int(slot.tileset.tile_count) - int(self.added.shape[0])
+        doc._apply_tileset_grow(self.tileset_uid, int(before))
 
     def redo(self, doc: Any) -> None:
+        self._before_count = int(doc.tileset_slot(self.tileset_uid).tileset.tile_count)
         doc._apply_tileset_grow(self.tileset_uid, self.added)
 
 

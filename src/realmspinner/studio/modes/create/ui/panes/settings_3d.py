@@ -30,7 +30,7 @@ from ......service import jobs as svc_jobs
 from ......service import sheets as svc_sheets
 from ......service.errors import Invalid
 from ......service.validation import MAX_UPLOAD_BYTES, random_seed
-from ..... import controls, dialogs, focus, forms, matte_preview, theme, tokens, widgets
+from ..... import controls, dialogs, focus, forms, matte_preview, theme, widgets
 from .....formvalues import coerce_form_value
 from .....manual import render as manual_render
 from .....panes import model_gate, remesh_panel, retarget_panel, stage_rig
@@ -111,14 +111,18 @@ def draw(ctx: Any) -> None:
         # press is in the bar's ring now.
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
-        if imgui.begin_child("3d-form", (0, -sp(_footer_px[0]))):
+        if imgui.begin_child("3d-form", (0, -sp(220))):
+            from .. import brief
+
+            brief.inputs(ctx, mesh=True)
             _draw_form(ctx, form_ui, "Mesh resolution", source)
         imgui.end_child()
-        top = imgui.get_cursor_pos_y()
-        _footer(ctx, form, source)
-        height = imgui.get_cursor_pos_y() - top
-        if height > 0:
-            _footer_px[0] = height / max(tokens.SCALE, 0.01)
+        if imgui.begin_child("3d-plan", (0, -sp(52))):
+            _footer(ctx, form, source)
+        imgui.end_child()
+        from .. import brief
+
+        brief.submit_control(ctx, mesh=True)
 
 
 def _draw_form(
@@ -154,8 +158,7 @@ def _draw_form(
             form["platform"],
             _platform_options(ctx),
             help_text=(
-                "How much geometry trellis is asked for. Higher costs more GPU "
-                "and more triangles."
+                "How much geometry trellis is asked for. Higher costs more GPU and more triangles."
             ),
         )
     if form["platform"] != before:
@@ -185,8 +188,7 @@ def _draw_form(
         "Normalise the reference",
         bool(form["reference_prep"]),
         help_text=(
-            "Recentre the subject and scale it to fill the frame before the mesh "
-            "engine sees it."
+            "Recentre the subject and scale it to fill the frame before the mesh engine sees it."
         ),
         helper=(
             "Off by default: the engine does its own cropping, and whether doing "
@@ -310,7 +312,7 @@ def _hint(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
 
 
 def _best_value_offer(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
-    """"7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
+    """ "7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
     evidence favours a value other than the one already set.
 
     **Offered, never applied** -- ``_size_suggestion``'s shape (below), drawn
@@ -374,7 +376,7 @@ def _size(ctx: Any, form: dict[str, Any]) -> None:
 
 
 def _size_suggestion(ctx: Any, form: dict[str, Any]) -> None:
-    """"barrel -- usually 0.9 m", with a button, while the size is unset.
+    """ "barrel -- usually 0.9 m", with a button, while the size is unset.
 
     Scale is the first thing an engine import gets wrong, and this control is
     opt-in: leave it alone and every asset lands at whatever the reference
@@ -446,9 +448,7 @@ def _budget_options(ctx: Any, form: dict[str, Any] | None = None) -> list[tuple[
     """
     options: list[tuple[str, str]] = []
     if remesh_panel.blender_available(ctx):
-        options += [
-            (f"lowpoly:{key}", f"Game-ready ({key})") for key in remesh.TRIANGLE_PROFILES
-        ]
+        options += [(f"lowpoly:{key}", f"Game-ready ({key})") for key in remesh.TRIANGLE_PROFILES]
         stale = _stale_lowpoly_entry(form)
         if stale is not None:
             options.append(stale)
@@ -532,6 +532,14 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
         form["profile"] = "raw"
         form["lowpoly_triangles"] = 0
         return
+    if not remesh_panel.blender_available(ctx) and int(form.get("lowpoly_triangles") or 0) > 0:
+        # The default form carries Game-ready 5k, which the combo cannot offer
+        # here -- it drew another entry while ``promote_kwargs`` kept sending
+        # 5000, and the door refused the first Make 3D ("a game-ready budget
+        # remeshes in Blender, which is not installed", create-03). Settled
+        # on the manual's own fallback, which is what the combo then shows.
+        form["lowpoly_triangles"] = 0
+        form["profile"] = "standard"
     current = _budget_current(form)
     picked = widgets.labeled_combo("Budget", current, _budget_options(ctx, form))
     # Gated on an actual gesture (the 2026-09-23 audit, finding create-07):
@@ -543,6 +551,13 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
         _apply_budget_choice(form, picked)
     widgets.field_error(ctx.state, "profile")
     widgets.field_error(ctx.state, "lowpoly_triangles")
+    if form.get("lowpoly_triangles"):
+        form["mesh_finishing"] = widgets.labeled_combo(
+            "Finishing",
+            form.get("mesh_finishing", "repair"),
+            [("preserve_shape", "Preserve shape"), ("repair", "Repair and close holes")],
+        )
+        widgets.field_error(ctx.state, "mesh_finishing")
     _hint(ctx, form, "profile", form["profile"])
     if form["profile"] == "custom":
         # The same control the retarget panel draws, appearing under exactly
@@ -579,7 +594,7 @@ def _source_param(ctx: Any, key: str) -> str | None:
 
 
 def _inherit_label(ctx: Any, key: str, label_for: dict[str, str] | None = None) -> str:
-    """"keep the reference's" made concrete.
+    """ "keep the reference's" made concrete.
 
     The generic wording answered "what happens if I leave this alone" with
     "something, unnamed" -- correct, but a user picking a reference with a
@@ -724,7 +739,9 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         "Changing any of these restarts it for this job."
     )
     changed, value = form_ui.number(
-        "trellis_band", "Band", int(form["trellis_band"]),
+        "trellis_band",
+        "Band",
+        int(form["trellis_band"]),
         help_text=(
             "Narrow-band width in voxels for the DC remesh, 1 to 64. 0 keeps "
             "the engine's own default."
@@ -738,11 +755,10 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     _hint(ctx, form, "trellis_band", form["trellis_band"])
 
     changed, value = form_ui.number(
-        "trellis_tex_res", "Texture resolution", int(form["trellis_tex_res"]),
-        help_text=(
-            "Baked PBR texture edge in px, 128 to 4096. 0 keeps the engine's "
-            "own default."
-        ),
+        "trellis_tex_res",
+        "Texture resolution",
+        int(form["trellis_tex_res"]),
+        help_text=("Baked PBR texture edge in px, 128 to 4096. 0 keeps the engine's own default."),
         # Committed on leaving the field, not per keystroke: a clamp that ran
         # on every character would turn the "2" of a typed 2048 into 128.
         commit=True,
@@ -752,10 +768,11 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     _hint(ctx, form, "trellis_tex_res", form["trellis_tex_res"])
 
     changed, value = form_ui.number(
-        "trellis_gss", "Sparse-structure guidance", float(form["trellis_gss"]),
+        "trellis_gss",
+        "Sparse-structure guidance",
+        float(form["trellis_gss"]),
         help_text=(
-            "Guidance strength for the sparse-structure stage. 0 keeps the "
-            "engine's own default."
+            "Guidance strength for the sparse-structure stage. 0 keeps the engine's own default."
         ),
     )
     if changed:
@@ -763,10 +780,11 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     _hint(ctx, form, "trellis_gss", form["trellis_gss"])
 
     changed, value = form_ui.number(
-        "trellis_gsh", "Structured-latent guidance", float(form["trellis_gsh"]),
+        "trellis_gsh",
+        "Structured-latent guidance",
+        float(form["trellis_gsh"]),
         help_text=(
-            "Guidance strength for the structured-latent stage. 0 keeps the "
-            "engine's own default."
+            "Guidance strength for the structured-latent stage. 0 keeps the engine's own default."
         ),
     )
     if changed:
@@ -774,7 +792,9 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     _hint(ctx, form, "trellis_gsh", form["trellis_gsh"])
 
     changed, value = form_ui.number(
-        "trellis_max_tokens", "Token budget", int(form["trellis_max_tokens"]),
+        "trellis_max_tokens",
+        "Token budget",
+        int(form["trellis_max_tokens"]),
         help_text=(
             "The engine's high-resolution token budget (it ships at 49152). "
             "0 keeps the engine's own default."
@@ -788,7 +808,9 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     _hint(ctx, form, "trellis_max_tokens", form["trellis_max_tokens"])
 
     changed, value = form_ui.number(
-        "trellis_decim", "Decimation", int(form["trellis_decim"]),
+        "trellis_decim",
+        "Decimation",
+        int(form["trellis_decim"]),
         help_text=(
             "The engine's own decimation. -1 keeps its default (quadric "
             "simplify to ~300k faces at resolution 1024); 0 turns it off and "
@@ -802,11 +824,10 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     _hint(ctx, form, "trellis_decim", form["trellis_decim"])
 
     changed, value = form_ui.number(
-        "trellis_atlas", "Atlas resolution", int(form["trellis_atlas"]),
-        help_text=(
-            "UV atlas edge in px for the baked textures. 0 keeps the "
-            "engine's own default."
-        ),
+        "trellis_atlas",
+        "Atlas resolution",
+        int(form["trellis_atlas"]),
+        help_text=("UV atlas edge in px for the baked textures. 0 keeps the engine's own default."),
     )
     if changed:
         # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
@@ -815,7 +836,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
 
 
 def _turnaround(ctx: Any) -> None:
-    """"Render turnaround": the sprite-sheet control, reached from the mesh
+    """ "Render turnaround": the sprite-sheet control, reached from the mesh
     that already exists rather than from a rig-shaped stage.
 
     The 2026-09-07 review, item 7.1: ``docs/manual/27-sprite-sheets.md`` is
@@ -966,8 +987,18 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
     matte_preview.open_for(
         ctx,
         source["id"],
-        {**create_mesh.promote_kwargs(form), "count": create_mesh.candidate_count(form)},
+        {
+            **create_mesh.promote_kwargs(form),
+            "count": create_mesh.candidate_count(form),
+            **_workspace_metadata(ctx),
+        },
     )
+
+
+def _workspace_metadata(ctx: Any) -> dict[str, str]:
+    from .. import session
+
+    return session.metadata(ctx)
 
 
 def submit_promotion(ctx: Any, job_id: str, kwargs: dict[str, Any], force: bool) -> None:
@@ -993,7 +1024,13 @@ def submit_promotion(ctx: Any, job_id: str, kwargs: dict[str, Any], force: bool)
     # create was still running was dropped, silently, with the modal closing and
     # looking exactly like success. Nothing queued, nothing said (UX-26).
     if not ctx.submit(
-        "submit", svc_jobs.promote_candidates, ctx.svc, job_id, force=force, **kwargs
+        "submit",
+        svc_jobs.promote_candidates,
+        ctx.svc,
+        job_id,
+        force=force,
+        tag=ctx.state.create.workspace,
+        **kwargs,
     ):
         ctx.toast("Still submitting the last one - try again in a moment.")
         return
@@ -1015,9 +1052,7 @@ def _auto_accept(ctx: Any, state: Any) -> None:
     # ``_LAST_AUTO_MATTE_SLOT``).
     ctx.state.preview[_LAST_AUTO_MATTE_SLOT] = state.preview
     job_id = state.job_id
-    matte_preview.accept(
-        ctx, lambda kwargs, force: submit_promotion(ctx, job_id, kwargs, force)
-    )
+    matte_preview.accept(ctx, lambda kwargs, force: submit_promotion(ctx, job_id, kwargs, force))
 
 
 def _wants_auto_accept(ctx: Any, state: Any) -> bool:
@@ -1122,8 +1157,10 @@ def _matte_body(ctx: Any, state: Any) -> None:
             widgets.muted("Cutting the subject out...")
         else:
             _matte_image(ctx, preview)
-            widgets.muted(f"{MATTE_SOURCES.get(preview.source, preview.source)} - "
-                          f"keeps {preview.coverage * 100:.0f}% of the frame")
+            widgets.muted(
+                f"{MATTE_SOURCES.get(preview.source, preview.source)} - "
+                f"keeps {preview.coverage * 100:.0f}% of the frame"
+            )
             # What Accept actually does, said once. It used to say this only
             # for an already-matted reference -- because that was the only case
             # where the cutout survived. Now it is every case: the pixels on
@@ -1173,17 +1210,13 @@ def _matte_body(ctx: Any, state: Any) -> None:
         )
         return
     imgui.same_line()
-    if controls.button(
-        "Fix matte", (sp(150), 0), enabled=(ready or failed), reason=preview_why
-    ):
+    if controls.button("Fix matte", (sp(150), 0), enabled=(ready or failed), reason=preview_why):
         imgui.close_current_popup()
         state._open = False
         matte_preview.fix(ctx)
         return
     imgui.same_line()
-    if controls.button(
-        "Cancel", (sp(100), 0), role=controls.ButtonRole.GHOST
-    ):
+    if controls.button("Cancel", (sp(100), 0), role=controls.ButtonRole.GHOST):
         imgui.close_current_popup()
         state._open = False
         matte_preview.close(ctx)

@@ -836,7 +836,9 @@ class MasonView(FrameOps):
     def _ray(self, local: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
         return screen_ray(self.camera, local[0], local[1], int(self._rect[2]), int(self._rect[3]))
 
-    def pick(self, doc: Any, source: Any, local: tuple[float, float]) -> Any:
+    def pick(
+        self, doc: Any, source: Any, local: tuple[float, float], *, through: bool = False
+    ) -> Any:
         """What is under the cursor, as a :class:`~.mason.pick.Hit` or ``None``.
 
         Terrain is handed in separately because ``ray_scene`` needs the height
@@ -852,14 +854,28 @@ class MasonView(FrameOps):
                 (p for p in self.resolved(doc) if isinstance(p.node, terrain_node)), None
             )
             terrain_world = None if found is None else found.world
-        return mpick.ray_scene(
-            self.resolved(doc),
-            source,
-            origin,
-            direction,
-            terrain=doc.terrain,
-            terrain_world=terrain_world,
-        )
+        placed = self.resolved(doc)
+
+        def cast(exclude: Any = ()) -> Any:
+            return mpick.ray_scene(
+                placed,
+                source,
+                origin,
+                direction,
+                terrain=doc.terrain,
+                terrain_world=terrain_world,
+                exclude=exclude,
+            )
+
+        hit = cast()
+        # X-ray picking (the 2026-10-03 audit's mason-06): the nearest hit that
+        # is already selected is passed through, so a click on a surface reaches
+        # the node behind it. Nothing behind -> the original hit stands.
+        if through and hit is not None and hit.owner in set(doc.selection):
+            behind = cast(set(doc.selection))
+            if behind is not None:
+                return behind
+        return hit
 
     def drop_point(self, doc: Any, source: Any, local: tuple[float, float]) -> np.ndarray:
         """Where a click in the viewport means, in world metres.
@@ -1130,7 +1146,7 @@ class MasonView(FrameOps):
             self._begin_gizmo_drag(doc, source)
             return True
 
-        hit = self.pick(doc, source, local)
+        hit = self.pick(doc, source, local, through=bool(self.xray))
         owner = None if hit is None else hit.owner
         if shift or ctrl:
             # Both *extend* rather than replace, which is what a scene editor's

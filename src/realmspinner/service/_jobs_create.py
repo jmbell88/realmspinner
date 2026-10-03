@@ -336,6 +336,7 @@ def create_job(
     profile: str | None = None,
     custom_triangles: int | None = None,
     lowpoly_triangles: int | None = None,
+    mesh_finishing: str = "preserve_shape",
     trellis_band: int | None = None,
     trellis_tex_res: int | None = None,
     trellis_gss: float | None = None,
@@ -379,6 +380,8 @@ def create_job(
     worker only records.
     """
     config = svc.config
+    if mesh_finishing not in ("preserve_shape", "repair"):
+        raise Invalid("mesh_finishing must be preserve_shape or repair", field="mesh_finishing")
     if kind not in ("text", "image"):
         raise Invalid("kind must be 'text' or 'image'", field="kind")
     if asset_type is not None and asset_type not in {
@@ -573,6 +576,13 @@ def create_job(
     params["seed"] = seed
     params["reference_seed"] = seed if reference_seed is None else reference_seed
     params["mesh_seed"] = seed if mesh_seed is None else mesh_seed
+    from ..pipelines.prompt import PROMPT_VERSION
+
+    params["prompt_policy"] = PROMPT_VERSION
+    params["generation_type"] = asset_type or (
+        "seamless_material" if output == "tile" else "3d_model"
+    )
+    params["mesh_finishing"] = mesh_finishing
     # Creative intent, not a derived recipe field. It survives reruns and lets
     # result surfaces offer the next action the user asked for instead of
     # treating every reference as an intermediate mesh input.

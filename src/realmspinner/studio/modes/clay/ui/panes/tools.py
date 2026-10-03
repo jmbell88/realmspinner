@@ -1,4 +1,4 @@
-"""Clay's tool column: what to add, how to transform it, and snapping.
+"""Clay's Add palette: every shape and figure you can place, and what the next click makes.
 
 The same shape the raster editor's tool panel takes -- an icon grid, then the
 options for whatever is selected rather than every option at once -- for the
@@ -26,11 +26,13 @@ on a task thread, so a control that restructured it mid-encode would write a
 file describing a document that never existed. Disabling says so on screen
 rather than swallowing the click.
 
-**The action buttons come from the ops registry**, not from a list here. There
-were three lists of what Clay can do -- this pane, the key handler and now the
-context menu -- and this is the one that stopped being one. Duplicate, Bake,
-Mirror and Delete still look exactly as they did; they are just rows of
-``clay_ops.menu(mode)`` now, so a button cannot offer an op the menu greys out.
+**The operations are not here any more** (the 2026-10-02 menu regrouping). This
+column used to end in about fifty op buttons generated from the registry in one
+flat two-column grid, in the order the tranches landed in. They live in the
+header's menu strip now (``strip.py``), grouped by ``menutree`` the way
+Blender's Select / Add / Object / Mesh / UV menus group them, and in the
+right-click menu, which reads the same table -- so what is left here is what a
+sidebar is for: a palette of things to add, which is a list that wants height.
 """
 
 from __future__ import annotations
@@ -46,7 +48,6 @@ from ..... import controls, icons, tokens, tool_palette, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as clay_mode
-from ... import ops as clay_ops
 
 COLUMNS = 4
 
@@ -85,40 +86,28 @@ def draw(ctx: Any) -> None:
 
 
 def _body(ctx: Any) -> None:
-    """What you can *add*, what that add-tool will place, and what you can
-    *do* -- and nothing else.
+    """What you can *add*, and what that add-tool will place -- and nothing else.
 
-    Half of what this pane held has gone to the viewport header: the tool grid,
-    the mode row, snapping, proportional editing and the view aids. Every one of
-    them is a setting changed between clicks in the viewport, and this sidebar
-    is on the far side of the window from it.
-
+    Most of what this pane held has gone to the viewport header: the tool grid,
+    the mode row, snapping, proportional editing and the view aids are settings
+    changed between clicks in the viewport, and the operations are menus there.
     What is left is what a sidebar is right for -- lists that want the height
-    and are read down rather than flicked between, plus the one field between
-    them: which of those list entries is the tool in hand right now.
+    and are read down rather than flicked between, plus the one block under
+    them: which of those entries is the tool in hand right now.
     """
 
     state = clay_mode.ensure(ctx)
     tab = state.active
-    widgets.section("Tools")
+    widgets.section("Add")
     manual_render.help_button(ctx, "clay-tools")
     if tab is None:
         widgets.muted("Open or start a document to build in.")
         return
 
-    from . import menu as clay_menu
-
     imgui.begin_disabled(tab.saving)
     _add(ctx, state, tab.doc)
     _options(ctx, state, tab.doc)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _actions(ctx, state, tab.doc)
     imgui.end_disabled()
-    # *Outside* the disabled block: the popup greys its own Apply against
-    # tab.saving and its Cancel must stay live, or a save that starts while it
-    # is open leaves a modal the user cannot dismiss -- the exact trap
-    # inker_bridge documents.
-    clay_menu.params_popup(ctx, state, tab)
 
 
 def _add(ctx: Any, state: Any, doc: Any) -> None:
@@ -131,7 +120,7 @@ def _add(ctx: Any, state: Any, doc: Any) -> None:
     groups share one idea of "the tool in hand" even though only one of them
     can show it as a selected icon.
     """
-    for label, names in _sections():
+    for label, names in sections():
         widgets.field_label(label)
         items = [
             (name, tool_palette.PRIMITIVE_ICONS.get(name, icons.BOX), name.replace("_", " "))
@@ -144,7 +133,7 @@ def _add(ctx: Any, state: Any, doc: Any) -> None:
     _figures(ctx, state, doc)
 
 
-def _sections() -> list[tuple[str, tuple[str, ...]]]:
+def sections() -> list[tuple[str, tuple[str, ...]]]:
     """``primitives.CATEGORIES``, plus anything the table forgot.
 
     The table is asserted to be a partition of ``GENERATORS``, so the trailing
@@ -403,101 +392,3 @@ def _unique_name(doc: Any, base: str, also: set[str] | None = None) -> str:
     # The same counting-up rule ``ops.duplicate`` uses, so two objects never
     # wear one name whichever way they arrived.
     return ops.next_name(base, taken)
-
-
-def _actions(ctx: Any, state: Any, doc: Any) -> None:
-    """One button per registry op that applies in the current mode.
-
-    Two even columns, at ``widgets.grid_width(2)`` -- the one width rule the
-    whole grid asks for, rather than each button auto-sizing to its own label
-    the way it used to (that is what made the pairs ragged: "Duplicate" and
-    "Smooth" are not the same number of characters, so neither were their
-    buttons). ``grid_width`` is asked fresh, not assumed, for the reason its
-    own docstring gives -- an unscaled gap literal was right at UI scale 1.0
-    and short by 4.8px per gap at 1.5x, which is the exact incident that cost
-    this row its fourth button before.
-
-    Delete is drawn last and full width, in its own destructive styling,
-    through ``widgets.destructive_button`` directly now rather than through a
-    local reimplementation. The ``reason`` keyword that reimplementation
-    existed to add is on ``destructive_button`` itself as of the 2026-09-08
-    button-vocabulary pass.
-    """
-    widgets.field_label("actions")
-    del state
-    ops_here = [
-        op
-        for op in clay_ops.menu(doc.element_mode)
-        if not op.name.startswith("select-") and op.name != "delete"
-    ]
-    # Two columns is the *shape*; the width is what the longest label needs.
-    # ``grid_width(2)`` alone drew "Smooth (Catmull-Clark)" without its
-    # closing bracket -- imgui renders a label straight past its frame and
-    # the child clips it, so an even grid that is one character too narrow
-    # loses the end of a word rather than looking tight.
-    labels = [op.label.rstrip(".") for op in ops_here]
-    columns = widgets.grid_columns_for(labels, maximum=2)
-    width = widgets.grid_width(columns)
-    for index, op in enumerate(ops_here):
-        enabled = op.enabled(doc)
-        label = op.label.rstrip(".")
-        # clay-07 (2026-09-06 audit): a greyed row here used to say nothing
-        # about why -- ``op.hint`` describes what the op does, not why it is
-        # currently refused, and it is the only sentence a disabled action
-        # used to carry. ``reason_for`` is derived from the same ``enabled``
-        # predicate this row already greys on, so it cannot drift from it.
-        if widgets.disabled_button(
-            f"{label}##clayop{op.name}", enabled, (width, 0), reason=clay_ops.reason_for(op, doc)
-        ):
-            _invoke(ctx, doc, op)
-        # The key *and* the sentence. ``Op.hint`` was written for the dialog a
-        # parameterised op opens, which means the explanation of what an op is
-        # for was reachable only by pressing the button -- and the two ops it
-        # most has to tell apart sit side by side here.
-        tip = "\n".join(part for part in (op.key, op.hint) if part)
-        if imgui.is_item_hovered() and tip:
-            imgui.set_tooltip(tip)
-        # ``same_line`` on every button but the last of a row, and *nothing*
-        # on the last: the next item wraps by itself. The ``new_line`` calls
-        # that stood here added a whole blank row between every pair, which is
-        # what put the visible ladder of gaps down this grid.
-        #
-        # ``index + 1 < len(ops_here)`` is the half that is not cosmetic. Delete
-        # is drawn after this loop, and on an odd count the final op leaves its
-        # row open -- so without this the destructive button landed *beside* an
-        # ordinary one, which is the arrangement the comment below has always
-        # existed to prevent.
-        if (index + 1) % columns and index + 1 < len(ops_here):
-            imgui.same_line()
-
-    delete = next(
-        (op for op in clay_ops.menu(doc.element_mode) if op.name == "delete"), None
-    )
-    if delete is None:
-        return
-    enabled = delete.enabled(doc)
-    label = delete.label.rstrip(".")
-    # Greyed like every other row here. Checking ``enabled`` *after* the click
-    # drew a live red button that did nothing -- and this is the one button
-    # where "nothing happened" is hardest to tell apart from "something
-    # irreversible happened".
-    if widgets.destructive_button(
-        f"{icons.TRASH} {label}",
-        (widgets.grid_width(1), 0),
-        enabled=enabled,
-        reason=clay_ops.reason_for(delete, doc),
-    ):
-        clay_ops.run(ctx, doc, delete)
-
-
-def _invoke(ctx: Any, doc: Any, op: Any) -> None:
-    """Run an op, or hand a parameterised one to the popup the menu also uses."""
-    from . import menu as clay_menu
-
-    if not op.params:
-        clay_ops.run(ctx, doc, op)
-        return
-    state = clay_mode.ensure(ctx)
-    state.pending_op = op.name
-    state.op_params.setdefault(op.name, clay_ops.defaults_for(op))
-    imgui.open_popup(clay_menu.PARAM_POPUP)

@@ -226,3 +226,40 @@ def test_modal_open_is_true_while_the_library_export_or_convert_popup_is_up():
 
     ctx.state._library_convert = object()
     assert dialogs.modal_open(ctx) is True
+
+
+def test_a_confirm_raised_under_an_open_palette_is_drawn_not_orphaned(monkeypatch) -> None:
+    """shell-01: a question displaced by another popup's re-open (the palette
+    taking the single slot) answered ``begin_popup_modal`` False after
+    ``_open`` was set, and ``draw`` simply returned -- forever. The queue must
+    re-open the head on the next frame, never leave it pending and invisible."""
+    from realmspinner.studio import widgets
+
+    monkeypatch.setattr(widgets, "frosted", lambda: False)
+    opened: list[str] = []
+
+    class _Displaced(_FakeImgui):
+        def __init__(self) -> None:
+            super().__init__(typed="")
+            self.visible = False
+
+        def open_popup(self, title: str) -> None:
+            opened.append(title)
+
+        def begin_popup_modal(self, *_a: Any) -> tuple[bool, Any]:
+            return (self.visible, None)
+
+        def is_any_item_active(self) -> bool:
+            return False
+
+    fake = _Displaced()
+    monkeypatch.setattr(dialogs, "imgui", fake)
+    for queue, item in (
+        (dialogs.ConfirmQueue(), dialogs.Confirm(title="Quit?", message="m")),
+        (dialogs.PromptQueue(), dialogs.Prompt(title="Name", label="Name")),
+    ):
+        opened.clear()
+        queue.ask(item)
+        queue.draw()  # frame 1: opens, but another popup took the slot
+        queue.draw()  # frame 2: must try again rather than return for good
+        assert len(opened) == 2, f"{type(queue).__name__} never re-opened the displaced popup"

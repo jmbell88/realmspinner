@@ -62,18 +62,16 @@ def test_manual_names_no_control_label_the_create_bar_does_not_draw():
         )
 
 
-def test_manual_22_places_the_brief_on_the_top_bar_not_the_sidebar():
+def test_manual_22_places_the_brief_in_the_asset_workspace_sidebar():
     """Chapter 22's opening paragraph used to put "everything in this
     chapter" in "the left sidebar" -- true of the old single-column settings
     pane, but the P5 split puts the command bar (type combo, prompt, count,
     Generate, Reset) across the top and only the recipe column in the
     sidebar."""
     text = _read("22-generating-references")
-    assert "command bar across the top" in text, (
-        "docs/manual/22-generating-references.md's opening paragraph should "
-        "place the command bar across the top, matching the P5 layout "
-        "described later in the same chapter's 'screen at a glance' section"
-    )
+    assert "Your brief and settings are on the left" in text
+    assert "submit button stays visible" in text
+    assert "**Use these settings**" in text
     assert "the 2D reference mode's settings pane, in the left sidebar" not in text, (
         "docs/manual/22-generating-references.md still describes the whole "
         "brief as living in the left sidebar, which is now only true of the "

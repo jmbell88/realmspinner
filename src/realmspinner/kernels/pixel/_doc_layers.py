@@ -984,7 +984,9 @@ class LayerOps:
         self._stamp_all()
         self.stack = LayerStack(anim.layers_for(anim.frame, size), 0)
 
-    def _set_layer_flags(self: Document, uid: int, props: dict) -> None:
+    def _set_layer_flags(
+        self: Document, uid: int, props: dict, track_uid: int | None = None
+    ) -> None:
         """Write ``background``/``reference`` onto both homes of one identity.
 
         The track is authoritative on an animated document -- writing only the
@@ -1003,7 +1005,14 @@ class LayerOps:
         back down over it).
         """
         index = next((i for i, layer in enumerate(self.stack) if layer.uid == uid), None)
-        if index is not None:
+        if track_uid is not None and self.anim is not None:
+            # By track, which is stable across frames (inker-12): the layer uid
+            # only resolves on the frame the edit was made on.
+            index = next(
+                (i for i, track in enumerate(self.anim.tracks) if track.uid == track_uid),
+                index,
+            )
+        if index is not None and index < len(self.stack):
             if self.anim is not None and index < len(self.anim.tracks):
                 track = self.anim.tracks[index]
                 for key, value in props.items():
@@ -1025,7 +1034,10 @@ class LayerOps:
         if target is None:
             target = self.stack.by_uid(uid)
         before = {key: getattr(target, key) for key in props}
-        return LayerFlagEdit(uid, before, dict(props))
+        track_uid = None
+        if index is not None and self.anim is not None and index < len(self.anim.tracks):
+            track_uid = self.anim.tracks[index].uid
+        return LayerFlagEdit(uid, before, dict(props), track_uid)
 
     def to_background(self: Document) -> bool:
         """Make the bottom layer a real background layer. -> whether it changed.
@@ -1078,7 +1090,13 @@ class LayerOps:
             layer.pixels[...] = cp.to_uint8_255(blended)
         layer.pixels[..., 3] = 255
         flag = self._flag_edit(layer.uid, background=True)
-        edits: list[Any] = []
+        # Taken into the compound, first: ``_ensure_cel_for`` queued the
+        # autovivified cel on ``_pending_cels``, and a step that does not claim
+        # it leaves it for whichever unrelated write commits next to swallow
+        # (2026-10-03 audit, inker-11 -- undoing that later stroke then removed
+        # the background's cel, and the next Ctrl+Z raised "read-only").
+        pending, self._pending_cels = self._pending_cels, []
+        edits: list[Any] = list(pending)
         patch = self._patch_edit_for(layer, (0, 0, *self.size), before)
         if patch is not None:
             edits.append(patch)

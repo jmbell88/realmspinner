@@ -557,3 +557,67 @@ def test_collider_kinds_registry_round_trips_through_its_own_fit_function():
         assert isinstance(label, str) and label
         col = fit(mesh, **extra)
         assert col.kind == kind
+
+
+def _rotated_subdivided_box_points(seed: int, n: int = 5) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    g = np.linspace(-0.5, 0.5, n)
+    pts = []
+    for ax in range(3):
+        for s in (-0.5, 0.5):
+            a, b = np.meshgrid(g, g)
+            face = np.zeros((a.size, 3))
+            face[:, ax] = s
+            face[:, (ax + 1) % 3] = a.ravel()
+            face[:, (ax + 2) % 3] = b.ravel()
+            pts.append(face)
+    pts = np.concatenate(pts) * rng.uniform(1.0, 3.0, 3)
+    q, _ = np.linalg.qr(rng.normal(size=(3, 3)))
+    return (pts @ q.T + rng.uniform(-5, 5, 3)).astype("f4")
+
+
+def test_convex_hull_of_a_rotated_subdivided_box_is_a_closed_manifold_within_max_faces():
+    """clay-09: the 1e-9 coplanarity tolerance sat far below float32 noise, so
+    a rotated, subdivided box hulled its own noise (about a third of trials
+    were non-manifold and past max_faces)."""
+    for seed in range(20):
+        pts = _rotated_subdivided_box_points(seed)
+        pos = pts
+        mesh = bm.from_faces(pos, [[0, 1, 2]])
+        mesh = bm.Mesh(
+            positions=pos,
+            loops=mesh.loops,
+            starts=mesh.starts,
+            material=mesh.material,
+            smooth=mesh.smooth,
+        )
+        hull = cl.convex_hull(mesh)
+        assert bm.face_count(hull.mesh) <= 64, seed
+        assert adj.check_manifold(hull.mesh).clean, seed
+        assert_closed(hull.mesh)
+
+
+def test_a_convex_hull_of_a_round_mesh_stays_inside_the_time_budget_its_ceiling_claims():
+    """clay-15: quickhull on an all-vertices-on-hull ball grew ~n^2 (482 points
+    took 3.5 s); the point ceiling alone did not bound the time."""
+    import time
+
+    ball = bp.uv_sphere()
+    pts = ball.positions.astype("f8")
+    rng = np.random.default_rng(1)
+    while len(pts) < 700:  # extra points on the sphere, all on the hull
+        v = rng.normal(size=(100, 3))
+        pts = np.concatenate([pts, v / np.linalg.norm(v, axis=1, keepdims=True) * 0.5])
+    mesh = bm.from_faces(pts.astype("f4"), [[0, 1, 2]])
+    mesh = bm.Mesh(
+        positions=pts.astype("f4"),
+        loops=mesh.loops,
+        starts=mesh.starts,
+        material=mesh.material,
+        smooth=mesh.smooth,
+    )
+    start = time.perf_counter()
+    hull = cl.convex_hull(mesh)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 1.5, f"{len(pts)} round points took {elapsed:.2f}s"
+    assert adj.check_manifold(hull.mesh).clean

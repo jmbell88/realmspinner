@@ -517,7 +517,14 @@ def cancel_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     if job["status"] not in ("queued", "running"):
         raise Conflict(f"job is {job['status']}")
     if job["status"] == "running" and svc.worker is not None:
-        svc.call_on_loop(lambda: svc.worker.request_cancel(job_id))
+        effective = svc.call_on_loop(lambda: svc.worker.request_cancel(job_id))
+        if effective is False:
+            # The stage already published: a cancel cannot un-publish, so the
+            # worker's own terminal write must be the one that lands (done).
+            # Flipping the row to cancelled here made finish(done) return False
+            # and _discard_artifacts delete the served files (2026-10-03 audit,
+            # service-06).
+            return {"ok": True, "committed": True}
     # Atomic: if the worker's own terminal write (done/error) landed first,
     # this is a no-op and the job's real outcome stands instead of being
     # retroactively overwritten to "cancelled". The DB-level JobStore.finish()

@@ -281,3 +281,58 @@ def test_identifiers_are_safe():
     assert engines._ident("2 fast") == "fx_2_fast"  # noqa: SLF001
     assert engines._ident("dark burst", pascal=True) == "DarkBurst"  # noqa: SLF001
     assert engines._ident("") == "effect"  # noqa: SLF001
+
+
+# -- the stack composites to the bake's composite (inker-16) --------------------------------
+
+
+def _premul(img: np.ndarray) -> np.ndarray:
+    return img[..., :3].astype(np.float32) * (img[..., 3:4].astype(np.float32) / 255.0)
+
+
+# Presets whose stack still differs from the bake after inker-16's two fixes
+# (the glow's carried "add" and the distortion collapse). The remainder is not a
+# rounding matter: a particle or glow plane is premultiplied with rgb > alpha,
+# which a straight-alpha uint8 cel clips, and the document's "add" is the W3C
+# separable blend rather than the bake's premultiplied plus-lighter. Closing it
+# means changing the bake's output or the compositor's vocabulary -- a design
+# decision, reported rather than made. Strict, so fixing it forces this list empty.
+_STILL_DIFFERS = {
+    "arrow_trail", "buff", "chain_lightning", "debuff", "dust_impact", "ground_shockwave",
+    "heal", "holy_burst", "ice_nova", "ice_shard", "lightning_bolt", "magic_missile",
+    "poison_cloud", "slash", "summoning_circle", "sword_impact", "teleport", "water_splash",
+}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(n, marks=pytest.mark.xfail(strict=True, reason="inker-16 residual"))
+        if n in _STILL_DIFFERS
+        else n
+        for n in presets.names()
+    ],
+)
+def test_a_painterly_documents_stack_composites_to_the_bakes_composite_for_every_preset(name):
+    """inker-16: a painterly effect landed as one normal-blend track per layer,
+    so a glow (forced "add") lost its blend and a distortion (whose plane is the
+    whole composite beneath it) was drawn over that composite again -- the
+    document, the viewport and every sheet export differed from the bake by up
+    to 200/255. The stack must reproduce ``Bake.composites`` to rounding."""
+    from realmspinner.kernels.pixel import Document
+
+    raw = flourish.to_dict(presets.load(name))
+    raw["size"] = [32, 32]
+    raw["supersample"] = 2
+    raw["mode"] = "painterly"
+    baked = B.bake(flourish.from_dict(raw))
+    doc = Document.blank(32, 32)
+    doc.insert_flourish(baked)
+    flat = baked.flat()
+    worst = 0.0
+    for i in range(baked.frame_count):
+        doc.set_current_frame(i)
+        got = _premul(doc.composite)
+        want = _premul(flat[i])
+        worst = max(worst, float(np.abs(got - want).max()))
+    assert worst <= 6.0, (name, worst)

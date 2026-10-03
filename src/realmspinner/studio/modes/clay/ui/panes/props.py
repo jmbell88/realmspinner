@@ -60,6 +60,29 @@ def draw(ctx: Any) -> None:
         _body(ctx)
 
 
+#: The tabs of this pane, Blender's Properties editor reduced to what Clay has:
+#: ``(key, label, glyph, what it holds)``. Glyph-only on the strip (a 300 px
+#: sidebar has no room for five words) with the label and contents in the
+#: tooltip, as the header's tool pill does.
+TABS: tuple[tuple[str, str, str, str], ...] = (
+    ("object", "Object", icons.BOX, "Name, parent, tags, transform and the shape's own numbers"),
+    ("modifiers", "Modifiers", icons.WRENCH, "The non-destructive stack on the selected object"),
+    ("material", "Material", icons.PALETTE, "The palette, textures and the material library"),
+    ("data", "Data", icons.ACTIVITY, "Counts and the mesh check for the selected object"),
+    ("scene", "Scene", icons.SETTINGS, "The export engine and the game check, document-wide"),
+)
+
+#: The tab a pane falls back to when ``ClayState.props_tab`` names one that no
+#: longer exists (a saved setting from a build with different tabs).
+DEFAULT_TAB = "object"
+
+
+def tab_key(state: Any) -> str:
+    """The tab to draw: ``state.props_tab`` if it is a real one, else Object."""
+    key = getattr(state, "props_tab", DEFAULT_TAB)
+    return key if any(key == known for known, *_ in TABS) else DEFAULT_TAB
+
+
 def _body(ctx: Any) -> None:
     state = clay_mode.ensure(ctx)
     tab = state.active
@@ -69,6 +92,24 @@ def _body(ctx: Any) -> None:
         # The heading and nothing else; see ``clay_outliner``.
         return
     doc = tab.doc
+    current = tab_key(state)
+    changed, picked = controls.segmented_choice(
+        "clay-props-tab",
+        [(key, glyph) for key, _label, glyph, _what in TABS],
+        current,
+        tooltips={key: f"{label} -- {what}" for key, label, _glyph, what in TABS},
+        compact=True,
+    )
+    if changed:
+        state.props_tab = current = picked
+    imgui.dummy((0, sp(tokens.SP_2)))
+    if current == "scene":
+        # The only tab about the document rather than the selection, so it is
+        # the one that needs no object.
+        imgui.begin_disabled(tab.saving)
+        _scene(ctx, tab)
+        imgui.end_disabled()
+        return
     _element_summary(doc)
     obj = _selected(doc)
     if obj is None:
@@ -90,22 +131,74 @@ def _body(ctx: Any) -> None:
         return
 
     imgui.begin_disabled(tab.saving)
-    _identity(doc, obj)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _relations(ctx, doc, obj)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _tags(doc, obj)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _transform(doc, obj, ctx=ctx)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _generator(doc, obj, ctx=ctx)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _modifiers(ctx, doc, obj)
+    if current == "object":
+        _identity(doc, obj)
+        imgui.dummy((0, sp(tokens.SP_2)))
+        _relations(ctx, doc, obj)
+        imgui.dummy((0, sp(tokens.SP_2)))
+        _tags(doc, obj)
+        imgui.dummy((0, sp(tokens.SP_2)))
+        _transform(doc, obj, ctx=ctx)
+        imgui.dummy((0, sp(tokens.SP_2)))
+        _generator(doc, obj, ctx=ctx)
+    elif current == "modifiers":
+        _modifiers(ctx, doc, obj)
+    elif current == "material":
+        _material(ctx, tab, doc, obj)
+    else:
+        _data(state, doc, obj)
+    imgui.end_disabled()
+
+
+def _data(state: Any, doc: Any, obj: Any) -> None:
+    """Counts for the selected object, then its mesh check.
+
+    The counts are of the *evaluated* mesh -- what leaves the document, after
+    the modifier stack -- for the reason the Document pane's facts line gives:
+    a Mirror changes how many triangles you ship, and this line is a promise
+    about that.
+    """
+    from . import bridge as clay_bridge
+
+    mesh = doc.evaluated(obj.uid)
+    widgets.field_label("counts")
+    widgets.muted(
+        f"{len(mesh.positions):,} vertices  -  {max(0, len(mesh.starts) - 1):,} faces  -  "
+        f"{clay_bridge._triangles(mesh):,} triangles"
+    )
     imgui.dummy((0, sp(tokens.SP_2)))
     _diagnostics(state, doc, obj)
+
+
+def _scene(ctx: Any, tab: Any) -> None:
+    """The settings of the whole document: the engine it is going to, and
+    whether it is ready for it.
+
+    **The export engine finally has a control.** ``clay_mode.export_engine`` and
+    ``set_export_engine`` were built as "the door" for a Settings combo that
+    never arrived, so the only way to choose Godot, Unity, Unreal or WebGL was
+    the agent's ``clay_export``. It decides how colliders are renamed on the way
+    out and which axis convention an OBJ is converted to (a GLB is deliberately
+    left alone), so it belongs beside the check that measures the same asset.
+    """
+    from ......kernels.mesh import engines as engines_mod
+    from . import bridge as clay_bridge
+
+    widgets.field_label("export engine")
+    current = clay_mode.export_engine(ctx)
+    options = [(key, eng.label) for key, eng in engines_mod.ENGINES.items()]
+    picked = widgets.combo("##clay-export-engine", current, options, sp(170))
+    if picked != current:
+        clay_mode.set_export_engine(ctx, picked)
+    widgets.muted_wrapped(
+        "Renames colliders for that engine and converts an OBJ to its axes and "
+        "scale. A GLB is left alone: every engine's importer converts it itself."
+    )
     imgui.dummy((0, sp(tokens.SP_2)))
-    _material(ctx, tab, doc, obj)
-    imgui.end_disabled()
+    clay_bridge.import_settings(ctx)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    widgets.field_label("game check")
+    clay_bridge.game_check(ctx, tab)
 
 
 def _element_summary(doc: Any) -> None:
@@ -915,7 +1008,9 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
         ),
     )
     if picked != str(obj.material):
-        doc.set_props(obj.uid, material=int(picked))
+        # Repaint the faces, not just the default slot -- what renders and
+        # exports is ``mesh.material`` (the 2026-10-03 audit's clay-17).
+        doc.repaint_object(obj.uid, int(picked))
 
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     material = doc.materials[index]
@@ -1066,7 +1161,8 @@ def _palette_row(doc: Any, obj: Any) -> None:
         # One step, not two -- the 2026-09-08 audit's clay-02: pushed as
         # ``add_material()`` then ``set_props(...)`` separately, one Ctrl+Z
         # after this click left a stray, unreferenced palette entry behind.
-        doc.add_material_and_assign(obj.uid)
+        # repaint=True: the faces carry the slot that renders (clay-17).
+        doc.add_material_and_assign(obj.uid, repaint=True)
     imgui.same_line()
     reason = _palette_remove_reason(len(doc.materials), users)
     if widgets.disabled_button("Remove##matdel", not reason):
@@ -1311,10 +1407,12 @@ def _apply_library_material(doc: Any, uids: Any, material: Any) -> bool:
     if not uids:
         return False
     mark = doc.history.mark()
-    index = doc.add_material(material)
-    for uid in uids:
-        doc.set_props(uid, material=index)
-    doc.history.collapse_since(mark)
+    try:
+        index = doc.add_material(material)
+        for uid in uids:
+            doc.repaint_object(uid, index)
+    finally:
+        doc.history.collapse_since(mark)
     return True
 
 

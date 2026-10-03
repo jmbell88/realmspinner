@@ -124,6 +124,49 @@ def target_faces(triangles: int) -> int:
     return max(int(triangles) // 2, 1)
 
 
+def compare_geometry(source: Any, finished: Any, resolution: int = 256) -> dict[str, Any]:
+    """Shared-frame silhouettes, including openings, from the mesh audit views.
+
+    Measurements are advisory, not a technical-readiness grade. Identical bounds
+    alone cannot detect a lost handle or a closed opening; mask differences can.
+    """
+    from .finishing import compare_geometry as measure
+
+    return measure(source, finished, resolution)
+
+
+def finishing_lines(report: Any) -> list[str]:
+    """Describe the result without treating absent measurements as success."""
+    if not isinstance(report, dict):
+        return []
+    if report.get("status") in ("failed", "cancelled"):
+        return [f"Finishing {report['status']}: {report.get('error', 'reconstruction retained')}",
+                "The reconstruction is available as source.glb."]
+    triangles = report.get("triangles", report.get("achieved"))
+    count = f"{triangles:,}" if isinstance(triangles, int) else "unknown"
+    lines = [f"Finished mesh: {count} triangles; requested {report.get('requested', 'unknown')}."]
+    geometry = report.get("geometry") or {}
+    if geometry.get("measured"):
+        lines.append(
+            f"Silhouette coverage lost: {geometry['worst_lost_coverage']:.1%}; "
+            f"added: {geometry['worst_added_coverage']:.1%}."
+        )
+        closures = [v["closed_openings"] for v in geometry["views"]
+                    if v.get("closed_openings") is not None]
+        lines.append(f"Source opening pixels filled: {max(closures):.1%}." if closures
+                     else "Opening preservation: unknown (no source opening pixels measured).")
+    else:
+        lines.append("Shape preservation: unknown (measurement unavailable).")
+    verdict = report.get("tiercheck") or {}
+    lines.extend(f"Material/UV change: {failure}" for failure in verdict.get("failures", ()))
+    if not verdict:
+        lines.append("Material preservation: unknown.")
+    lines.append(
+        "Silhouettes do not establish prompt fidelity or asset readiness. source.glb is retained."
+    )
+    return lines
+
+
 def profile_label(key: str, triangles: int | None = None) -> str:
     """"5k (5,000 triangles)" -- derived from the table so a label cannot
     disagree with the number the worker is asked for."""

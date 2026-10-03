@@ -288,6 +288,16 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
                     f"{MIN_SEGMENT}-{MAX_SEGMENT}",
                     field="segments",
                 )
+        # poser-05 (2026-10-03): the clip's expansion, not just each segment,
+        # must fit the renderer's ceiling -- ``animation_tracks`` expands every
+        # authored clip and one over-long one broke the whole rig's bake.
+        total = sum(segments) + (0 if closed else 1)
+        if total > sheetlib.MAX_CLIP_FRAMES:
+            raise Invalid(
+                f'"{label}" expands to {total} frames; a clip holds at most '
+                f"{sheetlib.MAX_CLIP_FRAMES}",
+                field="segments",
+            )
         easing = str(clip.get("easing") or "linear")
         if easing not in EASINGS:
             raise Invalid(

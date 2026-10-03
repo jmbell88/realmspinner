@@ -365,7 +365,9 @@ class TrellisServer:
             )
             self._reader.start()
             deadline = time.monotonic() + STARTUP_TIMEOUT
-            async with httpx.AsyncClient() as client:
+            # trust_env=False: the engine is always loopback; a configured proxy would
+            # otherwise receive the /health poll (and never answer it).
+            async with httpx.AsyncClient(trust_env=False) as client:
                 while time.monotonic() < deadline:
                     proc = self._proc
                     if proc is None:
@@ -678,7 +680,8 @@ class TrellisServer:
         limit = MAX_GLB_BYTES
         chunks: list[bytes] = []
         received = 0
-        async with httpx.AsyncClient(timeout=GENERATE_TIMEOUT) as client:
+        # trust_env=False: never hand the reference image to a system proxy.
+        async with httpx.AsyncClient(timeout=GENERATE_TIMEOUT, trust_env=False) as client:
             with image_path.open("rb") as fh:
                 async with client.stream(
                     "POST",

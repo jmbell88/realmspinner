@@ -52,8 +52,9 @@ def rig_spec(
       ones -- the scaling stays owned by the worker and this stays a *better
       template* rather than a second fitter.
     * nothing -- the shipped template, scaled bbox-proportionally, which is
-      what every rig did before landmarks existed and is still right for a
-      reference that really is standing in a T-pose.
+      what every rig did before landmarks existed and is right only for a
+      reference standing in the template's own A-pose; a T-posed mesh is
+      the case it fits worst (manual chapter 08, "The A-pose trap").
 
     ``fit`` is what the host knows about how the second of those was found and
     the worker cannot: which model, how confident. It is recorded in rig.json
@@ -373,6 +374,7 @@ def remesh_spec(
     texture_size: int,
     close_holes: bool = False,
     seed: int = 0,
+    preserve_shape: bool = False,
 ) -> dict[str, Any]:
     """The worker spec for remeshing a GLB to a quad budget and rebaking it.
 
@@ -390,6 +392,7 @@ def remesh_spec(
         "target_faces": int(target_faces),
         "texture_size": int(texture_size),
         "close_holes": bool(close_holes),
+        "preserve_shape": bool(preserve_shape),
         "seed": int(seed),
     }
 

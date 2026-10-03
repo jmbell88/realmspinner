@@ -410,9 +410,9 @@ that same mesh alongside a scene file Godot can open directly, `frame_folders` f
 sequences, one folder per movement and compass direction, `sheet_package` for the sheet and its
 sidecar together. An agent's own export is named from the character's name plus its own job id (and
 a sheet id too, for a sheet-shaped format), never the plain name a pane's export uses — the same
-character built twice would otherwise export to the same folder, and an agent re-exporting its own
-copy could silently overwrite a human's. Re-exporting the same job (and sheet) a second time from
-the agent replaces only that earlier agent export, never anything a pane wrote.
+character built twice would otherwise export under the same name. Nothing in the export folder is
+ever overwritten: re-exporting the same job (and sheet) a second time lands beside the first under
+the next free name (`-2`, `-3`), and there is no overwrite option over MCP.
 
 **Movements are the set.** There is no registry of named animation sets like "sword and shield" —
 asking for one just means listing the movements it implies, because a set with no different motion

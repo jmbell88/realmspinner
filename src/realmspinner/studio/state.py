@@ -21,6 +21,7 @@ from . import asset_open, verbs
 # enough to find yesterday's phrasing, short enough to scan.
 MAX_HISTORY = 20
 
+
 def default_form_2d() -> dict[str, Any]:
     """What a submit is composed from.
 
@@ -229,6 +230,7 @@ def default_form_2d() -> dict[str, Any]:
         "character_resolution_prompt": "",
     }
 
+
 def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, Any]:
     """A 2D form filled from a finished job's params -- "another like this".
 
@@ -268,12 +270,50 @@ def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, An
     from .modes.create.engine import assets as create_assets
 
     _restore_sheet_block(form, params)
+    _restore_generation_request(form, params)
     form["asset_type"] = (
         create_assets.asset_type_from_params(params, stage=stage) or form["asset_type"]
     )
     form["generation_type"] = form["asset_type"]
     create_assets.sync_legacy_fields(form)
     return form
+
+
+def _restore_generation_request(form: dict[str, Any], params: dict[str, Any]) -> None:
+    """Restore the recorded request, including nested sprite settings."""
+    from ..generation import GenerationRequest, sprite_layout_of
+
+    raw = params.get("generation_request")
+    if not isinstance(raw, dict):
+        return
+    try:
+        request = GenerationRequest.from_dict(raw)
+    except (TypeError, ValueError, KeyError):
+        return
+    for key in (
+        "prompt",
+        "negative_prompt",
+        "quality",
+        "model_mode",
+        "model_override",
+        "style_lora",
+        "lora_weight",
+        "seed",
+        "count",
+    ):
+        value = getattr(request, key)
+        if value is not None:
+            form[key] = value
+    if request.generation_type == "sprite_sheet":
+        sprite = request.sprite
+        form["sheet_layout"] = sprite_layout_of(sprite)
+        if sprite.target_cell_px:
+            form["target_cell_px"] = str(sprite.target_cell_px)
+            form["cell_size"] = str(sprite.target_cell_px)
+        if sprite.candidate_count:
+            form["sprite_candidates"] = str(sprite.candidate_count)
+        form["palette"] = sprite.palette
+        form["dither"] = sprite.dither
 
 
 def _restore_int(value: Any, default: int) -> int:
@@ -358,6 +398,7 @@ DEFAULT_FORM_3D: dict[str, Any] = {
     # 5000, matching Config().lowpoly_triangles: the form and the door's own
     # default must not drift, the same rule "profile" above states.
     "lowpoly_triangles": 5000,
+    "mesh_finishing": "preserve_shape",
     # Reachable now that the Budget combo offers "custom" alongside every
     # other tier -- this used to sit unused behind a form with no widget for
     # it, kept only because the API and the retarget panel already read it.
@@ -558,7 +599,7 @@ class Filters:
             # one launched sweep buries a workshop's actual assets. They are
             # reachable by their sweep, and deleting the sweep deletes them.
             return False
-        if job.get("candidate_group"):
+        if job.get("candidate_group") and not (job.get("params") or {}).get("create_workspace"):
             # And the same rule for a mesh candidate nobody has picked yet:
             # three attempts at one asset are three near-identical cards, and
             # the choice between them belongs in the picker rather than in a
@@ -657,6 +698,7 @@ class Filters:
         if sort == "newest":
             return None
         if sort == "name":
+
             def key(job: dict[str, Any]) -> tuple[int, Any]:
                 # The *displayed* name, which is the prompt when there is no
                 # title -- sorting by a column the card does not show would
@@ -668,6 +710,7 @@ class Filters:
         if sort == "kind":
             return lambda job: (0, (card_kind(job), -float(job.get("created_at") or 0.0)))
         if sort == "duration":
+
             def key(job: dict[str, Any]) -> tuple[int, Any]:
                 started, finished = job.get("started_at"), job.get("finished_at")
                 if not started or not finished or finished < started:
@@ -678,12 +721,14 @@ class Filters:
 
             return key
         if sort == "size":
+
             def key(job: dict[str, Any]) -> tuple[int, Any]:
                 measured = sizes.get(job["id"])
                 return (1, 0.0) if measured is None else (0, -float(measured))
 
             return key
         if sort == "best":
+
             def key(job: dict[str, Any]) -> tuple[int, Any]:
                 rank = (job.get("params") or {}).get("rank")
                 if not isinstance(rank, dict):
@@ -700,6 +745,7 @@ class Filters:
 
             return key
         if sort == "grade":
+
             def key(job: dict[str, Any]) -> tuple[int, Any]:
                 grade = job.get("grade")
                 if not isinstance(grade, int) or isinstance(grade, bool):
@@ -1752,11 +1798,7 @@ def primary_action(job: dict[str, Any], *, rigging_available: bool = True) -> st
         return "plotter"
     if intent in ("refine_2d", "sprite") and "input.png" in files:
         return "inker"
-    if (
-        intent == "reconstruct_3d"
-        and job.get("stage") == "reference"
-        and "input.png" in files
-    ):
+    if intent == "reconstruct_3d" and job.get("stage") == "reference" and "input.png" in files:
         # The reference is explicitly an approval/editing stage. Make 3D is
         # still available from Create after the image has been inspected; the
         # library card's contextual next action is the editor beside it.
@@ -1764,8 +1806,10 @@ def primary_action(job: dict[str, Any], *, rigging_available: bool = True) -> st
     if job.get("stage") == "tile":
         # No mesh, no rig: a tile's next step is to be exported, which the
         # inspector's Export tab is. "Open" selects it and shows that tab.
-        return "inker" if "input.png" in files and intent == "refine_2d" else (
-            "open" if "input.png" in files else None
+        return (
+            "inker"
+            if "input.png" in files and intent == "refine_2d"
+            else ("open" if "input.png" in files else None)
         )
     if job.get("stage") == "reference":
         # A finished reference's next step is the mesh it exists for.

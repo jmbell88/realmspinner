@@ -559,8 +559,14 @@ def test_an_action_name_becomes_a_legal_clip_name():
 
     action2 = _one_frame_action("Walk_back", rest)
     sample2 = _make_sample(source_bones, [action2])
+    # poser-06 (2026-10-03): an auto-named action ending in a facing is renamed
+    # (``walk_back_2``), not refused; only an explicit ``clip_name`` is refused.
+    [renamed] = cliptransfer.transfer(sample2, template="humanoid", frames=2, root_motion="none")
+    assert renamed["clip"]["name"] == "walk_back_2"
     with pytest.raises(cliptransfer.ClipTransferError) as excinfo:
-        cliptransfer.transfer(sample2, template="humanoid", frames=2, root_motion="none")
+        cliptransfer.transfer(
+            sample2, template="humanoid", clip_name="Walk_back", frames=2, root_motion="none"
+        )
     assert excinfo.value.field == "name"
 
 

@@ -213,6 +213,11 @@ class MasonState(docmodes.DocTabs[MasonTab]):
     #: called ``camera`` is a perfectly reasonable thing to author.
     place_prefab: str = ""
 
+    #: The Properties pane's "add a user property" draft. Session state, like
+    #: the brush: it is what is being typed, not part of any document.
+    prop_key: str = ""
+    prop_value: str = ""
+
     # No drag state here. A live drag is the *view*'s to own -- Clay's own
     # comment on this point is the whole argument: ``ClayState`` used to carry
     # a ``drag_kind`` field written only by ``clear_drag`` and read by nothing

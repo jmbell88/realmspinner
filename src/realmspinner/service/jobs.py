@@ -353,6 +353,7 @@ def create_generation_request(
             guidance_fields=guidance_fields,
             asset_type=request.generation_type,
             asset_intent=legacy["asset_intent"],
+            mesh_finishing=request.model.mesh_finishing,
             lora_weight=(
                 request.lora_weight
                 if request.lora_weight is not None

@@ -33,6 +33,8 @@ class Recipe:
     reference_prep: bool | None = None
     path: Path | None = None
     notes: str = ""
+    mesh_finishing: str = "preserve_shape"
+    lowpoly_triangles: int | None = None
 
 
 def available() -> list[str]:
@@ -63,6 +65,9 @@ def parse(raw: dict[str, Any], path: Path | None = None) -> Recipe:
     # normalize() is the authority on whether the *values* are real, and it
     # raises with the field name and the valid set.
     guidance.normalize(fields)
+    finishing = raw.get("mesh_finishing", "preserve_shape")
+    if finishing not in ("preserve_shape", "repair"):
+        raise ValueError("mesh_finishing must be preserve_shape or repair")
     return Recipe(
         key=str(raw.get("key") or (path.stem if path else "")),
         label=str(raw.get("label") or ""),
@@ -74,6 +79,8 @@ def parse(raw: dict[str, Any], path: Path | None = None) -> Recipe:
         reference_prep=raw.get("reference_prep"),
         path=path,
         notes=str(raw.get("notes") or ""),
+        mesh_finishing=finishing,
+        lowpoly_triangles=_opt_int(raw.get("lowpoly_triangles")),
     )
 
 
@@ -111,4 +118,7 @@ def job_kwargs(recipe: Recipe, item: Any, seed: int, *, stage: str = "reference"
             kwargs["custom_triangles"] = recipe.custom_triangles
     if recipe.reference_prep is not None:
         kwargs["reference_prep"] = recipe.reference_prep
+    kwargs["mesh_finishing"] = recipe.mesh_finishing
+    if recipe.lowpoly_triangles is not None:
+        kwargs["lowpoly_triangles"] = recipe.lowpoly_triangles
     return kwargs

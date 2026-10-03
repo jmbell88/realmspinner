@@ -86,8 +86,9 @@ giant.
 
 Two limits come with it, both about where the offset shows up:
 
-- Applying a library pose to an asset previews the **rotations only**. The offset is real, but it
-  appears in the baked GLB and in sprite sheet rows rather than in the inspector's preview.
+- Applying a library pose to an asset in the inspector previews the **rotations only**. The offset
+  is real, but it appears in the baked GLB and in sprite sheet rows rather than in the inspector's
+  preview. Poser's own asset session binds the rig's root bone, so there the offset shows too.
 - An animated sheet clip interpolates a root offset the same way it interpolates a rotation: frame 0
   sits at the start pose's own offset, and later frames climb toward the end pose's without reaching
   it, so a clip whose endpoint poses carry one plays as a vertical bob rather than being refused —
@@ -315,6 +316,12 @@ scrubbing the panel says which frame you are on and **Update key from pose** ref
 completely alone. That matters twice: an update cannot overwrite your work, and **Revert to shipped
 clips** is simply "delete my copy", so reverting also gets you any improvements a later version
 ships.
+
+Unsaved clip edits are covered by crash recovery like an unsaved pose: a copy of the working
+library is kept every couple of minutes, and after a crash the Home screen offers it back as
+"Clip edits". Reopening it puts the keyframes back as unsaved, on the skeleton they belong to, and
+**Save clips** is still what keeps them. Quitting asks before discarding them, and saving or
+reverting retires the copy.
 
 Your saved copy is the *whole* library, not a set of changes layered on top of the shipped one — so
 if you saved your own clips before this update added the five new ones, your copy still holds only
@@ -679,9 +686,10 @@ without the other holds an asset nothing can interpret. Either both land or neit
 `AnimatedSprite2D`-style frame folders rather than an atlas-plus-sidecar pair: one folder per
 movement, one subfolder per compass direction inside it, and `000.png`, `001.png` and so on inside
 that — beside a `manifest.json` naming the format, the frame size, whether the sheet is pixel art or
-HD, and each clip's own loop, frame count, frame time, fps and directions. A re-export replaces the
-destination folder whole rather than merging into it — the same all-or-nothing swap **Export
-package...** makes, generalised to however many files a frame export writes.
+HD, and each clip's own loop, frame count, frame time, fps and directions. A re-export never
+replaces or merges into a folder that already exists: it takes the next free name
+(`Knight-frames-2`) and leaves the first alone. **Export package...** does the same with
+`Knight-2.png` and `Knight-2.json`.
 
 The sheet and its sidecar are on disk beside the mesh either way, in that job's directory, and the
 [library](36-library-and-jobs.md)'s export list is where the files themselves are.

@@ -173,3 +173,24 @@ def test_region_boundary_corners_includes_a_non_manifold_edge_with_an_unselected
     # leave along an outer, still-unshared edge.
     all_border = topo.region_boundary_corners(mesh, [0, 1, 2])
     assert len(all_border) == 6
+
+
+def test_bake_transform_on_a_parent_keeps_its_children_where_they_were() -> None:
+    """clay-14 (2026-10-03): Bake Transform reset the parent to identity and
+    left each child's local TRS alone, so the child jumped by the inverse of
+    the parent's former transform."""
+    doc = bd.ClayDoc()
+    parent = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Parent", mesh=bp.box(), translation=[5.0, 0.0, 0.0])
+    )
+    child = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Child", mesh=bp.box(), translation=[0.0, 2.0, 0.0])
+    )
+    doc.set_parent(child.uid, parent.uid, keep_world=False)
+    before = np.array(doc.world_matrix(child.uid), copy=True)
+    assert np.allclose(before[:3, 3], [5.0, 2.0, 0.0])
+    doc.select([parent.uid])
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("bake")) is True
+
+    assert np.allclose(doc.world_matrix(child.uid), before, atol=1e-6)

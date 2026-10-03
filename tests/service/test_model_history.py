@@ -423,3 +423,27 @@ def test_every_model_glb_writer_takes_the_model_lock():
     )
     assert calls_lock(_jobs_rework.optimize_job), "optimize_job no longer takes a lock"
     assert calls_lock(_jobs_rework.revert_model), "revert_model no longer takes a lock"
+
+
+def test_a_retarget_forgets_the_in_job_remesh_record(svc, monkeypatch):
+    """The 2026-10-03 audit (pipelines-04): ``params["lowpoly"]`` (the Game-ready
+    remesh record the Mesh quality block prints as "Finished mesh: N triangles")
+    survived a retarget, so the inspector kept describing the replaced remesh."""
+    _fake_optimize(monkeypatch)
+    job_id = _mesh_job(svc)
+    svc.store.merge_params(job_id, {"lowpoly": {"triangles": 5000, "silhouette_loss": 0.01}})
+
+    svc_jobs.optimize_job(svc, job_id, profile="raw")
+
+    assert "lowpoly" not in svc.store.get(job_id)["params"]
+
+
+def test_the_in_job_remesh_record_is_snapshotted_dropped_on_a_panel_remesh_and_restored():
+    import re
+
+    from realmspinner import _q_mesh
+    from realmspinner.pipelines import modelhistory
+
+    assert "lowpoly" in modelhistory.MODEL_PARAMS
+    src = inspect.getsource(_q_mesh.MeshPostOps._remesh)
+    assert re.search(r'drop = \[[^\]]*"lowpoly"', src)

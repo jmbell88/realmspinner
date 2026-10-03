@@ -377,3 +377,39 @@ def test_a_viewport_never_orphans_a_renderbuffer():
         vp.release()
         leaked = [o for o in ctx.made if o not in ctx.released]
         assert not leaked, f"{len(leaked)} GL object(s) leaked at samples={samples}"
+
+
+def test_a_mirrored_node_renders_the_same_picture_as_its_unmirrored_twin(gl):
+    """create-04: a node with a negative world determinant has its winding
+    flipped, and the draw did not flip the front-face rule with it, so the part
+    was culled (single-sided) -- the viewport and the exported file disagreed."""
+    positions = np.array([[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], dtype="f4")
+    indices = np.array([0, 1, 2, 0, 2, 3], dtype="u4")
+    normals = np.tile(np.array([0, 0, 1], dtype="f4"), (4, 1))
+    material = gltf.Material(base_color_factor=(1.0, 0.2, 0.2, 1.0))
+
+    def render(scale_x):
+        primitive = gltf.Primitive(
+            positions=positions, indices=indices, normals=normals, material=material
+        )
+        node = gltf.Node(mesh=0, scale=m3.vec3(scale_x, 1, 1))
+        model = gltf.Model(nodes=[node], roots=[0], meshes=[[primitive]], skins=[])
+        model.update_world()
+        gpu = scenelib.GpuModel(gl, model)
+        renderer = Renderer(gl)
+        viewport = glctx.Viewport(gl, (64, 64))
+        camera = Camera()
+        camera.view = lambda: m3.identity()
+        camera.projection = lambda: m3.identity()
+        try:
+            renderer.draw(viewport, camera, gpu, show_grid=False, model_matrix=m3.identity())
+            return viewport.read_rgba().copy()
+        finally:
+            viewport.release()
+            renderer.release()
+            gpu.release()
+
+    twin = render(1.0)
+    mirrored = render(-1.0)
+    assert not np.array_equal(twin[32, 32], twin[0, 0]), "the quad is on screen"
+    assert np.array_equal(twin, mirrored)

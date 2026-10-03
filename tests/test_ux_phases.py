@@ -343,7 +343,7 @@ def test_the_creation_decision_is_split_between_the_bar_and_the_column():
     # test already states, applied once more: Reset puts the *brief* back, so
     # it belongs beside the brief rather than pinned under the recipe.
     for call in ("_type", "_prompt", "_count", "_generate", "_reset"):
-        assert f"{call}(ctx" in bar
+        assert f"{call}(" in bar
 
     source = inspect.getsource(settings_2d.draw)
     for call in ("_model", "_lora", "_seed_row", "_references", "_negative"):

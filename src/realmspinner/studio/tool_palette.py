@@ -43,7 +43,7 @@ from .tokens import sp
 # every upper-case name is a glyph string and is swept as one.
 #
 # One icon per generator in the registry. Strict at test time, graceful at
-# runtime -- the same pair Clay's ``_sections`` states for ``CATEGORIES``:
+# runtime -- the same pair Clay's ``sections`` states for ``CATEGORIES``:
 # ``tests/modes/clay/test_clay_wiring.py`` holds this table *bijective* against
 # ``primitives.GENERATORS``, so a sixteenth shape is a red test here rather
 # than a glyph nobody chose, while ``PRIMITIVE_ICONS.get(name, icons.BOX)``

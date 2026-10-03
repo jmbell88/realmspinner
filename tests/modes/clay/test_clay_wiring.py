@@ -252,12 +252,12 @@ def test_the_add_panel_draws_every_generator_in_the_registry():
     """The sections are the panel's whole list of what can be added, so a
     generator in neither ``CATEGORIES`` section has no button at all -- and a
     missing button is invisible to every other test, because the shape still
-    builds, still has properties and still exports. ``_sections`` sweeps the
+    builds, still has properties and still exports. ``sections`` sweeps the
     unfiled ones into a trailing group for that reason, which makes this
     equality hold whatever the table says."""
     from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
-    drawn = [name for _label, names in clay_tools._sections() for name in names]
+    drawn = [name for _label, names in clay_tools.sections() for name in names]
     assert sorted(drawn) == sorted(bp.GENERATORS)
     # Each exactly once: a name filed in two sections would draw two buttons
     # and pass a set comparison.

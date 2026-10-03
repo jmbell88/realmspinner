@@ -402,12 +402,19 @@ class LayerFlagEdit(Edit):
     layer_uid: int
     before: dict
     after: dict
+    #: The track the flag belongs to, on an animated document (2026-10-03
+    #: audit, inker-12). ``layer_uid`` names a *materialised* layer, which only
+    #: exists in the current frame's stack, so an undo issued after the
+    #: playhead moved found no row and silently did nothing while the history
+    #: head moved back. A track outlives every frame, as ``TrackPropsEdit``
+    #: relies on. Trailing and defaulted: None is a still document.
+    track_uid: int | None = None
 
     def undo(self, doc: Any) -> None:
-        doc._set_layer_flags(self.layer_uid, self.before)
+        doc._set_layer_flags(self.layer_uid, self.before, self.track_uid)
 
     def redo(self, doc: Any) -> None:
-        doc._set_layer_flags(self.layer_uid, self.after)
+        doc._set_layer_flags(self.layer_uid, self.after, self.track_uid)
 
 
 @dataclass(eq=False)

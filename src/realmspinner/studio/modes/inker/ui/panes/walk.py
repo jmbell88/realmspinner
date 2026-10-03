@@ -93,7 +93,7 @@ def draw(ctx: Any) -> None:
     widgets.divider()
     _settings(ctx, tab, session)
     widgets.divider()
-    _clipping_note(session)
+    _clipping_note(ctx, session)
     _exits(ctx, tab, state, session)
 
 
@@ -304,7 +304,7 @@ def draw_preview(ctx: Any, tab: Any, session: Any) -> None:
     slot is normally absent, and during a session the walk is exactly that
     thing. ``inker_preview.draw`` hands over here when a session is open.
     """
-    frames = inker_walk.frames(session)
+    frames = inker_walk.frames(session, ctx)
     if not frames:
         widgets.muted_wrapped(walk.refusal(session.rig) or "Nothing to show yet.")
         return
@@ -357,9 +357,9 @@ def _image(ctx: Any, tab: Any, session: Any, frames: list, index: int) -> None:
 
 
 
-def _clipping_note(session: Any) -> None:
+def _clipping_note(ctx: Any, session: Any) -> None:
     """Say it before the bake, not after: the bake crops silently."""
-    over = inker_walk.clipping(session)
+    over = inker_walk.clipping(session, ctx)
     if not any(over):
         return
     sides = [

@@ -56,7 +56,7 @@ class _Ctx:
 
     # ``TaskRunner.submit``'s contract, minus the thread: the callable is run
     # here so a test can see what the door was handed.
-    def submit(self, key, fn, *args, **kwargs):
+    def submit(self, key, fn, *args, tag=None, **kwargs):
         if not self.accept:
             return False
         self.submitted.append((key, fn(*args, **kwargs)))

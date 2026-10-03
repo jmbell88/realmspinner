@@ -35,6 +35,6 @@ def test_make_3d_button_states_a_reason_when_disabled_and_shows_ctrl_enter_only_
     assert "tooltip=_generate_tooltip(" in call.group(1)
     assert "set_tooltip" not in source, "a hover tooltip not gated on `enabled`"
     # And Mesh reaches the same function with its own label and door.
-    draw = inspect.getsource(create_brief.draw)
+    draw = inspect.getsource(create_brief.submit_control)
     assert '"Make 3D" if mesh else' in draw
     assert "settings_3d.promote(" in draw

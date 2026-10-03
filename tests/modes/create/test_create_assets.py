@@ -61,9 +61,9 @@ def test_the_brief_hides_the_count_for_a_character_as_well_as_for_a_sheet():
 
     from realmspinner.studio.modes.create.ui import brief as create_brief
 
-    source = inspect.getsource(create_brief.draw)
+    source = inspect.getsource(create_brief.inputs)
     assert '("sheet", "character")' in source
-    assert "if show_count:" in source
+    assert 'if mesh or form.get("output") not in' in source
 
 
 def test_create_job_refuses_the_character_type_because_it_has_its_own_door(svc):

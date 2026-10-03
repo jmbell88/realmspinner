@@ -1505,6 +1505,12 @@ class Document(
         after = layer.pixels[y0:y1, x0:x1].copy()
         if np.array_equal(before, after):
             self._discard_pending_cel()
+            # Recomposited, as ``_commit_indexed_patch`` does in the same
+            # situation (2026-10-03 audit, inker-15): the tool's raw dab was
+            # snapped back to the old colour above, but the composite cache
+            # still held the dab -- a purple pixel on screen, in flatten() and
+            # in a PNG export over a layer that holds red.
+            self.invalidate(rect, layer_uid=layer.uid)
             return
         pending, self._pending_cels = self._pending_cels, []
         release = self._matte_release((before[..., 3] == 255) & (after[..., 3] == 0))

@@ -170,10 +170,10 @@ def test_texel_density_is_shared_rather_than_per_island():
     """
     mesh = uv_mod.box_unwrap(_bare(prim.box(size=(4.0, 1.0, 1.0))))
     islands = _faces(mesh)
-    # The +Y face spans the long axis in u and the short one in v.
+    # The +Y face reads u from Z (short) and v from X (long) since clay-11.
     top = islands[1]
-    assert float(top[:, 0].max() - top[:, 0].min()) == pytest.approx(1.0)
-    assert float(top[:, 1].max() - top[:, 1].min()) == pytest.approx(0.25)
+    assert float(top[:, 1].max() - top[:, 1].min()) == pytest.approx(1.0)
+    assert float(top[:, 0].max() - top[:, 0].min()) == pytest.approx(0.25)
 
 
 def test_opposite_faces_are_mirrored_rather_than_projected_alike():
@@ -276,3 +276,42 @@ def test_the_unwrap_op_is_one_undo_step_per_object():
     assert len(doc.history) == depth + 1
     doc.undo()
     assert doc.by_uid(obj.uid).mesh.uv is None
+
+
+def test_box_unwrap_gives_every_face_of_a_box_positive_uv_winding():
+    """clay-11: X and Y faces came out mirrored (negative signed uv area seen
+    from outside) while only the Z pair read the right way round."""
+    from realmspinner.kernels.mesh import uvtools
+
+    box = prim.box((1.0, 2.0, 3.0))
+    out = uv_mod.box_unwrap(box)
+    assert not uvtools.flipped_uv_faces(out).any()
+
+
+def test_every_primitive_the_manual_says_has_no_overlapping_uv_has_none():
+    """clay-10: the manual's Texture coordinates paragraph promised no two
+    parts of a primitive overlap, yet the box-projected ones share squares on
+    purpose. Every generator that overlaps must be named in that paragraph."""
+    from pathlib import Path
+
+    from realmspinner.kernels.mesh import uvtools
+    from realmspinner.kernels.mesh.elements import OpError
+
+    text = (Path(__file__).parents[3] / "docs" / "manual" / "30-clay.md").read_text(
+        encoding="utf-8"
+    )
+    section = text.split("## Texture coordinates", 1)[1]
+    paragraph = section.strip().split("\n\n", 1)[0].lower().replace("\n", " ")
+    for name, (defaults, build) in prim.GENERATORS.items():
+        mesh = build(**defaults)
+        if mesh.uv is None:
+            continue
+        try:
+            overlaps = bool(uvtools.overlap_faces(mesh).any())
+        except OpError:
+            continue
+        if overlaps:
+            assert name.replace("_", " ") in paragraph, (
+                f"{name} shares texture squares but the manual's opening paragraph "
+                f"does not say so"
+            )

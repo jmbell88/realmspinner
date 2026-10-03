@@ -15,8 +15,12 @@ both borrowed from the character-sheet pipeline and recorded there first:
   mode the bake therefore carries **one cel per frame** and no per-layer
   planes: a stack of individually quantised layers would not composite to the
   quantised composite, and the document would then export something the
-  user had never seen. Painterly mode keeps the layers, because there the
-  composite is exactly what the stack composites to.
+  user had never seen. Painterly mode keeps the layers, but the stack only
+  composites to the composite because ``_doc_flourish`` does two things the
+  planes alone do not say: a track carries the blend its primitive forces (a
+  glow's "add"), and a layer beneath a REPLACES_BELOW layer (distortion) holds
+  no cel in that phase, since the distortion's plane already *is* the whole
+  composite beneath it (2026-10-03 audit, inker-16).
 
 Directions are the simulation turned, not the pixels: ``render`` rotates
 every vector a primitive emits, so a spark stream that fires right fires down

@@ -149,11 +149,15 @@ world transform shown read-only underneath. The two differ whenever the node is 
 seeing both is how you tell a group's offset from a child's.
 
 Under those is a block that depends on what the node is. A mesh has its source and a material
-override. A light has colour, intensity, range, and — for a spot — its inner and outer cone angles.
+override — tick **Override**, then set its colour, metallic and roughness, which replaces the
+source's own material on that one node; untick it to go back. The ground has the same colour and
+surface controls, always on. A light has colour, intensity, range, and — for a spot — its inner and outer cone angles.
 A camera has its field of view and its near and far planes. A prefab instance names its template.
 
 At the bottom is a table of **user properties**: your own key-and-value pairs, carried through to the
-export's manifest. This is where a scene says "this crate is breakable" to an engine that cares.
+export's manifest. This is where a scene says "this crate is breakable" to an engine that cares. Type
+a name and a value into the two boxes under the table and press **Add property**; edit a value in
+place; the bin icon removes a row. Each is one undo step.
 
 A mesh whose source cannot be found says so here — "Missing — the source could not be resolved." See
 [Missing sources](#missing-sources).
@@ -166,7 +170,9 @@ column with a row for it.
 
 Placing a prefab row puts an **instance** in the scene: a node that says "one of those, here". It is
 not a copy. Editing the template changes every instance, because an instance holds nothing of its own
-but a position — there is no propagation step to wait for and nothing to get out of step.
+but a position — there is no propagation step to wait for and nothing to get out of step. An instance's
+Properties panel shows its template's material override (when the template is a single mesh), and
+changing it there retints every instance in one undo step.
 
 **Unpack instance** is the one way to make an instance differ from its template: it replaces the
 instance with a fresh copy of the template's contents, which you can then edit like anything else.

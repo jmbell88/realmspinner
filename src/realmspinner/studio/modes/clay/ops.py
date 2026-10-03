@@ -8,10 +8,10 @@ nobody updated: a key that fires an op the menu greys out, or a menu row for an
 op the key path never learned about.
 
 So there is one list. :data:`OPS` is the whole of what is invocable, each entry
-carrying the modes it applies to, whether it is enabled right now, the key that
-fires it and how it groups in the menu. The menu renders it, the pane renders a
-subset of it, and the key handler looks up by key -- and none of them decides
-anything.
+carrying the modes it applies to, whether it is enabled right now and the key
+that fires it; how it groups in a menu is :mod:`.menutree`'s table. The menu
+renders it, the pane renders a subset of it, and the key handler looks up by
+key -- and none of them decides anything.
 
 **Nothing here imports imgui**, which is what keeps the registry testable: an
 ``Op``'s ``enabled`` predicate is a function of a document, so "Fill Hole is
@@ -155,7 +155,6 @@ class Op:
     run: Callable[..., Any]
     enabled: Callable[[Any], bool] = lambda doc: True
     key: str = ""
-    separator_before: bool = False
     params: tuple[Param, ...] = field(default=())
     """The numbers the pane pops a dialog for, or empty for a bare action."""
     hint: str = ""
@@ -442,6 +441,18 @@ def has_elements(doc: Any) -> bool:
     return bool(doc.element_sel)
 
 
+def has_any_selection(doc: Any) -> bool:
+    """Select None's gate, graded against the selection the mode means.
+
+    Object mode's selection is ``doc.selection``; an element mode's is
+    ``doc.element_sel``. ``has_elements`` alone would grey Select None in object
+    mode for a document with three objects picked.
+    """
+    if doc.element_mode == "object":
+        return bool(doc.selection)
+    return has_elements(doc)
+
+
 def has_two_visible(doc: Any) -> bool:
     """Two selected objects the user can actually see. Merge's predicate, and
     the only one that has to look past ``selection`` at what is in it."""
@@ -523,6 +534,10 @@ def _any_object_reason(doc: Any) -> str:
 
 def _has_elements_reason(doc: Any) -> str:
     return "" if has_elements(doc) else "Select something in the viewport first."
+
+
+def _has_any_selection_reason(doc: Any) -> str:
+    return "" if has_any_selection(doc) else "Select something in the viewport first."
 
 
 def _shade_enabled(doc: Any) -> bool:
@@ -735,6 +750,15 @@ def _bake(ctx: Any, doc: Any, **_: Any) -> bool:
         # after quietly writing the mesh first.
         doc._refuse_if_locked(obj.uid, check_ancestors=True)
         had_parent = obj.parent is not None
+        # clay-14: the bake resets this object to identity, so every direct
+        # child would jump by the inverse of its former transform. Capture
+        # their world matrices now and re-express each against the new
+        # (identity) frame below; refuse up front, before any write, if one
+        # is locked, since a locked child cannot be re-placed.
+        children = doc.children_of(obj.uid)
+        for child_uid in children:
+            doc._refuse_if_locked(child_uid)
+        child_worlds = {c: np.array(doc.world_matrix(c), copy=True) for c in children}
         baked = clay_ops_geom.bake_transform(obj, world=doc.world_matrix(obj.uid))
         doc.set_mesh(obj.uid, baked.mesh)
         doc.set_transform(
@@ -745,6 +769,9 @@ def _bake(ctx: Any, doc: Any, **_: Any) -> bool:
         )
         if had_parent:
             doc.set_parent(obj.uid, None, keep_world=False)
+        for child_uid, world in child_worlds.items():
+            t, r, sc = doc.local_from_world(child_uid, world)
+            doc.set_transform(child_uid, translation=t, rotation=r, scale=sc)
 
     # Returning ``run_object_op``'s own result (rather than discarding it,
     # as this function did before the 2026-09-23 audit's clay-01) is what
@@ -2754,6 +2781,83 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
     _blender_op_report(ctx, "Retopologized", applied, skipped, locked)
 
 
+def _carry_uvs(original: Any, unwrapped: Any) -> Any:
+    """*original* with only the UVs *unwrapped* (Blender's all-triangle,
+    auto-smoothed round trip) assigned -- its faces, quads and per-face
+    shading kept. -> ``None`` when a corner cannot be matched, and the caller
+    falls back to taking Blender's mesh whole.
+
+    clay-16 (2026-10-03): Smart Unwrap kept the generator and the manual says
+    it changes no geometry, yet the result replaced every face with triangles
+    and every per-face shading flag with auto-smooth. Unwrapping moves no
+    vertex, so each original corner finds its UV by exact position; where a
+    seam gives one position several UVs, the one on the triangle that lies
+    inside the original corner's own face is the right one.
+    """
+    from ....kernels.mesh import mesh as bm_mod
+    from ....kernels.mesh.earclip import corner_triangles
+
+    uv_u = unwrapped.uv
+    if uv_u is None or not len(unwrapped.loops) or len(unwrapped.loops) != 3 * (
+        len(unwrapped.starts) - 1
+    ):
+        return None
+    n_faces = len(original.starts) - 1
+    if n_faces == 0:
+        return None
+    pos_u = np.asarray(unwrapped.positions, dtype="f4")
+    by_pos: dict[tuple[float, float, float], list[int]] = {}
+    for k, vertex in enumerate(unwrapped.loops.tolist()):
+        by_pos.setdefault(tuple(pos_u[vertex].tolist()), []).append(k)
+    tri_pts = pos_u[unwrapped.loops].reshape(-1, 3, 3).astype("f8")
+    centroids = tri_pts.mean(axis=1)
+
+    pos_o = np.asarray(original.positions, dtype="f4")
+    o_corners, o_tri_face = corner_triangles(
+        original.positions, original.loops, original.starts, bm_mod.face_normals(original)
+    )
+    tris_of_face: dict[int, list[int]] = {}
+    for t, f in enumerate(o_tri_face.tolist()):
+        tris_of_face.setdefault(f, []).append(t)
+    extent = float(np.ptp(pos_o, axis=0).max()) if len(pos_o) else 1.0
+    tol = 1e-4 * max(extent, 1e-6)
+
+    def inside(face: int, point: np.ndarray) -> bool:
+        for t in tris_of_face.get(face, ()):
+            a, b, c = (pos_o[original.loops[k]].astype("f8") for k in o_corners[t])
+            nrm = np.cross(b - a, c - a)
+            length = float(np.linalg.norm(nrm))
+            if length < 1e-18 or abs(float((point - a) @ nrm)) / length > tol:
+                continue
+            v0, v1, v2 = b - a, c - a, point - a
+            d00, d01, d11 = v0 @ v0, v0 @ v1, v1 @ v1
+            d20, d21 = v2 @ v0, v2 @ v1
+            den = d00 * d11 - d01 * d01
+            if abs(den) < 1e-30:
+                continue
+            u = (d11 * d20 - d01 * d21) / den
+            v = (d00 * d21 - d01 * d20) / den
+            if u >= -1e-4 and v >= -1e-4 and u + v <= 1.0 + 1e-4:
+                return True
+        return False
+
+    out = np.zeros((len(original.loops), 2), dtype="f4")
+    for f in range(n_faces):
+        for corner in range(int(original.starts[f]), int(original.starts[f + 1])):
+            cands = by_pos.get(tuple(pos_o[original.loops[corner]].tolist()))
+            if not cands:
+                return None
+            uvs = uv_u[cands]
+            if np.allclose(uvs, uvs[0], atol=1e-6):
+                out[corner] = uvs[0]
+                continue
+            pick = next((k for k in cands if inside(f, centroids[k // 3])), None)
+            if pick is None:
+                return None
+            out[corner] = uv_u[pick]
+    return replace(original, uv=out)
+
+
 def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
     """Fold a finished Smart Unwrap's result in, one undo step.
     :func:`_retopo_apply`'s shape exactly, except every ``set_mesh`` passes
@@ -2790,6 +2894,13 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
         mesh = meshes.get(uid)
         if mesh is None:
             continue
+        # clay-16: take only the UVs when the original's corners can be
+        # matched (no modifier stack changed its topology); otherwise
+        # Blender's own rebuilt mesh, as before.
+        if not obj.modifiers:
+            carried = _carry_uvs(obj.mesh, mesh)
+            if carried is not None:
+                mesh = carried
         # Same ``set_mesh`` refusal guard as ``_decimate_apply`` -- the
         # 2026-09-22 audit's clay-03.
         try:
@@ -2892,7 +3003,16 @@ def _bake_apply(ctx: Any, doc: Any, result: Any) -> None:
     # the 2026-09-08 audit's clay-02) -- nested inside this function's own
     # mark/collapse exactly as ``_decimate_apply``'s own nesting is (its own
     # docstring says why that is safe).
-    doc.add_material_and_assign(uid, replace(doc.materials[index], **fields))
+    new_slot = doc.add_material_and_assign(uid, replace(doc.materials[index], **fields))
+    # clay-13: ``Obj.material`` is only the default for *new* faces; the
+    # faces carry their own slot, so without this the baked slot was never
+    # drawn or exported. Point every face at it, inside the same folded step.
+    low_mesh = doc.by_uid(uid).mesh
+    doc.set_mesh(
+        uid,
+        replace(low_mesh, material=np.full(len(low_mesh.starts) - 1, new_slot, dtype="i4")),
+        keep_generator=True,
+    )
     doc.history.collapse_since(mark)
     top = doc.history.top
     if top is not None and doc.history.head != head:
@@ -3410,6 +3530,12 @@ def _select_all(ctx: Any, doc: Any, **_: Any) -> None:
 
 def _select_none(ctx: Any, doc: Any, **_: Any) -> None:
     del ctx
+    if doc.element_mode == "object":
+        # The object-mode sense of "none", the Select menu's reason to be here:
+        # ``clear_element_sel`` leaves ``doc.selection`` alone in object mode,
+        # so the same op would have run and changed nothing.
+        doc.select([])
+        return
     doc.clear_element_sel()
 
 
@@ -3839,10 +3965,6 @@ def _register_collider_ops() -> None:
                 run=_collider_op(kind),
                 enabled=has_objects,
                 reason=_has_objects_reason,
-                # First collider row only: the same "separator ahead of a
-                # new group" convention Duplicate and Shade Smooth already
-                # use, not something per-kind to get out of sync.
-                separator_before=kind == next(iter(colliders_mod.COLLIDER_KINDS)),
                 hint="Fits a collision proxy to the selected objects' "
                 "evaluated meshes and adds it as a translucent, unshaded "
                 "child of each source -- never in place of the source's own "
@@ -3866,7 +3988,7 @@ def _register_defaults() -> None:
         Op(
             name="select-all",
             label="Select All",
-            modes=ELEMENT_MODES,
+            modes=ALL_MODES,
             run=_select_all,
             key="Ctrl+A",
         )
@@ -3875,10 +3997,10 @@ def _register_defaults() -> None:
         Op(
             name="select-none",
             label="Select None",
-            modes=ELEMENT_MODES,
+            modes=ALL_MODES,
             run=_select_none,
-            enabled=has_elements,
-            reason=_has_elements_reason,
+            enabled=has_any_selection,
+            reason=_has_any_selection_reason,
             # No `key` here: the 2026-09-20 audit's clay-22 -- `by_key` is only
             # ever called with `pygame.key.name(...).upper()`, which yields
             # "ESCAPE", so a registered "Esc" never resolved and the popup's
@@ -3892,7 +4014,7 @@ def _register_defaults() -> None:
         Op(
             name="select-invert",
             label="Invert Selection",
-            modes=ELEMENT_MODES,
+            modes=ALL_MODES,
             run=_invert,
             key="Ctrl+Shift+I",
         )
@@ -3956,7 +4078,6 @@ def _register_defaults() -> None:
             enabled=has_objects,
             reason=_has_objects_reason,
             key="Ctrl+J",
-            separator_before=True,
         )
     )
     for smooth, label in ((True, "Shade Smooth"), (False, "Shade Flat")):
@@ -3971,7 +4092,6 @@ def _register_defaults() -> None:
                 # reads the *element* selection -- see ``_shade_enabled``.
                 enabled=_shade_enabled,
                 reason=_shade_reason,
-                separator_before=smooth,
             )
         )
     register(
@@ -4384,7 +4504,6 @@ def _register_defaults() -> None:
                 run=(lambda a: lambda ctx, doc, **kw: mirror(ctx, doc, a, **kw))(axis),
                 enabled=has_objects,
                 reason=_has_objects_reason,
-                separator_before=axis == 0,
             )
         )
 
@@ -4404,7 +4523,6 @@ def _register_defaults() -> None:
                 Param("y", "y step (m)", 0.0, 0.1, low=-1e6),
                 Param("z", "z step (m)", 0.0, 0.1, low=-1e6),
             ),
-            separator_before=True,
         )
     )
     register(
@@ -4486,7 +4604,6 @@ def _register_defaults() -> None:
                     choices=("Min", "Centre", "Max"),
                 ),
             ),
-            separator_before=True,
         )
     )
     register(
@@ -4544,7 +4661,6 @@ def _register_defaults() -> None:
             hint="Makes a new, mesh-less object at the selection's combined "
             "centre and parents the selection onto it -- Clay's one grouping "
             "concept (see the manual's Outliner chapter).",
-            separator_before=True,
         )
     )
     register(
@@ -4603,7 +4719,6 @@ def _register_defaults() -> None:
             hint="Splits each selected object into one new object per "
             "connected shell, as one step: same transform, same parent, "
             "same modifier stack, copied onto every piece.",
-            separator_before=True,
         )
     )
     register(
@@ -4642,7 +4757,6 @@ def _register_defaults() -> None:
             hint="Moves each selected object's origin to its own world "
             "box's centre. Geometry and children stay exactly where they "
             "are -- only the pivot moves.",
-            separator_before=True,
         )
     )
     register(
@@ -4692,7 +4806,6 @@ def _register_defaults() -> None:
             "until it is unlocked again. Renaming, visibility, tags and "
             "unlocking stay allowed, or a mistake made while locked could "
             "not be undone by anyone but the lock.",
-            separator_before=True,
         )
     )
     register(
@@ -4715,7 +4828,6 @@ def _register_defaults() -> None:
             enabled=has_elements,
             reason=_has_elements_reason,
             key="E",
-            separator_before=True,
         )
     )
     register(
@@ -4798,7 +4910,6 @@ def _register_defaults() -> None:
             run=_dissolve,
             enabled=has_elements,
             reason=_has_elements_reason,
-            separator_before=True,
         )
     )
     # Deliberately a second name for ``dissolve`` in face mode rather than a
@@ -4861,7 +4972,6 @@ def _register_defaults() -> None:
             run=_element("ops_topo.flip_normals"),
             enabled=in_mode("face"),
             reason=_in_mode_reason("face"),
-            separator_before=True,
         )
     )
     register(
@@ -4887,7 +4997,6 @@ def _register_defaults() -> None:
             run=_bisect,
             enabled=in_mode("face"),
             reason=_in_mode_reason("face"),
-            separator_before=True,
             hint="Cuts the selected faces with a plane through the object's "
             "own local origin, normal to the chosen axis. For an arbitrary "
             "plane, draw one with Knife instead.",
@@ -5123,7 +5232,6 @@ def _register_defaults() -> None:
             label="Frame Selection",
             modes=ALL_MODES,
             run=_frame,
-            separator_before=True,
         )
     )
     register(
@@ -5135,7 +5243,6 @@ def _register_defaults() -> None:
             enabled=lambda doc: bool(doc.selection),
             reason=_selection_reason,
             key="Del",
-            separator_before=True,
         )
     )
 

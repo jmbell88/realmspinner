@@ -285,3 +285,25 @@ def test_the_restructuring_ops_are_refused_while_the_tab_is_busy():
         assert not op.enabled(state, tab), name
         assert inker_ops.reason_for(op, state, tab) == inker_ops.BUSY, name
         tab.saving = False
+
+
+def test_step_history_is_refused_while_the_tab_is_busy_or_transforming():
+    """The 2026-10-03 audit (inker-18): the Undo history popover's door moved
+    the history head under a save's encoder thread or a float, while Undo and
+    Redo were already gated."""
+    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import ops as inker_ops
+
+    ctx, state, tab = _op_session()
+    tab.doc.add_layer()
+    before = len(tab.doc.stack)
+    tab.saving = True
+    assert inker_mode.step_history(ctx, tab, 0) is False
+    assert len(tab.doc.stack) == before
+    assert not inker_ops.get("undo_history").enabled(state, tab)
+    tab.saving = False
+    state.transforming = True
+    assert inker_mode.step_history(ctx, tab, 0) is False
+    assert len(tab.doc.stack) == before
+    state.transforming = False
+    assert inker_mode.step_history(ctx, tab, 0) is True

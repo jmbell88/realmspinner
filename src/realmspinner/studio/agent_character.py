@@ -763,6 +763,16 @@ def _structural_refusal(name: str, schema: dict, args: Args) -> dict | None:
                 for item in value:
                     if not isinstance(item, dict):
                         return fail(f"each entry of {key} must be an object.", field=key)
+                    if items_schema.get("additionalProperties") is False:
+                        item_props = items_schema.get("properties", {})
+                        extra = sorted(k for k in item if k not in item_props)
+                        if extra:
+                            parts = ", ".join(repr(k) for k in extra)
+                            return fail(
+                                f"each entry of {key} has no property named {parts}; "
+                                f"it takes {', '.join(sorted(item_props))}.",
+                                field=key,
+                            )
                     item_missing = [
                         k for k in items_schema.get("required", []) if k not in item
                     ]
@@ -789,14 +799,23 @@ def call(svc: Any, session: Session, name: str, arguments: dict) -> dict:
     structural = _structural_refusal(name, schema, args)
     if structural is not None:
         return structural
-    from ..service.errors import ServiceError
+    from ..service.errors import Conflict, NotFound, ServiceError
 
     try:
         return handler(svc, session, args)
     except ServiceError as error:
-        mapped = _mapped_field(error.field, allowed, error.message)
-        if mapped:
-            return fail(error.message, field=mapped)
+        # The id fallback is only for "no such job/sheet" (and a field the
+        # error itself named): a field-less state refusal (Blender missing, a
+        # rig already running, job already finished) is not a bad argument, and
+        # telling the agent to fix job_id sends it retrying with another id
+        # (the 2026-10-03 audit, agents-05).
+        if error.field or isinstance(error, NotFound):
+            mapped = _mapped_field(error.field, allowed, error.message)
+            if mapped:
+                return fail(error.message, field=mapped)
+            return fail(error.message)
+        if isinstance(error, Conflict):
+            return fail(error.message, recovery="wait")
         return fail(error.message)
     except Exception:
         log.exception("agent character tool %r failed", name)
@@ -1087,9 +1106,14 @@ def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
     from ..service import palettes
     from ..service import rig as svc_rig
     from ..service import troupe as svc_troupe
+    from ..service.validation import check_job_id
 
     e = _enums()
     job_id = args["job_id"]
+    # Before any path is built from it: Config.job_dir is a bare join, so a
+    # "../x" id below would be a filesystem existence oracle (2026-10-03
+    # audit, agents-03).
+    check_job_id(job_id)
     movements = args["movements"]
     if not movements:
         return fail("movements must name at least one clip.", field="movements")

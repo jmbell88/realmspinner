@@ -347,6 +347,25 @@ def advance(ctx: Any, delta: int = 1) -> None:
         _clear_card()
         _remember(ctx)
         return
+    if delta > 0:
+        # The next card belongs to a mode this machine keeps shut (a fresh
+        # install has no Create: ``state.set_mode`` refuses it and the rail
+        # click routes to Settings), so its controls would never draw and the
+        # card would ring nothing. Stop with the reason instead (tour-01).
+        upcoming = tour.step(index)
+        gated = getattr(upcoming, "mode", None)
+        if gated:
+            from . import model_gate
+
+            where, _keys = model_gate.mode_gate(ctx, gated)
+            if where:
+                reason = model_gate.mode_reason(ctx, gated)
+                stop(ctx)
+                ctx.toast(
+                    f"The tour stops here: {reason or 'the next mode is not unlocked yet.'}",
+                    "info",
+                )
+                return
     state.index = max(0, index)
     state.satisfied = False
 

@@ -718,11 +718,23 @@ def viewer_guard(ctx: Any, viewer: Any, noun: str, verb: str, proceed: Any) -> b
     instance, the inspector reads the shared one, and no edit can live in both
     -- and the inspector's noun changes with the editor's mode.
     """
-    from . import dialogs
-
     if viewer is None or not viewer.pose_mode or not viewer.editor.has_unsaved_edits():
         proceed()
         return True
+    confirm_discard(ctx, noun, verb, proceed)
+    return False
+
+
+def confirm_discard(ctx: Any, noun: str, verb: str, proceed: Any) -> None:
+    """The one "Discard unsaved changes?" sentence, asked unconditionally.
+
+    Split out of :func:`viewer_guard` for Poser's quit guard (poser-07,
+    2026-10-03): the clip editor's working copy is not on any viewer, so that
+    guard decides *whether* to ask itself and must still ask in these words
+    rather than keep a second copy of the sentence.
+    """
+    from . import dialogs
+
     ctx.confirms.ask(
         dialogs.Confirm(
             title="Discard unsaved changes?",
@@ -730,4 +742,3 @@ def viewer_guard(ctx: Any, viewer: Any, noun: str, verb: str, proceed: Any) -> b
             on_confirm=proceed,
         )
     )
-    return False

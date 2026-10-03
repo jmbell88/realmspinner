@@ -50,6 +50,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import multiprocessing
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -97,9 +98,13 @@ def _fail_bytes(message: str, **extra: Any) -> bytes:
 
 def _connect(home) -> Any:
     """Dial Realmspinner's pipe, or `None` if nothing answered."""
+    # EOFError (the peer dropped us mid-handshake), AuthenticationError (a
+    # rotated or stale token; a ProcessError, not an OSError) and ValueError (a
+    # corrupt mcp.token) all mean "could not dial" -- the 2026-10-03 audit
+    # (agents-11): they used to escape main before the snapshot fallback.
     try:
         return pipe.connect(home)
-    except OSError:
+    except (OSError, EOFError, ValueError, multiprocessing.AuthenticationError):
         return None
 
 
@@ -277,6 +282,10 @@ class _Session:
             return False
         try:
             header = _hello(conn)
+        except (OSError, EOFError, ValueError):
+            # Studio dropped the connection (or sent a bad frame) during
+            # set-up: the same "not usable" outcome as a timeout (agents-10).
+            header = None
         except _VersionMismatch:
             # Unlike `main`'s own start-up path, a reconnect has nowhere to
             # fall back to except "not connected right now" -- there is no
@@ -648,6 +657,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if conn is not None:
         try:
             header = _hello(conn)
+        except (OSError, EOFError, ValueError):
+            # Studio dropped the connection (or sent a bad frame) during
+            # set-up: the same "not usable" outcome as a timeout (agents-10).
+            header = None
         except _VersionMismatch:
             # The one setup failure with nowhere to fall back to: _hello has
             # already printed the specific reason to stderr, and unlike
@@ -659,12 +672,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Nothing usable came of this connection (timeout, refusal, or
             # `busy`) -- _hello has already said why. Treated exactly like
             # `_connect` returning `None`: fall through to the snapshot.
-            with contextlib.suppress(OSError):
+            with contextlib.suppress(OSError, EOFError):
                 conn.close()
             conn = None
         else:
             protocol.SERVER_VERSION = header.get("studio_version", protocol.SERVER_VERSION)
-            session = _Session.connected(home, conn, header)
+            try:
+                session = _Session.connected(home, conn, header)
+            except (OSError, EOFError, ValueError):
+                session = None
             if session is None:
                 # `catalogue` itself timed out (SETUP_TIMEOUT) right after a
                 # good `hello` -- the same "not usable right now" outcome.

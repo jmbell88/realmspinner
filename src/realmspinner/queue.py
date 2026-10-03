@@ -1068,11 +1068,21 @@ class Worker(
         self._wake.clear()
         return woke
 
-    async def request_cancel(self, job_id: str) -> None:
-        """No-op unless job_id is the job currently running."""
+    async def request_cancel(self, job_id: str) -> bool:
+        """No-op unless job_id is the job currently running.
+
+        Returns ``False`` only when the running job's stage had already
+        *committed* (published onto a served name): the cancel then skips the
+        tail work but cannot un-publish, so the row must still read ``done`` and
+        the caller must not write ``cancelled`` over it (2026-10-03 audit,
+        service-06: ``cancel_job`` did, and ``_discard_artifacts`` then deleted
+        the served files). ``True`` for every other outcome.
+        """
         if job_id != self.current_job_id or self._cancel is None:
-            return
-        self._cancel.event.set()
+            return True
+        token = self._cancel
+        token.event.set()
+        committed = token.committed
         snapshot = self.progress.snapshot()
         phase = snapshot["phase"] if snapshot else None
         if phase == "trellis":
@@ -1113,6 +1123,7 @@ class Worker(
         # t2i_sample: the diffusers step callback checks the event itself.
         # t2i_load: not interruptible; the event is checked once between
         # load() and sampling in Text2Image.generate().
+        return not committed
 
     async def shutdown(self) -> None:
         self._stop.set()
@@ -1206,13 +1217,14 @@ class Worker(
         while not self._stop.is_set():
             try:
                 job = await asyncio.to_thread(self.store.next_queued)
-                # The store answered, so whatever went wrong last time was not
-                # permanent. Reset here rather than at the end of the block:
-                # this read is what the escalation below is really about, and a
-                # job that fails inside ``_process`` is already accounted for
-                # on its own row rather than being the queue's problem.
-                failures = 0
+                # NOT reset here (2026-10-03 audit, service-07): a read that
+                # succeeds says nothing about a write that fails. With claim or
+                # the terminal write raising "database or disk is full" while
+                # reads still answered, resetting on the read meant the counter
+                # never reached LOOP_FAILURE_LIMIT -- 96 attempts in 1.5 s with
+                # fatal unset. It resets only on an iteration that completes.
                 if job is None:
+                    failures = 0
                     commit_refused = False
                     await self._maybe_evict_idle()
                     woke = await self._wait_for_work(wait)
@@ -1224,6 +1236,7 @@ class Worker(
                     # is not held up for the whole backoff.
                     await self._wait_for_work(COMMIT_REFUSAL_BACKOFF)
                 commit_refused = await self._process(job)
+                failures = 0
             except Exception as exc:
                 # A crash here used to kill the worker permanently and
                 # silently -- next_queued or a DB hiccup would strand every

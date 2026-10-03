@@ -1275,6 +1275,22 @@ def _done_send(ctx: Any, state: Any, done: Any) -> None:
 
 
 
+def _done_walk_bake(ctx: Any, state: Any, done: Any) -> None:
+    """The walk bake's document was built off-thread; open it, provided the
+    session it came from is still open on that tab (cancelling is an answer)."""
+    from . import walk as inker_walk
+
+    tab = state.get(done.key.split(":", 1)[1]) if ":" in done.key else None
+    if tab is None or done.result is None or not inker_walk.is_open(state, tab):
+        return
+    inker_walk.land_bake(ctx, tab, done.result)
+
+
+def _done_walk_view(ctx: Any, state: Any, done: Any) -> None:
+    """The preview render adopts itself on the next ``walk.frames`` call; this
+    only has to not fall through to the tail, which unlocks a tab."""
+
+
 # --- what answers for which task key ------------------------------------------
 
 
@@ -1314,6 +1330,8 @@ def _TASK_HANDLERS() -> dict[str, Any]:
         "inker-convert": _done_convert,
         "inker-send": _done_send,
         "inker-promote": _done_send,
+        "inker-walkbake": _done_walk_bake,
+        "inker-walkview": _done_walk_view,
     }
 
 
@@ -1494,6 +1512,13 @@ def step_history(ctx: Any, tab: InkerDoc, index: int) -> bool:
     ``history.step_to`` and ``invalidate_all`` itself, the one surface onto
     the stack that bypassed the mode.
     """
+    # The 2026-10-03 audit, finding inker-18: Undo and Redo are refused on a
+    # busy tab or under a float; this door walked the head anyway, rewriting
+    # ``doc.stack`` under the ORA encoder thread.
+    state = ensure(ctx)
+    if tab.busy or state.transforming:
+        ctx.toast(inker_ops.BUSY)
+        return False
     moved = tab.doc.history.step_to(tab.doc, index)
     tab.doc.invalidate_all()
     return moved

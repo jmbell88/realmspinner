@@ -585,6 +585,19 @@ def test_skip_writes_nothing_and_advances(ctx, svc):
     assert svc.store.latest_verdicts() == []
 
 
+def test_skip_outside_a_pass_goes_to_the_next_unverdicted_unit(ctx, svc):
+    """shell-07: S was a plain +1 outside a guided pass, landing on a graded
+    unit though three manual chapters say it skips to the next unverdicted."""
+    sweep_id, ids = _sweep(svc, n=3)
+    svc_verdicts.record_verdict(svc, ids[1], grade=3)
+    state = _scanned(ctx)
+    review_mode.open_sweep(ctx, sweep_id)
+
+    assert state.index == 0
+    assert _press(ctx, "s") is True
+    assert state.index == 2
+
+
 def test_recording_advances_past_units_that_already_have_a_verdict(ctx, svc):
     sweep_id, ids = _sweep(svc, n=3)
     svc_verdicts.record_verdict(svc, ids[1], grade=3)

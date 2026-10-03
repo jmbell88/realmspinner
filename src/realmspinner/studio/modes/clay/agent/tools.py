@@ -1031,10 +1031,14 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
     kind = args.get("kind")
     if kind not in ops_boolean.KINDS:
         return fail(f"kind must be one of {', '.join(ops_boolean.KINDS)}.", field="kind")
+    raw_uids = args.get("uids")
+    if raw_uids is not None and not isinstance(raw_uids, (list, tuple)):
+        # clay-02 (2026-10-03): a digit string iterates per character.
+        return fail("uids must be a list of integers.", field="uids")
     try:
         # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
         # ``int(float("inf"))`` raises it, uncaught here before this fix.
-        wanted = [int(u) for u in args.get("uids") or []]
+        wanted = [int(u) for u in raw_uids or []]
     except (TypeError, ValueError, OverflowError):
         return fail("uids must be a list of integers.", field="uids")
     # ``_union``'s own shape, generalised over the three kinds: the targets

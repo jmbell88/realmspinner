@@ -203,6 +203,12 @@ class PoserState:
     #: can tell whether edits arrived while it was writing.
     clips_touch_serial: int = 0
     clips_save_serial: int = 0
+    #: The crash journal's three bookkeeping marks for the working copy
+    #: (poser-07, 2026-10-03), proxied by :class:`_ClipsSlot`. Not a document
+    #: fact: they say which crash copy on disk holds this state.
+    clips_journal_name: str = ""
+    clips_journal_head: Any = None
+    clips_journal_at: float = 0.0
     clips_error: str = ""
     #: Whether the neighbouring keys are ghosted in the viewport. Session
     #: state, not a document fact: it is how the user is *looking* at the
@@ -943,7 +949,12 @@ def save_pose_to_asset(ctx: Any) -> None:
         ctx.toast("Apply or cancel the skeleton edit before saving a pose.", "info")
         return
     job_id = state.job_id
+    # ``current`` is also what Apply of a *library* pose sets; only an id that
+    # names one of this asset's own poses may travel as the asset pose id, or
+    # the service refuses "no such pose" (poser-04, 2026-10-03).
     existing = viewer.editor.current
+    if existing and state.find_asset_pose(existing) is None:
+        existing = None
 
     def accept(name: str) -> None:
         # root_translation travels with the pose here too, mirroring _payload's
@@ -1611,6 +1622,24 @@ def bind_preview(ctx: Any, viewer: Any, template_key: str) -> None:
     viewer.frame_bounds(lo, hi)
 
 
+def _bind_asset_root(state: PoserState, viewer: Any) -> None:
+    """Point ``editor.root`` at the asset rig's root bone.
+
+    ``enter_pose_mode`` leaves it unset, so an asset session showed no Move
+    root control, previewed no offset on Apply, and ``save_pose_to_asset`` sent
+    ``[0, 0, 0]`` over a stored pose's real root offset (poser-03, 2026-10-03).
+    """
+    rig = state.asset_rig or {}
+    name = rig.get("root")
+    if not name:
+        name = next(
+            (b.get("name") for b in rig.get("bones") or [] if not b.get("parent")), None
+        )
+    model = viewer.editor.model
+    if name and model is not None and name in model.by_name:
+        viewer.editor.root = name
+
+
 def _bind_asset_now(ctx: Any, state: PoserState, viewer: Any, job_id: str) -> None:
     """Load ``job_id``'s rig.glb and enter pose mode, right now, both halves.
 
@@ -1634,6 +1663,7 @@ def _bind_asset_now(ctx: Any, state: PoserState, viewer: Any, job_id: str) -> No
     if not viewer.enter_pose_mode(state.asset_rig, job_id):
         state.asset_error = "That GLB carries no skeleton."
         return
+    _bind_asset_root(state, viewer)
     viewer.frame()
 
 
@@ -1699,6 +1729,7 @@ def _land_asset_load(ctx: Any, done: Any) -> None:
     if not viewer.enter_pose_mode(state.asset_rig, job_id):
         state.asset_error = "That GLB carries no skeleton."
         return
+    _bind_asset_root(state, viewer)
     viewer.frame()
 
 
@@ -2019,7 +2050,20 @@ def guard(ctx: Any, verb: str, proceed: Any) -> bool:
     from ... import docmodes
 
     viewer = viewer_of(ctx)
-    return docmodes.viewer_guard(ctx, viewer, _dirty_draft_noun(viewer), verb, proceed)
+    state = getattr(getattr(ctx, "state", None), "poser", None)
+    if verb != "quit" or state is None or not state.clips_unsaved:
+        return docmodes.viewer_guard(ctx, viewer, _dirty_draft_noun(viewer), verb, proceed)
+
+    # Quit also loses the clip editor's working copy (authored or imported
+    # keyframes not yet saved), which lives on no viewer, so the quit chain is
+    # where to ask (poser-07, 2026-10-03). Only a quit: Apply and New pose do
+    # not touch the clips. The pose question comes first; answering it leads
+    # to the clips question, in the same one sentence (``confirm_discard``).
+    def clips_question() -> None:
+        docmodes.confirm_discard(ctx, "clip", verb, proceed)
+
+    docmodes.viewer_guard(ctx, viewer, _dirty_draft_noun(viewer), verb, clips_question)
+    return False
 
 
 # --- keys and task results ---------------------------------------------------
@@ -2241,6 +2285,11 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 # Edited while the save was in flight: what landed is behind
                 # the working copy, so the working copy stays and stays
                 # unsaved. The next Save writes it.
+                return
+            if done.key == CLIPS_KEY and state.clips_unsaved:
+                # A read that was in flight when the user (or a journal
+                # recovery) began editing: adopting it would replace the
+                # working copy with what is on disk, silently.
                 return
             adopt_clips(ctx, done.result)
         return
@@ -4796,7 +4845,139 @@ def _journal_slots(ctx: Any) -> list[Any]:
         slot = _journal_slot_for(ctx, viewer, key)
         if slot is not None:
             out.append(slot)
+    state = getattr(getattr(ctx, "state", None), "poser", None)
+    if state is not None:
+        clips = _ClipsSlot(state)
+        if state.clips_unsaved and state.template and state.clips:
+            out.append(clips)
+        elif state.clips_journal_name:
+            # Saved, reverted, or switched away: the copy is clutter now. Done
+            # here because this runs every frame and every one of those paths
+            # clears ``clips_unsaved`` -- one place instead of four callers.
+            journal.drop(ctx, clips)
     return out
+
+
+class _ClipsSlot:
+    """The clip editor's working copy as the journal sees it (poser-07).
+
+    Marks live on :class:`PoserState` -- the working copy's own lifetime --
+    and the head is ``(template, touch serial)``: every mutation goes through
+    :func:`_touch`, so the serial says "changed" without encoding the library
+    sixty times a second.
+    """
+
+    journal_name: str
+    journal_head: Any
+    journal_at: float
+    key = "clips"
+
+    def __init__(self, state: PoserState) -> None:
+        self.state = state
+
+    @property
+    def journal_name(self) -> str:
+        return self.state.clips_journal_name
+
+    @journal_name.setter
+    def journal_name(self, value: str) -> None:
+        self.state.clips_journal_name = value
+
+    @property
+    def journal_head(self) -> Any:
+        return self.state.clips_journal_head
+
+    @journal_head.setter
+    def journal_head(self, value: Any) -> None:
+        self.state.clips_journal_head = value
+
+    @property
+    def journal_at(self) -> float:
+        return self.state.clips_journal_at
+
+    @journal_at.setter
+    def journal_at(self, value: float) -> None:
+        self.state.clips_journal_at = value
+
+
+def _clips_head(slot: _ClipsSlot) -> Any:
+    return (slot.state.template, slot.state.clips_touch_serial)
+
+
+def _clips_payload(slot: _ClipsSlot) -> bytes:
+    import json as _json
+
+    state = slot.state
+    return _json.dumps(
+        {
+            "mode": "clips",
+            "where": "clips",
+            "template": state.template,
+            "space": state.clips.get("space") or "node",
+            "poses": state.clips.get("poses") or [],
+            "clips": state.clips.get("clips") or [],
+            "edited": bool(state.clips.get("edited")),
+            "clip": state.clip,
+            "key_index": state.key_index,
+        },
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _adopt_clips_copy(ctx: Any, data: dict[str, Any]) -> bool:
+    """Reinstall a recovered clip working copy. Declines (file kept) when it
+    would overwrite clip edits already open or a pose being edited."""
+    state = ensure(ctx)
+    template = str(data.get("template") or "")
+    if not template or not isinstance(data.get("clips"), list):
+        ctx.toast("A recovered clip edit could not be reopened.", "warn")
+        return False
+    if state.clips_unsaved:
+        ctx.toast(
+            "Unsaved clip edits were recovered, but this session already has "
+            "some. Save or discard those and they will be offered again.",
+            "warn",
+        )
+        return False
+    if state.template != template:
+        viewer = viewer_of(ctx)
+        if viewer is not None and viewer.pose_mode and viewer.editor.has_unsaved_edits():
+            ctx.toast(
+                "Unsaved clip edits were recovered, but a pose is being "
+                "edited on another skeleton. Finish it and they will be "
+                "offered again.",
+                "warn",
+            )
+            return False
+        # set_template's own proceed, minus the question: nothing unsaved is
+        # being discarded (checked just above).
+        _reset_for_template(state, template)
+        state.poses, state.presets = [], []
+        state.preview_path, state.preview_template = None, ""
+        if viewer is not None:
+            viewer.clear()
+        refresh(ctx)
+        request_preview(ctx)
+    state.clips = {
+        "template": template,
+        "space": data.get("space") or "node",
+        "poses": list(data.get("poses") or []),
+        "clips": list(data.get("clips") or []),
+        "edited": bool(data.get("edited")),
+    }
+    state.clips_loading = False
+    state.clips_dirty_flag = False
+    names = [str(c.get("name") or "") for c in state.clips["clips"]]
+    wanted = str(data.get("clip") or "")
+    state.clip = wanted if wanted in names else (names[0] if names else "")
+    try:
+        state.key_index = max(0, int(data.get("key_index") or 0))
+    except (TypeError, ValueError):
+        state.key_index = 0
+    state.frame = -1
+    _touch(ctx)
+    ctx.toast("Unsaved clip edits were recovered. Save clips to keep them.", "success")
+    return True
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
@@ -4817,6 +4998,17 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
     except (OSError, ValueError):
         log.exception("could not read the recovered pose at %s", path)
         return False
+    if data.get("mode") == "clips":
+        if not _adopt_clips_copy(ctx, data):
+            return False
+        # The recovered file becomes this working copy's own copy, so saving
+        # or reverting retires it (``journal.drop``) rather than leaving a
+        # stale offer for the next launch.
+        state = ensure(ctx)
+        state.clips_journal_name = Path(path).name
+        state.clips_journal_head = None
+        state.clips_journal_at = 0.0
+        return True
     where = str(data.get("where") or "poser")
     viewer = viewer_of(ctx) if where == "poser" else getattr(ctx, "viewer", None)
     editor = getattr(viewer, "editor", None)
@@ -4915,10 +5107,14 @@ JOURNAL = journal.register(
         label="pose",
         slots=_journal_slots,
         uid_of=lambda slot: slot.key,
-        title_of=lambda slot: "Pose" if slot.key == "poser" else "Asset pose",
-        # Payload equality: see the section note above.
-        head_of=_pose_payload,
-        encode=_pose_payload,
+        title_of=lambda slot: {"poser": "Pose", "clips": "Clip edits"}.get(
+            slot.key, "Asset pose"
+        ),
+        # Payload equality: see the section note above. The clip working copy
+        # is the one slot whose head is a serial instead (poser-07), because
+        # its payload is a whole library.
+        head_of=lambda slot: _clips_head(slot) if slot.key == "clips" else _pose_payload(slot),
+        encode=lambda slot: _clips_payload(slot) if slot.key == "clips" else _pose_payload(slot),
         adopt=_journal_adopt,
     )
 )

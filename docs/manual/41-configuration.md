@@ -15,7 +15,9 @@ preferences — theme, UI scale, pane layout and the form fields it remembers �
 Everything the app generates lives under one home directory, `~/.realmspinner`, and the defaults below
 are relative to it. The exceptions are the two vendored binaries, whose defaults are relative to the
 project root — the directory containing `pyproject.toml` — because they ship with the checkout.
-Boolean variables accept `1`, `true` or `on`; anything else is off.
+Boolean variables accept `1`, `true`, `on` or `yes` for on and `0`, `false`, `off` or `no` for off.
+Anything else is reported in the log and the variable's own default applies — which for a switch that
+defaults to on (such as `REALMSPINNER_NATIVE`) means an unrecognised word leaves it on.
 
 | Variable | Default | Effect |
 | --- | --- | --- |

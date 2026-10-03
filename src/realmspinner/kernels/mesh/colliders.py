@@ -172,6 +172,10 @@ _CAPSULE_RINGS = 3
 #: stays at 5,000: the numbers above were not re-taken, the ruling is unchanged.
 MAX_HULL_POINTS = 5_000
 
+#: Inputs with more distinct points than this are hulled from a farthest-point
+#: sample of this size (clay-15): quickhull is ~quadratic in hull vertices.
+_PREREDUCE_POINTS = 128
+
 
 #: The most loose parts one :func:`compound` call will hull.
 #:
@@ -711,8 +715,22 @@ def _hull_from_points(
             f"A convex hull needs at least 4 distinct points, got {len(uniq)}."
         )
     _refuse_hull_complexity(len(uniq), kind)
-    scale = float(max(np.ptp(uniq, axis=0).max(initial=0.0), 1.0))
-    eps = 1e-9 * scale
+    # clay-09: positions are stored float32, whose noise is ~6e-8 of the
+    # largest coordinate; a 1e-9 tolerance hulled that noise on a rotated
+    # coplanar-faced mesh (non-manifold, past max_faces). Resolve no finer
+    # than 1e-6 of the larger of the extent and the coordinate magnitude.
+    scale = float(max(np.ptp(uniq, axis=0).max(initial=0.0), np.abs(uniq).max(), 1.0))
+    eps = 1e-6 * scale
+
+    # clay-15: the quickhull scan is O(live faces) per insertion, so a round
+    # mesh (every vertex on the hull) costs ~n^2 (762 points: 8.5 s) and
+    # MAX_HULL_POINTS alone did not bound it. Past _PREREDUCE_POINTS, hull a
+    # farthest-point sample (plus the six axis extremes, so a box keeps its
+    # exact bounds) instead; the result is reduced to max_faces anyway.
+    if len(uniq) > _PREREDUCE_POINTS:
+        pick = _farthest_point_sample(uniq, _PREREDUCE_POINTS)
+        extremes = np.concatenate([uniq.argmin(axis=0), uniq.argmax(axis=0)])
+        uniq = uniq[np.unique(np.concatenate([pick, extremes]))]
 
     hull_idx, faces = _quickhull_core(uniq, eps)
     reduced = len(faces) > max_faces

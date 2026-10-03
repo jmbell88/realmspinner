@@ -241,6 +241,28 @@ def test_bake_apply_gives_the_low_object_its_own_material_slot_instead_of_the_sh
     assert doc.materials[new_low_index].base_color_factor == (1.0, 0.0, 0.0, 1.0)
 
 
+def test_bake_apply_leaves_the_low_objects_faces_on_the_baked_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clay-13 (2026-10-03): the baked slot was appended and ``Obj.material``
+    pointed at it, but every face kept its old slot, so the bake never showed."""
+    doc = bd.ClayDoc()
+    low = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Low", mesh=bp.box()))
+    baked_material = gltf_mod.Material(name="baked", base_color_factor=(1.0, 0.0, 0.0, 1.0))
+    monkeypatch.setattr(clay_ops, "_blender_bake_material", lambda data: baked_material)
+    result = {
+        "meta": [{"uid": low.uid, "name": low.name, "stamp": doc.mesh_stamp(low.uid)}],
+        "glb_out": b"not-empty",
+        "report": {"maps": ["base_color"], "metallic": 0.5},
+    }
+    clay_ops._bake_apply(_Ctx(), doc, result)
+    obj = doc.by_uid(low.uid)
+    assert obj.material != 0
+    assert set(obj.mesh.material.tolist()) == {obj.material}
+    doc.undo()
+    assert set(doc.by_uid(low.uid).mesh.material.tolist()) == {0}, "one undo step"
+
+
 # --- clay-ops-tail-05: face-mode Shade Smooth/Flat must skip a locked -------
 # --- object rather than abort the rest of the batch -------------------------
 

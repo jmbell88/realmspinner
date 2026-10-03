@@ -2139,3 +2139,34 @@ def test_clay_view_dragging_is_dragops_dragging_not_a_shadowing_property() -> No
     ``cancel_drag``, which call ``self.dragging`` believing they get their own
     module's definition."""
     assert clay_view.ClayView.dragging is _view_drag.DragOps.dragging
+
+
+def test_s_with_the_select_tool_scales_instead_of_translating_and_g_with_the_scale_tool_translates(
+    view,
+) -> None:
+    """The 2026-10-03 audit's clay-19: a keyboard drag's kind is its key, not
+    the active tool."""
+    doc = _doc(count=1)
+    uid = doc.objects[0].uid
+    doc.select([uid])
+    view.draw(doc, RECT, 0.0)
+    view._last_mouse = (90.0, 48.0)
+    obj = doc.by_uid(uid)
+    t0 = np.array(obj.translation)
+    s0 = np.array(obj.scale)
+
+    view.state.tool = "select"
+    assert view.begin_keyboard_drag(doc, "scale")
+    view._motion(doc, (115.0, 60.0))
+    assert np.allclose(obj.translation, t0, atol=1e-6), "S must not translate"
+    assert not np.allclose(obj.scale, s0), "S must scale"
+    view.cancel_drag(doc)
+
+    view.state.tool = "scale"
+    view._last_mouse = (90.0, 48.0)
+    assert view.begin_keyboard_drag(doc, "move")
+    view._motion(doc, (115.0, 60.0))
+    assert np.allclose(obj.scale, s0, atol=1e-6), "G must not scale"
+    assert not np.allclose(obj.translation, t0), "G must translate"
+    view.cancel_drag(doc)
+    view.state.tool = "select"
