@@ -16,7 +16,9 @@ both borrowed from the character-sheet pipeline and recorded there first:
   planes: a stack of individually quantised layers would not composite to the
   quantised composite, and the document would then export something the
   user had never seen. Painterly mode keeps the layers, but the stack only
-  composites to the composite because ``_doc_flourish`` does two things the
+  composites to the composite because the bake composites AFTER reducing each
+  plane to cel size (P74, 2026-10-03: a glow's clip does not commute with a
+  box average) and because ``_doc_flourish`` does two things the
   planes alone do not say: a track carries the blend its primitive forces (a
   glow's "add"), and a layer beneath a REPLACES_BELOW layer (distortion) holds
   no cel in that phase, since the distortion's plane already *is* the whole
@@ -136,11 +138,20 @@ def _legal(plane: np.ndarray) -> np.ndarray:
     that -- the divide-by-alpha clips at 255 -- so the document stack, built
     from those cels, differed from the bake's own composite by 8-43/255 on 18
     painterly presets. Clamping the plane *before* both the composite and the
-    cels exist makes them the same picture; the cost is that over-bright glows
+    cels exist makes them the same picture (with the composite taken after the
+    planes are reduced, see ``bake``); the cost is that over-bright glows
     come out slightly dimmer. Painterly only: pixel mode keeps no layer cels."""
     out = plane.copy()
     np.minimum(out[..., :3], out[..., 3:4], out=out[..., :3])
     return out
+
+
+def _reduce(plane: np.ndarray, s: int) -> np.ndarray:
+    """Premultiplied box mean to cel size (the reduction ``R.to_uint8`` does)."""
+    if s <= 1:
+        return plane
+    h, w = plane.shape[0] // s, plane.shape[1] // s
+    return plane[: h * s, : w * s].reshape(h, s, w, s, 4).mean(axis=(1, 3)).astype(np.float32)
 
 
 def _straight(plane: np.ndarray) -> np.ndarray:
@@ -209,20 +220,23 @@ def bake(
                 frame = start + i
                 planes = R.render(recipe, frame, degrees, assets)
                 if not pixel:
-                    planes = {uid: _legal(p) for uid, p in planes.items()}
-                comp = R.composite(recipe, planes, phase.name)
-                if not pixel:
+                    # Composite AFTER reducing (P74, 2026-10-03): each plane is
+                    # clamped, box-reduced to cel size and clamped again, and the
+                    # stack is folded at cel size with the same _blend the
+                    # document's tracks imply. A glow's clip does not commute
+                    # with an average, so folding at the supersampled raster and
+                    # reducing afterwards left 18 presets 7-33/255 from the
+                    # document stack; this order makes the cels and the
+                    # composite one picture. Layer cels come from the same
+                    # reduced planes, so they are unchanged.
+                    planes = {
+                        uid: _legal(_reduce(_legal(p), s)) for uid, p in planes.items()
+                    }
+                    comp = R.composite(recipe, planes, phase.name)
+                    if comp.shape[0] != recipe.height:  # nothing painted: supersampled zeros
+                        comp = _reduce(comp, s)
                     comp = _legal(comp)
-                if pixel:
-                    small = _pixelize_mod.reduce(
-                        _Image.fromarray(_straight(comp), "RGBA"),
-                        (recipe.width, recipe.height),
-                        mode="box",
-                    )
-                    tile = R.to_uint8(comp, s) if needs_tiles else None
-                    raw_composites.append((facing, phase.name, small, tile))
-                else:
-                    facing.composites[phase.name].append(R.to_uint8(comp, s))
+                    facing.composites[phase.name].append(R.to_uint8(comp, 1))
                     for layer in recipe.layers:
                         if not layer.active_in(phase.name):
                             continue
@@ -230,11 +244,20 @@ def bake(
                         # cel, so every track has one per frame of its phases.
                         plane = planes.get(layer.uid)
                         cel = (
-                            R.to_uint8(plane, s)
+                            R.to_uint8(plane, 1)
                             if plane is not None
                             else np.zeros((recipe.height, recipe.width, 4), dtype=np.uint8)
                         )
                         facing.layers[phase.name].setdefault(layer.uid, []).append(cel)
+                else:
+                    comp = R.composite(recipe, planes, phase.name)
+                    small = _pixelize_mod.reduce(
+                        _Image.fromarray(_straight(comp), "RGBA"),
+                        (recipe.width, recipe.height),
+                        mode="box",
+                    )
+                    tile = R.to_uint8(comp, s) if needs_tiles else None
+                    raw_composites.append((facing, phase.name, small, tile))
                 done += 1
                 if progress is not None:
                     progress(done, total)

@@ -290,31 +290,7 @@ def _premul(img: np.ndarray) -> np.ndarray:
     return img[..., :3].astype(np.float32) * (img[..., 3:4].astype(np.float32) / 255.0)
 
 
-# Presets whose stack still differs from the bake after inker-16's fixes (the
-# glow track's carried blend, the distortion collapse, the bake's rgb <= alpha
-# clamp, and the compositor's premultiplied "plus-lighter", which took the worst
-# pixel of holy_burst from 255 vs 219 to 12.85 of 255). What remains is not the
-# blend: the bake clips the glow's sum at the *supersampled* raster and then
-# box-reduces, while the document sums the already-reduced cels, and a clip
-# does not commute with an average. At supersample 1 every one of these is
-# within 2/255 (measured 2026-10-03, dev/measurements/2026-10-03-flourish-bake-clamp.md).
-# Strict, so a bake that composites after reducing forces this list empty.
-_STILL_DIFFERS = {
-    "arrow_trail", "buff", "chain_lightning", "debuff", "dust_impact", "ground_shockwave",
-    "heal", "holy_burst", "ice_nova", "ice_shard", "lightning_bolt", "magic_missile",
-    "poison_cloud", "slash", "summoning_circle", "sword_impact", "teleport", "water_splash",
-}
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(n, marks=pytest.mark.xfail(strict=True, reason="inker-16: clip-then-reduce"))
-        if n in _STILL_DIFFERS
-        else n
-        for n in presets.names()
-    ],
-)
+@pytest.mark.parametrize("name", presets.names())
 def test_a_painterly_documents_stack_composites_to_the_bakes_composite_for_every_preset(name):
     """inker-16: a painterly effect landed as one normal-blend track per layer,
     so a glow (forced "add") lost its blend and a distortion (whose plane is the
@@ -338,3 +314,45 @@ def test_a_painterly_documents_stack_composites_to_the_bakes_composite_for_every
         want = _premul(flat[i])
         worst = max(worst, float(np.abs(got - want).max()))
     assert worst <= 6.0, (name, worst)
+
+
+@pytest.mark.parametrize("name", ["holy_burst", "sword_impact", "chain_lightning", "wind_gust"])
+def test_the_shipped_settings_stack_composites_to_the_bakes_composite(name):
+    """P74: at what ships (128 px, supersample 4) the stack was up to 33/255 from
+    the bake before the bake composited after reducing."""
+    from realmspinner.kernels.pixel import Document
+
+    raw = flourish.to_dict(presets.load(name))
+    assert raw["size"] == [128, 128] and raw["supersample"] == 4
+    raw["mode"] = "painterly"
+    rec = flourish.from_dict(raw)
+    baked = B.bake(rec)
+    doc = Document.blank(128, 128)
+    doc.insert_flourish(baked)
+    flat = baked.flat()
+    worst = 0.0
+    for i in range(0, baked.frame_count, 2):
+        doc.set_current_frame(i)
+        worst = max(worst, float(np.abs(_premul(doc.composite) - _premul(flat[i])).max()))
+    assert worst <= 6.0, (name, worst)
+
+
+def test_pixel_mode_still_composites_at_the_supersampled_raster_then_reduces():
+    """P74 touched the painterly branch only: a pixel bake is the supersampled
+    composite, box-reduced, then quantised -- one composite, quantise last."""
+    from PIL import Image
+
+    from realmspinner.pipelines import pixelize
+
+    raw = flourish.to_dict(presets.load("holy_burst"))
+    raw["size"] = [32, 32]
+    raw["supersample"] = 2
+    raw["mode"] = "pixel"
+    rec = flourish.from_dict(raw)
+    palette = ((0, 0, 0), (255, 255, 255), (255, 200, 80), (200, 60, 20))
+    baked = B.bake(rec, palette=palette)
+    for frame in (0, 3):
+        comp = flourish.render.render_frame(rec, frame, 0.0)
+        small = pixelize.reduce(Image.fromarray(B._straight(comp), "RGBA"), (32, 32), mode="box")  # noqa: SLF001
+        want = B._pixelize(small, rec, palette, False)  # noqa: SLF001
+        assert np.array_equal(baked.flat()[frame], want)
