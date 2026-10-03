@@ -20,7 +20,9 @@ both borrowed from the character-sheet pipeline and recorded there first:
   planes alone do not say: a track carries the blend its primitive forces (a
   glow's "add"), and a layer beneath a REPLACES_BELOW layer (distortion) holds
   no cel in that phase, since the distortion's plane already *is* the whole
-  composite beneath it (2026-10-03 audit, inker-16).
+  composite beneath it (2026-10-03 audit, inker-16). Painterly planes are also
+  clamped to rgb <= alpha (``_legal``) before compositing, because a straight
+  uint8 cel cannot hold an over-bright premultiplied plane.
 
 Directions are the simulation turned, not the pixels: ``render`` rotates
 every vector a primitive emits, so a spark stream that fires right fires down
@@ -126,6 +128,21 @@ class Bake:
         return self.recipe.frame_count * len(self.facings)
 
 
+def _legal(plane: np.ndarray) -> np.ndarray:
+    """Clamp a premultiplied plane so rgb <= alpha.
+
+    inker-16 (2026-10-03 audit): glow and particle planes are produced with
+    rgb > alpha (an additive hot core). A straight-alpha uint8 cel cannot hold
+    that -- the divide-by-alpha clips at 255 -- so the document stack, built
+    from those cels, differed from the bake's own composite by 8-43/255 on 18
+    painterly presets. Clamping the plane *before* both the composite and the
+    cels exist makes them the same picture; the cost is that over-bright glows
+    come out slightly dimmer. Painterly only: pixel mode keeps no layer cels."""
+    out = plane.copy()
+    np.minimum(out[..., :3], out[..., 3:4], out=out[..., :3])
+    return out
+
+
 def _straight(plane: np.ndarray) -> np.ndarray:
     """Premultiplied float -> straight uint8 at the *raster* size."""
     alpha = plane[..., 3]
@@ -191,7 +208,11 @@ def bake(
             for i in range(phase.frames):
                 frame = start + i
                 planes = R.render(recipe, frame, degrees, assets)
+                if not pixel:
+                    planes = {uid: _legal(p) for uid, p in planes.items()}
                 comp = R.composite(recipe, planes, phase.name)
+                if not pixel:
+                    comp = _legal(comp)
                 if pixel:
                     small = _pixelize_mod.reduce(
                         _Image.fromarray(_straight(comp), "RGBA"),

@@ -67,6 +67,16 @@ BLEND_MODES: tuple[str, ...] = (
     "saturation",
     "color",
     "luminosity",
+    # Appended after the non-separable four for the same reason they were
+    # appended after the twelve: the menu a user knows does not move. This is
+    # *premultiplied* plus-lighter -- ``Co*ao = Cb*ab + Cs*as``, alpha the union
+    # ``as + ab - as*ab`` -- which is what Flourish's bake composites a glow
+    # with (``flourish/render._blend``) and is **not** ``add``: ``add`` is the
+    # W3C separable blend, which weights the sum by the *other* layer's
+    # coverage, so a bright halo over a transparent or dim backdrop lands far
+    # darker than the bake drew it (holy_burst: 219 against 255 at the worst
+    # pixel). The 2026-10-03 audit, finding inker-16.
+    "plus-lighter",
 )
 
 # The kernel takes a mode as a number, and the enum in native/realmspinnerc.h spells
@@ -120,6 +130,16 @@ _MODE_IDS: dict[str, int] = {
     "luminosity": 18,
 }
 
+# **``plus-lighter`` is deliberately absent**, which is the declined-fallback
+# the paragraph above describes rather than the silent one it warns about: the
+# premultiplied sum needs a clamp *after* ``combine_channel``'s divide, which the
+# kernel has no seam for, so it composites on the numpy fold. The price is the
+# all-or-nothing ``_stack_native`` -- a stack with one such layer (a Flourish
+# glow track) runs wholly on numpy -- and it is paid knowingly; the C case
+# is one clamp and a rebuilt DLL away and wants its own parity measurement.
+# ``tests/modes/inker/test_composite.py`` pins the exact set that is declined.
+NATIVE_DECLINED: frozenset[str] = frozenset({"plus-lighter"})
+
 # Not a mode: what ``over``'s early-out does, spelled so the fused stack kernel
 # can be told about it. The test behind it is a reduction over the whole region
 # rather than a per-pixel one, so it stays on this side either way.
@@ -154,6 +174,12 @@ ORA_OPS: dict[str, str] = {
     "saturation": "svg:saturation",
     "color": "svg:color",
     "luminosity": "svg:luminosity",
+    # Namespaced, not ``svg:plus``: that op is already ``add``'s spelling, and two
+    # modes on one op would make ``OPS_ORA`` pick one of them on every read.
+    # Krita and every other reader falls back to normal through its unknown-op
+    # path; a *timeline* document is unaffected, because ``animation.json``
+    # stores our own names and the track reads back exactly.
+    "plus-lighter": "realmspinner:plus-lighter",
 }
 
 # Read side only, and deliberately lossy: an op we cannot reproduce becomes
@@ -183,6 +209,12 @@ def blend(backdrop: np.ndarray, source: np.ndarray, mode: str) -> np.ndarray:
         )
     if mode == "add":
         return np.minimum(backdrop + source, 1.0)
+    if mode == "plus-lighter":
+        # B(Cb, Cs) = Cb + Cs, *unclamped*: through ``over``'s general form that
+        # collapses to ``as*Cs + ab*Cb`` -- the premultiplied sum -- and the
+        # clamp to 1 belongs to the composite, which ``over`` applies. Clamping
+        # here would be the W3C ``add`` again.
+        return backdrop + source
     if mode == "darken":
         return np.minimum(backdrop, source)
     if mode == "lighten":
@@ -561,8 +593,13 @@ def over(
     a_s = source[..., 3:4] * float(opacity)
 
     ao = a_s + ab * (1.0 - a_s)
-    mixed = blend(cb, cs, mode) if mode != "normal" else cs
-    num = a_s * (1.0 - ab) * cs + a_s * ab * mixed + (1.0 - a_s) * ab * cb
+    if mode == "plus-lighter":
+        # The premultiplied sum, written directly: it is what the general form
+        # below reduces to, without the three products that cancel.
+        num = a_s * cs + ab * cb
+    else:
+        mixed = blend(cb, cs, mode) if mode != "normal" else cs
+        num = a_s * (1.0 - ab) * cs + a_s * ab * mixed + (1.0 - a_s) * ab * cb
 
     # The denominator is *replaced* where it is zero rather than the divide
     # being masked past it, and that is a correctness fix rather than a style
@@ -579,6 +616,11 @@ def over(
     out = np.empty_like(backdrop)
     np.divide(num, np.where(shown, ao, 1.0), out=out[..., :3])
     out[..., :3] = np.where(shown, out[..., :3], 0.0)
+    if mode == "plus-lighter":
+        # A premultiplied sum can pass the union alpha (that is what "plus"
+        # means), and the bake clips it there; in straight alpha that is rgb
+        # at most 1.
+        np.minimum(out[..., :3], 1.0, out=out[..., :3])
     out[..., 3:4] = ao
     return out
 

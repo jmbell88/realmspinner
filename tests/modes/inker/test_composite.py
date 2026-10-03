@@ -138,6 +138,8 @@ def test_every_ora_op_is_the_name_krita_and_gimp_write():
         "saturation": "svg:saturation",
         "color": "svg:color",
         "luminosity": "svg:luminosity",
+        # ``add`` already owns svg:plus, so the premultiplied one is namespaced.
+        "plus-lighter": "realmspinner:plus-lighter",
     }
     assert set(cp.ORA_OPS) == set(cp.BLEND_MODES)
 
@@ -162,7 +164,50 @@ def test_every_declared_blend_mode_has_a_kernel_id():
     The 2026-09-15 audit, finding inker-08: assert the equality the comment
     already claims.
     """
-    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES)
+    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES) - cp.NATIVE_DECLINED
+    # The declined set is a decision, not an omission: exactly this one, and
+    # what it declines to must still composite (numpy), never as normal.
+    assert {"plus-lighter"} == cp.NATIVE_DECLINED
+
+
+def test_plus_lighter_is_the_premultiplied_sum_with_the_union_alpha():
+    """Flourish's bake composites a glow as ``dst + src`` on premultiplied
+    planes with alpha ``ad + as - ad*as`` (``render._blend``); the document's
+    track must give the same pixel. ``add`` does not: it weighs the sum by the
+    other layer's coverage, which is darker over a thin backdrop."""
+    back = np.array([[[0.5, 0.25, 0.0, 0.5]]], dtype=np.float32)
+    src = np.array([[[1.0, 0.5, 0.2, 0.5]]], dtype=np.float32)
+    out = cp.over(back, src, mode="plus-lighter")
+    ao = 0.5 + 0.5 - 0.25
+    want = (0.5 * back[0, 0, :3] + 0.5 * src[0, 0, :3]) / ao
+    assert np.allclose(out[0, 0, :3], np.minimum(want, 1.0), atol=1e-6)
+    assert np.isclose(out[0, 0, 3], ao)
+    add = cp.over(back, src, mode="add")
+    assert not np.allclose(out, add, atol=1e-3)
+
+
+def test_plus_lighter_over_an_empty_backdrop_is_the_source_and_never_exceeds_one():
+    empty = np.zeros((1, 2, 4), dtype=np.float32)
+    src = np.array([[[0.3, 0.6, 0.9, 0.5], [1.0, 1.0, 1.0, 1.0]]], dtype=np.float32)
+    out = cp.over(empty, src, mode="plus-lighter")
+    assert np.allclose(out, src, atol=1e-6)
+    hot = cp.over(src, src, mode="plus-lighter")
+    assert float(hot[..., :3].max()) <= 1.0
+    # opacity scales the source's coverage like every other mode
+    half = cp.over(empty, src, opacity=0.5, mode="plus-lighter")
+    assert np.allclose(half[..., 3], src[..., 3] * 0.5, atol=1e-6)
+
+
+def test_plus_lighter_agrees_between_a_stack_and_a_fold_of_over():
+    rng = np.random.default_rng(7)
+    layers = [rng.integers(0, 256, (6, 6, 4), dtype=np.uint8) for _ in range(3)]
+    modes = ("normal", "plus-lighter", "plus-lighter")
+    entries = [(p, 1.0, m) for p, m in zip(layers, modes, strict=True)]
+    got = cp.stack_region(entries, (0, 0, 6, 6))
+    want = np.zeros((6, 6, 4), dtype=np.float32)
+    for p, o, m in entries:
+        want = cp.over(want, cp.to_float(p), opacity=o, mode=m)
+    assert np.array_equal(got, want)
 
 
 def test_hard_light_is_overlay_with_the_operands_swapped():

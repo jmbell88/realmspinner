@@ -813,7 +813,7 @@ pointer becomes a no-entry sign over the canvas, and a click that gets through a
 to work — but the first press on one says that nothing you paint there will show, because otherwise
 the only clue is an eye icon on the other side of the window.
 
-There are nineteen blend modes, listed in the order every editor groups them — darkening, then
+There are twenty blend modes, listed in the order every editor groups them — darkening, then
 lightening, then contrast, then comparison, then the arithmetic and colour ones:
 
 | | |
@@ -825,9 +825,12 @@ lightening, then contrast, then comparison, then the arithmetic and colour ones:
 | `difference`, `exclusion` | the distance between the two colours; exclusion is the softer of them |
 | `subtract`, `divide` | arithmetic, clamped at black and at white rather than wrapping |
 | `hue`, `saturation`, `color`, `luminosity` | take one attribute from the layer and the rest from underneath |
+| `plus-lighter` | adds light to the backdrop's without scaling by its coverage, capped at white; what Flourish glows use |
 
 These are the W3C formulas, which is what OpenRaster's composite operators are defined against — so
 a document saved here and reopened in Krita or GIMP composites identically rather than approximately.
+The one exception is `plus-lighter`, which no other editor has: ORA stores it under a name of our own, so
+Krita and GIMP open that layer as Normal, and `.aseprite` saves it as Addition and says so when you save.
 The last four are the *non-separable* ones: `color` paints over a drawing without changing how light
 or dark it is, and `luminosity` is that trade the other way round. `subtract` and `divide` are the
 two the W3C set has no name for, so they go into the file under Krita's names — a mode that arrives

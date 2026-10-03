@@ -696,19 +696,35 @@ def test_several_tags_keep_their_order():
 
 def test_the_two_blend_tables_are_the_same_nineteen_modes():
     """No refusal is needed for a blend mode, and this is why -- asserted
-    rather than asserted-in-a-docstring, since a twentieth mode added to
-    ``BLEND_MODES`` would otherwise be written as ``normal`` in silence."""
-    assert set(BLEND_MODES) == set(asein._BLEND_BY_INDEX)
-    assert len(BLEND_MODES) == len(asein._BLEND_BY_INDEX) == 19
+    rather than asserted-in-a-docstring, since a mode added to
+    ``BLEND_MODES`` would otherwise be written as ``normal`` in silence.
+    ``plus-lighter`` is the one mode Aseprite has no number for; it is written
+    as Addition (``_BLEND_WRITTEN_AS``) and reported, never refused."""
+    assert set(BLEND_MODES) - set(aseout._BLEND_WRITTEN_AS) == set(asein._BLEND_BY_INDEX)
+    assert len(asein._BLEND_BY_INDEX) == 19
+    assert set(aseout._BLEND_WRITTEN_AS) == {"plus-lighter"}
+    assert set(aseout._BLEND_WRITTEN_AS.values()) <= set(asein._BLEND_BY_INDEX)
 
 
-@pytest.mark.parametrize("mode", BLEND_MODES)
+@pytest.mark.parametrize("mode", [m for m in BLEND_MODES if m != "plus-lighter"])
 def test_every_blend_mode_survives(mode: str):
     doc = _still()
     doc.stack[1].blend = mode
     back, warnings = _round_trip(doc)
     assert warnings == []
     assert back.stack[1].blend == mode
+
+
+def test_plus_lighter_is_written_as_addition_and_reported_as_dropped():
+    """Aseprite has no premultiplied plus: the layer is saved, as the nearest
+    mode, and ``dropped_by_aseprite`` is what makes the save prompt fire."""
+    doc = _still()
+    doc.stack[1].blend = "plus-lighter"
+    back, _ = _round_trip(doc)
+    assert back.stack[1].blend == "add"
+    assert any("plus-lighter" in line for line in aseout.dropped_by_aseprite(doc))
+    doc.stack[1].blend = "add"
+    assert not any("plus-lighter" in line for line in aseout.dropped_by_aseprite(doc))
 
 
 # --- stability and the file door ---------------------------------------------

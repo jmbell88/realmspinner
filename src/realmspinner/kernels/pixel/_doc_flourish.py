@@ -163,7 +163,13 @@ def _track_blend(baked: Any, key: int) -> str:
 
     The 2026-10-03 audit, finding inker-16: the track used to carry no blend,
     so a glow, whose primitive forces "add" (``render._blend_of``), landed as a
-    normal-blend cel and the stack stopped matching the bake's composite."""
+    normal-blend cel and the stack stopped matching the bake's composite.
+
+    The track carries ``plus-lighter``, not ``add``: the bake's "add" is
+    premultiplied plus-lighter (``render._blend``), and the document's ``add``
+    is the W3C separable blend, which weighs the sum by the other layer's
+    coverage -- 18 presets stayed visibly darker than their bake until the
+    mode existed. Documents already holding an ``add`` glow track keep it."""
     if baked.pixel:
         return "normal"
     for layer in baked.recipe.layers:
@@ -175,7 +181,7 @@ def _track_blend(baked: Any, key: int) -> str:
                 if layer.kind in prims.KINDS
                 else None
             )
-            return "add" if (forced or layer.blend) == "add" else "normal"
+            return "plus-lighter" if (forced or layer.blend) == "add" else "normal"
     return "normal"
 
 

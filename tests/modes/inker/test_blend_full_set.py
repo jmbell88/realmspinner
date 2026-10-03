@@ -83,8 +83,8 @@ def test_the_seven_are_appended_rather_than_filed_into_their_families():
     for. Nothing keys on the position, so the only cost of appending is
     cosmetic and the only cost of interleaving is somebody's hand.
     """
-    assert cp.BLEND_MODES == OLD_MODES + NEW_MODES
-    assert len(cp.BLEND_MODES) == 19
+    assert cp.BLEND_MODES == OLD_MODES + NEW_MODES + ("plus-lighter",)
+    assert len(cp.BLEND_MODES) == 20
 
 
 def test_every_one_of_the_seven_is_a_kernel_mode():
@@ -103,7 +103,7 @@ def test_every_one_of_the_seven_is_a_kernel_mode():
     worth pinning now is that the map is *complete* -- a mode added to the menu
     and not to the kernel is the next silent cliff.
     """
-    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES)
+    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES) - cp.NATIVE_DECLINED
 
 
 @pytest.mark.skipif(not native.available(), reason="needs the built DLL")
@@ -529,6 +529,25 @@ def test_a_track_blend_we_do_carry_is_kept(tmp_path: Path):
     doc = inker.Document.load(path)
     assert doc.anim is not None
     assert doc.anim.tracks[0].blend == "luminosity"
+
+
+def test_a_plus_lighter_track_survives_the_animated_ora_and_an_add_track_stays_add(
+    tmp_path: Path,
+):
+    """inker-16: Flourish glow tracks carry ``plus-lighter``; the timeline reads
+    its own name back exactly (``stack.xml``'s namespaced op is for other
+    readers), and a document saved before the mode existed keeps its ``add``."""
+    path = _animated(tmp_path, "plus.ora")
+    doc = inker.Document.load(path)
+    doc.anim.tracks[0].blend = "plus-lighter"
+    inker.write_ora(doc, path)
+    with zipfile.ZipFile(path) as zf:
+        stack = zf.read("stack.xml").decode()
+    assert "realmspinner:plus-lighter" in stack
+    assert inker.Document.load(path).anim.tracks[0].blend == "plus-lighter"
+
+    _rewrite_track_blend(path, "add")
+    assert inker.Document.load(path).anim.tracks[0].blend == "add"
 
 
 # --- the byte pin -----------------------------------------------------------

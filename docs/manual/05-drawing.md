@@ -104,7 +104,7 @@ twenty layers a particular pixel belongs to.
 The layers panel and the timeline's rows are one thing drawn once, which is why a layer row here
 looks like a track row there.
 
-Each layer has visibility, opacity, a blend mode — nineteen of them — and two locks. The **content
+Each layer has visibility, opacity, a blend mode — twenty of them — and two locks. The **content
 lock** stops edits to the pixels; **alpha lock** confines them to pixels that already exist. Alpha
 lock is both a layer flag and an ink, and either one turns it on.
 

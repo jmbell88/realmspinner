@@ -160,6 +160,12 @@ _DEPTHS = {"rgb": _RGBA, "grayscale": _GRAYSCALE, "indexed": _INDEXED}
 #: only this build reads correctly.
 _BLEND_INDEX = {name: index for index, name in enumerate(_BLEND_BY_INDEX)}
 
+#: Modes Aseprite has no number for, written as the nearest one it does have --
+#: ``plus-lighter`` (premultiplied) as Addition, which agrees wherever the
+#: backdrop is opaque and is darker over a thin one. Lossy on purpose rather
+#: than a refusal, and ``dropped_by_aseprite`` is what tells the user.
+_BLEND_WRITTEN_AS = {"plus-lighter": "add"}
+
 #: :data:`asein._TAG_DIRECTIONS`, inverted -- *first* occurrence wins. The
 #: fourth entry there is ping-pong-reverse read as an ordinary ping-pong, so
 #: taking the last occurrence would write every swing out as the direction this
@@ -589,12 +595,13 @@ def _layer_chunk(row: _Row) -> bytes:
     if row.group:
         blend, opacity = 0, 255
     else:
-        if row.blend not in _BLEND_INDEX:
+        written = _BLEND_WRITTEN_AS.get(row.blend, row.blend)
+        if written not in _BLEND_INDEX:
             raise ValueError(
                 f"the layer {row.name!r} uses the blend mode {row.blend!r}, which"
                 " this format has no number for"
             )
-        blend, opacity = _BLEND_INDEX[row.blend], _opacity_byte(row.opacity)
+        blend, opacity = _BLEND_INDEX[written], _opacity_byte(row.opacity)
     if row.group:
         kind = _LAYER_GROUP
     elif row.tileset is None:
@@ -1420,6 +1427,11 @@ def dropped_by_aseprite(doc) -> list[str]:
     # nothing here ever checked for a group actually carrying one -- a group
     # dimmed below full opacity saved silently with no warning that the dim
     # was gone.
+    if any(getattr(row, "blend", "normal") in _BLEND_WRITTEN_AS for row in rows):
+        out.append(
+            "the plus-lighter blend mode (written as Addition, which is darker"
+            " over a thin backdrop)"
+        )
     groups = (getattr(doc, "groups", {}) or {}).values()
     if any(float(getattr(node, "opacity", 1.0)) != 1.0 for node in groups):
         out.append(

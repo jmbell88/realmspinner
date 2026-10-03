@@ -290,13 +290,15 @@ def _premul(img: np.ndarray) -> np.ndarray:
     return img[..., :3].astype(np.float32) * (img[..., 3:4].astype(np.float32) / 255.0)
 
 
-# Presets whose stack still differs from the bake after inker-16's two fixes
-# (the glow's carried "add" and the distortion collapse). The remainder is not a
-# rounding matter: a particle or glow plane is premultiplied with rgb > alpha,
-# which a straight-alpha uint8 cel clips, and the document's "add" is the W3C
-# separable blend rather than the bake's premultiplied plus-lighter. Closing it
-# means changing the bake's output or the compositor's vocabulary -- a design
-# decision, reported rather than made. Strict, so fixing it forces this list empty.
+# Presets whose stack still differs from the bake after inker-16's fixes (the
+# glow track's carried blend, the distortion collapse, the bake's rgb <= alpha
+# clamp, and the compositor's premultiplied "plus-lighter", which took the worst
+# pixel of holy_burst from 255 vs 219 to 12.85 of 255). What remains is not the
+# blend: the bake clips the glow's sum at the *supersampled* raster and then
+# box-reduces, while the document sums the already-reduced cels, and a clip
+# does not commute with an average. At supersample 1 every one of these is
+# within 2/255 (measured 2026-10-03, dev/measurements/2026-10-03-flourish-bake-clamp.md).
+# Strict, so a bake that composites after reducing forces this list empty.
 _STILL_DIFFERS = {
     "arrow_trail", "buff", "chain_lightning", "debuff", "dust_impact", "ground_shockwave",
     "heal", "holy_burst", "ice_nova", "ice_shard", "lightning_bolt", "magic_missile",
@@ -307,7 +309,7 @@ _STILL_DIFFERS = {
 @pytest.mark.parametrize(
     "name",
     [
-        pytest.param(n, marks=pytest.mark.xfail(strict=True, reason="inker-16 residual"))
+        pytest.param(n, marks=pytest.mark.xfail(strict=True, reason="inker-16: clip-then-reduce"))
         if n in _STILL_DIFFERS
         else n
         for n in presets.names()
