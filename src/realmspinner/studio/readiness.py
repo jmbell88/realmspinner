@@ -26,6 +26,7 @@ elsewhere in the app (see the ``REPAIR_*`` constants).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -260,6 +261,13 @@ def _size_row(report: dict[str, Any], params: dict[str, Any], prompt: Any) -> Ro
         # straight out of this draw, which ``panes/inspector.py`` calls on
         # the frame thread on every Export-stage frame -- a session-ending
         # ``ValueError`` in a loop that runs sixty times a second.
+        return Row("Size", "attention", "size target could not be read")
+    if not math.isfinite(target) or target <= 0:
+        # The 2026-10-04 audit, finding create-08: the same unvalidated input
+        # as above, one step later. ``"0"`` is truthy, so it passed the
+        # ``not target`` gate and then divided by zero on the frame thread; a
+        # negative target reported "matching the -1.000 m requested". A size
+        # that cannot be a size is unreadable, not a measurement to compare.
         return Row("Size", "attention", "size target could not be read")
     achieved = report.get("achieved_size_m")
     if not isinstance(achieved, (int, float)) or achieved <= 0:

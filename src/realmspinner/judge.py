@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
@@ -144,6 +145,15 @@ def fit(
     y = np.asarray(labels, dtype=np.float64).reshape(-1)
     if x.ndim != 2 or len(x) != len(y):
         raise ValueError("embeddings must be (n, dim) and labels (n,)")
+    # The 2026-10-04 audit, finding create-07: one NaN row in the embeddings
+    # (a half-written cache entry, a model that overflowed) made every
+    # gradient step NaN and ``fit`` returned a probe of NaNs that ``save`` and
+    # ``load`` accepted, so ``score`` handed Review ``nan`` instead of "no
+    # opinion" and scrambled its advisory sort. Same doctrine as the corpus
+    # being too small: no probe, not a poisoned one.
+    if not (np.isfinite(x).all() and np.isfinite(y).all()):
+        log.warning("refusing to fit a %s probe to non-finite data", stage)
+        return None
     positives = int((y > 0.5).sum())
     negatives = int(len(y) - positives)
     if positives < MIN_PER_CLASS or negatives < MIN_PER_CLASS:
@@ -160,6 +170,11 @@ def fit(
         error = p - y
         w -= LEARNING_RATE * ((x.T @ error) / n + L2 * w)
         b -= LEARNING_RATE * (error.sum() / n)
+    if not (np.isfinite(w).all() and math.isfinite(b)):
+        # Finite inputs can still diverge (an unnormalised embedding of huge
+        # magnitude at this learning rate); a NaN probe is worse than none.
+        log.warning("the %s probe diverged; not returning it", stage)
+        return None
     return Probe(
         weights=w.astype(np.float64),
         bias=float(b),
@@ -185,7 +200,12 @@ def score(probe: Probe | None, embedding: Any) -> float | None:
             "probe expects %d dimensions, got %d", len(probe.weights), len(vector)
         )
         return None
-    return float(_sigmoid(np.array([float(vector @ probe.weights + probe.bias)]))[0])
+    # Never nan (create-07): a non-finite embedding or probe is "no opinion",
+    # which is what every caller already handles, not a number to sort on.
+    z = float(vector @ probe.weights + probe.bias)
+    if not math.isfinite(z):
+        return None
+    return float(_sigmoid(np.array([z]))[0])
 
 
 def _sigmoid(z: np.ndarray) -> np.ndarray:
@@ -283,7 +303,7 @@ def load(path: Path, *, stage: str | None = None) -> Probe | None:
                     path.name, loaded_stage, stage,
                 )
                 return None
-            return Probe(
+            probe = Probe(
                 weights=np.asarray(data["weights"], dtype=np.float64),
                 bias=float(data["bias"]),
                 stage=loaded_stage,
@@ -292,6 +312,12 @@ def load(path: Path, *, stage: str | None = None) -> Probe | None:
                 corpus=str(data["corpus"]),
                 schema=schema,
             )
+            if not (np.isfinite(probe.weights).all() and math.isfinite(probe.bias)):
+                # create-07: a probe saved before ``fit`` learned to refuse
+                # non-finite data loads clean and scores nan.
+                log.warning("%s holds a non-finite probe -- ignoring it", path.name)
+                return None
+            return probe
     except Exception:
         log.exception("could not read the probe at %s", path)
         return None

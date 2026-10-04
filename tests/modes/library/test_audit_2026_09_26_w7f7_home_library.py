@@ -197,8 +197,8 @@ def test_candidates_panels_grades_memoises_a_failing_query_once():
     )
     group = candidates_mod.Group(group="g1", members=[{"id": "a"}, {"id": "b"}])
 
-    first = candidates_panel._grades(ctx, group)
-    second = candidates_panel._grades(ctx, group)
+    first = candidates_panel.grades_for(ctx, group)
+    second = candidates_panel.grades_for(ctx, group)
 
     assert first == {}
     assert second == {}

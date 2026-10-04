@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import shutil
 import tempfile
@@ -24,6 +25,9 @@ from pathlib import Path
 from typing import Any
 
 from . import models
+from .core.safeio import atomic
+
+log = logging.getLogger(__name__)
 
 # Owned here, not in ``service.validation`` (which imports it back): the
 # queue/worker layer imports this module (``_q_lora.py``) and must never
@@ -263,7 +267,17 @@ class GenerationRequest:
             # single-character "references" instead of one. Route it
             # through ``_as_items``, which treats a ``str`` as one item.
             references=_as_items(raw.get("references")),
-            reference_mode=str(raw.get("reference_mode") or "none"),
+            # The 2026-10-04 audit, finding create-04: ``validate_request`` now
+            # refuses a mode that disagrees with the reference count, so a dict
+            # that names images and no mode (the bare-string case above, an
+            # agent's request) must not read as ``"none"`` -- a refusal of a
+            # request that never said anything about the mode. What the images
+            # imply is the mode nobody wrote down; one the caller did write is
+            # kept as given and checked.
+            reference_mode=str(
+                raw.get("reference_mode")
+                or _implied_reference_mode(_as_items(raw.get("references")))
+            ),
             structure_control=str(raw.get("structure_control") or ""),
             # img2img intent. Dropped here until the 2026-09-11 audit (finding
             # create-05): ``to_dict`` (a plain ``asdict``) faithfully wrote
@@ -809,6 +823,31 @@ def validate_request(
         issues.append(
             CompatibilityIssue("references", "Multi-reference mode needs at least two images.")
         )
+    # The 2026-10-04 audit, finding create-04: the mode was only ever compared
+    # with the recipe's allowed modes and the "multi" minimum, never with how
+    # many images came with it. Three references under "single" or "none" and
+    # "single" with none all validated clean, and on an SDXL recipe -- which
+    # draws from the first image only -- every one was still decoded, written as
+    # ``native_reference_N.png`` and recorded, so the request document claimed
+    # images the pixels never saw.
+    elif request.reference_mode == "single" and len(request.references) != 1:
+        issues.append(
+            CompatibilityIssue(
+                "references",
+                "Single-reference mode needs exactly one image."
+                if not request.references
+                else "Single-reference mode takes one image; use multi-reference "
+                "mode for more.",
+            )
+        )
+    elif request.reference_mode == "none" and request.references:
+        issues.append(
+            CompatibilityIssue(
+                "references",
+                "Reference images were given but the reference mode is none; "
+                "choose single or multi-reference mode.",
+            )
+        )
     if len(request.references) > MAX_INPUT_REFERENCES:
         issues.append(
             CompatibilityIssue(
@@ -1229,6 +1268,11 @@ def request_to_legacy(
     if request.generation_type == "sprite_sheet":
         out["sprite_settings"] = asdict(request.sprite)
     return out
+
+
+def _implied_reference_mode(references: tuple[str, ...]) -> str:
+    """The reference mode a list of images implies when nobody named one."""
+    return "none" if not references else "single" if len(references) == 1 else "multi"
 
 
 def _as_items(value: Any) -> tuple[str, ...]:
@@ -1725,7 +1769,14 @@ def import_lora(
     root.mkdir(parents=True, exist_ok=True)
     destination = root / filename
     if not destination.exists() or destination.stat().st_size != source_path.stat().st_size:
-        shutil.copy2(source_path, destination)
+        # The 2026-10-04 audit, finding create-15: this copied straight onto the
+        # final name, so a full disk or a yanked drive part-way left a truncated
+        # ``.safetensors`` that no manifest row names and nothing would clean up
+        # -- and, being the same name a re-import checks, one whose size
+        # mismatch is the only thing that ever replaces it. Staged beside the
+        # destination and renamed, the repo's rule for a write onto a served name.
+        with atomic.staged(destination) as staging:
+            shutil.copy2(source_path, staging)
     manifest = LoraManifest(
         key,
         label,
@@ -1767,6 +1818,20 @@ def import_lora(
         if previous is not None and previous.filename != manifest.filename:
             stale = (root / previous.filename).resolve()
             if stale.parent == root.resolve():
-                stale.unlink(missing_ok=True)
+                # The 2026-10-04 audit, finding create-15: the import has
+                # already worked by here -- the new blob is in place and the
+                # manifest row names it -- so a stale blob another program holds
+                # open must cost an orphan and a log line, not a raised
+                # ``PermissionError`` that skipped ``register_imported_loras``
+                # below and reported a successful import as a failed one.
+                try:
+                    stale.unlink(missing_ok=True)
+                except OSError as exc:
+                    log.warning(
+                        "kept the superseded LoRA file %s (%s); it is an orphan "
+                        "the manifest no longer names",
+                        stale.name,
+                        exc,
+                    )
     register_imported_loras(config)
     return manifest

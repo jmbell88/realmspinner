@@ -36,6 +36,7 @@ from .....manual import render as manual_render
 from .....panes import model_gate, remesh_panel, retarget_panel, stage_rig
 from .....tokens import sp
 from ...engine import mesh as create_mesh
+from ...engine.recipe import LOAD_FINDINGS
 from .. import brief as create_brief
 from .. import stages as create_stages
 from .. import workspace
@@ -132,6 +133,11 @@ def _draw_form(
 ) -> None:
     state = ctx.state
     form = state.form_3d
+    # The 2026-10-04 audit, finding create-12: every hinted control below loaded
+    # ``findings.json`` twice (the hint, then the best-value offer) -- a ``stat()``
+    # and a prompt hash each, 25-30 a frame. The column reads it once here and
+    # threads the document down, the way ``settings_2d.draw`` does.
+    findings_doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
 
     widgets.section("Mesh")
     manual_render.help_button(ctx, "settings-3d")
@@ -162,8 +168,8 @@ def _draw_form(
         )
     if form["platform"] != before:
         ctx.state.clear_field_error("platform")
-    _hint(ctx, form, "platform", form["platform"])
-    _budget(ctx, form)
+    _hint(ctx, form, "platform", form["platform"], findings_doc)
+    _budget(ctx, form, findings_doc)
 
     _size(ctx, form)
     # Deliberately unhinted, unlike every other control here: size_m is
@@ -178,7 +184,7 @@ def _draw_form(
             form["bg_removal"],
             _bg_options(ctx),
         )
-    _hint(ctx, form, "bg_removal", form["bg_removal"])
+    _hint(ctx, form, "bg_removal", form["bg_removal"], findings_doc)
 
     _seed(ctx, form, form_ui)
 
@@ -196,10 +202,10 @@ def _draw_form(
     )
     if changed:
         form["reference_prep"] = prep
-    _hint(ctx, form, "reference_prep", form["reference_prep"])
+    _hint(ctx, form, "reference_prep", form["reference_prep"], findings_doc)
 
     _rig(ctx, form)
-    _engine(ctx, form, form_ui)
+    _engine(ctx, form, form_ui, findings_doc)
     _turnaround(ctx)
 
 
@@ -291,7 +297,13 @@ def _reset(ctx: Any) -> None:
     ctx.toast(RESET_TOAST)
 
 
-def _hint(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
+def _hint(
+    ctx: Any,
+    form: dict[str, Any],
+    param: str,
+    value: Any,
+    findings_doc: Any = LOAD_FINDINGS,
+) -> None:
     """Draw the findings hint for the control just drawn, if there is one,
     plus the offer to jump straight to what the evidence favours.
 
@@ -307,13 +319,21 @@ def _hint(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
     was where it stopped -- a user agreeing had to go find the winning value
     and dial it in by hand. ``_best_value_offer`` is the click.
     """
-    hint = create_mesh.findings_hint(ctx, param, value)
+    if findings_doc is LOAD_FINDINGS:
+        findings_doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
+    hint = create_mesh.findings_hint(ctx, param, value, findings_doc)
     if hint is not None:
         widgets.hint_text(hint)
-    _best_value_offer(ctx, form, param, value)
+    _best_value_offer(ctx, form, param, value, findings_doc)
 
 
-def _best_value_offer(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
+def _best_value_offer(
+    ctx: Any,
+    form: dict[str, Any],
+    param: str,
+    value: Any,
+    findings_doc: Any = LOAD_FINDINGS,
+) -> None:
     """ "7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
     evidence favours a value other than the one already set.
 
@@ -326,7 +346,9 @@ def _best_value_offer(ctx: Any, form: dict[str, Any], param: str, value: Any) ->
     itself answers None then), because a button offering to set what is
     already set is not an offer, it is clutter.
     """
-    doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
+    doc = findings_doc
+    if doc is LOAD_FINDINGS:
+        doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
     source = ctx.cache.get(ctx.state.source_job)
     subject = vectors.prompt_hash(source.get("prompt")) if source else ""
     found = findings_lib.best_value(
@@ -528,7 +550,7 @@ def _apply_budget_choice(form: dict[str, Any], choice: str) -> None:
         form["custom_triangles"] = optimize.PROFILES["standard"]
 
 
-def _budget(ctx: Any, form: dict[str, Any]) -> None:
+def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -> None:
     """The mesh budget: a game-ready remesh, a gltfpack tier, Raw, or Custom.
 
     dev/measurements/2026-09-23-default-mesh-budget.md retired the corpus
@@ -577,7 +599,7 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
             [("preserve_shape", "Preserve shape"), ("repair", "Repair and close holes")],
         )
         widgets.field_error(ctx.state, "mesh_finishing")
-    _hint(ctx, form, "profile", form["profile"])
+    _hint(ctx, form, "profile", form["profile"], findings_doc)
     if form["profile"] == "custom":
         # The same control the retarget panel draws, appearing under exactly
         # the same condition (K95). It is the widget ``custom_triangles`` never
@@ -730,7 +752,12 @@ def _rig(ctx: Any, form: dict[str, Any]) -> None:
         stage_rig.skeleton_field(ctx, form)
 
 
-def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
+def _engine(
+    ctx: Any,
+    form: dict[str, Any],
+    form_ui: forms.Form,
+    findings_doc: Any = LOAD_FINDINGS,
+) -> None:
     """The seven trellis-server launch flags -- a findings sweep could already
     set every one of these (``service.sweeps.KWARG_AXES``); until this door
     existed no ordinary Create job could.
@@ -772,7 +799,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     )
     if changed:
         form["trellis_band"] = create_mesh.clamp_band(int(value))
-    _hint(ctx, form, "trellis_band", form["trellis_band"])
+    _hint(ctx, form, "trellis_band", form["trellis_band"], findings_doc)
 
     changed, value = form_ui.number(
         "trellis_tex_res",
@@ -785,7 +812,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     )
     if changed:
         form["trellis_tex_res"] = create_mesh.clamp_tex_res(int(value))
-    _hint(ctx, form, "trellis_tex_res", form["trellis_tex_res"])
+    _hint(ctx, form, "trellis_tex_res", form["trellis_tex_res"], findings_doc)
 
     changed, value = form_ui.number(
         "trellis_gss",
@@ -797,7 +824,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     )
     if changed:
         form["trellis_gss"] = max(0.0, float(value))
-    _hint(ctx, form, "trellis_gss", form["trellis_gss"])
+    _hint(ctx, form, "trellis_gss", form["trellis_gss"], findings_doc)
 
     changed, value = form_ui.number(
         "trellis_gsh",
@@ -809,7 +836,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     )
     if changed:
         form["trellis_gsh"] = max(0.0, float(value))
-    _hint(ctx, form, "trellis_gsh", form["trellis_gsh"])
+    _hint(ctx, form, "trellis_gsh", form["trellis_gsh"], findings_doc)
 
     changed, value = form_ui.number(
         "trellis_max_tokens",
@@ -825,7 +852,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         # finding create-01): band and tex_res were fixed 2026-09-18, this
         # one and its two neighbours below still committed with a floor only.
         form["trellis_max_tokens"] = create_mesh.clamp_max_tokens(int(value))
-    _hint(ctx, form, "trellis_max_tokens", form["trellis_max_tokens"])
+    _hint(ctx, form, "trellis_max_tokens", form["trellis_max_tokens"], findings_doc)
 
     changed, value = form_ui.number(
         "trellis_decim",
@@ -841,7 +868,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     if changed:
         # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
         form["trellis_decim"] = create_mesh.clamp_decim(int(value))
-    _hint(ctx, form, "trellis_decim", form["trellis_decim"])
+    _hint(ctx, form, "trellis_decim", form["trellis_decim"], findings_doc)
 
     changed, value = form_ui.number(
         "trellis_atlas",
@@ -852,7 +879,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     if changed:
         # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
         form["trellis_atlas"] = create_mesh.clamp_atlas(int(value))
-    _hint(ctx, form, "trellis_atlas", form["trellis_atlas"])
+    _hint(ctx, form, "trellis_atlas", form["trellis_atlas"], findings_doc)
 
 
 def _turnaround(ctx: Any) -> None:

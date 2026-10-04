@@ -82,7 +82,11 @@ shortcut that would make one.
 
 ## Performance
 
-The viewport draws every frame the app draws, so it is the first thing to feel a slow machine.
+The viewport only redraws when its picture could have changed: the camera is moving or easing, you
+dragged or pressed something in it, the model, the wireframe toggle, the comparison or the viewport's
+size changed, or, while you are posing, the selected joint, the editing mode or a joint moved. An
+untouched viewport, posing included, costs almost nothing; one that is orbiting or being edited is the
+first thing to feel a slow machine.
 [Troubleshooting](43-troubleshooting.md#the-window-feels-sluggish) covers what to do about a stuttering
 turntable; the short version is that the frame loop never waits for a job, so a stutter is the
 renderer and not the queue.

@@ -195,7 +195,7 @@ def _rows_key(ctx: Any, documents: list[Row]) -> Any:
     # The key holds ``cache`` itself, not ``id(cache)``. The 2026-09-23
     # (second run) audit, finding shell-06: this was the exact hazard
     # create-05 (2026-09-20) fixed in ``candidates.pending_cached`` and
-    # ``candidates_panel._grades`` -- CPython is free to hand a freed
+    # ``candidates_panel.grades_for`` -- CPython is free to hand a freed
     # cache's address to a brand new object, and a bare id cannot tell the
     # two apart (19,992 of 20,000 wrong hits in that audit's probe). A
     # strong reference to the actual cache can never be fooled that way.

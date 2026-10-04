@@ -73,7 +73,9 @@ are under **Conditioning**. Character has its own controls and uses no image mod
 The generation plan sits above a persistent **Create image**, **Generate reference** or other
 output-specific button at the bottom. The settings and plan each scroll within their own space;
 the submit button stays visible. The plan states stages, candidate count, recipe, estimated work,
-queue position and validation problems, with repair buttons where available. Ctrl+Enter still submits.
+queue position and validation problems, with repair buttons where available. Ctrl+Enter still submits,
+and refuses for the same reasons the button is greyed: while a candidate batch is still undecided it says
+"Decide the pending candidates first" and queues nothing -- pick one on the Mesh stage, then generate again.
 
 Every new attempt belongs to the current creation and is saved. The **Attempts** strip below the
 canvas scrolls horizontally through that creation's results; it does not mix in unrelated recent jobs.

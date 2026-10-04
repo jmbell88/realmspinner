@@ -191,7 +191,10 @@ def default_bg_removal(trellis_models_dir: Path) -> str:
     """
     path = trellis_models_dir / BIREFNET_WEIGHTS
     try:
-        healthy = path.exists() and path.stat().st_size > 0
+        # The 2026-10-04 audit, finding create-10: ``exists()`` is also true
+        # of a directory, and a directory reports a non-zero size on most
+        # filesystems, so one at this name read as healthy weights.
+        healthy = path.is_file() and path.stat().st_size > 0
     except OSError:
         healthy = False
     return DEFAULT_BG_REMOVAL if healthy else FALLBACK_BG_REMOVAL

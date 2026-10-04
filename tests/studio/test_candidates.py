@@ -496,7 +496,7 @@ def test_a_graded_candidate_shows_its_grade_and_an_ungraded_one_the_nudge(svc):
     ctx.jobs = [svc.store.get(i) for i in result["ids"]]
     group = candidates_mod.pending(ctx.jobs)
 
-    grades = candidates_panel._grades(ctx, group)
+    grades = candidates_panel.grades_for(ctx, group)
     assert grades[graded_id] == 4
     assert grades.get(ungraded_id) is None
 
@@ -509,13 +509,13 @@ def test_a_graded_candidate_shows_its_grade_and_an_ungraded_one_the_nudge(svc):
 
     # And while the ungraded one is still settled and ungraded, the group
     # carries the nudge -- never a filter, never an order, only the sentence.
-    assert candidates_panel._nudge_text(group, grades) is not None
-    assert "What works" in candidates_panel._nudge_text(group, grades)
+    assert candidates_panel.nudge_text(group, grades) is not None
+    assert "What works" in candidates_panel.nudge_text(group, grades)
 
     # Grading the second attempt clears it.
     verdicts_mod.record_verdict(svc, ungraded_id, grade=-2, reasons=[], source="human")
-    grades = candidates_panel._grades(ctx, group)
-    assert candidates_panel._nudge_text(group, grades) is None
+    grades = candidates_panel.grades_for(ctx, group)
+    assert candidates_panel.nudge_text(group, grades) is None
 
 
 def test_the_picker_reads_grades_once_per_group_not_per_frame(svc):
@@ -553,7 +553,7 @@ def test_the_picker_reads_grades_once_per_group_not_per_frame(svc):
     try:
         ctx = SimpleNamespace(svc=svc, cache=cache)
         for _ in range(5):
-            candidates_panel._grades(ctx, group)
+            candidates_panel.grades_for(ctx, group)
     finally:
         svc.store.verdicts_for = real_verdicts_for
 
@@ -608,7 +608,7 @@ def test_pending_cached_and_grades_never_answer_for_a_different_cache_object_tha
     finally:
         candidates_mod._PENDING_CACHE = saved_pending_cache
 
-    # --- candidates_panel._grades ---
+    # --- candidates_panel.grades_for ---
     source = _reference(svc)
     result = svc_jobs.promote_candidates(svc, source, count=2)
     for job_id in result["ids"]:
@@ -627,7 +627,7 @@ def test_pending_cached_and_grades_never_answer_for_a_different_cache_object_tha
             stale_grades,
         )
         ctx = SimpleNamespace(svc=svc, cache=live_jobs_cache)
-        grades = candidates_panel._grades(ctx, group)
+        grades = candidates_panel.grades_for(ctx, group)
         assert grades != stale_grades, (
             "_grades served a different cache's stale memo because the key "
             "trusted a bare id(cache) instead of a strong reference"
@@ -646,7 +646,7 @@ def test_pending_group_lookup_is_not_recomputed_per_frame_for_an_unchanged_job_l
     Create canvas is visible -- so one frame paid the scan three or four
     times though nothing had changed since the last one.
     ``candidates.pending_cached`` must answer every draw of one unmoved
-    cache generation from a single scan, the way ``candidates_panel._grades``
+    cache generation from a single scan, the way ``candidates_panel.grades_for``
     already does against the identical generation counter.
     """
     from realmspinner.studio.jobs_cache import JobsCache

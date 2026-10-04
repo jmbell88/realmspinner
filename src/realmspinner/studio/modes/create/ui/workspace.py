@@ -458,6 +458,30 @@ def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
         stages.go(ctx, "export", follow=False)
 
 
+#: ``(label, width in px, scale)`` -> the label fitted to that width. Bounded: a
+#: widened history holds up to 5000 creations and only ever asks about the few
+#: on screen, but a long session scrolls through all of them.
+_FIT_MEMO: dict[tuple[str, int, int], str] = {}
+_FIT_MEMO_LIMIT = 1024
+
+
+def _fitted(label: str, width: float) -> str:
+    """:func:`widgets.fit_text`, remembered per label and width.
+
+    The 2026-10-04 audit, finding create-18: the history measured every
+    creation's label every frame. The clipper below bounds that to the rows on
+    screen; this makes those rows free once seen. The scale is in the key so a
+    UI-scale change cannot serve a label fitted to the old one.
+    """
+    key = (label, round(width), round(sp(100)))
+    fitted = _FIT_MEMO.get(key)
+    if fitted is None:
+        if len(_FIT_MEMO) >= _FIT_MEMO_LIMIT:
+            _FIT_MEMO.clear()
+        fitted = _FIT_MEMO[key] = widgets.fit_text(label, width)
+    return fitted
+
+
 def history(ctx: Any) -> None:
     """Recent creations, grouped by lineage, rather than a second Library."""
     widgets.pane_header("Creations")
@@ -465,17 +489,27 @@ def history(ctx: Any) -> None:
     # Memoised on the index (finding create-44): this used to sort every family
     # and run ``results`` over each one on every frame the list was on screen.
     ordered = families.ordered_creations(idx)
-    for key, assets in ordered:
-        job = assets[0]
-        label = str(job.get("name") or job.get("prompt") or job["id"])
-        if controls.button(
-            widgets.fit_text(label, imgui.get_content_region_avail().x - sp(20))
-            + f"##creation-{key}",
-            (-1, 0),
-            tooltip=f"{label}\n{len(assets)} attempts",
-        ):
-            asset_open.open_asset(ctx, job)
-        widgets.muted(f"{len(assets)} attempts")
+    # Clipped (finding create-18, the half create-44 left): "Load older
+    # creations" widens this to 5000 rows, and each row was a button, a measured
+    # label and a muted line submitted every frame. Every row is the same height
+    # -- one button and one line -- so the clipper's own measurement of the
+    # first is exact, and the scrollbar is what it would have been.
+    width = imgui.get_content_region_avail().x - sp(20)
+    clipper = imgui.ListClipper()
+    clipper.begin(len(ordered))
+    while clipper.step():
+        for index in range(clipper.display_start, clipper.display_end):
+            key, assets = ordered[index]
+            job = assets[0]
+            label = str(job.get("name") or job.get("prompt") or job["id"])
+            if controls.button(
+                _fitted(label, width) + f"##creation-{key}",
+                (-1, 0),
+                tooltip=f"{label}\n{len(assets)} attempts",
+            ):
+                asset_open.open_asset(ctx, job)
+            widgets.muted(f"{len(assets)} attempts")
+    clipper.end()
     if not ordered:
         widgets.muted_wrapped("Your creations will appear here. Every attempt is saved.")
     if ordered and ctx.cache.can_load_more() and controls.button("Load older creations", (-1, 0)):
@@ -620,7 +654,7 @@ def _candidate_grid(ctx: Any, group: Any) -> None:
     widgets.muted_wrapped(
         "Choose one when every candidate settles. Seeds and scores stay with each result."
     )
-    nudge = candidates_panel._nudge_text(group, candidates_panel._grades(ctx, group))
+    nudge = candidates_panel.nudge_text(group, candidates_panel.grades_for(ctx, group))
     if nudge is not None:
         widgets.muted(nudge)
     if not imgui.begin_child("generation-candidate-scroll", (0, 0), False):
@@ -706,8 +740,8 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         # group has failed, Keep's gate (``group.finished and done``) can
         # never open on any card, and nothing here offered a way out of a
         # group the library hides forever. Discard replaces Keep on every
-        # card in that state, the same swap ``candidates_panel._member``
-        # makes -- a button that can never enable is not a second choice
+        # card in that state, the same swap the retired inspector picker
+        # made -- a button that can never enable is not a second choice
         # beside it.
         if group.all_failed:
             if controls.button(f"Discard##result-discard-{job_id}", half):
@@ -903,7 +937,7 @@ def _vary(ctx: Any, job: dict[str, Any]) -> None:
 
 #: One memoized ``{job_id: position}`` map, keyed on ``(cache, cache.
 #: _generation)`` -- the same shape ``candidates.pending_cached`` and
-#: ``candidates_panel._grades`` already use against the identical counter.
+#: ``candidates_panel.grades_for`` already use against the identical counter.
 #: Module-level for the same reason as its two neighbours: Create only ever
 #: shows one cache's queue at a time, so one slot is enough.
 _QUEUE_POSITION_CACHE: tuple[Any, dict[str, int]] | None = None
@@ -925,7 +959,7 @@ def queue_position(ctx: Any, job_id: str) -> int | None:
     stale to avoid re-scanning.
 
     The key holds ``cache`` itself, not ``id(cache)``, for the same reason
-    ``candidates.pending_cached`` and ``candidates_panel._grades`` do (the
+    ``candidates.pending_cached`` and ``candidates_panel.grades_for`` do (the
     2026-09-20 audit, finding create-05): CPython reuses a freed object's
     address, so a bare id can name a cache that no longer exists --
     reproduced in 19,993 of 20,000 create-destroy-create cycles against a

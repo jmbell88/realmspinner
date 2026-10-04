@@ -2,7 +2,8 @@
 
 The ``clay_mode``/``review_mode``/``matte_preview`` shape: no imgui here at
 all, so every rule about *which* group is offered and *when* it is finished is
-assertable headlessly. ``panes/candidates_panel`` draws it.
+assertable headlessly. Create's results tray (``modes/create/ui/workspace.py``)
+draws it, and ``panes/candidates_panel`` holds the keep/discard decisions.
 
 The one design decision worth stating is why nothing is remembered. A group
 could have been recorded on ``AppState`` when it was submitted -- but the
@@ -102,11 +103,11 @@ def pending_cached(cache: Any) -> Group | None:
     older" has widened the window), building a fresh ``groups`` dict and
     sorting every group's members, with no memo at all -- and every one of
     its call sites (``workspace.should_draw``, ``workspace.draw``,
-    ``brief._with_pending_candidates_problem`` and ``candidates_panel.draw``)
+    ``brief._with_pending_candidates_problem`` and the tray's ``_candidate_grid``)
     runs every frame the Create canvas is visible, so one frame paid the
     scan three or four times over though nothing had changed since the last
     one. Keyed on ``cache._generation`` the way
-    ``candidates_panel._grades`` already keys its own memo against the
+    ``candidates_panel.grades_for`` already keys its own memo against the
     identical counter -- it only moves when ``JobsCache.adopt`` actually
     publishes a fresh read, never on a frame that changed nothing.
 

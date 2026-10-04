@@ -154,17 +154,29 @@ def import_lora(
     if not path.is_file():
         raise Invalid(f"{path.name} is not a file", field="source")
     _check_safetensors_archive(path)
-    manifest = generation.import_lora(
-        svc.config,
-        path,
-        label=text,
-        family=family,
-        trigger_text=trigger,
-        tuned_weight=weight,
-        license=license,
-        commercial=bool(commercial),
-        source_url="local file",
-    )
+    try:
+        manifest = generation.import_lora(
+            svc.config,
+            path,
+            label=text,
+            family=family,
+            trigger_text=trigger,
+            tuned_weight=weight,
+            license=license,
+            commercial=bool(commercial),
+            source_url="local file",
+        )
+    except OSError as exc:
+        # The 2026-10-04 audit, finding create-15: neither this nor the copy
+        # beneath it caught an ``OSError``, so a full disk or a locked loras
+        # folder left the door as a bare exception. ``remove_lora`` below wraps
+        # its half of the same folder as ``Failed``; the copy is staged, so
+        # nothing partial was left behind and the press can be retried.
+        raise Failed(
+            f"could not import {path.name}: {exc}. Nothing was imported; check the "
+            "disk and that no other program has the styles folder open.",
+            field="source",
+        ) from exc
     log.info("imported style LoRA %s as %s", path.name, manifest.key)
     return asdict(manifest)
 

@@ -2,7 +2,7 @@
 
 The shape ``clay_mode``/``review_mode`` set: no imgui here at all, so every
 rule about *when* a preview is computed, cached, dropped or shown is assertable
-headlessly. ``panes/settings_3d`` draws it.
+headlessly. ``modes/create/ui/panes/settings_3d`` draws it.
 
 The one hard rule is the one the whole app runs on: BiRefNet is seconds of host
 compute, so nothing here ever calls ``service.matte.preview`` -- it submits it,

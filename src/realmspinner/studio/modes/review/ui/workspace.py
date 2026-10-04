@@ -925,9 +925,13 @@ class ReviewPanes:
             state.mesh_wait = wanted
             state.mesh_wait_checked = time.monotonic()
             return
+        previous = self.viewer.pending
         self.viewer.pending = wanted
         if not self.app_ctx.submit(REVIEW_MESH_KEY, self.viewer.parse_model, wanted, tag=wanted):
-            self.viewer.pending = None
+            # Refused while another parse is in flight: that parse's ``pending``
+            # goes back, not None -- clearing it made its result land as
+            # unwanted (the 2026-10-04 audit, finding create-13).
+            self.viewer.pending = previous
 
     def _adopt_review_model(self, done: Any) -> None:
         """Take a parsed sweep-unit mesh. Frame thread only.

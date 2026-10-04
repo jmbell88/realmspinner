@@ -25,7 +25,7 @@ to.
 **A5: grading feeds the corpus, and the nudge is the whole intervention.**
 Keeping a candidate used to be a decision that never reached a verdict --
 nothing here ever showed, or asked for, a grade, so a kept mesh taught
-findings nothing about which settings won. `_grades` reads every member's
+findings nothing about which settings won. `grades_for` reads every member's
 latest verdict in one call, memoized on the job cache's own generation
 counter the way `panes.landing.rows` already is, so it costs one query per
 *refresh* of the group rather than one per member or one per frame; a grade
@@ -62,9 +62,13 @@ _NUDGE = "Grade each attempt before you keep one - they feed What works."
 _GRADES_CACHE: tuple[Any, dict[str, int | None]] | None = None
 
 
-def _grades(ctx: Any, group: Any) -> dict[str, int | None]:
+def grades_for(ctx: Any, group: Any) -> dict[str, int | None]:
     """``{job_id: grade}`` for every member of ``group``. -> One ``verdicts_for``
     read per group, not one per member and not one per frame.
+
+    Public because Create's results tray (``modes/create/ui/workspace.py``)
+    calls it: the 2026-10-04 audit, finding create-17, found it reaching into
+    this pane for ``_grades`` and ``_nudge_text`` by their private names.
 
     Memoized on the job cache's own generation counter -- ``jobs_cache.visible``
     and ``panes.landing.rows`` are already memoized the identical way, against
@@ -119,7 +123,7 @@ def _status_text(member: dict[str, Any], grades: dict[str, int | None]) -> str:
     """The status line, with the recorded grade appended if there is one.
 
     A plain string, on purpose: it is what makes the grade assertable without
-    a GL context, and it is what ``_member`` hands straight to ``widgets.muted``
+    a GL context, and it is what the results tray hands straight to ``widgets.muted``
     rather than composing on two lines that would need a second ``same_line``.
     """
     status = candidates_mod.status_line(member)
@@ -130,7 +134,7 @@ def _status_text(member: dict[str, Any], grades: dict[str, int | None]) -> str:
     return f"{status} · {text}" if text else status
 
 
-def _nudge_text(group: Any, grades: dict[str, int | None]) -> str | None:
+def nudge_text(group: Any, grades: dict[str, int | None]) -> str | None:
     """``_NUDGE``, or ``None`` while nothing in ``group`` needs it.
 
     Only a ``done`` candidate can carry a grade at all -- an errored or

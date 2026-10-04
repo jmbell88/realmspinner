@@ -207,7 +207,7 @@ def test_the_words_are_matched_whole_and_named_back():
 class _GenCache:
     """The one thing ``queue_position``'s memo reads off the cache besides
     ``jobs``: a generation counter, exactly like ``candidates.pending_cached``
-    and ``candidates_panel._grades`` already key their own memos against."""
+    and ``candidates_panel.grades_for`` already key their own memos against."""
 
     def __init__(self, jobs, generation):
         self.jobs = jobs

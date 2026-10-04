@@ -1162,7 +1162,10 @@ def test_provenance_is_on_the_row_before_the_row_exists(svc, tmp_path, monkeypat
 
     monkeypatch.setattr(svc.store, "create", spy)
     request = gen.GenerationRequest(
-        generation_type="image", prompt="a hooded ranger", references=[str(ref)]
+        generation_type="image",
+        prompt="a hooded ranger",
+        references=[str(ref)],
+        reference_mode="single",
     )
     svc_jobs.create_generation_request(svc, request)
 

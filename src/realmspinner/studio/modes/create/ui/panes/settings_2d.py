@@ -698,6 +698,12 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         number = int(raw)
     except (TypeError, ValueError):
         number = generation.TARGET_CELL_PRESETS[-1]
+        # The 2026-10-04 audit, finding create-06: the box drew this default
+        # over a blank form value and wrote nothing until it was edited, so a
+        # Generate pressed straight after choosing Custom submitted the blank
+        # (keep working resolution) beside a box reading 256. Store what is
+        # shown, as ``sheet_panel._seed_clip_ends`` does for its own boxes.
+        form["target_cell_px"] = str(number)
     # The 2026-09-26 audit, finding create-panes-05: this used to answer to
     # "target_cell_px_custom", a name ``field_errors`` never carries -- the
     # refusal is always filed under "target_cell_px" (``generation.
@@ -1468,6 +1474,14 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
     weights = create_recipe.weights_problem(ctx, form)
     if weights is not None and not problems:
         problems = [weights]
+    # The 2026-10-04 audit, finding create-05: "Decide the pending candidates
+    # first" was added only where the Generate *button* reads its problems, so
+    # Ctrl+Enter and the palette -- which land here and never draw that button
+    # -- queued a second candidate group over an undecided one, and
+    # ``candidates.pending`` offers only the newest group while the library
+    # hides every ``candidate_group`` row: the first was orphaned. Same helper
+    # the button uses, so all three doors give one sentence.
+    problems = create_brief._with_pending_candidates_problem(ctx, problems)
     if problems:
         # Said out loud, because this is not only the button's path. Ctrl+Enter
         # and the palette's Generate call straight in here, and the only

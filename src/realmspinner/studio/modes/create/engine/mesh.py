@@ -33,10 +33,12 @@ from .....service.validation import (
     MIN_TRELLIS_ATLAS,
     MIN_TRELLIS_BAND,
     MIN_TRELLIS_TEX_RES,
+    not_done_message,
     random_seed,
 )
 from .... import problems
 from .plan import Plan
+from .recipe import LOAD_FINDINGS
 
 #: What a form that carries no ``mesh_finishing`` is sent as. Restated nowhere
 #: else in this package: ``state.DEFAULT_FORM_3D``, ``generation.ModelSettings``
@@ -47,8 +49,14 @@ from .plan import Plan
 DEFAULT_MESH_FINISHING = "preserve_shape"
 
 
-def findings_hint(ctx: Any, param: str, value: Any) -> str | None:
+def findings_hint(ctx: Any, param: str, value: Any, doc: Any = LOAD_FINDINGS) -> str | None:
     """Same lookup as the 2D pane's -- see ``recipe.findings_hint``.
+
+    ``doc`` is the frame's already-loaded findings document. The 2026-10-04
+    audit (finding create-12) found every hinted control loading it here *and*
+    in ``settings_3d._best_value_offer`` -- about 25-30 ``stat()`` calls a
+    frame -- so the column loads once and passes it down, the 2D column's
+    shape. The default loads it, for a caller with no frame to share.
 
     The subject comes from the source asset rather than from a form, because
     this pane owns no prompt controls at all: a 3D job starts from a finished
@@ -57,7 +65,8 @@ def findings_hint(ctx: Any, param: str, value: Any) -> str | None:
     to scope by and the pooled corpus answers, unlabelled -- which is honest:
     nothing has been chosen for a hint to be about.
     """
-    doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
+    if doc is LOAD_FINDINGS:
+        doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
     source = ctx.cache.get(ctx.state.source_job)
     subject = vectors.prompt_hash(source.get("prompt")) if source else ""
     return findings_lib.hint(doc, param, value, prompt_hash=subject or None)
@@ -110,7 +119,10 @@ def validate(source: dict[str, Any] | None) -> list[problems.Problem]:
     if source is None:
         return [problems.Problem("Choose a reference first.")]
     if source.get("status") != "done":
-        return [problems.Problem(f"That reference is {source.get('status')}.")]
+        # The 2026-10-04 audit, finding create-11: this said "That reference is
+        # error." where ``stages.available`` says what the status means, for the
+        # same row at the same door. One sentence, from the one home.
+        return [problems.Problem(not_done_message("That reference", str(source.get("status"))))]
     if "input.png" not in (source.get("files") or []):
         return [problems.Problem("That reference has no image.")]
     return []

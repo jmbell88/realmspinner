@@ -502,11 +502,13 @@ def test_a_revert_reloads_the_picture_off_the_frame_thread():
     assert submitted[0][0] == viewer_embed.LOAD_KEY
     assert viewer.pending == Path("x.png")
 
-    # A refused submit means a load is already in flight; its result is checked
-    # against ``pending``, so this one is dropped rather than queued.
+    # A refused submit means a load is already in flight; this one is dropped
+    # rather than queued, and ``pending`` keeps naming the in-flight load (the
+    # 2026-10-04 audit, finding create-13: resetting it to None made that load
+    # land as unwanted too).
     ctx.submit = lambda *a, **kw: False
     assert viewer_embed.request_reference(ctx, Path("y.png")) is False
-    assert viewer.pending is None
+    assert viewer.pending == Path("x.png")
 
 
 def test_the_key_the_frame_loop_lands_is_the_one_a_mode_submits_under():

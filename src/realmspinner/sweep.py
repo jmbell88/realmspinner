@@ -49,6 +49,18 @@ DEFAULT_BANDS = "auto,2,4,8,16"
 # single run cannot resolve anything finer.
 MEANINGFUL_MARGIN = 0.20
 
+# A band whose mesh has fewer faces than this fraction of the 'auto' row's is
+# degenerate -- the reconstruction collapsed (to a slab, typically) -- and is
+# never a candidate. The 2026-10-04 audit, finding create-09: a band measured
+# worst 0.0 on twelve faces, because a featureless slab has no holes, and the
+# table announced it "clearly better than 'auto'". **Chosen, not measured**: the
+# sweeps on record keep every healthy band within a few percent of 'auto''s
+# face count, and a collapse is orders of magnitude below it, so any fraction
+# between the two separates them; a quarter is conservative in the sense that it
+# can only ever wrongly *withhold* a recommendation (the safe error for a tool
+# a human reads before hard-coding a launch flag), never wrongly make one.
+DEGENERATE_FACE_RATIO = 0.25
+
 
 def parse_bands(raw: str) -> list[int | None]:
     """"auto,2,4" -> [None, 2, 4], preserving order and dropping duplicates."""
@@ -208,23 +220,35 @@ def print_table(rows: list[dict[str, Any]], audit_resolution: int) -> None:
         "reconstruction failure -- this ranks bands against each other for "
         "one subject and seed, it is not an absolute quality score."
     )
+    scored = [r for r in rows if "error" not in r]
+    baseline = next((r for r in scored if r["band"] == "auto"), None)
+    # Judged against the 'auto' row, so with none there is no floor to apply --
+    # and no recommendation is made then either.
+    floor = baseline["faces"] * DEGENERATE_FACE_RATIO if baseline is not None else 0
+    degenerate = [r for r in scored if r["faces"] < floor]
     print(f"{'band':>6}  {'worst':>8}  {'mean':>8}  {'faces':>9}  {'gen s':>7}")
     for row in rows:
         if "error" in row:
             print(f"{row['band']:>6}  {'failed':>8}  {row['error'][:40]}")
             continue
+        flag = "  degenerate" if row in degenerate else ""
         print(
             f"{row['band']:>6}  {row['worst']:>8.4f}  {row['mean']:>8.4f}  "
-            f"{row['faces']:>9d}  {row['seconds']:>7.1f}"
+            f"{row['faces']:>9d}  {row['seconds']:>7.1f}{flag}"
         )
-    scored = [r for r in rows if "error" not in r]
     if not scored:
         print("\nevery band failed; see the trellis logs in the output directory")
         return
-    best = min(scored, key=lambda r: r["worst"])
+    if degenerate:
+        print(
+            f"\ndegenerate rows have under {DEGENERATE_FACE_RATIO:.0%} of 'auto''s "
+            f"faces -- the mesh collapsed, and a collapsed mesh measures as having "
+            f"no holes. They are never recommended."
+        )
+    candidates = [r for r in scored if r not in degenerate]
+    best = min(candidates, key=lambda r: r["worst"])
     print(f"\nlowest: band {best['band']} at {best['worst']:.4f} worst-view hole fraction")
 
-    baseline = next((r for r in scored if r["band"] == "auto"), None)
     if baseline is None:
         print("no 'auto' row to compare against -- rerun including it before changing anything.")
         return

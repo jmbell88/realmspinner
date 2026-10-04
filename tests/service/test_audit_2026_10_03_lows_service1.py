@@ -517,6 +517,10 @@ def test_a_request_with_too_many_references_is_refused_at_the_door():
         generation_type="3d_model",
         prompt="a knight",
         references=tuple(f"ref{i}.png" for i in range(generation.MAX_INPUT_REFERENCES)),
+        # The 2026-10-04 audit, finding create-04: a mode that disagrees with
+        # the count is refused on the same field, so the ceiling's own control
+        # names the mode its count needs.
+        reference_mode="multi",
     )
     assert not any(issue.field == "references" for issue in generation.validate_request(ok))
 

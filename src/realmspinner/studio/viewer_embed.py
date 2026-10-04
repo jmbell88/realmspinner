@@ -94,7 +94,7 @@ class Viewer(PoseOps, FrameOps):
         #: set by the clip editor and empty everywhere else. Held on the viewer
         #: rather than read out of a mode so the render path stays ignorant of
         #: what a clip is.
-        self.onion: list[dict[str, Any]] = []
+        self._onion: list[dict[str, Any]] = []
         # Which (parent, bone) pairs the skeleton lines connect; derived once
         # per bind from the node graph, cleared on the way out.
         self._bone_pairs: list[tuple[str, str]] = []
@@ -119,9 +119,10 @@ class Viewer(PoseOps, FrameOps):
         # A reference image is shown as a plain texture rather than as geometry.
         self.reference: Any = None
         # Redraw bookkeeping (B12/B14): the scene is redrawn when anything
-        # marked it dirty, when the camera is still gliding, in pose mode
-        # (gizmo hover changes without a state write), or when the draw's own
-        # inputs (size, wireframe, compare) differ from the last frame's.
+        # marked it dirty, when the camera is still gliding, or when the draw's
+        # own inputs (size, wireframe, compare, and in pose mode the editor's
+        # selection and handles -- ``_pose_signature``) differ from the last
+        # frame's.
         self._render_dirty = True
         self._last_render_key: Any = None
         # The GLB a parse has been dispatched for but not yet adopted. Held so
@@ -405,14 +406,20 @@ class Viewer(PoseOps, FrameOps):
         Skipped entirely -- the last resolved texture is returned as-is --
         when nothing that feeds the draw has changed (B12; the compare half
         rides on the same skip, B14). Every mutating entry point sets
-        ``_render_dirty``; the camera answers for itself via ``settled``; and
-        pose mode always redraws, because gizmo hover moves with the mouse
-        without writing any state this key could see.
+        ``_render_dirty``; the camera answers for itself via ``settled``; and pose
+        mode adds what its overlays are drawn from to the key
+        (:meth:`_pose_signature`). It used to bypass the skip altogether on the
+        ground that gizmo hover writes no state a key could see, but ``_motion``
+        marks the viewer dirty when the hovered handle changes, so the bypass
+        only made an idle pose session re-render the MSAA target and rebuild the
+        overlay arrays every frame (the 2026-10-04 audit, finding create-14).
         """
         self._rect = rect
         width, height = int(max(rect[2], 1)), int(max(rect[3], 1))
         key = (width, height, bool(self.wireframe), self.comparing)
-        if not self.pose_mode and self._frame_unchanged(key):
+        if self.pose_mode:
+            key += (self._pose_signature(),)
+        if self._frame_unchanged(key):
             return self.viewport.texture
         self._last_render_key = key
         self._render_dirty = False
@@ -445,6 +452,42 @@ class Viewer(PoseOps, FrameOps):
                 wire_overlay=self.wireframe,
             )
         return self.viewport.texture
+
+    @property
+    def onion(self) -> list[dict[str, Any]]:
+        return getattr(self, "_onion", [])
+
+    @onion.setter
+    def onion(self, ghosts: list[dict[str, Any]]) -> None:
+        # The 2026-10-04 audit, finding create-14: Poser assigns this straight
+        # from its clip editor, and the ghosts are drawn from it -- with pose
+        # mode off the redraw bypass, nothing marked the viewer dirty for it,
+        # and with the bypass gone it would be a picture that never updates.
+        self._onion = ghosts
+        self._render_dirty = True
+
+    def _pose_signature(self) -> tuple[Any, ...]:
+        """What pose mode's overlays are drawn from that no mutator here marks.
+
+        Panes write ``editor.selected``, ``editor.mode`` and
+        ``editor.root_translate`` straight onto the editor (the bone list, the
+        Move-root toggle), and undo/redo restores handles through it; none of
+        those pass a ``Viewer`` method that sets ``_render_dirty``. Cheap by
+        construction -- a handful of scalars, the model's own pose version and
+        one flat copy of the handle positions -- because it runs every frame to
+        spare the frame a full MSAA draw.
+        """
+        editor = self.editor
+        handles = editor.handles
+        flat = np.asarray(list(handles.values()), dtype="f8").tobytes() if handles else b""
+        return (
+            editor.selected,
+            editor.mode,
+            editor.root_translate,
+            getattr(self.model, "world_version", None),
+            len(editor.draft),
+            flat,
+        )
 
     # ``_overlays`` and ``_active_gizmo`` live in ``PoseOps`` with the rest of
     # the pose half: both return nothing outside pose mode, and the gizmo
@@ -568,6 +611,16 @@ class Viewer(PoseOps, FrameOps):
         self._last_mouse = local
         if button not in (1, 2, 3):
             return False
+        # The 2026-10-04 audit, finding create-01 (Clay's and Mason's own guard
+        # of 2026-10-03, which this viewer never received): a gizmo drag or a
+        # marker grab owns the mouse until the left button comes up. A middle
+        # press mid-drag replaced "gizmo" with "pan", so the left release found
+        # no gizmo to close and the open ``editor.record()`` never exited --
+        # ``PoseEditor._depth`` stayed 1 and every later edit nested inside the
+        # dead step, pushing nothing: pose undo and redo were dead. ``getattr``
+        # because the wiring tests drive this over a stub with no grab at all.
+        if getattr(self, "_grab", None) in ("gizmo", "marker") and button != 1:
+            return True
         if button == 1 and self.pose_mode and self.editor.bound:
             if self._mods()[2]:
                 # The 2026-09-08 audit (finding create-01) found this method
@@ -650,6 +703,18 @@ class Viewer(PoseOps, FrameOps):
         # is decided *here*, on the release, and only if the orbit never
         # actually turned anything. ``_motion`` clears the flag on the first
         # movement, which is what tells a click from a drag.
+        if self._grab is not None:
+            # The 2026-10-04 audit, finding create-02 (``ClayView._release_drag``'s
+            # and Mason's own guard of 2026-10-03): a grab belongs to the button
+            # that began it -- pan to the middle button, everything else to the
+            # left -- and only that button's release ends it. A wheel notch
+            # delivers MOUSEBUTTONUP 4/5, which used to end whatever was live,
+            # so scrolling to zoom mid-orbit dropped the drag and mid-gizmo
+            # committed the pose step early. Checked before the deselect flag
+            # is read, so a stray release cannot consume a click's verdict.
+            owner = 2 if self._grab == "pan" else 1
+            if button != owner:
+                return True
         pending, self._deselect_on_click = self._deselect_on_click, False
         if self._grab is None:
             if button == 1 and pending:
@@ -796,11 +861,15 @@ def request_reference(ctx: Any, path: Path) -> bool:
     viewer = getattr(ctx, "viewer", None)
     if viewer is None:
         return False
+    previous = viewer.pending
     viewer.pending = path
     if not ctx.submit(LOAD_KEY, viewer.parse_reference, path, tag=path):
         # Another load is in flight; its result is checked against ``pending``
         # before it is adopted, so this one is simply dropped rather than
-        # queued -- ``_sync_viewer``'s own rule.
-        viewer.pending = None
+        # queued -- ``_sync_viewer``'s own rule. The *previous* ``pending`` is
+        # put back, not None: that is the in-flight load's own freshness check,
+        # and clearing it made its result land as unwanted (the 2026-10-04
+        # audit, finding create-13).
+        viewer.pending = previous
         return False
     return True

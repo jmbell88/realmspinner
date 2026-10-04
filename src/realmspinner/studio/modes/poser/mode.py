@@ -1630,12 +1630,16 @@ def sync_preview(ctx: Any, viewer: Any) -> bool:
     if viewer.pending == wanted:
         # Already dispatched; :func:`on_task_done` adopts it when it lands.
         return False
+    previous = viewer.pending
     viewer.pending = wanted
     tag = (state.template, wanted)
     if not ctx.submit(PREVIEW_LOAD_KEY, viewer.parse_model, wanted, tag=tag):
         # The key is refused while another parse is still in flight (a rapid
         # template switch, most likely) -- retried next frame once it frees.
-        viewer.pending = None
+        # ``pending`` goes back to what it was, not to None: it is the
+        # in-flight parse's own freshness check, and clearing it made that
+        # parse land as unwanted (the 2026-10-04 audit, finding create-13).
+        viewer.pending = previous
     return False
 
 
@@ -1750,12 +1754,15 @@ def sync_asset(ctx: Any, viewer: Any) -> bool:
     if viewer.pending == rig_path:
         # Already dispatched; :func:`_land_asset_load` adopts it when it lands.
         return False
+    previous = viewer.pending
     viewer.pending = rig_path
     tag = (job_id, rig_path)
     if not ctx.submit(ASSET_LOAD_KEY, viewer.parse_model, rig_path, tag=tag):
         # The key is refused while another parse is still in flight (a rapid
         # asset switch, most likely) -- retried next frame once it frees.
-        viewer.pending = None
+        # Restored rather than cleared, for ``sync_preview``'s reason above
+        # (the 2026-10-04 audit, finding create-13).
+        viewer.pending = previous
     return False
 
 

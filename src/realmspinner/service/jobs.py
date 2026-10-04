@@ -356,6 +356,16 @@ def create_generation_request(
             # ``effective_negative_prompt``; this is the third reader.
             negative_prompt=generation.effective_negative_prompt(request, resolved),
             reference=reference,
+            # The 2026-10-04 audit, finding create-03: ``request_to_legacy``
+            # emits both and this call dropped both, so a request that
+            # validated as img2img ran as a plain reference job while
+            # ``params["generation_request"]`` went on recording img2img --
+            # the document-versus-pixels mismatch the ``output_profile``
+            # refusal closed for the mesh budget. ``create_job`` already
+            # honours them (it refuses ``init_image`` without a reference,
+            # which ``validate_request`` has refused first).
+            init_image=bool(legacy.get("init_image")),
+            init_strength=legacy.get("init_strength"),
             guidance_fields=guidance_fields,
             asset_type=request.generation_type,
             asset_intent=legacy["asset_intent"],

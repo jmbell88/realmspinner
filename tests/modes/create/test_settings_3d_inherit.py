@@ -151,7 +151,7 @@ def test_the_engine_disclosure_hints_each_axis_it_draws(monkeypatch, ui):
     monkeypatch.setattr(
         create_mesh,
         "findings_hint",
-        lambda ctx, param, value: seen.append(param) or None,
+        lambda ctx, param, value, *_: seen.append(param) or None,
     )
     ctx = _Ctx({})
 
@@ -186,7 +186,7 @@ def test_the_engine_disclosure_draws_nothing_while_collapsed(monkeypatch, ui):
     monkeypatch.setattr(
         create_mesh,
         "findings_hint",
-        lambda ctx, param, value: calls.append(param) or None,
+        lambda ctx, param, value, *_: calls.append(param) or None,
     )
     ctx = _Ctx({})
     form = dict(DEFAULT_FORM_3D)
