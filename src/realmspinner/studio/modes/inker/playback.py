@@ -221,6 +221,15 @@ def step_frame(ctx: Any, delta: int, tab: InkerDoc | None = None) -> None:
     if tab is None or tab.doc.anim is None or tab.busy:
         return
     state = ctx.state.inker
+    if state is not None and state.transforming:
+        # The 2026-10-03 audit, finding inker-41: ``set_current_frame`` commits
+        # the free transform's floating buffer directly rather than through
+        # ``mode.end_transform``, leaving ``state.transforming`` true with
+        # nothing floating -- and the Transformation key context then swallows
+        # every key until Enter or Esc. ``toggle_play`` refuses it for the same
+        # reason (inker-mode-07); Free transform's own Enter/Escape is the one
+        # way out.
+        return
     if state is not None and (state.drag_kind or state.gesture_pts):
         # ``set_current_frame`` rebuilds the layer stack, and an open paint
         # drag holds a ``StrokeState`` addressed into the stack it began on --

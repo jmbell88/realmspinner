@@ -54,26 +54,11 @@ def test_sprite_plan_states_the_compound_work_plainly():
 
 
 # --- nothing in the tray is drawn where it cannot be pressed -----------------
-
-
-def test_the_tray_shows_one_whole_row_rather_than_two_half_rows():
-    """The tray is a fixed-height strip. Six results filled its three columns
-    twice over, and the second row's cards were drawn with their actions below
-    the fold, where nothing can press them.
-
-    ``/exercise-mode create`` reported fifteen clipped controls, every one of
-    them a result-card action. No test could: a clipped button is still drawn,
-    and the smoke suite only asks whether a pane builds.
-    """
-    import inspect
-
-    from realmspinner.studio.modes.create.ui import workspace as gw
-
-    assert gw._RESULT_COLUMNS == 3
-    source = inspect.getsource(gw._recent_results)
-    assert "_RESULT_COLUMNS" in source, "the cap and the grid width are one fact"
-    # And the grid is built from the same number, so they cannot drift.
-    assert "_RESULT_COLUMNS" in inspect.getsource(gw._result_grid)
+#
+# The "one whole row, not two half-rows" test pinned ``_RESULT_COLUMNS`` and the
+# fixed three-column ``_result_grid``; both were deleted with the grid when the
+# tray became a horizontally scrolling strip (2026-10-03 audit, finding
+# create-46), which has no second row to clip.
 
 
 def test_the_result_actions_are_two_per_row():

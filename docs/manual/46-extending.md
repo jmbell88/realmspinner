@@ -300,8 +300,9 @@ just made — but it can only ever add: a new mesh, a new rig, a new sprite shee
 the same door a pane uses, plus a copy dropped into the export folder you configured. It can never
 re-rig a mesh that already has a rig, adjust a rig's joints, save or revert a clip library, delete
 anything, rerun a job, or change the direction a preview faces, and it can never reach into a
-document or panel you already have open. It cannot cancel a job it did not start itself, even one
-sitting in the queue. There is no path anywhere in this surface — every argument it takes is an id
+document or panel you already have open. It can cancel only a job it started on its own connection
+(or the sheet job a rig it started has since queued), even one sitting in the queue; any other job
+is out of its reach. There is no path anywhere in this surface — every argument it takes is an id
 you already hold or a name from a fixed list — and nothing it builds is unusual: what it leaves
 behind is an ordinary Library row with no history of having come from an agent, so the way you take
 one back is the way you take back anything else in Library, by deleting it. There is no undo for
@@ -320,16 +321,14 @@ for that too, and the batch unwinds itself instead of leaving the part that work
 only the document is unwound, so a tab the batch itself opened stays open, empty. **Set params** takes a list of objects
 rather than one, so making six wheels larger is one call and one Ctrl+Z rather than six of
 each — and it is all or nothing, so a number that is wrong for one of them changes none of
-them. Undo, delete and rename all work by
-name, the way you would type them yourself, rather than by whatever the agent last happened to have
-selected. The one that makes the rest work is still **render** — it can now look from several angles
-in a single call, with an optional ground grid switched on as the only scale cue in what would
-otherwise be a flat white square, and a focus that frames the object under discussion while leaving
-the rest of the scene drawn around it. An agent that can only read coordinates builds things that are
-plausible in numbers and wrong on screen; one that can look at what it made corrects itself the way
-you would — and that is now also the argument for reference images: an agent shown the picture you
-want matched can put its own render beside it, or blend the two together, and see the difference
-instead of only being told about it.
+them. Delete and rename name their object by its uid (and undo takes a step count), rather than by whatever the
+agent last happened to have selected. The one that makes the rest work is still **render** — it can now look
+from several angles in a single call, with an optional ground grid switched on as the only scale cue in what
+would otherwise be a flat white square, and a focus that frames the object under discussion while leaving the
+rest of the scene drawn around it. An agent that can only read coordinates builds things that are plausible in
+numbers and wrong on screen; one that can look at what it made corrects itself the way you would — and that is
+now also the argument for reference images: an agent shown the picture you want matched can put its own render
+beside it, or blend the two together, and see the difference instead of only being told about it.
 
 A picture reaches the agent one of two ways. You can point it at a Library row — right-click the
 card and choose **Copy job id**, and hand the agent that id — or hand it image data directly,
@@ -399,9 +398,11 @@ says so, rather than either guessing or refusing the whole request over one word
 id reports the same `follow_up_sheet_job` once it exists too, so either id can be polled). Poll
 `character_job` on the `rig_job_id` until its `follow_up_sheet_job` field names a job — that is the
 sprite sheet Realmspinner queues automatically once the rig finishes — then poll `character_job` again,
-this time on that sheet job's id, until it reports done. If the rig itself ends in error, no
+this time on that sheet job's id, until it reports done. Any terminal status other than done —
+error or cancelled — on either job ends the loop. If the rig itself ends in error or is cancelled, no
 follow-up sheet ever appears; read `follow_up_failure` (or the rig job's own error) off that same
-`character_job` reply and stop, rather than poll forever for a sheet that will not come.
+`character_job` reply and stop, rather than poll forever for a sheet that will not come; if the sheet
+job ends in error or is cancelled, read its own error and stop.
 `character_sheet_preview` returns a picture of the
 sheet, cropped to one movement and one facing if you ask for them, so the agent can look at what it
 made the same way it can in Clay. `character_export` writes the finished thing to your configured
@@ -418,6 +419,12 @@ the next free name (`-2`, `-3`), and there is no overwrite option over MCP.
 asking for one just means listing the movements it implies, because a set with no different motion
 behind its name would be a label and nothing else. `character_create` and `character_sheet_create`
 both take a plain list of movement names instead.
+
+**The skeleton follows the mesh's family.** With no `template` named, `character_rig` and
+`character_sheet_create` (on a mesh that has not been rigged yet) rig on the skeleton of the mesh's
+own family when a character door built it, not on the configured default, and the reply names that
+family as `template_from_family`. A `template` you name always wins, and a mesh that is not a
+character falls back to the configured default as before.
 
 **What gets refused, and why.** `character_create` refuses before a row exists if Realmspinner cannot
 reach Blender at all, because a mesh with nowhere to be rigged is not worth minting. Naming a
@@ -465,7 +472,8 @@ anything. It must not raise: a refusal is a result an agent can read, and where 
 which argument was wrong it says so by name, which is a thing the old HTTP interface had nowhere to
 put. And it validates before it mutates — every argument it means to act on, checked and refused by
 name before the first line that changes the document, not partway through. An argument's own *name*
-is enforced for you, before your handler ever runs: `agent_clay.call` refuses a key a tool's schema
+is enforced for you, before your handler ever runs: `call` in `studio/modes/clay/agent/dispatch.py` refuses a key a
+tool's schema
 does not declare in `properties`, derived from the same schema `tools()` already publishes rather
 than a second hand-kept list of legal names. A tool's own JSON schema declaring an argument a
 number, or an array of numbers, is still not enforcement of that argument's *value*, and that half
@@ -481,7 +489,12 @@ for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 numb
 `clay_set_params` and `clay_add_primitive`'s `params` use (a lathe's `profile` is the
 array-of-arrays case) — all three live beside `validate.py`'s other validators, in the same
 "validate everything before the
-first mutation" style `_h_add_primitive` and `_h_add_figure` already followed.
+first mutation" style `_h_add_primitive` and `_h_add_figure` already followed. A TRS argument is
+bounded in size as well as in shape (`_validate_translation` and `_validate_scale`): a translation
+component may be at most 1e7 metres, and a scale component is either exactly zero or between 1e-6 and
+1e6 in magnitude, because `1e308` once put a bare `Infinity` into every later `clay_scene` row and a
+scale of `1e-320` turned into `NaN` on a child when it was re-parented keeping its world transform.
+`clay_parent` with `keep_world` also refuses a result that is not finite.
 `tests/test_agent_schemas.py` is what proves this half is actually done, tool by tool and
 constraint by constraint, discovered from the schemas themselves rather than a hand-written list of
 what to check.
@@ -504,7 +517,8 @@ describe. A transcript is also
 exactly what the suite replays, so a session worth keeping can become a regression test by being copied into
 `tests/fixtures/agent_transcripts/` with a claim about what it should build written beside it.
 
-A refusal now also *reports* that nothing moved. Every one built through `agent_clay.fail` carries
+A refusal now also *reports* that nothing moved. Every one built through `fail` (`studio/modes/clay/agent/validate.py`)
+carries
 `changed`, defaulted to `False` in that one wrapper rather than at each of these files' ~100 call
 sites, so a new tool that follows the rule above gets the answer right by doing nothing at all — a
 refusal that never reaches a mutation is `changed: false` for free, and there is nothing to write.
@@ -514,6 +528,12 @@ closed actually moved the undo history's head, because a batch that stops at its
 already kept the first two, and `clay_program`, for the identical reason over a compiled program's
 own call list — except a program is always atomic, so its own rollback already puts `changed` back
 to `false` before the reply is built, rather than leaving a kept prefix the way `clay_batch` can.
+Both have a second way to refuse after the work is done: a run that finished is not rolled back, so
+if the reply it built is too large to send in one frame, the refusal carries `changed: true` and says
+the edits were kept and the call must not be repeated. Every tool whose reply grows with the
+document (`clay_scene`, a whole-document `clay_diagnose`, `clay_batch`, `clay_program`,
+`clay_elements` with no `uid`) measures the reply as it will be framed, through
+`_over_frame_budget`, and a new one that does the same should call it.
 Writing this down is what found the one place that did not follow the
 rule — `clay_boolean` used to set the object selection before checking there were two visible
 objects to work with, so a refused boolean quietly replaced whatever you had selected. The order
@@ -545,12 +565,13 @@ the `ClayDoc` at all, while a selection tool genuinely changes the document and 
 
 There is a third possibility, and it belongs to neither list because it does not belong to Clay at
 all: a tool that answers about the bridge itself rather than about a document, the way `realmspinner_status`
-answers what became of a call. That kind is published by `agent_host`, not `agent_clay.tools()`, and
+answers what became of a call. That kind is published by `agent_host`, not `tools()` in
+`studio/modes/clay/agent/dispatch.py`, and
 answered on the listener thread directly rather than ever being queued for the frame thread to pick
 up — which is the whole reason it exists, since the situation it answers in is precisely the one
 where the frame thread is busy with something else. The test-visible consequence is deliberate: such
 a tool is never an entry in `_HANDLERS`, which is what keeps the derived-catalogue test honest rather
-than quietly widened to cover a tool `agent_clay` never owned. The price of that is real, too — a
+than quietly widened to cover a tool the Clay agent package never owned. The price of that is real, too — a
 tool built this way gets no frame thread of its own, ever, and so may not touch a document.
 
 A new tool gets the structured-result shape for free the moment it answers through `_json` the
@@ -581,7 +602,7 @@ The five Clay resources:
 | --- | --- | --- |
 | `realmspinner://clay/scene` | This session's document, the same JSON `clay_scene` returns | Frame thread |
 | `realmspinner://clay/render/last` | The most recent picture this session's `clay_render` produced | Frame thread |
-| `realmspinner://clay/conventions` | `agent_clay.instructions()`'s own prose | Listener thread |
+| `realmspinner://clay/conventions` | `instructions()`'s own prose (`studio/modes/clay/agent/dispatch.py`) | Listener thread |
 | `realmspinner://clay/generators` | Every primitive `clay_add_primitive` can build, and its defaults | Listener thread |
 | `realmspinner://clay/operations` | Every op `clay_op` can run, its modes and its parameters | Listener thread |
 
@@ -589,8 +610,15 @@ The first two touch this session's document, so they run through the same frame-
 every `clay_*` tool call already does — a resource read is not exempt from the one-thread-touches-
 the-document rule just because it looks like a read rather than a call. The last three are pure
 functions of a registry that already exists for a human surface (`primitives.GENERATORS`,
-`clay_ops.OPS`, `agent_clay.instructions()`) and touch no document at all, so they answer on the
+`clay_ops.OPS`, `dispatch.instructions()` in `studio/modes/clay/agent/`) and touch no document at all, so they answer on
+the
 listener thread directly — the same exemption `realmspinner_status` already has, for the same reason.
+
+`clay_scene` takes two optional arguments, `offset` and `limit`, which page the object rows of a
+document too large to read in one reply; `object_count` and `bounds` still describe the whole
+document, so a page reads like the whole answer with fewer rows. `clay_measure` and `clay_analyze`
+answer a volume of `null` with `closed: false` for an open mesh, rather than a number that moves
+with where the object sits.
 
 The character pipeline adds three more:
 
@@ -614,6 +642,9 @@ resizes before answering rather than handing over the whole file.
 The five prompts — `model_from_description`, `model_from_reference`, `repair_mesh`,
 `prepare_for_export`, `character_sheets_from_description` — are pure text templating: a prompt's
 rendered message is a string built from its arguments, naming real tools by their real names.
+`model_from_reference` takes one argument, `job_id`, the Library job whose picture is the reference;
+a picture outside the Library is sent inline to `clay_reference_add`, because that tool never
+takes a file path.
 Nothing here touches a document either, so a prompt is also answered on the listener thread.
 `character_sheets_from_description` takes a description and, optionally, a comma-separated list of
 movements, and walks the same swamp-knight-shaped path described above: options, then create, then
@@ -621,7 +652,7 @@ polling the rig job and its follow-up sheet job, then a preview, then the three 
 
 **Derived, not hand-listed, the same rule the tool catalogue follows.** `agent_resources`'s
 generators and operations resources are built by walking `primitives.GENERATORS` and `clay_ops.OPS`
-the same way `agent_clay`'s own prose already does for its instructions text — a new
+the same way the Clay agent package's own prose already does for its instructions text — a new
 primitive or a new op needs no edit here either. A prompt's own prose names tools by constants at
 the top of `agent_prompts.py` rather than by retyping the string in several places, but the
 regression that actually matters is `tests/mcp/test_rpc_studio.py`'s scan of every prompt's
@@ -663,10 +694,19 @@ a later mode inherits keys it never claimed. `DROP_REFUSALS` needs an entry sayi
 words, what it works on instead — unless the mode opens files, in which case it needs a branch of its
 own above that table. The quit guard needs to know the mode can hold unsaved work.
 
-**A document mode costs more.** If the mode edits a saved document rather than running jobs, it also
-joins `docmodes.DOC_MODES`, `recents.KINDS`, `palette._DOC_MODES`, `journal`'s recoverable kinds, and
-Home's own list of things you can start. `palette._DOC_MODES` is the sharp one: joining it before the
-mode's module answers `active(ctx)` is an `AttributeError` rather than a missing row.
+**A document mode costs more.** If the mode edits a saved document rather than running jobs, it adds
+one row to `studio/mode_manifest.py`'s `DOC_MODES`: key, module, journal kind, export label and
+the module whose `open_path` reopens a recent row. That row is what `docmodes.DOC_MODES` (the quit
+chain's list), `palette._DOC_MODES` (the Save/Export/Undo commands, through `export_table()`),
+`journal`'s recoverable kinds, Home's Recents openers and the mode each recovered row switches to
+are all derived from, so none of them is edited by hand. Whether the mode saves on quit is
+asked of its module rather than declared: define `persist(ctx)` and the teardown calls it, and
+expose a `JOURNAL` and crash recovery sees it. The one hand-written tuple left is
+`recents.KINDS`, which is not derived from the manifest and needs the new kind added.
+The sharp edge is the manifest row itself: it names the module before anything has checked it, so
+a row whose module does not answer `active(ctx)` is an `AttributeError` in the palette rather than
+a missing command. A pose-like mode with no file to reopen leaves the opener `None` and the export
+label empty, as Poser does.
 
 **The workspace.** `skeletons` gets a function returning the mode's three columns, and `layout`'s
 pane tables learn its pane keys. Every interactive widget goes through `controls.py`. Every pane

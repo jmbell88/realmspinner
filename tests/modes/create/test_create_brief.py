@@ -164,27 +164,14 @@ def frames():
 # --- where it draws ---------------------------------------------------------
 
 
-def test_the_bar_draws_on_reference_and_mesh_only():
-    """Reference and Mesh each *generate*, so each carries the press; Rig, Pose
-    and Export draw the rail alone and start their columns higher.
-
-    ``create_stages``' own rule about the rail, applied to the bar under it: a
-    bar with dead controls is not honest, and an inert bar is worse than an
-    absent one -- so the stages that make nothing from this row get none of it.
-    """
+def test_the_header_is_the_rail_band_on_every_stage():
+    """The press moved into the settings column (``inputs`` and
+    ``submit_control``), so the header is the rail alone at every stage and
+    one height. The 2026-10-03 audit, finding create-33: ``shows`` and the
+    Reference/Mesh-only taller bar outlived that move and tests pinned them."""
     for stage in create_stages.STAGES:
         ctx = SimpleNamespace(state=_state(stage))
-        assert create_brief.shows(ctx) is (stage in ("reference", "mesh")), stage
-    assert create_brief.GENERATING_STAGES == ("reference", "mesh")
-
-
-def test_the_bar_draws_in_no_other_mode():
-    """``create.stage`` is not cleared on a mode switch -- coming back from
-    Inker lands where you left -- so asking the stage alone would put Create's
-    brief across the top of another workspace."""
-    for mode in ("inker", "clay", "plotter", "home", "library"):
-        ctx = SimpleNamespace(state=_state("reference", mode=mode))
-        assert create_brief.shows(ctx) is False, mode
+        assert create_brief.bar_height(ctx) == create_brief.sp(create_brief.RAIL_ONLY_H), stage
 
 
 # --- what it holds ----------------------------------------------------------
@@ -453,121 +440,6 @@ def test_a_sheet_hides_the_count_rather_than_offering_refusals(asset_type):
     assert "_count(" in source
 
 
-def test_the_row_gives_way_in_a_stated_order():
-    """The "Candidates" label drops, then the count, then the rail shortens,
-    then Reset goes icon-only -- and the type and Generate never give way,
-    because Generate is the control the bar exists to keep visible and
-    ``same_line`` past the pane edge draws a control nowhere.
-
-    ``TYPE_W`` is now legitimately in this function's body (2026-09-07): the
-    rail sits ahead of the type combo on the row, so ``_row_widths`` has to
-    decide the rail's width *before* the combo has drawn, which means nothing
-    has narrowed ``avail`` yet and ``TYPE_W`` has to be taken off explicitly,
-    once. See :func:`create_brief._row_widths`'s own docstring for why that is
-    not the double-count bug this test used to guard against -- the mechanism
-    moved; the "count everything exactly once" rule it protects did not.
-    """
-    body = _body(create_brief._row_widths)
-    assert "sp(TYPE_W)" in body, "the rail is ahead of the combo now, so this must reserve it"
-    assert "GENERATE_W" in body
-    assert "PROMPT_MIN_W" in body
-    assert "rail_full_w" in body and "rail_floor_w" in body
-    # The label is the first to go, then the count -- both only once the prompt
-    # (the Source chip, on Mesh) has bottomed out.
-    assert body.index("show_label = False") < body.index("show_count = False")
-    assert "reset_compact = True" in body
-
-
-def _ladder(frames, counts: tuple[int, ...]) -> list[str]:
-    """The order in which things give way as the window narrows, read off a real
-    frame at every width from 1600 down to 240 dp -- so a change to the ladder
-    on *one* stage's count set is a failure rather than a surprise."""
-    items = _synthetic_rail_items()
-    steps: list[tuple[float, Any, float]] = []
-
-    def build_at(width: float) -> None:
-        def build() -> None:
-            rail_full = create_rail.stage_rail_width(items, "reference")
-            rail_floor = create_rail.stage_rail_width(items, "reference", max_width=0.0)
-            steps.append(
-                (width, create_brief._row_widths(False, rail_full, rail_floor, counts), rail_full)
-            )
-
-        frames(build, (width, 700.0))
-
-    for width in range(1600, 230, -40):
-        build_at(float(width))
-
-    order: list[str] = []
-    for _width, widths, rail_full in steps:
-        gone = {
-            "label": not widths.show_label,
-            "count": not widths.show_count,
-            "rail": widths.rail_w < rail_full,
-            "reset": widths.reset_compact,
-        }
-        for name, is_gone in gone.items():
-            if is_gone and name not in order:
-                order.append(name)
-    return order
-
-
-def test_the_four_rung_ladder_gives_way_at_decreasing_widths(frames):
-    """``_row_widths`` walked at real, decreasing window widths -- a real
-    frame feeding it real ``imgui.get_style()``/``get_content_region_avail()``
-    numbers rather than a source scan. No GL: this only needs the numbers
-    ``create_rail.stage_rail_width`` and ``imgui.calc_text_size`` already
-    produce without a renderer.
-    """
-    items = _synthetic_rail_items()
-    seen: dict[float, Any] = {}
-
-    def measure(width: float) -> None:
-        def build() -> None:
-            rail_full = create_rail.stage_rail_width(items, "reference")
-            rail_floor = create_rail.stage_rail_width(items, "reference", max_width=0.0)
-            seen[width] = create_brief._row_widths(False, rail_full, rail_floor)
-
-        frames(build, (width, 700.0))
-
-    for width in (1400.0, 700.0, 500.0, 320.0):
-        measure(width)
-
-    widths = sorted(seen)
-    rail_w = [seen[w].rail_w for w in widths]
-    prompt_w = [seen[w].prompt_w for w in widths]
-    show_label = [seen[w].show_label for w in widths]
-    show_count = [seen[w].show_count for w in widths]
-    reset_compact = [seen[w].reset_compact for w in widths]
-
-    # Nothing here gets *more* room as the window gets narrower.
-    assert rail_w == sorted(rail_w)
-    assert prompt_w == sorted(prompt_w)
-    # The label and the count are shown only once there is room for them (False
-    # before True, narrow to wide) and never flip back as the window widens.
-    assert show_label == sorted(show_label)
-    assert show_count == sorted(show_count)
-    # Reset is icon-only only under pressure (True before False, narrow to
-    # wide) and never flips back either.
-    assert reset_compact == sorted(reset_compact, reverse=True)
-    # At the widest, everything is at its natural size.
-    assert show_label[-1] is True and show_count[-1] is True
-    assert reset_compact[-1] is False
-    # At the narrowest, the ladder has bottomed out on both ends.
-    assert prompt_w[0] == pytest.approx(create_brief.sp(create_brief.PROMPT_MIN_W))
-    assert reset_compact[0] is True
-
-
-def test_the_ladder_gives_way_in_the_same_order_on_both_stages(frames):
-    """The label first, then the count, then the rail, then Reset -- for
-    Reference's 1/2/4/8 and for Mesh's 1/2/3 alike. One ladder, two count sets:
-    a bar that lost its label at a different width order on each stage would be
-    two bars."""
-    expected = ["label", "count", "rail", "reset"]
-    assert _ladder(frames, create_brief._COUNTS) == expected
-    assert _ladder(frames, create_brief._MESH_COUNTS) == expected
-
-
 # --- the anchors the guided tour points at ----------------------------------
 
 
@@ -654,9 +526,10 @@ def test_the_disabled_generate_wears_the_first_problem_as_its_reason():
     assert not hasattr(problem, "message")
     assert str(problem) == "Describe what to generate."
 
-    body = _body(create_brief._generate)
+    body = _body(create_brief.disabled_reason)
     assert ".message" not in body, "Problem is a str; there is no .message"
     assert "str(problems[0])" in body
+    assert "disabled_reason(problems, busy)" in _body(create_brief._generate)
 
 
 def test_an_empty_prompt_leaves_the_bar_drawable():
@@ -710,12 +583,12 @@ def test_the_bar_only_reaches_the_settings_door_on_the_generating_stages(frames)
 
 
 def test_the_bar_fits_the_height_it_declares(frames):
-    """``BAR_H`` and ``RAIL_ONLY_H`` are measured, not derived -- this is the
-    thing that measures them: a real frame draws the row (or, off Reference,
-    just the rail) into a bare ``imgui.begin("smoke")`` window, and the
-    content span plus the padding ``layout.pane`` would spend on top of it
-    (added back on both edges, since this window has none of its own) must
-    fit the pane height ``bar_height`` declares for that stage.
+    """``RAIL_ONLY_H`` is measured, not derived -- this is the thing that
+    measures it: a real frame draws the header into a bare
+    ``imgui.begin("smoke")`` window, and the content span plus the padding
+    ``layout.pane`` would spend on top of it (added back on both edges, since
+    this window has none of its own) must fit the pane height ``bar_height``
+    declares for that stage.
 
     Muse's own ``BAR_H`` was wrong exactly this way before its own version of
     this test existed -- 118 declared against ~142 dp actually drawn, because
@@ -736,22 +609,17 @@ def test_the_bar_fits_the_height_it_declares(frames):
         pad = imgui.get_style().window_padding.y
         content_h = (positions["after"] - positions["before"]) + 2 * pad
         declared = create_brief.bar_height(ctx)
-        generating = stage in ("reference", "mesh")
-        assert declared == create_brief.sp(
-            create_brief.BAR_H if generating else create_brief.RAIL_ONLY_H
-        ), f"{stage}: the height is the generating stages' pair, not one alone"
+        assert declared == create_brief.sp(create_brief.RAIL_ONLY_H), stage
         assert content_h <= declared, (
-            f"stage={stage}: the row drew {content_h:.1f}px of content against "
-            f"a declared {declared:.1f}px ({'BAR_H' if generating else 'RAIL_ONLY_H'} "
-            f"= {create_brief.BAR_H if generating else create_brief.RAIL_ONLY_H})"
+            f"stage={stage}: the header drew {content_h:.1f}px of content against "
+            f"a declared {declared:.1f}px (RAIL_ONLY_H = {create_brief.RAIL_ONLY_H})"
         )
 
 
 def test_the_bar_fits_with_the_count_hidden_too(frames):
     """The sheet/character arm draws three brief controls instead of four --
     narrower, never taller -- but it is worth its own frame rather than an
-    inference from the case above, since ``_row_widths`` treats it as its own
-    branch."""
+    inference from the case above."""
     ctx = _real_ctx(stage="reference")
     ctx.state.form_2d["asset_type"] = "tileset"
     positions: dict[str, float] = {}

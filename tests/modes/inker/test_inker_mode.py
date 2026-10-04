@@ -2066,15 +2066,18 @@ def test_a_tab_switch_drops_an_open_eye_drag():
     assert state.eye_drag_was == {}
 
 
-def test_a_tab_switch_drops_the_text_stamp_target():
+def test_a_tab_switch_keeps_the_text_stamp_owner_so_the_popup_can_see_it_left():
+    """The 2026-10-03 audit, finding inker-53: this used to assert the opposite
+    (a blank owner and a ``(0, 0)`` spot), and a blank owner is exactly what the
+    popup's close test and ``stamp_text``'s refusal read as "nobody to guard"."""
     a, b = _tab("a"), _tab("b")
     state = _state(a, b)
     state.activate(a.uid)
     state.text_at = (12, 9)
     state.text_uid = a.uid
     state.activate(b.uid)
-    assert state.text_uid == ""
-    assert state.text_at == (0, 0)
+    assert state.text_uid == a.uid
+    assert state.text_at == (12, 9)
 
 
 def test_a_text_stamp_is_refused_for_another_tabs_press():

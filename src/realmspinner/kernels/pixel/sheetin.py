@@ -383,6 +383,7 @@ def document_from_sheet(
     *,
     track_name: str = "Sprite",
     source: Mapping[str, str] | None = None,
+    record_base: bool = True,
 ) -> Any:
     """A rendered sheet plus its sidecar's ``animation`` block, as a document.
 
@@ -400,6 +401,14 @@ def document_from_sheet(
     Durations come from the block's ``frames`` where it has them -- a
     twelve-frame-per-second run and a six-per-second idle in the same document
     is the whole point of writing them into the sidecar.
+
+    ``record_base=False`` is for a sheet that is not a render: a pixel
+    restyle's cells are the *quantised* picture and no re-renderer sits behind
+    it. The 2026-10-03 audit (inker-66) found one opened with the render's
+    ``{job, sheet}`` and digests of the pixelised cells, so Merge re-render
+    loaded the newest raw render and took every unedited cell -- swapping
+    cleaned pixel art for unquantised 3D renders. With no base the merge door
+    refuses by name instead.
     """
     doc = _document_from_rects(
         atlas_rgba,
@@ -412,7 +421,8 @@ def document_from_sheet(
         duration = int(entry.get("duration_ms") or 0)
         if 0 <= index < len(doc.anim.frames) and duration > 0:
             doc.anim.frames[index].duration_ms = duration
-    _record_render(doc, source)
+    if record_base:
+        _record_render(doc, source)
     return doc
 
 

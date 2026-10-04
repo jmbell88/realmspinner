@@ -298,7 +298,7 @@ def test_removing_the_default_base_model_is_allowed(svc):
 
 def test_rows_carry_what_a_removal_would_free(svc):
     rows = {r["row_key"]: r for r in svc_downloads.rows(svc)}
-    # One of four recipes: 0.8, not 7. The honesty risk the feature carries.
+    # One of five recipes: 0.8, not 7. The honesty risk the feature carries.
     assert rows["base:sdxl"]["removable"] is True
     assert rows["base:sdxl"]["freed_gib"] == pytest.approx(0.8)
     # And the recipe with no adapter of its own frees nothing, so no button.

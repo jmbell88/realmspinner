@@ -155,8 +155,12 @@ def _exports(ctx: Any, tab: Any) -> None:
     should be visible before it is available.
     """
     widgets.section("Export")
+    # The state rides along so an open free transform greys the doors with a
+    # sentence (the 2026-10-03 audit, finding inker-41): ``tab`` alone cannot
+    # say it, and the click would otherwise be refused with only a toast.
+    state = inker_mode.ensure(ctx)
     for door in inker_export.doors():
-        enabled, reason = inker_export.door_state(door, tab)
+        enabled, reason = inker_export.door_state(door, tab, state)
         if widgets.disabled_button(
             f"{door.icon} {door.label}##inkexp/{door.key}",
             enabled,

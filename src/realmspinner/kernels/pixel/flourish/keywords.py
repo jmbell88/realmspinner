@@ -382,11 +382,22 @@ def apply_diff(recipe: Recipe, diff: Any) -> tuple[Recipe, list[str]]:
                 try:
                     layers[i] = replace(layers[i], opacity=min(1.0, max(0.0, float(value))))
                     notes.append(f"{layers[i].name}: opacity")
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     notes.append(f"{layers[i].name}: opacity is not a number")
                 continue
             if name not in specs:
                 notes.append(f"{layers[i].name} has no {name!r}")
+                continue
+            if not specs[name].accepts(value):
+                # The 2026-10-03 audit, finding inker-39: ``Param.clamp`` answers
+                # a value it cannot read with the parameter's *default*, so a
+                # tuned count of 300 became 24 here while the note below read
+                # as an ordinary change. Named and left alone instead -- the
+                # module's own promise is that the model can only narrow what
+                # is already legal.
+                notes.append(
+                    f"{layers[i].name}: {name} was not a value it can take; left as it was"
+                )
                 continue
             layers[i] = layers[i].with_param(name, value)
             notes.append(f"{layers[i].name}: {name}")
@@ -413,7 +424,7 @@ def apply_diff(recipe: Recipe, diff: Any) -> tuple[Recipe, list[str]]:
         try:
             phases[j] = Phase(phases[j].name, int(frames), bool(loop))
             notes.append(f"{phases[j].name}: {int(frames)} frames")
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             notes.append(f"{key}: frames is not a number")
     out = replace(recipe, layers=tuple(layers), phases=tuple(phases))
     for field in ("seed", "fps"):
@@ -421,7 +432,7 @@ def apply_diff(recipe: Recipe, diff: Any) -> tuple[Recipe, list[str]]:
             try:
                 out = replace(out, **{field: int(diff[field])})
                 notes.append(f"{field}={int(diff[field])}")
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 notes.append(f"{field} is not a number")
     if not notes:
         notes.append("The change named nothing this effect has.")

@@ -213,13 +213,45 @@ def _run(meshes: Sequence[bm.Mesh], names: Sequence[str], kind: str = "union"):
         # The kernel's own refusal, most often "not all meshes are volumes".
         # Rewritten rather than passed through: ``check_volume`` phrases it for
         # a library caller, and what the user needs is the remedy.
-        raise OpError(
-            f"A boolean {kind} needs every selected object to be a closed "
-            "solid. One of them has holes or loose faces -- fill them first, "
-            "or use Merge Objects, which keeps the geometry as it is."
-        ) from error
+        raise OpError(_not_a_solid_message(solids, names, kind)) from error
     except Exception as error:  # the kernel's own internal failures
         raise OpError(f"The {kind} could not be computed: {error}") from error
+
+
+def _not_a_solid_message(solids, names: Sequence[str], kind: str) -> str:
+    """The refusal text for the first input that is not a volume, with its real remedy.
+
+    The kernel's ``ValueError`` covers three different faults, and the 2026-10-03
+    audit's clay-95 found the one message ("holes or loose faces -- fill them
+    first") wrong for two of them: a closed solid whose vertices are split per
+    face (an agent-built 24-vertex box) wants Weld, and an inside-out closed
+    solid wants Recalculate Normals. Told to fill holes it does not have, the
+    user was never pointed at either.
+    """
+    head = f"A boolean {kind} needs every selected object to be a closed solid."
+    for solid, name in zip(solids, names, strict=True):
+        if solid.is_volume:
+            continue
+        if not solid.is_watertight:
+            merged = solid.copy()
+            merged.merge_vertices()
+            if merged.is_watertight:
+                return (
+                    f"{head} {name} is closed but its vertices are split "
+                    "between faces, so it reads as open -- Weld it first, or "
+                    "use Merge Objects, which keeps the geometry as it is."
+                )
+            break
+        if solid.volume < 0.0 or not solid.is_winding_consistent:
+            return (
+                f"{head} {name} is closed but its faces point inward -- run "
+                "Recalculate Normals on it first."
+            )
+        break
+    return (
+        f"{head} One of them has holes or loose faces -- fill them first, "
+        "or use Merge Objects, which keeps the geometry as it is."
+    )
 
 
 def _to_csr(result, target: bm.Mesh, kind: str = "union") -> bm.Mesh:

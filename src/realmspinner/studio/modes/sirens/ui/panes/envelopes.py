@@ -48,6 +48,11 @@ from ... import mode as sirens_mode
 from ...engine import envelope
 from ...engine import instruments as inst
 
+#: The sentence a greyed Steps field carries (the 2026-10-03 audit, finding
+#: sirens-23); the Loop and Tail buttons beside it already say why they are
+#: dead, and a field with no word on hover read as a bug.
+_BUSY_WHY = "This song is being written; the field comes back when it lands."
+
 # **The pure half lives under ``studio/sirens/`` now** (2026-09-04), where a
 # test can reach it without an imgui frame -- which is what "a marker cannot be
 # dragged somewhere it stops being visible" needs to be assertable at all. Every
@@ -319,6 +324,7 @@ def _header(
         0,
         inst.MAX_SEQUENCE_LEN,
         enabled=editable,
+        reason=_BUSY_WHY,
         commit=True,
         tooltip="How many steps this sequence ticks through. Painting past the"
         " end lengthens it too.",

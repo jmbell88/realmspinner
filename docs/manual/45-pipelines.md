@@ -121,8 +121,9 @@ crop-then-scale path, and a manifest claiming so is only true while that holds.
 
 ## Blender out of process
 
-Rigging, pose baking and sprite-sheet rendering all need Blender, and Blender's Python module never
-runs inside the app process.
+Rigging, pose baking, sprite-sheet rendering, FBX export, remeshing and Clay's retopology, unwrap and
+bake all need Blender, and Blender's Python module never runs inside the app process. The worker's
+`OPS` table is the full list of what it will do.
 
 There are two reasons and either alone would be enough. `bpy` is process-global and not thread-safe,
 which is incompatible with a four-thread pool. And it hard-*crashes* rather than raising on some
@@ -154,7 +155,7 @@ re-exports — but the objects are still in the scene, and a unit icosphere amon
 treble a computed bounding box and frame every rigged sprite sheet's subject at a third of its size.
 Every import in the worker is followed by a purge of those helpers.
 
-"Import clip" adds a fourth operation, `clip_sample`, that only samples: it imports a Mixamo or
+"Import clip" adds `clip_sample`, an operation that only samples: it imports a Mixamo or
 Rigify file and reads its armature's world-space bone rotations frame by frame, leaving the
 conversion onto a Realmspinner rig to pure host math afterward.
 
@@ -234,7 +235,8 @@ puts the subject's forward direction at `-Y`. See [The grid](27-sprite-sheets.md
 
 Each movement's frame timing comes from the rig's own clip library — how many milliseconds one
 rendered frame holds — unless the request names a global frame rate, which restates every
-movement's timing at that rate instead of the library's own. The size ladder now runs to 256 px,
+movement's timing at that rate instead of the library's own. The character-sheet size ladder (16 to
+256 px; the 3D sheet planner's own `FRAME_SIZES` run on to 512) tops out at 256 px,
 where the 8192 px atlas ceiling allows exactly 256 cells (eight columns by thirty-two rows) — the
 five original movements across eight directions, with no room for a sixth movement at that size. An
 HD sheet (`pixel_art: false`) skips the reduction pass altogether rather than reducing to a larger

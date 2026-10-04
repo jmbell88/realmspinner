@@ -183,7 +183,15 @@ def _rerig(ctx: Any, state: Any) -> None:
     ``ctx.state.preview``, which is where the rest of the app keeps this kind
     of pane scratch -- see those fields' own note: that dict outlives the
     session, and this picker must not.
+
+    While the open asset's finished re-rig is waiting to be bound (the user
+    declined the landing confirm, poser-47 of the 2026-10-03 audit) a "Load new
+    rig" button sits above the picker: nothing else says a new rig exists.
     """
+    if state.job_id in state.rerig_ready:
+        widgets.muted_wrapped("A new rig has finished for this asset.")
+        if controls.button("Load new rig", (-1, 0)):
+            poser_mode.load_new_rig(ctx)
     if not state.rerig_open:
         if controls.button("Re-rig...", (-1, 0)):
             # Defaults to the asset's own template, not the last thing picked

@@ -169,11 +169,10 @@ def _clear(state: Any, tab_uid: str) -> None:
 
 def _tab_busy(ctx: Any, tab: Any) -> bool:
     """Whether *tab* is mid-save or mid-drag -- both mutate the document in
-    ways a landing merge must not race."""
-    if tab.saving:
-        return True
-    view = getattr(ctx, "clay_view", None)
-    return bool(view is not None and getattr(view, "dragging", False))
+    ways a landing merge must not race. One rule with the background ops'
+    landing (``clay_mode.tab_busy``): the 2026-10-03 audit's clay-77 found
+    only this door had it."""
+    return clay_mode.tab_busy(ctx, tab)
 
 
 # --- text: reference, then approval, then mesh --------------------------------
@@ -377,13 +376,46 @@ def submit_image(ctx: Any, tab: Any, *, budget: str = DEFAULT_BUDGET) -> None:
 # --- cancel --------------------------------------------------------------------
 
 
-def cancel(ctx: Any, tab: Any) -> None:
-    """Drop the pending request without landing it.
+def _cancel_job(ctx: Any, job_id: str) -> None:
+    """Ask the queue to stop *job_id*, on a task thread (``cancel_job`` blocks
+    on the worker loop). A job that already finished, or is gone, has nothing
+    left to stop: the service's refusal is swallowed rather than toasted."""
+    if not job_id:
+        return
 
-    The underlying job (a reference already queued, say) is not cancelled on
-    the server -- it finishes as an ordinary Library row nobody asked to see
-    again, the same as closing Create's own promote-preview modal leaves its
-    reference sitting in the Library rather than deleting it.
+    def run() -> Any:
+        from ....service import errors as svc_errors
+        from ....service import jobs as svc_jobs
+
+        try:
+            return svc_jobs.cancel_job(ctx.svc, job_id)
+        except svc_errors.ServiceError:
+            return None
+
+    ctx.submit(f"cancel:{job_id}", run)
+
+
+def _cancel_running_job(ctx: Any, pending: dict[str, Any]) -> None:
+    """Cancel whichever job the request is waiting on *now*. At the preview
+    and landing stages the reference / mesh is already done, so there is
+    nothing running to stop."""
+    stage = pending.get("stage")
+    if stage == "reference":
+        _cancel_job(ctx, str(pending.get("reference_job_id") or ""))
+    elif stage == "mesh":
+        _cancel_job(ctx, str(pending.get("mesh_job_id") or ""))
+
+
+def cancel(ctx: Any, tab: Any) -> None:
+    """Drop the pending request without landing it, and stop its job.
+
+    The 2026-10-03 audit's clay-78: this used to forget the request only, so a
+    cancelled two-minute reconstruction kept the GPU and the queue and the
+    next Generate waited behind work the user had stopped. The known job id is
+    cancelled through ``service.jobs.cancel_job``; when the id is not known
+    yet (the create task is still in flight) :func:`_queued` cancels it when
+    the late result lands. The reference or mesh row stays in the Library as
+    a cancelled row, the same as any cancel from the Library itself.
     """
     state = ctx.state.clay
     if state is None:
@@ -391,20 +423,56 @@ def cancel(ctx: Any, tab: Any) -> None:
     pending = state.generate_pending
     if pending is None or pending.get("tab_uid") != tab.uid:
         return
+    _cancel_running_job(ctx, pending)
     _clear(state, tab.uid)
+
+
+def on_tab_closed(ctx: Any, tab_uid: str) -> None:
+    """The tab a request was started from is gone: stop it.
+
+    The 2026-10-03 audit's clay-56: closing the tab never reached this module,
+    so a reference that finished afterwards advanced to the "preview" stage
+    with no tab left to draw Accept/Reroll/Cancel -- and every later Generate
+    press, on any tab, was refused "already under way" until the app was
+    restarted. A request already in its landing stage is left to :func:`land`,
+    which refuses by name when the decode comes back.
+    """
+    state = ctx.state.clay
+    if state is None:
+        return
+    pending = state.generate_pending
+    if pending is None or pending.get("tab_uid") != tab_uid:
+        return
+    if pending.get("stage") == "landing":
+        return
+    _cancel_running_job(ctx, pending)
+    _clear(state, tab_uid)
 
 
 # --- polling ---------------------------------------------------------------
 
 
 def poll(ctx: Any) -> None:
-    """Once a frame: is whatever is pending ready to move to its next stage."""
+    """Once a frame: is whatever is pending ready to move to its next stage.
+
+    Also the frame-thread tick that lands a background op's result held back
+    by a live drag or a save (``clay_mode.drain_deferred_bg``, the 2026-10-03
+    audit's clay-77): this is the one function the viewport calls
+    unconditionally every frame Clay is drawn.
+    """
     _sync_active_camera(ctx)
     state = ctx.state.clay
     if state is None:
         return
+    clay_mode.drain_deferred_bg(ctx)
     pending = state.generate_pending
     if pending is None:
+        return
+    if state.get(pending["tab_uid"]) is None and pending.get("stage") != "landing":
+        # clay-56's backstop: a tab removed some way that did not go through
+        # ``close_tab`` (the "landing" stage refuses by name in :func:`land`).
+        ctx.toast("The document the generation was for is closed.", "warn")
+        on_tab_closed(ctx, pending["tab_uid"])
         return
     now = time.monotonic()
     stage = pending.get("stage")
@@ -683,6 +751,13 @@ def land(
         # same as it already does for the busy-defer path above.
         if pending is not None and pending.get("tab_uid") == tab_uid:
             pending["stage"] = "landing"
+            # clay-57 (the 2026-10-03 audit): a landing that was deferred for a
+            # busy tab arrives here from ``_retry_deferred`` with its record
+            # still on ``pending``, so the next poll re-entered ``land`` and
+            # asked again -- one identical modal every 0.5 s while the first
+            # was on screen. The question now owns the landing: the record is
+            # dropped so the retry loop has nothing left to re-enter.
+            pending.pop("deferred", None)
             _set_busy(state, pending)
         answer_req = req if req is not None else (pending.get("req") if pending else None)
         ctx.confirms.ask(
@@ -737,8 +812,6 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
 def _queued(ctx: Any, state: Any, done: Any, *, job_key: str, noun: str) -> None:
     pending = state.generate_pending
-    if pending is None:
-        return
     # clay-05 (the 2026-09-23 audit, second run): the first run's clay-04
     # added a tab-uid check to ``_landed`` alone -- a cancelled tab's task
     # still lands here (queueing is not stoppable either), and without the
@@ -753,7 +826,13 @@ def _queued(ctx: Any, state: Any, done: Any, *, job_key: str, noun: str) -> None
     # token riding beside it in the key (see :func:`_new_req`) is checked too.
     _, _, rest = done.key.partition(":")
     key_tab_uid, _, key_req = rest.partition(":")
-    if key_tab_uid != pending.get("tab_uid") or key_req != pending.get("req"):
+    if pending is None or key_tab_uid != pending.get("tab_uid") or key_req != pending.get("req"):
+        # clay-78 (the 2026-10-03 audit): the request this task belonged to was
+        # cancelled (or its tab closed) while the create/promote task was still
+        # in flight, so Cancel had no job id to stop. The job exists now and
+        # nobody will ever poll it: stop it here rather than let it run on.
+        if isinstance(done.result, dict) and done.result.get("id"):
+            _cancel_job(ctx, str(done.result["id"]))
         return
     result = done.result
     if result is None:

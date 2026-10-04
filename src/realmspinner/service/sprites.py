@@ -290,6 +290,16 @@ def sprite_cost(
     # every other bad combination gets from this door.
     try:
         size = int(logical_size)
+        # The door's own ladder first (the 2026-10-03 audit, poser-28):
+        # ``create_sprite_synthesis`` runs ``_check_options`` before anything
+        # else and refuses a cell size off 32/48/64, but this reply only asked
+        # the *band* question, so a 16, 100 or 0 came back ``drawable`` with a
+        # cost note and an enabled button for a press the door then rejects.
+        if size not in SPRITE_LOGICAL_SIZES:
+            raise Invalid(
+                f"logical_size must be one of {list(SPRITE_LOGICAL_SIZES)}",
+                field="logical_size",
+            )
         check_sheet_kind(kind, size)
         geom = spritesynth.sheet_geometry(kind, size)
         wanted = check_candidates(candidates, len(geom.cells))
@@ -335,11 +345,13 @@ def sprite_palettes(svc: RealmspinnerService) -> list[str]:
     ``tilesheets.tile_sheet_palettes``' twin, and its docstring's argument
     applies here unchanged: this is the one answer on this door that can change
     without the process changing, so it is a call taking ``svc`` rather than a
-    key in :func:`sprite_options` -- which reads no disk and which a pane may
-    therefore cache for its whole life. A palette is a *file the user drops in
-    a directory*; folded into the options blob it would be a directory listing
-    cached until the app restarts, and a palette installed five minutes ago
-    would never appear.
+    key in :func:`sprite_options`. That one reads the pose-guide files that
+    ship with the install (it stats them and parses a guide JSON, about a
+    millisecond per call), so a pane memoises it rather than calling it every
+    frame -- ``sprite_panel`` does, and Create's recipe module caches it for the
+    process. A palette is a *file the user drops in a directory*; folded into
+    the options blob it would be a directory listing cached until the app
+    restarts, and a palette installed five minutes ago would never appear.
 
     Empty on a host with no palette directory, which is not an error: the whole
     feature is optional and a form that offers nothing is the correct rendering
@@ -566,7 +578,7 @@ def create_sprite_synthesis(
     if source["status"] != "done":
         raise Invalid(not_done_message("That reference", source["status"]))
     job_dir = svc.job_dir(job_id)
-    if not (job_dir / "input.png").exists():
+    if not (job_dir / "input.png").is_file():
         raise Invalid("reference has no image")
 
     kind = resolve_sheet_kind(sheet_type, action, directions)
@@ -727,7 +739,7 @@ def sprite_draft_png(
         raise NotFound("no such sprite candidate")
     job_dir = svc.job_dir(job_id)
     path = store.sprite_draft_png_path(job_dir, draft_id, candidate)
-    if not path.exists() or not store.sprite_draft_path(job_dir, draft_id).exists():
+    if not path.is_file() or not store.sprite_draft_path(job_dir, draft_id).is_file():
         raise NotFound("no such sprite draft")
     return path
 

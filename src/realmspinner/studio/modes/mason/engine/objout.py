@@ -71,7 +71,7 @@ import numpy as np
 from .....kernels.geom3d import gltf
 from . import scene as sc
 from . import terrain as tr
-from .gltfout import DEFAULT_NAMES, kind_of, unique_name
+from .gltfout import DEFAULT_NAMES, TakenNames, kind_of, unique_name
 from .refs import GeometrySource
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -117,11 +117,13 @@ TEXTURE_DIR = "textures"
 #: measurement above.
 MAX_OBJ_VERTS = 1_000_000
 
-#: A determinant this close to zero is a node scaled to zero (or numerically
-#: indistinguishable from it) on some axis. ``np.linalg.inv`` does not
+#: A basis whose smallest singular value is this small a fraction of its
+#: largest is a node scaled to zero (or numerically indistinguishable from it)
+#: on some axis. ``np.linalg.inv`` does not
 #: reliably raise on such a matrix -- it can hand back a matrix of
-#: ``inf``/``nan`` instead -- so the determinant is checked before the
-#: inversion is even attempted. Not a measured constant: a guard against
+#: ``inf``/``nan`` instead -- so the ratio is checked before the
+#: inversion is even attempted. Relative, never an absolute determinant, so a
+#: uniformly tiny scale stays invertible. Not a measured constant: a guard against
 #: float noise around an exact zero, the same order of magnitude
 #: ``clay/ops_bevel.py``'s ``_BISECTOR_EPS`` and ``clay/ops.py``'s
 #: near-parallel checks already use for the identical reason.
@@ -137,6 +139,11 @@ _ZERO_NORMAL_EPS = 1e-12
 #: No timestamp, no version string, no varying value of any kind -- the whole
 #: point of this line is that it is identical for an unchanged document.
 _HEADER = "# Realmspinner -- Mason scene export (metres, Y-up, right-handed)"
+
+#: ``_HEADER`` under a public name: the first line of every OBJ and MTL this
+#: module writes, which is how ``fileio.write_files`` tells a previous Mason
+#: export (replaced without asking) from someone else's file of the same name.
+EXPORT_HEADER = _HEADER
 
 
 @dataclass(frozen=True)
@@ -265,7 +272,10 @@ def _collect(
     fourth reason for why the two files number their duplicates from different
     populations and why nothing needs them to agree.
     """
-    taken: set[str] = set()
+    # The 2026-10-03 audit's mason-13: a TakenNames, not a bare set, so the
+    # thousandth "Rock" does not re-probe .001 through .999 (the GLB path got
+    # the same hint; Export OBJ kept the quadratic cost without it).
+    taken: set[str] = TakenNames()
     skipped: list[str] = []
     jobs: list[tuple[sc.Placed, str, list[gltf.Primitive]]] = []
     total_vertices = 0
@@ -482,8 +492,16 @@ def _normal_matrix(basis: np.ndarray) -> np.ndarray | None:
     either failure answers ``None`` rather than propagating a non-finite
     matrix to whatever multiplies by it next.
     """
-    det = float(np.linalg.det(basis))
-    if not np.isfinite(det) or abs(det) < _SINGULAR_DET_EPS:
+    # Singularity is judged against the basis' own size (smallest over largest
+    # singular value), not as an absolute determinant: the 2026-10-03 audit's
+    # mason-24 -- a millimetre prop at a uniform 0.0009 has |det| ~ 7e-10, under
+    # the old absolute 1e-9, so it lost every normal and was reported as "a
+    # zero scale" though its inverse is perfectly good.
+    if not np.isfinite(basis).all():
+        return None
+    singular_values = np.linalg.svd(basis, compute_uv=False)
+    largest = float(singular_values[0])
+    if largest <= 0.0 or float(singular_values[-1]) < largest * _SINGULAR_DET_EPS:
         return None
     try:
         inverse = np.linalg.inv(basis)

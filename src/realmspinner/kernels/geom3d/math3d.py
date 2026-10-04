@@ -92,11 +92,65 @@ def decompose(m: Mat4) -> tuple[Vec3, Quat, Vec3]:
     t = m[:3, 3].copy()
     basis = m[:3, :3].astype("f8")
     s = np.linalg.norm(basis, axis=0)
-    if np.linalg.det(basis) < 0:
-        s[0] = -s[0]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        rot = basis / np.where(s == 0, 1.0, s)
+    live = _live_columns(s)
+    if live.all():
+        if np.linalg.det(basis) < 0:
+            s[0] = -s[0]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rot = basis / np.where(s == 0, 1.0, s)
+    else:
+        rot = _rotation_from_live_columns(basis, s, live)
     return t, mat3_to_quat(rot), s
+
+
+def _live_columns(s: np.ndarray) -> np.ndarray:
+    """Which basis columns are long enough to say which way they point.
+
+    Relative to the longest, so a matrix that is small all round (a prop at
+    scale 1e-4) is still fully live while a column a parent's inverse left at
+    1e-17 beside a unit one is not.
+    """
+    top = float(np.max(s)) if len(s) else 0.0
+    if not np.isfinite(top) or top <= 0.0:
+        return np.zeros(len(s), dtype=bool)
+    return s > top * 1e-9
+
+
+def _rotation_from_live_columns(
+    basis: np.ndarray, s: np.ndarray, live: np.ndarray
+) -> np.ndarray:
+    """The rotation of a matrix with a collapsed axis, from the axes that remain.
+
+    The 2026-10-03 audit's clay-40: typing ``0`` on one axis of a scale drag
+    composes a world matrix with a zero column, and dividing that column by a
+    patched-up length of 1 left a non-orthonormal "rotation" that
+    :func:`mat3_to_quat` turned into a non-unit quaternion at the wrong angle
+    (45 degrees about Y came back as norm 0.90 at 60.7 degrees), which the drag
+    then stored on the object. The orientation is still fully determined by the
+    columns that survive: one dead column is the cross product of the other two
+    in the right-handed cycle, and two dead columns leave a spin about the
+    survivor that nothing in the matrix fixes, so any perpendicular pair will do.
+    """
+    rot = np.zeros((3, 3), dtype="f8")
+    keep = [int(i) for i in np.flatnonzero(live)]
+    if not keep:
+        return np.eye(3)
+    for i in keep:
+        rot[:, i] = basis[:, i] / s[i]
+    if len(keep) == 2:
+        k = ({0, 1, 2} - set(keep)).pop()
+        rot[:, k] = np.cross(rot[:, (k + 1) % 3], rot[:, (k + 2) % 3])
+    else:
+        i = keep[0]
+        a, b = (i + 1) % 3, (i + 2) % 3
+        c = rot[:, i]
+        helper = np.zeros(3)
+        helper[int(np.argmin(np.abs(c)))] = 1.0
+        p = np.cross(helper, c)
+        p /= np.linalg.norm(p)
+        rot[:, a] = p
+        rot[:, b] = np.cross(c, p)
+    return rot
 
 
 def mat3_to_quat(r: np.ndarray) -> Quat:

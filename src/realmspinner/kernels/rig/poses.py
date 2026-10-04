@@ -83,7 +83,12 @@ def validate_bones(
         # is False, so the raw NaN quaternion used to be stored verbatim.
         if not all(math.isfinite(v) for v in values):
             raise ValueError(f"bone {bone!r} rotation is not numeric")
-        norm = sum(v * v for v in values) ** 0.5
+        # hypot, not ``sum(v * v) ** 0.5``: the 2026-10-03 audit, finding
+        # poser-31 -- squaring a finite component above ~1e154 overflows to inf,
+        # the renormalise below then divided by inf and ``[1e200, 0, 0, 0]`` was
+        # stored as all zeros, an invalid rotation the "degenerate" refusal
+        # (which only a *zero* norm reaches) never saw.
+        norm = math.hypot(*values)
         if abs(norm - 1.0) > QUAT_EPSILON:
             # Renormalize rather than reject: a browser accumulating gizmo
             # drags drifts off the unit sphere by ~1e-7 per drag, and refusing
@@ -160,9 +165,17 @@ def mirror_pose(
 ) -> dict[str, list[float]]:
     """Copy every posed bone onto its mirror partner, reflected.
 
-    Bones with no partner (a spine, a tail) are left exactly as they are: they
-    sit on the mirror plane, so reflecting them would rotate a centred limb off
-    centre.
+    Bones with no partner (hips, spine, chest, neck, head, a tail) are
+    reflected *in place*. They sit on the mirror plane, but a rotation of a
+    centred bone still has a side to it: a head yaw or a spine lean is a
+    rotation about an axis perpendicular to the mirror normal, and reflecting
+    the pose has to reverse it, exactly as it does for the L/R swap below --
+    the same premise (local X is the mirror normal), so the same
+    :func:`mirror_quaternion`. The 2026-10-03 audit (poser-poses-04): these
+    were left as they were, so a mirrored pose swapped its limbs while the
+    torso and head kept twisting and leaning the same way, next to a root
+    offset that *was* mirrored. A rotation about X alone (a nod, a forward
+    bend) is its own reflection and is untouched either way.
     """
     partner: dict[str, str] = {}
     for a, b in pairs:
@@ -173,6 +186,8 @@ def mirror_pose(
         other = partner.get(name)
         if other is not None:
             out[other] = mirror_quaternion(quat)
+        else:
+            out[name] = mirror_quaternion(quat)
     return out
 
 

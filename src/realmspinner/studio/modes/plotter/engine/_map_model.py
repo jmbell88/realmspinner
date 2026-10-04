@@ -33,6 +33,7 @@ layers *and* objects, because both are undo subjects and a single counter makes
 from __future__ import annotations
 
 import itertools
+import math
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -547,6 +548,26 @@ class MapObject:
         }
 
 
+def finite_float(value: Any, what: str) -> float:
+    """``float(value)``, refused by name unless it is a finite number.
+
+    One door for the setters, because the readers already hold this line
+    (``tmx._finite`` and ``rmap._finite``) and a setter that accepts less is a
+    way to save a file the app will then refuse to open: the 2026-10-03 audit
+    (finding plotter-12) saved a layer offset of ``inf`` and an object ``x`` of
+    ``nan`` through ``set_layer_props``/``set_object`` and watched
+    ``read_rmap`` refuse the result. ``float("abc")`` leaves as the same
+    ``ValueError`` family, so a caller sees one kind of refusal either way.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{what} must be a number, not {value!r}") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{what} must be a finite number, not {number!r}")
+    return number
+
+
 def merged_object_values(before: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     """``before`` with ``values`` written over it, geometry reconciled.
 
@@ -585,7 +606,13 @@ def merged_object_values(before: dict[str, Any], values: dict[str, Any]) -> dict
     after["opacity"] = float(after["opacity"])
     if not 0.0 <= after["opacity"] <= 1.0:
         raise ValueError("an object's opacity must be between 0 and 1")
-    after["rotation"] = float(after["rotation"])
+    # Coerced and refused here, before ``set_object`` pushes: ``x="abc"`` used to
+    # pass through unchanged and raise out of ``_apply_object_props`` *after* the
+    # step was on the undo stack (the 2026-10-03 audit, findings plotter-11 and
+    # plotter-12). ``rotation`` is the same field family and the same reader rule.
+    after["x"] = finite_float(after["x"], "an object's x")
+    after["y"] = finite_float(after["y"], "an object's y")
+    after["rotation"] = finite_float(after["rotation"], "an object's rotation")
     after["kind"] = shape_kind(shape)
     after["w"], after["h"] = shape_size(shape)
     return after
@@ -656,6 +683,27 @@ def _normalize_layer(layer: Any) -> None:
     layer.offset_y = float(layer.offset_y)
     layer.parallax_x = float(layer.parallax_x)
     layer.parallax_y = float(layer.parallax_y)
+    layer.opacity = layer_opacity(layer.opacity)
+
+
+def layer_opacity(value: Any) -> float:
+    """A layer's opacity, refused unless it is a number from 0 to 1.
+
+    The same rule :class:`MapObject` holds for an object's, and one door for the
+    constructor (so every reader that builds a layer), ``set_layer_props`` and
+    the setters. Unranged, ``7.5`` over a half-alpha tile exported alpha 255
+    where ``1.0`` exported 192, and ``nan`` reached ``render._over``'s uint8 cast
+    and zeroed the pixels -- while the canvas and Tiled, which clamps, showed
+    something else (the 2026-10-03 audit, finding plotter-25). ``nan`` fails the
+    chained comparison, so it is refused without a separate test.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"a layer's opacity must be a number, not {value!r}") from exc
+    if not 0.0 <= number <= 1.0:
+        raise ValueError(f"a layer's opacity must be between 0 and 1, not {number!r}")
+    return number
 
 
 def normalize_layer_values(values: dict[str, Any]) -> dict[str, Any]:
@@ -689,11 +737,20 @@ def normalize_layer_values(values: dict[str, Any]) -> dict[str, Any]:
             f"a layer blend mode is one of {list(BLEND_MODES)}, not {out['blend_mode']!r}"
         )
     out["visible"] = bool(out["visible"])
-    out["opacity"] = float(out["opacity"])
+    out["opacity"] = layer_opacity(out["opacity"])
     out["locked"] = bool(out["locked"])
     out["tint"] = rgba_colour(out["tint"], "a layer tint")
     for name in ("offset_x", "offset_y", "parallax_x", "parallax_y"):
-        out[name] = float(out[name])
+        # Finite, not merely a float: ``read_rmap`` refuses ``inf``/``nan`` here,
+        # so a setter that took one saved a map that would not reopen (the
+        # 2026-10-03 audit, finding plotter-12).
+        out[name] = finite_float(out[name], f"a layer's {name.replace('_', ' ')}")
+    # An object layer's outline colour, refused here for the draworder's reason
+    # (see ``set_layer_props``): ``_apply_layer_props`` is also the undo path,
+    # and ``colour_text`` raising there left a step on the stack for a change
+    # the document never made (the 2026-10-03 audit, finding plotter-11).
+    if "color" in out:
+        out["color"] = colour_text(out["color"], "an object layer colour")
     return out
 
 

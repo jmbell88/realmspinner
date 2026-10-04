@@ -9,8 +9,9 @@ weights, nothing to download.
 Six doors, and they all produce the same kind of thing:
 
 - **Add an image** — a file picker.
-- **Drag and drop** — several files at once. A file already in the atlas is *skipped*, not refused,
-  so dropping twenty of which one is a duplicate adds nineteen.
+- **Drag and drop** — several files at once, as one add with one undo step. A file already in the
+  atlas is not refused: unchanged, it is *skipped*; edited, it *replaces* that source (the toast says
+  "updated"). So dropping twenty of which one is an unchanged duplicate adds nineteen.
 - **Add a tile set** — an existing sheet, cut on a cell size you type, with a live count as you type
   it. Empty cells are dropped. There is an optional **drop duplicate tiles**, and a sub-option to
   treat flipped and rotated copies as duplicates too.
@@ -44,8 +45,11 @@ Nothing is ever rotated to fit. The sidecar's `rotated` field is always false, h
 
 ## The settings
 
-**Trim** cuts each sprite to its non-transparent bounds and records the offset. On by default, and
-almost always right. One deliberate exception: a fully transparent sprite packs as a 1×1 frame
+**Trim transparent edges** cuts each sprite to its non-transparent bounds and records the offset.
+It applies to a MaxRects pack only: a grid pack never trims, because its cells are sliced by
+arithmetic and every tile has to keep the position it was drawn at (the pane says so under the
+toggle, and keeps your answer for when you switch to MaxRects). On by default, and almost always
+right on MaxRects. One deliberate exception: a fully transparent sprite packs as a 1×1 frame
 rather than being dropped, because a blank frame in an animation is a real pause and deleting it
 would shift everything after it.
 
@@ -96,6 +100,8 @@ through never leaves you with a new PNG beside a stale sidecar. If a `.tsx` alre
 name you chose and this export is not about to (re)write one — packed as MaxRects after an earlier
 grid export under the same name, say — the whole export is refused rather than leaving that stale
 tileset next to a new PNG it no longer describes; remove it, or export under a different name.
+Export and Save As likewise refuse to replace a `.json` or `.rpack` whose name you did not pick in the
+dialog, apart from an atlas sidecar Packwright wrote itself.
 
 `Ctrl+E` exports to the library instead, which mints an ordinary asset — and keeps the document
 beside it, so **Open in Packwright** on that card later gives you back the real editable atlas rather

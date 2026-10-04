@@ -44,11 +44,15 @@ def test_a_stale_target_cell_refusal_rings_the_cell_size_control():
 
 def test_validate_still_refuses_an_out_of_range_target_cell_by_that_name():
     """The refusal this ring answers to is real: an out-of-range custom cell
-    size on a tileset request is refused under exactly this field name."""
+    size on a tileset request is refused under exactly this field name.
+
+    The 2026-10-04 audit's create-22 moved this off the Sprite arm: the sprite
+    door keeps no target, so that arm no longer draws the control or validates it
+    (``test_audit_2026_10_04_recipe_column.py`` pins the other half)."""
     form = dict(default_form_2d())
     form["prompt"] = "a knight"
     form["output"] = "sheet"
-    form["sheet_type"] = "sprite"
+    form["sheet_type"] = "tile"
     form["target_cell_px"] = str(generation.TARGET_CELL_MAX + 1)
     problems = create_recipe.validate(form)
     assert any(p.field == "target_cell_px" for p in problems), problems

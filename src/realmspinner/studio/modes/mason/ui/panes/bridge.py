@@ -85,7 +85,7 @@ def _facts(ctx: Any, state: Any, tab: Any) -> None:
 
 
 def _missing(tab: Any) -> None:
-    missing = tab.doc.missing_refs()
+    missing = mason_mode.missing_refs_cached(tab.doc)
     if not missing:
         return
     widgets.field_label("missing references")

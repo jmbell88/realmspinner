@@ -55,7 +55,12 @@ __all__ = [
 ]
 
 
-@dataclass
+# ``eq=False`` on both classes below, for ``Layer``'s reason (the 2026-09-08
+# audit, inker-10): the 2026-10-03 audit (inker-59) found a bare ``@dataclass``
+# here regenerated ``__eq__`` over the array-bearing fields and dropped
+# ``__hash__``, so ``a == b``, ``in``, ``index()``, ``remove()`` and ``{a}`` on a
+# stack holding a tilemap cel raised instead of comparing by identity.
+@dataclass(eq=False)
 class TilesetSlot:
     """A mutable name over an immutable :class:`~..grid2d.tileset.Tileset`.
 
@@ -69,7 +74,7 @@ class TilesetSlot:
     uid: int = field(default_factory=new_uid)
 
 
-@dataclass
+@dataclass(eq=False)
 class TilemapCel(Layer):
     """A cel whose ``pixels`` are a materialization of ``refs`` over a tileset.
 

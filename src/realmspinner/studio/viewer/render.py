@@ -155,8 +155,14 @@ class Renderer:
         wire_overlay: bool = False,
         alpha: float = 1.0,
         ground: bool = False,
+        keep_alpha: bool = False,
     ) -> None:
         """One frame: the grid, the model, and the overlays over it.
+
+        ``keep_alpha`` blends the alpha channel separately, so a render against
+        a transparent clear ends with the fragments' own alpha rather than its
+        square. Only the direction strip reads that channel back, and the
+        interactive viewport is left on the blend it has always had.
 
         ``wireframe`` *replaces* the fill and ``wire_overlay`` draws over it,
         and the two are different questions: the first is a shading mode -- show
@@ -188,7 +194,22 @@ class Renderer:
 
         ctx.enable(moderngl.DEPTH_TEST)
         ctx.enable(moderngl.BLEND)
-        ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        if keep_alpha:
+            # Colour blends as ever; alpha gets its own ``ONE, ONE_MINUS_SRC_ALPHA``.
+            # The single-pair form below scales the *alpha channel* by the
+            # source alpha as well, so a translucent fragment against a
+            # transparent clear stored colour ``c*a`` with alpha ``a*a`` and
+            # ``capture.unpremultiply``'s division returned ``c/a`` -- the
+            # 2026-10-03 audit's create-42, a direction strip showing translucent
+            # materials too bright and too transparent.
+            ctx.blend_func = (
+                moderngl.SRC_ALPHA,
+                moderngl.ONE_MINUS_SRC_ALPHA,
+                moderngl.ONE,
+                moderngl.ONE_MINUS_SRC_ALPHA,
+            )
+        else:
+            ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
 
         if ground and self.grid.span > 0.0:
             self.ground.set_span(self.grid.span)

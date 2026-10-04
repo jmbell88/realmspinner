@@ -6,14 +6,16 @@ carried that ``None`` faithfully forward. This is the half that produces one,
 and it is deliberately the *cheap* half: a planar projection per face, chosen by
 which axis the face points along most.
 
-**Not LSCM, and that is a decision rather than a shortfall.** A conformal solver
-is the right answer for an organic mesh and the wrong shape for this codebase:
-it is an eigenproblem per island, it needs seams the user has drawn, and it
-fails in ways ("the solve did not converge") that a modelling panel has nothing
-useful to say about. A box projection is predictable, instant, has no failure
-mode, and is exactly right for the blockout geometry Clay produces. When
-something here needs a real unwrap, it will be because a real surface arrived,
-and that is the moment to write it.
+**Not LSCM -- that solver is :mod:`.uvunwrap`, kept apart on purpose.** A
+conformal solver is the right answer for an organic mesh and the wrong shape
+for a module of projections: it is a sparse least-squares solve per island, it
+needs seams the user has drawn, and it fails in ways ("the solve did not
+converge") that a modelling panel has little to say about. A box projection is
+predictable, instant, has no failure mode, and is exactly right for the
+blockout geometry Clay produces. This file turned the solver down when nothing
+needed one; once retopologised and imported organic surfaces arrived, it was
+written next door as ``uvunwrap`` (the *Unwrap (Seams)* op), and this module
+stayed the cheap half.
 
 **Islands may overlap, and that is what a cube projection is.** Faces pointing
 +X and -X land in the same square, because the projection is by axis *pair*

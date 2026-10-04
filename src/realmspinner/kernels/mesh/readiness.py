@@ -514,8 +514,16 @@ def _evaluated_world(obj: Any, doc: Any) -> Any:
     mesh = doc.evaluated(obj.uid)
     if getattr(obj, "parent", None) is None:
         return replace(obj, mesh=mesh)
-    t, r, s = m3.decompose(doc.world_matrix(obj.uid))
-    return replace(obj, mesh=mesh, translation=t, rotation=r, scale=s)
+    world = doc.world_matrix(obj.uid)
+    t, r, s = m3.decompose(world)
+    out = replace(obj, mesh=mesh, translation=t, rotation=r, scale=s)
+    # The 2026-10-03 audit's clay-46: ``decompose`` assumes no shear, but a
+    # rotated child under a non-uniformly scaled parent has a sheared world
+    # matrix, so the box the scale and pivot checks measured was not the box
+    # the viewport draws. The TRS stays for `_check_transforms`; geometry
+    # (:func:`_world_bounds`) reads the matrix itself.
+    out._world_matrix = world  # type: ignore[attr-defined]
+    return out
 
 
 def _world_bounds(objects: list[Any]) -> tuple[np.ndarray, np.ndarray] | None:
@@ -528,7 +536,7 @@ def _world_bounds(objects: list[Any]) -> tuple[np.ndarray, np.ndarray] | None:
     lo: np.ndarray | None = None
     hi: np.ndarray | None = None
     for obj in objects:
-        pos = ops.world_positions(obj)
+        pos = ops.world_positions(obj, getattr(obj, "_world_matrix", None))
         if len(pos) == 0:
             continue
         obj_lo, obj_hi = pos.min(axis=0), pos.max(axis=0)

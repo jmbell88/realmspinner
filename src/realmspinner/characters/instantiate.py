@@ -113,8 +113,26 @@ def _load_base(fam: Family) -> tuple[list[Any], np.ndarray, dict[str, np.ndarray
     prims = [p for mesh in model.meshes for p in mesh]
     stacked = np.concatenate([p.positions for p in prims]).astype("f4")
 
-    with np.load(fam.masks_npz, allow_pickle=False) as data:
-        arrays = {key: data[key] for key in data.files}
+    # The 2026-10-03 audit, finding poser-22: only the .glb was presence-checked,
+    # so a missing mask file raised a raw FileNotFoundError, a zero-byte one an
+    # EOFError and a corrupt one a field-less ValueError -- none of them the
+    # CharacterError every door is written to catch, for a quarantined or
+    # truncated asset that deserves the same "re-author it" sentence the .glb has.
+    rebake = "run scripts/author_humanoid.py --write"
+    masks = Path(fam.masks_npz)
+    if not masks.is_file() or masks.stat().st_size == 0:
+        raise CharacterError(
+            f"{fam.label} has no baked mask file at {masks.name}; {rebake}",
+            field="family",
+        )
+    try:
+        with np.load(masks, allow_pickle=False) as data:
+            arrays = {key: data[key] for key in data.files}
+    except (OSError, EOFError, ValueError) as exc:
+        raise CharacterError(
+            f"{fam.label}'s mask file {masks.name} could not be read ({exc}); {rebake}",
+            field="family",
+        ) from exc
     digest = hashlib.blake2b(stacked.tobytes(), digest_size=16).digest()
     if bytes(_required(arrays, "positions_digest", fam).tobytes()) != digest:
         raise CharacterError(
@@ -233,6 +251,29 @@ def transformed_joints(
     ]
 
 
+def _bone_frame(along: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``(lateral, up)`` of a roll-0 Blender bone pointing along *along*.
+
+    The 2026-10-03 audit, finding poser-21: this frame used to be built from a
+    world +Z cross product, so for a horizontal bone "up" pointed *down* -- the
+    horse's ``saddle`` landed 0.445 m below the spine head in the sidecar while
+    ``blender_worker._socket_world_point``, which reads the bone's own matrix,
+    puts it above. The worker is the authoritative projection, so this is
+    Blender's ``vec_roll_to_mat3`` at roll 0 (``_build_armature`` never sets a
+    roll): X is the lateral axis, Z is up, and they differ from "world up" for
+    every bone that is not pointing along +Y.
+    """
+    x, y, z = (float(v) for v in along)
+    theta = 1.0 + y
+    if theta < 1e-6:
+        # Pointing straight down the -Y axis: the one direction the formula
+        # below divides by zero for; Blender's own answer is a half turn.
+        return np.array([-1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0])
+    lateral = np.array([1.0 - x * x / theta, -x, -x * z / theta])
+    up = np.array([-x * z / theta, -z, 1.0 - z * z / theta])
+    return lateral, up
+
+
 def _sockets(fam: Family, joints: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     by_name = {b["name"]: b for b in joints}
     out: dict[str, dict[str, Any]] = {}
@@ -245,14 +286,7 @@ def _sockets(fam: Family, joints: list[dict[str, Any]]) -> dict[str, dict[str, A
         span = tail - head
         length = float(np.linalg.norm(span)) or 1.0
         along = span / length
-        # A frame with no arbitrary twist: "lateral" is whatever is perpendicular
-        # to the bone in the world's horizontal plane, "up" completes it. Enough
-        # for a prop to hang off; a full bone roll is the poser's business.
-        lateral = np.cross(along, np.array([0.0, 0.0, 1.0]))
-        if np.linalg.norm(lateral) < 1e-9:
-            lateral = np.array([1.0, 0.0, 0.0])
-        lateral = lateral / np.linalg.norm(lateral)
-        up = np.cross(along, lateral)
+        lateral, up = _bone_frame(along)
         a, b, c = socket.offset
         position = head + length * (a * along + b * lateral + c * up)
         out[socket.name] = {

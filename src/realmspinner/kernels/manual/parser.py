@@ -77,9 +77,16 @@ Block = Heading | Paragraph | CodeBlock | Image | ListItem | Table
 
 
 def slugify(text: str) -> str:
-    """GitHub-style anchor: lowercase, punctuation dropped, spaces to hyphens."""
+    """GitHub's anchor: lowercase, punctuation dropped, *each* space a hyphen.
+
+    One hyphen per space, not per run of them: "Setup & operations" loses its
+    ampersand and keeps both spaces, so GitHub's anchor is ``setup--operations``.
+    Collapsing the run (``\\s+``) made the in-app anchor ``setup-operations``, which
+    a link written in GitHub's form could not reach (the 2026-10-03 audit,
+    finding docs-32).
+    """
     slug = re.sub(r"[^\w\s-]", "", text.strip().lower())
-    return re.sub(r"\s+", "-", slug)
+    return re.sub(r"\s", "-", slug)
 
 
 _TOKEN = re.compile(r"(\*\*|\*|`|\[)")

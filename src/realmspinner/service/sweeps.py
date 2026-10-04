@@ -507,7 +507,10 @@ def _check_unit(svc: RealmspinnerService, plan: SweepPlan, unit: UnitPlan) -> st
 
 
 def _validate(svc: RealmspinnerService, plan: SweepPlan, units: list[UnitPlan]) -> None:
-    if not plan.prompt.strip():
+    # ``isinstance`` first: a plan built by a script can carry ``None`` here, and
+    # ``.strip()`` on it was a bare AttributeError out of the door (the 2026-10-03
+    # audit, finding service-19).
+    if not isinstance(plan.prompt, str) or not plan.prompt.strip():
         raise Invalid("a sweep needs a prompt", field="prompt")
     # create_job would refuse it too, but only after the sweep row was minted
     # and the rollback ran; all-or-nothing admission means the refusal happens
@@ -517,10 +520,24 @@ def _validate(svc: RealmspinnerService, plan: SweepPlan, units: list[UnitPlan]) 
         raise Invalid("stage must be 'reference' or 'model'", field="stage")
     if not plan.seeds:
         raise Invalid("a sweep needs at least one seed", field="seeds")
+    # Whole numbers, before ``unit_kwargs`` casts: ``int(unit.seed)`` raised a bare
+    # ValueError for "abc" and quietly ran 1.5 as seed 1, a unit whose label and
+    # row then named a seed the picture was not drawn with (2026-10-03 audit,
+    # service-19). ``check_seed`` names the field it is handed, and the form's
+    # control is ``seeds``.
+    for seed in plan.seeds:
+        if seed is None:
+            raise Invalid("a seed must be a whole number", field="seeds")
+        check_seed("seeds", seed)
+    # ``axes`` on both counts, because it is the composite the Review form draws a
+    # note for (``form_ui.note("axes")``): a refusal with no field landed as a toast
+    # with nothing ringed.
     if not units:
-        raise Invalid("that sweep plans no units; add an axis value that differs")
+        raise Invalid("that sweep plans no units; add an axis value that differs", field="axes")
     if len(units) > MAX_UNITS:
-        raise Invalid(f"that sweep plans {len(units)} units; the limit is {MAX_UNITS}")
+        raise Invalid(
+            f"that sweep plans {len(units)} units; the limit is {MAX_UNITS}", field="axes"
+        )
     # Two units that submit the same job are refused, not silently run twice.
     # ``expand`` compares each unit against the *base* and nothing else, while
     # guidance.normalize drops a setting with nothing to apply it to -- an
@@ -660,7 +677,10 @@ def on_job_failed(svc: RealmspinnerService, job: dict[str, Any]) -> None:
     measurement -- the unit never ran). The reason text names
     ``scripts/sweep_refill.py``, which is the re-queue path for exactly this
     status (its own docstring: "cancelling one leaves it ``cancelled``" and
-    "[o]nly ``cancelled`` and shutdown-interrupted units are refilled").
+    "[o]nly ``cancelled`` and shutdown-interrupted units are refilled") -- but
+    that is the *source checkout's* path: an installed build carries no ``scripts/``,
+    so the reason leads with what every build can do, start a new sweep (the
+    2026-10-03 audit, finding service-24).
     """
     sweep_id = job.get("sweep_id")
     if not sweep_id:
@@ -678,8 +698,9 @@ def on_job_failed(svc: RealmspinnerService, job: dict[str, Any]) -> None:
     reason = (
         f"cancelled: {unit} failed on this server config ({job.get('error') or 'error'}); "
         "the rest of this sweep's units sharing it were stopped rather than "
-        "repeating the failure. If it was transient, re-queue with "
-        "scripts/sweep_refill.py once the cause is fixed."
+        "repeating the failure. If it was transient, start a new sweep for the "
+        "same settings once the cause is fixed (a source checkout can also "
+        "re-queue these with scripts/sweep_refill.py)."
     )
     cancelled = svc.store.cancel_sweep_units(sweep_id, queued_ids, reason)
     if cancelled:
@@ -752,7 +773,7 @@ def cleanup_sweep(
     exit.
 
     The wording that reaches the user carries the same burden ``ask_clean``
-    carries (``studio/panes/library.py``): the app has told them twice that a
+    carries (``studio/modes/library/ui/panes/library.py``): the app has told them twice that a
     bulk delete keeps their evidence, so the one place that is false has to say
     which promise it is breaking rather than only that something is being
     deleted. Here the promise is narrower and so is the breach -- one sweep, all

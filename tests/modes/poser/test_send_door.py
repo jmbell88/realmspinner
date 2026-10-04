@@ -450,31 +450,50 @@ def test_send_writes_a_false_logical_size_custom_for_a_ladder_size_too(ctx, svc)
     assert poser_mode.sheet_form(ctx).get("logical_size_custom") is False
 
 
-def test_a_meshs_own_layout_edit_survives_an_unrelated_meshs_send_in_between(ctx, svc):
+def _capture_sends(monkeypatch):
+    """Record the form each send *submits*. The 2026-10-03 audit (poser-render-02)
+    moved these tests off ``form["layout"]``: the sent mesh's layout is submitted
+    in a copy of the form and no longer written into the shared one."""
+    sent: list[dict] = []
+
+    def record(ctx, job, form=None):
+        sent.append(dict(form or {}))
+        return True
+
+    monkeypatch.setattr(poser_mode, "render_character_sheet", record)
+    return sent
+
+
+def test_a_meshs_own_layout_edit_survives_an_unrelated_meshs_send_in_between(
+    ctx, svc, monkeypatch
+):
     """Before this, ``form["layout"]`` was rebuilt on every different-mesh
     send, keyed on the job id of the mesh *bound to Poser* alone -- so sending
     mesh B (unrelated to A, and to whatever is bound in Poser, if anything)
     right after hand-editing mesh A's own just-sent layout threw A's edits
     away, even though B's send had no business touching A's remembered
     answer at all. Sending A a second time must get the edit back."""
+    sent = _capture_sends(monkeypatch)
     mesh_a = _mesh(svc, rigged=True)  # rig.json names "humanoid"
     poser_send.ask(ctx, mesh_a)
     form = poser_mode.sheet_form(ctx)
     poser_send._send(ctx, ctx.state.poser_send, form)
-    assert form["layout"]["template"] == "humanoid"
-    form["layout"]["columns"] = 99  # the hand edit made after A's own send
+    assert sent[-1]["layout"]["template"] == "humanoid"
+    sent[-1]["layout"]["columns"] = 99  # the hand edit made after A's own send
 
     mesh_b = _mesh(svc, rigged=True)  # unrelated, also "humanoid"
     poser_send.ask(ctx, mesh_b)
     poser_send._send(ctx, ctx.state.poser_send, form)
-    assert form["layout"]["columns"] == 8, "B's own first send is a plain fresh default"
+    assert sent[-1]["layout"]["columns"] == 8, "B's own first send is a plain fresh default"
 
     poser_send.ask(ctx, mesh_a)
     poser_send._send(ctx, ctx.state.poser_send, form)
-    assert form["layout"]["columns"] == 99, "A's own remembered edit must survive B's send"
+    assert sent[-1]["layout"]["columns"] == 99, "A's own remembered edit must survive B's send"
 
 
-def test_an_unrelated_meshs_first_send_never_carries_the_bound_characters_edited_layout(ctx, svc):
+def test_an_unrelated_meshs_first_send_never_carries_the_bound_characters_edited_layout(
+    ctx, svc, monkeypatch
+):
     """The protection this cache sits beside, unweakened:
     ``test_troupe_chain.py``'s own
     ``test_send_to_troupe_does_not_submit_the_currently_selected_characters_
@@ -487,6 +506,7 @@ def test_an_unrelated_meshs_first_send_never_carries_the_bound_characters_edited
     state = poser_mode.ensure(ctx)
     state.job_id = bound["id"]
     state.template = "humanoid"
+    sent = _capture_sends(monkeypatch)
     form = poser_mode.sheet_form(ctx)
     form["layout"]["columns"] = 99  # the bound character's own hand edit
 
@@ -494,18 +514,21 @@ def test_an_unrelated_meshs_first_send_never_carries_the_bound_characters_edited
     poser_send.ask(ctx, other)
     poser_send._send(ctx, ctx.state.poser_send, form)
 
-    assert form["layout"]["columns"] == 8, "an unrelated mesh's first send must not inherit this"
+    assert sent[-1]["layout"]["columns"] == 8, "an unrelated mesh's first send inherits nothing"
 
 
-def test_sending_a_mesh_with_a_different_template_still_rebuilds_the_layout(ctx, svc):
+def test_sending_a_mesh_with_a_different_template_still_rebuilds_the_layout(
+    ctx, svc, monkeypatch
+):
     """A template that no longer matches the standing layout still has to be
     rebuilt, edits or not -- the shape genuinely does not fit."""
+    sent = _capture_sends(monkeypatch)
     mesh_a = _mesh(svc, rigged=True)  # "humanoid"
     poser_send.ask(ctx, mesh_a)
     form = poser_mode.sheet_form(ctx)
     poser_send._send(ctx, ctx.state.poser_send, form)
-    assert form["layout"]["template"] == "humanoid"
-    form["layout"]["columns"] = 99
+    assert sent[-1]["layout"]["template"] == "humanoid"
+    sent[-1]["layout"]["columns"] = 99
 
     mesh_c = _mesh(svc, rigged=False)
     poser_send.ask(ctx, mesh_c)
@@ -513,5 +536,5 @@ def test_sending_a_mesh_with_a_different_template_still_rebuilds_the_layout(ctx,
     state_c.template = "quadruped"
     poser_send._send(ctx, state_c, form)
 
-    assert form["layout"]["template"] == "quadruped"
-    assert form["layout"]["columns"] == 8, "a real template change rebuilds the default layout"
+    assert sent[-1]["layout"]["template"] == "quadruped"
+    assert sent[-1]["layout"]["columns"] == 8, "a real template change rebuilds the default layout"

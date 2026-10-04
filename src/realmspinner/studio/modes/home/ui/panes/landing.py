@@ -45,7 +45,13 @@ from ..... import (
 )
 from .....manual import render as manual_render
 from .....panes import thumbs
-from .....state import DEFAULT_FORM_3D, default_form_2d, format_bytes, set_mode
+from .....state import (
+    DEFAULT_FORM_3D,
+    default_form_2d,
+    format_bytes,
+    is_undecided_candidate,
+    set_mode,
+)
 from .....tokens import sp
 from ....create.ui import stages as create_stages
 
@@ -124,8 +130,11 @@ def _asset_rows(ctx: Any) -> list[Row]:
         # against each other, not offered as finished work. Home's Resume list
         # read the cache directly rather than through that filter, so a single
         # 20-unit sweep could fill every one of its twelve slots and bury a
-        # workshop's actual assets. Same exclusion, applied here too.
-        if job.get("sweep_id") or job.get("candidate_group"):
+        # workshop's actual assets. Same exclusion, applied here too -- through
+        # the library's own predicate, so a Create workspace's candidate (which
+        # the library lists as finished work) is not dropped here alone: the
+        # 2026-10-03 audit, finding shell-23.
+        if job.get("sweep_id") or is_undecided_candidate(job):
             continue
         name = str(job.get("name") or job.get("prompt") or job.get("id") or "asset")
         # The same reference/tile/model split the library filter uses: a job
@@ -359,7 +368,10 @@ def _queue_status(ctx: Any) -> Status:
         f"{word}: {name}{percent}",
         theme.ACCENT,
         "library",
-        "running",
+        # The row's own word, not a fixed "running": ``jobs_cache.active`` falls
+        # back to a queued job, and a "running" filter hid it (the 2026-10-03
+        # audit, finding shell-22) while saving that filter for later sessions.
+        word,
     )
 
 
@@ -798,6 +810,11 @@ def _recovery(ctx: Any) -> None:
     # the next one takes its place on the following frame and every document
     # is eventually reachable. Truncating the scan instead simply lost them.
     shown = found[: journal.MAX_RECOVERY]
+    # The 2026-10-03 audit, finding shell-24: a copy whose kind nothing here can
+    # adopt is drawn "unavailable" with its files left alone, for a build that
+    # can open it -- and "Discard all" unlinked those too, on one unconfirmed
+    # click. "All" is every row this build offers a Recover button for.
+    discardable = [entry for entry in found if entry.adoptable]
     for entry in shown:
         _recovery_row(ctx, journal, entry)
     waiting = len(found) - len(shown)
@@ -805,7 +822,7 @@ def _recovery(ctx: Any) -> None:
         with fonts.small(imgui):
             widgets.muted(
                 f"and {waiting} more, shown as these are dealt with. "
-                f"Discard all removes all {len(found)}."
+                f"Discard all removes all {len(discardable)}."
             )
     imgui.dummy((0, sp(tokens.SP_2)))
     # Plural regardless of the count, and last: discarding is the destructive
@@ -813,10 +830,11 @@ def _recovery(ctx: Any) -> None:
     # per-row because a per-row bin next to a per-row Recover is two small
     # targets one pixel apart with opposite meanings.
     #
-    # It discards ``found``, not ``shown``: "all" has to mean all, which is
-    # why the line above says how many that is whenever the two differ.
-    if controls.button(f"{icons.TRASH} Discard all##recovery-discard"):
-        for entry in found:
+    # It discards ``discardable``, not ``shown``: "all" has to mean all, which is
+    # why the line above says how many that is whenever the two differ -- and
+    # not ``found``, which includes the "unavailable" rows (see above).
+    if discardable and controls.button(f"{icons.TRASH} Discard all##recovery-discard"):
+        for entry in discardable:
             journal.discard(ctx, entry)
         ctx.toast("The recovered copies were discarded.", "info")
     # Everything below this on Home -- the release note, the New button, the
@@ -858,17 +876,23 @@ def _recovery_row(ctx: Any, journal: Any, entry: Any) -> None:
     # Right-aligned, so a column of them lines up whatever the titles do.
     imgui.same_line(imgui.get_content_region_avail().x + imgui.get_cursor_pos_x() - width)
     if entry.adoptable:
-        if controls.button(f"Recover##{entry.path.name}", (width, 0)):
-            if not journal.take(ctx, entry):
-                ctx.toast(f"{entry.title} could not be reopened.", "error")
-            elif mode:
-                # Straight to the editor holding it. The old modal did not
-                # navigate and did not need to -- it fired before the user had
-                # chosen anywhere to be -- but a button on the home screen that
-                # reopens a document somewhere you cannot see has, as far as the
-                # user can tell, done nothing at all. An empty mode is a
-                # provider that navigates itself; see ``_KIND_MODES``.
-                set_mode(ctx.state, mode)
+        # No toast on a False return, on purpose (shell-06): ``take``'s False
+        # means the provider has already said why ("open the rig it belongs
+        # to...", or ``journal.adopt_failed`` for a raise), and a generic second
+        # error for the same press buried the specific one.
+        #
+        # Straight to the editor holding it on success. The old modal did not
+        # navigate and did not need to -- it fired before the user had chosen
+        # anywhere to be -- but a button on the home screen that reopens a
+        # document somewhere you cannot see has, as far as the user can tell,
+        # done nothing at all. An empty mode is a provider that navigates
+        # itself; see ``_KIND_MODES``.
+        if (
+            controls.button(f"Recover##{entry.path.name}", (width, 0))
+            and journal.take(ctx, entry)
+            and mode
+        ):
+            set_mode(ctx.state, mode)
     else:
         # A kind this build does not have a provider for. Greyed rather than
         # hidden, and the files are left alone: the mode may simply not be

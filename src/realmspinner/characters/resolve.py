@@ -42,6 +42,7 @@ caught.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
@@ -126,6 +127,23 @@ THEME_WORDS: dict[str, tuple[str, ...]] = {
     "verdant": ("verdant", "green", "mossy", "moss", "leafy", "overgrown"),
     "drowned": ("drowned", "sunken", "waterlogged", "sodden", "sea-soaked"),
     "sand": ("sand", "sandy", "desert", "dune", "dusty", "sunbleached"),
+    # The 2026-10-03 audit, finding poser-23: ten looks the species declare had no
+    # word here and could only be reached through the combo. A word two looks
+    # share ("black": the beasts' own look and the humanoids' blackened steel;
+    # "pale": ashen and the birds' pale) is listed under the earlier key above
+    # and told apart by species in :func:`_theme_for_species`. "panther" is also
+    # a species alias, which outranks a look, so the big cat's look is reached
+    # by "melanistic".
+    "black": ("black", "jet"),
+    "pale": ("pale", "pallid", "bleached"),
+    "albino": ("albino", "leucistic"),
+    "azure": ("azure", "cerulean", "sapphire", "blue"),
+    "dapple": ("dapple", "dappled"),
+    "panther": ("melanistic",),
+    "storm": ("storm", "stormy", "thunder"),
+    "tar": ("tar", "tarry", "pitch"),
+    "venom": ("venom", "venomous", "toxic", "poisonous"),
+    "winter": ("winter", "wintry"),
 }
 
 #: ``movement key -> spellings``. The first five keys are
@@ -593,14 +611,48 @@ def _normal(raw: str) -> str:
     return " ".join(text.split()).replace(" ", "")
 
 
-def _tokenise(text: str) -> tuple[list[str], list[str]]:
-    """``(original spellings, matching forms)``, one entry each, same length."""
-    scrubbed = "".join(" " if ch in _SEPARATORS else ch for ch in text)
+def _is_separator(ch: str) -> bool:
+    """Whether ``ch`` ends a token: the ASCII list above, or any other
+    punctuation or symbol that is not a letter, a digit or an apostrophe.
+
+    The 2026-10-03 audit (poser-11) found an em dash inside ``fire—ogre``
+    was neither in ``_SEPARATORS`` nor in ``_KEEP``, so ``_normal`` blanked it
+    and then glued the halves back together ("fireogre"), and the species was
+    lost. ``isalnum`` keeps accented letters in their word, as before.
+    """
+    if ch in _SEPARATORS:
+        return True
+    return not (ch.isalnum() or ch in _KEEP or ch in "'’‘")
+
+
+def _tokenise(
+    text: str, whole: frozenset[str] = frozenset()
+) -> tuple[list[str], list[str]]:
+    """``(original spellings, matching forms)``, one entry each, same length.
+
+    ``whole`` is every hyphenated or slashed spelling the alias tables use
+    ("top-down", "3/4", "side-on"): such a token stays one token. Any *other*
+    token with an internal ``-`` or ``/`` is split at it, so ``ogre-king`` is
+    "ogre" and "king" and ``side-view`` is the "side view" alias -- the 2026-10-03
+    audit (poser-11) found the glued form matched nothing while the spaced
+    spelling of the same words worked, and every alias needed a hand-written
+    hyphenated twin. ``:`` is never a split point (see ``_SEPARATORS``).
+    """
+    scrubbed = "".join(" " if _is_separator(ch) else ch for ch in text)
     raws: list[str] = []
     normals: list[str] = []
     for raw in scrubbed.split():
         normal = _normal(raw)
         if not normal:
+            continue
+        if ("-" in normal or "/" in normal) and not any(
+            v in whole for v in _variants(normal)
+        ):
+            for part in re.split(r"[-/]", raw):
+                part_normal = _normal(part)
+                if part_normal:
+                    raws.append(part)
+                    normals.append(part_normal)
             continue
         raws.append(raw.strip(_SEPARATORS) or raw)
         normals.append(normal)
@@ -659,12 +711,13 @@ def vocabulary(registry: Mapping[str, Family] | None = None) -> dict[str, dict[s
         for alias in fam.aliases:
             fams.setdefault(_alias_key(alias), key)
     declared = _declared_themes(registry)
-    themes = {
-        _alias_key(word): key
-        for key, words in THEME_WORDS.items()
-        if key in declared
-        for word in words
-    }
+    themes: dict[str, str] = {}
+    for key, words in THEME_WORDS.items():
+        if key in declared:
+            for word in words:
+                # First look listed wins a shared word; the other is picked per
+                # species by :func:`_theme_for_species`.
+                themes.setdefault(_alias_key(word), key)
     cameras = {_alias_key(w): k for k, words in CAMERA_WORDS.items() for w in words}
     actions = {_alias_key(w): k for k, words in ACTION_WORDS.items() for w in words}
     noise = {_alias_key(w): "noise" for w in NOISE_WORDS}
@@ -678,6 +731,25 @@ def vocabulary(registry: Mapping[str, Family] | None = None) -> dict[str, dict[s
         "noise": noise,
         "stopwords": dict.fromkeys(sorted(STOPWORDS), "stopword"),
     }
+
+
+def _theme_for_species(
+    registry: Mapping[str, Family], family_key: str, spelling: str, key: str
+) -> str:
+    """The look a theme word means *for this species*.
+
+    ``vocabulary`` gives one key per word, but two looks can share a spelling
+    (the 2026-10-03 audit, finding poser-23: ``black wolf`` resolved the
+    humanoids' ``blackened`` and was dropped as "Wolf has no 'blackened' look",
+    though the Wolf's own look is ``black``). When the species does not declare
+    the resolved key, the sibling that does -- spelled the same way -- wins."""
+    declared = {t.key for t in registry[family_key].themes}
+    if key in declared:
+        return key
+    for other, words in THEME_WORDS.items():
+        if other in declared and spelling in {_alias_key(w) for w in words}:
+            return other
+    return key
 
 
 def _alias_key(alias: str) -> str:
@@ -753,7 +825,10 @@ def resolve(text: str, *, families: Mapping[str, Family] | None = None) -> Resol
     """
     registry = _families_map(families)
     table, longest = _table(registry)
-    raws, normals = _tokenise(text or "")
+    whole = frozenset(
+        tok for key in table for tok in key if "-" in tok or "/" in tok
+    )
+    raws, normals = _tokenise(text or "", whole)
 
     family_key: str | None = None
     theme: str | None = None
@@ -821,6 +896,15 @@ def resolve(text: str, *, families: Mapping[str, Family] | None = None) -> Resol
                 actions.append(key)
         spans.append(Span(index, index + length, category, key, text_span, applied))
         index += length
+
+    if family_key is not None and theme is not None:
+        for i, s in enumerate(spans):
+            if s.kind == "theme" and s.key == theme and s.applied:
+                theme = _theme_for_species(
+                    registry, family_key, " ".join(normals[s.start : s.end]), theme
+                )
+                spans[i] = replace(s, key=theme)
+                break
 
     archetype = registry[family_key].archetype if family_key else None
     offer: tuple[str, ...] = ()

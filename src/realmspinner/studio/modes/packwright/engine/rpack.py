@@ -30,7 +30,7 @@ import numpy as np
 
 from .....core.safeio import zipguard
 from ...plotter.engine.pngio import png_bytes
-from .document import PackDoc, Source, new_uid
+from .document import MAX_DISPLAY_NAME_LEN, PackDoc, Source, check_name, new_uid
 from .layout import PackSettings
 from .sources import EMPTY_META, SliceSpec, Sprite, SpriteMeta
 
@@ -145,7 +145,12 @@ def manifest_json(doc: PackDoc) -> str:
             for index, source in enumerate(doc.sources)
         ],
     }
-    return json.dumps(payload, sort_keys=True, indent=2)
+    # ``allow_nan=False``: the 2026-10-03 audit's packwright-14. The default
+    # writes the literal tokens ``Infinity``/``NaN`` for a non-finite float, a
+    # file ``read_rpack`` then refuses -- so a value that got past every door
+    # fails here, at save, where the author is still looking, rather than at
+    # reopen.
+    return json.dumps(payload, sort_keys=True, indent=2, allow_nan=False)
 
 
 class Snapshot:
@@ -292,16 +297,38 @@ def read_rpack(data: bytes) -> PackDoc:
                     f"this atlas document names a source image the file does not "
                     f"carry ({name})"
                 ) from exc
+            display = str(entry.get("name", key))
+            override = str(entry.get("name_override", ""))
+            # The 2026-10-03 audit's packwright-15: both names were taken with a
+            # bare ``str()``, so a hand-edited manifest opened with an override
+            # ``rename_source`` would refuse, and it landed verbatim in the
+            # TexturePacker sidecar's ``filename``, read by other programs. The
+            # rename door's own checks, here, before any image is decoded.
+            #
+            # The display name is held to less than the override: it is what
+            # the sprite came in as -- an Inker layer's name, a library asset's
+            # -- and either may legitimately hold a ``/`` or run past 64, so
+            # refusing those would make this app unable to reopen a file it
+            # wrote. Control characters and the filesystem's length are bounded.
+            try:
+                check_name(override)
+                if len(display) > MAX_DISPLAY_NAME_LEN or any(ch < " " for ch in display):
+                    raise ValueError(
+                        f"a sprite name is at most {MAX_DISPLAY_NAME_LEN} characters "
+                        "and cannot hold a control character"
+                    )
+            except ValueError as exc:
+                raise ValueError(f"this atlas document names {key!r} badly: {exc}") from exc
             sources.append(
                 Source(
                     uid=new_uid(),
                     sprite=Sprite(
                         key=key,
-                        name=str(entry.get("name", key)),
+                        name=display,
                         pixels=_pixels_from(raw, name, budget),
                         meta=_meta_from(entry, key),
                     ),
-                    name_override=str(entry.get("name_override", "")),
+                    name_override=override,
                 )
             )
 
@@ -416,7 +443,20 @@ def _pixels_from(raw: bytes, name: str, budget: list[int]) -> np.ndarray:
                 "that is the most this build will unpack from one document"
             )
         budget[0] -= declared
-        return np.asarray(image.convert("RGBA"), dtype=np.uint8)
+        # The decode is inside its own guard: the 2026-10-03 audit's
+        # packwright-07. ``Image.open`` reads only the header, so a truncated
+        # PNG opens cleanly above and fails *here* with a raw
+        # ``OSError("image file is truncated")`` -- which ``fileio._load``'s
+        # ``except ValueError`` never caught, so a partly damaged ``.rpack``
+        # reached the user as the generic log pointer with no file or member
+        # named. The docstring's promise (both shapes come out of one clause)
+        # was only true of the first half.
+        try:
+            return np.asarray(image.convert("RGBA"), dtype=np.uint8)
+        except (OSError, Image.DecompressionBombError) as exc:
+            raise ValueError(
+                f"this atlas document's {name} is not an image this build can read"
+            ) from exc
 
 
 def _json_bool(value: Any, default: bool) -> bool:

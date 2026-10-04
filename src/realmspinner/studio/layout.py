@@ -27,10 +27,12 @@ from .tokens import sp
 
 log = logging.getLogger(__name__)
 
-# Legacy global width presets remain as fallback seeds for untouched v1
-# workspaces. Explicit splitter edits are stored per workspace in layout v2.
-# Defined in ``tokens`` and named here, where the eight readers already look:
-# ``layouts`` needs the same numbers and cannot import this module.
+# The named sidebar widths. Nothing offers a choice between them any more
+# (Settings' combo and ``Layout.set_sidebar_width`` are gone -- each side column
+# is a fixed share of the room, see :func:`proportions`), so ``SIDEBAR_W`` is
+# only the width a pane is drawn at before the first :func:`measure`, and the
+# stored ``sidebar`` name only moves that fallback. Defined in ``tokens`` and
+# named here, where the readers already look.
 SIDEBAR_WIDTHS = tokens.SIDEBAR_WIDTHS
 
 # The width in force. Module state, set by ``Layout`` at construction and when
@@ -91,10 +93,9 @@ CENTRE_FLOOR = 220.0
 # this is where squeezing stops and the centre gives instead.
 SIDEBAR_MIN = 200.0
 
-# Saved workspace widths are continuous rather than one of the legacy named
-# sidebar sizes.  The values are preferences in design pixels; the fitted
-# values below may temporarily be smaller when UI scale or the window makes
-# the preference impossible.  That temporary fit is never written back.
+# The range a side column was once draggable within, in design pixels. No width
+# is saved or dragged now; ``PANEL_MIN`` survives as the rail's floor for how
+# much a column wants (``rail.expanded_fits``).
 PANEL_MIN = tokens.PANEL_MIN
 PANEL_MAX = tokens.PANEL_MAX
 
@@ -116,7 +117,7 @@ SIDE_FIT: dict[str, float | None] = {"left": None, "right": None}
 # what is left after the rail, and a number threaded through would be the same
 # figure in two places.
 #
-# Zero by default, which is what makes every headless caller -- ``fit`` is pure
+# Zero by default, which is what makes every headless caller -- ``proportions`` is pure
 # and the tests drive it directly -- see the window it always saw. A rail that
 # has never been drawn has taken nothing.
 RAIL_RESERVED: float = 0.0
@@ -134,7 +135,12 @@ RAIL_RESERVED: float = 0.0
 # times wider than the 44 dp icon it holds, width the canvas had more use
 # for. It is an icon strip again -- whatever ``rail.tick`` settled (44 dp, or
 # the labelled width) -- and the centre is whatever the other three leave.
-LEFT_SHARE_CLOSED = 0.25
+#
+# 15%, not the 25% it was set at: two quarter-window sidebars left the canvas
+# half the window, and Clay's viewer was the pane that visibly shrank (user
+# report, 2026-10-04). ``SIDEBAR_MIN`` still floors each column on a small
+# window, so a form never gets narrower than it did before.
+LEFT_SHARE_CLOSED = 0.15
 
 
 def _give(value: float, floor: float, need: float) -> tuple[float, float]:
@@ -182,7 +188,7 @@ def proportions(
        actually be resized to -- the shortfall is taken off the two sidebars
        evenly, then off the rail.
 
-    ``scale`` follows ``fit``/``fit_widths``'s own convention: ``None`` reads
+    ``scale``: ``None`` reads
     ``tokens.SCALE``, and a caller (a test) may pass one explicitly to check a
     scale never live in this process.
     """
@@ -213,34 +219,6 @@ def proportions(
             rail, over = _give(rail, 0.0, over)
     centre = max(content - rail - left - right, 0.0)
     return rail, left, centre, right
-
-
-def fit(available: float, spacing: float) -> float:
-    """How wide each sidebar can be, given the room. Physical px, pure.
-
-    The whole of UX-01 is that this used to be unconditional. Three columns
-    reserved two 300-design-px sidebars and floored the centre at 300 more, so
-    at 1.5x the workspace demanded ~1350 physical px and at 2x ~1800 -- while
-    the resize floor follows the *monitor's* scale alone and stays near 1100.
-    (Deliberately: see ``main._min_window_size``. A floor that multiplied the
-    user's zoom in demanded a window bigger than a 1080p display and refused to
-    shrink, which is worse.) The arithmetic simply overflowed, and since the
-    right-hand column is the one sized from the leftovers, the pane that fell
-    off the edge was always the inspector.
-
-    So the columns give way in a stated order: the sidebars narrow first, down
-    to :data:`SIDEBAR_MIN`, and only then does the centre drop below
-    :data:`CENTRE_MIN`. Somebody who enlarges the UI to read it ends up with
-    three narrow columns rather than two comfortable ones and a third they
-    cannot reach.
-    """
-    want = sp(SIDEBAR_W)
-    if available >= want * 2 + sp(CENTRE_MIN) + spacing * 2:
-        return want
-    # What is left for the two sidebars once the centre keeps its comfortable
-    # width -- which may be negative, hence the floor rather than a clamp.
-    slack = (available - sp(CENTRE_MIN) - spacing * 2) / 2.0
-    return max(min(slack, want), sp(SIDEBAR_MIN))
 
 
 def tick() -> None:
@@ -369,10 +347,10 @@ class Layout:
         self._workspace_library: Any = None
         self._workspace = ""
         stored = as_dict(settings.get("layout"))
-        try:
-            share = float(stored.get("settings_share", 0.55))
-        except (TypeError, ValueError):
-            share = 0.55
+        # ``finite_float``: a stored NaN survives the clamp below (shell-20, the
+        # 2026-10-03 audit), so it has to read as absent here instead.
+        parsed = tokens.finite_float(stored.get("settings_share", 0.55))
+        share = 0.55 if parsed is None else parsed
         self.settings_share = min(max(share, SHARE_MIN), SHARE_MAX)
         # **One share per split, not one for the whole app.** ``settings_share``
         # above is a single number that several workspaces read and one --
@@ -393,10 +371,9 @@ class Layout:
         # string) reached ``.items()`` and raised, crashing every launch that
         # read it. ``as_dict`` is the actual guard.
         for key, value in as_dict(stored.get("settings_shares")).items():
-            try:
-                self.shares[str(key)] = min(max(float(value), SHARE_MIN), SHARE_MAX)
-            except (TypeError, ValueError):
-                continue
+            number = tokens.finite_float(value)
+            if number is not None:
+                self.shares[str(key)] = min(max(number, SHARE_MIN), SHARE_MAX)
         self._migrate_shares()
         self.sidebar = set_sidebar(str(stored.get("sidebar", "default")))
         # Whether the navigation rail shows its labels. A *name* rather than a
@@ -520,32 +497,12 @@ class Layout:
         self._workspace_library = library
         self._workspace = str(workspace)
 
-    def set_sidebar_width(self, key: str) -> None:
-        """Adopt a named side-column width, everywhere.
-
-        **Write-through, or the control is decorative.** ``SIDEBAR_W`` is what
-        this used to move and nothing in the running app reads it: every
-        workspace is measured by :func:`measure` through
-        ``layouts.Library.width``, which consults a stored per-workspace width
-        first and a seed taken at *construction* second. A width picked here
-        reached neither, so the combo in Settings did nothing at all.
-
-        The named widths are a global preference and a splitter drag is a local
-        override, so picking one here replaces the overrides -- which is what
-        "set the sidebar width" means, and the drag is available again the
-        moment the user wants a different answer for one workspace.
-        """
-        self.sidebar = set_sidebar(key, animate=True)
-        if self._workspace_library is not None:
-            self._workspace_library.set_width_seed(SIDEBAR_WIDTHS[self.sidebar])
-        self.save()
-
     def set_rail(self, key: str) -> None:
         self.rail = "labels" if key == "labels" else "icons"
         self.save()
 
     def reset_sizes(self) -> None:
-        """Every split and side width back to the built-in proportions.
+        """Every split back to the built-in proportions.
 
         Sizes only. ``columns`` and ``hidden`` are the pane *arrangement*,
         which is a different button, so this is deliberately not

@@ -22,11 +22,12 @@ hidden and restored from **Window > Layout**.
 ## Starting a canvas
 
 **New**, **Open**, **Save**, **Save as** and **Export PNG** are in the **file** section at the top of
-the right-hand panel, where Plotter's and Packwright's have always been. There is exactly one row
-above the canvas — the context bar — and it holds what the tool in your hand is set to, then
-**View** and **Sym** at its right-hand end. What the editor is *telling* you rather than asking you
-is under the canvas instead, in the status bar: the cursor position, the layer, the zoom, the seam
-figure and the one word that says whether there is anything unsaved.
+the right-hand panel, where Plotter's and Packwright's have always been. There is one row above the
+canvas — the context bar — and it holds what the tool in your hand is set to, then **View** and
+**Sym** at its right-hand end; while a selection exists it gains a second row, the selection's
+combine mode (**Replace**, **Add**, **Subtract**, **Intersect**). What the editor is *telling* you
+rather than asking you is under the canvas instead, in the status bar: the cursor position, the
+layer, the zoom, the seam figure and the one word that says whether there is anything unsaved.
 
 **New** offers a **Preset** dropdown — 32, 64, 128, 256, 512, 1024 and 2048 square, starting at
 64 × 64 — and, under it, width and height fields for anything the list cannot say: 1920 × 1080, a
@@ -292,7 +293,7 @@ nib — a shift lands on the next swatch exactly or it does not happen, and ther
 version of it to scale.
 
 Three of the shape tools are **clicked rather than dragged**, the way the poly lasso is. The
-**polyline** (`L`) drops a corner per click and joins them with straight segments; the **polygon**
+**polyline** (`P`) drops a corner per click and joins them with straight segments; the **polygon**
 (`O`) does the same and closes the shape; the **curve** (`F`) runs a smooth curve **through every
 point you click** — not near them, through them, so a curve is placed by putting its points where
 you want the line to go. All three finish on a double-click or `Enter`, and the polygon also closes
@@ -323,7 +324,8 @@ what colour each of them gets. The tip's own transparency is its shape, so a las
 leaves the pixels its corners do not cover alone. **Placing** works as it does for the brush:
 **Aligned to a grid** anchors the tiling on the canvas, so two fills in different corners of the
 drawing are cells of one pattern and a stroke of that same tip lines up with them, and **Free**
-starts the tiling at the corner of the region you filled. **Edit > Fill** and **Edit > Stroke** read
+starts the tiling at the corner of the region you filled. **Edit > Fill selection** and **Edit > Stroke selection...**
+read
 the same switch, so the menu and a bucket click always put down the same thing.
 
 The gradient tool chooses its **Shape** and whether it fades **To transparent**. Pick has **This layer
@@ -779,7 +781,9 @@ channel, so exported swatches are otherwise opaque. **Export image** writes the 
 swatch strip — the other half of **Image...**, and how a palette reaches a tool that reads no
 palette format at all; reading that strip back in gives you the table you exported, in order.
 **Export animated GIF** on an indexed document writes your table verbatim instead of
-quantising each frame, so slot *n* is the same colour in every frame of the clip.
+quantising each frame, so slot *n* is the same colour in every frame of the clip. The exception is a
+table of the full 256 colours: a GIF's last slot is its transparent one, so only 255 fit, and that
+export gives each frame its own adaptive palette instead — the toast on landing says so.
 
 ## Layers
 
@@ -839,7 +843,10 @@ from another editor and has no equivalent here still opens, with that layer set 
 **Lock alpha** paints inside what is already on a layer and never past its edge: colours change,
 transparency does not. It is how you recolour lineart or shade a shape without selecting it first —
 and it makes the eraser a no-op on that layer, because erasing *is* changing transparency. The lock
-is saved with the document; other editors ignore it and open the layer as an ordinary one.
+is saved with the document; other editors ignore it and open the layer as an ordinary one. The colour
+hidden under a fully transparent pixel is left byte-for-byte alone as well, whatever writes over it:
+fills, gradients, shapes, filters and a paste all keep it, and a blur on a locked layer does not
+darken the edge of a sprite.
 
 **Lock layer** is the stronger one. A locked layer refuses every tool: no strokes, fills,
 gradients, filters, lifts or pastes land on it, and the canvas says so once per press rather than
@@ -1104,11 +1111,14 @@ cutout is placed on anything else.
   its shape.
 - **grow / shrink matte** moves the silhouette itself: positive dilates it (new pixels take a
   neighbour's colour and become solid), negative erodes it. Growing then shrinking is not a round
-  trip — a dilation rounds a corner off and no erosion puts it back.
+  trip — a dilation rounds a corner off and no erosion puts it back. Shrinking erodes only a real
+  silhouette edge: neither the edge of a selection nor the edge of the canvas counts as one, so
+  shrinking inside a selection never cuts a hole along the selection's own border.
 - **remove orphans** recolours any solid pixel that has no same-coloured neighbour at all, taking
   the commonest colour around it. Unlike despeckle it deletes only *friendless* pixels, so a
-  deliberate two-pixel highlight survives; and it never touches transparency, because an isolated
-  hole is a silhouette decision rather than an artefact.
+  deliberate two-pixel highlight survives; it never touches transparency, because an isolated
+  hole is a silhouette decision rather than an artefact; and it leaves the pixels on the very edge
+  of the canvas or of a selection alone, since their neighbour may lie just outside.
 
 Three things about what they do to a layer. They apply to the **selection** if there is one, faded
 by a feathered edge exactly as a brush would be, and to the whole layer if there is not. The colour
@@ -1126,8 +1136,8 @@ the preview is safe to start immediately, and the picture only moves once you mo
 ## Selections and transform
 
 Five tools make selections: the rectangular marquee, the ellipse, the lasso, the poly lasso and the
-wand. Hold **Shift** while dragging to add to the current selection, **Alt** to subtract from it,
-and both together to keep only the overlap.
+wand. Hold **Shift** while dragging to add to the current selection, **Alt+Shift** to subtract from
+it, and **Ctrl+Shift** to keep only the overlap.
 
 The **poly lasso** (`D`) is clicked rather than dragged: each click drops a corner, a line follows
 the cursor from the last one, and the shape closes when you double-click, press `Enter`, or click
@@ -1138,9 +1148,9 @@ corners is the minimum; fewer than that closes nothing and leaves the selection 
 an add into a replace. With **Snap to grid** on, every corner lands on an intersection. However many
 clicks it took, the finished selection is one undo step.
 
-With a selection live, the **selection** section offers **All**, **None**, **Invert**, a
-**Feather** radius slider up to 32 pixels with a **Feather** button, and **Crop to selection**. The
-same actions have keyboard shortcuts: `Ctrl+A`, `Ctrl+D` and `Ctrl+Shift+I`.
+The **Select** menu offers **All**, **Deselect**, **Inverse** and **Feather...** (a radius up to 32
+pixels), and **Crop to selection** is in the **Sprite** menu. The first three have keyboard
+shortcuts: `Ctrl+A`, `Ctrl+D` and `Ctrl+Shift+I`.
 
 **Reselect** (`Ctrl+Shift+D`) brings back the selection you last dismissed, which is the other half
 of `Ctrl+D` and saves redrawing a lasso you only meant to step outside of for a moment. A selection
@@ -1149,9 +1159,9 @@ placing it somewhere would be a guess.
 
 Dragging *inside* an existing selection with a selection tool and no modifier moves its **edges**
 rather than replacing it — the marching ants follow the cursor and the pixels underneath do not
-move at all. That is the difference between this and the Move tool, which moves the pixels. Shift
-and Alt still start the add and subtract drags they always did, even when the drag starts inside
-the selection.
+move at all. That is the difference between this and the Move tool, which moves the pixels. The
+add, subtract and intersect chords (Shift, Alt+Shift, Ctrl+Shift) still start their drags, even
+when the drag starts inside the selection.
 
 **Copy to new layer** and **Move to new layer** promote the selection onto a layer of its own, lined
 up with what it came from. `Ctrl+J` copies it and leaves the original where it was; `Ctrl+Shift+J`
@@ -1189,7 +1199,7 @@ Cancelling a lift — where the buffer was cut out of a layer — puts the pixel
 step from history entirely, rather than leaving it on the redo stack where `Ctrl+Y` could replay the
 cut with no buffer left to restore.
 
-**Free transform** (`Ctrl+T`, or the button in the tool options) rotates, scales and slants the
+**Free transform** (`Ctrl+T`, or Edit > Free transform) rotates, scales and slants the
 selection, or the whole layer when there is no selection. It is modal: while transforming, **Enter**
 applies and **Esc** cancels, and nothing else can change the tool out from under a half-finished
 transform.
@@ -1458,7 +1468,9 @@ Packwright atlas and a pose you are authoring —
 whatever was open, whichever modes they were in, each on its own row. Each copy is written in that
 mode's own format (`.ora`, `.rblk`, `.rmap`, `.rpack`, and small JSON files for a pose and a
 draft), so anything recovered can also just be opened by hand. A document of a kind this build has
-no editor for is listed as **unavailable** rather than hidden, and its files are left alone.
+no editor for is listed as **unavailable** rather than hidden, and its files are left alone —
+**Discard all** removes only the copies this build can reopen, so an *unavailable* one stays for a
+build that can.
 
 A pose is the one that can decline to come back, and it says so when it does. A pose is a set of
 rotations for a skeleton rather than a document of its own, so putting one back needs that rig
@@ -1467,8 +1479,8 @@ copy and tells you to open the right one. It would otherwise apply somebody else
 whatever bones happened to share a name.
 
 Nothing is ever deleted on age. A copy sits there until you recover it and save, until you close
-what you recovered, or until you press **Discard all**; leaving the list alone keeps everything
-exactly where it was.
+what you recovered, or until you press **Discard all** (which skips *unavailable* ones); leaving
+the list alone keeps everything exactly where it was.
 
 ## Pipeline bridges
 

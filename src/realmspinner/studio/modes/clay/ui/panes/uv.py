@@ -1,6 +1,6 @@
 """Clay's UV pane: islands, pan/zoom, box-select, move/rotate/scale, Pack.
 
-Tranche 6 ("UV and materials", ``dev/CLAY-PLAN.md``). Drawn with an imgui
+Clay tranche 6 ("UV and materials"). Drawn with an imgui
 draw list the way Inker's and Plotter's canvases are (``add_line``/
 ``add_rect``/``add_convex_poly_filled`` over an ``invisible_button``'s
 region) rather than as a composited texture -- the same reasoning Plotter's
@@ -170,6 +170,12 @@ class UvPaneState:
     # because unlike rotate/scale, translate has no pivot to drift as it
     # composes, so accumulating it incrementally is both simpler and exact.
     drag_last: tuple[float, float] = (0.0, 0.0)
+    # Whether the press in flight ever became a drag (the pointer travelled
+    # past imgui's drag threshold). The 2026-10-03 audit's clay-118: a plain
+    # click never reached the selection at all -- ``selected_islands`` was
+    # only written inside the dragging branch -- so a no-drag release is the
+    # one moment :func:`finish_click` has to read this.
+    dragged: bool = False
     # A live rotate/scale's own three-part snapshot, taken once at
     # :func:`begin_live_transform` and read by every frame afterwards --
     # never the document's current mesh, which is the whole of what keeps a
@@ -185,6 +191,15 @@ class UvPaneState:
     # already places in being called in order (``ClayDoc.add_group``'s own
     # local ``mark`` has no guard either).
     drag_mark: int = 0
+    # The angle or factor a live rotate/scale last wrote, ``None`` before the
+    # first frame that wrote one (the gesture's own zero reading counts as
+    # already written). The 2026-10-03 audit's clay-panes-05: every frame of an
+    # armed gesture rebuilt the mesh, and ``Mesh`` identity is what ``set_mesh``
+    # compares, so an idle pointer pushed one undo step and one set of mesh
+    # arrays per frame (600 steps in ten idle seconds) while eviction was
+    # deferred for the open gesture. A frame that would write the value already
+    # written is skipped instead.
+    drag_applied: float | None = None
     # :func:`_measurements`'s own cache -- keyed on mesh *identity*, not a
     # counter: ``Mesh`` is immutable (see its own docstring), so holding the
     # exact object this last measured is already an exact revision check,
@@ -220,6 +235,14 @@ class UvPaneState:
             np.empty((0, 2), dtype=np.int64),
         )
     )
+    # The 2026-10-03 audit's clay-panes-06: the canvas's screen-space geometry
+    # (corner positions, per-face fill colours, which edges are seams or island
+    # borders), each memoised on the identity of what it is a pure function of
+    # -- see ``_screen_corners``, ``_face_colours`` and ``_edge_classes``.
+    # ``_faces``/``_edges``/``_island_outlines`` used to rebuild every face's
+    # polygon in a Python loop on every frame the pane was open (233 ms per
+    # frame at 20,480 faces against a stub draw list, before imgui's own cost).
+    geo: dict[str, Any] = field(default_factory=dict)
 
 #: The uv unit square is treated as a texture this many pixels on a side, for
 #: :mod:`~.shell.paintview`'s pan/zoom arithmetic alone -- it never appears in
@@ -312,6 +335,25 @@ def islands_in_rect(
         if hi - lo >= 3 and _point_in_face((u0, v0), uv[lo:hi]):
             return {int(ids[face])}
     return set()
+
+
+def finish_click(view_state: UvPaneState, mesh: Any, ids: np.ndarray) -> bool:
+    """On release: a press that never dragged selects the island under it.
+
+    :func:`islands_in_rect` documents (and its tests pin) that a degenerate
+    rect is a click; the pane used that hit only to choose "move" versus
+    "box" on press and never applied it, so click-to-select existed in the
+    helper but not in the canvas (the 2026-10-03 audit's clay-118). Replaces
+    the selection with whatever is under the press point -- nothing under it
+    deselects, like the first frame of a marquee does. A press that did drag
+    already wrote its own selection (box) or moved it (move) and is left
+    alone. -> whether the selection was set by a click.
+    """
+    if view_state.drag_mode not in ("box", "move") or view_state.dragged:
+        return False
+    x, y = view_state.drag_start
+    view_state.selected_islands = frozenset(islands_in_rect(mesh, ids, (x, y, x, y)))
+    return True
 
 
 def touched_islands(mesh: Any, ids: np.ndarray, sel: Any) -> set[int]:
@@ -526,6 +568,7 @@ def begin_live_transform(
     view_state.drag_pivot = pivot
     view_state.drag_start = anchor
     view_state.drag_mark = doc.history.mark()
+    view_state.drag_applied = None
     return True
 
 
@@ -545,16 +588,30 @@ def update_live_transform(
     :func:`_set_mesh_or_toast` gives -- ``tests/modes/clay/test_uv_pane.py``
     drives this door straight, with no pane and no ``ctx`` to toast through.
     """
+    # A frame that would write the value the last one wrote (or the identity,
+    # before any frame has) changes nothing, so it must push nothing -- see
+    # ``UvPaneState.drag_applied`` for the incident. Returning to the zero
+    # reading *after* moving still writes: the base has to come back.
     if view_state.drag_mode == "rotate":
         degrees = drag_angle(view_state.drag_pivot, view_state.drag_start, now)
-        return apply_rotate(
+        if degrees == (0.0 if view_state.drag_applied is None else view_state.drag_applied):
+            return False
+        moved = apply_rotate(
             doc, uid, view_state.drag_islands, degrees, base=view_state.drag_base, ctx=ctx
         )
+        if moved:
+            view_state.drag_applied = degrees
+        return moved
     if view_state.drag_mode == "scale":
         factor = drag_scale(view_state.drag_pivot, view_state.drag_start, now)
-        return apply_scale(
+        if factor == (1.0 if view_state.drag_applied is None else view_state.drag_applied):
+            return False
+        moved = apply_scale(
             doc, uid, view_state.drag_islands, factor, base=view_state.drag_base, ctx=ctx
         )
+        if moved:
+            view_state.drag_applied = factor
+        return moved
     return False
 
 
@@ -954,8 +1011,10 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
             view_state.drag_mode = "move" if hit & view_state.selected_islands else "box"
             view_state.drag_start = uv_here
             view_state.drag_last = uv_here
+            view_state.dragged = False
 
         if imgui.is_item_active() and imgui.is_mouse_dragging(0):
+            view_state.dragged = True
             if view_state.drag_mode == "move" and view_state.selected_islands:
                 delta = (uv_here[0] - view_state.drag_last[0], uv_here[1] - view_state.drag_last[1])
                 if delta != (0.0, 0.0):
@@ -965,6 +1024,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
                 rect = (view_state.drag_start[0], view_state.drag_start[1], uv_here[0], uv_here[1])
                 view_state.selected_islands = frozenset(islands_in_rect(mesh, ids, rect))
         elif imgui.is_item_deactivated():
+            finish_click(view_state, mesh, ids)
             # Tidy rather than load-bearing -- only ``is_item_active()``
             # gates the block above, so a stale "move"/"box" left over from
             # the last drag is inert -- but leaving it set reads oddly now
@@ -981,9 +1041,12 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     )
     _backdrop(draw_list, view, origin)
     covered = touched_islands(mesh, ids, doc.element_sel.get(obj.uid))
-    _faces(draw_list, view, origin, mesh, ids, overlap, stretch)
-    _edges(draw_list, view, origin, mesh, obj.seams, seam_cuts)
-    _island_outlines(draw_list, view, origin, mesh, ids, view_state.selected_islands | covered)
+    geo = view_state.geo
+    _faces(draw_list, view, origin, mesh, ids, overlap, stretch, geo)
+    _edges(draw_list, view, origin, mesh, obj.seams, seam_cuts, geo)
+    _island_outlines(
+        draw_list, view, origin, mesh, ids, view_state.selected_islands | covered, geo
+    )
     draw_list.pop_clip_rect()
     if refusal:
         widgets.muted(f"overlap/stretch not shown: {refusal}")
@@ -1109,6 +1172,119 @@ def _face_fill(
     return None
 
 
+def _screen_corners(
+    cache: dict[str, Any], view: Any, origin: tuple[float, float], mesh: Any
+) -> list[tuple[float, float]]:
+    """Every uv corner of *mesh* in screen space, as ``(x, y)`` tuples.
+
+    The 2026-10-03 audit's clay-panes-06: ``_faces``, ``_edges`` and
+    ``_island_outlines`` each called :func:`_to_screen` per corner per frame
+    from a Python loop. ``paintview.to_screen`` is affine in the point, so the
+    whole array is one numpy expression from the images of the origin and the
+    two unit vectors, and the list is **memoised on the uv array's identity
+    plus those three points** (which between them fix zoom, pan, orientation
+    and the canvas origin) -- a frame with the same mesh and the same view
+    reuses it outright. ``Mesh`` is immutable, so ``mesh.uv`` being the same
+    object is an exact revision check, the reasoning ``measured_mesh`` gives.
+    Held as a strong reference so an address cannot be reused under it.
+    """
+    o = _to_screen(view, origin, 0.0, 0.0)
+    ex = _to_screen(view, origin, 1.0, 0.0)
+    ey = _to_screen(view, origin, 0.0, 1.0)
+    key = (o, ex, ey)
+    hit = cache.get("corners")
+    if hit is not None and hit[0] is mesh.uv and hit[1] == key:
+        return hit[2]
+    uv = np.asarray(mesh.uv, dtype="f8")
+    base = np.asarray(o, dtype="f8")
+    pts = base + uv[:, :1] * (np.asarray(ex, dtype="f8") - base)
+    pts = pts + uv[:, 1:2] * (np.asarray(ey, dtype="f8") - base)
+    corners = list(map(tuple, pts.tolist()))
+    cache["corners"] = (mesh.uv, key, corners)
+    return corners
+
+
+def _face_colours(
+    cache: dict[str, Any],
+    overlap: np.ndarray | None,
+    stretch: np.ndarray | None,
+    n_faces: int,
+    neutral: int,
+) -> list[int]:
+    """One packed colour per face, memoised on what decides it.
+
+    A pure function of the overlap and stretch arrays (themselves memoised by
+    :func:`_measurements`, and reused verbatim for the length of a live drag),
+    the face count and the theme's neutral fill, so a frame that changes none
+    of them -- panning, zooming, hovering -- does not call :func:`_face_fill`
+    again (the 2026-10-03 audit's clay-panes-06).
+    """
+    from imgui_bundle import imgui
+
+    hit = cache.get("fills")
+    if (
+        hit is not None
+        and hit[0] is overlap
+        and hit[1] is stretch
+        and hit[2] == n_faces
+        and hit[3] == neutral
+    ):
+        return hit[4]
+    if overlap is None and stretch is None:
+        colours = [neutral] * n_faces
+    else:
+        colours = []
+        for face in range(n_faces):
+            fill = _face_fill(face, overlap, stretch)
+            colours.append(imgui.get_color_u32(fill) if fill is not None else neutral)
+    cache["fills"] = (overlap, stretch, n_faces, neutral, colours)
+    return colours
+
+
+def _edge_classes(
+    cache: dict[str, Any], mesh: Any, seams: Any, seam_cuts: np.ndarray
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """``(marked, boundary)``: the corner pairs of every authored seam edge and
+    of every other island-border edge, memoised on the arrays and the seams
+    they are read from (the 2026-10-03 audit's clay-panes-06 -- this used to
+    sort a tuple per face edge per frame just to find the few that are drawn).
+    A live drag moves only ``mesh.uv``, so ``loops``/``starts`` and the
+    drag-start ``seam_cuts`` stay the same objects and the answer is reused.
+    """
+    hit = cache.get("edges")
+    if (
+        hit is not None
+        and hit[0] is mesh.loops
+        and hit[1] is mesh.starts
+        and hit[2] is seam_cuts
+        and hit[3] is seams
+    ):
+        return hit[4]
+    seam_set = {tuple(sorted((int(a), int(b)))) for a, b in (seams or ())}
+    all_cuts = {tuple(sorted((int(a), int(b)))) for a, b in seam_cuts}
+    starts = mesh.starts.astype("i8").tolist()
+    loops = mesh.loops.tolist()
+    marked: list[tuple[int, int]] = []
+    boundary: list[tuple[int, int]] = []
+    if seam_set or all_cuts:
+        for face in range(len(starts) - 1):
+            lo, hi = starts[face], starts[face + 1]
+            count = hi - lo
+            if count < 2:
+                continue
+            for k in range(count):
+                c0, c1 = lo + k, lo + (k + 1) % count
+                v0, v1 = loops[c0], loops[c1]
+                edge_verts = (v0, v1) if v0 <= v1 else (v1, v0)
+                if edge_verts in seam_set:
+                    marked.append((c0, c1))
+                elif edge_verts in all_cuts:
+                    boundary.append((c0, c1))
+    result = (marked, boundary)
+    cache["edges"] = (mesh.loops, mesh.starts, seam_cuts, seams, result)
+    return result
+
+
 def _faces(
     draw_list: Any,
     view: Any,
@@ -1117,6 +1293,7 @@ def _faces(
     ids: np.ndarray,
     overlap: np.ndarray | None,
     stretch: np.ndarray | None,
+    cache: dict[str, Any] | None = None,
 ) -> None:
     """Every face, filled -- plain where nothing is wrong with it, tinted
     where :func:`_face_fill` has something to say.
@@ -1132,18 +1309,18 @@ def _faces(
 
     if mesh.uv is None:
         return
+    if cache is None:
+        cache = {}
     neutral = imgui.get_color_u32(theme.rgba(theme.ELEV_2, 0.18))
-    starts = mesh.starts.astype("i8")
-    uv = mesh.uv
+    starts = mesh.starts.astype("i8").tolist()
     n_faces = len(starts) - 1
+    corners = _screen_corners(cache, view, origin, mesh)
+    colours = _face_colours(cache, overlap, stretch, n_faces, neutral)
     for face in range(n_faces):
         lo, hi = starts[face], starts[face + 1]
         if hi - lo < 3:
             continue
-        points = [_to_screen(view, origin, float(uv[c][0]), float(uv[c][1])) for c in range(lo, hi)]
-        fill = _face_fill(face, overlap, stretch)
-        colour = imgui.get_color_u32(fill) if fill is not None else neutral
-        draw_list.add_convex_poly_filled(points, colour)
+        draw_list.add_convex_poly_filled(corners[lo:hi], colours[face])
 
 
 def _edges(
@@ -1153,6 +1330,7 @@ def _edges(
     mesh: Any,
     seams: Any,
     seam_cuts: np.ndarray,
+    cache: dict[str, Any] | None = None,
 ) -> None:
     """Island boundaries, with the edges the object's own ``seams`` names
     drawn thicker and in a different colour.
@@ -1175,59 +1353,59 @@ def _edges(
 
     if mesh.uv is None:
         return
+    if cache is None:
+        cache = {}
     boundary = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.8))
     marked = imgui.get_color_u32(theme.rgba(theme.WARN))
-    seam_set = {tuple(sorted((int(a), int(b)))) for a, b in (seams or ())}
-    all_cuts = {tuple(sorted((int(a), int(b)))) for a, b in seam_cuts}
     # Every face edge is drawn once, from its own two uv corners -- an edge
     # shared by two faces whose uv agrees draws twice, harmlessly (the same
     # line on top of itself), which is cheaper than deriving a dedup set for
-    # a pane that redraws every frame.
-    starts = mesh.starts.astype("i8")
-    loops = mesh.loops
-    uv = mesh.uv
-    n_faces = len(starts) - 1
-    for face in range(n_faces):
-        lo, hi = starts[face], starts[face + 1]
-        count = hi - lo
-        if count < 2:
-            continue
-        for k in range(count):
-            c0, c1 = lo + k, lo + (k + 1) % count
-            p0 = _to_screen(view, origin, float(uv[c0][0]), float(uv[c0][1]))
-            p1 = _to_screen(view, origin, float(uv[c1][0]), float(uv[c1][1]))
-            edge_verts = tuple(sorted((int(loops[c0]), int(loops[c1]))))
-            if edge_verts in seam_set:
-                draw_list.add_line(p0, p1, marked, 2.5)
-            elif edge_verts in all_cuts:
-                draw_list.add_line(p0, p1, boundary, 1.0)
+    # a pane that redraws every frame. Which edges those are is memoised
+    # (``_edge_classes``); only the drawn ones are visited per frame.
+    marked_edges, boundary_edges = _edge_classes(cache, mesh, seams, seam_cuts)
+    if not marked_edges and not boundary_edges:
+        return
+    corners = _screen_corners(cache, view, origin, mesh)
+    for c0, c1 in marked_edges:
+        draw_list.add_line(corners[c0], corners[c1], marked, 2.5)
+    for c0, c1 in boundary_edges:
+        draw_list.add_line(corners[c0], corners[c1], boundary, 1.0)
 
 
 def _island_outlines(
-    draw_list: Any, view: Any, origin: tuple[float, float], mesh: Any, ids: np.ndarray, wanted: set
+    draw_list: Any,
+    view: Any,
+    origin: tuple[float, float],
+    mesh: Any,
+    ids: np.ndarray,
+    wanted: set,
+    cache: dict[str, Any] | None = None,
 ) -> None:
     """A thicker accent line around every edge of a highlighted island --
-    boxed by the user, or touched by the current element selection."""
+    boxed by the user, or touched by the current element selection.
+
+    Only the faces of a wanted island are visited (one vectorised membership
+    test picks them), not every face of the mesh -- the 2026-10-03 audit's
+    clay-panes-06.
+    """
     from imgui_bundle import imgui
 
     if not wanted or mesh.uv is None:
         return
+    if cache is None:
+        cache = {}
     accent = imgui.get_color_u32(theme.rgba(theme.ACCENT))
-    starts = mesh.starts.astype("i8")
-    uv = mesh.uv
-    n_faces = len(starts) - 1
-    for face in range(n_faces):
-        if int(ids[face]) not in wanted:
-            continue
+    starts = mesh.starts.astype("i8").tolist()
+    corners = _screen_corners(cache, view, origin, mesh)
+    wanted_ids = np.fromiter(wanted, dtype="i8", count=len(wanted))
+    for face in np.flatnonzero(np.isin(np.asarray(ids), wanted_ids)).tolist():
         lo, hi = starts[face], starts[face + 1]
         count = hi - lo
         if count < 2:
             continue
         for k in range(count):
             c0, c1 = lo + k, lo + (k + 1) % count
-            p0 = _to_screen(view, origin, float(uv[c0][0]), float(uv[c0][1]))
-            p1 = _to_screen(view, origin, float(uv[c1][0]), float(uv[c1][1]))
-            draw_list.add_line(p0, p1, accent, 2.0)
+            draw_list.add_line(corners[c0], corners[c1], accent, 2.0)
 
 
 def _legend() -> None:

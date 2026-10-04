@@ -52,7 +52,7 @@ extern "C" {
  * routinely carries a stale locally-built DLL next to newer sources -- without
  * this guard that DLL would silently compute the old behaviour, which is the
  * one failure mode a fallback path must never have. */
-#define REALMSPINNERC_ABI 11
+#define REALMSPINNERC_ABI 12
 
 REALMSPINNERC_API int32_t realmspinnerc_abi(void);
 
@@ -116,7 +116,13 @@ enum {
   REALMSPINNERC_BLEND_HUE = 15,
   REALMSPINNERC_BLEND_SATURATION = 16,
   REALMSPINNERC_BLEND_COLOR = 17,
-  REALMSPINNERC_BLEND_LUMINOSITY = 18
+  REALMSPINNERC_BLEND_LUMINOSITY = 18,
+  /* Premultiplied plus-lighter -- the one mode that is neither a blend_channel
+   * case nor a blend_nonseparable one, because it replaces combine_channel's
+   * whole expression (`as*Cs + ab*Cb`, then a clamp to 1) rather than
+   * supplying a B(Cb,Cs) for it. It sits above LUMINOSITY on purpose, which is
+   * why is_nonseparable is bounded on both sides rather than `>= HUE`. */
+  REALMSPINNERC_BLEND_PLUS_LIGHTER = 19
 };
 
 /* Composite `source` onto `backdrop`, straight alpha, float32, 0..1, four
@@ -439,7 +445,7 @@ REALMSPINNERC_API void realmspinnerc_palette_nearest_f64(const double *queries,
  * branch: `FIX`/`FLOOR`, the half-pixel-centre fold into A2/A5, the
  * incremental per-row stepping) operand for operand rather than re-deriving
  * it from the formula. **A Pillow upgrade that changes that rounding is
- * meant to fail `tests/inker/test_rotsprite_native.py`, not to silently
+ * meant to fail `tests/modes/inker/test_rotsprite_native.py`, not to silently
  * drift from this file** -- the angles 0/90/180/270 are Pillow fast paths
  * (plain transposes) and are deliberately never routed through this kernel;
  * `transform.rotsprite` takes the numpy path for them instead. */

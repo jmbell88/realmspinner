@@ -177,6 +177,17 @@ CALL_TIMEOUT = 30.0
 #: unbounded join is the one thing this must never do.
 STOP_JOIN_TIMEOUT = 2.0
 
+#: How long a connection that arrives while a session is live may sit silent
+#: before it is closed. :meth:`AgentHost._refuse_busy` used to block in
+#: ``recv_bytes`` forever on a peer that never sent a frame (the 2026-10-03
+#: audit's agents-35), parking one thread and one pipe instance per such peer
+#: for the life of the process. A real bridge sends its ``hello`` at once.
+BUSY_FIRST_FRAME_TIMEOUT = 5.0
+
+#: How many such waiting-to-be-refused connections may be parked at once; the
+#: next one is closed unanswered rather than given a thread to wait on.
+MAX_BUSY_REFUSALS = 8
+
 #: Workers on the *service* lane's own ``TaskRunner`` -- the character tool
 #: surface's counterpart to the frame-thread queue :meth:`AgentHost.pump`
 #: drains. Small on purpose: character calls are I/O- and subprocess-bound
@@ -330,6 +341,26 @@ def _record_completed_call(name: str, arguments: dict, result: dict) -> None:
         agent_transcript.record(Path(path), name, arguments, result)
     except OSError:
         log.exception("agent transcript: could not append to %s", path)
+
+
+def _result_body(result: Any) -> bytes:
+    """*result* as the compact JSON body of a ``call`` reply.
+
+    Strict first. A tool result whose ``structuredContent`` held a value the
+    JSON encoder refuses (a numpy scalar, a ``Path``, a ``set``) used to raise
+    ``TypeError`` out of :meth:`AgentHost._serve_rpc_frame` -- outside the
+    read loop's only ``try`` -- which ended the whole connection *after* the
+    tool had already mutated the document and been marked delivered, and the
+    retry was not replayed because the op was closed (the 2026-10-03 audit's
+    agents-38). The fallback stringifies the odd value instead of dropping the
+    reply: the call ran, so its answer must still reach the agent.
+    """
+    try:
+        text = json.dumps(result, separators=(",", ":"))
+    except (TypeError, ValueError):
+        log.exception("agent tool result is not strictly JSON-serialisable; stringifying")
+        text = json.dumps(result, separators=(",", ":"), default=str)
+    return text.encode("utf-8")
 
 
 @dataclass
@@ -637,6 +668,31 @@ def _carries_an_image(result: dict) -> bool:
     )
 
 
+REPLAY_EXEMPT_READS = frozenset(
+    {
+        "clay_scene",
+        "clay_measure",
+        "clay_analyze",
+        "clay_diagnose",
+        "clay_validate",
+        "clay_elements",
+    }
+)
+"""Tools that only read the document, so :meth:`AgentHost._replay` re-runs them
+instead of handing back what they once answered.
+
+The 2026-10-03 audit (agents-14): a retry of any undelivered call was answered
+from memory however many edits happened in between, so a ``clay_scene`` that
+timed out was later replayed as a snapshot of a document that had since
+changed -- and the bridge's own timeout text tells the agent to re-read with
+``clay_scene``, so the agent planned against a scene that no longer existed.
+Replay exists to stop an *edit* running twice; a read has no such risk and
+re-running it is free, the same reason a render (:func:`_carries_an_image`) is
+re-taken. A hand list on purpose, and a short one: ``agent_clay`` has no
+read-only flag to derive it from, and the cost of a name missing here is only
+the old behaviour. ``tests`` pins every entry to a real tool."""
+
+
 def _transport_tools() -> list[Any]:
     """The tools this module publishes on its own behalf, alongside
     ``agent_clay.tools()`` -- today, just :data:`STATUS_TOOL`.
@@ -747,6 +803,9 @@ class AgentHost:
         # sharing one lock across both would only make the two harder to
         # reason about independently for no correctness this needs.
         self._session_lock = threading.Lock()
+        # Connections currently parked in :meth:`_refuse_busy`, under
+        # ``_session_lock`` -- the cap's counter.
+        self._busy_refusals = 0
         # The service lane: character tool calls run here, on their own
         # small pool, never on the frame thread and never drained by
         # :meth:`pump` -- see :meth:`_submit_service`. ``None`` until
@@ -800,8 +859,19 @@ class AgentHost:
         untagged frame-lane job is left out of ``ctx.tasks.busy_keys``.
         """
         with self._job_lock:
+            # Live jobs only: a job whose waiter gave up (or that was
+            # cancelled while queued behind blocked workers) stays in the
+            # registry as a ``DROPPED`` tombstone until a worker pops it, and
+            # naming it made Quit warn "still running" about a call that will
+            # never run (the 2026-10-03 audit's agents-22).
             return tuple(
-                sorted({job.tool for job in self._service_jobs.values() if job.tool})
+                sorted(
+                    {
+                        job.tool
+                        for job in self._service_jobs.values()
+                        if job.tool and job.state in (QUEUED, RUNNING)
+                    }
+                )
             )
 
     def _acquire_lanes(self, owner: str) -> None:
@@ -1188,10 +1258,26 @@ class AgentHost:
         plain read-then-write here would be a check-then-act race the lock
         is what closes."""
         with self._session_lock:
-            if self._connected:
-                self._refuse_busy(conn)
-                return
-            self._connected = True
+            busy = self._connected
+            parked = busy and self._busy_refusals < MAX_BUSY_REFUSALS
+            if parked:
+                self._busy_refusals += 1
+            elif not busy:
+                self._connected = True
+        if busy:
+            # Outside the lock: the wait for the peer's first frame is
+            # bounded, but it must not hold up the next admission (the
+            # 2026-10-03 audit's agents-35).
+            if parked:
+                try:
+                    self._refuse_busy(conn)
+                finally:
+                    with self._session_lock:
+                        self._busy_refusals -= 1
+            else:
+                with contextlib.suppress(OSError):
+                    conn.close()
+            return
         self._serve(conn)
 
     def _refuse_busy(self, conn: Any) -> None:
@@ -1213,6 +1299,8 @@ class AgentHost:
         from ..mcp import rpc
 
         try:
+            if not conn.poll(BUSY_FIRST_FRAME_TIMEOUT):
+                return  # silent peer: the ``finally`` below closes it
             frame_bytes = conn.recv_bytes(maxlength=rpc.MAX_FRAME)
             if rpc.looks_like_rpc(frame_bytes):
                 with contextlib.suppress(OSError):
@@ -1346,7 +1434,7 @@ class AgentHost:
                 # for `call`'s `wait: false` reply.
                 return rpc.encode_reply(self._call_task(session, calls, name, arguments))
             result = self._call(session, calls, name, arguments)
-            body = json.dumps(result, separators=(",", ":")).encode("utf-8")
+            body = _result_body(result)
             # The catalogue hash, not a hash of this call's own result: the
             # bridge's `_maybe_refresh_catalogue` compares this field against
             # the catalogue it already holds to decide whether to re-fetch
@@ -1745,9 +1833,26 @@ class AgentHost:
         """
         from ..mcp import rpc
 
+        # The 2026-10-03 audit's agents-23: the schema declares
+        # ``additionalProperties: false`` but nothing enforced it, so a
+        # misspelt ``operationid`` answered with the recent-operations list --
+        # a plausible reply about the wrong thing -- and an empty id did the
+        # same. Refused by field, as every Clay tool refuses an unknown key.
+        unknown = sorted(k for k in args if k != "operation_id")
+        if unknown:
+            return rpc.fail(
+                f"{STATUS_TOOL} does not take an argument named {unknown[0]!r}; "
+                "its only argument is 'operation_id'.",
+                field=unknown[0],
+            )
         operation_id = args.get("operation_id")
         if operation_id is not None and not isinstance(operation_id, str):
             return rpc.fail("'operation_id' must be a string.", field="operation_id")
+        if operation_id == "":
+            return rpc.fail(
+                "'operation_id' must not be empty; omit it to list recent operations.",
+                field="operation_id",
+            )
 
         if operation_id:
             op = calls.get(operation_id)
@@ -1827,10 +1932,11 @@ class AgentHost:
         prior.delivered = True
         prior.job = None
         prior.result = None
-        if payload is None or _carries_an_image(payload):
+        if payload is None or _carries_an_image(payload) or prior.tool in REPLAY_EXEMPT_READS:
             # Nothing worth replaying (the job raised rather than
-            # answering), or a picture that is better re-taken than handed
-            # back stale -- either way, run it for real.
+            # answering), a picture that is better re-taken than handed
+            # back stale, or a pure read of a document that may have
+            # changed since (agents-14) -- in every case run it for real.
             return None
         # Never mutate the remembered payload: it is a dict this store built
         # once and must not accumulate flags across replays, so the reply is
@@ -2008,7 +2114,7 @@ class AgentHost:
         if name == STATUS_TOOL:
             result = self._status(calls, arguments)
             op.state, op.delivered, op.job = DONE, True, None
-            op.result = json.dumps(result, separators=(",", ":")).encode("utf-8")
+            op.result = _result_body(result)
             # The 2026-09-16 audit (agents-05): _Op.args's own docstring
             # promises task-mode arguments are "Dropped (set back to None)
             # the moment they are used" -- but this branch's op.job is
@@ -2085,7 +2191,7 @@ class AgentHost:
                 # reason (see ``_call``'s own comment on this).
                 if op.tool not in agent_character.HANDLERS:
                     _record_completed_call(op.tool, op.args or {}, result)
-                body = json.dumps(result, separators=(",", ":")).encode("utf-8")
+                body = _result_body(result)
             else:
                 body = json.dumps(rpc.fail("the call raised with no result.")).encode("utf-8")
             op.args = None

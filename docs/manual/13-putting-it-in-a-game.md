@@ -90,7 +90,8 @@ understand.
 
 A Poser character sheet has a third way out: **Export frames...** writes a folder named after the
 character with `-frames` added, one subfolder per movement inside it, one subfolder per compass direction inside that
-(`N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW`; `S` is the character facing you, `W` its left profile),
+(`N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW`, plus `NNE`, `ENE`, `ESE`, `SSE`, `SSW`, `WSW`, `WNW` and
+`NNW` for a sixteen-direction sheet; `S` is the character facing you, `W` its left profile),
 and `000.png`, `001.png` and so on inside that — plus a
 `manifest.json` (format `realmspinner-frames`, version 1) stating the frame size, whether the sheet is
 pixel art or HD, and each clip's own `loop`, `frames`, `duration_ms`, `fps` and `directions`. It is

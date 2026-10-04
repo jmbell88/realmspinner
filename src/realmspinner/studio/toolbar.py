@@ -428,10 +428,15 @@ def toolbar(
                 # tooltip drew the same text on screen but left the census
                 # blank, which the 2026-09-08 audit found (shell-05)
                 # misreported every overflowed disabled item as unexplained.
+                #
+                # ``item.selected`` is the checked flag: it was hard-coded False,
+                # so a toggle that is ON (Plotter's Random) read as OFF exactly
+                # when it collapsed into this menu (shell-33, the 2026-10-03
+                # audit).
                 if controls.menu_item(
                     f"{item.label}##{bar_id}/menu/{item.key}",
                     "",
-                    False,
+                    item.selected,
                     item.enabled,
                     reason=item.reason,
                     tooltip=item.tooltip,

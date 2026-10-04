@@ -109,9 +109,25 @@ def _distance(a: Vec3, b: Vec3) -> float:
     return sum((float(x) - float(y)) ** 2 for x, y in zip(a, b, strict=True)) ** 0.5
 
 
+def _bounds_box(bounds: Mapping[str, Any]) -> tuple[list[float], list[float]]:
+    """The rig's bounds grown by one diagonal on every side -- how far outside
+    the mesh a joint may sit before it is a unit mistake, not a pose."""
+    lo = [float(v) for v in bounds["min"]]
+    hi = [float(v) for v in bounds["max"]]
+    margin = _distance(lo, hi) or 1.0
+    return [lo[i] - margin for i in range(3)], [hi[i] + margin for i in range(3)]
+
+
+def _outside_box(point: Sequence[float], box: tuple[list[float], list[float]]) -> bool:
+    box_lo, box_hi = box
+    return any(point[i] < box_lo[i] or point[i] > box_hi[i] for i in range(3))
+
+
 def validate_joints(
     payload: dict[str, Any],
     template: Template | Sequence[Mapping[str, Any]],
+    *,
+    bounds: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Normalize a corrected skeleton, or raise ValueError.
 
@@ -131,6 +147,14 @@ def validate_joints(
     A zero-length bone is rejected rather than nudged: Blender silently deletes
     one on leaving edit mode and takes its children with it, so accepting it
     would produce a rig missing limbs with nothing to explain why.
+
+    ``bounds`` (the rig's own ``{"min", "max"}``) switches on the gross-unit-
+    mistake guard :func:`validate_skeleton` has: a head *or tail* farther than a
+    diagonal outside the mesh is refused by name, before the span below is
+    computed from it -- the 2026-10-03 audit, finding poser-35: one head at 1e9 m
+    inflated the span and was refused as "bone 'hips' would be zero-length",
+    while a far tail was accepted. Callers with no rig in hand omit it and get
+    the older checks alone.
     """
     structure = template.bones if isinstance(template, Template) else template
     raw = payload.get("bones")
@@ -178,6 +202,13 @@ def validate_joints(
     unknown = [n for n in by_name if n not in expected]
     if unknown:
         raise ValueError(f"joints payload names unknown bone(s): {unknown}")
+
+    if bounds is not None:
+        box = _bounds_box(bounds)
+        for n in expected:
+            for end in ("head", "tail"):
+                if _outside_box(by_name[n][end], box):
+                    raise ValueError(f"bone {n!r} {end} is far outside the mesh")
 
     # The skeleton's own extent, so the minimum bone length scales with the
     # mesh: MIN_BONE_FRACTION is a fraction of the subject, not of a metre.
@@ -369,15 +400,13 @@ def validate_skeleton(
     # below: a joint placed a continent away inflates every span computed from
     # the bone heads, which would otherwise flag ordinary short bones (a
     # spine, a finger) as zero-length before the real problem is ever named.
-    lo = [float(v) for v in bounds["min"]]
-    hi = [float(v) for v in bounds["max"]]
-    margin = _distance(lo, hi) or 1.0
-    box_lo = [lo[i] - margin for i in range(3)]
-    box_hi = [hi[i] + margin for i in range(3)]
+    # Tails too (the 2026-10-03 audit, finding poser-35): a tail at 1e9 m built a
+    # skeleton kilometres across because only heads were looked at.
+    box = _bounds_box(bounds)
     for name, bone in by_name.items():
-        head = bone["head"]
-        if any(head[i] < box_lo[i] or head[i] > box_hi[i] for i in range(3)):
-            raise RigError(f"bone {name!r} head is far outside the mesh", field="bones")
+        for end in ("head", "tail"):
+            if _outside_box(bone[end], box):
+                raise RigError(f"bone {name!r} {end} is far outside the mesh", field="bones")
 
     span = max(
         (hi_ - lo_)

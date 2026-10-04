@@ -597,7 +597,12 @@ def status_bits(state: Any, tab: Any) -> list[str]:
                 )
                 if rank is not None:
                     bits.append(target.ref.tileset.terrains[rank].name)
-    rect = state.select
+    # Clamped to the map, as the drawn marquee and every constrained gesture
+    # read it: the raw field outlives a resize (the 2026-10-03 audit, finding
+    # plotter-27, saw "sel 12 x 12" on a 4x4 map and "sel 4 x 4" for a marquee
+    # wholly off it), so reading it here reported a selection that constrained
+    # nothing.
+    rect = state.selection_in(doc)
     if rect is not None:
         # The size of the selection, which every tile editor puts here and this
         # one never has: "how big is the block I am about to stamp" was
@@ -1016,8 +1021,10 @@ def _layers(
     refs = {
         index: (
             ref,
+            # The pixel stamp, not ``tileset_epoch``: a collision drag moves
+            # that one every frame and the atlas is unchanged (plotter-20).
             plotter_textures.tileset_texture(
-                ctx, tab.uid, index, ref.tileset, doc.tileset_epoch
+                ctx, tab.uid, index, ref.tileset, doc.tileset_pixel_epoch
             ),
         )
         for index, ref in enumerate(doc.tilesets)
@@ -1798,7 +1805,7 @@ def _ghost(ctx: Any, state: Any, tab: Any, draw_list: Any, origin, cell, shift) 
                 continue
             ref = doc.tilesets[index]
             texture = plotter_textures.tileset_texture(
-                ctx, tab.uid, index, ref.tileset, doc.tileset_epoch
+                ctx, tab.uid, index, ref.tileset, doc.tileset_pixel_epoch
             )
             _cell_quad(
                 doc,
@@ -1908,8 +1915,12 @@ def _cell_under(state: Any, tab: Any, origin) -> tuple[int, int] | None:
 def _events(ctx: Any, state: Any, tab: Any, origin, hovered: bool, region) -> None:
     from imgui_bundle import imgui
 
-    if tab.busy:
-        return
+    # Not an early return: the view and the selection are state a save does not
+    # touch (the comments on ``_select_input`` and ``_wand_input`` and the Go-to
+    # menu row all say so), and the 2026-10-03 audit (finding plotter-35) found
+    # a library export of a large map freezing the wheel, the pan, the minimap,
+    # the marquee and the wand for as long as it ran. Only a gesture that writes
+    # the document waits -- see the check below the cell lookup.
     io = imgui.get_io()
     view = tab.view
 
@@ -1947,6 +1958,9 @@ def _events(ctx: Any, state: Any, tab: Any, origin, hovered: bool, region) -> No
         return
     cell = _cell_under(state, tab, origin)
     if cell is None:
+        return
+
+    if tab.busy and state.tool not in ("select", "wand"):
         return
 
     if state.tool == "object" or state.tool in plotter_state.OBJECT_SHAPES:
@@ -2275,7 +2289,8 @@ def _select_input(state: Any, tab: Any, cell: tuple[int, int], hovered: bool) ->
     Tiled's behaviour, including the last part -- a click with no drag is how
     you get rid of a selection without reaching for a menu. Stored unclamped
     (``selection_in`` clamps at use), and it writes nothing to the document, so
-    none of this is guarded by ``tab.busy``: the guard above already returned.
+    none of this is guarded by ``tab.busy`` (``_events`` lets this tool and the
+    wand through while a save runs).
     """
     from imgui_bundle import imgui
 
@@ -2629,11 +2644,51 @@ def _room_for(
 
 
 
+def _will_write(ctx: Any, state: Any, doc: Any, cell: tuple[int, int]) -> bool:
+    """Whether this click can change a cell, decided **before** the map grows.
+
+    The 2026-10-03 audit (finding plotter-13) found ``_apply`` growing an
+    infinite map for every tool before looking at what the tool would do, so
+    the eyedropper or the eraser over the void marked a saved map unsaved and
+    pushed a resize step per click, and Stamp or Fill with nothing in the hand
+    grew the map and *then* toasted "Pick a tile from the tileset first."
+    This file's own rule is that the checks come before any document change.
+
+    Pick and Erase never need room: outside the window there is nothing to read
+    or to clear. The brush and terrain refusals are said here, once, and the
+    branches below keep their own for the finite maps' sake only because they
+    need the same values to go on.
+    """
+    if state.tool in ("pick", "erase"):
+        return not doc.infinite or (
+            0 <= cell[0] < doc.width and 0 <= cell[1] < doc.height
+        )
+    if state.tool == "stamp" and state.brush is None:
+        ctx.toast("Pick a tile from the tileset first.", "error")
+        return False
+    if state.tool == "fill" and state.brush is None and _terrain_ref(state, doc) is None:
+        ctx.toast("Pick a tile from the tileset first.", "error")
+        return False
+    if state.tool == "terrain":
+        if doc.projection in project.OFFSET_PROJECTIONS:
+            ctx.toast(
+                "Terrain painting does not know this lattice's neighbours yet.",
+                "error",
+            )
+            return False
+        if _terrain_ref(state, doc) is None:
+            ctx.toast("Pick a terrain first.", "error")
+            return False
+    return True
+
+
 def _apply(ctx: Any, state: Any, tab: Any, cell: tuple[int, int]) -> None:
     layer = _layer_for_paint(ctx, tab)
     if layer is None:
         return
     doc = tab.doc
+    if not _will_write(ctx, state, doc, cell):
+        return
     grown = _room_for(ctx, tab, state, cell)
     if grown is None:
         return

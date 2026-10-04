@@ -92,6 +92,36 @@ def adopt(ctx: Any, done: Any) -> None:
         return
     if key and key[0] == ctx.state.selected:
         ctx.state.preview["create_preview"] = (key, done.result or [])
+    else:
+        # The 2026-10-04 audit, finding create-47: a result for a selection the
+        # user has since left was dropped but its key stayed recorded as
+        # requested, so ``request`` saw the job as already asked for and never
+        # resubmitted when the user came back to it -- the sheet preview stayed
+        # empty until the cache generation happened to move.
+        ctx.state.preview.pop("create_preview_requested", None)
+
+
+ANIMATION_FRAME_KEY = "create_animation_drawn"
+
+
+def note_animation_frame(preview: dict[str, Any], frame: int, *, paused: bool) -> None:
+    """Record that an animation was drawn on imgui frame ``frame``, or that it is paused.
+
+    The shell's idle throttle cannot see into this pane: the clip advances by
+    ``imgui.get_time()`` with no input, so a throttled window samples it at
+    ``IDLE_FPS`` (the 2026-10-03 audit, finding shell-37). A frame stamp rather
+    than a flag, because the flag would outlive the pane -- ``animating`` is
+    true only for the frame this was last drawn on.
+    """
+    if paused:
+        preview.pop(ANIMATION_FRAME_KEY, None)
+    else:
+        preview[ANIMATION_FRAME_KEY] = frame
+
+
+def animating(preview: dict[str, Any], frame: int) -> bool:
+    """Whether an unpaused animation was drawn on the most recent frame. Pure."""
+    return preview.get(ANIMATION_FRAME_KEY) == frame
 
 
 def frame_at(record: dict[str, Any], tag: dict[str, Any], seconds: float) -> int:
@@ -250,6 +280,9 @@ def draw(ctx: Any, width: float, height: float) -> bool:
             if controls.button("Restart playback"):
                 preview["create_atlas_started"] = imgui.get_time()
                 preview.pop("create_animation_paused", None)
+            note_animation_frame(
+                preview, imgui.get_frame_count(), paused="create_animation_paused" in preview
+            )
             cell_index = frame_at(
                 record,
                 tags[int(picked_tag)],

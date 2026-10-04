@@ -144,12 +144,14 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "sirens-envelopes": ("34-sirens", "the-envelope-editor"),
     "sirens-effects": ("34-sirens", "sound-effects"),
     "sirens-bridge": ("34-sirens", "exporting-the-audio"),
-    # Muse's one target. The recipe column carries it, because that is the pane
-    # whose controls a reader has a question about; the brief is a bar and
-    # carries none, exactly as ``create_brief`` does -- a (?) in a one-row
-    # command bar competes with the button the bar exists for. The results tray
-    # is exempt rather than targeted: it is the surface the mode is *about*, the
-    # way the pattern grid and the two canvases are.
+    # Muse's two targets. The recipe column carries the first, because that is
+    # the pane whose controls a reader has a question about; the brief is a bar
+    # and carries none, exactly as ``create_brief`` does -- a (?) in a one-row
+    # command bar competes with the button the bar exists for. The player is the
+    # second: a pane with its own ``help_button`` (``ui/panes/player.py``), whose
+    # question (how to audition and keep a render) is not the recipe's. The
+    # results tray is exempt rather than targeted: it is the surface the mode is
+    # *about*, the way the pattern grid and the two canvases are.
     "muse-recipe": ("35-muse", "the-window"),
     "muse-player": ("35-muse", "the-player"),
     # Poser's character-sheet section (Troupe's own four panes, folded in by

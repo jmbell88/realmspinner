@@ -17,6 +17,12 @@ from ..... import docmodes
 
 PREFIX = "packwright_tex:"
 
+#: The tile-set import popup's parked-sheet texture, keyed on ``id(pixels)``
+#: (``sources._slice_texture`` writes it). Named here so ``release_all`` can
+#: sweep it: this module is the one place that knows every GL texture the mode
+#: registers.
+SLICE_PREFIX = "packwright_tileset_slice:"
+
 
 def atlas_texture(ctx: Any, tab: Any) -> Any:
     """The packed atlas as a GL texture, or ``None`` with no pack or no GL."""
@@ -48,3 +54,7 @@ def release_doc(ctx: Any, uid: str) -> None:
 
 def release_all(ctx: Any) -> None:
     docmodes.release_prefix(ctx, PREFIX)
+    # The tile-set popup's slice preview texture too (the 2026-10-03 audit's
+    # packwright-01): it lives under its own prefix, so the sweep above never
+    # reached it and a teardown with a sheet still parked leaked it.
+    docmodes.release_prefix(ctx, SLICE_PREFIX)

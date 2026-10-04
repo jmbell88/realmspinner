@@ -81,8 +81,8 @@ stem separation) — as a table of four columns: **Model**, **Size**, **Descript
 A tick beside the name means the weights are on disk; a hollow mark
 with a checkbox means they are not, and **Install** fetches them. It is the same information the
 startup diagnostics report, in a place you can look at without opening the log. Tick several rows
-and *Download selected* fetches them together; four of the image models share one set of SDXL 1.0
-weights, and picking all four downloads them once.
+and *Download selected* fetches them together; five of the image models share one set of SDXL 1.0
+weights, and picking all five downloads them once.
 
 The **Description** column is one sentence saying what the model is *for* — which is the question a
 list of thirty names cannot answer, and the reason picking one used to mean reading `docs/MODELS.md`
@@ -106,9 +106,9 @@ checkpoint alone is larger than the VRAM budget. Both carry the measured figure 
 hold. All of it is skipped on a host with no measurable GPU: an unknown budget is not a shortfall.
 
 **Deleting a model.** A downloaded row carries a **Delete** button, and hovering it says how much
-removing would actually free. That figure is usually smaller than the download was, and deliberately: the four SDXL 1.0
+removing would actually free. That figure is usually smaller than the download was, and deliberately: the five SDXL 1.0
 recipes share one 7 GB checkpoint, so removing *SDXL 1.0 + Hyper-SD* deletes only its own 0.8 GB
-adapter and leaves the weights the other three are still standing on. The checkpoint goes when the
+adapter and leaves the weights the other four are still standing on. The checkpoint goes when the
 last model using it does. A recipe with no files of its own — *SDXL 1.0 (full CFG)* is the plain
 case — has nothing to remove and shows no button at all.
 
@@ -137,8 +137,9 @@ this list.
 The engine is the one row that does not come from Hugging Face — it is a single archive published by
 trellis.cpp, so the app checks it against a fingerprint rather than a version number, unpacks it, and
 puts it under your Realmspinner home. It needs an NVIDIA card; there is no version that runs on the
-processor. **Create stays greyed on the rail until both rows are present**, and clicking it brings
-you here with them already ticked.
+processor. **Create stays greyed on the rail until all three are present** — those two and the SDXL
+base model that draws the reference picture — and clicking it brings you here with them already
+ticked.
 
 ### Your style LoRAs
 
@@ -208,7 +209,8 @@ could leave the installation half-made. It is a separate process throughout; thi
 and never becomes able to download anything.
 
 When it finishes, the app re-runs every startup check and the workspaces the pack unlocks come to
-life without a restart. If something still cannot be imported the toast says so and asks for a
+life without a restart; a background-removal model that had failed to load for want of the pack is
+tried again as part of that recheck. If something still cannot be imported the toast says so and asks for a
 restart, rather than leaving you with a mode that is greyed out for no stated reason.
 
 A pack cannot be removed from here. Uninstalling torch out from under a running application is not
@@ -309,8 +311,11 @@ is covered.
 
 Below them, the summary line and every check `realmspinner doctor` runs, as a table: a coloured glyph, the
 check's name, and the one line of detail saying what it found. Green is passing, amber is a warning,
-red is fatal. The line above the table counts the failures, which is the same number Home's health
-row shows — clicking that row opens this page.
+red is fatal. The line above the table counts the failures, which is the same number the menu bar's
+issue count shows (Home draws no health row of its own). A row for a pack you have not installed
+(CUDA, Rigging, the Create dependencies, the Muse dependencies) is marked **SETUP** rather than
+**FAIL** and does not count toward that number, so a fresh install does not start with issues
+counted against packs you have simply not chosen yet.
 
 This is the only place in the app that names a *non-fatal* failure. A fatal one also raises the
 error banner across the top of the window, but a style LoRA whose file has been moved, or Blender
@@ -349,6 +354,14 @@ cannot be recovered from. A layout can only reorder and hide panes, never delete
 pane is always listed here with one click to bring it back. This section is on the Settings page
 specifically because Settings itself never changes shape with the layout, so it is reachable even
 when a saved layout has gone wrong.
+
+**Moving and hiding panes** happens in the workspace itself, not here. In Inker, Clay, Mason, Plotter
+and Sirens, **View ▸ Rearrange panes** (`Shift`+`W`, or the same name in the command palette) opens the
+layout editor over the window: drag a pane onto another to reorder it, or press the eye in a pane's
+corner to hide it. A hidden pane has no corner left to put a button in, so the editor lists it as a
+**Show** button along the top of the window, under the hint, and one press brings it back where you
+had left it. In the other workspaces the menu row is greyed, with the reason, because they have no
+panes to rearrange yet.
 
 **AI agents.** *Allow AI agents to drive Realmspinner* lets a program that speaks the Model Context
 Protocol build in Clay for you, and take a character from a species name to a rigged, animated

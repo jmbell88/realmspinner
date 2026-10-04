@@ -142,6 +142,15 @@ def loop_cut(mesh: Mesh, sel: ElementSel, *, t: float = 0.5) -> tuple[Mesh, Elem
     """
     if len(sel.edges) != 1:
         raise OpError("Select exactly one edge to cut a loop through.")
+    # The 2026-10-03 audit, finding clay-93: the op's position Param allows
+    # both endpoints, and a cut at t=0 or t=1 lands the new vertex on an
+    # existing one -- coincident duplicates and zero-length edges, recorded as
+    # an undo step the user did not mean. ``not (0 < t < 1)`` also refuses NaN.
+    if not 0.0 < float(t) < 1.0:
+        raise OpError(
+            "A loop cut position must lie strictly between the two ends of the "
+            "edge (above 0 and below 1); at an end it would only duplicate a vertex."
+        )
     _refuse_loop_cut_size(mesh)
     a = adjacency(mesh)
     seed = int(a.edge_ids(sel.edges)[0])
@@ -323,6 +332,23 @@ MAX_BEVELED_CORNERS = 2_000_000
 #: named constant to keep in sync with the first.
 _UV_CEILING_FACTOR = 2
 
+#: What a bevel may *touch*, in mesh corners: the corners of every vertex a
+#: selected edge ends at. :data:`MAX_BEVELED_CORNERS` bounds the whole-mesh
+#: copy and was measured with ONE edge selected, but every corner at a touched
+#: vertex goes through Python ``replace``/miter/slide/dart work, and that costs
+#: far more per corner than the copy does. The 2026-10-03 audit's clay-51 found
+#: a select-all bevel at about 17 us per touched corner (0.67 s on a 40,000-
+#: corner mesh; 9 ms for one edge), so the whole-mesh ceiling extrapolated to
+#: roughly 30 s of frozen frame thread. Re-measured on a closed all-quad torus
+#: with every edge selected (the worst ratio of edges to touched corners, so it
+#: covers any smaller selection): 6,400 corners 0.23 s, 12,800 0.43 s, 20,000
+#: 0.68 s, 28,800 0.99 s -- 34 us a corner here, linear. Ten thousand touched
+#: corners is about 0.35 s, the "well under a second" bar the other ceilings
+#: keep, and a UV-bearing mesh (which roughly doubles the per-corner cost) is
+#: held to half of it for the same reason :data:`_UV_CEILING_FACTOR` halves the
+#: size ceiling.
+MAX_BEVELED_TOUCHED_CORNERS = 10_000
+
 
 def _refuse_size(mesh: Mesh) -> None:
     """Refuse before the whole-mesh rewrite loops run, from the mesh's own size.
@@ -402,6 +428,13 @@ def bevel_edges(
     """
     if len(sel.edges) == 0:
         raise OpError("Select an edge to bevel.")
+    # The 2026-10-03 audit, finding clay-93: the width Param's floor is 0, and a
+    # zero-width bevel slid every corner by nothing -- coincident duplicate
+    # vertices and zero-length edges as an undo step. ``not width > 0`` also
+    # refuses NaN; a negative width used to be taken as its magnitude (``abs``
+    # below), which no control offers.
+    if not float(width) > 0.0:
+        raise OpError("Bevel width must be greater than zero.")
     _refuse_size(mesh)
     a = adjacency(mesh)
     ids = a.edge_ids(sel.edges)
@@ -421,6 +454,23 @@ def bevel_edges(
         raise OpError(
             "One of those edges has its two faces wound against each other, so "
             "a bevel there would inherit the flip. Fix the normals first."
+        )
+
+    touched_ceiling = (
+        MAX_BEVELED_TOUCHED_CORNERS
+        if mesh.uv is None
+        else MAX_BEVELED_TOUCHED_CORNERS // _UV_CEILING_FACTOR
+    )
+    touched_corners = int(
+        np.bincount(mesh.loops.astype("i8"), minlength=len(mesh.positions))[
+            np.unique(a.edge_verts[ids])
+        ].sum()
+    )
+    if touched_corners > touched_ceiling:
+        raise OpError(
+            f"Beveling that selection would touch {touched_corners:,} corners, "
+            f"past the {touched_ceiling:,} Clay can bevel without stalling. "
+            "Bevel fewer edges at a time."
         )
 
     beveled = set(ids.tolist())

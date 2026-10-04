@@ -31,6 +31,11 @@ from the model's own size when it is framed.
 
 Along the top of the viewport, over the view rather than beside it:
 
+- **Open in Inker** — only on the Reference stage, over a 2D reference you can edit. It opens the
+  pixels as a new drawing; see [Generating references](22-generating-references.md).
+- **Tiled 2x2** — only on a finished tile reference. It draws the tile repeated twice across and
+  twice down, at half size, so all four wrap edges are on screen at once and a seam shows where a
+  seamless material is not seamless. It changes the picture only, never the tile.
 - **Frame** (`F`) — put the camera back where framing put it.
 - **Wireframe** (`W`) — draw the triangles over the shaded surface. This is the fastest read on
   whether a triangle budget did what you asked, and it is the view the

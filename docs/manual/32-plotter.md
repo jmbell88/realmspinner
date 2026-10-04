@@ -189,7 +189,7 @@ along rather than silently changing meaning.
 ### Picking a tile
 
 Each of the map's tilesets gets a **tab** along the top of the pane; click one to paint with that
-set. Past eight of them a **Find** box appears above the tabs and narrows them by name — it never
+set. From eight of them a **Find** box appears above the tabs and narrows them by name — it never
 hides the set you are currently painting with, so the strip always says where you are.
 
 The palette under the tabs is the atlas itself. Click a tile to pick it; drag across
@@ -295,7 +295,9 @@ same way Stamp already does.
 
 **Offset** and **Autocrop to content** live in the *Resize* section. Offset moves cells by whole
 cells — the whole map or just the active layer — and wrapping is an exact permutation, so offsetting
-back puts everything where it was. Autocrop shrinks the grid to the cells that hold something,
+back puts everything where it was. On an infinite map the exported chunk and object coordinates move
+the direction you typed. A locked layer is not offset: **This layer** refuses if the active layer is
+locked, and **Whole map** refuses if any tile layer is. Autocrop shrinks the grid to the cells that hold something,
 moving objects with them; a map with nothing painted on it is refused.
 
 **Shape** is one tool with two modes rather than two tools — Tiled's Shape Fill. The buttons for
@@ -553,8 +555,8 @@ resolver and a dim living there would export dimmed.
 ### Locking a layer
 
 The padlock beside the eye locks a layer. A locked layer cannot be painted on, erased, cut from,
-deleted out of, or have objects added to or removed from it — the usual reason being that you are
-working above a finished floor and keep catching it by accident.
+deleted out of, offset, merged down onto, or have objects added to or removed from it — the usual
+reason being that you are working above a finished floor and keep catching it by accident.
 
 A lock stops **content** changes and nothing else. You can still rename the layer, hide it, change
 its opacity, move it up and down the stack, delete the whole layer, and of course unlock it. You can
@@ -700,9 +702,15 @@ ids may have gaps, and a tile larger than the map's grid draws at its own size a
 bottom-left, so a 32 px map full of 48 px trees looks the way it does in Tiled.
 
 Group layers, image layers, layer offsets, tints, parallax and classes, every one of the eight
-object shapes, object rotation and object templates' *contents* all load — several of those were on
+object shapes and object rotation all load — several of those were on
 the refusal list in earlier versions and left it as the editor learned to draw them. A *hidden*
 object is modelled rather than refused: hiding something changes nothing about where it is.
+
+A file that is damaged rather than unsupported is refused with a message too, not a generic
+failure: a corrupt compressed layer, a number where a value was expected, and a layer tree nested
+more than 64 groups deep — the editor's own limit — are refused at open by `.tmx`, `.tmj` and
+`.rmap` alike. These are not Tiled features Plotter lacks, so they are not rows in the refusal
+list above.
 
 ### What Plotter writes that Tiled does not read
 

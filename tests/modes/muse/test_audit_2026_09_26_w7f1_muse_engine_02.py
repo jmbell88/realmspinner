@@ -48,7 +48,7 @@ class FakeCtx:
         self.svc = _Svc(root)
         self.toasts: list[tuple[str, str]] = []
 
-    def submit(self, key: str, run: Any, *args: Any) -> bool:
+    def submit(self, key: str, run: Any, *args: Any, tag: Any = None) -> bool:
         self.result = run(*args)
         return True
 

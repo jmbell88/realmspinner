@@ -16,7 +16,7 @@ job.
 **What it is not.** It holds no model code of its own: it constructs the
 vendored ``acestep.pipeline_ace_step.ACEStepPipeline`` and calls it, so the
 model decisions stay in one auditable place. See that package's
-``ATTRIBUTION.md`` for the three modifications, one of which -- the cancel hook
+``ATTRIBUTION.md`` for the six modifications, one of which -- the cancel hook
 -- this module could not work without.
 
 **The protocol.** One JSON object per stdin line in, one marked JSON line on
@@ -42,6 +42,7 @@ must never leave a read pending, which is what ``_workerio.lines_from`` is for.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import queue as _queue
 import sys
@@ -210,6 +211,15 @@ class _Server:
             # arrived as a generic error would be logged as a failure and shown
             # to the user as one.
             return {"kind": "error", "error": "cancelled", "cancelled": True}
+        # muse-21 (2026-10-03 audit). The vendored ``__call__`` writes its
+        # recipe (prompt, lyrics, absolute paths, timecosts) to
+        # ``{stem}_input_params.json`` beside every take, in place. Nothing in
+        # the app lists, serves or documents it -- the recipe is already in the
+        # row's params -- so it is removed here rather than left as a stray
+        # file in every take directory. ``_discard_artifacts`` covers the case
+        # where a cancel lands before this line runs.
+        with contextlib.suppress(OSError):
+            output.with_name(f"{output.stem}_input_params.json").unlink(missing_ok=True)
         return {
             "kind": "done",
             "path": str(output),

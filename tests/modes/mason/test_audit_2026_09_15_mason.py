@@ -115,8 +115,10 @@ def test_unpack_instance_replacing_an_instance_with_a_same_sized_copy_never_refu
     instance = nd.PrefabNode(uid=nd.new_uid(), template="thing")
     d.add_node(instance)
 
-    monkeypatch.setattr(sc, "MAX_PLACED", len(d.all_nodes()) + 1)  # already right at it
-    unpacked = d.unpack_instance(instance.uid)  # net growth is 0: 2 nodes -> 2 nodes
+    # Already right at it. Counted the way ``read_rscn`` counts (the 2026-10-03
+    # audit's mason-10): the scene tree *plus* every template.
+    monkeypatch.setattr(sc, "MAX_PLACED", d._node_count + d._template_nodes() + 1)
+    unpacked = d.unpack_instance(instance.uid)  # grows the scene by exactly 1
     assert unpacked is not None
 
 

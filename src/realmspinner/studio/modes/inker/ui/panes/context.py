@@ -27,6 +27,7 @@ two bars above the canvas.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from imgui_bundle import imgui
@@ -558,7 +559,16 @@ def _symmetry_axis(ctx: Any, state: Any, tab: Any) -> None:
     shown = brush.axis_or_default(tab.doc.size, axis)
     imgui.set_next_item_width(sp(120))
     changed, values = controls.input_float2("Axis##symaxis", list(shown), "%.0f")
-    if changed:
+    # **Finite or refused.** The 2026-10-03 audit, finding inker-55: imgui's
+    # float field accepts scientific notation, so typing ``1e999`` stored an
+    # infinite axis -- ``brush.mirrors_of`` turned it into inf/nan twins and
+    # ``_pixel_cell`` (every hovered frame at 400% and up) and ``begin_stroke``
+    # then raised ``OverflowError`` from ``int(math.floor(inf))`` on every press
+    # and hover until the axis was reset, with the Centre button that fixes it
+    # in this very pane. The restore path already rejects a non-finite axis by
+    # name; this is the same rule where the field is read. The box redraws from
+    # the stored axis next frame, so a refused entry simply reverts.
+    if changed and all(math.isfinite(float(value)) for value in values[:2]):
         state.symmetry_axis = (float(values[0]), float(values[1]))
     # On the deactivation rather than on every changed frame, which is the
     # idiom the grid's step already uses: a settings write per pixel of drag is

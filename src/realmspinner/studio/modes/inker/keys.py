@@ -161,7 +161,12 @@ def handle_key(ctx: Any, event: Any) -> bool:
                 state.say("There is no captured brush to store -- Ctrl+B captures one.")
         elif not state.recall_stamp(slot):
             state.say(f"Brush {slot} is empty -- Alt+Shift+{slot} stores one.")
-    elif not shift and name.isdigit():
+    elif not shift and not alt and name.isdigit():
+        # ``not alt``: Alt+1..9 are the stamp slots above and Alt+0 is not one,
+        # so Alt+0 used to fall through to here and silently set the opacity to
+        # 100% -- a stray chord changing a tool setting with no tip and no
+        # binding that advertises it (the 2026-10-03 audit, finding inker-90).
+        #
         # **The number row was entirely unbound in Inker**, and Aseprite's
         # answer to the same spare keys is the same one: opacity in tenths,
         # with 0 meaning full rather than nothing -- a key that made the brush

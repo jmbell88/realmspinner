@@ -155,6 +155,29 @@ references``) and nothing ever evicts one on its own, so a ceiling is what
 keeps a client that forgets ``clay_reference_remove`` from growing an
 unbounded set of decoded PNGs behind a session nobody is watching."""
 
+MAX_RENDER_VIEWS = 12
+"""The most views one ``clay_render`` call may ask for. ``RENDER_PIXEL_BUDGET``
+bounds *pixels*, so 1,536 views at 64x64 fit it and each is a synchronous
+render on the frame thread (the 2026-10-03 audit's clay-99); the budget's own
+comment below already assumes "a dozen views" is the most anyone asks for."""
+
+MAX_NAME_LENGTH = 128
+"""The longest name ``clay_rename``, ``clay_checkpoint`` and ``clay_reference_add``
+take. Nothing bounded them but the 8 MiB request frame, so one long name made
+every later ``clay_scene`` row over budget and ``clay_reference_add`` put it
+verbatim into a UI toast (the 2026-10-03 audit's clay-99)."""
+
+MAX_TAG_LENGTH = 64
+"""The longest single tag ``clay_tag`` accepts (see :data:`MAX_NAME_LENGTH`)."""
+
+MAX_TAGS_PER_CALL = 32
+"""The most tags one ``clay_tag`` call may add (and, separately, remove)."""
+
+MAX_CHECKPOINTS = 64
+"""How many named checkpoints one document holds. Re-setting an existing name is
+always allowed; only a new name past this is refused (clay-99: they accrued
+without a bound for the life of the session)."""
+
 RENDER_PIXEL_BUDGET = 6 * 1024 * 1024
 """The most total pixels one ``clay_render`` call may ask for, summed across
 every view it requests. A caller asking for the maximum -- a dozen views at
@@ -223,7 +246,7 @@ docstring for what each kind reads and in which space."""
 
 UV_ACTIONS: dict[str, str] = {
     "pack": "shelf-pack every island into the unit square, preserving relative "
-    "scale [margin (0.0-0.5, default 0.005), rotate (boolean 0/1, default 0)]",
+    "scale [margin (0.0-0.5, default 0.005), rotate (boolean true/false, default false)]",
     "density": "scale every island about its own centre to a target texel "
     "density [target (px/m, required), texture_px (default 1024)]",
     "unwrap_seams": "cut along the object's own marked seams and flatten each "
@@ -234,7 +257,7 @@ UV_ACTIONS: dict[str, str] = {
     "([[vertex, vertex], ...]); the object's current edge selection if omitted]",
 }
 """``clay_uv``'s ``action`` enum, one tool with an action argument rather than
-five, per ``dev/CLAY-PLAN.md`` tranche 6's own steer ("prefer one tool with
+five, per Clay tranche 6's own steer ("prefer one tool with
 an action enum here, because the catalogue is already too big"). A plain
 dict, the same shape :data:`SEPARATE_MODES`/:data:`ORIGIN_MODES`/
 :data:`MEASURE_KINDS` already are for the identical reason their own
@@ -847,7 +870,7 @@ def _op_catalog() -> str:
     for and nowhere needs editing for it to.
 
     **Took a ``names: list[str]`` argument until the catalogue diet
-    (``dev/CLAY-PLAN.md`` tranche 6/7).** ``clay_op``'s own tool description
+    (Clay tranche 6/7).** ``clay_op``'s own tool description
     passed ``op_names`` -- the very list :func:`tools` also built for its
     schema's ``enum`` -- in, and this function never read it (``del names``,
     the tell). Dropped rather than kept for a caller that no longer exists:
@@ -1055,7 +1078,7 @@ CATALOG_TOPICS: dict[str, Callable[[], str]] = {
     "uv_actions": _uv_action_catalog,
 }
 """``clay_catalog``'s own topic -> builder map -- the catalogue diet's whole
-point (``dev/CLAY-PLAN.md`` tranches 6/7's integration brief). Before this,
+point (Clay tranches 6/7's integration brief). Before this,
 five of these nine functions' output sat inline in a tool's own
 *description*, paid for by every agent session at ``tools/list`` whether or
 not it ever needed that particular registry's prose -- ``clay_op``'s alone

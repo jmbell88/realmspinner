@@ -40,9 +40,11 @@ from .....kernels.mesh import primitives as bp
 from .....kernels.mesh.elements import OpError
 from .. import ops as clay_ops
 from ..ui.panes import tools as pane_clay_tools
-from .schema import MAX_MESH_FACES, MAX_MESH_VERTICES
+from .schema import MAX_MESH_FACES, MAX_MESH_VERTICES, MAX_NAME_LENGTH
 from .validate import (
     _OBJECT_SELECTION_DERIVED_REFUSAL,
+    SCALE_MAX,
+    SCALE_MIN,
     Session,
     _json,
     _label_top,
@@ -56,6 +58,8 @@ from .validate import (
     _scene_row,
     _tab,
     _validate_params_values,
+    _validate_scale,
+    _validate_translation,
     _validate_unit,
     _validate_vec3,
     fail,
@@ -63,12 +67,35 @@ from .validate import (
 
 
 def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
-    del args
+    # The 2026-10-03 audit's clay-22: this took no arguments, so a document
+    # whose whole-scene reply passed the frame budget (about 7,300 objects, one
+    # very long name, a big ``clay_separate``) answered only "narrow the
+    # request (fewer objects, or a single uid)" -- a narrowing the tool did not
+    # have, and the document's one read refused forever. ``offset``/``limit``
+    # page the object rows; everything else in the reply stays the whole
+    # document's own (``object_count`` is the total, ``bounds`` spans every
+    # visible object), so a page reads like the whole answer with fewer rows.
+    offset = args.get("offset", 0)
+    try:
+        offset = int(offset)
+    except (TypeError, ValueError, OverflowError):
+        return fail("offset must be an integer.", field="offset")
+    if offset < 0:
+        return fail("offset must not be negative.", field="offset")
+    limit = args.get("limit")
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError, OverflowError):
+            return fail("limit must be an integer.", field="limit")
+        if limit < 1:
+            return fail("limit must be at least 1.", field="limit")
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
     doc = tab.doc
-    objects = [_scene_row(doc, obj) for obj in doc.objects]
+    page = doc.objects[offset:] if limit is None else doc.objects[offset : offset + limit]
+    objects = [_scene_row(doc, obj) for obj in page]
 
     # Evaluated, not the base -- a mirror or an array modifier changes what
     # actually sits inside the document's own bounds, and a box computed
@@ -120,7 +147,13 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
     # all -- a document of ~22,000 primitives encodes past MAX_FRAME and used
     # to reach send_bytes and fail there, rather than being refused with an
     # explanation. See _over_frame_budget's own docstring.
-    over_budget = _over_frame_budget(payload)
+    over_budget = _over_frame_budget(
+        payload,
+        hint=(
+            "read the objects in pages with 'offset' and 'limit' "
+            "(object_count says how many there are)"
+        ),
+    )
     if over_budget is not None:
         return over_budget
     return _json(payload)
@@ -207,7 +240,7 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
 
     translation = rotation_deg = scale = None
     if args.get("translation") is not None:
-        translation, failure = _validate_vec3(args["translation"], "translation")
+        translation, failure = _validate_translation(args["translation"], "translation")
         if failure:
             return failure
     if args.get("rotation") is not None:
@@ -215,7 +248,7 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
         if failure:
             return failure
     if args.get("scale") is not None:
-        scale, failure = _validate_vec3(args["scale"], "scale")
+        scale, failure = _validate_scale(args["scale"], "scale")
         if failure:
             return failure
 
@@ -307,7 +340,7 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
 
     translation = None
     if args.get("translation") is not None:
-        translation, failure = _validate_vec3(args["translation"], "translation")
+        translation, failure = _validate_translation(args["translation"], "translation")
         if failure:
             return failure
 
@@ -315,7 +348,7 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
     if yaw_deg is not None:
         try:
             yaw_deg = float(yaw_deg)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("yaw must be a number.", field="yaw")
         if not math.isfinite(yaw_deg):
             return fail("yaw must be finite.", field="yaw")
@@ -324,10 +357,17 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
     if scale is not None:
         try:
             scale = float(scale)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("scale must be a number.", field="scale")
         if not (math.isfinite(scale) and scale > 0):
             return fail("scale must be a positive, finite number.", field="scale")
+        # The 2026-10-03 audit's clay-24: the same magnitude band every other
+        # scale argument is held to, so ``1e308`` or ``1e-320`` cannot reach
+        # the parts' own composed transforms.
+        if not (SCALE_MIN <= scale <= SCALE_MAX):
+            return fail(
+                f"scale must be between {SCALE_MIN:g} and {SCALE_MAX:g}.", field="scale"
+            )
 
     name_prefix = args.get("name_prefix")
     # Same unchecked-type hole as ``clay_add_primitive``'s own ``name``, fixed
@@ -516,7 +556,7 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
                     return fail(f"uv[{fi}][{ci}] must be an array of 2 numbers.", field="uv")
                 try:
                     u, v = float(corner[0]), float(corner[1])
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     return fail(
                         f"uv[{fi}][{ci}] must be an array of 2 numbers.", field="uv"
                     )
@@ -527,7 +567,7 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
 
     translation = rotation_deg = scale = None
     if args.get("translation") is not None:
-        translation, failure = _validate_vec3(args["translation"], "translation")
+        translation, failure = _validate_translation(args["translation"], "translation")
         if failure:
             return failure
     if args.get("rotation") is not None:
@@ -535,7 +575,7 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
         if failure:
             return failure
     if args.get("scale") is not None:
-        scale, failure = _validate_vec3(args["scale"], "scale")
+        scale, failure = _validate_scale(args["scale"], "scale")
         if failure:
             return failure
 
@@ -671,7 +711,7 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
     # is the same "validate everything before the first mutation" rule
     # ``_h_add_primitive`` and ``_h_add_figure`` already follow.
     if translation is not None:
-        translation, failure = _validate_vec3(translation, "translation")
+        translation, failure = _validate_translation(translation, "translation")
         if failure:
             return failure
     if rotation_deg is not None:
@@ -679,7 +719,7 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
         if failure:
             return failure
     if scale is not None:
-        scale, failure = _validate_vec3(scale, "scale")
+        scale, failure = _validate_scale(scale, "scale")
         if failure:
             return failure
     # Tranche 3: locking. ``set_transform`` raises OpError -- checking the
@@ -1031,16 +1071,15 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
     kind = args.get("kind")
     if kind not in ops_boolean.KINDS:
         return fail(f"kind must be one of {', '.join(ops_boolean.KINDS)}.", field="kind")
-    raw_uids = args.get("uids")
-    if raw_uids is not None and not isinstance(raw_uids, (list, tuple)):
-        # clay-02 (2026-10-03): a digit string iterates per character.
-        return fail("uids must be a list of integers.", field="uids")
-    try:
-        # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
-        # ``int(float("inf"))`` raises it, uncaught here before this fix.
-        wanted = [int(u) for u in raw_uids or []]
-    except (TypeError, ValueError, OverflowError):
-        return fail("uids must be a list of integers.", field="uids")
+    # The shared resolver, as every other multi-uid tool uses: it refuses a
+    # non-list (clay-02, 2026-10-03: a digit string iterates per character),
+    # a non-integer (clay-agent-tools-09's OverflowError) and -- the 2026-10-03
+    # audit's clay-98 -- a uid that names no object, which this handler used to
+    # drop silently by matching ``doc.objects`` against the set, so
+    # ``uids [1, 2, 999]`` ran on 1 and 2 and never said 999 was ignored.
+    wanted, failure = _resolve_uids(doc, args.get("uids"), field="uids")
+    if failure:
+        return failure
     # ``_union``'s own shape, generalised over the three kinds: the targets
     # are read in the document's own object order, so "first" means the
     # target's place in that order -- never the order this list happened to
@@ -1058,6 +1097,13 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
     # document did not move. The selection this op does mean to leave behind
     # is set once, at the end, to the survivor.
     keep = {int(u) for u in wanted}
+    hidden = [obj.uid for obj in doc.objects if obj.uid in keep and not obj.visible]
+    if hidden:
+        return fail(
+            f"Object(s) {hidden} are hidden; show them or leave them out of uids.",
+            field="uids",
+            uids=hidden,
+        )
     targets = [obj.uid for obj in doc.objects if obj.uid in keep and obj.visible]
     if len(targets) < 2:
         return fail(
@@ -1184,6 +1230,8 @@ def _h_rename(ctx: Any, session: Session, args: dict) -> dict:
     name = args.get("name")
     if not isinstance(name, str) or not name.strip():
         return fail("name must not be empty.", field="name")
+    if len(name) > MAX_NAME_LENGTH:
+        return fail(f"name must be at most {MAX_NAME_LENGTH} characters.", field="name")
     if any(other.uid != obj.uid and other.name == name for other in doc.objects):
         return fail(f"an object is already named {name!r}.", field="name")
     doc.set_props(obj.uid, name=name)

@@ -280,9 +280,12 @@ def catmull_clark(
       level at a time. Irregular vertices (one boundary edge, or three) are
       kept too, for want of any rule that means anything there.
 
-    **Never refuses.** Every one of those rules has an answer for every vertex,
-    and a smoothing pass that stopped halfway through a mesh would be worse than
-    one that leaves an odd corner unmoved.
+    **Every vertex has an answer.** Every one of those rules has an answer for
+    every vertex, and a smoothing pass that stopped halfway through a mesh would
+    be worse than one that leaves an odd corner unmoved. What it does refuse is
+    the whole call, before moving anything: an empty mesh (an :class:`OpError`),
+    and, checked once per level, a level whose result would pass
+    :data:`MAX_SUBDIVIDED_FACES` (``_refuse_growth``).
 
     UV is **linear** (see the module docstring), not CC-smoothed.
     """

@@ -352,6 +352,11 @@ def solidify(mesh: Mesh, params: dict) -> Mesh:
 # --- bevel / subdivide / weld / triangulate / smooth ------------------------
 
 
+#: The dihedral angle below which an edge is flat to float32 precision
+#: (:func:`bevel_by_angle`'s noise floor).
+_FLAT_EDGE_NOISE_DEGREES = 0.1
+
+
 def bevel_by_angle(mesh: Mesh, params: dict) -> Mesh:
     """Bevel every interior edge whose dihedral angle exceeds ``angle``.
 
@@ -383,7 +388,13 @@ def bevel_by_angle(mesh: Mesh, params: dict) -> Mesh:
     right = a.corner_face[a.twin[paired]].astype("i8")
     dots = np.clip(np.einsum("ij,ij->i", unit[left], unit[right]), -1.0, 1.0)
     angles = np.degrees(np.arccos(dots))
-    sharp_corners = paired[angles > threshold]
+    # A floor under the threshold: the dihedral comes from float32 positions
+    # through arccos, which turns a one-ulp error in a dot near 1 into a few
+    # hundredths of a degree, so at ``angle = 0`` (the parameter's own minimum)
+    # every coplanar edge read as sharper than the threshold and was beveled
+    # (the 2026-10-03 audit's clay-92: a flat grid tilted 0.3 rad went from 16
+    # faces to 49). Below this an edge is flat, whatever was asked.
+    sharp_corners = paired[angles > max(threshold, _FLAT_EDGE_NOISE_DEGREES)]
     if len(sharp_corners) == 0:
         return mesh
     edge_ids = np.unique(a.corner_edge[sharp_corners])

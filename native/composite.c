@@ -333,7 +333,22 @@ static void blend_nonseparable(int32_t mode, const float cb[3], const float cs[3
 
 /* Is this mode one that reads the whole pixel? The split is the enum's, and
  * realmspinnerc.h says why HUE has to stay the bottom of the non-separable range. */
-static int is_nonseparable(int32_t mode) { return mode >= REALMSPINNERC_BLEND_HUE; }
+static int is_nonseparable(int32_t mode) {
+    return mode >= REALMSPINNERC_BLEND_HUE && mode <= REALMSPINNERC_BLEND_LUMINOSITY;
+}
+
+/* Co for one channel of premultiplied plus-lighter, composite.over's numpy branch:
+ *
+ *     num = as*Cs + ab*Cb;  Co = min(num / ao, 1)   (0 where ao <= 0)
+ *
+ * The clamp is written `v > 1 ? 1 : v` so a NaN falls through it the way
+ * np.minimum propagates one. Not routed through combine_channel: its three
+ * products are the general form's, and this mode's reference skips them. */
+static float plus_lighter_channel(float a_s, float cs, float ab, float cb, float ao) {
+    const float num = a_s * cs + ab * cb;
+    const float v = ao > 0.0f ? num / ao : 0.0f;
+    return v > 1.0f ? 1.0f : v;
+}
 
 /* Co for one channel:
  *
@@ -382,7 +397,11 @@ void realmspinnerc_over_f32(const float *backdrop, int64_t backdrop_stride, cons
             const float k_mix = a_s * ab;
             const float k_back = (1.0f - a_s) * ab;
 
-            if (is_nonseparable(mode)) {
+            if (mode == REALMSPINNERC_BLEND_PLUS_LIGHTER) {
+                for (int c = 0; c < 3; ++c) {
+                    op[c] = plus_lighter_channel(a_s, cs[c], ab, cb[c], ao);
+                }
+            } else if (is_nonseparable(mode)) {
                 float mixed[3];
                 blend_nonseparable(mode, cb, cs, mixed);
                 for (int c = 0; c < 3; ++c) {
@@ -484,7 +503,11 @@ void realmspinnerc_stack_f32(const uint8_t **layers, const int64_t *strides, con
                  * of the accumulator's channels to decide one. */
                 const float cb[3] = {acc[0], acc[1], acc[2]};
                 float next[3];
-                if (is_nonseparable(modes[i])) {
+                if (modes[i] == REALMSPINNERC_BLEND_PLUS_LIGHTER) {
+                    for (int c = 0; c < 3; ++c) {
+                        next[c] = plus_lighter_channel(a_s, cs[c], ab, cb[c], ao);
+                    }
+                } else if (is_nonseparable(modes[i])) {
                     float mixed[3];
                     blend_nonseparable(modes[i], cb, cs, mixed);
                     for (int c = 0; c < 3; ++c) {

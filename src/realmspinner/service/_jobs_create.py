@@ -681,7 +681,7 @@ def create_job(
         # Set *after* the "conditioning needs a reference image" check above,
         # and that is the point: this job's hint is not derived from a
         # reference at all. ``guide`` tells ``_q_generate._conditioning`` to
-        # draw ``spritesynth.render_tpose_guide`` straight into control.png --
+        # draw ``spritesynth.render_reference_guide`` straight into control.png --
         # the guide is already line art in canny space, and running the
         # detector over it would return two lines where it means one.
         params["control"] = "canny"

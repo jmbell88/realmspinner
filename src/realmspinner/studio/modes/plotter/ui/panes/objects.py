@@ -99,6 +99,28 @@ def matches(obj: Any, needle: str) -> bool:
     )
 
 
+_HEADING = "heading"
+_OBJECT = "object"
+
+
+def visible_entries(
+    groups: list[tuple[Any, list[Any]]], needle: str
+) -> list[tuple[str, Any, Any]]:
+    """The dock flattened to ``(kind, layer, object)`` rows, filter applied.
+
+    A layer contributes its heading only when something under it matches, as it
+    always did; flat so a clipper can address a row by index.
+    """
+    out: list[tuple[str, Any, Any]] = []
+    for layer, objects in groups:
+        visible = objects if not needle else [obj for obj in objects if matches(obj, needle)]
+        if not visible:
+            continue
+        out.append((_HEADING, layer, None))
+        out.extend((_OBJECT, layer, obj) for obj in visible)
+    return out
+
+
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
 
@@ -122,21 +144,36 @@ def draw(ctx: Any) -> None:
         )
         return
 
-    shown = 0
-    for layer, objects in groups:
-        visible = [obj for obj in objects if matches(obj, needle)]
-        if not visible:
-            continue
-        # The layer's own row is a heading rather than a selectable: it is here
-        # to say which set the objects under it belong to, and a click on it
-        # would be a second, quieter way of choosing a layer -- which the layer
-        # list on the same screen already does.
-        imgui.push_id(str(layer.uid))
-        widgets.muted(f"{icons.FLAG} {layer.name or 'Objects'}")
-        for obj in visible:
-            shown += 1
-            _row(ctx, state, tab, layer, obj)
-        imgui.pop_id()
+    entries = visible_entries(groups, needle)
+    shown = sum(1 for kind, _layer, _obj in entries if kind == _OBJECT)
+    # Clipped by row. The 2026-10-03 audit (finding plotter-21) found one
+    # ``list_row`` submitted per object per frame with nothing bounding the
+    # count, so a map with a few thousand objects paid a Python row (id hash,
+    # hit test, draw) each for the dozen the pane shows -- the cost that
+    # ``canvas._objects`` culls spawn points for, and that Clay's, Mason's and
+    # Packwright's lists already clip. Layer headings are drawn as rows of the
+    # same height so one fixed pitch is exact; filtering still runs over the
+    # whole list (which rows exist is a document-wide question) and only the
+    # *drawing* is clipped.
+    clipper = imgui.ListClipper()
+    clipper.begin(len(entries), imgui.get_frame_height())
+    while clipper.step():
+        for at in range(clipper.display_start, clipper.display_end):
+            kind, layer, obj = entries[at]
+            imgui.push_id(str(layer.uid))
+            if kind == _HEADING:
+                # The layer's own row is a heading rather than a selectable: it
+                # is here to say which set the objects under it belong to, and a
+                # click on it would be a second, quieter way of choosing a
+                # layer -- which the layer list on the same screen already does.
+                with widgets.list_row(
+                    f"plotter-object-layer/{layer.uid}", enabled=False, divider=False
+                ):
+                    widgets.muted(f"{icons.FLAG} {layer.name or 'Objects'}")
+            else:
+                _row(ctx, state, tab, layer, obj)
+            imgui.pop_id()
+    clipper.end()
     widgets.no_matches(needle, shown)
     _menu(ctx, state, tab)
 

@@ -106,7 +106,9 @@ looks like a track row there.
 
 Each layer has visibility, opacity, a blend mode — twenty of them — and two locks. The **content
 lock** stops edits to the pixels; **alpha lock** confines them to pixels that already exist. Alpha
-lock is both a layer flag and an ink, and either one turns it on.
+lock is both a layer flag and an ink, and either one turns it on. It also leaves the colour hidden
+under a fully transparent pixel exactly as it was, whether the edit is a brush, a fill, a gradient,
+a shape or a filter.
 
 Dragging across the eye icons toggles a run of layers in one gesture, and that whole gesture is one
 undo step rather than one per layer.

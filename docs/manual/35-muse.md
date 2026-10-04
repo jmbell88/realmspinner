@@ -98,7 +98,12 @@ does not pretend otherwise. A machine with no device says so rather than offerin
 
 The tray keeps every take until you delete it. Nothing is overwritten, and two takes of the same
 brief are two files — which is the comparison the count control exists for: if every take is wrong
-the same way it is your tags, and if one is right and one is not it is the seed.
+the same way it is your tags, and if one is right and one is not it is the seed. The tray only
+shows a window of your newest jobs: takes older than that are still in the Library, behind **Load
+older** there, and the tray says so when it is only showing part of your history.
+
+Clicking a card selects it, and the selected card is ringed; **Play** on a card selects it too, so
+Space and Up and Down act on the take you last touched.
 
 ## The player
 
@@ -120,7 +125,8 @@ Keyboard, while Muse is the mode:
 
 | Keys | Action |
 | --- | --- |
-| Space | Play or stop the selected take |
+| Space | Stops whatever is sounding; with nothing sounding, plays the selected take |
+| Up / Down | Move the selection through the takes. Down from nothing picks the newest |
 | Left / Right | Nudge the playhead a second. Hold Shift for ten |
 | Home | Back to the start |
 | `[` / `]` | Set the loop's start or end **at the playhead** |
@@ -251,7 +257,8 @@ lets you keep the drums and rewrite everything else.
 The model is Hybrid Demucs, and it is a separate ~320 MiB download. Muse works without it; what you
 lose is those four files. The model *class* ships inside torchaudio, which this build already
 installs, so the download is the trained weights and nothing more. Separation takes a minute or so
-and runs in a short-lived process that exits when it is done.
+and runs in a short-lived process that exits when it is done. A take that has already been split
+cannot be split again: a second split is refused with a message saying the take has already been split.
 
 **On the licence, plainly.** The Demucs code is MIT, but Meta has stated the trained weights are
 provided for scientific purposes only, and the model here was trained the same way with no new

@@ -100,7 +100,15 @@ def convert(source: Path, out: Path, name: str) -> None:
         # rather than in the mode.
         has_alpha = image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info
         if fmt == "JPEG":
-            if has_alpha:
+            # Having the channel is not using it: the 2026-10-03 audit
+            # (pipelines-08) found a fully opaque RGBA input.png (what Inker, a
+            # canvas export or most editors write) refused as "has
+            # transparency" though no pixel was transparent. Refuse only when a
+            # pixel really is below opaque -- ``matting.is_cutout``'s line, read
+            # off an RGBA copy so palette and LA transparency count too.
+            from .matting import is_cutout
+
+            if has_alpha and is_cutout(image.convert("RGBA")):
                 raise AlphaUnsupported(
                     f"{source.name} has transparency, and JPEG cannot carry it. "
                     "Choose WebP to keep it."

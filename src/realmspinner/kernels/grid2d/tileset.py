@@ -33,6 +33,7 @@ is narrower, and named where it is checked: :func:`.tsx.check_tileset_features`.
 
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -78,11 +79,16 @@ def colour_text(value: Any, what: str) -> str | None:
     digits = text[1:] if text.startswith("#") else ""
     if len(digits) not in (6, 8):
         raise ValueError(f"{what} is #RRGGBB or #AARRGGBB")
-    try:
-        int(digits, 16)
-    except ValueError as exc:
-        raise ValueError(f"{what} is #RRGGBB or #AARRGGBB") from exc
+    # Checked against the hex digits themselves, not by ``int(digits, 16)``,
+    # which also accepts underscores, signs, surrounding whitespace and
+    # non-ASCII digits: ``"#1_2345"`` passed and reached the ``.tmx`` writers
+    # as a colour Tiled cannot parse (the 2026-10-03 audit, finding plotter-28).
+    if not all(ch in _HEX_DIGITS for ch in digits):
+        raise ValueError(f"{what} is #RRGGBB or #AARRGGBB")
     return text
+
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
 
 # --- per-tile metadata -------------------------------------------------------
@@ -755,7 +761,16 @@ class Tileset:
             tiles.pop(int(local_id), None)
         else:
             tiles[int(local_id)] = meta
-        return replace(self, tiles=tiles)
+        # A shallow clone rather than ``replace``: ``replace`` re-runs
+        # ``__post_init__``, whose ``frozen_rgba`` copies the whole atlas, and a
+        # collision handle's drag lands here sixty times a second. The 2026-10-03
+        # audit (plotter-20) measured 1.7 ms at 1024 px, 7 ms at 2048 and 27 ms
+        # at 4096 for pixels that did not move. The array is already frozen and
+        # nothing else here is touched, so sharing it keeps every invariant the
+        # copy was for -- and it is the same object, so identity says "same art".
+        out = copy.copy(self)
+        object.__setattr__(out, "tiles", tiles)
+        return out
 
     def terrain_of(self, local_id: int) -> int | None:
         """Which terrain a tile belongs to, or ``None`` if it is not one.

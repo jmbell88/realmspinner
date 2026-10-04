@@ -49,6 +49,7 @@ makes undo a snapshot rather than an inverse operation.
 from __future__ import annotations
 
 import threading
+import weakref
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from typing import Any
@@ -656,7 +657,7 @@ def render_from_layout(
         assert layout.face_of_corner is not None
         normals = unit[layout.face_of_corner]
         normals[layout.smooth_corner] = _normalize(accum[layout.smooth_loops])
-        _stash(layout, raw)
+        _stash(layout, raw, moved)
         return (
             positions[layout.loops].astype("f4"),
             normals.astype("f4"),
@@ -672,20 +673,36 @@ def render_from_layout(
     out_normals = np.concatenate(
         [_normalize(accum[layout.used]), unit[layout.foc_flat]]
     ).astype("f4")
-    _stash(layout, raw)
+    _stash(layout, raw, moved)
     return out_positions, out_normals, None, layout.indices
 
 
 #: The last raw face normals each layout produced, so a drag's next frame can
 #: reuse the faces it did not touch.
 #:
-#: Keyed by the layout's own ``id`` and holding a **weak** reference to nothing
-#: -- the value is the array and the key is checked against a stored identity,
-#: so a recycled id cannot serve another layout's normals: the entry records the
-#: layout object itself and is only read back when that same object is passed
-#: in. The layout is rebuilt whenever the mesh changes (it is a pure function of
-#: an immutable ``Mesh``), which is what makes "same layout object" the correct
-#: revision stamp here rather than any array's identity.
+#: Keyed by the layout's own ``id`` and holding only a **weak** reference to the
+#: layout, the raw array and the *moved set* the array was produced for. The
+#: entry is only read back when the weak reference still resolves to the very
+#: object passed in, so a recycled id cannot serve another layout's normals. The
+#: layout is rebuilt whenever the mesh changes (it is a pure function of an
+#: immutable ``Mesh``), which is what makes "same layout object" the correct
+#: revision stamp for the topology.
+#:
+#: **Weak, and stamped with the moved set -- the 2026-10-03 audit, findings
+#: clay-39 and clay-43.** The layout alone was not enough of a stamp: a second
+#: element drag on the same unchanged ``Mesh`` (after Esc, a release where it
+#: started, or an undo that restored the original object) found the first
+#: drag's last-frame normals under the same layout and, with a different moved
+#: set, recomputed only the faces touching *its* vertices -- the first drag's
+#: faces rendered with normals of a displaced state that no longer existed. The
+#: raw array is only incremental-safe for the moved set it was computed under
+#: (every face outside that set sits at its base position), so
+#: :func:`raw_face_normals` is given the moved set and answers ``None`` for any
+#: other, which makes the first frame of every new drag a full pass. And a
+#: strong reference to the layout pinned each throwaway layout
+#: ``render_arrays``/``to_primitives`` build and never read back (95 MB left
+#: behind by a 202k-face mesh rebuilt a dozen times, bounded only by entry
+#: count); the weak reference lets the entry go with the layout.
 #:
 #: Was unsynchronized on the premise that every caller of
 #: ``render_from_layout``/``raw_face_normals`` runs on the frame thread. The
@@ -700,22 +717,40 @@ def render_from_layout(
 #: an uncontended acquire (tens of nanoseconds) against a function that is
 #: already doing a numpy pass over every face, so the frame-thread drag path's
 #: cost is unchanged.
-_RAW_CACHE: dict[int, tuple[RenderLayout, np.ndarray]] = {}
+_RAW_CACHE: dict[
+    int, tuple[weakref.ref[RenderLayout], np.ndarray, np.ndarray | None]
+] = {}
 _RAW_CACHE_LOCK = threading.Lock()
 
 
-def _stash(layout: RenderLayout, raw: np.ndarray) -> None:
-    # One entry, not a growing table: a drag touches one layout at a time per
-    # material group, and an unbounded cache of face-normal arrays over a
-    # session of imports is megabytes nobody asked for. Bounded by clearing when
-    # it grows past a handful.
+def _stash(
+    layout: RenderLayout, raw: np.ndarray, moved: np.ndarray | None = None
+) -> None:
+    # Bounded by clearing when it grows past a handful as well as by the weak
+    # reference: a drag touches one layout at a time per material group.
+    key = id(layout)
+
+    def _forget(ref: weakref.ref[RenderLayout], key: int = key) -> None:
+        # Runs wherever the layout happens to be collected, including inside
+        # this module's own lock on the same thread (an allocation under it can
+        # trigger a collection), so it must not take the lock: ``dict.pop`` is
+        # atomic, and the identity check keeps it from dropping a newer entry
+        # that reused the id after this one died.
+        found = _RAW_CACHE.get(key)
+        if found is not None and found[0] is ref:
+            _RAW_CACHE.pop(key, None)
+
+    ref = weakref.ref(layout, _forget)
+    stamp = None if moved is None else np.array(moved, dtype="i8", copy=True)
     with _RAW_CACHE_LOCK:
         if len(_RAW_CACHE) > 8:
             _RAW_CACHE.clear()
-        _RAW_CACHE[id(layout)] = (layout, raw)
+        _RAW_CACHE[key] = (ref, raw, stamp)
 
 
-def raw_face_normals(layout: RenderLayout) -> np.ndarray | None:
+def raw_face_normals(
+    layout: RenderLayout, moved: np.ndarray | None = None
+) -> np.ndarray | None:
     """The raw face normals the last :func:`render_from_layout` on this exact
     layout produced, or ``None``.
 
@@ -723,11 +758,21 @@ def raw_face_normals(layout: RenderLayout) -> np.ndarray | None:
     ``id``: a layout is a pure function of an immutable ``Mesh``, so the same
     object means the same topology, where a recycled array id would mean
     nothing at all.
+
+    ``moved``, when given, is the vertex set the caller is about to pass to
+    :func:`render_from_layout` -- and the stash is returned only if it was
+    produced under that same set (see ``_RAW_CACHE``). A caller that passes
+    nothing gets whatever was stashed, which is only safe when it knows
+    the positions have not moved since.
     """
     with _RAW_CACHE_LOCK:
         found = _RAW_CACHE.get(id(layout))
-        if found is None or found[0] is not layout:
+        if found is None or found[0]() is not layout:
             return None
+        if moved is not None:
+            stamp = found[2]
+            if stamp is None or not np.array_equal(stamp, np.asarray(moved, dtype="i8")):
+                return None
         return found[1]
 
 

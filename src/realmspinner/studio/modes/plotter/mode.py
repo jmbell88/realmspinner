@@ -521,6 +521,12 @@ TOOL_KEYS = plotter_state.TOOL_KEYS
 # Gating the tile case alongside costs a busy tab nothing it could have used.
 _MUTATING_CTRL = docmodes.WRITE_CHORDS | frozenset({"x", "v", "j"})
 
+#: Save, undo and redo, the chords that stay live while the tileset sheet covers
+#: the canvas (``handle_key``). Not the other document chords: New and Open
+#: replace what the sheet is editing and Close would pull it out from under the
+#: user, none of which a collision-shape session asks for.
+_SHEET_DOCUMENT_CHORDS = frozenset({"s", "z", "y"})
+
 
 def _flipped_h(brush: Any, _shift: bool) -> Any:
     from .engine import tools as plotter_tools
@@ -926,17 +932,26 @@ def handle_key(ctx: Any, event: Any) -> bool:
     tab = state.active
     name = pygame.key.name(event.key).lower()
 
-    if state.editing_tileset is not None and tab is not None and (
-        0 <= state.editing_tileset < len(tab.doc.tilesets)
+    if (
+        state.editing_tileset is not None
+        and tab is not None
+        and (0 <= state.editing_tileset < len(tab.doc.tilesets))
+        # The document chords are not the map's keys: the sheet edits the map's
+        # own tileset metadata, which Save writes and Undo/Redo step through, so
+        # a user drawing collision shapes needs them. Held back with everything
+        # else they were unreachable from the keyboard (the 2026-10-03 audit,
+        # finding plotter-36).
+        and not (ctrl and name in _SHEET_DOCUMENT_CHORDS)
     ):
         # The tileset sheet is drawn *instead of* the canvas (``tileset_
         # editor.active`` is the same test), and nothing below this line
         # knew that: Delete, every Ctrl chord and the digit/tool keys all
         # went on acting on the map the sheet was covering the moment
         # nothing inside the sheet itself had keyboard focus (the
-        # 2026-09-26 audit, finding plotter-mode-14). Not consumed, so a
-        # shell-level binding (Esc-to-close-a-dialog and the like) still
-        # sees it.
+        # 2026-09-26 audit, finding plotter-mode-14). Not consumed -- but the
+        # shell's plotter arm ignores the return and exits, so "a shell-level
+        # binding still sees it" was never true; what the user needs from the
+        # keyboard here is let through above, by name.
         return False
 
     if ctrl:
@@ -964,7 +979,17 @@ def handle_key(ctx: Any, event: Any) -> bool:
         if tab is not None and not tab.busy:
             _delete(ctx, state, tab)
         return True
-    if name in _BRUSH_TRANSFORMS and state.brush is not None:
+    layer = None if tab is None else tab.doc.active()
+    if (
+        name in _BRUSH_TRANSFORMS
+        and state.brush is not None
+        # The 2026-10-03 audit (finding plotter-mode-06 / plotter-16): ``X`` is
+        # also Insert text on an object layer, and the brush a user left in hand
+        # from earlier tile work is the usual case, so the flip took the key and
+        # mutated a brush the layer does not even show. The layer's own letters
+        # are asked first; on a tile layer none of X/Y/Z is a tool letter.
+        and name not in plotter_state.tool_keys(layer)
+    ):
         # Tiled's X / Y / Z, through the same door the toolbar's four buttons
         # press. See :func:`transform_brush` for why it is unguarded.
         transform_brush(state, name, back=shift)
@@ -995,7 +1020,6 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # hand reaches for by number. The divergence is recorded in
         # ``docs/COMPAT.md`` beside the Ctrl+D one.
         return recall_stamp(ctx, state, tab, int(name))
-    layer = None if tab is None else tab.doc.active()
     plotter_state.sync_tool(state, layer)
     keys = plotter_state.tool_keys(layer)
     if name in keys:
@@ -1094,13 +1118,27 @@ def _selected_weight(state: PlotterState, tab: PlotterDoc, rect: tuple[int, int,
     return mask[y0 : y1 + 1, x0 : x1 + 1]
 
 
+def _object_tool(state: PlotterState) -> bool:
+    """Whether the tool in hand is one of an object layer's -- the pointer *or*
+    any Insert tool.
+
+    The 2026-10-03 audit (finding plotter-18) found Delete, Ctrl+J and
+    Ctrl+C/X comparing ``state.tool == "object"`` alone, so with Insert
+    rectangle (or point, ellipse ...) in hand and an object visibly selected
+    Delete said "Select some cells first." and Ctrl+J said "Select an object
+    first." The object-versus-tile question is which palette the tool belongs
+    to, and ``OBJECT_SHAPES`` is exactly the Insert half of that palette.
+    """
+    return state.tool == "object" or state.tool in plotter_state.OBJECT_SHAPES
+
+
 def _copy(ctx: Any, state: PlotterState, tab: PlotterDoc, *, cut: bool) -> None:
     """Take the selected cells, optionally clearing them in one step."""
     import numpy as np
 
     from ....kernels.grid2d import gid as gidlib
 
-    if state.tool == "object" and state.selected_object is not None:
+    if _object_tool(state) and state.selected_object is not None:
         # With Objects in hand, Ctrl+C is about the object -- a marquee left
         # over from earlier must not quietly copy tiles instead, which is the
         # rule ``_delete`` already follows.
@@ -1268,7 +1306,7 @@ def _duplicate_object(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
 
     from .engine.tilemap import new_uid
 
-    if state.tool != "object" or state.selected_object is None:
+    if not _object_tool(state) or state.selected_object is None:
         docmodes.refuse(ctx, "Select an object first.")
         return
     layer = tab.doc.active()
@@ -1361,7 +1399,7 @@ def _delete(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
 
     from ....kernels.grid2d import gid as gidlib
 
-    if state.tool == "object" and state.selected_objects:
+    if _object_tool(state) and state.selected_objects:
         # Grouped by the layer each uid actually lives on, not just
         # ``doc.active_layer`` -- see ``remove_selected_objects``. A selection
         # confined to one layer is still one ``compound`` and one Ctrl+Z; one

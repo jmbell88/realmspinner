@@ -239,7 +239,7 @@ Invoke-Step "Wheel install smoke test" "Wheel install smoke test" {
 # runtime-manifest.json pins vendor\realmspinnerc\realmspinnerc.dll and /vendor/ is
 # gitignored, so a fresh checkout has no DLL for verify_runtime to find. True,
 # and it misses the corollary: MSVC embeds a build timestamp, so recompiling
-# *identical* sources yields an identical 123392 bytes with a different
+# *identical* sources yields an identical-size DLL with a different
 # SHA-256. A default rebuild therefore breaks the pin on every machine that
 # already had a good DLL -- which is what it did here, and the installer
 # refused with "runtime file SHA-256 differs: vendor/realmspinnerc/realmspinnerc.dll".

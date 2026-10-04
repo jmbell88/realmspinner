@@ -14,6 +14,7 @@ structural change and a freshly opened file both need.
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -90,11 +91,24 @@ def release_dropped(ctx: Any, tab: Any) -> None:
     if ctx.viewer is None:
         return
     for frame_uid in tab.doc.take_dropped_frames():
-        key = _slot(tab.uid, f"frame{frame_uid}")
-        texture = ctx.state.preview.pop(key, None)
-        ctx.state.preview.pop(f"{key}:rev", None)
-        if texture is not None:
-            docmodes.forget_texture(texture)
+        # **Every variant of the frame's slot**, not just ``frame{uid}``: with
+        # "Current layer only" onion the texture lives under
+        # ``frame{uid}t{track}`` (``frame_texture``), which the plain key never
+        # named, so a clip cut down while onion-skinning one layer kept
+        # full-canvas textures until the LRU or the tab close (the 2026-10-03
+        # audit, finding inker-96). Matched exactly -- ``frame1`` must not take
+        # ``frame12`` -- and the LRU and stamp books lose their entries too.
+        base = _slot(tab.uid, f"frame{frame_uid}")
+        variant = re.compile(re.escape(base) + r"(?:t\d+)?")
+        order = _frame_lru(ctx, tab.uid)
+        touched = _frame_touched(ctx, tab.uid)
+        for key in [k for k in ctx.state.preview if isinstance(k, str) and variant.fullmatch(k)]:
+            texture = ctx.state.preview.pop(key, None)
+            ctx.state.preview.pop(f"{key}:rev", None)
+            order.pop(key, None)
+            touched.pop(key, None)
+            if texture is not None:
+                docmodes.forget_texture(texture)
 
 
 def composite(ctx: Any, tab: Any, *, nearest: bool) -> Any:

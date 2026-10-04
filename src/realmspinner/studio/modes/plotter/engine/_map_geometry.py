@@ -293,7 +293,16 @@ class GeometryOps:
             # different true coordinate. Objects are window-relative in the
             # document, so they travel with it and are deliberately absent
             # here -- shifting them as well would move them twice.
-            after_origin = (before_origin[0] - dx, before_origin[1] - dy)
+            #
+            # *Up* by dx, not down: true = stored + origin, so content that
+            # ends at true x + dx with its stored index unchanged needs the
+            # origin at origin + dx. The 2026-10-03 audit (finding plotter-08)
+            # found this branch subtracting, which moved exported chunk and
+            # object coordinates the opposite way from the layer scope below
+            # and from a finite map's offset. (Growth is the other sign on
+            # purpose: ``left`` cells added at the front *lower* the origin,
+            # because there the content stays put and the window moves.)
+            after_origin = (before_origin[0] + dx, before_origin[1] + dy)
             self.history.push(
                 ResizeEdit(
                     before_size=(self.width, self.height),

@@ -34,13 +34,13 @@ def pixel_prefs(settings: Any) -> tuple[int, int, str | None, bool]:
     """
     try:
         size = int(settings.get("pixel_size") or 128)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # 1e999 is inf (shell-14)
         size = 128
     if size not in svc_files.PIXEL_ARTIFACTS.values():
         size = 128
     try:
         colors = int(settings.get("pixel_colors") or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         colors = 0
     if colors not in svc_files.PIXEL_COLOR_CHOICES:
         colors = 0

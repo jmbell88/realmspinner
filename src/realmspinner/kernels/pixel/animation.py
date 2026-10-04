@@ -536,9 +536,11 @@ class Tag:
         # a tag that should still play rather than a document that will not
         # open. Zero is the "loop flag decides" default, so it is also the
         # right answer for nonsense.
+        # ``OverflowError`` too: JSON accepts a bare ``Infinity`` and
+        # ``int(float("inf"))`` raises it (the 2026-10-03 audit, inker-72).
         try:
             self.repeat = max(0, int(self.repeat))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self.repeat = 0
         # ``direction``'s coercion again, for its reason: a tag read out of a
         # file may name its note as a plain mapping or as nothing at all, and
@@ -551,7 +553,9 @@ class Tag:
 def clamp_duration(ms: object) -> int:
     try:
         value = int(ms)  # type: ignore[call-overload]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # ``OverflowError`` for a JSON ``Infinity`` (inker-72): a corrupt ORA
+        # whose pixels are all intact must open, not die on its first duration.
         return DEFAULT_DURATION_MS
     return max(MIN_DURATION_MS, min(value, MAX_DURATION_MS))
 

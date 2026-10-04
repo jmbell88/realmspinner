@@ -47,7 +47,34 @@ def native_engine_identity(config: Any) -> dict[str, Any]:
     from . import models
 
     path = config.resolve_trellis_exe()
-    digest = None
+    digest = _file_sha256(path)
+    pinned_files = dict(models.TRELLIS_RUNTIME_DIGESTS)
+    pinned = pinned_files["trellis-server.exe"]
+    verified = digest == pinned
+    # The 2026-10-03 audit, finding create-49: only the executable was compared,
+    # yet the result vouched for the whole runtime, although the ggml-cuda, ggml
+    # and cuBLAS libraries that decide the numerics are pinned beside it in
+    # ``TRELLIS_RUNTIME_DIGESTS`` -- a swapped DLL left ``version_verified`` True.
+    # Every other pinned file must sit beside the executable and match. (Cached
+    # by path/size/mtime like the exe's, so the ~0.9 GB is hashed once a process.)
+    if verified:
+        for name, expected in pinned_files.items():
+            if name == "trellis-server.exe":
+                continue
+            if _file_sha256(path.parent / name) != expected:
+                verified = False
+                break
+    return {
+        "backend": "trellis2",
+        "engine": "trellis.cpp",
+        "engine_version": models.TRELLIS_RUNTIME_VERSION if verified else None,
+        "engine_sha256": digest,
+        "version_verified": verified,
+    }
+
+
+def _file_sha256(path: Path) -> str | None:
+    """A file's complete sha256, cached on (path, size, mtime); None if unreadable."""
     try:
         st = path.stat()
         key = (str(path), st.st_size, st.st_mtime_ns)
@@ -56,16 +83,9 @@ def native_engine_identity(config: Any) -> dict[str, Any]:
             with path.open("rb") as fh:
                 digest = hashlib.file_digest(fh, "sha256").hexdigest()
             _engine_digests[key] = digest
+        return digest
     except OSError:
-        pass
-    pinned = dict(models.TRELLIS_RUNTIME_DIGESTS)["trellis-server.exe"]
-    return {
-        "backend": "trellis2",
-        "engine": "trellis.cpp",
-        "engine_version": models.TRELLIS_RUNTIME_VERSION if digest == pinned else None,
-        "engine_sha256": digest,
-        "version_verified": digest == pinned,
-    }
+        return None
 
 # Libraries whose version can change a generated image. Read from sys.modules
 # when already imported and from distribution metadata when not -- reading only

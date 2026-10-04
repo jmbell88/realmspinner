@@ -109,7 +109,14 @@ def marker_bounds(sequence: inst.Sequence, grip: str) -> tuple[int, int]:
     """
     top = len(sequence.values) - 1
     if grip == "release":
-        return 1, top
+        # The 2026-10-03 audit, finding sirens-04: the floor was a bare 1, so a
+        # release dragged left of the loop (or toggled on a sequence whose loop
+        # sat at or past ``len // 2``) left ``loop >= release`` -- the state the
+        # module docstring says a drag must not create: the loop stopped being
+        # drawn, the engine stopped looping, and the invisible marker was saved.
+        # A live loop is a floor of its own, one step above it.
+        loop = int(sequence.loop)
+        return max(1, loop + 1) if loop >= 0 else 1, top
     release = int(sequence.release)
     if 0 <= release <= top:
         return 0, release - 1
@@ -162,7 +169,14 @@ def toggled(sequence: inst.Sequence, grip: str) -> inst.Sequence:
         # A one-step sequence has no held half to split off, so there is
         # nowhere legal for a release to land. Refused rather than put at 0.
         return sequence
-    return replace(sequence, release=max(1, len(sequence.values) // 2))
+    # Through ``marker_bounds`` for the loop's sake (sirens-04, 2026-10-03
+    # audit): halfway, unless a live loop sits at or past it, in which case the
+    # first step above the loop -- and no room above it is a refusal, the same
+    # one ``moved`` gives a drag.
+    low, high = marker_bounds(sequence, "release")
+    if high < low:
+        return sequence
+    return replace(sequence, release=max(low, min(len(sequence.values) // 2, high)))
 
 
 def grabbed(sequence: inst.Sequence, offset: float, col_w: float, grip_w: float) -> str:

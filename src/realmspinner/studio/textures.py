@@ -51,22 +51,47 @@ def _cost(texture: Any) -> int:
         return 0
 
 
-def _decode(path: Path, max_side: int) -> tuple[tuple[int, int], bytes] | None:
+#: Frames to wait before trying a failed load again, and how many tries a
+#: failure that *might* be transient gets before it is cached as missing. A
+#: sharing violation while ``thumb.png`` is replaced, or a GL allocation that
+#: failed under pressure, used to be cached under (job, mtime, ...) for good --
+#: the key only changes when the mtime does, so the asset kept a blank
+#: thumbnail until the file changed or the app restarted (the 2026-10-03
+#: audit's shell-79). Half a second at 60 fps, three times, is long enough for a
+#: replace to finish and short enough that a file that truly cannot be read
+#: costs three failed opens, not one per frame.
+RETRY_AFTER_FRAMES = 30
+MAX_ATTEMPTS = 3
+
+
+def _is_permanent(exc: BaseException) -> bool:
+    """Whether retrying could not help: the bytes are not a decodable image.
+
+    Everything else (an ``OSError`` from opening a file another process holds, a
+    GL failure out of ``ctx.texture``) is treated as possibly transient.
+    ``UnidentifiedImageError`` is an ``OSError`` subclass, which is why this asks
+    for it by name first.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    return isinstance(
+        exc, (UnidentifiedImageError, Image.DecompressionBombError, ValueError, SyntaxError)
+    )
+
+
+def _decode(path: Path, max_side: int) -> tuple[tuple[int, int], bytes]:
     """Decode ``path`` to RGBA bytes at ``max_side``, with no GL call.
 
     Safe to run off the frame thread -- unlike ``ThumbnailCache._load``, which
-    also mints a ``ctx.texture()`` and so must stay on it.
+    also mints a ``ctx.texture()`` and so must stay on it. Raises on failure: the
+    caller decides, from the exception, whether the failure is worth retrying.
     """
     from PIL import Image
 
-    try:
-        with Image.open(path) as im:
-            im = im.convert("RGBA")
-            im.thumbnail((max_side, max_side))
-            return im.size, im.tobytes()
-    except Exception:
-        log.debug("could not decode %s", path, exc_info=True)
-        return None
+    with Image.open(path) as im:
+        im = im.convert("RGBA")
+        im.thumbnail((max_side, max_side))
+        return im.size, im.tobytes()
 
 
 class ThumbnailCache:
@@ -91,6 +116,9 @@ class ThumbnailCache:
         # share one entry.
         self._entries: OrderedDict[tuple[str, float, bool, int], Any] = OrderedDict()
         self._missing: set[tuple[str, float, bool, int]] = set()
+        # key -> (the frame it may be tried again on, tries so far): failures
+        # that might be transient. Promoted to ``_missing`` after MAX_ATTEMPTS.
+        self._retry: dict[tuple[str, float, bool, int], tuple[int, int]] = {}
         # Which frame each entry was last handed out on, and the textures whose
         # release is waiting for the frame that drew them to finish. Both exist
         # for the same reason: a card asks for its texture during the UI build
@@ -149,12 +177,9 @@ class ThumbnailCache:
             job_id, mtime, nearest, _max_side = key
             try:
                 decoded = future.result()
-            except Exception:
+            except Exception as exc:
                 log.debug("background decode failed for %s", job_id, exc_info=True)
-                decoded = None
-            if decoded is None:
-                self._missing.add(key)
-                self._missing_by_key.setdefault(job_id, set()).add(key)
+                self._note_failure(key, exc)
                 continue
             # The pool has two workers and submission order is no promise of
             # finish order: a decode queued for an older mtime can land in a
@@ -169,9 +194,11 @@ class ThumbnailCache:
             size, data = decoded
             try:
                 texture = self.ctx.texture(size, 4, data)
-            except Exception:
+            except Exception as exc:
                 log.debug("could not upload decoded image %s", job_id, exc_info=True)
+                self._note_failure(key, exc)
                 continue
+            self._retry.pop(key, None)
             mode = self.ctx.NEAREST if nearest else self.ctx.LINEAR
             texture.filter = (mode, mode)
             texture.repeat_x = texture.repeat_y = False
@@ -231,15 +258,20 @@ class ThumbnailCache:
             return entry
         if key in self._missing:
             return None
+        retry = self._retry.get(key)
+        if retry is not None and retry[0] > self._frame:
+            return None
         if background:
             if key not in self._inflight:
                 self._inflight[key] = self._pool().submit(_decode, path, max_side)
             return None
-        texture = self._load(path, nearest, max_side)
-        if texture is None:
-            self._missing.add(key)
-            self._missing_by_key.setdefault(job_id, set()).add(key)
+        try:
+            texture = self._load(path, nearest, max_side)
+        except Exception as exc:
+            log.debug("could not decode %s", path, exc_info=True)
+            self._note_failure(key, exc)
             return None
+        self._retry.pop(key, None)
         self._supersede(job_id, mtime)
         self._insert(key, texture)
         return texture
@@ -276,6 +308,17 @@ class ThumbnailCache:
         self._insert(entry_key, texture)
         return texture
 
+    def _note_failure(self, key: tuple[str, float, bool, int], exc: BaseException) -> None:
+        """Remember a failed load: for good if it cannot succeed, else for a while."""
+        job_id = key[0]
+        tries = self._retry.get(key, (0, 0))[1] + 1
+        if _is_permanent(exc) or tries >= MAX_ATTEMPTS:
+            self._retry.pop(key, None)
+            self._missing.add(key)
+            self._missing_by_key.setdefault(job_id, set()).add(key)
+            return
+        self._retry[key] = (self._frame + RETRY_AFTER_FRAMES, tries)
+
     def _insert(self, key: tuple[str, float, bool], texture: Any) -> None:
         self._entries[key] = texture
         self._touched[key] = self._frame
@@ -310,6 +353,8 @@ class ThumbnailCache:
         make two panes drawing one file at two samplings evict each other every
         frame.
         """
+        for key in [k for k in self._retry if k[0] == job_id and k[1] != mtime]:
+            del self._retry[key]
         stale = [k for k in self._by_key.get(job_id, ()) if k[1] != mtime]
         for key in stale:
             self._retired.append(self._drop_entry(key))
@@ -321,19 +366,14 @@ class ThumbnailCache:
             if not missing:
                 del self._missing_by_key[job_id]
 
-    def _load(
-        self, path: Path, nearest: bool = False, max_side: int = MAX_SIDE
-    ) -> Any | None:
+    def _load(self, path: Path, nearest: bool = False, max_side: int = MAX_SIDE) -> Any:
+        """Decode and upload. Raises on failure -- ``get`` classifies it."""
         from PIL import Image
 
-        try:
-            with Image.open(path) as im:
-                im = im.convert("RGBA")
-                im.thumbnail((max_side, max_side))
-                texture = self.ctx.texture(im.size, 4, im.tobytes())
-        except Exception:
-            log.debug("could not decode %s", path, exc_info=True)
-            return None
+        with Image.open(path) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((max_side, max_side))
+            texture = self.ctx.texture(im.size, 4, im.tobytes())
         mode = self.ctx.NEAREST if nearest else self.ctx.LINEAR
         texture.filter = (mode, mode)
         texture.repeat_x = texture.repeat_y = False
@@ -381,6 +421,7 @@ class ThumbnailCache:
         self._retired.clear()
         self._touched.clear()
         self._missing.clear()
+        self._retry.clear()
         self._by_key.clear()
         self._missing_by_key.clear()
         self._stats.clear()

@@ -137,8 +137,12 @@ def test_mason_props_reads_world_transform_from_the_resolver_not_a_second_comput
     parenting. Checked at the source level (no second ``compose``/``@`` matrix
     build in the function) and functionally (a nested node's reported world
     position matches the resolver's own answer)."""
+    # ``_world_transform`` asks ``_placed_for``, the per-revision memo around
+    # ``resolved_for`` (the 2026-10-03 audit's mason-26), so the resolver call
+    # lives one function down.
     source = inspect.getsource(mason_props._world_transform)
-    assert "resolved_for" in source
+    assert "_placed_for" in source
+    assert "resolved_for" in inspect.getsource(mason_props._placed_for)
     assert "m3.compose" not in source
 
     parent = nd.GroupNode(uid=nd.new_uid(), name="Parent", translation=[5.0, 0.0, 0.0])
@@ -573,13 +577,18 @@ def test_drop_to_ground_context_menu_row_undoes_in_one_step(monkeypatch):
     monkeypatch.setattr(
         mason_menu, "mason_assets", type("_M", (), {"ensure": staticmethod(lambda ctx: None)})
     )
+    # ``world_bounds_by_owner`` (the 2026-10-03 audit's mason-17: one resolve
+    # for the whole selection) is what the menu row now reads boxes through.
     monkeypatch.setattr(
         mason_menu.mscene,
-        "world_bounds",
-        lambda doc, source, uids: (
-            np.asarray(doc.node(uids[0]).translation, dtype="f8"),
-            np.asarray(doc.node(uids[0]).translation, dtype="f8"),
-        ),
+        "world_bounds_by_owner",
+        lambda doc, source, uids: {
+            uid: (
+                np.asarray(doc.node(uid).translation, dtype="f8"),
+                np.asarray(doc.node(uid).translation, dtype="f8"),
+            )
+            for uid in uids
+        },
     )
 
     class _Tab:

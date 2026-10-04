@@ -320,7 +320,9 @@ def test_the_exported_card_is_photographed_from_mason_s_own_viewport(svc):
     ctx = FakeCtx(svc)
     _tab, job_id = _exported(ctx)
     app = _App(ctx)
-    done = _Done("mason-library:ms-x", {"job_id": job_id, "exported_asset": True})
+    # The key must name the tab on screen: the capture is skipped for an export
+    # whose tab is no longer the active one (the 2026-10-03 audit's mason-29).
+    done = _Done(f"mason-library:{_tab.uid}", {"job_id": job_id, "exported_asset": True})
     main_mod.App._on_task_done(app, done)
     assert app.captured == [(job_id, "mason-viewport")]
 

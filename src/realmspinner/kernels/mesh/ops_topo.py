@@ -649,13 +649,71 @@ def merge_vertices(mesh: Mesh, remap: np.ndarray, positions: np.ndarray) -> Mesh
     keep &= alive[face_of]
 
     corners = np.flatnonzero(keep)
+    kept_loops = loops[corners]
+    kept_counts = counts[alive]
+    kept_material = mesh.material[alive]
+    kept_smooth = mesh.smooth[alive]
+
+    # A face that still visits one vertex twice, not consecutively (a quad
+    # welded across its diagonal is [0, 1, 0, 2]): the 2026-10-03 audit's
+    # clay-94 found it passing ``validate`` and triangulating to a degenerate
+    # sliver. It is cut at the repeat into the loops it really is, and a loop
+    # under three corners goes away like any other collapsed face; a figure-
+    # eight keeps both its lobes.
+    face_idx = np.repeat(np.arange(len(kept_counts), dtype="i8"), kept_counts)
+    width = int(kept_loops.max()) + 1 if len(kept_loops) else 1
+    distinct = np.bincount(
+        np.unique(face_idx * width + kept_loops) // width, minlength=len(kept_counts)
+    )
+    if np.any(distinct < kept_counts):
+        rows_c: list[int] = []  # indices into `corners`
+        rows_n: list[int] = []
+        rows_f: list[int] = []
+        offsets = np.concatenate([[0], np.cumsum(kept_counts)]).astype("i8")
+        for f in range(len(kept_counts)):
+            lo, hi = int(offsets[f]), int(offsets[f + 1])
+            if distinct[f] == kept_counts[f]:
+                rows_c.extend(range(lo, hi))
+                rows_n.append(hi - lo)
+                rows_f.append(f)
+                continue
+            stack: list[int] = []
+            seen: dict[int, int] = {}
+            pieces: list[list[int]] = []
+            for k in range(lo, hi):
+                v = int(kept_loops[k])
+                if v in seen:
+                    cut = seen[v]
+                    pieces.append(stack[cut:])
+                    for dropped in stack[cut + 1 :]:
+                        del seen[int(kept_loops[dropped])]
+                    del stack[cut + 1 :]
+                    stack[cut] = k
+                    seen[v] = cut
+                else:
+                    seen[v] = len(stack)
+                    stack.append(k)
+            pieces.append(stack)
+            for piece in pieces:
+                if len(piece) >= 3:
+                    rows_c.extend(piece)
+                    rows_n.append(len(piece))
+                    rows_f.append(f)
+        order = np.asarray(rows_c, dtype="i8")
+        corners = corners[order]
+        kept_loops = kept_loops[order]
+        face_pick = np.asarray(rows_f, dtype="i8")
+        kept_counts = np.asarray(rows_n, dtype="i8")
+        kept_material = kept_material[face_pick]
+        kept_smooth = kept_smooth[face_pick]
+
     out, _ = topo.compact_vertices(
         topo.rebuild(
             positions,
-            loops[corners],
-            topo.starts_from_counts(counts[alive]),
-            mesh.material[alive],
-            mesh.smooth[alive],
+            kept_loops,
+            topo.starts_from_counts(kept_counts),
+            kept_material,
+            kept_smooth,
             uv=None if mesh.uv is None else mesh.uv[corners],
         )
     )
@@ -703,12 +761,32 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
     # and nothing depended on them being: ``weld`` puts each cluster's
     # representative at the centroid precisely so the answer cannot depend on
     # vertex order, and the tests assert the geometry rather than the labelling.
+    #
+    # Two things the 2026-10-03 audit found about this arm, both fixed here.
+    # (clay-47 / clay-52) ``query_pairs`` returns *every* pair within eps, so m
+    # vertices inside one eps ball cost m(m-1)/2 pairs -- 11.5 million (a
+    # gigabyte) at 4,800 coincident vertices, roughly 7 GB at the limit -- and
+    # nothing bounded m: an element-mode scale of 0, a degenerate import or a
+    # weld distance bigger than the selection all put every vertex in one ball.
+    # The pair count is asked first (``count_neighbors`` allocates nothing) and
+    # past :data:`WELD_PAIR_BUDGET` the whole set goes to the leader pass below
+    # instead, which is linear in the points. (clay-53) Connected components
+    # chain: points 0.9 eps apart collapsed to ONE vertex spanning 44 eps while
+    # the gridded arm left the same run as 45 clusters, so the same weld
+    # answered differently depending only on vertex count, against the manual's
+    # "closer together than a distance you give". A component whose box is not
+    # within eps is therefore re-clustered by the leader pass too.
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
     from scipy.spatial import cKDTree
 
-    pairs = cKDTree(points).query_pairs(eps, output_type="ndarray")
     count = len(points)
+    tree = cKDTree(points)
+    # count_neighbors counts ordered pairs and every point against itself.
+    pair_count = (int(tree.count_neighbors(tree, eps)) - count) // 2
+    if pair_count > WELD_PAIR_BUDGET:
+        return _leader_labels(points, eps, tree)
+    pairs = tree.query_pairs(eps, output_type="ndarray")
     if not len(pairs):
         return np.arange(count, dtype="i8")
     graph = coo_matrix(
@@ -716,7 +794,67 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
         shape=(count, count),
     )
     _n, labels = connected_components(graph, directed=False)
-    return np.unique(labels, return_inverse=True)[1].reshape(-1).astype("i8")
+    labels = np.unique(labels, return_inverse=True)[1].reshape(-1).astype("i8")
+
+    # A component fits inside one eps ball only if its box does; the rest are
+    # chains, and are split by the leader pass (members only within eps of the
+    # component's own first point).
+    n_labels = int(labels.max()) + 1
+    lo = np.full((n_labels, points.shape[1]), np.inf)
+    hi = np.full((n_labels, points.shape[1]), -np.inf)
+    np.minimum.at(lo, labels, points)
+    np.maximum.at(hi, labels, points)
+    chained = np.flatnonzero(np.linalg.norm(hi - lo, axis=1) > eps)
+    if not len(chained):
+        return labels
+    out = labels.copy()
+    next_label = n_labels
+    for label in chained.tolist():
+        member = np.flatnonzero(labels == label)
+        local = _leader_labels(points[member], eps)
+        out[member] = next_label + local
+        next_label += int(local.max()) + 1
+    return np.unique(out, return_inverse=True)[1].reshape(-1).astype("i8")
+
+
+#: The most within-eps vertex pairs the exact arm of :func:`_clusters` will
+#: ask a KD-tree to hand back as an array before it clusters by leader
+#: instead. The pair array is 16 bytes a pair before the sparse graph and the
+#: component pass copy it: measured on the machine that closed the 2026-10-03
+#: audit's clay-47, 12,000 coincident vertices (72 million pairs) took 3.4 s and
+#: 2.56 GB, 8,000 took 1.5 s and 1.16 GB. A million pairs is about 0.1 s and
+#: 70 MB, and no real weld of a mesh under :data:`WELD_SEARCH_LIMIT` vertices
+#: is anywhere near it -- a seam weld has a pair or two per vertex.
+WELD_PAIR_BUDGET = 1_000_000
+
+
+def _leader_labels(points: np.ndarray, eps: float, tree: Any = None) -> np.ndarray:
+    """Cluster *points* so every member sits within ``eps`` of its cluster's
+    first point (the *leader*); returns a dense label per point.
+
+    Leaders are taken in coordinate order (``lexsort``), not vertex order, so
+    the same geometry saved two ways clusters the same way -- the property
+    :func:`weld`'s centroid representative exists to protect. Leaders are more
+    than eps apart by construction, so a point lies in at most a handful of
+    leaders' balls and the whole pass is linear in the points however many of
+    them are coincident.
+    """
+    from scipy.spatial import cKDTree
+
+    count = len(points)
+    if tree is None:
+        tree = cKDTree(points)
+    order = np.lexsort(points.T[::-1])
+    labels = np.full(count, -1, dtype="i8")
+    next_label = 0
+    for lead in order.tolist():
+        if labels[lead] >= 0:
+            continue
+        ball = np.asarray(tree.query_ball_point(points[lead], eps), dtype="i8")
+        ball = ball[labels[ball] < 0]
+        labels[ball] = next_label
+        next_label += 1
+    return labels
 
 
 def weld(mesh: Mesh, sel: ElementSel, *, eps: float = 1e-4) -> tuple[Mesh, ElementSel]:

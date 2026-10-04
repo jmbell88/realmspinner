@@ -296,8 +296,25 @@ def _visibility_row(doc: Any) -> None:
         widgets.muted(f"{hidden} hidden")
 
 
+def _leave_element_mode(doc: Any) -> None:
+    """Back to object mode before a row picks objects.
+
+    The 2026-10-03 audit's clay-66: in an element mode ``selection`` is, by the
+    document's invariant, exactly the uids with a non-empty ``element_sel``, and
+    a row click wrote ``doc.select(...)`` underneath it -- Properties then
+    edited the clicked object while the element ops and the "N faces across 1
+    object" line still addressed the old one. A row names a whole object, so
+    clicking one is the object-mode gesture; ``set_element_mode`` keeps the
+    objects selected when it leaves an element mode, so Ctrl and Shift still
+    toggle and extend what was being edited.
+    """
+    if doc.element_mode != "object":
+        doc.set_element_mode("object")
+
+
 def _click(state: Any, doc: Any, obj: Any) -> None:
     """Apply one row click, honouring Ctrl (toggle) and Shift (range)."""
+    _leave_element_mode(doc)
     io = imgui.get_io()
     if io.key_shift and state.outliner_anchor:
         range_uids = _range(doc, state.outliner_anchor, obj.uid)
@@ -480,6 +497,7 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
         return
     widgets.popup_chrome(_imgui=imgui)
     if obj.uid not in doc.selection:
+        _leave_element_mode(doc)
         doc.select([obj.uid])
     if controls.menu_item(f"{icons.PENCIL} Rename", "", False)[0]:
         state.renaming = obj.uid

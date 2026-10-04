@@ -35,8 +35,11 @@ MAX_MESH_CANDIDATES = 3
 # stall every other reader behind it.
 MAX_LIST_LIMIT = 5000
 
-# Exactly what create_job generates: uuid4().hex[:12].
-JOB_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+# Exactly what create_job generates: uuid4().hex[:12]. ``\Z``, not ``$``: ``$``
+# also matches before a trailing newline, so a 13-character id ending in one
+# passed the guard the manual promises rejects anything but twelve hex
+# characters (the 2026-10-03 audit, finding service-21).
+JOB_ID_RE = re.compile(r"^[0-9a-f]{12}\Z")
 
 # The reference upload arrives as raw bytes; nothing between it and the disk
 # but these two numbers. Bytes are checked before decode, pixels after (a flat
@@ -279,6 +282,12 @@ CONDITIONING_PARAMS = (
     # the one that has to honour it.
     "control_hint_source",
     "guide_variant",
+    # Which pose that figure was drawn in (``tpose``/``apose``): the third key of
+    # the same guide, missing from this list until the 2026-10-03 audit's
+    # poser-51 -- a promotion or remesh stripped the other two yet kept a
+    # ``guide_pose`` naming a guide that cannot have run. A text reroll keeps
+    # conditioning, so the redraw is unaffected.
+    "guide_pose",
 )
 
 
@@ -786,6 +795,54 @@ def random_seed() -> int:
     """A fresh seed for a re-roll. 31-bit so it round-trips through an sqlite
     INTEGER (and a JS number, for as long as anything speaks JSON) unchanged."""
     return secrets.randbelow(2**31)
+
+
+def check_view(elevation: Any, lighting: Any) -> float | None:
+    """A sheet request's camera angle and lighting, refused by control.
+
+    The 2026-10-03 audit, finding poser-27: ``create_charsheet``,
+    ``_charsheet_spec`` and ``create_sheet`` handed both straight to ``plan``
+    and filed its ``ValueError`` under ``field="layout"`` (or no field), so a
+    bad angle rang the layout table where ``check_troupe`` -- which names the
+    control the angle comes from -- says ``camera``; and a non-numeric one
+    escaped as a bare ``TypeError``. -> the angle as a float (``None`` when
+    absent); ``plan`` still owns the same limits, this just gets there first
+    with an address.
+    """
+    from ..kernels import sheet as sheetlib
+
+    value: float | None = None
+    if elevation is not None:
+        try:
+            value = float(elevation)
+        except (TypeError, ValueError):
+            raise Invalid("that camera angle is not a number", field="camera") from None
+        if not -89.0 <= value <= 89.0:
+            raise Invalid(
+                "a camera angle must be between -89 and 89 degrees above the horizon",
+                field="camera",
+            )
+    if lighting is not None and lighting != "" and lighting not in sheetlib.LIGHTING:
+        raise Invalid(f"lighting must be one of {list(sheetlib.LIGHTING)}", field="lighting")
+    return value
+
+
+def check_blender_known() -> None:
+    """Refuse a Blender render when the probe has already said Blender is absent.
+
+    The 2026-10-03 audit, finding poser-39: the doors that queue a Blender
+    render (``create_sheet``, ``create_charsheet``, ``rerender_charsheet`` and
+    ``send_to_troupe``'s rigged branch) never asked, where every rig door
+    refuses "Rigging needs Blender" -- so on a host without bpy the request was
+    queued and died in the worker. ``probe=False`` on purpose: this never
+    blocks (the probe imports bpy in a child process and costs seconds), it
+    refuses only on an answer the startup probe already cached, the rule
+    ``_jobs_create`` follows for the same question.
+    """
+    from .. import doctor
+
+    if not doctor.blender_check(probe=False).ok:
+        raise Invalid("Rigging needs Blender, which is not installed.")
 
 
 def check_job_id(job_id: str) -> None:

@@ -39,7 +39,7 @@ after a couple of minutes of unsaved changes, and if the app did not shut down c
 are offered here as one row per document, each with its own Recover button. It is deliberately not a
 single all-or-nothing question — a session that crashed with one document worth keeping and nine
 worth discarding should not force one answer for all ten. Declining keeps the files; nothing ages
-out from under you.
+out from under you, and **Discard all** removes only the copies this build can reopen.
 
 **The status line** is one quiet row combining setup, the queue and anything waiting to be reviewed.
 Each part of it that has somewhere to go is a link to the screen that answers it. Health is
@@ -55,7 +55,9 @@ tick and act on everything.
 
 **Filtering** is one text box with a small vocabulary of prefixes — `tag:`, `status:`, `kind:`,
 `stage:`, `id:`, `name:` — and clickable chips that insert them for you, so you can discover the
-syntax by using it rather than by reading about it.
+syntax by using it rather than by reading about it. The status control beside it offers *done*,
+*queued*, *running* and *failed*, so a job that is waiting its turn can be filtered to as well as one
+that is working.
 
 The list itself is a window onto your history, not all of it — it holds the newest N of M jobs. A
 plain word you type reaches past that window on its own: it is matched against every job's name and
@@ -66,7 +68,7 @@ kind/status/favourites/usable controls beside it. When one of those is active an
 behind the window, the pane says so, and **Load older** is what widens it — the way back to the rest
 of your history for a filter that free text alone cannot reach into.
 
-**Sorting** offers newest, name, kind, duration, size on disk, score, and grade. Under *newest* the
+**Sorting** offers date, name, kind, time taken, size on disk, score, and grade. Under *date* the
 list also grows date headings — Today, Yesterday, This week, then by month.
 
 A **Usable** toggle sits beside Favourites: it shows only meshes graded at or above Review's own

@@ -41,12 +41,36 @@ from .uvtools import MAX_UV_ISLANDS, _isin_pairs, edge_keys, islands_by_seams, p
 
 __all__ = ["MAX_LSCM_VERTICES", "unwrap_lscm"]
 
-#: A per-island ceiling, not a whole-mesh one -- each island is its own
-#: independent sparse solve. ``lsqr`` on a system this size is a fraction of
-#: a second; past it, the honest answer is Blender's Smart UV Project
-#: (tranche 4's Blender-backed heavy ops), not a solver that goes quiet for
-#: a minute on the frame thread.
-MAX_LSCM_VERTICES = 20_000
+#: A per-island ceiling -- each island is its own independent sparse solve --
+#: and, with :data:`MAX_LSCM_WORK` below, the whole of what keeps this solver
+#: under about a second on the frame thread. The 2026-10-03 audit, finding
+#: clay-55, measured the old 20,000 as a "fraction of a second" that was not:
+#: one island of 19,600 vertices took 9.3 s (the solve grows as roughly
+#: ``V ** 1.5``: a 10,000-vertex grid patch 2.8 s, 4,900 vertices 1.05 s, 2,500
+#: vertices 0.49 s). 4,000 is ``V ** 1.5`` = 253k work units, ~0.65 s; past it
+#: the honest answer is Blender's Smart UV Project (tranche 4's Blender-backed
+#: heavy ops), not a solver that goes quiet on the frame thread.
+MAX_LSCM_VERTICES = 4_000
+
+#: The whole-call bound the per-island ceiling alone cannot give (several
+#: islands each under it, or 2,000 tiny ones, each added a solve): the sum of
+#: :func:`_island_work` over every island. One unit is ~2.5 microseconds on the
+#: machine the audit measured, so 300,000 is ~0.75 s -- the 1 s bar with room
+#: for a slower card. Not corpus-keyed: nothing stored depends on it, only
+#: whether an unwrap is admitted.
+MAX_LSCM_WORK = 300_000
+
+#: The fixed cost of one island's solve (matrix build, ``lsqr`` start-up, the
+#: pin search), in the same units as ``V ** 1.5``: 0.55 ms measured per
+#: four-vertex island, over 2.5 microseconds a unit.
+_ISLAND_OVERHEAD = 220.0
+
+
+def _island_work(n_verts: int) -> float:
+    """The cost model behind :data:`MAX_LSCM_WORK`, fitted to the 2026-10-03
+    audit's clay-55 timings (grid patches of 900 to 10,000 vertices and 2,000
+    four-vertex islands)."""
+    return _ISLAND_OVERHEAD + float(n_verts) ** 1.5
 
 
 def _corner_mask(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
@@ -423,6 +447,12 @@ def unwrap_lscm(
     # ever fire). _corner_mask is now vectorised (see its own docstring),
     # so counting each island's vertices is cheap enough to do here, before
     # corner_triangles ever touches the mesh.
+    #
+    # The 2026-10-03 audit's clay-55: the ceiling is per island, so a mesh of
+    # several islands each under it (or 2,000 tiny ones) had no bound on the
+    # whole call -- 5.6 s on the frame thread. The islands' summed work is
+    # checked in the same pass, still before anything is triangulated.
+    total_work = 0.0
     for label in labels:
         faces = np.flatnonzero(island_ids == label)
         corner_idx = np.flatnonzero(_corner_mask(mesh, faces))
@@ -432,6 +462,12 @@ def unwrap_lscm(
                 f"This island has {n_verts} vertices, past the "
                 f"{MAX_LSCM_VERTICES} an unwrap by seams reads -- mark more "
                 "seams to split it, or use Smart Unwrap on a mesh this dense."
+            )
+        total_work += _island_work(n_verts)
+        if total_work > MAX_LSCM_WORK:
+            raise OpError(
+                "This mesh is too big to unwrap by seams in one go -- unwrap a "
+                "smaller selection, or use Smart Unwrap on a mesh this dense."
             )
 
     normals = face_normals(mesh)

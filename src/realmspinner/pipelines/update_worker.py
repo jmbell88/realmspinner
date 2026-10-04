@@ -133,6 +133,29 @@ def _asset(assets: Any, name: str) -> dict[str, Any] | None:
     return None
 
 
+def _is_bare_filename(name: str) -> bool:
+    """Whether ``name`` is one path component this download may write.
+
+    The one rule, shared by :func:`check` (so a hostile feed is refused before
+    the name travels to the parent's ``staging_dir / name`` join and the
+    staged-installer lookup) and :func:`fetch` (which joins it itself).
+    """
+    return not ("/" in name or "\\" in name or ":" in name or name in ("", ".", ".."))
+
+
+def _http_url(value: Any) -> str:
+    """``value`` when it is an http(s) URL, else nothing.
+
+    ``release_url`` is the feed's ``html_url``, and the pane hands it to
+    ``os.startfile`` -- which will open whatever scheme or path it is given. A
+    page link has no business being anything but http(s) (the 2026-10-03
+    audit's shell-70), and an empty string is the answer the pane already
+    treats as "no release notes to show".
+    """
+    text = str(value or "")
+    return text if text.lower().startswith(("https://", "http://")) else ""
+
+
 def check(spec: dict[str, Any]) -> dict[str, Any]:
     """What the latest release is, if it published a manifest for us.
 
@@ -156,7 +179,7 @@ def check(spec: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(release, dict):
         raise ValueError("the release feed did not describe a release")
     assets = release.get("assets")
-    release_url = str(release.get("html_url") or "")
+    release_url = _http_url(release.get("html_url"))
     found = _asset(assets, MANIFEST_ASSET)
     if found is None:
         return {"ok": True, "latest": None, "release_url": release_url}
@@ -170,6 +193,8 @@ def check(spec: dict[str, Any]) -> dict[str, Any]:
     digest = str(installer.get("sha256") or "").lower()
     if not filename or not digest:
         raise ValueError(f"{MANIFEST_ASSET} names no installer filename or digest")
+    if not _is_bare_filename(filename):
+        raise ValueError(f"{MANIFEST_ASSET} names an installer filename that is not a filename")
     # The URL is read off what GitHub published, never composed from the
     # filename: a convention this side believes in is a URL nobody uploaded,
     # and the failure mode of guessing right is worse than of guessing wrong.
@@ -196,8 +221,16 @@ def fetch(spec: dict[str, Any]) -> dict[str, Any]:
     download becomes something a user double-clicks.
     """
     dest_dir = Path(spec["dest_dir"])
-    dest_dir.mkdir(parents=True, exist_ok=True)
     name = str(spec["installer_name"])
+    # The only network child that writes a name taken from remote JSON, so the
+    # only one that must check it (the 2026-10-03 audit, pipelines-25):
+    # ``fetch_worker._fetch_url`` refuses a separator, ``.`` or ``..`` before
+    # its join, and this join took ``..\x.exe`` or an absolute path straight to
+    # ``dest_dir / name``. GitHub's asset-name sanitising masks it today; this
+    # is the defence for a feed that does not.
+    if not _is_bare_filename(name):
+        raise ValueError(f"{name!r} is not a filename this download may write")
+    dest_dir.mkdir(parents=True, exist_ok=True)
     digest = str(spec["sha256"]).lower()
     total = int(spec.get("size_bytes") or 0)
     target = dest_dir / name

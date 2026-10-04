@@ -31,7 +31,7 @@ from imgui_bundle import imgui
 from ......kernels.mesh import colliders as cl
 from ......kernels.mesh import primitives as bp
 from ......kernels.mesh import regen
-from ..... import controls, icons, theme, tokens, widgets
+from ..... import controls, dialogs, icons, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import matlib as clay_matlib
@@ -211,17 +211,44 @@ def _element_summary(doc: Any) -> None:
     topology clears ``generator``, and this is usually the first thing the user
     sees afterwards.
     """
-    if doc.element_mode == "object":
+    text = element_summary_text(doc)
+    if text is None:
         return
-    total = sum(sel.count(doc.element_mode) for sel in doc.element_sel.values())
-    noun = {"vertex": "vertices", "edge": "edges", "face": "faces"}[doc.element_mode]
-    objects = len(doc.element_sel)
-    if total == 0:
-        widgets.muted(f"{doc.element_mode} mode -- nothing selected")
-    else:
-        across = "1 object" if objects == 1 else f"{objects} objects"
-        widgets.muted(f"{doc.element_mode} mode -- {total} {noun} across {across}")
+    widgets.muted(text)
     imgui.dummy((0, sp(tokens.SP_1)))
+
+
+def element_summary_text(doc: Any) -> str | None:
+    """:func:`_element_summary`'s line, or ``None`` in object mode.
+
+    The 2026-10-03 audit's clay-70 follow-up: the count summed every entry of
+    ``doc.element_sel``, but a drag, the gizmo centre and every element door
+    skip a hidden object and a collider (``selection._element_pickable``), so
+    hiding an object that still held a selection made "N selected" promise
+    elements the next drag would not move. Only eligible objects are counted,
+    and "across N objects" counts only those too.
+    """
+    from ......kernels.mesh.selection import _element_pickable
+
+    if doc.element_mode == "object":
+        return None
+    total = 0
+    objects = 0
+    for uid, sel in doc.element_sel.items():
+        try:
+            if not _element_pickable(doc.by_uid(uid)):
+                continue
+        except KeyError:
+            continue
+        count = sel.count(doc.element_mode)
+        if count:
+            total += count
+            objects += 1
+    noun = {"vertex": "vertices", "edge": "edges", "face": "faces"}[doc.element_mode]
+    if total == 0:
+        return f"{doc.element_mode} mode -- nothing selected"
+    across = "1 object" if objects == 1 else f"{objects} objects"
+    return f"{doc.element_mode} mode -- {total} {noun} across {across}"
 
 
 def _selected(doc: Any) -> Any:
@@ -408,7 +435,11 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     # ``imgui.begin_disabled`` chrome already uses for "a save is in flight"
     # one level up, so a locked object's numbers are still visible -- and
     # still correct -- without inviting an edit the object is about to refuse.
-    imgui.begin_disabled(obj.locked)
+    # The 2026-10-03 audit's clay-67: ``obj.locked`` alone was the wrong
+    # predicate -- ``set_transform`` also refuses under a locked ancestor, so a
+    # child of a locked group still toasted once per keystroke. Ask the
+    # document the question its door asks.
+    imgui.begin_disabled(doc.lock_refusal(obj.uid, check_ancestors=True) is not None)
     if parented:
         edited, translation = controls.input_vec(
             "local position##bt", list(obj.translation), ("X", "Y", "Z")
@@ -596,17 +627,25 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     # a torus tube wider than its radius, clay-04) gets clamped inside the
     # generator without being reported back, so this panel used to save the
     # number the user typed rather than the one the mesh was built from.
-    edited = bp.clamp_params(obj.generator, edited)
+    #
+    # Inside the ``try``: ``clamp_params`` refuses a non-finite number anywhere
+    # in a parameter (``ValueError`` naming the generator and key; an integer
+    # key past ``int()`` raises ``OverflowError`` from the same call), and a
+    # pasted ``inf`` or ``nan`` reached the frame thread uncaught when this
+    # call sat above it (the 2026-10-03 audit's clay-28 follow-up).
     try:
+        edited = bp.clamp_params(obj.generator, edited)
         mesh = build(**edited)
     except Exception:  # noqa: BLE001
         # A generator raises on a value it cannot build at all -- not the
         # zero segment count or oversized torus tube this comment used to
         # name (both are clamped, by clamp_params above and by the generator
         # itself; see the 2026-09-06 audit's clay-04 and clay-05 findings),
-        # but a non-finite number that survives to ``int()``, such as a
-        # pasted value large enough to parse as infinity. The old mesh stays;
-        # the field keeps the number the user typed, so they can correct it.
+        # but a non-finite number, which ``clamp_params`` refuses and which
+        # would otherwise survive to ``int()``, such as a pasted value large
+        # enough to parse as infinity. The edit is refused: the old mesh and
+        # parameters stay, no history step is pushed, and the field keeps the
+        # number the user typed while it is focused, so they can correct it.
         #
         # Logged, not merely swallowed. A refusal about a number and a
         # ``TypeError`` from a renamed keyword are the same silence here, and
@@ -834,6 +873,11 @@ def _modifier_row(
 
     if kind_def is not None:
         updates: dict[str, Any] = {}
+        # The 2026-10-03 audit's clay-67: ``set_modifiers`` refuses a locked
+        # object, and these fields were never greyed for it, so typing a number
+        # into one toasted once per keystroke -- the symptom the 2026-09-26
+        # audit's clay-panes-07 closed for the transform and generator fields.
+        imgui.begin_disabled(obj.locked)
         for p in kind_def.params:
             widgets.field_label(p.label)
             new_value, changed_here = _mod_param_widget(p, mod.get(p.name, p.default), doc, obj)
@@ -844,6 +888,7 @@ def _modifier_row(
             controls.fold_undo(doc.history)
             if changed_here:
                 updates[p.name] = new_value
+        imgui.end_disabled()
         if updates:
             new_mod = mods.with_params(mod, updates)
             _set_modifier_stack(
@@ -1470,6 +1515,31 @@ def _matlib_apply_key(tab_uid: str, uid: int, entry_id: str) -> str:
     return f"{MATLIB_APPLY_TASK_PREFIX}:{tab_uid}:{uid}:{entry_id}"
 
 
+def _confirm_delete_material(ctx: Any, home: Path, entry: clay_matlib.MaterialEntry) -> None:
+    """Ask before a saved material (and up to five texture PNGs) is unlinked.
+
+    The 2026-10-03 audit's clay-117: the trash button sat two icons from the
+    Apply tick and deleted on one click, with no way back -- a saved look that
+    exists nowhere else, where the app's other destructive library deletes ask
+    first (``dialogs.ask_delete``). Nothing is touched until the answer is
+    yes; the cached shelf is invalidated only then.
+    """
+
+    def go() -> None:
+        clay_matlib.delete_material(home, entry.id)
+        _invalidate_material_library(home)
+
+    dialogs.ask_delete(
+        ctx,
+        title="Delete saved material?",
+        message=(
+            f"{entry.name!r} and its texture files will be deleted from the "
+            "material library. This cannot be undone."
+        ),
+        on_confirm=go,
+    )
+
+
 def _material_library(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     """Named materials saved under ``REALMSPINNER_HOME`` (``matlib.py``): save the
     selected object's current material, list what is saved, apply one back,
@@ -1518,6 +1588,5 @@ def _material_library(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
                 ctx.toast("A material is already being applied.", "info")
         imgui.same_line()
         if controls.small_button(f"{icons.TRASH}##matlibdel", tooltip=f"Delete {entry.name!r}"):
-            clay_matlib.delete_material(home, entry.id)
-            _invalidate_material_library(home)
+            _confirm_delete_material(ctx, home, entry)
         imgui.pop_id()

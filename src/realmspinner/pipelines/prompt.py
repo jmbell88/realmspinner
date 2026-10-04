@@ -155,6 +155,15 @@ TILESHEET_TEMPLATE = (
 # composed prompt was a function of the expander's weights and seed, and this
 # compiler can no longer produce it, so a benchmark comparing across the bump
 # has to know that.
+#
+# 9: ``policy_version`` and ``generation_type`` choose the framing (see
+# ``template_for``). An Image-type reference (``generation_type`` "image" or
+# "image_2d") compiled under policy 9 keeps the user's composition: the
+# template is the bare ``{prompt}``, with no concept-art or single-subject
+# clause wrapped around it. Every other path -- object, tile, sheet and
+# tile-sheet, and any caller passing ``LEGACY_PROMPT_VERSION`` (8) -- is
+# byte-identical to 8, which is why ``LEGACY_PROMPT_VERSION`` exists: a stored
+# job keeps the policy it was recorded under.
 PROMPT_VERSION = 9
 LEGACY_PROMPT_VERSION = 8
 
@@ -335,6 +344,13 @@ def build(
     the tileable template, whose framing is its own flat top-down clause,
     ``sheet`` the character-pose grid one, and ``tilesheet`` the tile grid
     one.
+
+    ``generation_type`` and ``policy_version`` choose the framing for a plain
+    reference: from policy 9 an Image-type reference ("image"/"image_2d") is
+    composed with the bare ``{prompt}`` template, so the user's composition is
+    kept; any other type, or ``policy_version`` below 9 (the default,
+    ``LEGACY_PROMPT_VERSION``), gets ``PROMPT_TEMPLATE``. The tile, sheet and
+    tile-sheet templates ignore both.
 
     ``tilesheet`` wins over ``sheet``, which wins over ``tile``: an output
     kind is a property of what the job produces, and the sheet is the part

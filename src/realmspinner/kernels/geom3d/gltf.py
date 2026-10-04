@@ -91,6 +91,13 @@ MAX_PRIMITIVES = 100_000
 #: naming more than a node's-worth of them is a hang and a blowup before it
 #: is a scene.
 MAX_SKIN_JOINTS = 100_000
+#: The 2026-10-03 audit, finding create-12: ``skins`` was the one eagerly
+#: iterated top-level array with no entry-count ceiling of its own, and a skin
+#: entry whose ``joints`` array is empty decodes no accessor, so ``_charge``
+#: never moves for it -- reproduced as a 6.4 MB GLB declaring 400,000
+#: ``{"joints": []}`` skins that took 1.9 s to load and grew linearly. Same
+#: value as its siblings, for the same reason.
+MAX_SKINS = 100_000
 #: Mirrors ``service.validation.MAX_IMAGE_PIXELS`` without importing service
 #: into the viewer (the viewer imports no business-logic layer).
 MAX_TEXTURE_PIXELS = 16_000_000
@@ -124,7 +131,6 @@ MAX_ACCESSOR_BYTES = 1 << 28
 #: docs-09) noted it sits in the checkup's example list beside corpus-keyed
 #: constants like SEAM_MAX, which implied an obligation it does not have --
 #: hence this sentence rather than a document.
-# Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
 MAX_TOTAL_BYTES = 768 * (1 << 20)
 
 
@@ -314,6 +320,13 @@ class Model:
         # ``rest + delta``. Remembered for every node because which one is the
         # root is the editor's knowledge, not the file's.
         self.rest_translations = [n.translation.copy() for n in nodes]
+        self.reached: set[int] = set()
+        #: Bumped by every ``update_world`` -- the one place node world matrices
+        #: change for a viewer-owned model -- so a caller that derives something
+        #: from them (``Viewer.stats``' size line, every frame) can key a memo on
+        #: "nothing has moved" instead of on wall time. The 2026-10-03 audit's
+        #: create-28.
+        self.world_version = 0
         self.update_world()
 
     # -- transforms --------------------------------------------------------
@@ -359,6 +372,14 @@ class Model:
                     continue
                 queued.add(child)
                 stack.append((child, node.world))
+        # The 2026-10-03 audit, finding clay-31: the nodes this walk placed.
+        # Every other node keeps its default identity world -- a node in
+        # another scene, or one nobody parents -- so a consumer that builds
+        # things from "every node that names a mesh" (Clay's GLB import did)
+        # stacks those at the origin with their own transform dropped. Said
+        # here, where the walk is, rather than re-derived by each consumer.
+        self.reached = seen
+        self.world_version += 1
 
     def mesh_instances(self) -> list[tuple[Node, list[Primitive]]]:
         return [(n, self.meshes[n.mesh]) for n in self.nodes if n.mesh is not None]
@@ -373,7 +394,16 @@ class Model:
         if node.skin is None:
             return None
         skin = self.skins[node.skin]
-        inv_mesh = np.linalg.inv(node.world)
+        # The 2026-10-03 audit, finding create-09: a zero scale on the node or
+        # a parent (how a game asset hides an attachment) makes this world
+        # singular, and the bare ``inv`` raised out of ``GpuModel.__init__`` for
+        # a scene the loader had accepted. The spec ignores the skin space for
+        # a degenerate node, so it degrades to the identity -- the same
+        # fallback ``GpuModel.normal_matrix_bytes`` already has for this matrix.
+        try:
+            inv_mesh = np.linalg.inv(node.world)
+        except np.linalg.LinAlgError:
+            inv_mesh = np.eye(4)
         return [
             inv_mesh @ self.nodes[j].world @ skin.inverse_bind[i]
             for i, j in enumerate(skin.joints)
@@ -547,12 +577,20 @@ def load(path: Path | bytes) -> Model:
         raise ValueError(
             f"this GLB declares {declared_cameras} cameras, more than this viewer will load"
         )
+    # create-12 (2026-10-03 audit): the declared count and the list shape are
+    # checked before the decode loop below builds one Skin per entry, the same
+    # order as every sibling above.
+    declared_skins = len(_check_list_field(gltf.get("skins", []), "this GLB's \"skins\""))
+    if declared_skins > MAX_SKINS:
+        raise ValueError(
+            f"this GLB declares {declared_skins} skins, more than this viewer will load"
+        )
     punctual = _punctual(gltf)
     if len(punctual) > MAX_LIGHTS:
         raise ValueError(
             f"this GLB declares {len(punctual)} lights, more than this viewer will load"
         )
-    reader = _Reader(gltf, buffer)
+    reader = _Reader(gltf, buffer, n_lights=len(punctual))
     materials = [reader.material(m) for m in gltf.get("materials", [])]
     meshes = []
     for mesh in gltf.get("meshes", []):
@@ -561,9 +599,20 @@ def load(path: Path | bytes) -> Model:
         # their own, the same duplication ``gltf.get("meshes", [])`` already
         # pays for twice in this function.
         _check_dict_entry(mesh, "a mesh in this GLB's \"meshes\" array")
-        meshes.append([reader.primitive(p, materials) for p in mesh.get("primitives", [])])
+        # ``or []`` like the declared-primitives pass above: a ``"primitives":
+        # null`` passed that pass and then raised a bare TypeError here
+        # (2026-10-03 audit, clay-86).
+        # A primitive with zero vertices is skipped, as ``write_glb`` skips one
+        # (the 2026-10-03 audit's create-29): the loader used to say yes and
+        # ``GpuPrimitive._interleave`` then raised "cannot reshape array of size
+        # 0" at upload, leaking the earlier primitives' buffers and looping on
+        # every retry. An empty primitive draws nothing, so dropping it loses
+        # nothing a reader could see.
+        parsed = (reader.primitive(p, materials) for p in mesh.get("primitives") or [])
+        meshes.append([p for p in parsed if len(p.positions)])
     skins = [reader.skin(s) for s in gltf.get("skins", [])]
     nodes = [reader.node(n) for n in gltf.get("nodes", [])]
+    _check_joint_indices(nodes, meshes, skins)
     return Model(
         nodes,
         _roots(gltf, nodes),
@@ -573,6 +622,40 @@ def load(path: Path | bytes) -> Model:
         cameras=[reader.camera(c) for c in gltf.get("cameras", [])],
         lights=[reader.light(light) for light in punctual],
     )
+
+
+def _check_joint_indices(
+    nodes: list[Node], meshes: list[list[Primitive]], skins: list[Skin]
+) -> None:
+    """Refuse a vertex whose JOINTS_0 names a joint its skin does not have.
+
+    The 2026-10-03 audit, finding create-20: every other index-shaped field in
+    a document is range-checked at load, but JOINTS_0's *values* were only
+    shape-checked. The viewer's vertex shader indexes a fixed-size
+    ``u_joints`` uniform array with them, so a value of 200 (or a negative
+    from a signed component type) reads past the array -- undefined in GLSL --
+    and a value between the skin's joint count and the array length silently
+    skins to an identity matrix. Checked per (mesh node, skin) rather than per
+    primitive because the skin lives on the node: a primitive no skinned node
+    draws never indexes the palette, so its stray values are left alone.
+    """
+    seen: dict[int, tuple[int, int]] = {}
+    for node in nodes:
+        if node.skin is None or node.mesh is None:
+            continue
+        count = len(skins[node.skin].joints)
+        for primitive in meshes[node.mesh]:
+            if primitive.joints is None or not len(primitive.joints):
+                continue
+            span = seen.get(id(primitive))
+            if span is None:
+                span = (int(primitive.joints.min()), int(primitive.joints.max()))
+                seen[id(primitive)] = span
+            if span[0] < 0 or span[1] >= count:
+                bad = span[0] if span[0] < 0 else span[1]
+                raise ValueError(
+                    f"JOINTS_0 names joint {bad}, but its skin has {count} joint(s)"
+                )
 
 
 def _punctual(gltf: dict) -> list[Any]:
@@ -719,6 +802,16 @@ def _number(value: Any, default: float) -> float:
     return number if np.isfinite(number) else default
 
 
+def _alpha_mode(raw: Any) -> str:
+    """A material's ``alphaMode``: one of the three glTF strings, else OPAQUE.
+
+    ``_factor``'s trade (cosmetic, so a fallback and not a refusal) for the one
+    material field it did not cover: the draw path looks the value up in a
+    dict, which raises ``unhashable type`` for a list or an object.
+    """
+    return raw if isinstance(raw, str) and raw in ("OPAQUE", "MASK", "BLEND") else "OPAQUE"
+
+
 def _factor(raw: Any, n: int, default: tuple[float, ...]) -> tuple[float, ...]:
     """One fixed-length material factor off a material's JSON, or the glTF default.
 
@@ -765,13 +858,26 @@ def _trs(
     value = np.asarray(raw, dtype="f8")
     if value.shape != (n,):
         raise ValueError(f"node {name!r} has a {key} of {value.size} numbers, not {n}")
+    # The 2026-10-03 audit, finding clay-37: json.loads reads a bare NaN or
+    # Infinity, and a non-finite TRS composes into a NaN world matrix that
+    # Clay's import then baked into every vertex -- a document that opened
+    # fine and failed at export, far from the file that caused it.
+    if not np.all(np.isfinite(value)):
+        raise ValueError(f"node {name!r} has a non-finite {key}")
     return value
 
 
 class _Reader:
-    def __init__(self, gltf: dict, buffer: bytes) -> None:
+    def __init__(self, gltf: dict, buffer: bytes, n_lights: int | None = None) -> None:
         self.gltf = gltf
         self.buffer = buffer
+        # The 2026-10-03 audit, finding clay-35: ``node()`` used to rebuild the
+        # whole light list (``list(lights)``) for every node that names a
+        # light, so load cost was nodes x lights -- 20,000 nodes against
+        # 100,000 lights, both under their own ceilings, took 8.8 s from a
+        # 3 MB file. The count is a property of the document; ``load`` hands
+        # over the one it already computed, a direct caller gets it here once.
+        self._n_lights = len(_punctual(gltf)) if n_lights is None else n_lights
         # Decoded pixels per glTF image *source* index (D39). Several
         # materials routinely reference one atlas, and the PNG decode is the
         # dominant cost of parse_model -- so each image is decoded once and
@@ -794,6 +900,8 @@ class _Reader:
         # and friends -- shared the same way, and for the same reason (H01):
         # see ``_typed``.
         self._typed_cache: dict[Any, np.ndarray] = {}
+        # The one ``Material`` every primitive with no (valid) material shares.
+        self._fallback_material: Material | None = None
         # ``decoded()``'s normalized-integer conversion, by accessor index --
         # shared the same way and for the same reason as ``_typed_cache``
         # (H01, clay-02, 2026-09-15): see ``decoded``.
@@ -818,6 +926,12 @@ class _Reader:
                 f"this GLB's decoded geometry and textures pass the "
                 f"{MAX_TOTAL_BYTES:,} byte budget this viewer holds open at once"
             )
+
+    def _array(self, key: str) -> list:
+        """A top-level array of the document, or a named refusal when the key
+        is present with another shape (the 2026-10-03 audit, clay-86: ``null``
+        or a number reached ``len()`` as an unnamed TypeError)."""
+        return _check_list_field(self.gltf.get(key, []), f'this GLB\'s "{key}"')
 
     def accessor(self, index: int) -> np.ndarray:
         # clay-04 (2026-09-09): checked before the dict lookup below, which
@@ -855,7 +969,7 @@ class _Reader:
         sibling boundary raises and callers key on.
         """
         _check_int_index(index, what)
-        accessors = self.gltf.get("accessors", [])
+        accessors = self._array("accessors")
         if not 0 <= index < len(accessors):
             raise ValueError(
                 f"{what} is {index}, but this GLB declares {len(accessors)} accessor(s)"
@@ -947,7 +1061,7 @@ class _Reader:
         # refusal. It does now, in the same message shape as that sibling.
         bv = acc["bufferView"]
         _check_int_index(bv, "an accessor's bufferView reference")
-        buffer_views = self.gltf.get("bufferViews", [])
+        buffer_views = self._array("bufferViews")
         if not 0 <= bv < len(buffer_views):
             raise ValueError(
                 f"an accessor references bufferView {bv}, but this GLB "
@@ -995,6 +1109,16 @@ class _Reader:
                     f"a bufferView's byteStride must be between 4 and 252, "
                     f"got {raw_stride}"
                 )
+            # The 2026-10-03 audit, finding clay-34: in range is not enough --
+            # a stride below the element's own size makes rows overlap, so
+            # stride 4 on a MAT4 turned a 4-byte-per-element buffer into
+            # 64-byte elements (and stride 8 on a VEC3 read overlapping
+            # garbage as geometry). The spec requires stride >= element size.
+            if raw_stride < item:
+                raise ValueError(
+                    f"a bufferView's byteStride of {raw_stride} is smaller than "
+                    f"the {item}-byte element its accessor reads"
+                )
         stride = raw_stride or item
         if stride == item:
             self._check_span(start, count * item)
@@ -1011,13 +1135,22 @@ class _Reader:
         # model simply failed to load.
         span = stride * (count - 1) + item if count else 0
         self._check_span(start, span)
-        # Two real copies land here -- the fancy-indexed ``rows`` and the
-        # ``ascontiguousarray`` beneath it -- on top of the raw span this reads
-        # out of the buffer, which is exactly the doubling H01's budget exists
-        # to account for rather than charge for the final array alone.
+        # Charged for the raw span and two element-sized copies, which is more
+        # than the one copy made below -- left generous on purpose, the budget
+        # is cumulative and a transient is no reason to under-charge it.
         self._charge(span + 2 * count * item)
         raw = np.frombuffer(self.buffer, dtype=np.uint8, count=span, offset=start)
-        rows = raw[np.arange(count)[:, None] * stride + np.arange(item)[None, :]]
+        # The 2026-10-03 audit, finding clay-34: this used to gather through a
+        # fancy index, a (count, item) int64 array -- eight bytes per output
+        # byte, 4.4x what ``_charge`` believed it had spent, and never charged
+        # at all. A strided *view* over the same bytes needs no index array:
+        # row i is ``raw[i*stride : i*stride + item]``, and the one real copy
+        # is the ``ascontiguousarray`` that follows. The span check above
+        # (stride*(count-1) + item) is exactly what the view reads, so it
+        # cannot run past ``raw``.
+        rows = np.lib.stride_tricks.as_strided(
+            raw, shape=(count, item), strides=(stride, 1), writeable=False
+        )
         return np.ascontiguousarray(rows).view(dtype).reshape(count, ncomp)
 
     def decoded(self, index: int) -> np.ndarray:
@@ -1095,9 +1228,14 @@ class _Reader:
         Charging only the final accessor size, as the per-accessor ceiling
         does, undercounted exactly this doubling.
         """
-        out = arr.astype(dtype)
-        self._charge(out.nbytes)
-        return out
+        # The 2026-10-03 audit, finding clay-33: this used to convert first and
+        # charge ``out.nbytes`` after, so the ceiling refused bytes that
+        # already existed -- a 300-byte GLB naming a bufferless normalized u8
+        # WEIGHTS_0 accessor peaked at 1.25 GiB before the 768 MiB refusal.
+        # The converted size is known from the source's element count and the
+        # target dtype, so the charge goes first.
+        self._charge(arr.size * np.dtype(dtype).itemsize)
+        return arr.astype(dtype)
 
     def _typed(self, key: Any, raw: np.ndarray, dtype: str) -> np.ndarray:
         """A converted array, shared by every primitive asking for the same
@@ -1145,6 +1283,14 @@ class _Reader:
         positions = self._typed(
             ("POSITION", attrs["POSITION"]), self.decoded(attrs["POSITION"]), "f4"
         )
+        # The 2026-10-03 audit, finding clay-32: the shape check at the foot of
+        # this method covered every attribute but POSITION itself, so one
+        # declared SCALAR or VEC4 loaded as an (n,1) or (n,4) array and Clay's
+        # ``reshape(-1, 3)`` turned it into a different vertex count (or a bare
+        # IndexError). Checked before the index and unindexed-count logic below
+        # reads ``len(positions)`` as though it were a vertex count.
+        if positions.ndim != 2 or positions.shape[1] != 3:
+            raise ValueError(f"POSITION must be VEC3 (n, 3), got {positions.shape}")
         if "indices" in prim:
             # Indices are never normalized -- they are indices -- so they take
             # the raw path deliberately.
@@ -1298,6 +1444,15 @@ class _Reader:
             and 0 <= material_index < len(materials)
         ):
             out.material = materials[material_index]
+        else:
+            # The 2026-10-03 audit, finding clay-89: every material-less
+            # primitive carried its own default-factory ``Material``, and
+            # consumers dedupe materials by object identity, so a 40-mesh GLB
+            # with no materials imported into Clay as 40 identical palette
+            # entries. One shared fallback per load, like a declared material.
+            if self._fallback_material is None:
+                self._fallback_material = Material()
+            out.material = self._fallback_material
         return out
 
     def material(self, mat: dict) -> Material:
@@ -1326,7 +1481,12 @@ class _Reader:
                 mat.get("emissiveFactor", (0.0, 0.0, 0.0)), 3, (0.0, 0.0, 0.0)
             ),
             double_sided=bool(mat.get("doubleSided", False)),
-            alpha_mode=mat.get("alphaMode", "OPAQUE"),
+            # The 2026-10-03 audit, finding create-13: stored unvalidated, so a
+            # list or object here loaded clean and raised ``unhashable type``
+            # from ``GpuMaterial.bind`` on every frame -- ``_factor``'s
+            # load-clean-crash-later shape (create-01, 2026-09-14), missed for
+            # this field. Anything but the three glTF strings is OPAQUE.
+            alpha_mode=_alpha_mode(mat.get("alphaMode", "OPAQUE")),
             alpha_cutoff=_number(mat.get("alphaCutoff", 0.5), 0.5),
         )
         out.base_color = self.texture(pbr.get("baseColorTexture"))
@@ -1364,7 +1524,7 @@ class _Reader:
             # not the same class of bug as a view that names no bufferView at
             # all -- a bad index is refused with the same message shape
             # ``node()``/``skin()`` use.
-            buffer_views = self.gltf.get("bufferViews", [])
+            buffer_views = self._array("bufferViews")
             bv = image["bufferView"]
             # The 2026-09-11 audit, finding create-01 (merged): range-checked
             # just below since clay-09, but never type-checked, the same gap
@@ -1390,6 +1550,13 @@ class _Reader:
                 return None
             start = view.get("byteOffset", 0)
             byte_length = view.get("byteLength", 0)
+            # The 2026-10-03 audit, finding clay-86: the accessor path checks
+            # these two as whole numbers (``_decode_accessor``), this one did
+            # not, so a ``4.0`` reached the slice below as an unnamed
+            # TypeError -- outside the cosmetic try, which only wraps the span
+            # check. A malformed extent is a refusal, not a lost texture.
+            _check_int_index(start, "an image bufferView's byteOffset")
+            _check_int_index(byte_length, "an image bufferView's byteLength")
             # The 2026-09-13 audit, finding create-09: this used to slice
             # straight out of ``self.buffer`` with no span check, so a
             # bufferView whose declared byteLength overran the BIN chunk was
@@ -1429,6 +1596,10 @@ class _Reader:
     def texture(self, ref: dict | None) -> tuple[int, int, bytes] | None:
         if not ref:
             return None
+        # The 2026-10-03 audit, finding clay-86: a texture reference that is
+        # truthy but not an object (``"normalTexture": 5``) reached
+        # ``ref.get("index")`` as a bare AttributeError.
+        _check_dict_entry(ref, "a material's texture reference")
         from PIL import Image
 
         # The 2026-09-06 audit, finding clay-09: both lookups below indexed
@@ -1437,7 +1608,7 @@ class _Reader:
         # raised a bare IndexError instead of the named ValueError every other
         # boundary in this file raises. Refused here, before either array is
         # touched, in the same message shape ``node()``/``skin()`` use.
-        textures = self.gltf.get("textures", [])
+        textures = self._array("textures")
         # The 2026-09-26 audit, finding clay-io-10: ``"index"`` is required by
         # the glTF schema on a texture reference, but a hand-edited or
         # truncated file can omit it anyway, and ``ref["index"]`` raised a
@@ -1478,7 +1649,7 @@ class _Reader:
         # and a non-hashable value (a list) would also fail the ``self.
         # _images`` cache lookup a few lines down before ever reaching it.
         _check_int_index(source, f"texture {index}'s source image reference")
-        images = self.gltf.get("images", [])
+        images = self._array("images")
         if not 0 <= source < len(images):
             raise ValueError(
                 f"a material references image {source}, but this GLB "
@@ -1731,7 +1902,7 @@ class _Reader:
                 light = block.get("light")
         if light is not None:
             _check_int_index(light, f"node {name!r}'s light reference")
-            n_lights = len(_punctual(self.gltf))
+            n_lights = self._n_lights
             if not 0 <= light < n_lights:
                 raise ValueError(
                     f"node {name!r} references light "

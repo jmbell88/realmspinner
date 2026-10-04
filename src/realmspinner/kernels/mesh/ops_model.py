@@ -21,6 +21,7 @@ that keeps it off the frame thread on a large selection.
 from __future__ import annotations
 
 import contextlib
+from typing import Any
 
 import numpy as np
 
@@ -125,6 +126,13 @@ def bisect(
     uniform per-corner walk handles "this face is entirely kept", "entirely
     removed" and "genuinely split" without three branches to keep in step.
 
+    **A concave face the plane crosses four or more times** is rebuilt as one
+    polygon per run of the boundary on each side (:func:`_split_by_runs`), not
+    as one self-touching polygon per side: a U knifed through both arms gives
+    two arm tops and the U's body, and the selection out names both stretches
+    of cut line. A face whose crossings do not pair up cleanly keeps the old
+    single-polygon rebuild.
+
     **``fill`` is best-effort, not a refusal.** It calls ``ops_topo.fill_hole``
     on the new cut boundary and, if that boundary is not a single clean closed
     ring -- open (a partial selection that never closes), pinched, or past
@@ -213,6 +221,9 @@ def bisect(
         f_front_uv: list = []
         f_back_uv: list = []
         new_here: list[int] = []
+        # The face's own boundary walk, for the multi-crossing split below:
+        # (vertex, uv, side, is_crossing) in order.
+        ring: list[tuple[int, Any, int, bool]] = []
         on_plane = True
         for c in range(lo_c, hi_c):
             v = int(mesh.loops[c])
@@ -220,6 +231,8 @@ def bisect(
             if abs(s) > _PLANE_EPS:
                 on_plane = False
             uv_here = None if mesh.uv is None else mesh.uv[c]
+            side = 1 if s > _PLANE_EPS else (-1 if s < -_PLANE_EPS else 0)
+            ring.append((v, uv_here, side, False))
             if s >= -_PLANE_EPS:
                 f_front.append(v)
                 f_front_uv.append(uv_here)
@@ -235,8 +248,22 @@ def bisect(
                 f_front_uv.append(uv_new)
                 f_back.append(nv)
                 f_back_uv.append(uv_new)
-        if len(new_here) >= 2:
-            new_edge_pairs.append((new_here[0], new_here[-1]))
+                ring.append((nv, uv_new, 0, True))
+        # The 2026-10-03 audit's clay-91: a concave face the plane crosses four
+        # or more times is one front region per run, not one polygon. The
+        # single-list walk above built a self-touching 8-gon for a U knifed
+        # through both arms, and named one cut segment of two.
+        split = _split_by_runs(
+            ring, new_here, new_pos, n_verts, p0, n, mesh, faces_pos=(lo_c, hi_c)
+        )
+        if split is not None:
+            front_polys, back_polys, segments = split
+            new_edge_pairs.extend(segments)
+        else:
+            front_polys = [(f_front, f_front_uv)]
+            back_polys = [(f_back, f_back_uv)]
+            if len(new_here) >= 2:
+                new_edge_pairs.append((new_here[0], new_here[-1]))
         # The 2026-09-26 audit (clay-mesh-model-07): a face wholly inside the
         # cut plane (every corner within _PLANE_EPS of it) has every vertex
         # satisfy both `s >= -eps` and `s <= eps`, so it built an identical
@@ -245,16 +272,20 @@ def bisect(
         # crossed the plane (no new edge vertices), so with clear=0 it is not
         # actually being cut in two; keep the front copy only.
         keep_back = not (on_plane and clear == 0)
-        if clear != 2 and len(f_front) >= 3:
-            front_loops.extend(f_front)
-            front_uv.extend(f_front_uv)
-            front_counts.append(len(f_front))
-            front_src.append(f)
-        if clear != 1 and keep_back and len(f_back) >= 3:
-            back_loops.extend(f_back)
-            back_uv.extend(f_back_uv)
-            back_counts.append(len(f_back))
-            back_src.append(f)
+        if clear != 2:
+            for poly, poly_uv in front_polys:
+                if len(poly) >= 3:
+                    front_loops.extend(poly)
+                    front_uv.extend(poly_uv)
+                    front_counts.append(len(poly))
+                    front_src.append(f)
+        if clear != 1 and keep_back:
+            for poly, poly_uv in back_polys:
+                if len(poly) >= 3:
+                    back_loops.extend(poly)
+                    back_uv.extend(poly_uv)
+                    back_counts.append(len(poly))
+                    back_src.append(f)
 
     chosen = np.zeros(face_count(mesh), dtype=bool)
     chosen[faces] = True
@@ -332,6 +363,86 @@ def bisect(
             out2, _ = ops_topo.fill_hole(out2, ElementSel(edges=cut_pairs))
 
     return out2, ElementSel(edges=cut_pairs)
+
+
+def _split_by_runs(ring, new_here, new_pos, n_verts, p0, n, mesh, *, faces_pos):
+    """``(front_polys, back_polys, cut_segments)`` for a face crossed 4+ times, or
+    ``None`` to keep the single-polygon walk.
+
+    The boundary between two consecutive crossings is a *run* lying wholly on
+    one side. Each side's polygons are those runs joined by the stretches of
+    the cut line inside the face: the crossings sorted along the line pair up
+    (first with second, third with fourth...), the same even-odd rule that says
+    which stretches of a line are inside a simple polygon. A pairing that does
+    not close every run (a self-intersecting face, a crossing a vertex sitting
+    on the plane confused) returns ``None``, and the caller keeps what it always
+    built rather than refuse an op that used to succeed.
+    """
+    k = len(new_here)
+    if k < 4 or k % 2:
+        return None
+    lo_c, hi_c = faces_pos
+    ring_pos = mesh.positions[mesh.loops[lo_c:hi_c]].astype("f8")
+    nxt = np.roll(ring_pos, -1, axis=0)
+    face_n = np.sum(np.cross(ring_pos, nxt), axis=0)  # Newell, unnormalised
+    direction = np.cross(n, face_n)
+    if float(np.linalg.norm(direction)) <= 1e-12:
+        return None
+    t = {nv: float((new_pos[nv - n_verts] - p0) @ direction) for nv in new_here}
+    ordered = sorted(new_here, key=lambda nv: t[nv])
+    partner: dict[int, int] = {}
+    segments: list[tuple[int, int]] = []
+    for i in range(0, k, 2):
+        partner[ordered[i]] = ordered[i + 1]
+        partner[ordered[i + 1]] = ordered[i]
+        segments.append((ordered[i], ordered[i + 1]))
+
+    cross_at = [i for i, e in enumerate(ring) if e[3]]
+    m = len(ring)
+    runs: list[tuple[int, int, int, list]] = []  # (side, start nv, end nv, items)
+    for j, ia in enumerate(cross_at):
+        ib = cross_at[(j + 1) % len(cross_at)]
+        length = (ib - ia) % m + 1
+        items = [ring[(ia + q) % m] for q in range(length)]
+        side = next((e[2] for e in items[1:-1] if e[2] != 0), 0)
+        if side == 0:
+            return None
+        runs.append((side, items[0][0], items[-1][0], items))
+
+    def join(side: int):
+        mine = [r for r in runs if r[0] == side]
+        by_start = {r[1]: r for r in mine}
+        used: set[int] = set()
+        polys = []
+        for first in mine:
+            if first[1] in used:
+                continue
+            cur = first
+            poly: list[int] = []
+            poly_uv: list = []
+            for _ in range(len(mine) + 1):
+                used.add(cur[1])
+                for vert, uv_row, _s, _c in cur[3]:
+                    poly.append(vert)
+                    poly_uv.append(uv_row)
+                nxt_run = by_start.get(partner[cur[2]])
+                if nxt_run is None:
+                    return None
+                if nxt_run is first:
+                    break
+                if nxt_run[1] in used:
+                    return None
+                cur = nxt_run
+            else:
+                return None
+            polys.append((poly, poly_uv))
+        return polys
+
+    front = join(1)
+    back = join(-1)
+    if front is None or back is None:
+        return None
+    return front, back, segments
 
 
 def knife(mesh: Mesh, sel: ElementSel, *, point, normal) -> tuple[Mesh, ElementSel]:
@@ -427,7 +538,13 @@ def edge_slide(mesh: Mesh, sel: ElementSel, *, t: float = 0.0) -> tuple[Mesh, El
 
     verts = np.unique(sel.edges.reshape(-1).astype("i8"))
     _refuse_slide_size(len(verts), "Sliding")
-    positions = mesh.positions.astype("f8").copy()
+    # The 2026-10-03 audit's clay-45: every neighbour position below used to be
+    # read from the array this loop was already rewriting, so two selected
+    # vertices that were each other's rail slid cumulatively and the answer
+    # depended on vertex index order. Reads come from `original`, writes go to
+    # `positions`.
+    original = mesh.positions.astype("f8")
+    positions = original.copy()
     t = float(t)
 
     for v in verts.tolist():
@@ -450,8 +567,8 @@ def edge_slide(mesh: Mesh, sel: ElementSel, *, t: float = 0.0) -> tuple[Mesh, El
         if len(far_verts) == 2:
             a_far, b_far = far_verts
         else:
-            here = positions[v]
-            dirs = {fv: _unit(positions[fv] - here) for fv in far_verts}
+            here = original[v]
+            dirs = {fv: _unit(original[fv] - here) for fv in far_verts}
             best = None
             for i, fi in enumerate(far_verts):
                 for fj in far_verts[i + 1 :]:
@@ -459,11 +576,11 @@ def edge_slide(mesh: Mesh, sel: ElementSel, *, t: float = 0.0) -> tuple[Mesh, El
                     if best is None or score < best[0]:
                         best = (score, fi, fj)
             a_far, b_far = best[1], best[2]
-        here = positions[v]
+        here = original[v]
         if t < 0.0:
-            positions[v] = here + (-t) * (positions[a_far] - here)
+            positions[v] = here + (-t) * (original[a_far] - here)
         elif t > 0.0:
-            positions[v] = here + t * (positions[b_far] - here)
+            positions[v] = here + t * (original[b_far] - here)
 
     out = topo.rebuild(positions, mesh.loops, mesh.starts, mesh.material, mesh.smooth, uv=mesh.uv)
     return out, sel
@@ -495,7 +612,10 @@ def vertex_slide(
         raise OpError("Select the vertices to slide.")
     _refuse_slide_size(len(np.unique(sel.verts)), "Sliding")
     a = adjacency(mesh)
-    positions = mesh.positions.astype("f8").copy()
+    # See edge_slide's clay-45 comment: neighbours are read from the untouched
+    # `original`, never from the array being rewritten.
+    original = mesh.positions.astype("f8")
+    positions = original.copy()
     direction = None
     if direction_edge is not None:
         direction = _unit(np.asarray(direction_edge, dtype="f8").reshape(3))
@@ -509,12 +629,12 @@ def vertex_slide(
         edges = out_edges | in_edges
         if not edges:
             raise OpError(f"Vertex {v} has no edge to slide along.")
-        here = positions[v]
+        here = original[v]
         candidates: list[tuple[int, np.ndarray]] = []
         for e in edges:
             ends = a.edge_verts[e]
             far = int(ends[1]) if int(ends[0]) == v else int(ends[0])
-            candidates.append((far, positions[far]))
+            candidates.append((far, original[far]))
         if direction is None:
             far, far_pos = min(candidates, key=lambda pair: pair[0])
         else:

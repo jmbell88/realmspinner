@@ -149,7 +149,7 @@ Assert-LastExit "staged PyTorch CUDA 12.8 check"
 # Then the runtime is synced *down* to `--extra studio`, which is what the
 # installer carries: `uv pip sync` is an exact sync, so the second call
 # uninstalls everything the base does not need. A user who only draws pixel art
-# never downloads torch, and Create, Poser, Troupe and Muse arrive from
+# never downloads torch, and Create, Poser and Muse arrive from
 # Settings -> Packs when they are asked for.
 & uv run python scripts/make_packs.py --out $PackDir --python $StagedPython
 Assert-LastExit "scripts/make_packs.py"

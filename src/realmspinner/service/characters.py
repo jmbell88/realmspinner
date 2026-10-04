@@ -1,11 +1,12 @@
 """The door for a character: a recipe in, a finished mesh and a queued sheet out.
 
 One press has to produce the whole chain -- a body, a skeleton, and 144 rendered
-cells -- and the chain is still four ordinary rows rather than an orchestrator.
-That is the shape ``troupe.send_to_troupe`` already establishes and this module
-extends by exactly one link at the front: instead of taking a mesh the user
-already has, it *builds* one from a :class:`~realmspinner.characters.recipe.Recipe`
-and hands it straight to that door.
+cells -- and the chain is still ordinary rows (model, rig, sheet) rather than
+an orchestrator. That is the shape ``troupe.send_to_troupe`` already
+establishes and this module extends by exactly one link at the front: instead
+of taking a mesh the user already has, it *builds* one from a
+:class:`~realmspinner.characters.recipe.Recipe` and hands it straight to that
+door.
 
 **Order is the whole design.** Everything knowable is refused before a byte is
 written -- the recipe, the pixel block, the clip expansion, the frame plan, and
@@ -303,15 +304,19 @@ def recipe_from_prompt(
     # Directions, validated here (not only by Recipe below) because the
     # mini frame-table resolution just below needs a real preset to ask
     # ``resolve_layout`` about before Recipe ever sees it.
+    # Through ``Recipe``'s own ``_integer`` (the 2026-10-03 audit, poser-36): a
+    # bare ``int()`` here turned 4.9 into 4 and True into 1 -- both on the
+    # ladder -- before the hardened reader ever saw them, and let an infinity
+    # escape as a raw OverflowError.
     try:
-        directions = int(overrides.get("directions", 8))
-    except (TypeError, ValueError):
-        raise Invalid("directions must be a whole number", field="directions") from None
-    if directions not in recipe_mod.DIRECTION_CHOICES:
-        raise Invalid(
-            f"directions must be one of {list(recipe_mod.DIRECTION_CHOICES)}",
-            field="directions",
+        directions = recipe_mod._on_ladder(
+            recipe_mod._integer(overrides.get("directions", 8), "directions", "directions"),
+            recipe_mod.DIRECTION_CHOICES,
+            "directions",
+            "directions",
         )
+    except CharacterError as exc:
+        raise Invalid(str(exc), field="directions") from exc
 
     # Animations: an override (name -> frames, ``None`` meaning "use this
     # skeleton's own length for it"), else the words the prompt resolved to
@@ -759,7 +764,7 @@ def export_package(
 
     png = store.sheet_png_path(job_dir, str(sheet_id))
     sidecar = store.sheet_path(job_dir, str(sheet_id))
-    if not png.exists() or not sidecar.exists():
+    if not png.is_file() or not sidecar.is_file():
         raise NotFound("that sheet is no longer on disk", field="sheet_id")
 
     # Named after the *job*, not after the sheet id: a folder full of
@@ -813,6 +818,25 @@ def _sheet_movements_by_key(layout: Mapping[str, Any]) -> dict[str, dict[str, An
     return out
 
 
+def _sheet_whole(value: Any, what: str) -> int:
+    """A sidecar number read as a whole number, refused by name rather than raised.
+
+    The 2026-10-03 audit, finding poser-25: the 2026-09-26 "refused, not
+    crashed" contract was applied to ``export_frames``' ``frame_size`` only, so
+    ``sheet_preview_png`` and a run's ``yaw`` or a cell's ``x`` still met a
+    hand-edited or corrupt sidecar with a bare ``int()``/``float()`` and let a
+    ``ValueError``/``TypeError`` out with no ``field``. Every sidecar read in
+    this module goes through here (or through ``_sheet_cells_by_index``/
+    ``_sheet_runs``, which do), and the refusal rings ``sheet_id``.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise invalid_from(
+            exc, f"this sheet's layout is corrupted ({what} is invalid)", field="sheet_id"
+        ) from exc
+
+
 def _sheet_cells_by_index(record: Mapping[str, Any]) -> dict[int, dict[str, Any]]:
     """Index a sheet sidecar's ``cells`` list by cell index -- see
     :func:`_sheet_movements_by_key`; same finding, same reasoning. ``x``/
@@ -827,11 +851,17 @@ def _sheet_cells_by_index(record: Mapping[str, Any]) -> dict[int, dict[str, Any]
                 field="sheet_id",
             )
         try:
-            out[int(entry["index"])] = dict(entry)
+            index = int(entry["index"])
         except (TypeError, ValueError) as exc:
             raise invalid_from(
                 exc, "this sheet's layout is corrupted", field="sheet_id"
             ) from exc
+        cell = dict(entry)
+        # The crop box is read bare by both readers of this table; whole numbers
+        # here are what keeps a cell with ``x: "a"`` out of ``Image.crop``.
+        for edge in ("x", "y", "w", "h"):
+            cell[edge] = _sheet_whole(cell[edge], f"a cell's {edge}")
+        out[index] = cell
     return out
 
 
@@ -849,6 +879,13 @@ def _sheet_runs(layout: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "this sheet's layout is corrupted (a run is missing a field)",
                 field="sheet_id",
             )
+        try:
+            float(entry["yaw"])
+        except (TypeError, ValueError) as exc:
+            raise invalid_from(
+                exc, "this sheet's layout is corrupted (a run's yaw is invalid)",
+                field="sheet_id",
+            ) from exc
         out.append(dict(entry))
     return out
 
@@ -911,7 +948,7 @@ def export_frames(
 
     png_path = store.sheet_png_path(job_dir, str(sheet_id))
     record = store.read_sheet(job_dir, str(sheet_id))
-    if record is None or not png_path.exists():
+    if record is None or not png_path.is_file():
         raise NotFound("that sheet is no longer on disk", field="sheet_id")
 
     troupe_block = record.get("troupe")
@@ -1029,7 +1066,14 @@ def export_frames(
                     "(lowercase letters, digits and underscores only)",
                     field="sheet_id",
                 )
-            compass = charsheet.compass_name(float(run["yaw"]))
+            try:
+                compass = charsheet.compass_name(float(run["yaw"]))
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise invalid_from(
+                    exc,
+                    "this sheet's layout is corrupted (a run's yaw is invalid)",
+                    field="sheet_id",
+                ) from exc
             key = (clip, compass)
             if key in seen_folders:
                 raise Invalid(
@@ -1475,12 +1519,21 @@ def character_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
             cell_count = troupe_block.get("cell_count")
             if cell_count is None:
                 cell_count = len(record.get("cells") or [])
+            # The 2026-10-03 audit, finding poser-25: a bare ``int()`` here let
+            # one corrupt sidecar's ``frame_size``/``cell_count`` raise for the
+            # whole report; the other sheets are still worth listing, and the
+            # corrupt one is refused by name wherever it is opened.
+            try:
+                frame_size = int(record.get("frame_size") or 0)
+                cell_total = int(cell_count)
+            except (TypeError, ValueError, OverflowError):
+                continue
             sheets.append(
                 {
                     "sheet_id": str(record.get("id") or ""),
                     "name": str(record.get("name") or ""),
-                    "frame_size": int(record.get("frame_size") or 0),
-                    "cell_count": int(cell_count),
+                    "frame_size": frame_size,
+                    "cell_count": cell_total,
                     "movements": [str(m.get("key")) for m in movement_rows],
                     "directions": len(directions_seen),
                     "fps": troupe_block.get("fps"),
@@ -1546,7 +1599,7 @@ def sheet_preview_png(
 
     png_path = store.sheet_png_path(job_dir, str(sheet_id))
     record = store.read_sheet(job_dir, str(sheet_id))
-    if record is None or not png_path.exists():
+    if record is None or not png_path.is_file():
         raise NotFound("that sheet is no longer on disk", field="sheet_id")
 
     troupe_block = record.get("troupe")
@@ -1581,7 +1634,7 @@ def sheet_preview_png(
                 field="direction",
             )
 
-    frame_size = int(record.get("frame_size") or 0)
+    frame_size = _sheet_whole(record.get("frame_size") or 0, "frame_size")
     if frame_size <= 0:
         raise Invalid(
             "that sheet is not square, so it has no fixed frame size to crop", field="sheet_id"
@@ -1609,13 +1662,14 @@ def sheet_preview_png(
         cell = cell_by_index.get(index)
         if cell is None:
             raise Invalid("that sheet's cells do not match its own layout", field="sheet_id")
-        x, y = int(cell["x"]), int(cell["y"])
+        x, y = cell["x"], cell["y"]
         return image.crop((x, y, x + frame_size, y + frame_size))
 
     if movement is None:
         frame_count = len(cell_by_index)
     elif chosen_run is not None:
-        start, end = int(chosen_run["start"]), int(chosen_run["end"])
+        start = _sheet_whole(chosen_run["start"], "a run's start")
+        end = _sheet_whole(chosen_run["end"], "a run's end")
         # Arithmetic only, never ``list(range(...))``, until the bound below
         # has passed: a corrupted ``end`` is exactly the kind of value this
         # check exists to catch, and materialising the list first would
@@ -1645,7 +1699,8 @@ def sheet_preview_png(
         # refused. The single-run branch above never has this gap because its
         # own ``frame_count`` *is* the run's span; here it is asserted instead.
         for run in ordered_runs:
-            start, end = int(run["start"]), int(run["end"])
+            start = _sheet_whole(run["start"], "a run's start")
+            end = _sheet_whole(run["end"], "a run's end")
             if end - start + 1 != frame_count:
                 raise Invalid(
                     f"movement {movement!r} declares {frame_count} frames but its "
@@ -1810,9 +1865,12 @@ def _plan(spec: Recipe, clip_library: str, frame_size: int) -> charsheet.LayoutS
     closed :data:`charsheet.ANIMATIONS` five -- per
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A clip the
     library has never heard of surfaces as ``resolve_layout``'s own
-    ``ValueError`` now rather than ``expand_clips``' ``KeyError``, and falls
-    into the same ``field="layout"`` branch below either way -- the existing
-    ``Invalid`` path, unchanged.
+    ``ValueError`` now rather than ``expand_clips``' ``KeyError``, and files
+    under ``field="layout"``. The two branches below are *not* one: a
+    ``KeyError`` (``expand_clips`` finding a clip the library does not hold)
+    is filed under ``field="animations"``, the control ``create_character``
+    already names for an unknown clip, and only a ``ValueError`` (a layout
+    that does not resolve or does not fit) is filed under ``field="layout"``.
     """
     from ..clips import clip_timing, expand_clips
     from ..kernels import charsheet

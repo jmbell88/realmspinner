@@ -25,6 +25,7 @@ is reset by every line, including ones this method only forwards.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import json
 import logging
@@ -72,6 +73,11 @@ the first generate.
 """
 
 
+ERROR_TAIL_CHARS = 2000
+"""How much of the child's last output a ``ChildFailed`` carries (the same bound
+``blender_run`` keeps for ``BlenderError``)."""
+
+
 class ChildFailed(RuntimeError):
     """The child could not serve a request. Carries the child's own message."""
 
@@ -87,6 +93,12 @@ class Text2ImageClient:
         self._model_dir = model_dir or (model_root / spec.dir_name)
         self._proc: subprocess.Popen[str] | None = None
         self._lines: Any = None
+        # The last lines the reader saw that were not answers. The 2026-10-03
+        # audit (pipelines-07) found a child that died at startup (missing
+        # extra) or mid-sample (CUDA OOM) surfaced as a fixed sentence, its own
+        # last words logged at DEBUG only, so a missing module, an OOM and a
+        # driver fault read the same.
+        self._tail: collections.deque[str] = collections.deque(maxlen=40)
         # Serialises the whole exchange, not just the write: the protocol is one
         # terminal response per request with nothing to correlate them by, so
         # two callers interleaving would each read the other's answer. Matting's
@@ -310,6 +322,7 @@ class Text2ImageClient:
         winjob.track(proc.pid, f"text2image {self.spec.key}")
 
         lines: Any = _queue.Queue()
+        self._tail.clear()
 
         def _pump(stream: Any) -> None:
             try:
@@ -342,12 +355,28 @@ class Text2ImageClient:
             except _queue.Empty:
                 continue
             if raw is None:
+                failure = self._died("the image worker exited during startup")
                 self._stop_child()
-                raise ChildFailed("the image worker exited during startup")
+                raise failure
             if MARKER not in raw:
-                log.debug("t2i worker: %s", raw.rstrip())
+                self._chatter(raw)
                 continue
             return
+
+    def _died(self, what: str) -> ChildFailed:
+        """``ChildFailed`` for a child that ended, with what it last printed."""
+        output = "\n".join(self._tail)[-ERROR_TAIL_CHARS:].strip()
+        return ChildFailed(f"{what}:\n{output}" if output else what)
+
+    def _chatter(self, line: str) -> None:
+        """Remember and log one line of the child's own output."""
+        text = line.rstrip()
+        if text:
+            # A progress bar rewrites its line with carriage returns; only the
+            # last redraw says anything, the rest would crowd out the traceback.
+            text = text.rsplit("\r", 1)[-1] or text
+            self._tail.append(text)
+        log.debug("t2i worker: %s", text)
 
     def _stop_child(self) -> None:
         """Kill the child and forget it. Caller holds the lock. Never raises."""
@@ -428,20 +457,21 @@ class Text2ImageClient:
             except _queue.Empty:
                 continue
             if raw is None:
+                failure = self._died("the image worker exited without answering")
                 self._stop_child()
-                raise ChildFailed("the image worker exited without answering")
+                raise failure
             # Any line at all is a sign of life, chatter included: a checkpoint
             # read prints for a long time without the worker emitting a state.
             deadline = time.monotonic() + SILENCE_TIMEOUT
             at = raw.find(MARKER)
             if at < 0:
-                log.debug("t2i worker: %s", raw.rstrip())
+                self._chatter(raw)
                 continue
             if at:
                 # A response can share a physical line with the progress bar
                 # that was mid-update when it was written; the prefix is that
                 # bar, and it is chatter like any other.
-                log.debug("t2i worker: %s", raw[:at].rstrip())
+                self._chatter(raw[:at])
             try:
                 msg = json.loads(raw[at + len(MARKER) :])
             except ValueError as exc:

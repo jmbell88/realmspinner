@@ -46,13 +46,12 @@ from .. import stages as create_stages
 from .. import workspace as generation_workspace
 from . import settings_character
 
-# This pane's key in the focus ring (UX.md Phase 3). The controls on the common
-# path take a place in it: the ring exists so a first job can be composed and
-# submitted without the mouse.
-FOCUS_PANE = "2d"
-
-_submit_px = [96.0]
-
+# The focus ring (UX.md Phase 3) is the brief's: the brief's controls are drawn
+# inside this column, so a "2d" ring of its own was a second cursor pumped in the
+# same frame (the 2026-10-03 audit, finding create-15). The controls on the
+# common path take a place in it: the ring exists so a first job can be composed
+# and submitted without the mouse.
+FOCUS_PANE = create_brief.FOCUS_PANE
 
 def draw(ctx: Any) -> None:
     state = ctx.state
@@ -80,7 +79,10 @@ def draw(ctx: Any) -> None:
     with forms.Form("create-2d", errors=ctx.state.field_errors) as form_ui:
         # The plan block is pinned and does not scroll (K92): the statement of
         # what a press will cost must not be at the bottom of a scrolled column
-        # when the press itself is in the bar above.
+        # when the press itself is right under it. The column reserves a fixed
+        # ``-sp(220)`` for the plan, its refusals and Generate; there is no
+        # frame-late height feedback (the audit's create-40 removed the unused
+        # ``_submit_px`` list that said there was).
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
         if imgui.begin_child("2d-form", (0, -sp(220))):
@@ -92,9 +94,11 @@ def draw(ctx: Any) -> None:
             # corrupts the next frame (widgets.py, _BlockScope).
             with widgets.section_blocks():
                 create_brief.inputs(ctx)
-                # **This column is "how"; the bar above is "what".** The type,
-                # the prompt, the count and Generate moved to
-                # ``create_brief``; what is left is the recipe, whatever the
+                # **The brief's inputs open the column, the recipe follows.**
+                # ``create_brief.inputs`` draws the type, the prompt, the count
+                # and Reset at the top of this very column, and
+                # ``create_brief.submit_control`` draws Generate under the plan
+                # at its foot; what is drawn here is the recipe, whatever the
                 # chosen type needs, and the conditioning -- and it is flat,
                 # because "Advanced controls" was one disclosure holding six
                 # sections, which is a second navigation inside a sidebar.
@@ -127,7 +131,9 @@ def draw(ctx: Any) -> None:
                         manual_render.help_button(ctx, "settings-sheet")
                         _sprite_layout(ctx, form, form_ui)
                         _sprite_size(ctx, form, form_ui)
-                        _target_cell(ctx, form, form_ui)
+                        # No Cell target here (the 2026-10-04 audit, finding
+                        # create-22): the sprite door keeps no target, so the
+                        # control validated a number and did nothing with it.
                         _pixel_look(ctx, form, form_ui, sprite=True)
                     widgets.section("Recipe")
                     manual_render.help_button(ctx, "settings-2d")
@@ -161,7 +167,7 @@ def draw(ctx: Any) -> None:
                         f"Conditioning{create_recipe.conditioning_tail(form)}##create"
                     )
                     if opened:
-                        _references(ctx, form)
+                        _references(ctx, form, findings_doc)
         imgui.end_child()
         if imgui.begin_child("2d-plan", (0, -sp(52))):
             _plan_footer(ctx, form)
@@ -207,6 +213,9 @@ def _tile_size(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     if changed:
         form["tile_size"] = picked
         ctx.state.clear_field_error("tile_size")
+        # The 2026-10-04 audit, finding create-53: "The tile size moved to 32 px"
+        # kept saying so after the user picked another size themselves.
+        ctx.state.preview.pop(TILE_MODE_CLEARED_KEY, None)
 
 
 TILE_MODE_CLEARED_KEY = "tile_mode_cleared"
@@ -406,6 +415,9 @@ def _tile_grid(
     if changed and picked != before:
         form["projection"] = picked
         ctx.state.clear_field_error("projection")
+        # The layout's "The view moved to ..." note, for the same reason as the
+        # tile size's (the 2026-10-04 audit, finding create-53).
+        ctx.state.preview.pop(TILE_MODE_CLEARED_KEY, None)
     widgets.muted_wrapped(
         "One 1024 px frame is painted through a grid guide and cut into "
         f"{options['tiles']} cells. Every cell of the guide is identical, so the "
@@ -757,7 +769,19 @@ def _best_value_offer(
     widgets.muted(findings_lib.best_value_line(entry, scope))
     imgui.same_line()
     if controls.button(f"Use {value_str}##best-{param}"):
-        form[param] = coerce_form_value(form[param], value_str)
+        was = form[param]
+        form[param] = coerce_form_value(was, value_str)
+        # The 2026-10-04 audit, finding create-20: the offer used to write
+        # ``form[param]`` alone, which skipped what the control's own change path
+        # does. For the Model combo that is ``model_override`` (the field the
+        # request reads, so the combo showed the new model and the job ran the
+        # old one) and ``clear_unusable``; for the Style LoRA it is the tuned
+        # weight (a pixelxl pick kept 0.9 against its 1.2).
+        if param == "base_model":
+            _pick_base_model(ctx, form, str(form[param]))
+        elif param == "style_lora":
+            ctx.state.clear_field_error("style_lora")
+            create_recipe.reseed_lora_weight(form, was)
 
 
 def _reset(ctx: Any) -> None:
@@ -778,6 +802,10 @@ def _reset(ctx: Any) -> None:
     from .....state import default_form_2d
 
     ctx.state.form_2d = default_form_2d()
+    # The 2026-10-03 audit, finding create-24: the rings and copy a refusal
+    # recorded belong to the form just discarded; "The prompt is over 1000
+    # characters." kept ringing an empty prompt until it was edited.
+    ctx.state.clear_field_errors()
     ctx.state.preview.pop(TILE_MODE_CLEARED_KEY, None)
     ctx.state.preview.pop(CLEARED_KEY, None)
     ctx.toast("The image settings are back to their defaults.")
@@ -804,7 +832,9 @@ def _history(ctx: Any, form: dict[str, Any]) -> None:
         imgui.end_popup()
 
 
-def _references(ctx: Any, form: dict[str, Any]) -> None:
+def _references(
+    ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS
+) -> None:
     """Conditioning: an image to steer appearance and/or structure.
 
     Every control below the picker is hidden until there is a reference, and
@@ -818,7 +848,7 @@ def _references(ctx: Any, form: dict[str, Any]) -> None:
     imgui.begin_group()
     origin = imgui.get_cursor_screen_pos()
     try:
-        _reference_body(ctx, form)
+        _reference_body(ctx, form, findings_doc)
     finally:
         imgui.end_group()
         widgets.ring(
@@ -829,7 +859,13 @@ def _references(ctx: Any, form: dict[str, Any]) -> None:
         )
 
 
-def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
+def _reference_body(
+    ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS
+) -> None:
+    # The 2026-10-04 audit, finding create-52: ``findings_doc`` is the frame's
+    # one load (``draw``), threaded as ``_model`` and ``_lora`` already take it.
+    # Without it the four hinted controls below each loaded ``findings.json``
+    # twice a frame (the hint, then the offer behind it).
     path = form["ref_path"]
     if path:
         imgui.text_wrapped(Path(path).name)
@@ -880,7 +916,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         # reached the queue door with the Conditioning section still collapsed
         # and no ring anywhere to say which slider was at fault.
         widgets.field_error(ctx.state, "ip_scale")
-        _hint(ctx, form, "ip_scale", form["ip_scale"])
+        _hint(ctx, form, "ip_scale", form["ip_scale"], findings_doc)
 
     widgets.field_label("start image")
     # The 2026-09-05 audit, finding create-04: this checkbox used to be drawn
@@ -900,6 +936,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
     )
     if changed:
         form["init_image"] = on
+        _forget_cleared_note(ctx)
     if form.get("init_image"):
         widgets.field_label("Strength")
         changed, value = controls.slider_float(
@@ -914,17 +951,23 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         # above -- guidance.normalize refuses a stale init_strength by name and
         # this slider never rang.
         widgets.field_error(ctx.state, "init_strength")
-        _hint(ctx, form, "init_strength", float(form.get("init_strength") or 0.45))
+        _hint(ctx, form, "init_strength", float(form.get("init_strength") or 0.45), findings_doc)
     if inert is not None:
         imgui.end_disabled()
         widgets.muted_wrapped(inert)
 
     widgets.field_label("structure")
-    note = create_recipe.recipe_structure_note(ctx, form) or create_recipe.structure_note(ctx, form)
+    # ``structure_picker_note``, not ``recipe_structure_note(...) or
+    # structure_note(...)``: under Automatic the second half read a stale
+    # ``base_model`` and hid the picker (the 2026-10-04 audit, finding create-25).
+    note = create_recipe.structure_picker_note(ctx, form)
     if note is not None:
         widgets.muted_wrapped(note)
         return
+    was_control = form["control"]
     form["control"] = widgets.combo("##control", form["control"], _options(ctx, "control"))
+    if form["control"] != was_control:
+        _forget_cleared_note(ctx)
     if form["control"]:
         widgets.field_label("Strength")
         changed, value = controls.slider_float(
@@ -939,7 +982,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         # above -- guidance.normalize refuses a stale control_scale by name and
         # this slider never rang.
         widgets.field_error(ctx.state, "control_scale")
-        _hint(ctx, form, "control_scale", form["control_scale"])
+        _hint(ctx, form, "control_scale", form["control_scale"], findings_doc)
         widgets.field_label("Until")
         changed, value = controls.slider_float(
             "##Until##cn", float(form["control_end"]), *_range(ctx, "control_end_range", 0.0, 1.0)
@@ -949,7 +992,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
             ctx.state.clear_field_error("control_end")
         # Same gap, control_end's own name.
         widgets.field_error(ctx.state, "control_end")
-        _hint(ctx, form, "control_end", form["control_end"])
+        _hint(ctx, form, "control_end", form["control_end"], findings_doc)
         widgets.help_marker(
             "How far into the drawing the structure keeps acting. Ending early "
             "lets the last steps add detail the reference never had; 1.0 holds "
@@ -969,6 +1012,50 @@ def _range(ctx: Any, key: str, low: float, high: float) -> tuple[float, float]:
 CLEARED_KEY = "base_model_cleared"
 
 
+def _pick_base_model(ctx: Any, form: dict[str, Any], picked: str) -> None:
+    """What choosing ``picked`` in the Model combo does ("" is Automatic).
+
+    One function because two doors reach it: the combo, and the findings
+    offer's "Use <model>" button. The button wrote ``form["base_model"]`` alone
+    until the 2026-10-04 audit's create-20 and so skipped everything below --
+    ``model_override``, the field the request reads, and the clearing.
+    """
+    if picked:
+        form["model_mode"] = "advanced"
+        form["base_model"] = picked
+        form["model_override"] = picked
+        ctx.state.preview[CLEARED_KEY] = create_recipe.clear_unusable(ctx, form)
+    else:
+        form["model_mode"] = "auto"
+        form["model_override"] = ""
+        # The 2026-09-26 audit, finding create-panes-06: the preflight
+        # banner's own "Switch to Automatic" repair button writes these same
+        # two fields and then calls ``clear_for_tier`` -- this control, the one
+        # that actually sets them from the Model combo, never did. A ControlNet
+        # chosen under Advanced survived the switch, the picker that shows it
+        # hides once ``model_mode`` is "auto" (Automatic runs at guidance 1.0
+        # or lower and cannot take one), and ``validate`` refused on a field
+        # with no control left on screen.
+        # The 2026-10-03 audit, finding create-23: the sentences it returns
+        # said which selections it emptied (typed Avoid text, a structure
+        # pick) and this call threw them away, so they vanished with no
+        # notice. They are filed under the same key the Advanced pick's
+        # ``clear_unusable`` notes use and drawn below, in both modes.
+        ctx.state.preview[CLEARED_KEY] = create_recipe.clear_for_tier(ctx, form)
+    ctx.state.clear_field_error("base_model")
+
+
+def _forget_cleared_note(ctx: Any) -> None:
+    """Drop the Model combo's "was cleared" sentences once the user edits a
+    field they describe (Style LoRA, structure, start image, Avoid text).
+
+    The 2026-10-04 audit, finding create-53: the sentences were filed once, at
+    the change, and then drawn every frame, so "The style LoRA was cleared"
+    went on being said after the user had picked a style again.
+    """
+    ctx.state.preview.pop(CLEARED_KEY, None)
+
+
 def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS) -> None:
     auto = str(form.get("model_mode") or "auto") == "auto"
     before = "" if auto else str(form.get("base_model") or "")
@@ -981,29 +1068,13 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOA
     widgets.field_label("Image model")
     picked = widgets.combo("##model", before, create_recipe.model_options(ctx))
     if picked != before:
-        if picked:
-            form["model_mode"] = "advanced"
-            form["base_model"] = picked
-            form["model_override"] = picked
-            ctx.state.preview[CLEARED_KEY] = create_recipe.clear_unusable(ctx, form)
-        else:
-            form["model_mode"] = "auto"
-            form["model_override"] = ""
-            # The 2026-09-26 audit, finding create-panes-06: the preflight
-            # banner's own "Switch to Automatic" repair button (below, ~line
-            # 1298) writes these same two fields and then calls
-            # ``clear_for_tier`` -- this control, the one that actually sets
-            # them from the Model combo, never did. A ControlNet chosen under
-            # Advanced survived the switch, the picker that shows it hides
-            # once ``model_mode`` is "auto" (Automatic runs at guidance 0 and
-            # cannot take one), and ``validate`` refused on a field with no
-            # control left on screen to point at.
-            create_recipe.clear_for_tier(ctx, form)
-        ctx.state.clear_field_error("base_model")
+        _pick_base_model(ctx, form, picked)
     # The refusal this most often carries is ``check_weights``' -- a model that
     # is selected and not downloaded, with the ``hf download`` line in it.
     widgets.field_error(ctx.state, "base_model")
     if form.get("model_mode") == "auto":
+        for note in ctx.state.preview.get(CLEARED_KEY) or ():
+            widgets.muted_wrapped(note)
         # The 2026-09-13 audit, finding create-03: this called
         # ``generation.resolve_recipe`` directly instead of going through
         # the ``create_recipe.resolved_recipe`` memo, repeating
@@ -1096,6 +1167,7 @@ def _lora(
     widgets.field_error(ctx.state, "style_lora")
     if form["style_lora"] != was_lora:
         ctx.state.clear_field_error("style_lora")
+        _forget_cleared_note(ctx)
     create_recipe.reseed_lora_weight(form, was_lora)
     _hint(ctx, form, "style_lora", form["style_lora"], findings_doc)
     if form["style_lora"] and show_strength:
@@ -1137,21 +1209,23 @@ def _lora_strength(
 
 
 def _negative(ctx: Any, form: dict[str, Any]) -> None:
-    inert = create_recipe.negative_prompt_note(ctx, form)
-    if inert is not None:
-        # Disabled rather than hidden, and with the reason underneath: the
-        # field holds text the user typed under another base, and hiding it
-        # would make that text vanish without saying why.
-        imgui.begin_disabled()
+    # Only ever drawn live: the one call site is gated by
+    # ``create_recipe.negative_supported``, which is true exactly when
+    # ``negative_prompt_note`` is None, so a "disabled with the reason
+    # underneath" branch here could never run (the 2026-10-03 audit's docs-91).
+    # The box is *hidden* on a model that ignores a negative prompt (guidance
+    # 1.0 or lower), and the text stays in the form for when a model that
+    # reads it is picked again.
+    #
     # The section heading above is the label; imgui would draw a multiline's
     # own label to the *right* of a -1-wide field, clipped off the panel.
+    was_negative = form["negative_prompt"]
     form["negative_prompt"] = widgets.multiline(
         "##negative", form["negative_prompt"], 54, MAX_PROMPT
     )
+    if form["negative_prompt"] != was_negative:
+        _forget_cleared_note(ctx)
     widgets.char_count(form["negative_prompt"], MAX_PROMPT)
-    if inert is not None:
-        imgui.end_disabled()
-        widgets.muted_wrapped(inert)
 
 
 def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
@@ -1292,10 +1366,10 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Proble
             # combo's own Automatic entry actually writes is these two fields
             # (``_model``'s ``else`` branch), which is what genuinely decides
             # whether the recipe that resolves next can run a ControlNet.
-            form["model_mode"] = "auto"
-            form["model_override"] = ""
-            create_recipe.clear_for_tier(ctx, form)
-            ctx.state.clear_field_error("base_model")
+            # Through the combo's own change path (``_pick_base_model``), which
+            # files the cleared-selection notes for the combo to draw (finding
+            # create-23) and clears the base_model ring.
+            _pick_base_model(ctx, form, "")
         return
     if "not downloaded" in message and controls.button(
         "Open model setup##preflight-models", role=controls.ButtonRole.GHOST
@@ -1445,6 +1519,10 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
         resolved = generation.resolve_recipe(request, ctx.svc.config)
         recipe_issues = generation.validate_request(request, resolved)
         if recipe_issues:
+            # The 2026-10-04 audit, finding create-35: the seed was rolled above,
+            # before this check, and this refusal did not give it back -- so a
+            # press that queued nothing still spent the unlocked seed.
+            form["seed"] = seed_before
             refuse(ctx, [problem_types.Problem(item.message, item.field) for item in recipe_issues])
             return
     kwargs = create_recipe.submit_kwargs(form)

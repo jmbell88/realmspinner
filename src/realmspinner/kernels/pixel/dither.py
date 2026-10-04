@@ -53,6 +53,7 @@ rather than raising when the DLL is absent, exactly as ``composite`` uses it.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -62,6 +63,7 @@ from . import indexed as ix
 
 __all__ = [
     "BAYER_SIZES",
+    "GroupedTable",
     "METHODS",
     "ORDERED",
     "bayer_matrix",
@@ -157,6 +159,30 @@ def tile_matrix(matrix: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
     return np.tile(matrix, reps)[:height, :width]
 
 
+class GroupedTable(tuple):
+    """:func:`grouped_table`'s ``(keys, targets)``, remembering which slot each won.
+
+    **Still the two-tuple every caller unpacks and passes back as ``table=``**,
+    with the assignment riding along as ``.slots``: ``(N,) int64``, the index
+    into the palette the table was built over that each key's group was given.
+    The 2026-10-03 audit, finding inker-73: an indexed conversion used to
+    recover the slot by looking the converted *colour* up again, and
+    ``index_plane.resolve`` sends every colour to its lowest-numbered slot, so
+    two groups assigned to two identical palette entries -- which
+    :func:`grouped_table` keeps as distinct slots on purpose -- both came out as
+    the first, and the duplicate ended up unused. A plain ``(keys, targets)``
+    handed in by a caller has no ``.slots`` and keeps the by-colour answer.
+    """
+
+    def __new__(cls, keys: np.ndarray, targets: np.ndarray, slots: np.ndarray) -> GroupedTable:
+        self = super().__new__(cls, (keys, targets))
+        self.slots = slots
+        return self
+
+    def __getnewargs__(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        return (self[0], self[1], self.slots)
+
+
 def grouped_table(
     planes: Iterable[np.ndarray], palette: Sequence[RGBA]
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -200,7 +226,7 @@ def grouped_table(
     keys, counts = _distinct(planes)
     entries = np.asarray([tuple(c)[:3] for c in palette], dtype=np.int64)
     if keys.size == 0:
-        return keys, np.zeros((0, 3), dtype=np.uint8)
+        return GroupedTable(keys, np.zeros((0, 3), dtype=np.uint8), np.zeros(0, dtype=np.int64))
     colours = np.stack(
         [(keys >> 16) & 0xFF, (keys >> 8) & 0xFF, keys & 0xFF], axis=1
     ).astype(np.int64)
@@ -242,9 +268,11 @@ def grouped_table(
         left -= 1
 
     targets = np.zeros((keys.size, 3), dtype=np.uint8)
+    slots = np.zeros(keys.size, dtype=np.int64)
     for index, box in enumerate(boxes):
         targets[box] = entries[assigned[index]].astype(np.uint8)
-    return keys, targets
+        slots[box] = assigned[index]
+    return GroupedTable(keys, targets, slots)
 
 
 def _candidate_slots(count: int, transparent: int) -> tuple[int, list[int]]:
@@ -430,11 +458,52 @@ def convert_indices(
 
     # ``table`` rides through to the inner ``convert``, so every parity pin that
     # already compares this door's answer against that one covers grouped too.
+    if method == "grouped" and table is None:
+        # Built here rather than inside ``convert`` so the assignment's slots
+        # are in hand below -- the same call ``convert`` would have made.
+        table = grouped_table([pixels], candidates)
     painted = convert(pixels, candidates, method, table=table)
     # ``transparent=None``: this sub-table has no hole in it, every entry is a
     # candidate, and the holes were labelled above off the input's alpha.
     local = ixp.resolve(painted, ixp.lut(candidates, transparent=-1), None)
+    if method == "grouped":
+        local = _grouped_slots(pixels, visible, table, candidates, local)
     out[visible] = np.asarray(slots, dtype=np.uint8)[local[visible]]
+    return out
+
+
+def _grouped_slots(
+    pixels: np.ndarray,
+    visible: np.ndarray,
+    table: Any,
+    candidates: Sequence[RGBA],
+    local: np.ndarray,
+) -> np.ndarray:
+    """*local* with each grouped pixel's slot taken from the table's own assignment.
+
+    The 2026-10-03 audit, finding inker-73: ``local`` is a lookup by *colour*,
+    so two groups assigned to two identical palette entries both land on the
+    lower-numbered one. A key the table carries takes the slot it was assigned;
+    anything else (a stale table, or a plain ``(keys, targets)`` with no
+    ``.slots``) keeps the by-colour answer, and so does a slot that no longer
+    holds the colour the table says it did.
+    """
+    assigned = getattr(table, "slots", None)
+    if assigned is None or not len(table[0]) or not visible.any():
+        return local
+    keys, targets = table[0], table[1]
+    entries = np.asarray([tuple(c)[:3] for c in candidates], dtype=np.int64)
+    rgb = pixels[..., :3][visible]
+    packed = (
+        rgb[:, 0].astype(np.uint32) << 16 | rgb[:, 1].astype(np.uint32) << 8 | rgb[:, 2]
+    )
+    found = np.clip(np.searchsorted(keys, packed), 0, keys.size - 1)
+    chosen = np.asarray(assigned, dtype=np.int64)[found]
+    usable = (keys[found] == packed) & (chosen >= 0) & (chosen < len(entries))
+    usable &= (entries[np.clip(chosen, 0, len(entries) - 1)] == targets[found]).all(axis=1)
+    merged = np.where(usable, chosen, local[visible])
+    out = local.copy()
+    out[visible] = merged.astype(local.dtype)
     return out
 
 

@@ -230,8 +230,9 @@ def status(
     """What the pane says about one question, without training anything.
 
     Cheap on purpose -- one DB read and one stat -- because it is what a panel
-    draws. ``trained_at`` is the probe file's mtime: the ``realmspinnerc`` staleness
-    rule says a probe should say *when*, and the file already knows.
+    draws. ``trained_at`` is the probe file's mtime: a probe should say *when* it
+    was fitted so a pane can tell a stale one from a fresh one, and the file
+    already knows.
     """
     _check_stage(stage)
     fitted = probe(svc, stage)

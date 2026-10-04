@@ -120,6 +120,14 @@ def _refuse_past_max_rows(count: int) -> None:
 MAX_SEARCHABLE_PALETTE = 4096
 
 
+#: Bytes of the ``(rows, entries, 3)`` float64 difference array one chunk of the
+#: no-native-kernel search may build (24 bytes per row per entry; ``norm`` holds
+#: about two of them live, so the real peak is roughly double this). Chosen so a
+#: 64-entry palette still searches 10,922 rows a chunk, and the 4096-entry
+#: ceiling still makes progress at 170.
+_SEARCH_CHUNK_BYTES = 16 << 20
+
+
 def _refuse_past_max_searchable(count: int) -> None:
     if count > MAX_SEARCHABLE_PALETTE:
         raise ValueError(
@@ -141,7 +149,11 @@ def parse_hex(text: str) -> tuple[RGB, ...]:
     list -- the 2026-09-16 audit found this loop had no ceiling at all.
     """
     colors: list[RGB] = []
-    for raw in text.splitlines():
+    # ``lstrip("﻿")``: ``service.palettes`` decodes as plain ``utf-8``,
+    # which leaves a Notepad BOM on the first line -- the 2026-10-03 audit
+    # (inker-60) found it refused here as "not a hex colour" while
+    # ``parse_pal`` and ``parse_txt`` already stripped it.
+    for raw in text.lstrip("﻿").splitlines():
         line = raw.strip()
         if not line or line.startswith((";", "//")) or line.startswith("#!"):
             continue
@@ -170,7 +182,8 @@ def parse_gpl(text: str) -> tuple[RGB, ...]:
     same amplification the 2026-09-11 audit fixed in ``gpl.parse`` but never
     ported to this port.
     """
-    lines = text.splitlines()
+    # BOM stripped for ``parse_hex``'s reason (2026-10-03 audit, inker-60).
+    lines = text.lstrip("﻿").splitlines()
     if not lines or not lines[0].strip().lower().startswith("gimp palette"):
         raise ValueError("not a GIMP palette: missing the 'GIMP Palette' header")
     colors: list[RGB] = []
@@ -607,7 +620,11 @@ def _nearest_native(flat: Any, plab: Any) -> Any:
 
 
 def map_palette(
-    image: PILImage, palette: tuple[RGB, ...], dither: bool = False
+    image: PILImage,
+    palette: tuple[RGB, ...],
+    dither: bool = False,
+    *,
+    cell: int | None = None,
 ) -> PILImage:
     """Every opaque pixel becomes its nearest palette colour, in Oklab.
 
@@ -621,6 +638,16 @@ def map_palette(
     spacing, so a 4-colour ramp dithers visibly and a 64-colour one barely at
     all -- a fixed offset would either do nothing on the second or destroy the
     first.
+
+    ``cell`` re-anchors the 4x4 tile to the origin of each ``cell``-pixel
+    square of the image instead of to the image's own origin, for an atlas
+    mapped in one call: the 2026-10-03 audit (poser-render-03) found the tile
+    anchored at the atlas corner, so at a cell size that is not a multiple of
+    4 (the custom range is 8-256) the same pixel of the same sprite met a
+    different threshold in every cell, and static shading shimmered between
+    frames and directions -- the "same shirt in two shades" failure one palette
+    per atlas exists to prevent. At a multiple of 4 the two anchors coincide, so
+    every ladder size's output is byte-identical to what it was.
     """
     import numpy as np
     from PIL import Image
@@ -642,7 +669,14 @@ def map_palette(
         spacing = float(gaps.min(axis=1).mean())
         bayer = np.asarray(_BAYER4, dtype=np.float64) / 16.0 - 0.5
         h, w = lab.shape[:2]
-        tile = np.tile(bayer, (h // 4 + 1, w // 4 + 1))[:h, :w]
+        if cell is None:
+            tile = np.tile(bayer, (h // 4 + 1, w // 4 + 1))[:h, :w]
+        else:
+            if cell < 1:
+                raise ValueError("a dither cell is at least one pixel")
+            tile = bayer[
+                (np.arange(h) % cell % 4)[:, None], (np.arange(w) % cell % 4)[None, :]
+            ]
         lab = lab + tile[:, :, None] * spacing
 
     flat = lab.reshape(-1, 3)
@@ -651,9 +685,14 @@ def map_palette(
         out = entries[picks].astype(np.uint8)
     else:
         # Chunked so a 1024x1024 frame against a 64-entry palette does not build
-        # a single (1M, 64, 3) intermediate.
+        # a single (1M, 64, 3) intermediate. The chunk is sized from the entry
+        # count, not fixed: the 2026-10-03 audit (inker-57) measured the fixed
+        # 65,536-row chunk at 1,026 MiB for a 256-entry palette and ~16 GiB at
+        # MAX_SEARCHABLE_PALETTE, so the ceiling above bounded only the dither
+        # gap matrix. Rows per chunk are what keeps the (rows, entries, 3)
+        # float64 temporary under one byte budget at any palette size.
         out = np.empty((flat.shape[0], 3), dtype=np.uint8)
-        step = 1 << 16
+        step = max(1, _SEARCH_CHUNK_BYTES // (plab.shape[0] * 24))
         for start in range(0, flat.shape[0], step):
             piece = flat[start : start + step]
             d = np.linalg.norm(piece[:, None, :] - plab[None, :, :], axis=-1)

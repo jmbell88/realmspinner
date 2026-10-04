@@ -601,6 +601,57 @@ class App(
         for check in failed:
             ctx.state.note_error(f"{check.name}: {check.detail}")
 
+    def _refresh_style_lora_answers(self) -> None:
+        """Re-derive every ctx answer that is a view of ``models.STYLE_LORAS``.
+
+        The 2026-10-04 audit, finding create-21: ``ctx.guidance``'s LoRA tables
+        were built once at startup and ``ctx.style_loras`` only after a model
+        download, so a style imported, trained or removed in-session never
+        reached Create's picker until restart (the import landing only toasted),
+        and a removed one stayed offered and was refused at submit. This is the
+        one place those answers are derived, called at startup, after a download
+        and from the ``lora:import`` / ``lora:remove:`` / finished ``lora_train``
+        landings.
+
+        Frame-thread safe: the registry is an in-memory table that
+        ``generation.register_imported_loras`` / ``remove_imported_lora`` have
+        already updated on the task or worker thread by the time any landing
+        runs, so this reads a locked snapshot and touches no disk (which is
+        why it is not a TaskRunner submit the way the doctor re-probe is).
+        Only the three style-derived slots are replaced: the rest of
+        ``ctx.guidance`` (bounds, matte default, ``sweeps``) is not the
+        registry's and is left as startup built it.
+        """
+        from ... import models
+
+        ctx = self.app_ctx
+        # Snapshot rather than iterate live: register_imported_loras/
+        # remove_imported_lora can mutate this table from another thread
+        # between frames (see models.STYLE_LORAS_LOCK).
+        ctx.style_loras = [("", "no style LoRA")] + [
+            (k, spec.label) for k, spec in models.style_loras_snapshot().items()
+        ]
+        guide = getattr(ctx, "guidance", None)
+        if not isinstance(guide, dict) or not guide:
+            # Nothing built yet (startup runs this before ``guidance_catalog``
+            # lands, in a test's bare ctx): nothing stale to fix.
+            return
+        # A new dict, not an in-place edit: a pane that grabbed
+        # ``ctx.guidance["fields"]`` this frame keeps a consistent view.
+        fields = guide.get("fields")
+        # ``lora_bases`` is derived from the same map rather than asked for
+        # again, so a registry change between two snapshots cannot leave the
+        # greyed-picker list and the populated-picker map disagreeing.
+        by_base = models.loras_by_base()
+        refreshed = {
+            **guide,
+            "loras_by_base": by_base,
+            "lora_bases": [key for key, loras in by_base.items() if loras],
+        }
+        if isinstance(fields, dict):
+            refreshed["fields"] = {**fields, "style_lora": models.catalog()["style_lora"]}
+        ctx.guidance = refreshed
+
     def _refresh_model_answers(self) -> None:
         """What the app knows about the weights on disk, recomputed from doctor.
 
@@ -649,12 +700,7 @@ class App(
         ctx.base_models = [
             (k, f"{spec.label}{_suffix(spec)}") for k, spec in models.BASE_MODELS.items()
         ]
-        # Snapshot rather than iterate live: register_imported_loras/
-        # remove_imported_lora can mutate this table from another thread
-        # between frames (see models.STYLE_LORAS_LOCK).
-        ctx.style_loras = [("", "no style LoRA")] + [
-            (k, spec.label) for k, spec in models.style_loras_snapshot().items()
-        ]
+        self._refresh_style_lora_answers()
         # The Settings pane draws this and may not ask the service itself: it
         # is a pane, and ``recommended_base`` needs a resolved Plan. Empty when
         # there is no plan, which is the pane's "say nothing" value.

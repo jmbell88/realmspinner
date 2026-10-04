@@ -398,6 +398,27 @@ def _outputs(ctx: Any, tab: Any) -> None:
     if imgui.is_item_hovered():
         imgui.set_tooltip(tip + " OBJ writes a .mtl of the same name beside it.")
 
+    from ......pipelines import clay_blender
+
+    blender_ok, blender_why = clay_blender.available()
+    if widgets.disabled_button(
+        "Export .blend...", ready and blender_ok, reason=why or blender_why
+    ):
+        clay_mode.export_mesh_file(ctx, tab, "blend")
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(
+            tip + " A native Blender file with the textures packed in; Blender converts it, "
+            "so it takes a few seconds."
+        )
+    imgui.same_line()
+    if widgets.disabled_button(f"{icons.CAMERA} Save screenshot...", ready, reason=why):
+        clay_mode.save_screenshot(ctx, tab)
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(
+            "Saves a lit PNG of the document from the angle you are looking at it, "
+            "without the grid or gizmos. Position objects first, then frame the view."
+        )
+
     if tab.job_id:
         widgets.muted(f"Last exported as {tab.job_id}")
 
@@ -503,6 +524,23 @@ def _run_fix(ctx: Any, tab: Any, fix: str, uids: tuple[int, ...]) -> None:
         ctx.toast("Nothing to fix.", "warn")
 
 
+def fix_gate(tab: Any) -> str:
+    """Why a Game check row's Fix button is greyed right now, or ``""``.
+
+    The 2026-10-03 audit, finding clay-120: the rows of a report the pane has
+    just labelled "Out of date" kept a live Fix button, and ``_run_fix``
+    replaces the selection with that stale report's uids (leaving the user's
+    element selection) and runs the op at its defaults -- on objects the
+    report no longer describes. A fix is offered only for a report that still
+    matches the document.
+    """
+    if tab.saving:
+        return "Saving..."
+    if tab.readiness_head != tab.doc.history.head:
+        return "Check again first -- the document has changed since this check ran."
+    return ""
+
+
 def game_check(ctx: Any, tab: Any) -> None:
     """"Game check": a profile combo, a Check button, and one row per check.
 
@@ -544,6 +582,6 @@ def game_check(ctx: Any, tab: Any) -> None:
         widgets.text_colored(colour, f"{_STATUS_ICON.get(status, '?')} {label}")
         imgui.same_line()
         widgets.muted_wrapped(message)
-        fix_why = "Saving..." if tab.saving else ""
-        if fix and widgets.disabled_button(f"Fix##{label}", not tab.saving, reason=fix_why):
+        fix_why = fix_gate(tab)
+        if fix and widgets.disabled_button(f"Fix##{label}", not fix_why, reason=fix_why):
             _run_fix(ctx, tab, fix, uids)

@@ -111,6 +111,16 @@ def draw(ctx: Any) -> None:
         state.editing_tileset = None
         return
     ref = tab.doc.tilesets[index]
+    # Clamped once, here, for every tab. The 2026-10-03 audit (finding
+    # plotter-14) found the 2026-09-26 clamp living in the Tiles tab alone, so
+    # reopening the sheet on a smaller tileset with Collision, Animation or
+    # Terrain as the persisted tab sent Add box / Add frame / a terrain click to
+    # ``set_tile_meta`` for a local id the tileset does not have -- TileMeta for
+    # tile 40 of a 4-tile set, saved in the .rmap and written as ``<tile id="40">``.
+    if not 0 <= int(state.editing_tile) < ref.tileset.tile_count:
+        state.editing_tile = 0
+        state.tileset_shape = None
+        state.clear_tileset_drag()
 
     widgets.section(f"Tileset -- {ref.tileset.name or 'untitled'}")
     manual_render.help_button(ctx, "plotter-tileset-editor")
@@ -715,7 +725,7 @@ def _preview(
     at = showing if showing is not None else 0
     shown_id = int(frames[at].local_id) if frames else int(state.editing_tile)
     texture = plotter_textures.tileset_texture(
-        ctx, tab.uid, index, tileset_ref, tab.doc.tileset_epoch
+        ctx, tab.uid, index, tileset_ref, tab.doc.tileset_pixel_epoch
     )
     if texture is None:
         # No GL context: the headless suite. The same square the picture would
@@ -1178,7 +1188,7 @@ def _terrain_draw(
     low = view.origin
     high = (low[0] + width, low[1] + height)
     texture = plotter_textures.tileset_texture(
-        ctx, tab.uid, index, tileset, tab.doc.tileset_epoch
+        ctx, tab.uid, index, tileset, tab.doc.tileset_pixel_epoch
     )
     if texture is None:
         draw_list.add_rect_filled(

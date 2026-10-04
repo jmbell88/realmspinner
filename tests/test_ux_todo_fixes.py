@@ -163,6 +163,11 @@ RETIRED_PLANS = (
     # ``docs/manual/31-mason.md``. Its six citations under ``src`` and
     # ``tests`` were rewritten to name the programme rather than the file.
     "MASON-PLAN" ".md",
+    # The Clay programme's plan file (tranches 2-7): not in the tree, and
+    # seventeen modules under ``src`` still sent a reader to it as
+    # ``dev/CLAY-PLAN.md`` (the 2026-10-03 audit's clay-108) because this
+    # tuple never named it. Rewritten to cite "Clay tranche N" instead.
+    "CLAY-PLAN" ".md",
 )
 
 

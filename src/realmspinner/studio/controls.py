@@ -231,7 +231,11 @@ def _finish_item(
             hovered = imgui.is_item_hovered()
         except (AttributeError, RuntimeError):
             hovered = False
-    note = reason if not enabled and reason else tooltip
+    # The reason or nothing while disabled -- ``widgets._button_with_note`` and
+    # ``_glyph_button`` already do. The live tooltip describes the action the control
+    # is refusing, so showing it on a greyed control with no reason explained the
+    # refusal with a lie (the 2026-10-03 audit's shell-80).
+    note = reason if not enabled else tooltip
     if enabled and kind.startswith(("slider_", "drag_")):
         # Every slider says so, in one place. A rule that has to be remembered
         # at each of 166 call sites is one that will be forgotten at the next
@@ -439,6 +443,14 @@ def _clamp_typed_entry(name: str, args: tuple, kwargs: dict) -> tuple[tuple, dic
     return args, kwargs
 
 
+#: The drags whose in-flight value ``_field_call`` holds across frames when they
+#: commit on release, and ``{label: (frame, value)}`` for the one being dragged.
+#: One entry at most in practice -- imgui has one active item -- but keyed by
+#: label so a field that vanished mid-drag cannot hand its value to another.
+_DRAGS = frozenset({"drag_int", "drag_float"})
+_drag_held: dict[str, tuple[int, Any]] = {}
+
+
 def _field_call(
     name: str,
     *args: Any,
@@ -470,12 +482,36 @@ def _field_call(
     # After the escape hatch above, so a test stub still gets the signature it
     # was written against.
     args, kwargs = _clamp_typed_entry(name, args, kwargs)
+    # A drag that commits on release is re-fed the caller's *stored* value every
+    # frame, so imgui has nothing to accumulate the pointer's motion into: each
+    # frame it adds the frame's delta to the same original, the next frame is
+    # handed that original again, and the release frame returns it unchanged --
+    # the drag did nothing (the 2026-10-03 audit, finding sirens-11: the
+    # envelope editor's Steps field, the only ``drag_int(commit=True)``). The
+    # in-flight value is held here, by the field's label, for as long as imgui
+    # says the field is the active item, and handed back in place of the stored
+    # one. An entry is only taken up on the frame right after the one that
+    # stored it (the field was still active then, so it is the same drag); a
+    # field that was not drawn in between has lost its drag.
+    held_key = args[0] if commit and name in _DRAGS and args and isinstance(args[0], str) else None
+    if held_key is not None and held_key in _drag_held:
+        frame, value = _drag_held.pop(held_key)
+        if frame == imgui.get_frame_count() - 1 and len(args) > 1:
+            args = (args[0], value, *args[2:])
     with _disabled(enabled), _field_colours(bool(error)):
         result = getattr(imgui, name)(*args, **kwargs)
     if commit:
         # Read here, while the field is still imgui's "last item" -- before
         # ``_finish_item`` below draws a tooltip or a marker over the answer.
         settled = imgui.is_item_deactivated_after_edit()
+        if (
+            held_key is not None
+            and not settled
+            and imgui.is_item_active()
+            and isinstance(result, tuple)
+            and len(result) > 1
+        ):
+            _drag_held[held_key] = (imgui.get_frame_count(), result[1])
         if isinstance(result, tuple) and result:
             result = (settled, *result[1:])
     _finish_item(
@@ -1013,32 +1049,38 @@ def switch(
     t = motion.value(
         f"switch/{key}", 1.0 if value else 0.0, duration=tokens.DUR_FAST
     )
-    draw = imgui.get_window_draw_list()
-    off, on = theme.rgba(theme.EDGE), theme.rgba(theme.ACCENT)
-    fill = tuple(off[i] + (on[i] - off[i]) * t for i in range(3)) + (1.0,)
-    draw.add_rect_filled(
-        (origin.x, top),
-        (origin.x + track_w, top + track_h),
-        imgui.get_color_u32(fill),
-        track_h * 0.5,
-    )
-    radius = track_h * 0.5 - sp(2)
-    knob_x = origin.x + track_h * 0.5 + (track_w - track_h) * t
-    draw.add_circle_filled(
-        (knob_x, top + track_h * 0.5),
-        radius,
-        imgui.get_color_u32(theme.rgba(theme.KNOB)),
-        24,
-    )
-    if label:
-        draw.add_text(
-            (
-                origin.x + track_w + sp(6),
-                origin.y + (height - imgui.get_text_line_height()) * 0.5,
-            ),
-            imgui.get_color_u32(theme.rgba(theme.TEXT)),
-            label,
+    # Drawn inside the disabled scope too: ``get_color_u32`` folds the style
+    # alpha in at call time, and the invisible button above was the only thing
+    # that sat inside it -- so a disabled switch was painted exactly like a live
+    # one and was found to be off only by hovering it (the 2026-10-03 audit,
+    # finding shell-31: Inker's "Preview diff" on a direction with no mirror).
+    with _disabled(enabled):
+        draw = imgui.get_window_draw_list()
+        off, on = theme.rgba(theme.EDGE), theme.rgba(theme.ACCENT)
+        fill = tuple(off[i] + (on[i] - off[i]) * t for i in range(3)) + (1.0,)
+        draw.add_rect_filled(
+            (origin.x, top),
+            (origin.x + track_w, top + track_h),
+            imgui.get_color_u32(fill),
+            track_h * 0.5,
         )
+        radius = track_h * 0.5 - sp(2)
+        knob_x = origin.x + track_h * 0.5 + (track_w - track_h) * t
+        draw.add_circle_filled(
+            (knob_x, top + track_h * 0.5),
+            radius,
+            imgui.get_color_u32(theme.rgba(theme.KNOB)),
+            24,
+        )
+        if label:
+            draw.add_text(
+                (
+                    origin.x + track_w + sp(6),
+                    origin.y + (height - imgui.get_text_line_height()) * 0.5,
+                ),
+                imgui.get_color_u32(theme.rgba(theme.TEXT)),
+                label,
+            )
     _finish_item(
         tooltip=tooltip,
         reason=reason,

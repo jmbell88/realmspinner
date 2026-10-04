@@ -14,8 +14,10 @@ The flags are not negotiable and each earns its place:
 * ``-ke`` / ``-km`` -- keep extras and materials. Without them the material
   assignment (and therefore both PBR textures) can be dropped on merge.
 
-Like ``trellis-server.exe`` the binary is vendored and pinned; nothing here
-downloads anything. Missing it is not fatal -- the ``raw`` profile is always
+The binary is vendored and pinned (``config.gltfpack_exe``,
+``vendor/gltfpack``) and nothing here downloads anything -- unlike
+``trellis-server.exe``, which has been a Settings -> Models download since
+2026-09-10 and is no longer vendored. Missing it is not fatal -- the ``raw`` profile is always
 available and is what every job did before this existed.
 
 **Every gltfpack pass is checked before it is published.** Until

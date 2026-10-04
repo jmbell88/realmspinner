@@ -114,7 +114,42 @@ class IndexedOps:
         """The three fields :class:`~.undo.ColorStateEdit` restores together."""
         return (self.color_mode, self.palette, self.transparent_index)
 
-    def _color_step(self: Document, before: tuple[str, Any, int], run: Any) -> None:
+    def _carry_frame_tables(self: Document, carry: Any) -> list[FramePaletteEdit]:
+        """Push a slot renumbering through every per-frame table, as edits.
+
+        The 2026-10-03 audit, finding inker-29: ``move_slot``, ``sort_palette``,
+        ``insert_ramp`` and ``remove_slot`` renumber the slots of every index
+        plane and the document's table, but a frame's own table
+        (``Animation.frame_palettes``) is addressed by those same slot numbers
+        and kept its old order -- so reordering the palette recoloured the
+        drawing on exactly the frames that had an override, where on any other
+        document a reorder never changes the picture.
+
+        ``carry`` maps one frame's old table (a list of tuples) to its new one.
+        The tables are assigned here, before the caller's ``apply_remap``
+        re-materialises, and the returned ``FramePaletteEdit`` per changed frame
+        rides in the caller's compound -- explicit before/after tables rather
+        than a second inverse, so an undo cannot drift from the redo.
+        """
+        anim = self.anim
+        if anim is None or not anim.frame_palettes:
+            return []
+        edits: list[FramePaletteEdit] = []
+        for uid, table in list(anim.frame_palettes.items()):
+            before = [tuple(colour) for colour in table]
+            after = carry(before)
+            if after == before:
+                continue
+            anim.frame_palettes[uid] = after
+            edits.append(FramePaletteEdit(uid, before, after))
+        return edits
+
+    def _color_step(
+        self: Document,
+        before: tuple[str, Any, int],
+        run: Any,
+        extra: Sequence[Any] = (),
+    ) -> None:
         """``_palette_step`` for the modes: rewrite the planes and the state.
 
         Identical in shape and for identical reasons -- ``_replay`` records the
@@ -123,6 +158,10 @@ class IndexedOps:
         re-pushed inside a compound with the state edit in front of it. Callers
         assign the state *before* calling, because ``run`` is the raw work and
         redo re-runs it against whatever the document says by then.
+
+        ``extra`` is edits that ride behind the replay (the per-frame tables
+        ``_carry_frame_tables`` renumbered): the snapshot restores planes and
+        knows nothing about ``frame_palettes``, so they carry their own.
         """
         after = self._color_state()
         self._replay(run)
@@ -130,7 +169,9 @@ class IndexedOps:
         if replayed is None:  # pragma: no cover - the push was one line ago
             return
         self.history.drop()
-        self.history.push(CompoundEdit([ColorStateEdit(before, after), replayed]))
+        self.history.push(
+            CompoundEdit([ColorStateEdit(before, after), replayed, *extra])
+        )
 
     def _push_color_state(self: Document, before: tuple[str, Any, int]) -> None:
         """One ``ColorStateEdit`` for an op that moved no plane, applied.
@@ -164,7 +205,18 @@ class IndexedOps:
             self.transparent_index = int(forward[self.transparent_index])
         edit = ColorStateEdit(before, self._color_state())
         remap = IndexRemapEdit(forward, inverse)
-        self.history.push(CompoundEdit([edit, remap]))
+        # A frame's own table is renumbered the way the document's was: its new
+        # slot ``p`` holds what its old slot ``order[p]`` did (a table shorter
+        # than the document's is padded from the old document table first, as
+        # ``asein._install_frame_palettes`` pads on the way in).
+        old_table = before[1] or []
+
+        def carry(table: list[RGBA]) -> list[RGBA]:
+            padded = [*table, *(tuple(c) for c in old_table[len(table) :])]
+            return [padded[int(src)] for src in order if int(src) < len(padded)]
+
+        frames = self._carry_frame_tables(carry)
+        self.history.push(CompoundEdit([edit, remap, *frames]))
         self.rev += 1
         self.apply_remap(forward)
 
@@ -557,7 +609,10 @@ class IndexedOps:
             # index is a *position*: see ``_push_remap`` for why leaving it
             # behind is a silent catastrophe rather than a cosmetic slip.
             self.transparent_index = self._transparent_after(index)
-            self._color_step(state, lambda: self._remap_planes(forward))
+            frames = self._carry_frame_tables(
+                lambda frame: [c for i, c in enumerate(frame) if i != index]
+            )
+            self._color_step(state, lambda: self._remap_planes(forward), frames)
             return True
         before, self.palette = self.palette, table
         into = table[ix.nearest(gone, table)]
@@ -727,11 +782,20 @@ class IndexedOps:
             forward[low + 1 :] += len(fresh)
             if 0 <= self.transparent_index < len(table):
                 self.transparent_index = int(forward[self.transparent_index])
+            # The fresh slots in a frame's own table are the ramp's colours:
+            # no plane references them, so any entry would draw the same, and
+            # these are the ones the palette pane shows beside the document's.
+            def carry(frame: list[RGBA]) -> list[RGBA]:
+                padded = [*frame, *table[len(frame) :]]
+                return [*padded[: low + 1], *fresh, *padded[low + 1 :]]
+
+            frames = self._carry_frame_tables(carry)
             self.history.push(
                 CompoundEdit(
                     [
                         ColorStateEdit(state, self._color_state()),
                         IndexRemapEdit(forward, self._shrink_map(forward, len(self.palette))),
+                        *frames,
                     ]
                 )
             )
@@ -1172,7 +1236,7 @@ class IndexedOps:
 
         A constraint over the storage this document already has, not a change of
         storage -- see :func:`indexed.grayscale` for the three-part argument, of
-        which the load-bearing part is that all nineteen blend modes preserve
+        which the load-bearing part is that all twenty blend modes preserve
         grayness, so even the *composite* stays grey.
 
         An indexed document converting here **leaves indexed mode**: an index

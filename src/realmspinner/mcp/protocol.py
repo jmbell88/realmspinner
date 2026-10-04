@@ -302,19 +302,45 @@ class BridgeEra:
         return self._task_created_at.get(task_id, _iso_now())
 
 
+def _finite(value: Any) -> Any:
+    """*value* with every non-finite float stringified, recursively."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(v) for v in value]
+    return value
+
+
+def _strict_dumps(message: dict[str, Any]) -> bytes:
+    """*message* as one compact JSON frame that is valid per RFC 8259.
+
+    The 2026-10-03 audit's agents-25: `_json_safe_id` closed the bare
+    `NaN`/`Infinity` hole for the request id only, while two other sites echo
+    an arbitrary client-supplied value into an error's `data` (`requested`, the
+    unsupported-version reply; `taskId`, the `tasks/update` reply). Refusing
+    non-finite floats here, where every error and result is serialised, covers
+    those and the next echo site too: the strict dump is tried first and a
+    `ValueError` falls back to the same message with each such float as its
+    string.
+    """
+    try:
+        text = json.dumps(message, separators=(",", ":"), allow_nan=False)
+    except ValueError:
+        text = json.dumps(_finite(message), separators=(",", ":"), allow_nan=False)
+    return text.encode("utf-8")
+
+
 def _error_bytes(msg_id: Any, code: int, message: str, data: Any = None) -> bytes:
     err: dict[str, Any] = {"code": code, "message": message}
     if data is not None:
         err["data"] = data
-    return json.dumps(
-        {"jsonrpc": "2.0", "id": msg_id, "error": err}, separators=(",", ":")
-    ).encode("utf-8")
+    return _strict_dumps({"jsonrpc": "2.0", "id": msg_id, "error": err})
 
 
 def _result_bytes(msg_id: Any, result: dict[str, Any]) -> bytes:
-    return json.dumps(
-        {"jsonrpc": "2.0", "id": msg_id, "result": result}, separators=(",", ":")
-    ).encode("utf-8")
+    return _strict_dumps({"jsonrpc": "2.0", "id": msg_id, "result": result})
 
 
 def _merge_body(prefix: dict[str, Any], body: bytes) -> bytes:
@@ -737,9 +763,9 @@ def _dispatch_one(
     cancel_task: Callable[[str], str | None] | None = None,
 ) -> bytes | None:
     """One JSON-RPC request or notification, either era. `None` means "this
-    was a notification -- say nothing", the same convention `dispatch`
-    above uses. Never raises: every branch that could fail the request
-    itself becomes a JSON-RPC error instead."""
+    was a notification -- say nothing", the same convention
+    `bridge_dispatch` uses. Never raises: every branch that could fail the
+    request itself becomes a JSON-RPC error instead."""
     if not isinstance(item, dict):
         return _error_bytes(None, -32600, "invalid request: expected a JSON object")
 
@@ -853,14 +879,21 @@ def _dispatch_one(
     meta_version = _meta_version(params)
 
     if state.era is None:
-        if meta_version is not None:
-            state.era = "modern"
-        else:
+        if meta_version is None:
             return (
                 _error_bytes(msg_id, -32600, "initialize or server/discover first")
                 if has_id
                 else None
             )
+        # The 2026-10-03 audit's agents-26: this latched "modern" on any
+        # request or notification carrying a `_meta` version *before* the
+        # version was checked, so a first request naming an unsupported one was
+        # refused -32022 and yet locked the connection -- and the `initialize`
+        # a client sends to fall back to the legacy handshake was then refused
+        # "already locked to the modern era". Only a request this server will
+        # actually serve (a supported version, with an id) decides the era.
+        if meta_version in MODERN and has_id:
+            state.era = "modern"
 
     if state.era == "legacy":
         if not has_id:
@@ -902,7 +935,13 @@ def _dispatch_one(
             msg_id,
             -32022,
             "unsupported protocol version",
-            data={"supported": list(MODERN), "requested": meta_version},
+            # `legacy` is the fallback: those versions are served through
+            # `initialize`, which this refusal no longer forecloses.
+            data={
+                "supported": list(MODERN),
+                "legacy": list(LEGACY),
+                "requested": meta_version,
+            },
         )
     # 2026-09-26: no more `state.tasks` latch -- see `BridgeEra`'s own
     # docstring for the incident this replaced. `declares_tasks` is this
@@ -1113,7 +1152,7 @@ def _dispatch_tools_call(
     try:
         body = call_tool(name, arguments)
     except Exception as exc:  # noqa: BLE001 -- call_tool promises not to raise;
-        # this is the same backstop dispatch() keeps above, so a broken
+        # this is the same backstop `bridge_dispatch` keeps, so a broken
         # promise still becomes isError content, not a dropped connection.
         body = json.dumps(
             fail(f"{type(exc).__name__}: {exc}"), separators=(",", ":")

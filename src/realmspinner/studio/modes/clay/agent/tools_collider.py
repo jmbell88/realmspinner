@@ -1,5 +1,5 @@
-"""Clay's agent tool surface, the collider handler family (tranche 7,
-``dev/CLAY-PLAN.md``): ``clay_collider`` alone.
+"""Clay's agent tool surface, the collider handler family (Clay tranche 7):
+``clay_collider`` alone.
 
 A new family file, the same one-tool shape ``tools_uv.py`` lands in as
 tranche 6's own family (see that module's own docstring for why one tool
@@ -34,6 +34,19 @@ from typing import Any
 from .....kernels.mesh import colliders
 from .....kernels.mesh.elements import OpError
 from .validate import Session, _json, _label_top, _resolve_uids, _scene_row, _tab, fail
+
+HULL_FACES_MIN = 12
+"""The smallest ``max_faces`` the door accepts. Not the geometric floor (a
+tetrahedron is 4 faces): the reduction hulls a farthest-point sample of
+``max_faces // 2 + 2`` vertices, and a handful of points sampled off a round
+mesh can all be coplanar, so a small value fails with "every point is
+coplanar" on a perfectly good sphere. Measured over every generator at its
+defaults (2026-10-03, the audit's clay-83): a uv_sphere, cylinder, capsule,
+column and rounded_box need 6 or more, a ``tube`` needs 10. Twelve clears the
+worst with a margin; the Clay panel's own control still bottoms out at 4."""
+
+HULL_FACES_MAX = 1024
+"""``max_faces`` ceiling: the Clay panel's own bound for the same parameter."""
 
 
 def _coerce_collider_param(default: Any, raw: Any) -> Any:
@@ -98,6 +111,17 @@ def _h_collider(ctx: Any, session: Session, args: dict) -> dict:
             kwargs[key] = _coerce_collider_param(default, raw)
         except (TypeError, ValueError, OverflowError):
             return fail(f"params.{key} must be a number.", field="params")
+        if key == "max_faces" and not (HULL_FACES_MIN <= kwargs[key] <= HULL_FACES_MAX):
+            # The 2026-10-03 audit's clay-83: any value passed, and one below
+            # the hull's floor failed with "every point is coplanar" -- blaming
+            # a sphere for the caller's number -- while a huge one defeated the
+            # face reduction the default exists for. The range is the Clay
+            # panel's own for the same parameter (``ops._collider_params``).
+            return fail(
+                f"params.max_faces must be between {HULL_FACES_MIN} and "
+                f"{HULL_FACES_MAX} (fewer cannot hull a round mesh reliably).",
+                field="params",
+            )
 
     fits: list[tuple[int, colliders.Collider]] = []
     for uid in uids:

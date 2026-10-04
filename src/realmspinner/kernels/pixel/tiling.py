@@ -305,6 +305,8 @@ def seam_ratio(pixels: np.ndarray) -> tuple[float, float]:
 #: moved to dominance on 2026-08-30. A copy at a second surface moves nothing
 #: -- **the same document governs both** -- for the reason ``SEAM_MAX``
 #: above already is a copy rather than an import.
+#: Its dev/measurements document is gone with the backup (confirmed
+#: 2026-09-28): re-measure to change.
 SEAM_DOMINANCE_MAX = 1.0
 
 
@@ -329,14 +331,29 @@ def seam_dominance(pixels: np.ndarray) -> tuple[float, float]:
         raise ValueError("a seam is measured on (H, W, 3|4)")
     if min(array.shape[:2]) < SEAM_MIN_SIDE:
         return (0.0, 0.0)
-    rgb = array[:, :, :3].astype(np.float64)
+    # **int16, for** :func:`seam_ratio`'s **reason, and exact for the same one**:
+    # every difference of two uint8s is in -255..255, and the means below sum
+    # integers, so the numbers are the float64 spelling's to the last bit. The
+    # 2026-10-03 audit (inker-58) found this still on float64 -- 57 ms at 1024
+    # square, 221 ms at 2048, about 3x ``seam_ratio`` on the same pixels -- on
+    # the frame thread after every undo-head change of a tiled document, the
+    # stall ``seam_ratio``'s rewrite removed. Both axes read the contiguous
+    # array, as there: no strided transpose.
+    rgb = array[:, :, :3].astype(np.int16)
 
-    def axis_dominance(a: np.ndarray) -> float:
-        edge = float(np.abs(a[:, 0] - a[:, -1]).mean())
-        pairs = np.abs(np.diff(a, axis=1)).mean(axis=(0, 2))
+    def finish(edge: float, pairs: np.ndarray) -> float:
         interior = float(pairs.max()) if pairs.size else 0.0
         if interior <= 0.0:
             return 0.0 if edge <= 0.0 else float("inf")
         return edge / interior
 
-    return (axis_dominance(rgb), axis_dominance(rgb.transpose(1, 0, 2)))
+    return (
+        finish(
+            float(np.abs(rgb[:, 0] - rgb[:, -1]).mean()),
+            np.abs(np.diff(rgb, axis=1)).mean(axis=(0, 2)),
+        ),
+        finish(
+            float(np.abs(rgb[0, :] - rgb[-1, :]).mean()),
+            np.abs(np.diff(rgb, axis=0)).mean(axis=(1, 2)),
+        ),
+    )

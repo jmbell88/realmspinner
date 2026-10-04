@@ -70,7 +70,7 @@ this entry already follows. A v1 or v2 file still opens: an object with no
 ``"modifiers"`` key simply has none, exactly as one with no ``"uv"`` has none.
 
 **Version 3 also carries scene structure, without a second version bump.**
-Version 3 was unreleased at the time -- see ``dev/CLAY-PLAN.md`` -- so
+Version 3 was unreleased at the time (the Clay programme's own tranche 3), so
 ``"parent"`` (an object uid or absent, meaning a root), ``"locked"`` (absent
 means ``False``) and ``"tags"`` (absent means none) join it the same way
 ``"modifiers"`` did: each omitted at its default, which keeps an ordinary
@@ -194,7 +194,15 @@ def _npz_bytes(arrays: dict[str, np.ndarray]) -> bytes:
         for name, array in arrays.items():
             member = io.BytesIO()
             np.lib.format.write_array(member, np.ascontiguousarray(array))
-            zf.writestr(zipfile.ZipInfo(f"{name}.npy", _EPOCH), member.getvalue())
+            # A ZipInfo carries its own compress_type (ZIP_STORED), which beats the
+            # one the ZipFile was opened with: the 2026-10-03 audit's clay-84 found
+            # every member stored raw, 3.5 times the size (an icosphere level 4
+            # wrote 263,488 bytes where deflate gives 74,490). Say it per member.
+            zf.writestr(
+                zipfile.ZipInfo(f"{name}.npy", _EPOCH),
+                member.getvalue(),
+                zipfile.ZIP_DEFLATED,
+            )
     return out.getvalue()
 
 
@@ -350,7 +358,11 @@ def read_view(data: bytes) -> dict[str, Any] | None:
     try:
         out: dict[str, Any] = {name: float(entry[name]) for name in VIEW_FIELDS}
         target = [float(v) for v in entry["target"]]
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, OverflowError):
+        # ``OverflowError`` for the 2026-10-03 audit's clay-29: a 400-digit
+        # ``yaw`` escaped this reader, whose docstring says every way of being
+        # wrong answers ``None``, after ``read_rblk`` had already accepted
+        # the file.
         return None
     if len(target) != 3 or not all(np.isfinite([*out.values(), *target])):
         return None
@@ -451,6 +463,34 @@ def snapshot(doc: ClayDoc, *, view: Any = None) -> RblkSnapshot:
     return RblkSnapshot(scene=scene, meshes=meshes, images=tuple(images))
 
 
+def triangle_count(mesh: bm.Mesh) -> int:
+    """The triangles ``mesh.triangulate`` fans *mesh* into -- the one count
+    :func:`read_rblk` charges against ``MAX_TRIANGLES`` and the writer checks
+    against the same ceiling, so the two cannot answer differently. A face of
+    ``n`` corners is ``n - 2``; a degenerate one contributes 0."""
+    counts = np.diff(mesh.starts).astype("i8") - 2
+    return int(np.clip(counts, 0, None).sum())
+
+
+def _refuse_unreadable(snap: RblkSnapshot) -> None:
+    """Refuse to encode a document :func:`read_rblk` would refuse to reopen."""
+    from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
+
+    if len(snap.meshes) > MAX_OBJECTS:
+        raise ValueError(
+            f"this clay document places {len(snap.meshes):,} objects, past "
+            f"the {MAX_OBJECTS:,} Clay holds"
+        )
+    triangles = 0
+    for _uid, mesh in snap.meshes:
+        triangles += triangle_count(mesh)
+        if triangles > MAX_TRIANGLES:
+            raise ValueError(
+                f"this clay document has more than {MAX_TRIANGLES:,} "
+                "triangles, the most Clay can edit"
+            )
+
+
 def snapshot_bytes(snap: RblkSnapshot) -> bytes:
     """The task-thread half: encode a :func:`snapshot` into a ``.rblk`` archive.
 
@@ -458,10 +498,21 @@ def snapshot_bytes(snap: RblkSnapshot) -> bytes:
     thread -- the zip container, one npz build per mesh, and one PNG encode
     per texture -- run here against a snapshot that no longer touches the live
     document at all.
+
+    Refuses (``ValueError``) a snapshot :func:`read_rblk` would refuse to
+    reopen for its object or triangle count. The 2026-10-03 audit's clay-27:
+    the 2026-09-23 save guard (``clay_mode._refuse_oversized_save``) checks
+    bytes only, and Clay lets a document grow past ``MAX_OBJECTS`` and
+    ``MAX_TRIANGLES`` -- 4,097 tiny objects write a 9.3 MB file, far under the
+    byte ceiling, that ``read_rblk`` then refuses (and crash recovery with it).
+    Checked here, against the snapshot being encoded, so every door that writes
+    a ``.rblk`` -- save, save-as, the journal -- gets the same answer, and
+    before the encode spends its time.
     """
+    _refuse_unreadable(snap)
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(zipfile.ZipInfo(SCENE, _EPOCH), snap.scene)
+        zf.writestr(zipfile.ZipInfo(SCENE, _EPOCH), snap.scene, zipfile.ZIP_DEFLATED)
         for uid, mesh in snap.meshes:
             arrays = {name: getattr(mesh, name) for name in _MESH_FIELDS}
             if mesh.uv is not None:
@@ -469,6 +520,7 @@ def snapshot_bytes(snap: RblkSnapshot) -> bytes:
             zf.writestr(
                 zipfile.ZipInfo(f"{MESH_DIR}/{uid}.npz", _EPOCH),
                 _npz_bytes(arrays),
+                zipfile.ZIP_DEFLATED,
             )
         for i, image in enumerate(snap.images):
             info = zipfile.ZipInfo(f"{TEXTURE_DIR}/{i}.png", _EPOCH)
@@ -610,7 +662,12 @@ def _vector(entry: dict[str, Any], key: str, default: tuple[float, ...]) -> Any:
     raw = entry.get(key, default)
     try:
         value = np.asarray(raw, dtype="f8")
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
+        # The 2026-10-03 audit's clay-29: a JSON integer too large for a float
+        # (a 400-digit literal) is an ``OverflowError`` out of ``np.asarray``,
+        # the one class the 2026-09-26 sweep (clay-document-07) closed at every
+        # other ``int()``/``float()`` site in this module and missed here, so a
+        # hand-edited file failed to open with an unnamed error.
         raise ValueError(
             f"an object in this clay document has a {key} that is not numbers"
         ) from exc
@@ -1228,8 +1285,7 @@ def read_rblk(data: bytes) -> ClayDoc:
             # number of triangles `mesh.triangulate` actually produces for a
             # convex fan; a degenerate face with fewer than 3 corners
             # contributes 0 rather than a negative count.
-            counts = np.diff(mesh.starts).astype("i8") - 2
-            triangles += int(np.clip(counts, 0, None).sum())
+            triangles += triangle_count(mesh)
             if triangles > MAX_TRIANGLES:
                 raise ValueError(
                     f"this clay document has more than {MAX_TRIANGLES:,} "

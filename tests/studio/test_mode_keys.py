@@ -311,16 +311,18 @@ def test_the_quit_chain_stops_at_the_first_cancel():
     # pixels, built geometry, a map, an atlas, then the two pose editors --
     # the inspector's and the Poser's, which read different viewers and so can
     # never double-ask about one edit.
+    #
+    # The document-mode guards come from ``mode_manifest.DOC_MODES`` (shell-73,
+    # the 2026-10-03 audit; ``test_every_doc_mode_has_a_guard_in_the_quit_chain``
+    # pins the walk itself), with the inspector's pose guard slotted in just
+    # before Poser's own -- so the order is the manifest's, checked here.
+    from realmspinner.studio import mode_manifest
+
     source = inspect.getsource(main.App._request_quit)
-    order = [
-        "inker_mode.guard",
-        "clay_mode.guard",
-        "plotter_mode.guard",
-        "packwright_mode.guard",
-        "pose_panel.guard",
-        "poser_mode.guard",
-    ]
-    positions = [source.index(name) for name in order]
+    assert "mode_manifest.DOC_MODES" in source and "pose_panel.guard" in source
+    keys = [entry.key for entry in mode_manifest.DOC_MODES]
+    order = ["inker", "clay", "plotter", "packwright", "poser"]
+    positions = [keys.index(name) for name in order]
     assert positions == sorted(positions)
     assert all(
         (

@@ -21,6 +21,7 @@ that hand-typed a stale name would still be caught."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -70,9 +71,17 @@ def _model_from_description(args: dict[str, Any]) -> str:
 
 
 def _model_from_reference(args: dict[str, Any]) -> str:
-    image_path = args["image_path"]
+    # The 2026-10-03 audit (agents-13): this took "image_path" ("a Library job id
+    # or a path/description") and told the model to add it with clay_reference_add,
+    # which takes a Library job id or inline base64 and never a path -- the first
+    # reference_add refused the input the argument invited. Only the job id
+    # survives as an argument; a picture that is not in the Library goes inline
+    # to the tool, which the text says.
+    job_id = args["job_id"]
     return (
-        f"Match the reference image at {image_path}. Add it with {_REFERENCE_ADD}, then "
+        f"Match the reference picture from Library job {job_id}. Add it with "
+        f"{_REFERENCE_ADD} (job_id={job_id!r}; if it is not in the Library, send the "
+        f"picture inline as png_base64 instead -- the tool never takes a file path), then "
         f"block out the shape with {_ADD_PRIMITIVE} and check your progress with "
         f"{_RENDER}'s 'compare' argument against that reference (try compare_mode "
         f"'beside' first, then 'overlay' once the silhouette is close). Iterate with "
@@ -109,9 +118,14 @@ def _prepare_for_export(args: dict[str, Any]) -> str:
 def _character_sheets_from_description(args: dict[str, Any]) -> str:
     description = args["description"]
     movements = args.get("movements")
+    # The 2026-10-03 audit's agents-31: this rendered the comma-separated
+    # string as bare names ("movements: [walk, idle]"), and character_create
+    # takes an array of {"name": ...} objects and refuses a bare name -- a
+    # model following the text literally sent a refused first call.
+    names = [n.strip() for n in movements.split(",") if n.strip()] if movements else []
     movements_clause = (
-        f"movements: [{movements}]"
-        if movements
+        "movements: [" + ", ".join(json.dumps({"name": n}) for n in names) + "]"
+        if names
         else "movements omitted, so the resolved species' own default set is used"
     )
     return (
@@ -123,10 +137,13 @@ def _character_sheets_from_description(args: dict[str, Any]) -> str:
         f"Poll {_CHARACTER_JOB} on the returned rig_job_id (the mesh's own "
         f"job id reports the same thing too) until its follow_up_sheet_job "
         f"names a job, then poll {_CHARACTER_JOB} on that job until it is "
-        f"done. If the rig itself ends in error, follow_up_sheet_job never "
-        f"appears -- read follow_up_failure (or the rig job's own error) "
-        f"off that same {_CHARACTER_JOB} reply and stop, rather than poll "
-        f"forever for a sheet that will not come. Look at the finished "
+        f"done. Any terminal status other than done -- error or cancelled -- "
+        f"on either job ends the loop. If the rig itself ends in error or is "
+        f"cancelled, follow_up_sheet_job never appears -- read "
+        f"follow_up_failure (or the rig job's own error) off that same "
+        f"{_CHARACTER_JOB} reply and stop, rather than poll forever for a "
+        f"sheet that will not come; if the sheet job ends in error or is "
+        f"cancelled, read its own error and stop. Look at the finished "
         f"sheet with {_CHARACTER_SHEET_PREVIEW}, then hand it off with "
         f"{_CHARACTER_EXPORT} in each of animated_glb, godot_scene and "
         f"frame_folders. A movement named as part of a 'set' means nothing "
@@ -175,9 +192,10 @@ _PROMPTS: dict[str, _Prompt] = {
             "Build a Clay model that matches a reference picture.",
             [
                 {
-                    "name": "image_path",
-                    "description": "A Library job id or a path/description of the reference "
-                    "image to match.",
+                    "name": "job_id",
+                    "description": "The Library job id of the reference image to match "
+                    "(a picture not in the Library cannot be named here; send it inline "
+                    "to clay_reference_add instead).",
                     "required": True,
                 }
             ],
@@ -275,10 +293,16 @@ def render(
     # a caller who never sent it -- so a required one still shows up in
     # `missing` below and an optional one falls back to its own render
     # function's `.get(...)` default instead of being stringified.
+    # The 2026-10-03 audit's agents-20: an empty or whitespace-only string is
+    # a str, so it counted as present -- a required argument satisfied by
+    # nothing rendered "a Clay model matching this description: ". Blank is
+    # absent, the same as the wrong-typed case.
     present = {
         a["name"]: arguments[a["name"]]
         for a in prompt.arguments
-        if a["name"] in arguments and isinstance(arguments[a["name"]], str)
+        if a["name"] in arguments
+        and isinstance(arguments[a["name"]], str)
+        and arguments[a["name"]].strip()
     }
     missing = [a["name"] for a in prompt.arguments if a["required"] and a["name"] not in present]
     if missing:

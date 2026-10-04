@@ -703,6 +703,36 @@ def _no_doc_first(text: str | Callable[[Any, Any], str]) -> Callable[[Any, Any],
     return _reason
 
 
+def _busy_first(text: str | Callable[[Any, Any], str]) -> Callable[[Any, Any], str]:
+    """*text*, unless there is no document (:data:`NO_DOC`) or the document is
+    merely busy (:data:`BUSY`).
+
+    For the ops whose ``enabled`` is ``ready(...) and <own predicate>``: the
+    2026-10-03 audit, finding inker-46, found thirteen of them -- the whole
+    Layer-menu block among them -- answering the *predicate's* sentence when
+    the tab was greyed only by a save, an export, playback or a float ("A
+    document keeps at least one layer." on a three-layer document, "This
+    layer is already visible." on a hidden one). ``_no_doc_first`` wraps
+    exactly one of the three refusals; the busy one is the one these rows read
+    first in ``enabled``, so it is the one their reason has to say first. Use it
+    **only** where ``enabled`` includes :func:`ready`: on a row that stays live
+    while busy it would name a save for an unrelated refusal.
+    """
+
+    def _reason(state: Any, tab: Any) -> str:
+        if tab is None:
+            return NO_DOC
+        # The two halves of ``ready`` read off the objects leniently: this is a
+        # sentence, not a gate, and a caller asking for the reason of a row with
+        # a bare tab or state (the manual's own revert example) has never been
+        # made to carry the busy flags.
+        if getattr(tab, "busy", False) or getattr(state, "transforming", False):
+            return BUSY
+        return text(state, tab) if callable(text) else text
+
+    return _reason
+
+
 def has_selection(state: Any, tab: Any) -> bool:
     return tab is not None and tab.doc.mask is not None
 
@@ -1010,7 +1040,7 @@ register(
         _mode("export_sheet"),
         menu="File",
         enabled=lambda state, tab: ready(state, tab) and animated(state, tab),
-        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
+        reason=_busy_first("This drawing has no frames yet -- Animate it first."),
     )
 )
 register(
@@ -1020,7 +1050,7 @@ register(
         _mode("export_gif"),
         menu="File",
         enabled=lambda state, tab: ready(state, tab) and animated(state, tab),
-        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
+        reason=_busy_first("This drawing has no frames yet -- Animate it first."),
     )
 )
 register(
@@ -1041,7 +1071,7 @@ register(
         menu="File",
         key="Ctrl+Shift+X",
         enabled=lambda state, tab: ready(state, tab) and bool(getattr(tab, "export_kind", "")),
-        reason=_no_doc_first("Nothing to repeat yet -- export once and this runs it again."),
+        reason=_busy_first("Nothing to repeat yet -- export once and this runs it again."),
         hint=(
             "The hot-path escape valve: configure the export once, then one "
             "key forever. It writes where it wrote and asks nothing."
@@ -1083,7 +1113,7 @@ register(
         menu="File",
         key="Ctrl+E",
         enabled=lambda state, tab: ready(state, tab) and not tab.linked,
-        reason=_no_doc_first(
+        reason=_busy_first(
             "This document is already in the library -- it is a reference "
             "opened for editing, so Ctrl+S is the write it wants."
         ),
@@ -1117,7 +1147,7 @@ register(
         _mode("revert"),
         menu="File",
         enabled=lambda state, tab: ready(state, tab) and tab.linked and tab.has_original,
-        reason=_no_doc_first(
+        reason=_busy_first(
             "There is no original kept for this document: it is not a "
             "reference, or it has never been edited."
         ),
@@ -1487,7 +1517,7 @@ register(
         _doc("crop_to_selection"),
         menu="Sprite",
         enabled=lambda state, tab: ready(state, tab) and has_selection(state, tab),
-        reason=_no_doc_first(NO_SELECTION),
+        reason=_busy_first(NO_SELECTION),
     )
 )
 register(
@@ -1532,7 +1562,9 @@ register(
         dialog("inker-to-tilemap"),
         menu="Sprite",
         enabled=lambda state, tab: _tiles().can_convert(state, tab),
-        reason=_no_doc_first("The active layer is already a tilemap layer."),
+        # ``can_convert`` includes ``ready`` (a save, playback or an open float
+        # greys it), so BUSY is said before the document fact.
+        reason=_busy_first("The active layer is already a tilemap layer."),
         separator_before=True,
     )
 )
@@ -1709,14 +1741,37 @@ def _run_nineslice_fit(ctx: Any, tab: Any, **_: Any) -> Any:
     entry = _nineslice_selected(state, tab)
     if entry is None:
         return False
-    center = nineslice_center(tab, entry.at(tab.frame_uid).bounds)
+    frame_uid = tab.frame_uid
+    center = nineslice_center(tab, entry.at(frame_uid).bounds)
     if center is None:
         return False
+    if frame_uid is not None and frame_uid in entry.keys:
+        # The 2026-10-03 audit's inker-52 rule, for this door too: the centre
+        # was inferred from the *keyed* frame's bounds but written through
+        # ``set_slice(center=...)``, which is the base rectangle's field, so
+        # the base and every unkeyed frame gained a centre inferred from a
+        # rectangle they do not have and the frame on screen gained nothing.
+        # Mirrors ``panes/tools.py::_set_slice_field``, which this registry may
+        # not import (it draws imgui). A fresh dict and key: the undo step
+        # holds the old ones.
+        from ....kernels.pixel.slices import SliceKey
+
+        key = entry.keys[frame_uid]
+        return tab.doc.set_slice(
+            entry.uid,
+            keys={**entry.keys, frame_uid: SliceKey(key.bounds, key.pivot, center)},
+        )
     return tab.doc.set_slice(entry.uid, center=center)
 
 
 def _has_nineslice(state: Any, tab: Any) -> bool:
-    return tab is not None and any(entry.center is not None for entry in tab.doc.slices)
+    # A key's centre counts: Auto-fit on a keyed frame writes the key, and the
+    # export reads ``entry.at(frame)`` per frame, so a centre that lives on a
+    # key alone is a nine-slice to export.
+    return tab is not None and any(
+        entry.center is not None or any(k.center is not None for k in entry.keys.values())
+        for entry in tab.doc.slices
+    )
 
 
 def _nineslice_export_reason(state: Any, tab: Any) -> str:
@@ -1803,17 +1858,22 @@ register(
         _doc("remove_layer"),
         menu="Layer",
         enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason=_no_doc_first("A document keeps at least one layer."),
+        reason=_busy_first("A document keeps at least one layer."),
     )
 )
 register(
     Op(
         "rename_layer",
         "Rename layer...",
-        dialog("inker-rename-layer"),
+        # The 2026-10-03 audit, finding inker-51: this was
+        # ``dialog("inker-rename-layer")`` and no pane answers that name, so the
+        # row did nothing. It asks the same prompt the timeline's row menu does.
+        # ``ready`` as well, as that menu's own Rename is: a rename writes the
+        # layer stack an encode may be walking.
+        _mode("ask_rename_layer"),
         menu="Layer",
-        enabled=has_doc,
-        reason=NO_DOC,
+        enabled=ready,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1841,7 +1901,7 @@ register(
         # would be moving the one its users have learned.
         key="Ctrl+Shift+M",
         enabled=lambda state, tab: ready(state, tab) and can_merge_down(state, tab),
-        reason=_no_doc_first(_merge_down_reason),
+        reason=_busy_first(_merge_down_reason),
     )
 )
 register(
@@ -1851,7 +1911,7 @@ register(
         _doc("flatten_layers"),
         menu="Layer",
         enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason=_no_doc_first("There is only one layer."),
+        reason=_busy_first("There is only one layer."),
     )
 )
 register(
@@ -1862,7 +1922,7 @@ register(
         menu="Layer",
         key="Ctrl+Shift+Up",
         enabled=lambda state, tab: ready(state, tab) and can_move_layer_up(state, tab),
-        reason=_no_doc_first(
+        reason=_busy_first(
             lambda state, tab: (
                 "There is only one layer."
                 if not many_layers(state, tab)
@@ -1880,7 +1940,7 @@ register(
         menu="Layer",
         key="Ctrl+Shift+Down",
         enabled=lambda state, tab: ready(state, tab) and can_move_layer_down(state, tab),
-        reason=_no_doc_first(
+        reason=_busy_first(
             lambda state, tab: (
                 "There is only one layer."
                 if not many_layers(state, tab)
@@ -1900,13 +1960,18 @@ register(
         # undoable -- during a save or mid-playback, the same door every
         # other layer-restructuring verb in this file is refused through.
         enabled=lambda state, tab: ready(state, tab) and not tab.doc.stack.active.visible,
-        reason=_no_doc_first("This layer is already visible."),
+        reason=_busy_first("This layer is already visible."),
         separator_before=True,
     )
 )
 
 
 def _to_background_reason(state: Any, tab: Any) -> str:
+    # ``ready`` first (the 2026-10-03 audit, finding inker-46): the last line
+    # used to answer BUSY for *every* fall-through, and the document facts above
+    # it were said even when the tab was merely busy.
+    if not ready(state, tab):
+        return BUSY
     if tab.doc.has_background:
         return "The bottom layer is already the background."
     if len(tab.doc.stack) and tab.doc.write_locked(tab.doc.stack[0]):
@@ -1949,7 +2014,7 @@ register(
         _doc("from_background"),
         menu="Layer",
         enabled=lambda state, tab: ready(state, tab) and tab.doc.has_background,
-        reason=_no_doc_first("There is no background layer."),
+        reason=_busy_first("There is no background layer."),
     )
 )
 register(
@@ -2007,9 +2072,23 @@ register(
         _mode("animate"),
         menu="Frame",
         enabled=lambda state, tab: ready(state, tab) and not_animated(state, tab),
-        reason=_no_doc_first("This document is already animated."),
+        reason=_busy_first("This document is already animated."),
     )
 )
+def _can_play(state: Any, tab: Any) -> bool:
+    if not animated(state, tab) or tab.saving:
+        return False
+    return tab.playing or not state.transforming
+
+
+def _play_reason(state: Any, tab: Any) -> str:
+    if tab is None:
+        return NO_DOC
+    if not animated(state, tab):
+        return NOT_ANIMATED
+    return BUSY
+
+
 register(
     Op(
         "play",
@@ -2031,8 +2110,14 @@ register(
         # ``KEY_CONTEXTS`` and means "no other context matched", and the two
         # contexts that must not see Enter -- ``Transformation`` and
         # ``Gesture`` -- are consumed by ``_modal`` before ``by_key`` is asked.
-        enabled=animated,
-        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
+        #
+        # **Greyed while saving or transforming, live while playing.** The
+        # 2026-10-03 audit, finding inker-42: gated on ``animated`` alone, so
+        # Play was enabled yet ``toggle_play`` returned without a word during a
+        # save or an open free transform. It cannot be ``when_ready``, because
+        # ``ready`` is false while playing and Play is the way to stop.
+        enabled=_can_play,
+        reason=_play_reason,
     )
 )
 register(
@@ -2041,8 +2126,10 @@ register(
         "Give this frame its own palette",
         lambda ctx, tab, **_: tab.doc.set_frame_palette(list(tab.doc.palette or ())),
         menu="Frame",
-        enabled=_can_own_palette,
-        reason=_no_doc_first(
+        # ``ready`` (the 2026-10-03 audit, finding inker-42): both frame-palette
+        # rows push a palette edit into the history a save is encoding.
+        enabled=lambda state, tab: ready(state, tab) and _can_own_palette(state, tab),
+        reason=_busy_first(
             "Only an indexed drawing can have a palette per frame -- its pixels"
             " are slot numbers, so a different table repaints them. Convert it"
             " to Indexed first."
@@ -2056,10 +2143,12 @@ register(
         "Use the drawing's palette here",
         lambda ctx, tab, **_: tab.doc.clear_frame_palette(),
         menu="Frame",
-        enabled=_has_own_palette,
-        reason=_no_doc_first("This frame is already using the drawing's own palette."),
+        enabled=lambda state, tab: ready(state, tab) and _has_own_palette(state, tab),
+        reason=_busy_first("This frame is already using the drawing's own palette."),
     )
 )
+_NEXT_FRAME = when_ready(animated, NOT_ANIMATED)
+_PREV_FRAME = when_ready(animated, NOT_ANIMATED)
 register(
     Op(
         "next_frame",
@@ -2067,8 +2156,14 @@ register(
         _step_frame(1),
         menu="Frame",
         key=".",
-        enabled=animated,
-        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
+        # ``when_ready`` (the 2026-10-03 audit, findings inker-41 and -42): the
+        # row was gated on ``animated`` alone, so it stayed live yet did nothing
+        # and said nothing during a save or playback (``step_frame`` returns
+        # without a word), and under an open free transform it committed the
+        # float and left ``state.transforming`` stuck. ``first_frame`` and
+        # ``last_frame`` below were closed for the same door at inker-mode-06.
+        enabled=_NEXT_FRAME[0],
+        reason=_NEXT_FRAME[1],
         separator_before=True,
     )
 )
@@ -2079,8 +2174,8 @@ register(
         _step_frame(-1),
         menu="Frame",
         key=",",
-        enabled=animated,
-        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
+        enabled=_PREV_FRAME[0],
+        reason=_PREV_FRAME[1],
     )
 )
 _FIRST_FRAME = when_ready(animated, NOT_ANIMATED)
@@ -2152,7 +2247,7 @@ register(
         enabled=lambda state, tab: (
             ready(state, tab) and animated(state, tab) and len(tab.doc.anim.frames) > 1
         ),
-        reason=_no_doc_first("A clip keeps at least one frame."),
+        reason=_busy_first("A clip keeps at least one frame."),
     )
 )
 register(
@@ -2194,6 +2289,7 @@ register(
         reason=_DESELECT[1],
     )
 )
+_RESELECT = when_ready(can_reselect, "Nothing has been deselected yet.")
 register(
     Op(
         "reselect",
@@ -2201,8 +2297,11 @@ register(
         _doc("reselect"),
         menu="Select",
         key="Ctrl+Shift+D",
-        enabled=can_reselect,
-        reason=_no_doc_first("Nothing has been deselected yet."),
+        # ``when_ready`` (the 2026-10-03 audit, finding inker-42): Reselect
+        # pushes a ``SelectionEdit``, and it was gated on its own predicate
+        # alone, so it moved the history head under a save's encode.
+        enabled=_RESELECT[0],
+        reason=_RESELECT[1],
     )
 )
 register(
@@ -2298,14 +2397,25 @@ def _select_slots(ctx: Any, tab: Any, *, used: bool) -> bool:
     return doc.select_slots(slots)
 
 
+def _has_palette(state: Any, tab: Any) -> bool:
+    """A palette to select slots of, and a document that can take the selection.
+
+    ``ready`` is in it (the 2026-10-03 audit, finding inker-42): both colour
+    selects push a ``PatchEdit``/``SelectionEdit`` and were gated on the
+    palette alone, so a save's encode had the history head move under it.
+    """
+    return ready(state, tab) and bool(tab.doc.palette)
+
+
 def _has_palette_reason(state: Any, tab: Any) -> str:
     """``select_used_colours``/``select_unused_colours``'s refusal.
 
     A static "This document has no palette." was shown with no document open
     at all too (finding inker-08, the 2026-09-08 audit) -- true of no
-    document, but not what a user with nothing open needs to hear.
+    document, but not what a user with nothing open needs to hear. Busy is said
+    ahead of the palette fact, finding inker-46's rule.
     """
-    return NO_DOC if tab is None else "This document has no palette."
+    return _busy_first("This document has no palette.")(state, tab)
 
 
 register(
@@ -2314,7 +2424,7 @@ register(
         "Used colours",
         lambda ctx, tab, **_: _select_slots(ctx, tab, used=True),
         menu="Select",
-        enabled=lambda state, tab: tab is not None and bool(tab.doc.palette),
+        enabled=_has_palette,
         reason=_has_palette_reason,
         hint=(
             "Selects every pixel drawn in a palette slot that is in use. Its "
@@ -2330,7 +2440,7 @@ register(
         "Unused colours",
         lambda ctx, tab, **_: _select_slots(ctx, tab, used=False),
         menu="Select",
-        enabled=lambda state, tab: tab is not None and bool(tab.doc.palette),
+        enabled=_has_palette,
         reason=_has_palette_reason,
     )
 )
@@ -2832,13 +2942,18 @@ def _sheet_merge(ctx: Any, tab: Any, **_: Any) -> Any:
             "warn",
         )
         return False
-    newest = inker_mode.newest_sheet_after(ctx.svc, job_id, sheet_id)
-    if not newest:
-        ctx.toast("No newer sheet of this character to merge in.", "info")
-        return False
     svc = ctx.svc
 
     def work() -> Any:
+        # The lookup is inside the task, with the decode: it is
+        # ``store.list_sheets`` -- a directory glob and one sidecar JSON read
+        # per sheet of the job -- and a character with many re-renders paid
+        # that many reads in the frame of the click (the 2026-10-03 audit,
+        # finding inker-88). ``land_merge`` says "no newer sheet" when this
+        # comes back empty.
+        newest = inker_mode.newest_sheet_after(svc, job_id, sheet_id)
+        if not newest:
+            return {"cells": None, "sheet": ""}
         return {
             "cells": inker_mode.load_sheet_cells(svc, job_id, newest),
             "sheet": newest,

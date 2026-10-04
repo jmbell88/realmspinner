@@ -12,11 +12,15 @@ person's project.
 
 ## What is in scope
 
-Realmspinner is an offline desktop application. It has no server, no account
-system and no network listener at all, so the realistic threat is
-**a malicious file**, not a malicious peer. In scope:
+Realmspinner is an offline desktop application. It has no server and no account
+system, and no inbound listener beyond two local ones: the reconstruction
+engine's loopback port (`127.0.0.1:17971` by default, `REALMSPINNER_TRELLIS_PORT`),
+open only while `trellis-server.exe` is resident, and the named pipe (a local
+socket where there is no named pipe) the MCP bridge uses once you switch it on,
+guarded by a token. So the realistic threat is **a malicious file**, not a
+malicious peer. In scope:
 
-- **Any file the app opens.** `.ora`, `.aseprite`, `.tmx`/`.tsx` and their JSON
+- **Any file the app opens.** `.ora`, `.aseprite` (and its `.ase` spelling), `.tmx`/`.tsx` and their JSON
   spellings `.tmj`/`.tsj`, `.rmap`, `.rblk`, `.rpack`, `.rscn`, `.rsng`, `.glb`, and
   every image format Pillow handles. Also the import-only formats two parsers
   read but never write: Clay's mesh importer takes `.obj`, `.stl` and `.ply`
@@ -26,7 +30,12 @@ system and no network listener at all, so the realistic threat is
   docs-01: an import-only parser is exactly as reachable by a crafted
   third-party file as a native document format, and the inventory above had
   only ever been swept from `service.files`'s save-format constants, which a
-  read-only importer never appears in.
+  read-only importer never appears in. Three more were missing for the same
+  reason (the 2026-10-03 audit, finding docs-35): Sirens' sample import reads
+  `.wav` (`kernels.audio.wavout.read_wav`), the palette importers read `.hex`,
+  `.gpl`, `.pal` and `.txt` (`service.palettes.SUFFIXES`), and Inker opens the
+  `.ase` suffix as well as `.aseprite`
+  (`kernels.pixel.asein.ASEPRITE_SUFFIXES`).
   These are files people download from asset sites, so a crafted one reaching
   code execution, a decompression bomb, or a write outside the chosen directory
   is a real finding. So is a hang or an unbounded allocation.

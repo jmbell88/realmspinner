@@ -106,13 +106,15 @@ def _drop_to_ground(ctx: Any, tab: Any) -> None:
     uids = list(doc.selection)
     if not uids:
         return
-    source = mason_assets.ensure(ctx)
-    boxes = {}
-    for uid in uids:
-        box = mscene.world_bounds(doc, source, uids=[uid])
-        if box is not None:
-            boxes[uid] = box
-    deltas = mops.drop_to_ground(boxes, terrain=doc.terrain)
+    # One resolve for the whole selection, the sidebar button's own call (the
+    # 2026-10-03 audit's mason-17).
+    boxes = mscene.world_bounds_by_owner(doc, mason_assets.ensure(ctx), uids=uids)
+    # The 2026-10-03 audit's mason-22: through the ground node's own world
+    # matrix, so a moved or scaled ground drops props onto the surface that is
+    # drawn, not the one at the origin.
+    deltas = mops.drop_to_ground(
+        boxes, terrain=doc.terrain, terrain_world=doc.terrain_world()
+    )
     # The 2026-09-14 audit's mason-02: this pushed one TransformEdit per node
     # with no mark/collapse_since, so dropping several selected nodes to the
     # ground cost one Ctrl+Z per node -- docs/manual/31-mason.md promises "Each

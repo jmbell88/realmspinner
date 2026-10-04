@@ -136,7 +136,16 @@ def static_checks(config: Config, *, probe_slow: bool = True, force: bool = Fals
     Poser back on until the app restarted, contradicting manual 42's claim
     that a pack install re-enables its mode. ``force`` now reaches every
     probe that owns one of those caches so it actually clears it.
+
+    A fifth memory sat outside that list: ``pipelines.matting``'s failure memo,
+    which ``_matting_checks`` reads through ``last_error()`` and ``mask``
+    honours as ``_AlreadyFailed``. A host-matting row that had failed to load
+    (``No module named 'einops'``) stayed red and matting stayed on the corner
+    fill after the missing pack was installed (the 2026-10-03 audit,
+    pipelines-10), so ``force`` drops it too.
     """
+    if force:
+        matting.forget_failure()
     return [
         _exe_check(config),
         _gguf_check(config),
@@ -300,8 +309,31 @@ def _instance_check(config: Config) -> Check:
     )
 
 
+def _pack_hint(key: str) -> str:
+    """The remedy for an absent dependency pack, composed from ``packs.PACKS``.
+
+    The 2026-10-03 audit (pipelines-15) found the CUDA, Blender and Muse rows
+    each printing a ``uv sync --extra ...`` literal: a packaged install has no
+    venv for a user to run that against (the Create row's own docstring says
+    so), and three copies of the pack's name were three places to drift from the
+    registry. Settings -> Packs is the one door a person can act on; a source
+    checkout sees its uv command there (``app_settings.pack_blocked``).
+    """
+    pack = packs.find(key)
+    label = pack.label if pack is not None else key
+    return f'install the "{label}" pack from Settings -> Packs'
+
+
+def _pack_absent(key: str) -> bool:
+    """Whether the pack's modules do not even resolve -- "not downloaded yet",
+    which is not a fault, as opposed to modules that resolve and fail to
+    import, which is."""
+    pack = packs.find(key)
+    return pack is not None and bool(packs.missing(pack))
+
+
 BPY_PROBE_TIMEOUT = 120.0
-BPY_INSTALL_HINT = "rigging unavailable; install with: uv sync --extra rig"
+BPY_INSTALL_HINT = f"rigging unavailable; {_pack_hint('rig')}"
 
 
 _blender_lock = threading.Lock()
@@ -366,7 +398,14 @@ def _probe_blender() -> Check:
         return Check("Blender (rigging)", False, f"bpy probe failed: {exc}", fatal=False)
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or ["import failed"]
-        return Check("Blender (rigging)", False, f"{detail[0]} -- {BPY_INSTALL_HINT}", fatal=False)
+        # An absent Rigging pack is the ordinary state of a fresh install and is
+        # counted as one: ``pending_install`` keeps it out of the Issues count
+        # (the 2026-10-03 audit, pipelines-15). bpy that resolves but will not
+        # import stays a fault.
+        return Check(
+            "Blender (rigging)", False, f"{detail[0]} -- {BPY_INSTALL_HINT}", fatal=False,
+            pending_install=_pack_absent("rig"),
+        )
     return Check("Blender (rigging)", True, f"bpy {proc.stdout.strip()}", fatal=False)
 
 
@@ -728,8 +767,11 @@ def _cuda_check(*, probe: bool = True) -> Check:
     try:
         import torch
     except ImportError:
+        # No torch is the Image generation pack not being installed yet, not a
+        # fault (the 2026-10-03 audit, pipelines-15).
         return Check(
-            "CUDA", False, "torch not installed (uv sync --extra text2image)", fatal=False
+            "CUDA", False, f"torch not installed -- {_pack_hint('text2image')}",
+            fatal=False, pending_install=_pack_absent("text2image"),
         )
     except Exception as exc:  # noqa: BLE001 -- F3, and ``vram.probe`` has the reasoning
         # Torch is present but will not load. The case this was written for is
@@ -993,10 +1035,15 @@ def _t2i_checks(config: Config) -> list[Check]:
             # is answered uniformly for every registry row inside
             # ``_registry_row`` now (M04), rather than here alone.
             recorded = fetch.read_manifest(path) or {}
+            # Guarded the way ``fetch.verify_manifest`` guards the same file
+            # (the 2026-10-03 audit, pipelines-23): a ``repos`` that is a list,
+            # or entries that are not objects, took this whole static sweep
+            # down with an AttributeError instead of costing one detail line.
+            repos = recorded.get("repos")
             pins = {
                 r.get("revision")
-                for r in (recorded.get("repos") or {}).values()
-                if r.get("revision")
+                for r in (repos.values() if isinstance(repos, dict) else ())
+                if isinstance(r, dict) and isinstance(r.get("revision"), str) and r["revision"]
             }
             if pins:
                 detail += f" (revision {', '.join(sorted(pins))})"
@@ -1038,7 +1085,11 @@ def _t2i_checks(config: Config) -> list[Check]:
         if ok:
             detail = str(root)
         else:
-            missing = "weights" if not weights.exists() else "CLIP vision encoder"
+            # ``is_file`` like every sibling row (L01): a directory sitting
+            # where the weights belong made ``exists()`` true and the detail
+            # blamed the CLIP vision encoder (the 2026-10-03 audit,
+            # pipelines-30) -- the wrong half of the download.
+            missing = "weights" if not weights.is_file() else "CLIP vision encoder"
             detail = (
                 f"{missing} not found under {root} -- conditioning unavailable; "
                 f"download with:\n  {fetch.download_text(config, 'adapter', adapter)}"
@@ -1133,7 +1184,7 @@ def _music_checks(config: Config) -> list[Check]:
 
 
 MUSIC_PROBE_TIMEOUT = 120.0
-MUSIC_INSTALL_HINT = "Muse unavailable; install with: uv sync --extra music"
+MUSIC_INSTALL_HINT = f"Muse unavailable; {_pack_hint('music')}"
 
 _music_deps: Check | None = None
 _music_deps_lock = threading.Lock()
@@ -1190,7 +1241,8 @@ def _probe_music_deps() -> Check:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or ["import failed"]
         return Check(
-            "Muse (dependencies)", False, f"{detail[0]} -- {MUSIC_INSTALL_HINT}", fatal=False
+            "Muse (dependencies)", False, f"{detail[0]} -- {MUSIC_INSTALL_HINT}", fatal=False,
+            pending_install=_pack_absent("music"),
         )
     return Check(
         "Muse (dependencies)", True, "the ACE-Step pipeline imports in a child", fatal=False
@@ -1198,7 +1250,7 @@ def _probe_music_deps() -> Check:
 
 
 T2I_PROBE_TIMEOUT = 120.0
-T2I_INSTALL_HINT = "install this pack from Settings -> Packs"
+T2I_INSTALL_HINT = _pack_hint("text2image")
 
 _t2i_deps: Check | None = None
 _t2i_deps_lock = threading.Lock()
@@ -1267,7 +1319,8 @@ def _probe_t2i_deps() -> Check:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or ["import failed"]
         return Check(
-            "Create (dependencies)", False, f"{detail[0]} -- {T2I_INSTALL_HINT}", fatal=False
+            "Create (dependencies)", False, f"{detail[0]} -- {T2I_INSTALL_HINT}", fatal=False,
+            pending_install=_pack_absent("text2image"),
         )
     return Check(
         "Create (dependencies)", True, "the text2image pack imports in a child", fatal=False
@@ -1476,8 +1529,12 @@ def _matting_checks(config: Config, *, probe_slow: bool = True, force: bool = Fa
     downloaded file's. The scan is unchanged because the imports are.
 
     And since N112 it *does* claim that the checkpoint loads, because it tries:
-    ``_load_probe`` runs a real CPU ``from_pretrained`` once per process, off
-    the startup path and cached like the bpy answer. The import scan above is
+    ``_load_probe`` runs a real CPU load once per process -- ``matting._load``
+    into ``pipelines/birefnet.load``, the vendored model built and the
+    checkpoint read with ``strict=True``, so a failure here is a state dict
+    that does not map onto the vendored architecture, not a ``transformers``
+    ``from_pretrained`` error (the 2026-10-03 audit, pipelines-28). It runs off
+    the startup path and is cached like the bpy answer. The import scan above is
     kept rather than replaced -- it is the cheap answer available before the
     slow one has run, and it names the missing package where a load failure
     only names the exception it raised.

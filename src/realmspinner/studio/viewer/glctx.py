@@ -49,7 +49,6 @@ class Viewport:
         if (width, height) == self.size:
             return False
         self.release()
-        self.size = (width, height)
         self.texture = self.ctx.texture((width, height), 4)
         self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
         self.texture.repeat_x = self.texture.repeat_y = False
@@ -74,6 +73,14 @@ class Viewport:
                 color_attachments=[self.texture],
                 depth_attachment=self._depth_rb,
             )
+        # Claimed last, once every attachment exists. The 2026-10-04 audit's
+        # create-48: the size was set before the allocations, so a failed one
+        # (out of memory on a big drag) left the size claimed with no target,
+        # and every later same-size resize hit the early return above and
+        # never retried. ``release()`` has already zeroed the size, so a
+        # failure part-way leaves (0, 0) and the next call reallocates -- the
+        # half-built attachments are freed by that call's own ``release()``.
+        self.size = (width, height)
         return True
 
     @property

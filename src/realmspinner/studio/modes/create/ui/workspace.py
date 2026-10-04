@@ -9,7 +9,6 @@ job cache and services; it does not introduce another generation state.
 
 from __future__ import annotations
 
-import itertools
 from collections.abc import Callable
 from typing import Any
 
@@ -27,11 +26,6 @@ from ..engine import workspace as families
 from ..engine.plan import Plan
 from . import session
 
-#: How many finished results the tray shows, and the width of its grid. One
-#: number because they are one fact: the tray is a fixed-height strip, so the
-#: row it can draw whole is the row it should hold.
-_RESULT_COLUMNS = 3
-
 
 def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
     """Describe the actual work using the same form values the door receives.
@@ -42,7 +36,11 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
     spec = create_assets.selected(form)
     candidates = max(1, _integer(form.get("count"), 1))
     generations = candidates
-    duration = "a few seconds"
+    # The 2026-10-04 audit, finding create-60: this was the literal "a few
+    # seconds" whatever the Count, so eight candidates promised what one does.
+    # Derived below from the generation count through the phrase the tile and
+    # sprite arms already use, once the arm has settled it.
+    duration = ""
     stages = "Generate image"
     if spec.key == "3d_model":
         stages = "Generate reference → choose or make 3D"
@@ -91,6 +89,8 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
             f"sheet, CPU only, no GPU needed"
         )
         duration = _about_minutes(svc_characters.estimate_minutes(cells))
+    if not duration:
+        duration = svc_sprites.generation_time_phrase(generations)
     recipe = "Automatic recipe"
     if spec.key == "character":
         # Never a checkpoint name. ``_resolved_recipe`` answers for *any* form
@@ -221,19 +221,6 @@ TRAY_STAGES = ("reference", "mesh")
 _PROGRESS_DP = 104.0
 
 
-def _in_stage(job: dict[str, Any], stage: str | None) -> bool:
-    """Whether ``job`` belongs in ``stage``'s tray. ``None`` means every job.
-
-    A mesh row is Mesh's result and everything else (a reference, a tile, a
-    sheet) is Reference's, so neither stage's strip is padded with the other's
-    cards and "Rig" is only ever offered on the stage that owns it.
-    """
-    if stage is None:
-        return True
-    is_mesh = job.get("stage") == "model"
-    return is_mesh if stage == "mesh" else not is_mesh
-
-
 def tray_extra(ctx: Any) -> float:
     """Extra design pixels the tray needs while its progress row is drawn."""
     return _PROGRESS_DP if getattr(getattr(ctx, "cache", None), "active", None) else 0.0
@@ -244,8 +231,9 @@ def should_draw(ctx: Any, stage: str | None = None) -> bool:
 
     **The same question :func:`draw` answers**, which is the fix: this asked
     "is there any queued, running or done job in the first twelve rows" while
-    the tray showed a running job, a candidate group, or ``_recent_results``
-    -- which excludes candidate members. So the two disagreed in both
+    the tray showed a running job, a candidate group, or the family results
+    (``families.results`` -- the function :func:`draw` calls, which excludes
+    follow-up kinds). So the two disagreed in both
     directions: a corpus of nothing but candidate rows reserved a strip and
     drew the empty state into it, and the viewer lost ``tray_height`` for a
     tray with nothing in it from the first finished job onward, permanently.
@@ -304,15 +292,52 @@ def inspect_result(ctx: Any, job: dict[str, Any]) -> None:
     asset_open.open_asset(ctx, job, inspect_only=True)
 
 
+#: Attempts at which the strip starts drawing only what is on screen. A creation
+#: of a dozen attempts fits a window and gains nothing from the arithmetic; a
+#: long-lived one decoded every thumbnail on the frame thread each frame (the
+#: 2026-10-04 audit, finding create-51).
+STRIP_CLIP_THRESHOLD = 24
+
+#: Cells drawn past each edge of the viewport, so a scroll tick never shows a hole.
+_STRIP_MARGIN = 2
+
+
+def strip_window(count: int, scroll_x: float, view_w: float, cell_w: float) -> tuple[int, int]:
+    """The half-open run of attempts to draw, from the strip's scroll and width. Pure.
+
+    Every cell is the same width (the thumbnail's side plus one item spacing),
+    so the visible run is arithmetic, not a measurement. Below
+    :data:`STRIP_CLIP_THRESHOLD`, or with no usable viewport, the whole strip.
+    """
+    if count < STRIP_CLIP_THRESHOLD or view_w <= 0.0 or cell_w <= 0.0:
+        return 0, count
+    first = max(0, int(scroll_x // cell_w) - _STRIP_MARGIN)
+    last = min(count, int((scroll_x + view_w) // cell_w) + 1 + _STRIP_MARGIN)
+    return min(first, last), last
+
+
 def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
     flags = imgui.WindowFlags_.horizontal_scrollbar.value
     if imgui.begin_child("create-attempt-strip", (0, 0), False, flags):
-        for i, job in enumerate(jobs):
+        side = sp(82)
+        gap = float(imgui.get_style().item_spacing.x)
+        first, last = strip_window(
+            len(jobs),
+            float(imgui.get_scroll_x()),
+            float(imgui.get_window_width()),
+            side + gap,
+        )
+        if first:
+            # A dummy of the skipped cells' width, so the scrollbar, the scroll
+            # position and every drawn cell's place are what they would have
+            # been with all of them drawn.
+            imgui.dummy((first * (side + gap) - gap, 1.0))
+        for i in range(first, last):
+            job = jobs[i]
             if i:
                 imgui.same_line()
             imgui.push_id(str(job["id"]))
             imgui.begin_group()
-            side = sp(82)
             thumbs.job_thumb(ctx, job, side)
             if imgui.is_item_clicked():
                 inspect_result(ctx, job)
@@ -334,6 +359,9 @@ def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
                 widgets.muted("Preferred")
             imgui.end_group()
             imgui.pop_id()
+        if last < len(jobs):
+            imgui.same_line()
+            imgui.dummy(((len(jobs) - last) * (side + gap) - gap, 1.0))
     imgui.end_child()
 
 
@@ -434,15 +462,10 @@ def history(ctx: Any) -> None:
     """Recent creations, grouped by lineage, rather than a second Library."""
     widgets.pane_header("Creations")
     idx = session.index(ctx)
-    ordered = sorted(
-        idx.families.items(),
-        key=lambda pair: max(j.get("created_at") or 0 for j in pair[1]),
-        reverse=True,
-    )
-    for key, _family in ordered:
-        assets = families.results(idx, key)
-        if not assets:
-            continue
+    # Memoised on the index (finding create-44): this used to sort every family
+    # and run ``results`` over each one on every frame the list was on screen.
+    ordered = families.ordered_creations(idx)
+    for key, assets in ordered:
         job = assets[0]
         label = str(job.get("name") or job.get("prompt") or job["id"])
         if controls.button(
@@ -548,14 +571,6 @@ def progress_row(ctx: Any) -> bool:
     return True
 
 
-def _brief_caption(ctx: Any) -> str:
-    form = getattr(ctx.state, "form_2d", {})
-    prompt = str(form.get("prompt") or "").strip()
-    if not prompt:
-        return "The current brief stays editable at left."
-    return (prompt[:78] + "…") if len(prompt) > 79 else prompt
-
-
 def _progress(ctx: Any, job: dict[str, Any]) -> None:
     status = str(job.get("status") or "queued")
     name = str(job.get("name") or job.get("prompt") or "Current generation")
@@ -617,17 +632,6 @@ def _candidate_grid(ctx: Any, group: Any) -> None:
             _result_card(ctx, member, group=group)
         imgui.end_table()
     imgui.end_child()
-
-
-def _result_grid(ctx: Any, jobs: list[dict[str, Any]]) -> None:
-    widgets.secondary("Compare and refine")
-    if imgui.begin_table(
-        "generation-results", _RESULT_COLUMNS, imgui.TableFlags_.sizing_stretch_same.value
-    ):
-        for job in jobs:
-            imgui.table_next_column()
-            _result_card(ctx, job)
-        imgui.end_table()
 
 
 def recorded_seed(job: dict[str, Any]) -> Any:
@@ -770,12 +774,12 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         # segment and the Rig section say the same words), never hidden: a
         # user who never sees Rig concludes the app cannot rig at all.
         blocked = create_stages.blender_reason("rig", ctx)
-        ready = done and "model.glb" in (job.get("files") or [])
+        rig_blocked = rig_reason(job, blocked)
         if widgets.disabled_button(
             f"Rig##result-rig-{job_id}",
-            ready and blocked is None,
+            rig_blocked is None,
             half,
-            reason=blocked or "A finished mesh is required.",
+            reason=rig_blocked or "",
         ):
             _rig(ctx, job)
     else:
@@ -791,6 +795,23 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
 
 #: Statuses a job can end in without producing artifacts.
 _FAILED = frozenset({"error", "cancelled", "failed"})
+
+
+def rig_reason(job: dict[str, Any], blocked: str | None) -> str | None:
+    """Why a mesh card's Rig is greyed, or None when it is live. Pure.
+
+    The mesh's own state first, Blender second: the 2026-10-04 audit, finding
+    create-38, found the reason was ``blocked or "A finished mesh is required."``,
+    so with Blender missing a failed or still-running mesh said "needs Blender"
+    -- true, and not what stood in the way. Blender's sentence is the honest one
+    only once there is a finished mesh to rig.
+    """
+    status = str(job.get("status") or "queued")
+    if status != "done":
+        return _why_not_finished(job, status)
+    if "model.glb" not in (job.get("files") or []):
+        return "A finished mesh is required."
+    return blocked
 
 
 def _why_not_finished(job: dict[str, Any], status: str) -> str:
@@ -853,6 +874,18 @@ def _vary(ctx: Any, job: dict[str, Any]) -> None:
     if job.get("stage") == "model":
         params = job.get("params") or {}
         form = ctx.state.form_3d
+        # The 2026-10-03 audit, finding create-21: only the keys the job
+        # recorded were copied, and ``promote_to_model`` records the engine
+        # values (trellis_band, size_m...) only when they were set -- so every
+        # key it left unset kept whatever the live form held, and "Change one
+        # thing, then make it again" re-ran a recipe that differed from the card
+        # in ways nothing showed. Start from the defaults, as ``session.resume``
+        # does; ``count`` and ``rig`` are not part of a recipe and stay as the
+        # user has them.
+        keep = {key: form[key] for key in ("count", "rig") if key in form}
+        form.clear()
+        form.update(DEFAULT_FORM_3D)
+        form.update(keep)
         for key in DEFAULT_FORM_3D:
             if key in params and key not in ("count", "rig"):
                 form[key] = params[key]
@@ -864,34 +897,8 @@ def _vary(ctx: Any, job: dict[str, Any]) -> None:
         return
     from ...library.ui.panes import library
 
-    library.copy_settings(ctx, job)
-    create_stages.go(ctx, "reference", follow=False)
+    library.copy_settings(ctx, job, announce=False, follow=False)
     ctx.toast("Loaded this brief. Change one thing, then generate a variation.")
-
-
-def _recent_results(ctx: Any, stage: str | None = None) -> list[dict[str, Any]]:
-    """The most recent finished results. **One row of the grid, not two.**
-
-    Six filled the tray's three columns twice over, and the tray is a
-    fixed-height strip -- so the second row's cards were drawn with their
-    actions below the fold, where nothing can press them. Three whole cards
-    beat six half-drawn ones, and the library beside them holds the rest.
-
-    The 2026-09-26 audit, finding create-workspace-06: this used to build a
-    list comprehension over every row in ``ctx.cache.jobs`` -- every job the
-    Library has ever cached, not just the three drawn -- every single frame
-    this tray is on screen, then threw away everything past the third. A
-    generator plus ``islice`` stops walking the cache the moment three
-    matches are found, same order, same result.
-    """
-    matches = (
-        job
-        for job in ctx.cache.jobs
-        if job.get("status") in ("done", "error", "cancelled")
-        and not job.get("candidate_group")
-        and _in_stage(job, stage)
-    )
-    return list(itertools.islice(matches, _RESULT_COLUMNS))
 
 
 #: One memoized ``{job_id: position}`` map, keyed on ``(cache, cache.

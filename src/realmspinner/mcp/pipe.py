@@ -10,11 +10,14 @@ and `eval`-by-another-name. `send_bytes`/`recv_bytes` move plain bytes and
 leave the JSON-RPC framing to `protocol.py`, which is the whole point of
 splitting the two modules.
 
-**One connection at a time is the v1 decision, not an oversight.** An agent
+**One session at a time is the v1 decision, not an oversight.** An agent
 session is exclusive use of Realmspinner it is driving -- there is no sensible
-way to interleave two agents' tool calls against one `ClayTab` -- so a second
-`connect()` simply waits inside the app's `accept()` until the first bridge
-disconnects. Multiplexing, if it is ever needed, is a v2 problem.
+way to interleave two agents' tool calls against one `ClayTab`. The pipe
+itself authenticates every peer that connects and keeps accepting; it is the
+host (`AgentHost._listen`/`_admit`) that admits one session and answers every
+later bridge `busy` on its first frame (`_refuse_busy`) and closes it, rather
+than leaving it waiting for the first to disconnect. Multiplexing, if it is
+ever needed, is a v2 problem.
 
 **The challenge is run here, on a clock, rather than inside
 `Listener.accept()`.** `Listener(authkey=...)` does the HMAC exchange for you,
@@ -169,7 +172,9 @@ def _clear_stale_socket(home: Path) -> None:
 
 
 class Server:
-    """The app's side of the pipe: one listener, one connection at a time."""
+    """The app's side of the pipe: one listener, which hands back each
+    authenticated connection in turn. Admitting only one *session* of them is
+    the host's job (see the module docstring), not this class's."""
 
     def __init__(self, home: Path) -> None:
         self._home = home

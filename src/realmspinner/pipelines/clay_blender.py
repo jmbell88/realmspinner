@@ -1,5 +1,5 @@
 """The host side of Clay's three mesh-cleanup Blender ops (retopologise,
-unwrap, bake high to low) -- ``dev/CLAY-PLAN.md`` tranche 4.
+unwrap, bake high to low) -- Clay tranche 4.
 
 Every function here takes and returns raw GLB bytes: Clay holds its document
 in memory, not on disk, so the door between "a Clay object" and "a Blender
@@ -50,7 +50,14 @@ def available() -> tuple[bool, str]:
     check = doctor.blender_check(probe=False)
     if check.ok:
         return True, ""
-    return False, "Needs Blender, which is not installed (the rig extra)."
+    # The 2026-10-03 audit, finding clay-113: every failure used to read as
+    # "not installed", so a probe that timed out or a missing skeleton-template
+    # folder told the user to install something that was installed. Only an
+    # absent Rigging pack (``pending_install``) is that sentence; anything else
+    # says what the probe itself found.
+    if check.pending_install:
+        return False, "Needs Blender, which is not installed (the rig extra)."
+    return False, f"Blender is not available: {check.detail}"
 
 
 def _run(spec: dict[str, Any], *, timeout: float, name: str) -> dict[str, Any]:
@@ -115,6 +122,22 @@ def unwrap_bytes(
         )
         result = _run(spec, timeout=timeout, name="Clay unwrap")
         return out.read_bytes(), result
+
+
+def blend_bytes(
+    glb: bytes,
+    *,
+    timeout: float = blender_run.BLENDER_TIMEOUT,
+) -> bytes:
+    """``glb`` as the bytes of a native ``.blend`` file, textures packed in."""
+    with tempfile.TemporaryDirectory(prefix="wl-clay-blend-") as tmp:
+        work = Path(tmp)
+        source = work / "source.glb"
+        source.write_bytes(glb)
+        out = work / "out.blend"
+        spec = blender_spec.clay_blend_spec(source, out, work)
+        _run(spec, timeout=timeout, name="Clay .blend export")
+        return out.read_bytes()
 
 
 def bake_bytes(

@@ -24,6 +24,11 @@ from ... import audio as sirens_audio
 from ... import mode as sirens_mode
 from ...engine import document as D
 
+#: The sentence every greyed field in this pane carries (the 2026-10-03 audit,
+#: finding sirens-23): the buttons beside them already said it, so a field that
+#: went inert with no word on hover read as a bug.
+_BUSY_WHY = "This song is being written; the field comes back when it lands."
+
 
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
@@ -88,12 +93,12 @@ def draw(ctx: Any) -> None:
         sirens_mode.play_pattern(ctx, tab)
     changed, value = controls.checkbox("Loop playback", state.loop_playback)
     if changed:
-        state.loop_playback = bool(value)
-        if playing:
-            # Applied to what is sounding rather than to the next press: a
-            # toggle that only takes effect after a stop reads as a dead
-            # control, which is the thing this pane exists not to draw.
-            sirens_mode.play(ctx, tab)
+        # Applied to what is sounding rather than to the next press: a toggle
+        # that only takes effect after a stop reads as a dead control, which is
+        # the thing this pane exists not to draw. From the current position,
+        # not the top -- ``set_loop_playback`` says why (the 2026-10-03 audit,
+        # finding sirens-22).
+        sirens_mode.set_loop_playback(ctx, tab, bool(value))
     widgets.muted_wrapped(
         "Repeats the rendered song. The loop *point* in the order list is what "
         "an exported WAV tells a game engine; this is for listening."
@@ -135,13 +140,13 @@ def draw(ctx: Any) -> None:
     # width -1, so "Tempo" and "Speed" were never drawn -- the user was left in
     # front of two bare numbers with nothing saying which was which.
     changed, value = widgets.labeled_slider_int(
-        "Tempo", doc.tempo, D.MIN_TEMPO, D.MAX_TEMPO, enabled=editable
+        "Tempo", doc.tempo, D.MIN_TEMPO, D.MAX_TEMPO, enabled=editable, reason=_BUSY_WHY
     )
     controls.fold_undo(doc.history)
     if changed and doc.set_song(tempo=int(value)):
         sirens_mode.request_rerender(ctx, tab)
     changed, value = widgets.labeled_slider_int(
-        "Speed", doc.speed, D.MIN_SPEED, D.MAX_SPEED, enabled=editable
+        "Speed", doc.speed, D.MIN_SPEED, D.MAX_SPEED, enabled=editable, reason=_BUSY_WHY
     )
     controls.fold_undo(doc.history)
     if changed and doc.set_song(speed=int(value)):

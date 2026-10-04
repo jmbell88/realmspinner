@@ -268,7 +268,7 @@ def _layer_bar(ctx: Any, state: Any, doc: Any, layer: Any, editable: bool) -> No
         reason=_BUSY_WHY if not editable else "Select a layer first.",
         tooltip="Duplicate this layer",
     ):
-        doc.duplicate_layer(uid)
+        _duplicate_layer(ctx, doc, uid)
     imgui.same_line()
     for glyph, delta, verb in (
         (icons.ARROW_UP, 1, "Raise"),
@@ -596,18 +596,57 @@ def _row_menu(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
             imgui.end_menu()
         widgets.divider()
         if controls.menu_item_simple("Duplicate"):
-            doc.duplicate_layer(layer.uid)
+            _duplicate_layer(ctx, doc, layer.uid)
         if controls.menu_item_simple("Merge down"):
-            try:
-                doc.merge_down(layer.uid)
-            except ValueError as exc:
-                # Framed rather than forwarded: the engine's sentence says what
-                # was wrong and nothing about what was being attempted.
-                ctx.toast(f"Not merged: {exc}.", "error")
+            _merge_down(ctx, doc, layer)
         if controls.menu_item_simple("Delete"):
             _delete_layer(ctx, doc, layer)
         imgui.end_disabled()
         imgui.end_popup()
+
+
+def _merge_down(ctx: Any, doc: Any, layer: Any) -> None:
+    """``doc.merge_down``, refused by name when the layer it writes into is locked.
+
+    The 2026-10-03 audit (finding plotter-22) found Merge down rewriting the
+    tile layer below with no lock check anywhere, so merging a layer onto a
+    locked floor changed the floor -- against "a locked layer cannot be painted
+    on, erased, cut from ...". The lock is enforced at the studio layer, not in
+    ``merge_down`` (undo must be able to put a locked layer's cells back), so
+    the target is resolved here the way the engine resolves it -- the previous
+    sibling -- and read through :func:`plotter_mode.layer_locked`, which sees a
+    lock inherited from a group above it.
+    """
+    found = doc._locate(layer.uid)
+    if found is not None:
+        _entry, parent_uid, index = found
+        siblings = doc.children_of(parent_uid)
+        if index > 0 and plotter_mode.layer_locked(doc, siblings[index - 1]):
+            plotter_mode._locked_toast(ctx, siblings[index - 1])
+            return
+    try:
+        doc.merge_down(layer.uid)
+    except ValueError as exc:
+        # Framed rather than forwarded: the engine's sentence says what
+        # was wrong and nothing about what was being attempted.
+        ctx.toast(f"Not merged: {exc}.", "error")
+
+
+def _duplicate_layer(ctx: Any, doc: Any, uid: int) -> None:
+    """``doc.duplicate_layer``, refused by name rather than raised into the frame.
+
+    The copy lands beside its original, so it can only exceed the nesting
+    ceiling when the tree is already past it -- a file read before the readers
+    capped group nesting. That is rare enough that no menu filters for it, but
+    nothing wraps a pane draw, so an unframed ``ValueError`` here took the
+    window down (the 2026-10-03 audit, finding plotter-10, defence in depth).
+    The engine refuses before it pushes a step, so a refusal leaves no history
+    behind. The Layer menu's "Duplicate layer" row calls this too.
+    """
+    try:
+        doc.duplicate_layer(uid)
+    except ValueError as exc:
+        ctx.toast(f"Not duplicated: {exc}.", "error")
 
 
 def _move_layer(
@@ -1387,7 +1426,27 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
 
 
 def object_options(doc: Any) -> list[tuple[str, str]]:
-    """Persistent object ids as combo entries, with zero as Tiled's ``none``."""
+    """Persistent object ids as combo entries, with zero as Tiled's ``none``.
+
+    Memoised on the document's undo head. The 2026-10-03 audit (finding
+    plotter-21) found this rebuilt, f-string per object, on every frame any
+    property editor was open, so its cost grew with the object count and not
+    with the pane. Every change to an object's name, id or presence is a pushed
+    step and a head serial is per-edit (``History.head``), so the head names the
+    content. A live drag session is the one place objects move with no push, so
+    nothing is stored while one is open.
+    """
+    head = doc.history.head
+    cached = getattr(doc, "_plotter_object_options", None)
+    if cached is not None and cached[0] == head and not doc.editing_object:
+        return cached[1]
+    entries = _object_options(doc)
+    if not doc.editing_object:
+        doc._plotter_object_options = (head, entries)
+    return entries
+
+
+def _object_options(doc: Any) -> list[tuple[str, str]]:
     entries = [("0", "None")]
     for layer in doc.all_layers():
         if not isinstance(layer, ObjectLayer):

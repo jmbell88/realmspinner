@@ -266,7 +266,7 @@ def _build_bvh_native(tri_lo, tri_hi, centroid) -> BVH | None:
     and produces a different, equally valid tree. The property the picking path
     actually rests on is the pick *result*, whose tie-break (lowest triangle
     index) is pinned so that the tree and the full linear sweep agree -- and
-    that is what ``tests/viewer/test_bvh_native.py`` asserts, together with the
+    that is what ``tests/test_bvh_native.py`` asserts, together with the
     structural invariants a tree must have whatever its shape. The argument is
     in ``dev/INVARIANTS.md``; it is not a precedent for loosening any other
     kernel's bar.
@@ -564,9 +564,18 @@ def screen_scale(camera, point: np.ndarray, pixels: float, viewport_height: int)
     What keeps a gizmo the same size however far away the joint is -- the
     alternative is a handle that is either invisible on a building or larger
     than a gem.
+
+    An orthographic camera has no depth term: its frustum is ``distance *
+    tan(fov / 2)`` tall everywhere (``Camera.projection``), so the 2026-10-03
+    audit's create-41 -- a joint nearer or farther than the target got a gizmo
+    larger or smaller than ``pixels`` in the orthographic Poser views, and the
+    hit test scaled with it -- is closed by using that same distance.
     """
-    to_point = np.asarray(point, dtype="f8") - camera.position
-    depth = abs(float(np.dot(to_point, -camera.view()[2, :3])))
+    if getattr(camera, "orthographic", False):
+        depth = float(camera.distance)
+    else:
+        to_point = np.asarray(point, dtype="f8") - camera.position
+        depth = abs(float(np.dot(to_point, -camera.view()[2, :3])))
     height = 2.0 * depth * math.tan(math.radians(camera.fov * 0.5))
     return height * pixels / max(viewport_height, 1)
 

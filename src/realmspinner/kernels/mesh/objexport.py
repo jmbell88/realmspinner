@@ -109,6 +109,20 @@ def _num(x: float) -> str:
     return f"{float(x):.9g}"
 
 
+def _line_text(name: object) -> str:
+    """*name* as text that is safe on one line of an OBJ or MTL file.
+
+    The 2026-10-03 audit, finding clay-38: an object or material name went into
+    ``o {name}`` and ``# Clay material name: {name}`` verbatim, so a name with
+    a newline (a GLB node's, or one an agent set through ``clay_rename``)
+    injected whole statements -- a stray ``v``, an ``f``, a phantom ``o``, a
+    second ``newmtl`` -- and renumbered every vertex after it. Every character
+    that is not printable (control characters, and the Unicode line and
+    paragraph separators ``str.splitlines`` also breaks on) becomes one space.
+    """
+    return "".join(ch if ch.isprintable() else " " for ch in str(name))
+
+
 def _slot_name(index: int) -> str:
     return f"Material_{index}"
 
@@ -117,7 +131,7 @@ def _write_material(lines: list[str], index: int, material: Any) -> None:
     r, g, b, a = material.base_color_factor
     lines.append(f"newmtl {_slot_name(index)}")
     if material.name:
-        lines.append(f"# Clay material name: {material.name}")
+        lines.append(f"# Clay material name: {_line_text(material.name)}")
     lines.append(f"Kd {_num(r)} {_num(g)} {_num(b)}")
     lines.append(f"d {_num(a)}")
     lines.append(f"Ns {_num(ns_from_roughness(material.roughness_factor))}")
@@ -203,7 +217,7 @@ def claydoc_to_obj(
         if n_faces == 0:
             continue
 
-        obj_lines.append(f"o {collider_names.get(obj.uid, obj.name)}")
+        obj_lines.append(f"o {_line_text(collider_names.get(obj.uid, obj.name))}")
         for x, y, z in mesh.positions.tolist():
             obj_lines.append(f"v {_num(x)} {_num(y)} {_num(z)}")
 

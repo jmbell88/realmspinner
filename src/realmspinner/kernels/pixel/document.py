@@ -24,7 +24,7 @@ They hold no state of their own, so this is where to look for what a document
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -755,6 +755,21 @@ class Document(
         tracks = self.anim.tracks
         return tracks[index].uid if index < len(tracks) else layer.uid
 
+    def _owning_tracks(self, layer: Any) -> list[Any]:
+        """Every track whose grid slot holds *layer*, by identity.
+
+        Several, because a linked cel is one object in several slots -- though
+        in practice one track, since a link runs along a track's own row. The
+        answer for a cel the grid no longer holds is an empty list. The reverse
+        of what ``layers_for`` does when it copies a track's properties down
+        onto a materialised cel (the 2026-10-03 audit, inker-31).
+        """
+        anim = self.anim
+        if anim is None:
+            return []
+        owners = {key[0] for key, cel in anim.cels.items() if cel is layer}
+        return [track for track in anim.tracks if track.uid in owners]
+
     def restore_groups(self, state: Any) -> None:
         """Undo hook for a whole-canvas op that rewrote the tree.
 
@@ -768,7 +783,14 @@ class Document(
         if state is None:
             return
         nodes, membership = state
-        self.groups = dict(nodes)
+        # Copies, not the snapshot's own nodes (the 2026-10-03 audit, inker-33):
+        # installing them live meant the next ``GroupPropsEdit`` wrote through
+        # into the snapshot this step still holds -- so a second undo of the
+        # same whole-canvas op restored a node carrying edits made after it --
+        # and the node objects the group edits hold stopped being the
+        # document's, which is what let a redo put back a node with the state
+        # of steps that were still undone.
+        self.groups = {uid: replace(node) for uid, node in nodes.items()}
         self.group_of = dict(membership)
 
     # -- the animation grid -------------------------------------------------

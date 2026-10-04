@@ -960,22 +960,22 @@ def test_labelling_asks_for_a_retrain_through_a_flag_never_a_submit(ctx, svc):
 
     _press(ctx, "a")
 
-    assert ctx.state.judge_dirty == "blank"
+    assert ctx.state.judge_dirty == {"blank"}
     assert review_mode.TRAIN_KEY not in ctx.submitted
 
 
 def test_the_pump_submits_once_and_only_clears_the_flag_when_accepted(ctx, svc):
-    ctx.state.judge_dirty = "blank"
+    ctx.state.judge_dirty = {"blank"}
 
     review_mode.pump_judge(ctx)
     assert ctx.submitted.count(review_mode.TRAIN_KEY) == 1
-    assert ctx.state.judge_dirty is None
+    assert not ctx.state.judge_dirty
 
     # And a refused submit leaves the request standing, for the next frame.
-    ctx.state.judge_dirty = "blank"
+    ctx.state.judge_dirty = {"blank"}
     ctx.accept = False
     review_mode.pump_judge(ctx)
-    assert ctx.state.judge_dirty == "blank"
+    assert ctx.state.judge_dirty == {"blank"}
 
 
 def test_thumbnails_are_uploaded_one_per_frame(ctx, svc):
@@ -1299,11 +1299,12 @@ def test_removable_ids_skips_the_recent_bucket_and_anything_outstanding(ctx, svc
 
 
 def test_a_unit_that_errored_does_not_hold_its_sweep_back(ctx, svc):
-    """``removable`` and ``todo`` are different questions, deliberately.
+    """An errored unit can never be graded, so it owes no verdict.
 
-    An errored unit can never be graded, so it owes no verdict -- but it keeps
-    ``todo`` above zero for ever, which is how a failed sweep would become
-    permanently unremovable.
+    ``removable`` always knew that; ``todo`` counted every unit with no verdict
+    and kept a failed sweep outstanding for ever, so the guided pass parked on
+    it and the sweep was never cleaned up. Both now ask ``owes_verdict``'s
+    question (the 2026-10-03 audit, finding shell-25).
     """
     sweep_id, ids = _sweep(svc, n=2)
     svc_verdicts.record_verdict(svc, ids[0], grade=-3)
@@ -1311,7 +1312,7 @@ def test_a_unit_that_errored_does_not_hold_its_sweep_back(ctx, svc):
     state = _scanned(ctx)
 
     entry = next(s for s in state.sweeps if s["id"] == sweep_id)
-    assert entry["todo"] == 1, "it is still unjudged, and the count says so"
+    assert entry["todo"] == 0, "an errored unit owes no verdict, and the count says so"
     assert entry["removable"] is True
     assert review_mode.removable_ids(state) == [sweep_id]
 
@@ -1866,10 +1867,14 @@ def test_with_no_probe_the_pump_asks_once_and_stops(ctx, svc):
 
 def test_scores_merge_onto_the_open_units_without_reordering_them(ctx, svc):
     """The ``LabelPass`` lesson: a list that resorts under the cursor is how the
-    wrong thing gets judged. Order is applied when a sweep is opened, once."""
+    wrong thing gets judged. Order is applied when a sweep is opened, once -- or,
+    for a sweep opened before its scores existed, once when the first of them land
+    and only while the reviewer is still on the unit it opened on (shell-65, the
+    2026-10-03 audit). Here the reviewer has moved on, so nothing reorders."""
     _sweep(svc, n=3)
     state = _scanned(ctx)
     review_mode.open_sweep(ctx, state.sweeps[-1]["id"])
+    review_mode.step(state, 1)
     before = [unit["job_id"] for unit in state.units]
 
     state.score_request = list(before)

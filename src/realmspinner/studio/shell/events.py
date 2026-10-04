@@ -127,6 +127,20 @@ def _leave_mode_if_needed(ctx: Any, old: str) -> None:
             tab.doc.end_stroke()
             tab.doc.end_object_edit()
             tab.doc.end_tile_meta_edit()
+    elif old == "packwright":
+        # The 2026-10-03 audit's packwright-02: the tile-set import popup's
+        # "open" flag is cleared only by Packwright's own sources pane, which
+        # stops drawing the moment the mode is left -- so the flag stayed True,
+        # ``dialogs.modal_open`` kept answering True in every other mode, and
+        # ``_events`` dropped every KEYDOWN (Ctrl+K, mode keys, Delete,
+        # Ctrl+Z) until the user came back and the pane drew once. The question
+        # the popup asked goes with the mode; the parked sheet and its texture
+        # are released with it.
+        from ..modes.packwright import mode as packwright_mode
+
+        state = ctx.state.packwright
+        if state is not None and (state.tileset_import is not None or state.tileset_import_open):
+            packwright_mode.release_parked_import(ctx, state)
 
 
 class EventsMixin:
@@ -147,6 +161,11 @@ class EventsMixin:
 
         ctx = self.app_ctx
         io = imgui.get_io()
+        # One pump's DROPFILE events, handed on together after the loop (the
+        # 2026-10-03 audit's packwright-16): pygame raises one per file, so a
+        # twenty-file drop reached Packwright as twenty single-path calls --
+        # twenty tasks, twenty "Added 1 sprite(s)." toasts, twenty undo steps.
+        dropped: list[Path] = []
         for event in pygame.event.get():
             try:
                 if event.type == pygame.QUIT:
@@ -181,7 +200,7 @@ class EventsMixin:
                     self._resample_display_scale()
                     continue
                 if event.type == pygame.DROPFILE:
-                    self._on_drop(Path(event.file))
+                    dropped.append(Path(event.file))
                     continue
                 imgui_backend.process_event(event)
                 if event.type in (pygame.KEYDOWN, pygame.KEYUP):
@@ -197,8 +216,17 @@ class EventsMixin:
                     # the manual and the settings pane both promise Ctrl+K works
                     # everywhere, and it used to die the moment the 2D prompt box
                     # had focus -- which is exactly where you are when you want it.
+                    #
+                    # One plain key is let through while a tour runs: Esc. The
+                    # 2026-10-03 audit's tour-08 -- the card says "Esc ends it at
+                    # any point", but the prompt step asks the reader to type, and
+                    # there the first Esc was swallowed as the field's own, so the
+                    # reader who tried the sentence the card suggests could not
+                    # get out with the key the card advertises.
                     if not (event.type == pygame.KEYDOWN and self._modal_open()) and (
-                        not io.want_text_input or self._passes_text_field(event)
+                        not io.want_text_input
+                        or self._passes_text_field(event)
+                        or self._ends_running_tour(event)
                     ):
                         self._shortcut(event)
                     continue
@@ -246,6 +274,20 @@ class EventsMixin:
                     "a %s event's dispatch failed; the frame carries on",
                     pygame.event.event_name(event.type),
                 )
+                ctx.toast_once(
+                    "Something went wrong handling that action. The rest of the app "
+                    "still works.",
+                    "error",
+                    "log",
+                )
+                ctx.state.note_error(
+                    "An input action failed. The details are in realmspinner.log."
+                )
+        if dropped:
+            try:
+                self._on_drops(dropped)
+            except Exception:  # noqa: BLE001 -- the per-event net's reason, above
+                log.exception("a file drop's dispatch failed; the frame carries on")
                 ctx.toast_once(
                     "Something went wrong handling that action. The rest of the app "
                     "still works.",
@@ -313,6 +355,24 @@ class EventsMixin:
             return
         if _takes_pointer(viewer, self._poser_hovered):
             viewer.handle_event(event, hovered=self._poser_hovered)
+
+    def _ends_running_tour(self, event: Any) -> bool:
+        """Whether this is an Esc press that a running tour owes an answer to.
+
+        Asked only once a text field has the keyboard, to let that one plain
+        key past ``_passes_text_field``'s gate (see ``_events``). ``_shortcut``
+        still decides what the Esc does -- the palette and the Manual take it
+        before the tour does -- so this only widens who is *asked*.
+        """
+        import pygame
+
+        tour = getattr(self.app_ctx.state, "tour", None)
+        return bool(
+            event.type == pygame.KEYDOWN
+            and event.key == pygame.K_ESCAPE
+            and tour is not None
+            and tour.running
+        )
 
     @staticmethod
     def _passes_text_field(event: Any) -> bool:
@@ -735,12 +795,14 @@ class EventsMixin:
             elif self.viewer.pose_mode:
                 pose_panel.guard(ctx, "leave edit mode", lambda: pose_panel.leave(ctx))
         elif event.key in (pygame.K_UP, pygame.K_DOWN):
-            # The library is the sidebar in both generate modes, so the arrows
-            # are unambiguous here; Review owns Left/Right for its own list and
-            # is returned above. Nothing else in 2D/3D reads an arrow key.
-            from ..modes.library.ui.panes import library
-
-            library.select_relative(ctx, -1 if event.key == pygame.K_UP else 1)
+            # Create is the only mode that reaches here, and it draws no
+            # library list: the arrows used to walk ``state.selected`` and the
+            # Mesh stage's ``source_job`` through the Library's filtered
+            # workshop while the viewer and inspector changed underfoot, with
+            # nothing on screen to explain why (the 2026-10-03 audit, finding
+            # shell-34). They are consumed and do nothing; the Library mode
+            # keeps its own arrows above, and the Creations pane is clicked.
+            pass
         elif event.key == pygame.K_DELETE and ctx.state.selected:
             # The library keyboard used to stop at navigation: Up/Down/Enter
             # moved and opened, and every action was mouse-only (UX-27).
@@ -758,6 +820,14 @@ class EventsMixin:
             from ..modes.library.ui.panes import library
 
             library.delete_asset(ctx, ctx.state.selected)
+        # F, W and S are *plain* keys. The 2026-10-03 audit, finding shell-30:
+        # they tested ``event.key`` alone, so Ctrl+S (save, everywhere else)
+        # toggled the turntable, Ctrl+W (close tab) toggled wireframe and
+        # Ctrl+F framed the model -- the muscle-memory chord silently changing
+        # the viewer. Shift stays (Shift+W is taken earlier, at the top);
+        # Ctrl, Alt and Meta mean some other command and are ignored here.
+        elif mods & (pygame.KMOD_CTRL | pygame.KMOD_ALT | pygame.KMOD_META):
+            return
         elif event.key == pygame.K_f:
             self.viewer.frame()
         elif event.key == pygame.K_w:
@@ -814,6 +884,29 @@ class EventsMixin:
         self._min_size = _min_window_size(monitor_scale)
         log.info("display scale changed to %.2fx; rebuilding style and fonts", monitor_scale)
         return tokens.SCALE
+
+    def _on_drops(self, paths: list[Path]) -> None:
+        """Every file one pump dropped.
+
+        Packwright is the mode with a *batch* meaning (several images are one
+        add: one task, one toast, one undo step), so its images are handed over
+        as a list; every other mode, and every non-image in Packwright, takes
+        the one-path door it always had.
+        """
+        from ..main import DROPPABLE_IMAGES
+
+        if len(paths) > 1 and self.app_ctx.state.mode == "packwright":
+            from ..modes.packwright import mode as packwright_mode
+
+            images = [p for p in paths if p.suffix.lower() in DROPPABLE_IMAGES]
+            for path in paths:
+                if path not in images:
+                    self._on_drop(path)
+            if images:
+                packwright_mode.add_source_paths(self.app_ctx, images)
+            return
+        for path in paths:
+            self._on_drop(path)
 
     def _on_drop(self, path: Path) -> None:
         from ..main import DROP_REFUSALS, DROPPABLE_IMAGES

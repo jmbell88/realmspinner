@@ -449,7 +449,17 @@ def maxrects_layout(sprites: list[Sprite], settings: PackSettings) -> Layout:
     floor_w = max(w for _key, w, _h in items)
     floor_h = max(h for _key, _w, h in items)
 
+    skipped_non_pot = False
     for width, height in _candidate_sizes(area, floor_w + pad, floor_h + pad, settings.max_size):
+        if settings.power_of_two and (width & (width - 1) or height & (height - 1)):
+            # The 2026-10-03 audit's packwright-13: the limit itself is the last
+            # candidate and need not be a power of two, and this branch returns a
+            # candidate's size unchanged -- so 12 sprites of 300 px under a
+            # 1500 px ceiling came back as a 1500 x 1500 atlas, the one thing
+            # the setting promises it is not. Skipped; refused by name below if
+            # it was the only size that would have fit.
+            skipped_non_pot = True
+            continue
         placed = pack(items, width - pad, height - pad)
         if placed is None:
             continue
@@ -470,6 +480,12 @@ def maxrects_layout(sprites: list[Sprite], settings: PackSettings) -> Layout:
             frames=frames,
         )
 
+    if skipped_non_pot:
+        raise ValueError(
+            f"these {len(entries)} sprites do not fit in a power-of-two atlas "
+            f"within {settings.max_size}px -- raise the max size to a power of two, "
+            "turn off power-of-two, trim them, or split the pack"
+        )
     raise ValueError(
         f"these {len(entries)} sprites do not fit in a {settings.max_size}px atlas "
         "-- raise the max size, trim them, or split the pack"

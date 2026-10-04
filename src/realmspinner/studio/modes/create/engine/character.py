@@ -260,6 +260,29 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
     resolved_family = (
         previous_family if "character_family" in overrides else values["character_family"]
     )
+    # **A Look the user picked is theirs only while the species can paint it.**
+    # The 2026-10-04 audit (create-28) found "a fire ogre", a hand-picked ogre
+    # look, then a prompt edit to "a knight" left that look on the form: the
+    # override list made the loop below skip ``character_theme``, so a theme the
+    # Knight does not paint reached the door and was refused, while the Look
+    # combo fell back to "The species' own" and showed nothing wrong. The pick
+    # is dropped -- override and all, so this brief's own look may fill it.
+    #
+    # Only on an actual species change: a form restored or loaded with a look its
+    # own species does not paint is not this edit's doing, and :func:`problems`
+    # names it on the Look control instead of silently rewriting a record.
+    held_theme = str(form.get("character_theme") or THEME_UNSET)
+    if (
+        "character_theme" in overrides
+        and held_theme != THEME_UNSET
+        and resolved_family != previous_family
+        and not _theme_offered_by(resolved_family, held_theme)
+    ):
+        form["character_theme"] = THEME_UNSET
+        overrides.discard("character_theme")
+        form["character_overrides"] = [
+            key for key in overrides_of(form) if key != "character_theme"
+        ]
     if resolution.theme is None:
         values["character_theme"] = THEME_UNSET
     elif _theme_offered_by(resolved_family, resolution.theme):
@@ -302,6 +325,25 @@ def actions_of(form: dict[str, Any]) -> tuple[str, ...]:
         if part.strip()
     }
     return tuple(name for name, _frames in MOVEMENTS if name in stored)
+
+
+def not_interpreted(form: dict[str, Any]) -> tuple[str, ...]:
+    """What the brief said that this form did nothing with.
+
+    The resolver's own unrecognised words, then every action it *understood* and
+    the sheet does not carry. The 2026-10-04 audit (create-23) found "a running
+    wolf" built a sheet with no run: ``_fill`` keeps only :data:`MOVEMENTS`, and
+    "Not interpreted" read ``resolution.unrecognised``, which an understood word
+    is never in -- so manual 22's promise that what was not acted on is listed
+    held for a greataxe and failed for run, jump, cast, death, hit and fall.
+    """
+    resolution = resolution_of(form)
+    carried = {name for name, _frames in MOVEMENTS}
+    out = list(resolution.unrecognised)
+    for action in resolution.actions:
+        if action not in carried and action not in out:
+            out.append(action)
+    return tuple(out)
 
 
 def animations_of(form: dict[str, Any]) -> dict[str, int]:
@@ -465,6 +507,21 @@ def problems(ctx: Any, form: dict[str, Any]) -> list[problem_types.Problem]:
                 "character_family",
             )
         )
+    theme = str(form.get("character_theme") or THEME_UNSET)
+    row = family_of(form, opts)
+    if row is not None and theme != THEME_UNSET and not theme_offered(opts, family, theme):
+        # The 2026-10-04 audit (create-28): the door refuses a look the species
+        # does not paint, and the Look combo, falling back to its first entry for
+        # a value it does not carry, showed "The species' own" over a form that
+        # was refusing to submit -- so Generate stayed enabled and said nothing
+        # until the door did.
+        out.append(
+            problem_types.Problem(
+                f"The {str(row['label']).lower()} is not painted in the {theme!r} look. "
+                f"Pick another Look.",
+                "character_theme",
+            )
+        )
     if not actions_of(form):
         out.append(
             problem_types.Problem(
@@ -590,6 +647,37 @@ def preview(ctx: Any, form: dict[str, Any]) -> bool:
 
 
 # --- the block's non-drawing state ---------------------------------------------
+
+
+def clear_refusal(state: Any, control: str) -> None:
+    """Forget a refusal for *control* **and every recipe field it answers to**.
+
+    The edit handlers used to clear only the control's own name. The 2026-10-04
+    audit (create-29) found :func:`mirror_errors` copies the door's
+    ``logical_size`` onto ``character_pixel`` every frame while the alias key
+    survives, so clearing the copy alone let the next frame re-file it and the
+    red ring came back on a control the user had just fixed. The alias goes with
+    the control, because it is the same refusal under the door's name for it.
+    """
+    state.clear_field_error(control)
+    for alias in RECIPE_FIELDS.get(control, ()):
+        state.clear_field_error(alias)
+
+
+def offer_button_label(opts: dict[str, Any], resolution: resolve_mod.Resolution) -> str:
+    """"Make it an ogre": the button that repeats the offer sentence, or ``""``.
+
+    The article is ``resolve.offer_sentence``'s own. The 2026-10-04 audit
+    (create-55) found the button said "Make it a ogre" under a sentence that said
+    "an ogre": the pane hard-coded "a", and a second copy of a rule the
+    resolver owns is the copy that drifts.
+    """
+    offer = resolution.offer[0] if resolution.offer else ""
+    row = next((f for f in opts["families"] if f["key"] == offer), None)
+    if row is None:
+        return ""
+    label = str(row["label"]).lower()
+    return f"Make it {resolve_mod._article(label)} {label}"
 
 
 def mirror_errors(ctx: Any) -> None:

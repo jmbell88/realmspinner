@@ -395,6 +395,17 @@ class FrameMixin:
         # section exists to make obvious.
         if state.mode == "poser" and getattr(state.poser, "sheet_playing", False):
             return True
+        # Create's animation preview, the same class (the 2026-10-03 audit,
+        # finding shell-37): it advances by ``imgui.get_time()`` with no input
+        # at all, and ``preview.draw`` only samples it when a frame is drawn, so
+        # at IDLE_FPS an exported clip was sampled at 12 Hz and stepped over
+        # frames shorter than about 83 ms. Named by what ``draw`` recorded last
+        # frame, so a paused clip, or one the user has left, holds nothing.
+        if state.mode == "create":
+            from ..modes.create.ui import preview as create_preview
+
+            if create_preview.animating(state.preview, imgui.get_frame_count()):
+                return True
         # Sirens for the same reason, and it was missing: the playhead is drawn
         # from the mixer's clock and nothing else moves, so at IDLE_FPS the row
         # cursor crawled down the pattern at 12 fps while the audio ran at full
@@ -507,7 +518,9 @@ class FrameMixin:
         # arrows reach imgui at all is a property of the surface they arrive
         # at, so it has to be settled for this frame before any of them is
         # dispatched (UX-02).
-        imgui_backend.reserve_nav_keys(self.app_ctx.state.mode in modes.NAV_KEY_MODES)
+        imgui_backend.reserve_nav_keys(
+            modes.reserves_nav_keys(self.app_ctx.state.mode, self.app_ctx.state)
+        )
         self._events()
 
         import pygame
@@ -992,6 +1005,7 @@ class FrameMixin:
             for stage in create_families.journey(
                 create_assets.selected(ctx.state.form_2d).key,
                 has_mesh=(job or {}).get("stage") == "model",
+                current=ctx.state.create.stage,
             )
         ]
         picked = create_rail.stage_rail(

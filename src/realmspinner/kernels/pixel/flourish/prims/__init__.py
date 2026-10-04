@@ -33,6 +33,7 @@ trail sample touches a few thousand pixels, not the whole plane.
 from __future__ import annotations
 
 import importlib
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,6 +56,38 @@ class Param:
     #: For the inspector: what the number means.
     label: str = ""
 
+    def accepts(self, raw: Any) -> bool:
+        """Whether ``raw`` is a value this parameter can hold *as given*.
+
+        :meth:`clamp` answers an unreadable value with the parameter's default,
+        which is right for a file or a preset that must still load but wrong
+        for ``keywords.apply_diff``: a model's unparseable value (a word for an
+        int, ``"#FFF"`` for a colour, a choice that does not exist) used to
+        replace a tuned 300 with the default 24 while the note read as an
+        ordinary change (the 2026-10-03 audit, finding inker-39). The caller
+        asks this first and leaves the current value alone when it is False.
+        A number that is merely out of range is accepted -- ``clamp`` narrows
+        it, which is the whole point of the funnel.
+        """
+        try:
+            if self.kind in ("curve", "life"):
+                Curve.from_json(raw)
+                return True
+            if self.kind in ("float", "int"):
+                number = float(raw) if self.kind == "float" else int(raw)
+                return not (self.kind == "float" and not math.isfinite(number))
+            if self.kind == "color":
+                parse_color(str(raw))
+                return True
+            if self.kind == "choice":
+                return str(raw) in self.choices
+            if self.kind == "asset":
+                text = str(raw or "")
+                return not text or (len(text) <= 64 and text.replace("_", "").isalnum())
+            return True
+        except (TypeError, ValueError, IndexError, KeyError, OverflowError):
+            return False
+
     def clamp(self, raw: Any) -> Any:
         """The stored form of ``raw``, inside this parameter's range."""
         if self.kind in ("curve", "life"):
@@ -67,20 +100,26 @@ class Param:
                 # ``TypeError``/``ValueError``. Uncaught here it climbed all
                 # the way through ``Layer.with_param`` into ``apply_diff``
                 # with no guard of its own, so one bad value in a diff killed
-                # every other change the diff carried.
+                # every other change the diff carried. ``OverflowError`` joins
+                # them (the 2026-10-03 audit, finding inker-37): a 400-digit
+                # integer cannot become a float, and one such key in a .ora's
+                # animation.json refused the whole document at open.
                 curve = Curve.from_json(raw)
-            except (TypeError, ValueError, IndexError, KeyError):
+            except (TypeError, ValueError, IndexError, KeyError, OverflowError):
                 curve = Curve.from_json(self.default)
             return curve.clamped(self.lo, self.hi).to_json()
         if self.kind == "float":
             try:
                 return min(self.hi, max(self.lo, float(raw)))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return float(self.default)
         if self.kind == "int":
             try:
+                # ``int(float("inf"))`` is an OverflowError, and JSON's own
+                # ``Infinity`` survives the parse as exactly that float (the
+                # 2026-10-03 audit, finding inker-37).
                 return int(min(self.hi, max(self.lo, int(raw))))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return int(self.default)
         if self.kind == "bool":
             return bool(raw)

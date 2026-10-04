@@ -1,10 +1,12 @@
 """Which blob role each cell of an already-gridded sheet plays.
 
-Nothing in Realmspinner has produced a 47-column terrain set since the procedural and
-AI ground generators were retired on 2026-08-18, so the whole terrain feature is
-reachable only through files authored elsewhere -- and Tiled's Wang import is
-recognise-or-refuse, which does not help a user who drew a blob sheet by hand or
-asked a model for one. This measures such a sheet and offers to reorder it.
+The procedural and AI ground generators were retired on 2026-08-18, but a
+47-column terrain set is still made in the program: Create's Terrain set layout
+(``pipelines.tilemask.blob_atlas``) generates one and Plotter's Terrain tab
+authors them, and those arrive with a record of what they are. This detector
+serves only the file nobody in the program made -- one drawn by hand or asked
+of a model for, where Tiled's Wang import is recognise-or-refuse and does not
+help. It measures such a sheet and offers to reorder it.
 
 **Detection is a suggestion; the caller confirms it with the user.** The same
 clause :mod:`.slicing` states, and for the same reason: this runs only at the

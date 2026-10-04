@@ -291,6 +291,14 @@ class PoserState:
     #: not the dict's mere presence, is what stops a re-rig queued for job A
     #: landing on whatever job B happens to be open when it finishes.
     rerig_jobs: dict[str, str] = field(default_factory=dict)
+    #: Assets whose queued re-rig has *finished* but whose session has not been
+    #: rebound to it yet -- the 2026-10-03 audit, finding poser-47: declining the
+    #: "land this re-rig" confirm left nothing anywhere saying a new rig existed
+    #: (the job is popped from ``rerig_jobs`` before the ask, so it is not
+    #: re-polled), and the session kept saving against the old skeleton until the
+    #: asset was closed and reopened. The Re-rig control offers "Load new rig"
+    #: while the open asset is in here; landing or reopening the asset removes it.
+    rerig_ready: set[str] = field(default_factory=set)
     #: Whether the Re-rig picker is expanded, and which skeleton is chosen in
     #: it. Here rather than in ``ctx.state.preview`` -- the pane-scratch dict
     #: the rest of the app uses for this -- because that dict outlives the
@@ -617,6 +625,22 @@ def _reset_for_template(state: PoserState, template: str) -> None:
     # copy no longer has at all.
     state.clip_import_reports = []
     state.clip_import_skipped = []
+    # The 2026-10-03 audit, finding poser-45: the previous skeleton's ghosts
+    # (and the switch that draws them) outlived a template switch -- on a
+    # skeleton with no clips the checkbox that turns them off is not drawn.
+    # The viewer's own list is emptied by :func:`_drop_onion`, which has a ctx.
+    state.onion = False
+
+
+def _drop_onion(ctx: Any) -> None:
+    """Turn the onion skin off and take its ghosts off the viewer.
+
+    Called wherever the session's skeleton or asset changes, after the viewer is
+    cleared: ``viewer.onion`` holds the *previous* clip's neighbouring keys as
+    rotations, and left standing they drew as ghost skeletons over the next
+    session (poser-45, the 2026-10-03 audit)."""
+    ensure(ctx).onion = False
+    sync_onion(ctx)
 
 
 def set_template(ctx: Any, template: str) -> None:
@@ -635,6 +659,7 @@ def set_template(ctx: Any, template: str) -> None:
             # The old template's armature must not stay poseable under the new
             # template's library; sync_preview binds the new one when it lands.
             viewer.clear()
+        _drop_onion(ctx)
         refresh(ctx)
         clips_refresh(ctx)
         request_preview(ctx)
@@ -854,6 +879,10 @@ def open_asset(ctx: Any, job: dict[str, Any], *, sheet_id: str | None = None) ->
             viewer.exit_pose_mode()
             viewer.clear()
             _bind_asset_now(ctx, state, viewer, job_id)
+        _drop_onion(ctx)
+        # The rig just read is the newest on disk, so any "new rig is ready"
+        # offer for this asset is satisfied (poser-47).
+        state.rerig_ready.discard(job_id)
         refresh(ctx)
         clips_refresh(ctx)
         refresh_asset_poses(ctx)
@@ -905,6 +934,7 @@ def close_asset(ctx: Any) -> None:
         if viewer is not None:
             viewer.exit_pose_mode()
             viewer.clear()
+        _drop_onion(ctx)
         request_preview(ctx)
 
     guard(ctx, "close this asset", proceed)
@@ -1070,14 +1100,19 @@ def apply_asset_pose(ctx: Any, pose_id: str) -> None:
         return
 
     def proceed() -> None:
-        viewer.reset_all(dirty=False)
-        viewer.set_pose(record.get("bones") or {}, pose_id=record["id"], dirty=False)
-        # apply_pose's own line, restoring what save_pose_to_asset now saves
-        # (poser-02, the 2026-09-11 audit): omitting this made a root offset
-        # saved directly onto an asset silently vanish on the very next load.
-        viewer.set_root_translation(
-            record.get("root_translation") or [0.0, 0.0, 0.0], dirty=False
-        )
+        # One ``record()`` round all three (the 2026-10-04 audit, finding
+        # create-31): bare, the reset pushed a step of its own and the folded
+        # pose + root load a second, so the first Ctrl+Z landed on the rest
+        # pose rather than the one the user had before pressing Apply.
+        with viewer.editor.record():
+            viewer.reset_all(dirty=False)
+            viewer.set_pose(record.get("bones") or {}, pose_id=record["id"], dirty=False)
+            # apply_pose's own line, restoring what save_pose_to_asset now saves
+            # (poser-02, the 2026-09-11 audit): omitting this made a root offset
+            # saved directly onto an asset silently vanish on the very next load.
+            viewer.set_root_translation(
+                record.get("root_translation") or [0.0, 0.0, 0.0], dirty=False
+            )
 
     guard(ctx, "apply a saved pose", proceed)
 
@@ -1446,11 +1481,24 @@ def pump_rerig(ctx: Any) -> None:
                 # the job landed. Routed through the same guard() every other
                 # destructive door here already uses; when there is nothing
                 # unsaved it proceeds immediately, same as before.
+                # Remembered before the ask: a declined confirm leaves this
+                # entry as the one thing that says a new rig is waiting, and
+                # the Re-rig control turns it into "Load new rig" (poser-47).
+                state.rerig_ready.add(source)
                 guard(ctx, "land this re-rig", lambda: _land_rerig(ctx))
         elif status in ("error", "cancelled"):
             # The generic job-transition toast (``main.py``'s ``_refresh``)
             # already says why; nothing here is worth watching any further.
             state.rerig_jobs.pop(source, None)
+
+
+def load_new_rig(ctx: Any) -> None:
+    """Bind the open asset to the re-rig that finished while the user declined to
+    land it (or kept posing): the same guarded landing :func:`pump_rerig` asks
+    for, offered again on demand."""
+    state = ensure(ctx)
+    if state.job_id and state.job_id in state.rerig_ready:
+        guard(ctx, "load the new rig", lambda: _land_rerig(ctx))
 
 
 def _land_rerig(ctx: Any) -> None:
@@ -1480,6 +1528,7 @@ def _land_rerig(ctx: Any) -> None:
     template = str((rig or {}).get("template") or "") or state.template
     if template != state.template:
         _reset_for_template(state, template)
+    state.rerig_ready.discard(job_id)
     state.asset_rig = rig
     state.asset_error = ""
     # A fresh rig ends whatever skeleton-editing session was open on the old
@@ -1510,6 +1559,8 @@ def _land_rerig(ctx: Any) -> None:
         # sync_asset binds the new one once the viewport next draws.
         viewer.exit_pose_mode()
         viewer.clear()
+        # The viewer's ghosts are the old rig's rotations (poser-45).
+        _drop_onion(ctx)
     refresh(ctx)
     clips_refresh(ctx)
     refresh_asset_poses(ctx)
@@ -1891,8 +1942,9 @@ def document_label(ctx: Any) -> tuple[str, bool] | None:
 
     The name is the library record's, ``save``'s own lookup; a pose not yet
     saved anywhere is ``Untitled`` like every other mode's new document. The
-    flag is ``AppState.pose_dirty``, the mirror ``Viewer.on_pose_dirty`` keeps
-    for exactly this -- an indicator visible from outside the pose pane.
+    flag is Poser's *own* viewer's editor, asked directly: ``AppState.pose_dirty``
+    is one mirror shared with the inspector's viewer, so reading it showed
+    the inspector's unsaved edit as Poser's (poser-46, the 2026-10-03 audit).
     """
     viewer = viewer_of(ctx)
     if viewer is None or not viewer.pose_mode:
@@ -1904,7 +1956,7 @@ def document_label(ctx: Any) -> tuple[str, bool] | None:
     else:
         record = state.find(viewer.editor.current)
         name = str((record or {}).get("name") or "") or "Untitled"
-    return name, bool(getattr(ctx.state, "pose_dirty", False))
+    return name, bool(viewer.editor.has_unsaved_edits())
 
 
 def save(ctx: Any, tab: Any = None) -> None:
@@ -3011,8 +3063,17 @@ def scores_key(job_id: str, sheet_id: str) -> str:
     return f"troupe-qa:{job_id}:{sheet_id}"
 
 
-def _score_task(path: Path, layout: dict[str, Any], geometry: tuple[int, int, int]) -> Any:
-    """The task-thread half: read the PNG, score it. No GL, no state."""
+def _score_task(
+    path: Path,
+    layout: dict[str, Any],
+    geometry: tuple[int, int, int],
+    pixel_art: bool = True,
+) -> Any:
+    """The task-thread half: read the PNG, score it. No GL, no state.
+
+    ``pixel_art`` is the sidecar's own answer (``False`` only on an HD sheet),
+    so the scorer does not read a never-quantised atlas as a palette that
+    flickered (the 2026-10-03 audit, finding poser-12)."""
     import numpy as np
     from PIL import Image
 
@@ -3022,7 +3083,14 @@ def _score_task(path: Path, layout: dict[str, Any], geometry: tuple[int, int, in
         opened.load()
         atlas = np.asarray(opened.convert("RGBA"))
     columns, frame_w, frame_h = geometry
-    return qa.score_sheet(atlas, layout, columns=columns, frame_w=frame_w, frame_h=frame_h)
+    return qa.score_sheet(
+        atlas,
+        layout,
+        columns=columns,
+        frame_w=frame_w,
+        frame_h=frame_h,
+        pixel_art=pixel_art,
+    )
 
 
 def release_scores(ctx: Any) -> None:
@@ -3073,7 +3141,8 @@ def scores(ctx: Any) -> Any:
     task_key = scores_key(*key)
     if ctx.busy(task_key):
         return None
-    ctx.submit(task_key, _score_task, path, dict(preview_layout(ctx)), geometry)
+    pixel_art = (record or {}).get("pixel_art") is not False
+    ctx.submit(task_key, _score_task, path, dict(preview_layout(ctx)), geometry, pixel_art)
     return None
 
 
@@ -4997,6 +5066,9 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
         data = _json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         log.exception("could not read the recovered pose at %s", path)
+        # A decline must speak for itself: Home no longer adds a generic toast
+        # on a False ``take`` (shell-06), so silence here would be silence.
+        journal.adopt_failed(ctx, "pose")
         return False
     if data.get("mode") == "clips":
         if not _adopt_clips_copy(ctx, data):

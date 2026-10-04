@@ -1,50 +1,46 @@
 """The tool surface an MCP agent drives Clay through -- the dispatch core.
 
-**Split across five files in the P4 restructure** (``dev/RESTRUCTURE.md``:
-"``studio/modes/clay/agent/dispatch.py`` (5,482) -> ``modes/clay/agent/{schema,validate,handlers,
-program}.py``"). ``studio/modes/`` does not exist on disk yet -- P5 creates
-it and folds Clay into it, taking this split with it -- so for now the five
-land as siblings right here in ``studio/``, keeping the name every external
-caller and the 15-odd test files that already say ``realmspinner.studio.modes.clay.agent.dispatch``
-import:
+**The tool surface is split across the sibling modules of this package**
+(``studio/modes/clay/agent/``), and this file keeps the module name every
+external caller and test already imports (``realmspinner.studio.modes.clay.agent.dispatch``):
 
-* **This file** keeps the module name, the module docstring, and Clay's own
-  dispatch machinery: :class:`Session`'s resolution into a live document
-  (re-exported from ``agent_clay_validate``, see below), the ``_HANDLERS``
-  table, :func:`call` (the one door every tool call passes through), the
-  unknown-argument check that guards it, and the two functions that publish
-  the tool surface itself, :func:`tools` and :func:`instructions` -- kept
-  here rather than in the schema module because both read ``_HANDLERS``
-  straight off this module's own dispatch table (``tools()``'s ``batch_names``
-  is ``set(_HANDLERS) - BATCH_EXCLUDED``), and a schema-vocabulary module
-  that had to import this one's dispatch state back would be the exact
-  cycle the split exists to avoid.
-* **``studio/modes/clay/agent/schema.py``** is every JSON-schema fragment and prose
-  catalogue :func:`tools`/:func:`instructions` compose from, plus the
-  numeric ceilings a tool's schema and its handler both read (``BATCH_MAX``,
+* **This file** keeps the module docstring and Clay's own dispatch machinery:
+  :class:`Session`'s resolution into a live document (re-exported from
+  ``validate``, see below), the ``_HANDLERS`` table, :func:`call` (the one
+  door every tool call passes through), the unknown-argument check that
+  guards it, and the two functions that publish the tool surface itself,
+  :func:`tools` and :func:`instructions` -- kept here rather than in the
+  schema module because both read ``_HANDLERS`` straight off this module's
+  own dispatch table (``tools()``'s ``batch_names`` is ``set(_HANDLERS) -
+  BATCH_EXCLUDED``), and a schema-vocabulary module that had to import this
+  one's dispatch state back would be the exact cycle the split exists to
+  avoid.
+* **``schema.py``** is every JSON-schema fragment and prose catalogue
+  :func:`tools`/:func:`instructions` compose from, plus the numeric ceilings
+  a tool's schema and its handler both read (``BATCH_MAX``,
   ``MAX_MESH_VERTICES`` and the rest) -- see that module's own docstring for
   why those particular constants count as "schema vocabulary" rather than
   dispatch state.
-* **``studio/modes/clay/agent/validate.py``** is the true leaf of the split: the MCP
-  result envelope (``ok``/``fail``/``text``/``image_png``/``_json``),
-  :class:`Session` and :func:`_tab` (the session/document resolver), the
-  Euler helper a rotation argument needs, and every shared "check this
-  argument" validator. It imports no sibling of this fold, which is what
-  lets every handler file *and* this one import it with no risk of a cycle.
-* **``studio/modes/clay/agent/tools.py``**, **``studio/modes/clay/agent/tools_ops.py``** and
-  **``studio/modes/clay/agent/tools_batch.py``** are the handler families: the ten
+* **``validate.py``** is the true leaf of the split: the MCP result envelope
+  (``ok``/``fail``/``text``/``image_png``/``_json``), :class:`Session` and
+  :func:`_tab` (the session/document resolver), the Euler helper a rotation
+  argument needs, and every shared "check this argument" validator. It
+  imports no sibling, which is what lets every handler file *and* this one
+  import it with no risk of a cycle.
+* **``tools.py``**, **``tools_ops.py``**, **``tools_batch.py``** and the
+  smaller ``tools_*.py`` families (``tools_modifiers``, ``tools_structure``,
+  ``tools_uv``, ``tools_collider``, ``tools_catalog``) are the handlers: the
   object-level tools (create/move/reshape/paint/delete a whole object), the
-  ten selection/element-op/render/inspection tools, and the eight
-  batch/program/history/reference tools, respectively -- see
-  ``studio/modes/clay/agent/tools.py``'s own docstring for why the split lands there
-  rather than along the brief's original scene/selection/ops guess (a
-  banner-name mismatch in the file this split started from), and
-  ``studio/modes/clay/agent/tools_ops.py``'s for the one place a handler reaches back
-  into *this* module through a lazy, function-scope accessor rather than a
-  plain import.
+  selection/element-op/render/inspection tools, and the batch/program/
+  history/reference tools, one family per file -- see ``tools.py``'s own
+  docstring for why the split lands there, and ``tools_ops.py``'s for the
+  one place a handler reaches back into *this* module through a lazy,
+  function-scope accessor rather than a plain import. ``program.py`` is the
+  pure ``clay_program`` interpreter, ``refs.py`` the reference-picture
+  helpers and ``transcript.py`` the transcript recorder.
 
 **The tool list is derived, never hand-written**, and that discipline
-crosses every one of those five files rather than living in just one of
+crosses every one of those files rather than living in just one of
 them. Every schema in :func:`tools` is built from a registry that already
 exists for a human surface -- ``primitives.GENERATORS`` for what a
 primitive is and what it defaults to, ``presets.ASSEMBLIES`` for which
@@ -784,9 +780,9 @@ def instructions() -> str:
         "clay_select_by can set it in the same call as the selection they "
         "make. Entering vertex/edge/face mode from object mode selects "
         "nothing, which is what makes clay_op's seedless rows -- select-all, "
-        "select-none, select-invert, select-linked, select-more, "
-        "select-less, select-boundary -- reachable with no seed at all; "
-        "clay_select_by is the door for the rest of clay_op's element menu, "
+        "select-none, select-invert, select-boundary -- reachable with no "
+        "seed at all (select-linked, select-more and select-less need a "
+        "selection); clay_select_by is the door for the rest of clay_op's element menu, "
         "the ones that need one (a loop, a face, a material slot, a "
         "direction, a box). clay_select, clay_boolean and every tool that "
         "addresses a whole object want object mode, and refuse by name "
@@ -979,9 +975,18 @@ def tools() -> list[Any]:
                 "vertices/faces/triangles) -- plus the document's own "
                 "bounds over its visible objects, its material palette, its "
                 "current selection, element mode and whether it has "
-                "unsaved changes."
+                "unsaved changes. 'offset' and 'limit' page the object "
+                "rows (the rest of the reply stays the whole document's), "
+                "for a document too large to read in one reply."
             ),
-            schema={"type": "object", "properties": {}, "additionalProperties": False},
+            schema={
+                "type": "object",
+                "properties": {
+                    "offset": {"type": "integer", "minimum": 0},
+                    "limit": {"type": "integer", "minimum": 1},
+                },
+                "additionalProperties": False,
+            },
             output_schema=_clay_scene_output_schema(),
         ),
         protocol.Tool(
@@ -1062,7 +1067,7 @@ def tools() -> list[Any]:
             title="Add a hand-built mesh",
             description=(
                 "Place geometry an agent computed itself -- a shape none of "
-                "the fifteen generators expresses -- selected, as one undo "
+                "the generators expresses -- selected, as one undo "
                 "step. Starts this session's document if it has none yet. "
                 "'positions' is an array of [x, y, z]; 'faces' is an array "
                 "of vertex-index loops, three or more per face, wound "
@@ -1417,7 +1422,7 @@ def tools() -> list[Any]:
                 "up, only an element every one of whose lower parts is "
                 "selected. Entering vertex/edge/face mode from object mode "
                 "selects nothing, which is what makes clay_op's seedless "
-                "rows (select-all, select-boundary and the rest) reachable "
+                "rows (select-all, select-invert, select-boundary) reachable "
                 "with no prior selection. Every element-gated clay_op row -- "
                 "inset, bevel, extrude and the rest -- refuses by name until "
                 "this has been called at least once; clay_select_elements "
@@ -1491,7 +1496,7 @@ def tools() -> list[Any]:
                 "current element mode cannot answer the query named -- "
                 "switch with clay_element_mode, or clay_select_elements's "
                 "own 'mode', first. 'how' and 'expect_stamp' work exactly as "
-                "they do on clay_select_elements. The seven seedless verbs "
+                "they do on clay_select_elements. The seven selection verbs "
                 "(select-all, select-none, select-invert, select-linked, "
                 "select-more, select-less, select-boundary) are clay_op "
                 "rows, not here -- this tool is only for a query that needs "
@@ -1840,7 +1845,7 @@ def tools() -> list[Any]:
                 "still grow one. 'params' overrides a kind's own extra "
                 "numbers: box takes 'oriented' (boolean 0/1, default 0 -- "
                 "axis-aligned unless set); convex and compound take "
-                "'max_faces' (default 64); sphere and capsule take none. "
+                "'max_faces' (default 64, 12 to 1024); sphere and capsule take none. "
                 "A collider draws as a translucent wireframe, is skipped by "
                 "the readiness triangle budget, and is parented onto its "
                 "source with the identity local transform -- clay_scene's "

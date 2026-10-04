@@ -35,7 +35,10 @@ PROMPT_KEY = "inker-flourish-prompt"
 RESTYLE_POPUP = "inker-flourish-restyle"
 RESTYLE_KEY = "inker-flourish-restyle"
 RESTYLE_LAND_KEY = "inker-flourish-restyle-land"
-RESTYLE_PENDING = "A restyle of this effect is already running."
+#: Not "of this effect": the slot is one on ``InkerState``, shared by every open
+#: document, so a restyle running in another tab refuses this one too (the
+#: 2026-10-03 audit, inker-83).
+RESTYLE_PENDING = "A restyle is already running."
 #: The words around the user's own, for a keyframe the pixel model repaints.
 RESTYLE_PROMPT_TEMPLATE = "{subject}, 2D game VFX frame, centered, transparent background"
 #: How long the text model may take before the words fall back to the mapper.
@@ -308,8 +311,29 @@ def submit_insert(ctx: Any, tab: Any, recipe: Any) -> SubmitResult:
     return SubmitResult.ACCEPTED if ctx.submit(key, work) else SubmitResult.BUSY
 
 
+def _owner(state: Any, tab: Any, group: int) -> Any:
+    """The open tab whose document holds effect ``group``: ``tab`` itself when
+    it does, else a search of every tab, else None."""
+    if tab is not None and tab.doc.flourish_state(group) is not None:
+        return tab
+    for each in getattr(state, "docs", []):
+        if each.doc.flourish_state(group) is not None:
+            return each
+    return None
+
+
 def tick(ctx: Any, state: Any, tab: Any, *, now: float) -> int:
-    """Submit every render that has become due for ``tab``. -> how many.
+    """Submit every render that has become due, whichever open tab owns it.
+    -> how many.
+
+    **A due group is resolved to its owning tab, not judged against ``tab``.**
+    The inspector ticks only the tab in front, and this used to treat a group
+    that tab did not hold as detached -- popping its pending recipe and its
+    pending textures -- so a slider edit staged in tab A, or the newer edit
+    ``land`` re-arms while a render runs, was thrown away without a word when
+    tab B happened to be in front as the debounce fired (the 2026-10-03 audit,
+    finding inker-36). Only a group *no* open tab holds is gone, and a busy
+    owner is left due until it is free.
 
     **A refusal for cost is popped, not retried.** Before the 2026-09-08 audit
     (finding inker-04) this only popped ``flourish_due`` on acceptance, so a
@@ -321,32 +345,41 @@ def tick(ctx: Any, state: Any, tab: Any, *, now: float) -> int:
     once the running render's result is in, and retrying it here would only
     race the same key.
     """
-    if tab is None or getattr(tab, "busy", False):
-        return 0
     sent = 0
     for group in due(state, now=now):
         recipe = state.flourish_pending.get(group)
-        if recipe is None or tab.doc.flourish_state(group) is None:
+        owner = _owner(state, tab, group)
+        if recipe is None or owner is None:
             state.flourish_due.pop(group, None)
             state.flourish_pending.pop(group, None)
+            state.flourish_force.pop(group, None)
             # A texture picked up along the way (``_new_pending_asset``) is
             # still only pixels in ``state`` -- the document was never
             # touched -- so dropping it here is just forgetting them.
             _discard_pending_asset(state, group)
             continue
-        if in_flight(ctx, tab, group):
+        if getattr(owner, "busy", False):
+            continue
+        if in_flight(ctx, owner, group):
             # Let it rest until the running render lands; ``land`` re-arms the
             # clock when the pending recipe has moved past what it rendered.
             continue
         result = submit_render(
-            ctx, tab, group, recipe, pending_assets=state.flourish_pending_asset.get(group)
+            ctx,
+            owner,
+            group,
+            recipe,
+            force=bool(state.flourish_force.get(group)),
+            pending_assets=state.flourish_pending_asset.get(group),
         )
         if result is SubmitResult.ACCEPTED:
             state.flourish_due.pop(group, None)
+            state.flourish_force.pop(group, None)
             sent += 1
         elif result is SubmitResult.TOO_COSTLY:
             state.flourish_due.pop(group, None)
             state.flourish_pending.pop(group, None)
+            state.flourish_force.pop(group, None)
             _discard_pending_asset(state, group)
     return sent
 
@@ -383,7 +416,20 @@ def land(ctx: Any, state: Any, done: Any, *, now: float) -> bool:
         # once the tab is free, an insert is simply dropped with a toast.
         group_field = result.get("group")
         if group_field is not None and not done.key.startswith(INSERT_KEY):
-            state.flourish_due[int(group_field)] = float(now)
+            group_key = int(group_field)
+            # The 2026-10-03 audit, finding inker-35: re-arming ``flourish_due``
+            # alone was not enough. ``tick`` renders only a *pending* recipe,
+            # and a Regenerate / Keep / Replace press never makes one, so the
+            # retry popped the entry and the press was lost without a toast;
+            # when a pending recipe did exist the retry went out with
+            # ``force=False``, so "Replace painted cels" quietly became a
+            # plain regenerate that flags conflicts. The recipe the press used
+            # now becomes the pending one, and its ``force`` rides along.
+            if group_key not in state.flourish_pending:
+                state.flourish_pending[group_key] = result["baked"].recipe
+            if result.get("force"):
+                state.flourish_force[group_key] = True
+            state.flourish_due[group_key] = float(now)
         else:
             ctx.toast("The effect finished while the document was busy; try again.", "warn")
         return False
@@ -397,6 +443,7 @@ def land(ctx: Any, state: Any, done: Any, *, now: float) -> bool:
     if tab.doc.flourish_state(group) is None:
         ctx.toast("That effect was detached while it rendered; nothing landed.", "info")
         state.flourish_pending.pop(group, None)
+        state.flourish_force.pop(group, None)
         _discard_pending_asset(state, group)
         return False
     try:
@@ -452,12 +499,22 @@ def tag_names(tab: Any) -> list[str]:
     return [] if anim is None else [tag.name for tag in anim.tags]
 
 
-def snippet_info(tab: Any, tag_name: str) -> dict[str, Any] | None:
+def snippet_info(
+    tab: Any, tag_name: str, *, arrange: str | None = None, wrap: int = 1
+) -> dict[str, Any] | None:
     """What ``engines.snippet`` needs for one exported phase: the file the
     per-tag export writes (``sheetout.DEFAULT_TAG_TEMPLATE`` over the
     document's title), the frames the tag spans, the rate from the tag's
     first frame, the loop flag, and the origin -- the canvas centre, which is
-    where ``bake`` puts an effect by construction."""
+    where ``bake`` puts an effect by construction.
+
+    ``arrange`` and ``wrap`` are the export's own (``InkerState.export_arrange``
+    and ``export_wrap``): the sheet's columns come from the same
+    ``sheetout.plan_frames`` the export builds its atlas with, because the
+    snippet used to assume the default row-wrap and so read the wrong frames
+    from a sheet the same menu wrote with Arrange set to anything else (the
+    2026-10-03 audit, finding inker-61). Raises ``ValueError`` for a tag no
+    file can be named after -- :func:`snippet_problem` is the door that says so."""
     from ....kernels.pixel import sheetout
     from ....kernels.pixel.flourish import engines
 
@@ -472,22 +529,60 @@ def snippet_info(tab: Any, tag_name: str) -> dict[str, Any] | None:
     title = Path(str(getattr(tab, "title", "") or "effect")).stem or "effect"
     stem = sheetout.filename_for(sheetout.DEFAULT_TAG_TEMPLATE, title=title, tag=tag.name)
     width, height = tab.doc.size
+    frames = last - first + 1
+    columns = None
+    if arrange is not None:
+        try:
+            columns = sheetout.plan_frames(
+                frames,
+                width,
+                height,
+                arrange=arrange,
+                wrap=max(1, int(wrap)) if arrange in sheetout.COUNTED_ARRANGES else None,
+            ).columns
+        except ValueError:
+            columns = None  # the export refuses this atlas itself; say the default
     return engines.describe(
         name=f"{title} {tag.name}",
         image=f"{stem}.png",
         frame_width=width,
         frame_height=height,
-        frames=last - first + 1,
+        frames=frames,
         fps=max(1, round(1000.0 / duration)),
         loop=bool(tag.loop),
         origin=(width // 2, height // 2),
+        columns=columns,
     )
 
 
-def snippet_text(tab: Any, tag_name: str, engine: str) -> str:
+def snippet_problem(tab: Any, tag_name: str) -> str:
+    """Why no snippet can be made for ``tag_name``, or "".
+
+    The popup lists every tag in the document and asks for the snippet each
+    frame; ``filename_for`` refuses a tag no file can be named after (a
+    non-ASCII name such as the Japanese word for "attack" sanitises to
+    nothing), and that ``ValueError`` used to escape the pane on every frame
+    (the 2026-10-03 audit, finding inker-38). The popup shows this sentence
+    in its place."""
+    try:
+        snippet_info(tab, tag_name)
+    except ValueError:
+        return (
+            f"{tag_name!r} cannot be turned into a file name, so there is no snippet "
+            "for it; rename the tag using letters, digits, dashes or underscores."
+        )
+    return ""
+
+
+def snippet_text(
+    tab: Any, tag_name: str, engine: str, *, arrange: str | None = None, wrap: int = 1
+) -> str:
     from ....kernels.pixel.flourish import engines
 
-    info = snippet_info(tab, tag_name)
+    try:
+        info = snippet_info(tab, tag_name, arrange=arrange, wrap=wrap)
+    except ValueError:
+        return ""  # ``snippet_problem`` names it
     if info is None:
         return ""
     return engines.snippet(engine, info)
@@ -920,7 +1015,21 @@ def ask_words(recipe: Any, text: str, *, model_dir: Path | None) -> tuple[Any, l
         diff, why = run_text_model(recipe, text, model_dir)
         if diff is not None:
             changed, notes = keywords.apply_diff(recipe, diff)
-            return changed, notes, "model"
+            if changed != recipe:
+                return changed, notes, "model"
+            # The 2026-10-03 audit, inker-85: any answer that parsed as a JSON
+            # object used to land as "model" even when ``apply_diff`` dropped
+            # everything it named ("no layer called ...") -- a toast of
+            # refusals and no effect, where the documented fallback to the
+            # keyword vocabulary would have understood "bigger".
+            why = "its change named nothing this effect has"
+            refused = notes
+            changed, notes = keywords.apply(recipe, text)
+            return (
+                changed,
+                [f"model: {why}; used the keyword mapper", *refused, *notes],
+                "keywords",
+            )
         changed, notes = keywords.apply(recipe, text)
         return changed, [f"model: {why}; used the keyword mapper", *notes], "keywords"
     changed, notes = keywords.apply(recipe, text)

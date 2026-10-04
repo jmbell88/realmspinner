@@ -56,6 +56,29 @@ def send_size(box: tuple[int, int, int, int]) -> tuple[int, int]:
     return sw, sh
 
 
+def capture(
+    flat: np.ndarray, mask: np.ndarray, bounds: tuple[int, int, int, int]
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int, int]]:
+    """-> (RGB crop, mask crop, the box they cover): :func:`prepare`'s cheap half.
+
+    Two array slices and two copies -- what the frame thread must do at the
+    click, because the user keeps editing while the queue works and the crop has
+    to be the picture they pressed Generate on. The resize and the PNG encodes
+    are :func:`encode`'s, which is what ``submit_inpaint`` hands to the task
+    thread (the 2026-10-03 audit, finding inker-97: a large selection hitched
+    the window on Generate while the landing half had already been moved off
+    the frame thread for the same cost).
+    """
+    height, width = flat.shape[:2]
+    box = crop_box(bounds, (width, height))
+    x0, y0, x1, y1 = box
+    return (
+        np.array(flat[y0:y1, x0:x1, :3], order="C", copy=True),
+        np.array(mask[y0:y1, x0:x1], order="C", copy=True),
+        box,
+    )
+
+
 def prepare(
     flat: np.ndarray, mask: np.ndarray, bounds: tuple[int, int, int, int]
 ) -> tuple[bytes, bytes, tuple[int, int, int, int]]:
@@ -65,13 +88,17 @@ def prepare(
     black, which is what the model sees. The mask is the selection's coverage
     (white = regenerate), sent at the crop's resized size.
     """
+    return encode(*capture(flat, mask, bounds))
+
+
+def encode(
+    rgb: np.ndarray, coverage: np.ndarray, box: tuple[int, int, int, int]
+) -> tuple[bytes, bytes, tuple[int, int, int, int]]:
+    """:func:`capture`'s answer resized and encoded. Blocking: task thread."""
     from PIL import Image
 
-    height, width = flat.shape[:2]
-    box = crop_box(bounds, (width, height))
-    x0, y0, x1, y1 = box
-    crop = Image.fromarray(np.ascontiguousarray(flat[y0:y1, x0:x1, :3]), "RGB")
-    weight = Image.fromarray(np.ascontiguousarray(mask[y0:y1, x0:x1]), "L")
+    crop = Image.fromarray(rgb, "RGB")
+    weight = Image.fromarray(coverage, "L")
     size = send_size(box)
     crop = crop.resize(size, Image.Resampling.LANCZOS)
     weight = weight.resize(size, Image.Resampling.BILINEAR)

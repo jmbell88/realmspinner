@@ -170,12 +170,6 @@ def _profile_pairs(order: list[int], closed: bool) -> list[tuple[int, int]]:
     return pairs
 
 
-def _new_quad_starts(starts: np.ndarray, n_new: int) -> np.ndarray:
-    """``starts`` grown by ``n_new`` freshly appended quads (4 corners each)."""
-    grown = int(starts[-1]) + 4 * np.arange(1, n_new + 1, dtype="i8")
-    return np.concatenate([starts.astype("i8"), grown])
-
-
 def _quad_uv_array(quad_uv: list[tuple[float, float]]) -> np.ndarray:
     return np.array(quad_uv, dtype="f4").reshape(-1, 2)
 
@@ -204,6 +198,91 @@ def _profile_owner_faces(
     owner_corner = np.full(a.n_edges, -1, dtype="i8")
     owner_corner[a.corner_edge.astype("i8")] = np.arange(len(mesh.loops), dtype="i8")
     return a.corner_face[owner_corner[ids]].astype("i8")
+
+
+def _on_axis(profile_pos: np.ndarray, axis: int, center: np.ndarray) -> np.ndarray:
+    """Which profile vertices lie on the spin axis line, within a tolerance
+    proportional to the profile's own size.
+
+    The 2026-10-03 audit's clay-54: every ring past the first was minted from
+    scratch, so a profile vertex *on* the axis (the pole of a vase, a bowl, a
+    pawn) became ``steps`` coincident vertices and degenerate quads instead of
+    one shared vertex, and the lathe read as open in the game-readiness check
+    until the user found Weld. A point on the axis does not move under the
+    rotation, so every ring reuses ring zero's own index for it.
+    """
+    other = [a for a in range(3) if a != axis]
+    radial = np.hypot(
+        profile_pos[:, other[0]] - center[other[0]], profile_pos[:, other[1]] - center[other[1]]
+    )
+    return radial <= 1e-6 * max(1.0, float(radial.max()) if len(radial) else 1.0)
+
+
+def _ring_indices(
+    order: list[int], shared: np.ndarray, n_verts: int, n_copies: int
+) -> list[np.ndarray]:
+    """The vertex index of every profile station in every ring. Ring zero is
+    the profile itself; a later ring mints one vertex per station that is not
+    *shared* and reuses ring zero's index for the rest."""
+    base = np.asarray(order, dtype="i8")
+    minted = np.flatnonzero(~shared)
+    rings = [base]
+    for k in range(1, n_copies):
+        ring = base.copy()
+        ring[minted] = n_verts + (k - 1) * len(minted) + np.arange(len(minted), dtype="i8")
+        rings.append(ring)
+    return rings
+
+
+def _band_faces(
+    mesh: Mesh,
+    ring_index: list[np.ndarray],
+    pairs: list[tuple[int, int]],
+    n_bands: int,
+    n_copies: int,
+    p_span: int,
+) -> tuple[list[int], list[int], list[tuple[float, float]], list[int]]:
+    """``(corners, corner count per face, generated uv, profile pair per face)``
+    for the whole band grid.
+
+    A band that touches a shared (on-axis) station would repeat a vertex in its
+    quad, which leaves a zero-length edge in the face -- so consecutive repeats
+    are dropped and the quad becomes a triangle (and a band between two shared
+    stations, a profile edge lying along the axis, makes no face at all).
+    """
+    corners: list[int] = []
+    counts: list[int] = []
+    quad_uv: list[tuple[float, float]] = []
+    owner: list[int] = []
+    has_uv = mesh.uv is not None
+    for k in range(n_bands):
+        k2 = (k + 1) % n_copies
+        v0 = k / n_bands
+        v1 = k2 / n_bands if k2 != 0 else 1.0
+        for pair_index, (i, j) in enumerate(pairs):
+            ring = [
+                int(ring_index[k][i]),
+                int(ring_index[k][j]),
+                int(ring_index[k2][j]),
+                int(ring_index[k2][i]),
+            ]
+            keep = [c for c in range(4) if ring[c] != ring[c - 1]]
+            if len(keep) < 3:
+                continue
+            corners.extend(ring[c] for c in keep)
+            counts.append(len(keep))
+            owner.append(pair_index)
+            if has_uv:
+                u0, u1 = i / p_span, j / p_span
+                uvs = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
+                quad_uv.extend(uvs[c] for c in keep)
+    return corners, counts, quad_uv, owner
+
+
+def _starts_after(starts: np.ndarray, counts: list[int]) -> np.ndarray:
+    """``starts`` grown by one face per entry of *counts*."""
+    grown = int(starts[-1]) + np.cumsum(np.asarray(counts, dtype="i8"))
+    return np.concatenate([starts.astype("i8"), grown])
 
 
 def _refuse_spin_size(n_bands: int, n_pairs: int, what: str) -> None:
@@ -246,6 +325,10 @@ def spin(
     more entry in the band grid -- so lathing a closed silhouette all the way
     around builds a shape closed in both directions, a legitimate if unusual
     request nothing here refuses.
+
+    A profile vertex **on the axis** is one shared vertex in every ring, and
+    the bands that meet it are triangles (the pole of a vase), not quads with
+    a repeated corner.
 
     UV is **generated**: ``u`` runs along the profile by station fraction,
     ``v`` by spin-step fraction, supplied only when the source mesh already
@@ -304,46 +387,34 @@ def spin(
     step_angle = math.radians(angle_f / steps)
 
     n_verts = len(mesh.positions)
-    ring_index: list[np.ndarray] = [np.asarray(order, dtype="i8")]
+    shared = _on_axis(profile_pos, axis, center_v)
+    ring_index = _ring_indices(order, shared, n_verts, n_copies)
     new_rows: list[np.ndarray] = []
     for k in range(1, n_copies):
-        new_rows.append(_rotate(profile_pos, axis, center_v, step_angle * k))
-        ring_index.append(n_verts + (k - 1) * len(order) + np.arange(len(order), dtype="i8"))
+        new_rows.append(_rotate(profile_pos, axis, center_v, step_angle * k)[~shared])
     new_positions = np.concatenate(new_rows) if new_rows else np.zeros((0, 3))
 
-    quads: list[int] = []
-    quad_uv: list[tuple[float, float]] = []
     p_span = max(len(order) - 1, 1)
-    for k in range(n_bands):
-        k2 = (k + 1) % n_copies
-        v0 = k / n_bands
-        v1 = k2 / n_bands if k2 != 0 else 1.0
-        for i, j in pairs:
-            va0, vb0 = int(ring_index[k][i]), int(ring_index[k][j])
-            va1, vb1 = int(ring_index[k2][i]), int(ring_index[k2][j])
-            quads.extend([va0, vb0, vb1, va1])
-            if mesh.uv is not None:
-                u0, u1 = i / p_span, j / p_span
-                quad_uv.extend([(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
+    quads, counts, quad_uv, owner = _band_faces(mesh, ring_index, pairs, n_bands, n_copies, p_span)
 
     n_faces0 = face_count(mesh)
-    n_new = len(quads) // 4
+    n_new = len(counts)
     positions_all = (
         np.concatenate([mesh.positions.astype("f8"), new_positions])
         if len(new_positions)
         else mesh.positions.astype("f8")
     )
-    # Each band repeats the same `pairs` order (the loop above), so tiling the
-    # per-pair owner's material/smooth `n_bands` times over lands each new
-    # quad on the same profile edge that produced it -- see
-    # `_profile_owner_faces` for the 2026-09-20 audit's clay-11 this replaces
-    # (`np.zeros(n_new)`: material slot 0, flat-shaded, on every lathe face).
-    new_material = np.tile(mesh.material[owner_faces], n_bands)
-    new_smooth = np.tile(mesh.smooth[owner_faces], n_bands)
+    # `owner` names the profile edge each new face grew from, so each lands on
+    # the same material and shading as that edge -- see `_profile_owner_faces`
+    # for the 2026-09-20 audit's clay-11 this replaces (`np.zeros(n_new)`:
+    # material slot 0, flat-shaded, on every lathe face).
+    owner_index = np.asarray(owner, dtype="i8")
+    new_material = mesh.material[owner_faces][owner_index]
+    new_smooth = mesh.smooth[owner_faces][owner_index]
     out = topo.rebuild(
         positions_all,
         np.concatenate([mesh.loops.astype("i8"), np.array(quads, dtype="i8")]),
-        _new_quad_starts(mesh.starts, n_new),
+        _starts_after(mesh.starts, counts),
         np.concatenate([mesh.material, new_material]),
         np.concatenate([mesh.smooth, new_smooth]),
         uv=None if mesh.uv is None else np.concatenate([mesh.uv, _quad_uv_array(quad_uv)]),
@@ -390,47 +461,44 @@ def screw(
     step_lift = float(height) / steps
 
     n_verts = len(mesh.positions)
-    ring_index: list[np.ndarray] = [np.asarray(order, dtype="i8")]
+    # A screw's on-axis vertex climbs the axis each step, so it is a distinct
+    # vertex per ring and only a flat screw (no lift) may share it -- see
+    # `_on_axis` for the clay-54 reasoning.
+    shared = (
+        _on_axis(profile_pos, axis, center_v)
+        if step_lift == 0.0
+        else np.zeros(len(order), dtype=bool)
+    )
+    ring_index = _ring_indices(order, shared, n_verts, n_copies)
     new_rows: list[np.ndarray] = []
     for k in range(1, n_copies):
         ring = _rotate(profile_pos, axis, center_v, step_angle * k)
         ring[:, axis] += step_lift * k
-        new_rows.append(ring)
-        ring_index.append(n_verts + (k - 1) * len(order) + np.arange(len(order), dtype="i8"))
+        new_rows.append(ring[~shared])
     new_positions = np.concatenate(new_rows) if new_rows else np.zeros((0, 3))
 
-    quads: list[int] = []
-    quad_uv: list[tuple[float, float]] = []
     p_span = max(len(order) - 1, 1)
     n_bands = n_copies - 1
-    for k in range(n_bands):
-        v0, v1 = k / n_bands, (k + 1) / n_bands
-        for i, j in pairs:
-            va0, vb0 = int(ring_index[k][i]), int(ring_index[k][j])
-            va1, vb1 = int(ring_index[k + 1][i]), int(ring_index[k + 1][j])
-            quads.extend([va0, vb0, vb1, va1])
-            if mesh.uv is not None:
-                u0, u1 = i / p_span, j / p_span
-                quad_uv.extend([(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
+    quads, counts, quad_uv, owner = _band_faces(mesh, ring_index, pairs, n_bands, n_copies, p_span)
 
     n_faces0 = face_count(mesh)
-    n_new = len(quads) // 4
+    n_new = len(counts)
     positions_all = (
         np.concatenate([mesh.positions.astype("f8"), new_positions])
         if len(new_positions)
         else mesh.positions.astype("f8")
     )
-    # Each band repeats the same `pairs` order (the loop above), so tiling the
-    # per-pair owner's material/smooth `n_bands` times over lands each new
-    # quad on the same profile edge that produced it -- see
-    # `_profile_owner_faces` for the 2026-09-20 audit's clay-11 this replaces
-    # (`np.zeros(n_new)`: material slot 0, flat-shaded, on every lathe face).
-    new_material = np.tile(mesh.material[owner_faces], n_bands)
-    new_smooth = np.tile(mesh.smooth[owner_faces], n_bands)
+    # `owner` names the profile edge each new face grew from, so each lands on
+    # the same material and shading as that edge -- see `_profile_owner_faces`
+    # for the 2026-09-20 audit's clay-11 this replaces (`np.zeros(n_new)`:
+    # material slot 0, flat-shaded, on every lathe face).
+    owner_index = np.asarray(owner, dtype="i8")
+    new_material = mesh.material[owner_faces][owner_index]
+    new_smooth = mesh.smooth[owner_faces][owner_index]
     out = topo.rebuild(
         positions_all,
         np.concatenate([mesh.loops.astype("i8"), np.array(quads, dtype="i8")]),
-        _new_quad_starts(mesh.starts, n_new),
+        _starts_after(mesh.starts, counts),
         np.concatenate([mesh.material, new_material]),
         np.concatenate([mesh.smooth, new_smooth]),
         uv=None if mesh.uv is None else np.concatenate([mesh.uv, _quad_uv_array(quad_uv)]),

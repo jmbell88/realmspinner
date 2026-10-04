@@ -72,6 +72,30 @@ def _import_mesh_key() -> str:
     return library.IMPORT_MESH_KEY
 
 
+def _export_toast(result: Any) -> tuple[str, str]:
+    """The sentence and level for a finished ``export-*`` task.
+
+    A zip reports ``{"path", "files"}``, a folder ``{"copied", "dir",
+    "degraded"}``, and convert/godot a plain path. ``degraded`` is the jobs
+    whose normalization or mesh report failed (``service.export.degraded_ids``):
+    the file is on its way into a game project with the engine's pivot and
+    scale, so it is worded and the toast warns rather than informs.
+    """
+    if not isinstance(result, dict):
+        return f"Exported to {result}", "info"
+    where = result.get("path") or result.get("dir") or ""
+    message = f"Exported to {where}" if where else "Exported."
+    degraded = result.get("degraded")
+    if isinstance(degraded, list | tuple) and degraded:
+        noun = "mesh" if len(degraded) == 1 else "meshes"
+        message += (
+            f" - {len(degraded)} {noun} did not finish normalizing, "
+            "so the pivot and scale are the engine's."
+        )
+        return message, "warn"
+    return message, "info"
+
+
 class TasksMixin:
     """Landing a finished task, mixed into :class:`~.app.App`.
 
@@ -80,6 +104,24 @@ class TasksMixin:
     build the class, so a module-scope import back would be a cycle. Same
     shape as ``clay_viewport.ClayViewport``.
     """
+
+    def _submit_is_current(self, done: Any) -> bool:
+        """Whether a ``"submit"`` result still belongs to what is on screen.
+
+        Create tags its submits with the workspace they were made in (a string,
+        or None before it has one), and a result from a workspace the user has
+        since left must not ring a field or select a row in this one. **That is
+        Create's rule and only Create's**: another mode's submit carries a tag
+        of another type (Muse's ``SUBMIT_TAG`` is a tuple) and is always
+        current. The 2026-10-03 audit, finding shell-29: the comparison was made
+        for every submit, so Muse's untagged one matched Create's workspace only
+        while Create had none -- its refusals lost their ring, and its landing
+        selected its row only before the first Create generation.
+        """
+        tag = getattr(done, "tag", None)
+        if not (tag is None or isinstance(tag, str)):
+            return True
+        return tag == self.app_ctx.state.create.workspace
 
     def _collect_tasks(self) -> None:
         from ..main import REVIEW_MESH_KEY, VIEWER_KEY
@@ -107,9 +149,7 @@ class TasksMixin:
                 # not *that something happened*, and a pane the user has since
                 # navigated away from can draw no ring at all.
                 named = getattr(done.error, "field", None)
-                current_submit = (
-                    done.key != "submit" or getattr(done, "tag", None) == ctx.state.create.workspace
-                )
+                current_submit = done.key != "submit" or self._submit_is_current(done)
                 if not current_submit:
                     named = None
                 if isinstance(named, str):
@@ -420,6 +460,10 @@ class TasksMixin:
             # there is nothing to claim on that side.
             label = done.tag if isinstance(done.tag, str) else ""
             ctx.toast(f"Removed {label}." if label else "Style removed.")
+            # The 2026-10-04 audit, finding create-21: the toast was all this
+            # landing did, so Create's picker kept offering the removed style
+            # (and the submit refused it) until restart.
+            self._refresh_style_lora_answers()
             return
         if key == "lora:import":
             # Same incident, the Add style button's half: "Style added."
@@ -431,6 +475,9 @@ class TasksMixin:
             # rather than a tag.
             label = done.result.get("label") if isinstance(done.result, dict) else ""
             ctx.toast(f"{label} added." if label else "Style added.")
+            # create-21 again: "X added." was true and Create's combo still
+            # did not list X, because the tables behind it were startup-only.
+            self._refresh_style_lora_answers()
             return
         if key == "sweep-staging":
             # Silent when there was nothing to reclaim, which is every launch
@@ -468,6 +515,18 @@ class TasksMixin:
             # bar. Keyed by the source reference, because the panel is drawn
             # against that row and not against the synthesis job.
             ctx.state.preview["sprite_active"] = dict(done.result)
+            # And the queued row itself: the 2026-10-03 audit's shell-72 --
+            # this submit creates a job row, and without the drop it waited
+            # for the 3 s idle read like "retexture:" did before shell-01.
+            ctx.cache.invalidate()
+            return
+        if key == "lora:train":
+            # ``svc_loras.train_lora`` queues a job row and returns. The toast
+            # already said "Training queued" at submit; what was missing was
+            # the cache drop (shell-72), so the row showed in the Library only
+            # after the idle backstop -- and the key fell through to the
+            # "nowhere to deliver" log below.
+            ctx.cache.invalidate()
             return
         if key.startswith("sprite-del:"):
             # The listing is stamped on the directory's mtime, so the delete
@@ -606,7 +665,16 @@ class TasksMixin:
             # refusal itself: a ``mason-asset:`` key is a background parse,
             # never a document task, and that module claims the prefix.
             mason_mode.on_task_done(ctx, done)
-            if isinstance(done.result, dict) and done.result.get("exported_asset"):
+            if (
+                isinstance(done.result, dict)
+                and done.result.get("exported_asset")
+                # The 2026-10-03 audit's mason-29: tab switching is not blocked
+                # while an export runs, and the capture reads whatever scene
+                # the viewport shows *now* -- so a card for scene A would be
+                # a picture of scene B. Skipped (the card keeps its
+                # placeholder) unless the exported tab is the one on screen.
+                and mason_mode.shows_exported_tab(ctx, key)
+            ):
                 # The card appears in the library like any other asset, so it
                 # needs the thumbnail every other asset gets -- and that is an
                 # offscreen GL draw, which belongs on the frame thread rather
@@ -686,13 +754,13 @@ class TasksMixin:
             if (
                 isinstance(done.result, dict)
                 and ctx.state.selected is None
-                and getattr(done, "tag", None) == ctx.state.create.workspace
+                and self._submit_is_current(done)
             ):
                 ctx.state.select(str(done.result.get("id") or "") or None)
             if (
                 isinstance(done.result, dict)
                 and done.result.get("kind") == "character"
-                and getattr(done, "tag", None) == ctx.state.create.workspace
+                and self._submit_is_current(done)
             ):
                 self._landed_character(done.result)
                 return
@@ -728,7 +796,13 @@ class TasksMixin:
             # A bulk export finishing with no visible outcome reads as a
             # failure; single-artifact saves have always toasted.
             if done.result is not None:
-                ctx.toast(f"Exported to {done.result}")
+                # The 2026-10-03 audit, finding shell-21: ``bulk_export`` and
+                # ``export_planned_to_folder`` return dicts, and formatting the
+                # result as-is toasted their repr -- ``Exported to {'path':
+                # ..., 'files': 3}`` -- with the degraded-mesh warning buried
+                # in it. Export-convert and export-godot still return a path.
+                message, level = _export_toast(done.result)
+                ctx.toast(message, level)
             return
         if key == "home-unreviewed":
             # Home's status block. A count only, and the last one stands until
@@ -947,6 +1021,13 @@ class TasksMixin:
                 # offers no way to it makes the user find it by hand,
                 # which after an overnight batch is the whole problem.
                 ctx.toast(*message, action="show", action_arg=job["id"])
+        if job["status"] == "done" and job.get("kind") == "lora_train":
+            # The 2026-10-04 audit, finding create-21: a trained style is
+            # registered by ``generation.import_lora`` on the worker thread
+            # before the job is marked done, and no landing ever carried that
+            # to ``ctx.guidance``/``ctx.style_loras``. This transition is the
+            # only place a finished training run is noticed.
+            self._refresh_style_lora_answers()
         if job["status"] == "done":
             # Incremental (C33): only this job's directory changed, so only
             # it is re-walked; delete and prune still trigger the full one.
@@ -978,9 +1059,10 @@ class TasksMixin:
         row, and none of the five findings has an action this app should take on
         the user's behalf -- deleting an orphan directory or a stale verdict is
         exactly the bulk gesture that caused the 2026-08-09 loss the check
-        exists to surface. So the pane says how many and where to read them, and
-        ``realmspinner library verify --json`` is the surface that hands the detail
-        to something that can act.
+        exists to surface. So the pane says how many and where to read them: the
+        whole report goes to the log as JSON (below), which is what hands the
+        detail to something that can act. There is no ``library verify`` CLI verb
+        (the 2026-10-03 audit, finding service-24).
         """
         ctx = self.app_ctx
         if not isinstance(report, dict):
@@ -1427,6 +1509,14 @@ class TasksMixin:
             # Pose stage, so the rail kept showing a step as reached for an
             # asset that never produced one.
             self._refresh_rig_side_data()
+            # The 2026-10-03 audit, finding create-18: nothing pinned the
+            # failed path, so the next sync found ``viewer.path != wanted`` and
+            # ``pending is None`` and re-parsed, re-uploaded and toasted again,
+            # indefinitely. Cleared first (the previous asset must not sit under
+            # this selection), then pinned -- the idiom the parse-failure branch
+            # of ``_collect_tasks`` already uses.
+            self.viewer.clear()
+            self.viewer.path = wanted
             return
         job = ctx.job()
         # The thumbnail is free here: the model is loaded and framed, and a

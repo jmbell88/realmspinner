@@ -547,6 +547,7 @@ def test_a_failed_promotion_insert_leaves_no_orphan_job_dir(svc, assets, monkeyp
     src_dir = assets / src
     src_dir.mkdir(parents=True, exist_ok=True)
     (src_dir / "input.png").write_bytes(_png_bytes())
+    svc.store.merge_params(src, {"reference_report": {"ok": True}})  # service-14
     svc.store.set_status(src, "done")
     before = {p.name for p in assets.iterdir() if p.is_dir()}
 
@@ -917,7 +918,14 @@ def test_promotion_strips_every_derived_param(svc, assets):
     src = svc_jobs.create_job(svc, kind="text", prompt="a barrel", output="reference")["id"]
     (assets / src).mkdir(parents=True, exist_ok=True)
     (assets / src / "input.png").write_bytes(_png_bytes())
-    svc.store.merge_params(src, {"mesh_report": {"status": "ready"}, "transform": {"scale": 1.0}})
+    svc.store.merge_params(
+        src,
+        {
+            "mesh_report": {"status": "ready"},
+            "transform": {"scale": 1.0},
+            "reference_report": {"ok": True},  # service-14: unmeasured is measured now
+        },
+    )
     svc.store.set_status(src, "done")
 
     params = _params(svc, svc_jobs.promote_to_model(svc, src)["id"])

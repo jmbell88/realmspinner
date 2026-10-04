@@ -389,16 +389,17 @@ MAX_SCENE_SOURCE_BYTES = 50 * 1024 * 1024
 def job_dir_file(svc: Any, job_id: str, name: str) -> Path:
     """One named file inside a job's directory, with the id checked.
 
-    ``name`` is a *fixed* string chosen by the caller, never user input -- the
-    three call sites ask for ``input.png`` or ``sheet.json`` -- so this
-    validates the half that can come from outside (``job_id``) and, since L03,
-    the half that used to be trusted outright too: ``name`` was joined onto
-    the job directory with no check at all. No caller passes anything but a
-    literal today, so there is no exploit here yet -- but "every caller
-    happens to be well-behaved" is not a property this function could ever
-    verify about the *next* one, and a bare-leaf requirement costs every
-    current caller nothing. Existence is still the caller's problem: every one
-    of them is about to read the file and would rather have the OSError than a
+    ``name`` is a literal at three of the four call sites (``input.png`` or
+    ``sheet.json``), but **not at the fourth**: the Clay agent's
+    ``clay_reference_add`` passes ``chosen``, which is the MCP agent's own
+    ``file`` argument whenever one is given. So the bare-leaf and containment
+    checks below are the guard for that name, not belt-and-suspenders for a
+    caller that happens to be well-behaved. (The agent door also narrows
+    ``file`` to its four documented names before it gets here; that is a second
+    line, not a reason to weaken this one.) ``job_id`` is checked as well, and
+    ``name`` was joined onto the job directory with no check at all until L03.
+    Existence is still the caller's problem: every one of them is about to
+    read the file and would rather have the OSError than a
     second question.
     """
     check_job_id(job_id)
@@ -406,8 +407,8 @@ def job_dir_file(svc: Any, job_id: str, name: str) -> Path:
     # could hand this a backslash), no ``..``, and the resolved join must stay
     # inside the job directory. Belt and suspenders rather than either alone --
     # the name check catches the readable cases in the error message, and the
-    # containment check is what actually holds if a future caller's name
-    # string turns out not to be as fixed as today's two are.
+    # containment check is what actually holds for a name that is not a literal --
+    # the Clay agent's ``file`` argument is one today.
     if not name or name in (".", "..") or "/" in name or "\\" in name:
         raise Invalid(f"{name!r} is not a bare file name", field="name")
     job_dir = svc.job_dir(job_id)
@@ -435,10 +436,11 @@ def mason_source_path(svc: Any, job_id: str) -> Path:
 def _save_source(
     svc: Any, job_id: str, data: bytes, *, name: str, limit: int, what: str
 ) -> dict[str, Any]:
-    """The write ``save_clay_source`` does, for the two documents that arrived
-    after it. Through ``_staged_write`` for the same reason: the file is read
-    whole by its reader, and a torn one is a document that will not open --
-    and a fixed temp name is one concurrent saver away from a torn one anyway.
+    """The write ``save_clay_source`` does, for the three documents that arrived
+    after it (Plotter, Packwright and Mason). Through ``_staged_write`` for the
+    same reason: the file is read whole by its reader, and a torn one is a
+    document that will not open -- and a fixed temp name is one concurrent
+    saver away from a torn one anyway.
 
     Written inline rather than through ``pipelines.postprocess._staged``:
     ``derive`` imports this module at module scope, so reaching the other way
@@ -717,6 +719,19 @@ def _check_pixels(data: bytes) -> None:
         ) from exc
     if width * height > MAX_IMAGE_PIXELS:
         raise TooLarge(f"image is {width}x{height}; the limit is {MAX_IMAGE_PIXELS:,} pixels")
+    # The 2026-10-03 audit, finding service-18: the header alone says nothing about
+    # the body, so a truncated PNG was published onto the served ``input.png`` and
+    # the edit recorded as measured. Decoded here, after the pixel cap, so the
+    # cost is bounded by the same ceiling the header check just enforced.
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            im.load()
+    except Exception as exc:
+        raise Invalid(
+            "That image is damaged or incomplete, so it was not saved. "
+            "Export it again and retry.",
+            field="image",
+        ) from exc
 
 
 def dir_size(path: Path) -> int:
@@ -1202,13 +1217,14 @@ def attach_files(job: dict[str, Any], job_dir: Path, *, cache: dict | None = Non
     two thousand ``stat`` calls -- twice a second, on the thread that must not
     block, growing without limit as "load more" widens the window.
 
-    The stamp is ``(status, the job directory's own mtime)``. Sound because
+    The stamp is ``(status, the job directory's own mtime, ``stems/``'s mtime)``. Sound because
     every name here is answered by *existence*: a file appearing or being
     removed adds or removes a directory entry, which is what moves a
     directory's mtime -- and a status change is the other thing that can change
-    the answer (a queued job's ``model.glb`` is not servable). One stat per row
-    instead of ten. The names are copied out, because a caller that edits
-    ``job["files"]`` must not edit what the next tick will hand somebody else.
+    the answer (a queued job's ``model.glb`` is not servable). Two stats per row
+    (the job directory and ``stems/``) instead of fifteen. The names are copied
+    out, because a caller that edits ``job["files"]`` must not edit what the
+    next tick will hand somebody else.
 
     **But a directory's mtime has a resolution, and it is coarse.** Windows
     updates it from the system clock, whose tick is 15.6 ms unless something has

@@ -148,7 +148,12 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
     if form is None:
         form = {
             "job_id": job_id,
-            "profile": "raw",
+            # The 2026-10-04 audit, finding create-34: this started every job at
+            # "raw" while Manual 23 says Standard is the panel's default, so an
+            # untouched Rebuild mesh rebuilt at Raw. Every named tier needs
+            # gltfpack, so without it "raw" is the only tier offered and stays
+            # the default.
+            "profile": "standard" if gltfpack_available(ctx) else "raw",
             "custom_triangles": optimize.PROFILES["standard"],
         }
         forms_by_job[job_id] = form

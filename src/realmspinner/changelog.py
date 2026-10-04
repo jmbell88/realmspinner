@@ -45,8 +45,13 @@ FILENAME = "CHANGELOG.md"
 # what keeps "## 0.0.15" and "## v0.0.15 - unreleased" both readable.
 _HEADING = re.compile(r"^##\s+v?(?P<version>[0-9][^\s]*)\s*(?:[-–—]\s*(?P<date>.+))?$")
 _BULLET = re.compile(r"^[-*]\s+(?P<text>.+)$")
+# The first alternative is a code span, matched so it can be handed back
+# untouched: two lone asterisks in different spans are not an emphasis pair, and
+# ``*.gguf`` / ``inker_*.py`` lost their wildcard to this pattern (the
+# 2026-10-03 audit, finding docs-31). Leftmost wins, so a span that opens before
+# any emphasis marker is consumed whole.
 _EMPHASIS = re.compile(
-    r"\*\*(.+?)\*\*|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+    r"(`[^`]*`)|\*\*(.+?)\*\*|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
     # ``re.S``, because a bullet is a *wrapped paragraph* and its bolded
     # lead sentence routinely runs over the line. Without it ``.`` stopped
     # at the newline, the opening ``**`` found no partner, and the markers
@@ -63,7 +68,7 @@ _EMPHASIS = re.compile(
 def _plain(text: str) -> str:
     """``**bold**`` and ``*italic*`` down to their words. imgui draws one
     weight, so the markers rendered literally and looked like a parse bug."""
-    return _EMPHASIS.sub(lambda m: m.group(1) or m.group(2) or "", text)
+    return _EMPHASIS.sub(lambda m: m.group(1) or m.group(2) or m.group(3) or "", text)
 
 
 @dataclass(frozen=True)
@@ -169,7 +174,14 @@ def parse(text: str) -> list[Release]:
             date = (heading.group("date") or "").strip()
             bullets = []
             continue
-        bullet = _BULLET.match(line)
+        # Matched against the *raw* line, so only a column-zero marker opens a
+        # bullet. Matching the stripped line promoted an indented ``  - *Shell:*``
+        # sub-item to a release note of its own: 0.0.54's eight audit sub-bullets
+        # read as eight peers on Home, led as "Shell: a crash copy is no longer
+        # ...", and older releases showed only their lead sentences (the
+        # 2026-10-03 audit, finding docs-30). An indented marker now falls
+        # through to the continuation branch below and stays inside its parent.
+        bullet = _BULLET.match(raw.rstrip())
         # A bullet before any heading belongs to no release, so it is dropped
         # rather than attached to the first one that comes along.
         if bullet is not None and version:

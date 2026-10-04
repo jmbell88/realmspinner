@@ -23,7 +23,7 @@ no axis is still meaningful -- it sets the length of the displacement the mouse
 chose the direction of, and the size of a uniform scale -- which is why the
 lock is not a precondition for typing.
 
-Pure: numpy plus ``viewer.math3d`` for the one quaternion conversion, which is
+Pure: numpy plus ``kernels.geom3d.math3d`` for the one quaternion conversion, which is
 the same reason every other module in this package reaches for it -- an XYZW
 quaternion is built in exactly one place in this project.
 """

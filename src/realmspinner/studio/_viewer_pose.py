@@ -88,6 +88,13 @@ class PoseOps:
         self.pose_job_id = None
         self.rotate_gizmo.end_drag()
         self.translate_gizmo.end_drag()
+        # The 2026-10-03 audit, finding create-11: the drags above end, but a
+        # "gizmo" (or "marker") grab belongs to the pose session that just
+        # ended, and left set it sent the next mouse motion to a gizmo that
+        # ``_active_gizmo`` no longer returns. ``getattr`` for the reason
+        # ``_close_pose_step`` gives: this runs on partially-built viewers.
+        if getattr(self, "_grab", None) in ("gizmo", "marker"):
+            self._grab = None
         # Before ``clear``, not after: a gesture still live when the mode ends
         # holds an open ``editor.record()``, and closing it against the cleared
         # editor is what ``record``'s generation guard is for -- but leaking it
@@ -95,6 +102,10 @@ class PoseOps:
         self._close_pose_step()
         self.editor.clear()
         self._bone_pairs = []
+        # The 2026-10-03 audit, finding poser-45: onion-skin ghosts are rotations
+        # of the *ended* session's neighbouring keys, and no caller but Poser
+        # knows to empty them -- left standing they drew over the next skeleton.
+        self.onion = []
         # Both ends of the editor's life report, or an indicator raised on the
         # way in survives every mesh loaded after it -- ``adopt_model`` and
         # ``clear`` both come through here.

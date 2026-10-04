@@ -63,9 +63,27 @@ def open_url(url: str, *, timeout: float | None = None) -> Any:
 #: The exceptions the fetch worker raises for itself, each already carrying a
 #: remedy written for a person: a digest mismatch, a missing rename source, a
 #: registry entry with no digest. Named here because :func:`describe_failure`
-#: is what has to tell them from a transport error, and imported back by the
-#: worker as its terminal set so the two cannot disagree.
+#: is what has to tell them from a transport error. The worker's *terminal*
+#: set is the narrower :class:`Refusal` below, not this tuple (pipelines-21).
 AUTHORED = (ValueError, FileNotFoundError)
+
+
+class Refusal(ValueError):
+    """A failure ``fetch_worker`` raised itself, as opposed to one a transport did.
+
+    The 2026-10-03 audit (pipelines-21): the worker's terminal set used to be
+    :data:`AUTHORED` -- every ``ValueError`` -- but a truncated-JSON
+    ``JSONDecodeError`` is a ``ValueError`` too, and so is anything else a
+    transport chooses to raise on a flaky link, so one such error skipped the
+    retries *and* wiped the resumable staging tree, which is the 16 GB the
+    retry machinery exists to keep. Classed by origin instead: only these are
+    terminal. Still a ``ValueError`` so ``describe_failure`` and every caller
+    that catches the old type behave as they did.
+    """
+
+
+class MissingSource(Refusal, FileNotFoundError):
+    """A rename source the download did not provide: a fault in the request."""
 
 
 #: Windows socket errors this project has actually seen, mapped to what a

@@ -396,8 +396,38 @@ def _front_helper(front_yaw: float) -> str:
     return f"This mesh's front is set to {front_yaw:.0f} degrees; sheets are rendered from it."
 
 
+def _has_own_layout(ctx: Any, state: PoserSend) -> bool:
+    """Whether this send submits a layout of its own rather than the form's:
+    a resolved skeleton, on a mesh that is not the one bound to Poser."""
+    return bool(state.template) and state.job_id != poser_mode.ensure(ctx).job_id
+
+
+def _send_layout(ctx: Any, state: PoserSend, form: dict[str, Any]) -> dict[str, Any]:
+    """The layout :func:`_send` will submit for this mesh. No side effects.
+
+    The one place that decides it, read by the cost note and by ``_send``, so
+    the number the dialog shows is the number of cells the request asks for.
+    The 2026-10-03 audit (poser-render-01): the note counted ``form["layout"]``,
+    the bound character's standing layout, while ``_send`` submitted a freshly
+    built (or remembered) one for any other mesh -- one movement ticked in
+    Poser read "32 cells" over a request for 256.
+
+    A mesh that is not the one bound to Poser gets its remembered layout while
+    that still fits ``state.template``, else a fresh default for it; the bound
+    mesh, or a send whose skeleton could not be resolved (``state.template``
+    empty, an unreadable ``rig.json``), gets the form's own layout --
+    ``create_charsheet`` re-reads the rig and is the real gate.
+    """
+    if _has_own_layout(ctx, state):
+        remembered = ctx.state.preview.get(_SENT_LAYOUTS_SLOT, {}).get(state.job_id)
+        if isinstance(remembered, dict) and remembered.get("template") == state.template:
+            return remembered
+        return poser_mode._layout_for_sheet_template(ctx, state.template)
+    return form.get("layout") or {}
+
+
 def _actions(ctx: Any, state: PoserSend, form: dict[str, Any]) -> None:
-    count = poser_mode.cell_count(form)
+    count = poser_mode.cell_count({"layout": _send_layout(ctx, state, form)})
     note = f"{count} cells are rendered at {state.logical_size} px."
     if not state.rigged:
         note = f"A mesh that is not rigged is rigged first. Then {note}"
@@ -440,35 +470,43 @@ def _send(ctx: Any, state: PoserSend, form: dict[str, Any]) -> None:
     # ``form["layout"]`` is built by ``poser_mode.sheet_form``/
     # ``_default_sheet_layout`` against whichever character is bound to
     # Poser's own session, not against the mesh this dialog is actually
-    # sending -- a separate id chosen from the Library or the inspector.
-    # Rebuilt here whenever the two disagree, so a character open in Poser --
-    # and any layout it carries, hand-edited or not -- cannot leak onto an
-    # unrelated mesh sent through this door (``test_troupe_chain.py``'s own
+    # sending -- a separate id chosen from the Library or the inspector. So
+    # :func:`_send_layout` answers with a layout built for *this* mesh
+    # whenever the two disagree, and a character open in Poser -- and any
+    # layout it carries, hand-edited or not -- cannot leak onto an unrelated
+    # mesh sent through this door (``test_troupe_chain.py``'s own
     # ``test_send_to_troupe_does_not_submit_the_currently_selected_characters_
-    # layout_for_a_different_mesh`` pins exactly this). ``state.template``
-    # empty means the skeleton could not be resolved (an unreadable
-    # ``rig.json``, read tolerantly above) -- the form's own layout is kept
-    # rather than replaced with one built for no template at all, and
-    # ``create_charsheet`` re-reads the rig and is the real gate.
-    if state.template and state.job_id != poser_mode.ensure(ctx).job_id:
-        # The 2026-09-26 audit, finding poser-render-03: this used to rebuild
-        # unconditionally here, so sending mesh B right after hand-editing the
-        # layout mesh A's *own* send had just produced threw A's edits away --
-        # not the bound character's (the leak above already refuses those),
-        # but this door's own remembered answer for a mesh it had already
-        # asked about. Remembered per sent mesh, the way ``PoserSend`` itself
-        # is rebuilt fresh by :func:`ask` for a mesh this door has never seen,
-        # so an unrelated mesh's *first* send is untouched by this cache and
-        # still gets a plain fresh default -- only a mesh this door has
-        # already built a layout for gets that layout back, and only while it
-        # still fits the template that layout was built for.
-        remembered_by_mesh = ctx.state.preview.setdefault(_SENT_LAYOUTS_SLOT, {})
-        remembered = remembered_by_mesh.get(state.job_id)
-        if isinstance(remembered, dict) and remembered.get("template") == state.template:
-            form["layout"] = remembered
-        else:
-            form["layout"] = poser_mode._layout_for_sheet_template(ctx, state.template)
-        remembered_by_mesh[state.job_id] = form["layout"]
+    # layout_for_a_different_mesh`` pins exactly this).
+    #
+    # **The mesh's layout is submitted, never written into ``form["layout"]``.**
+    # The 2026-10-03 audit (poser-render-02): this assigned the sent mesh's
+    # layout into the shared form, which is the very dict Poser's "Build a new
+    # sheet" section edits for the bound character, so sending any other mesh
+    # from the Library or the inspector silently reset the bound character's
+    # hand-edited layout (ticked movements, frame counts) to that mesh's
+    # default. Only the opposite leak had a test. The request gets a copy of
+    # the form carrying this mesh's layout and the standing form is left alone.
+    #
+    # Remembered per sent mesh (the 2026-09-26 audit, finding
+    # poser-render-03) so mesh B's send does not discard what mesh A's own send
+    # produced: an unrelated mesh's *first* send is untouched by this cache and
+    # still gets a plain fresh default.
+    layout = _send_layout(ctx, state, form)
+    submitted = dict(form)
+    if state.job_id != poser_mode.ensure(ctx).job_id:
+        # The 2026-10-03 audit, finding poser-50: ``name``, ``dither`` and
+        # ``reduce_mode`` are the "Build a new sheet" section's answers for the
+        # character bound to Poser, and this dialog neither shows nor asks about
+        # them -- so a name typed for that character's next sheet, or a Dither
+        # switch left on, landed on an unrelated mesh's sheet with nothing
+        # saying so. This door sends its own mesh: no name, and the defaults.
+        defaults = poser_mode.sheet_options(ctx).get("defaults") or {}
+        submitted["name"] = ""
+        submitted["dither"] = False
+        submitted["reduce_mode"] = str(defaults.get("reduce_mode") or "box")
+    if _has_own_layout(ctx, state):
+        ctx.state.preview.setdefault(_SENT_LAYOUTS_SLOT, {})[state.job_id] = layout
+        submitted["layout"] = layout
     job_id = state.job_id
     close(ctx)
-    poser_mode.render_character_sheet(ctx, {"id": job_id}, form)
+    poser_mode.render_character_sheet(ctx, {"id": job_id}, submitted)

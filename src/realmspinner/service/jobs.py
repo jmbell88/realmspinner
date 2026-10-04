@@ -1,8 +1,9 @@
-"""Creating, resubmitting, editing and removing jobs -- a facade over five siblings.
+"""Creating, resubmitting, editing and removing jobs -- a facade over six siblings.
 
 This module was 1,446 lines covering five unrelated subjects, and it is now the
 front of them: ``_jobs_create``, ``_jobs_list``, ``_jobs_lifecycle``,
-``_jobs_resubmit`` and ``_jobs_rework``. Sibling *files* rather than a
+``_jobs_resubmit`` and ``_jobs_rework`` -- plus ``_jobs_music``, the Muse door that
+joined later and is re-exported the same way. Sibling *files* rather than a
 ``service/jobs/`` package, which is this codebase's naming everywhere else.
 
 **Why a facade and not a rename.** Every caller in the repo -- panes, API,
@@ -348,7 +349,12 @@ def create_generation_request(
             output=legacy["output"],
             count=request.count,
             seed=request.seed,
-            negative_prompt=request.negative_prompt,
+            # The 2026-10-04 audit (create-40): this passed the request's Avoid
+            # text raw, so a distilled recipe (guidance 0, no negative branch)
+            # recorded a value that changed no pixel and findings credited it.
+            # The tileset arm above and ``request_to_legacy`` already ask
+            # ``effective_negative_prompt``; this is the third reader.
+            negative_prompt=generation.effective_negative_prompt(request, resolved),
             reference=reference,
             guidance_fields=guidance_fields,
             asset_type=request.generation_type,

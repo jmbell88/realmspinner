@@ -115,8 +115,20 @@ def available(config: Any = None) -> bool:
     the same shape ``doctor.py``'s L01 fix was written for -- read as
     "present" and let a caller fall through to the flood-fill matte, or worse,
     into ``from_pretrained`` with an undiagnosed low-level traceback.
+
+    **Config alone is not the weights** (the 2026-10-03 audit, pipelines-22):
+    the probe answered True for a directory holding only ``config.json`` while
+    ``fetch.present`` -- the registry's predicate for this same row -- answered
+    False, so the inspector hid its "cutouts use the corner fill" note and the
+    first export paid a child spawn and a failed load before falling back. The
+    answer is now ``fetch.present``'s own: ``config.json`` plus a regular
+    ``*.safetensors`` file. Restated rather than imported, because ``fetch``
+    sits above this module.
     """
-    return (model_dir(config) / "config.json").is_file()
+    base = model_dir(config)
+    if not (base / "config.json").is_file():
+        return False
+    return any(p.is_file() for p in base.rglob("*.safetensors"))
 
 
 def mask(image: PILImage, config: Any = None, *, device: str = "cpu") -> tuple[Any, str]:
@@ -215,6 +227,25 @@ def unload() -> None:
 
     _stop_child()
     _cache.clear()
+    _last_error = None
+
+
+def forget_failure() -> None:
+    """Drop the memory of a failed load without touching a live model or child.
+
+    ``unload`` is the only other thing that clears the failure sentinel, and it
+    also kills the child. The 2026-10-03 audit (pipelines-10) found that a
+    pack install's forced health recheck could reach neither: a matting row that
+    had failed with ``No module named 'einops'`` kept reporting "last load
+    failed" -- and ``mask`` kept raising ``_AlreadyFailed`` onto the corner
+    fill -- after the pack that supplies einops was installed, until the idle
+    eviction ran or the app restarted. ``doctor.static_checks(force=True)`` calls
+    this, the way it already clears its other four probe caches.
+    """
+    global _last_error
+
+    for key in [k for k, v in _cache.items() if v is _FAILED]:
+        del _cache[key]
     _last_error = None
 
 

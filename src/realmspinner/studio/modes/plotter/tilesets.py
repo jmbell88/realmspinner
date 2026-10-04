@@ -375,6 +375,9 @@ def land_tileset(ctx: Any, state: Any, tab: Any, result: dict[str, Any]) -> None
     """
     tileset = result["tileset"]
     want = result.get("projection")
+    # Decided before anything lands: what warrants a refit is the map having had
+    # no tileset (nothing yet framed it) or its lattice moving under it.
+    refit = not tab.doc.tilesets
     if want and want != tab.doc.projection:
         # One step, not two. A tileset that arrived while the projection
         # did not would leave a map painting the wrong lattice, one
@@ -411,6 +414,7 @@ def land_tileset(ctx: Any, state: Any, tab: Any, result: dict[str, Any]) -> None
             state.sheet_import_open = False
             return
         tab.doc.set_projection(want, adding=tileset, source=result.get("source", ""))
+        refit = True
     else:
         tab.doc.add_tileset(tileset, source=result.get("source", ""))
     state.tileset_index = len(tab.doc.tilesets) - 1
@@ -420,8 +424,12 @@ def land_tileset(ctx: Any, state: Any, tab: Any, result: dict[str, Any]) -> None
         # is exactly what setting ``tileset_index`` says for a palette.
         state.terrain = (state.tileset_index, 0)
     # An isometric map's pixel extent is not width times tile width, so
-    # a fit computed against the old projection is the wrong frame.
-    tab.view.fitted = False
+    # a fit computed against the old projection is the wrong frame. Only then,
+    # or for a map's first tileset: unconditionally, importing a fifth tileset
+    # mid-session snapped the canvas away from where the user was working (the
+    # 2026-10-03 audit, finding plotter-37).
+    if refit:
+        tab.view.fitted = False
     ctx.toast("Tileset added.")
 
 
@@ -627,7 +635,9 @@ def land_layer_image(ctx: Any, tab: Any, result: dict[str, Any]) -> None:
     except (KeyError, ValueError) as exc:
         ctx.toast(f"That image was not attached: {exc}.", "error")
         return
-    tab.view.fitted = False
+    # No refit: an image layer sits inside the map and moves nothing that frames
+    # it, so re-fitting here only threw away the zoom and pan the user had (the
+    # 2026-10-03 audit, finding plotter-37).
     ctx.toast("Image attached.")
 
 

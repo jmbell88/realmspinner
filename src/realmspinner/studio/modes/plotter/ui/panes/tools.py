@@ -44,6 +44,7 @@ from ... import mode as plotter_mode
 from ... import setup as plotter_setup
 from ... import state as plotter_state
 from ...engine import project
+from ...engine.tilemap import TileLayer
 from . import layers as plotter_layers
 
 #: This bar's imgui id, and the prefix every one of its controls is keyed from.
@@ -927,6 +928,10 @@ def _offset_form(ctx: Any, tab: Any) -> None:
             ),
         )
     if controls.button("Offset##apply", (-1, 0)):
+        locked = _offset_locked_layer(tab.doc, str(form["scope"]))
+        if locked is not None:
+            plotter_mode._locked_toast(ctx, locked)
+            return
         try:
             moved = tab.doc.offset(
                 int(form["dx"]),
@@ -941,6 +946,30 @@ def _offset_form(ctx: Any, tab: Any) -> None:
             return
         if not moved:
             ctx.toast("That offset moves nothing.", "warn")
+
+
+def _offset_locked_layer(doc: Any, scope: str) -> Any:
+    """The first locked layer an offset of this scope would move, or ``None``.
+
+    The 2026-10-03 audit (finding plotter-22) found Offset moving a locked
+    layer's cells under both scopes with no lock check: "This layer" shifts the
+    active layer, "Whole map" shifts every tile layer, and "a locked layer
+    cannot be painted on, erased, cut from ..." held for none of it. The engine
+    has to stay writable so undo can restore a locked layer, so the refusal is
+    here, and it reads the resolved lock (a group's lock is inherited), as the
+    canvas's ``_active_locked`` does.
+    """
+    layers = [doc.active()] if scope == "layer" else list(doc.tile_layers())
+    return next(
+        (
+            layer
+            for layer in layers
+            if layer is not None
+            and isinstance(layer, TileLayer)
+            and plotter_mode.layer_locked(doc, layer)
+        ),
+        None,
+    )
 
 
 def _tile_size_form(ctx: Any, tab: Any) -> None:

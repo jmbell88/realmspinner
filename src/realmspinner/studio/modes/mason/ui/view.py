@@ -397,6 +397,20 @@ class MasonView(FrameOps):
         not an error and must not poison the cache: the parse finishing bumps
         ``source.rev``, the redraw key changes, and the next frame builds it.
         """
+        # What the document places stays resident in the asset cache, so an
+        # export, a pick or a frame never finds a placed ref evicted (the
+        # 2026-10-03 audit's mason-23). A stand-in source in a test has no such
+        # method and needs none.
+        pin = getattr(source, "pin_document", None)
+        if pin is not None:
+            pin(doc)
+        # A ref the source dropped because its file changed on disk: its upload
+        # here is keyed by ref, so it would otherwise be served for ever.
+        take_invalidated = getattr(source, "take_invalidated", None)
+        if take_invalidated is not None:
+            stale = take_invalidated()
+            for cache_key in [k for k in self._cache if k[0] in stale]:
+                self._cache.pop(cache_key).gpu.release()
         live: set[tuple[Any, ...]] = set()
         for placed in self.resolved(doc):
             if not placed.visible or placed.ref is None:
@@ -578,6 +592,12 @@ class MasonView(FrameOps):
         """
         self._rect = rect
         width, height = int(max(rect[2], 1)), int(max(rect[3], 1))
+        # Throttled inside the source: notices an asset rebuilt in place (the
+        # 2026-10-03 audit's mason-28) and moves ``source.rev``, which the key
+        # below carries. A stand-in source has no such method.
+        revalidate = getattr(source, "revalidate", None)
+        if revalidate is not None:
+            revalidate()
         key = (
             width,
             height,
@@ -1102,7 +1122,13 @@ class MasonView(FrameOps):
         # release then found nothing to commit -- the object stranded wherever
         # the last motion put it, with no history step and the gizmo still
         # holding a live drag. Clay's own copy of this guard records it.
-        if self._grab == "gizmo" and button != 1:
+        #
+        # The 2026-10-03 audit's mason-21: the same guard for a sculpt stroke.
+        # A middle press mid-stroke replaced "sculpt" with "pan" and nothing
+        # ever closed the session -- ``doc.sculpting`` stayed True and
+        # ``doc.dirty`` False while the ground was edited, so Ctrl+W and quit
+        # gave no unsaved-work prompt.
+        if self._grab in ("gizmo", "sculpt") and button != 1:
             return True
         if button == 3:
             self._rmb_at = local
@@ -1130,7 +1156,7 @@ class MasonView(FrameOps):
         if sculpting and self._begin_sculpt(doc, local):
             return True
 
-        if getattr(self.state, "place_kind", "") or getattr(self.state, "place_prefab", ""):
+        if self._placement_armed(doc):
             # A *request*, not a placement. The view owns the pointer and the
             # camera; what a placement means -- which document, which node kind,
             # which undo step -- is ``mason_mode``'s, and this module does not
@@ -1205,6 +1231,18 @@ class MasonView(FrameOps):
         return True
 
     def _release(self, doc: Any, button: int = 1) -> bool:
+        if self._grab is None:
+            return False
+        # The press half's guard, mirrored (``ClayView._release_drag``'s own,
+        # the 2026-10-03 audit's mason-21): a grab belongs to the button that
+        # began it -- pan to the middle button, everything else to the left --
+        # and only that button's release ends it. This used to end whatever was
+        # live on *any* release, so a wheel tick (buttons 4/5) or a middle
+        # release mid-gizmo-drag committed the drag early and mid-sculpt cut
+        # the stroke short.
+        owner = 2 if self._grab == "pan" else 1
+        if button != owner:
+            return True
         was, self._grab = self._grab, None
         self._alt_at = None
         if was == "gizmo":
@@ -1429,7 +1467,11 @@ class MasonView(FrameOps):
         box = self.world_bounds(doc, source, uids=[uid])
         if box is None:
             return
-        ground_delta = mops.drop_to_ground({uid: box}, terrain=doc.terrain).get(uid)
+        # The 2026-10-03 audit's mason-22: the moved ground's own surface, not
+        # the origin-placed one the drag would otherwise snap onto.
+        ground_delta = mops.drop_to_ground(
+            {uid: box}, terrain=doc.terrain, terrain_world=doc.terrain_world()
+        ).get(uid)
         if ground_delta is None:
             return
         node = doc.node(uid)
@@ -1469,6 +1511,33 @@ class MasonView(FrameOps):
             return None
         return inverse, world
 
+    def _placement_armed(self, doc: Any) -> bool:
+        """Whether a viewport click is a placement request, disarming a stale prefab.
+
+        The 2026-10-03 audit's mason-31: ``place_prefab`` armed in one scene
+        survives a tab switch or an undo of its definition, and every click
+        then became a request that placed nothing (the name is not in this
+        document's templates) and selected nothing, until Esc. A prefab the
+        document lacks is disarmed here, so the click falls through to a pick.
+        """
+        state = self.state
+        prefab = getattr(state, "place_prefab", "")
+        if prefab and prefab not in doc.prefabs:
+            state.place_prefab = ""
+            prefab = ""
+        return bool(getattr(state, "place_kind", "") or prefab)
+
+    def _end_gizmo_states(self) -> None:
+        """Clear each gizmo's own ``Drag``, which only ``end_drag`` clears.
+
+        The 2026-10-03 audit's mason-25: Mason never called it (Clay does, at
+        release), so after the first drag ``Gizmo.drag`` stayed set and
+        ``draws()`` kept lighting the last-dragged axis instead of the hovered
+        one, for the rest of the session.
+        """
+        for gizmo in (self.translate_gizmo, self.rotate_gizmo, self.scale_gizmo):
+            gizmo.end_drag()
+
     def _end_gizmo_drag(self, doc: Any) -> None:
         """Commit the drag as **one** compound step.
 
@@ -1477,6 +1546,7 @@ class MasonView(FrameOps):
         several objects that pushed a step apiece meant one Ctrl+Z undid only
         the last of them, which reads as an undo that does not work.
         """
+        self._end_gizmo_states()
         start, self._drag_start = self._drag_start, {}
         if not start:
             return
@@ -1505,6 +1575,7 @@ class MasonView(FrameOps):
         # no undo step for it at all, which is strictly worse than one extra step
         # the user can undo.
         self._end_sculpt()
+        self._end_gizmo_states()
         start, self._drag_start = self._drag_start, {}
         for uid, (t0, r0, s0) in start.items():
             node = doc.node(uid)

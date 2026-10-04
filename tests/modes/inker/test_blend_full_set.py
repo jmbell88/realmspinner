@@ -103,7 +103,7 @@ def test_every_one_of_the_seven_is_a_kernel_mode():
     worth pinning now is that the map is *complete* -- a mode added to the menu
     and not to the kernel is the next silent cliff.
     """
-    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES) - cp.NATIVE_DECLINED
+    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES)
 
 
 @pytest.mark.skipif(not native.available(), reason="needs the built DLL")

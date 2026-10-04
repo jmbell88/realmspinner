@@ -161,6 +161,13 @@ class UndoStack:
         return len(self._done)
 
     @property
+    def total(self) -> int:
+        """Every step the stack holds, done and undone -- what :meth:`history`
+        lists. ``len()`` is the done half only, and a count shown beside that
+        list must be this one."""
+        return len(self._done) + len(self._undone)
+
+    @property
     def can_undo(self) -> bool:
         return bool(self._done)
 

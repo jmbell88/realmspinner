@@ -1,5 +1,5 @@
 """Clay's agent tool surface, the on-demand catalogue lookup: ``clay_catalog``
-alone -- the catalogue diet's own tool (``dev/CLAY-PLAN.md`` tranches 6/7's
+alone -- the catalogue diet's own tool (Clay tranches 6/7's
 integration brief).
 
 Before this, five registries' worth of generated prose (every ``clay_op``

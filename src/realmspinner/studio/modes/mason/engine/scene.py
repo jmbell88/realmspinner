@@ -181,6 +181,7 @@ __all__ = [
     "resolved_for",
     "walk",
     "world_bounds",
+    "world_bounds_by_owner",
 ]
 
 
@@ -684,9 +685,29 @@ def world_bounds(
     still parsing in the background, say) -- that is not an error, it is "no
     picture to frame around yet".
     """
+    per_owner = world_bounds_by_owner(doc, source, uids)
+    if not per_owner:
+        return None
+    lo = np.minimum.reduce([box[0] for box in per_owner.values()])
+    hi = np.maximum.reduce([box[1] for box in per_owner.values()])
+    return lo, hi
+
+
+def world_bounds_by_owner(
+    doc: MasonDoc, source: Any, uids: Any = None
+) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+    """:func:`world_bounds`, one ``(min, max)`` per owner uid, from **one**
+    resolve pass.
+
+    The 2026-10-03 audit's mason-17: Align, Distribute and Drop to ground asked
+    :func:`world_bounds` once per selected node, and each call ran a whole-scene
+    :func:`resolve` -- O(selected x scene), 3.6 s for 1,000 nodes all selected,
+    on the frame thread. The owners with nothing to measure (no ref, a box not
+    resolved yet, terrain) are simply absent from the result, as they were
+    absent from the single-box answer.
+    """
     wanted = None if uids is None else {int(u) for u in uids}
-    lo: np.ndarray | None = None
-    hi: np.ndarray | None = None
+    out: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for placed in resolve(doc, include_hidden=True):
         if wanted is not None and placed.owner not in wanted:
             continue
@@ -700,11 +721,12 @@ def world_bounds(
         world_corners = corners @ placed.world[:3, :3].T + placed.world[:3, 3]
         c_lo = world_corners.min(axis=0)
         c_hi = world_corners.max(axis=0)
-        lo = c_lo if lo is None else np.minimum(lo, c_lo)
-        hi = c_hi if hi is None else np.maximum(hi, c_hi)
-    if lo is None or hi is None:
-        return None
-    return lo, hi
+        have = out.get(placed.owner)
+        if have is not None:
+            c_lo = np.minimum(have[0], c_lo)
+            c_hi = np.maximum(have[1], c_hi)
+        out[placed.owner] = (c_lo, c_hi)
+    return out
 
 
 # --- the per-draw node proxy -------------------------------------------------

@@ -49,10 +49,22 @@ def describe(
     fps: int,
     loop: bool,
     origin: tuple[int, int],
+    columns: int | None = None,
 ) -> dict[str, Any]:
     """The mapping every snippet reads. One shape, so a caller cannot hand
-    Godot a different frame count -- or a different grid -- than Pygame."""
-    columns, rows = _grid(int(frame_width), int(frames))
+    Godot a different frame count -- or a different grid -- than Pygame.
+
+    ``columns`` is the sheet's real column count when the export was made with
+    an Arrange other than the default (the 2026-10-03 audit, finding inker-61:
+    the grid was always the default row-wrap, so a vertical or counted sheet's
+    snippet sliced the wrong cells). ``None`` is the default row-wrap, which
+    :func:`_grid` mirrors."""
+    columns_default, rows = _grid(int(frame_width), int(frames))
+    if columns is None:
+        columns = columns_default
+    else:
+        columns = max(1, int(columns))
+        rows = -(-int(frames) // columns)
     return {
         "name": str(name),
         "image": str(image),

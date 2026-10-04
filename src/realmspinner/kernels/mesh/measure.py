@@ -32,8 +32,17 @@ from collections.abc import Sequence
 import numpy as np
 
 from . import mesh as bm
+from .adjacency import check_manifold
 
-__all__ = ["angle", "distance", "edge_length", "face_area", "volume"]
+__all__ = [
+    "angle",
+    "distance",
+    "edge_length",
+    "face_area",
+    "is_closed",
+    "volume",
+    "volume_if_closed",
+]
 
 
 def distance(a: Sequence[float], b: Sequence[float]) -> float:
@@ -104,6 +113,33 @@ def volume(mesh: bm.Mesh, world: np.ndarray | None = None) -> float:
     v0, v1, v2 = tri_pts[:, 0], tri_pts[:, 1], tri_pts[:, 2]
     signed = float(np.einsum("ij,ij->i", v0, np.cross(v1, v2)).sum()) / 6.0
     return abs(signed)
+
+
+def is_closed(mesh: bm.Mesh) -> bool:
+    """No hole and no non-manifold edge -- the reading ``clay_analyze`` and
+    ``clay_add_mesh``'s own ``closed`` use, so a volume gate here agrees with
+    theirs. An empty or single-face-less mesh is not closed."""
+    if len(mesh.starts) <= 1:
+        return False
+    report = check_manifold(mesh)
+    return len(report.boundary_edges) == 0 and len(report.nonmanifold_edges) == 0
+
+
+def volume_if_closed(mesh: bm.Mesh, world: np.ndarray | None = None) -> float | None:
+    """:func:`volume`, or ``None`` when *mesh* is not a closed manifold.
+
+    The 2026-10-03 audit's clay-25: ``clay_measure kind=volume`` called
+    :func:`volume` directly and answered ``0.6667`` for a five-faced open box
+    while ``clay_analyze`` said ``null`` for the same object -- the divergence
+    sum over an open surface depends on where the object sits, so the number
+    is meaningless and an agent used it as a real volume. :func:`volume`
+    itself is unchanged (the element HUD reads it and a caller with no
+    document may want the raw sum); a caller that answers a person or an
+    agent with the number goes through this.
+    """
+    if not is_closed(mesh):
+        return None
+    return volume(mesh, world)
 
 
 def edge_length(

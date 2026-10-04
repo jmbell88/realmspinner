@@ -183,7 +183,7 @@ def _thumbnail(ctx: Any, tab: Any, stamp: Any) -> None:
             if index is None:
                 continue
             texture = plotter_textures.tileset_texture(
-                ctx, tab.uid, index, tileset, doc.tileset_epoch
+                ctx, tab.uid, index, tileset, doc.tileset_pixel_epoch
             )
             if texture is None:
                 continue

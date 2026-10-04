@@ -122,10 +122,18 @@ class _Breaker:
 #: exception is still a finding rather than a green picture of a placeholder.
 FRAME_FAILURES: list[Failure] = []
 
-#: Every failure this *session*. Bounded by construction rather than by a cap: a
-#: pane fails at most ``TRIP_AFTER`` times before its breaker opens, and only a
-#: deliberate "Try again" reopens it.
+#: Every failure this *session*, newest last, capped at :data:`MAX_HISTORY`. It
+#: used to be "bounded by construction" on the argument that a pane fails at most
+#: ``TRIP_AFTER`` times before its breaker opens -- true only for consecutive
+#: failures: ``ok`` zeroes a breaker that has not tripped, so a pane failing on
+#: alternate frames never trips and appended one formatted traceback per failure
+#: for the whole session (the 2026-10-03 audit's shell-40).
 HISTORY: list[Failure] = []
+
+#: How many of the newest failures ``HISTORY`` keeps. A harness asserting on
+#: ``failures()`` needs the recent ones, and the first of a thousand identical
+#: tracebacks is no more informative than the last.
+MAX_HISTORY = 200
 
 _BREAKERS: dict[str, _Breaker] = {}
 _CTX: Any = None
@@ -304,6 +312,7 @@ def _record(key: str, title: str, exc: BaseException) -> None:
     )
     FRAME_FAILURES.append(failure)
     HISTORY.append(failure)
+    del HISTORY[:-MAX_HISTORY]
     log.error("%s stopped drawing", title or key, exc_info=exc)
     if failure.tripped:
         breaker.tripped = True

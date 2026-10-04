@@ -323,6 +323,16 @@ class ConfirmQueue:
         """How many questions are behind the one on screen."""
         return max(0, len(self._queue) - 1)
 
+    def holds(self, title: str) -> bool:
+        """Whether a question with this title is on screen or waiting.
+
+        For a caller whose trigger can repeat faster than a person answers --
+        the window's X, Alt+F4 -- and which must not stack identical modals
+        (shell-46, the 2026-10-03 audit). Asked by title because a ``Confirm``
+        has no identity of its own and the question *is* its title.
+        """
+        return any(entry.title == title for entry in self._queue)
+
     def ask(self, confirm: Confirm) -> None:
         """Queue one question. Refuses to queue past :data:`MAX_QUEUED`.
 

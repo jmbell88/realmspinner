@@ -559,9 +559,22 @@ def despeckle(pixels: np.ndarray, *, speck: float = 0.0) -> np.ndarray:
     flat[..., 3] = cp.to_uint8_255(alpha * 255.0)
     with Image.fromarray(flat, "RGBA") as im:
         got = np.asarray(im.filter(ImageFilter.MedianFilter(size)), dtype=np.uint8)
-    return _straight(
-        got[..., :3].astype(np.float32), got[..., 3].astype(np.float32) / 255.0, pixels
-    )
+    # Only a pixel the median actually changed is rewritten. The 2026-10-03
+    # audit, inker-74: premultiplied RGB narrowed to 8 bits cannot carry colour
+    # at alpha below roughly 32, so un-premultiplying *every* pixel shifted the
+    # hue of a flat faint fringe the median had left exactly as it was -- under
+    # a filter whose job is deleting stray pixels. Compared in the quantised
+    # domain the median ran in, where "unchanged" is exact.
+    changed = (got != flat).any(axis=-1)
+    out = pixels.copy()
+    if changed.any():
+        straight = _straight(
+            got[..., :3].astype(np.float32),
+            got[..., 3].astype(np.float32) / 255.0,
+            pixels,
+        )
+        out[changed] = straight[changed]
+    return out
 
 
 # --- the matte-cleanup pack -------------------------------------------------
@@ -708,7 +721,8 @@ def matte_grow(pixels: np.ndarray, *, grow: float = 0.0) -> np.ndarray:
     Positive dilates: a new rim pixel takes the nearest opaque neighbour's
     colour -- :func:`defringe`'s propagation, with the coverage following the
     colour -- and full alpha. Negative erodes: any opaque pixel with a
-    non-opaque 8-neighbour loses its coverage, once per step.
+    non-opaque 8-neighbour loses its coverage, once per step. The crop's own
+    edge is not a silhouette edge: off-crop counts as opaque.
 
     An alpha exception on purpose; coverage is the whole point.
 
@@ -731,20 +745,23 @@ def matte_grow(pixels: np.ndarray, *, grow: float = 0.0) -> np.ndarray:
         opaque = out[..., 3] == 255
         if not opaque.any():
             break
-        # An opaque pixel on the rim: some 8-neighbour is not opaque. Outside
-        # the array counts as not opaque, so the border erodes like an edge.
+        # An opaque pixel on the rim: some 8-neighbour is not opaque. **Outside
+        # the array counts as opaque**, ``outline(place="inside")``'s rule and
+        # for its reason: the array is the session's crop -- the selection's
+        # bounds -- and what is past its edge is unknown, not empty. The
+        # 2026-10-03 audit, finding inker-50: this used to count it as not
+        # opaque, so a selection lying inside solid pixels had its whole border
+        # ring set transparent -- a one-pixel hole punched through a solid
+        # sprite along the selection's own boundary. Only a real silhouette edge
+        # inside the crop erodes now.
+        padded = np.pad(opaque, 1, constant_values=True)
         exposed = np.zeros((height, width), dtype=bool)
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
                 if dy == 0 and dx == 0:
                     continue
-                shifted = np.zeros((height, width), dtype=bool)
-                src_y = slice(max(0, -dy), height - max(0, dy))
-                src_x = slice(max(0, -dx), width - max(0, dx))
-                dst_y = slice(max(0, dy), height - max(0, -dy))
-                dst_x = slice(max(0, dx), width - max(0, -dx))
-                shifted[dst_y, dst_x] = opaque[src_y, src_x]
-                exposed |= opaque & ~shifted
+                neighbour = padded[1 + dy : 1 + dy + height, 1 + dx : 1 + dx + width]
+                exposed |= opaque & ~neighbour
         out[..., 3][exposed] = 0
     return out
 
@@ -793,6 +810,16 @@ def remove_orphans(pixels: np.ndarray, *, orphans: float = 0.0) -> np.ndarray:
         axis=-1,
     )
     lonely = opaque & ~(stack == code[..., None]).any(axis=-1)
+    # A pixel on the array's edge is not called lonely: this array is the
+    # session's crop (the selection's bounds), so what lies past its edge is
+    # unknown, not empty -- ``matte_grow`` and ``outline`` already count it so.
+    # The 2026-10-03 audit, inker-70: the -1 padding made the crop border read
+    # "no neighbour shares my colour", so a deliberate two-pixel mark straddling
+    # a selection's edge lost the half inside it. The price is that a lone pixel
+    # on the true canvas edge is left too; at sprite sizes that is the cheaper
+    # error, since the filter cannot tell the two edges apart.
+    lonely[0, :] = lonely[-1, :] = False
+    lonely[:, 0] = lonely[:, -1] = False
     if not lonely.any():
         return out
     ys, xs = (a.tolist() for a in np.nonzero(lonely))

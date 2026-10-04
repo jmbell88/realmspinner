@@ -1,6 +1,6 @@
 """A cross-document library of named materials, under ``REALMSPINNER_HOME``.
 
-Tranche 6 ("UV and materials", ``dev/CLAY-PLAN.md``). A document's own
+Clay tranche 6 ("UV and materials"). A document's own
 palette (``ClayDoc.materials``) is scoped to the one ``.rblk`` it lives in;
 this is the shelf beside it -- name a look once ("Rusty Metal"), reuse it on
 the next barrel in a different document. The Inker's swatch row

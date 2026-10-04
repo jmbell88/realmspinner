@@ -266,8 +266,27 @@ def dino_available(config: Any = None) -> bool:
     (``models.METRIC_MODELS["dinov2"].fetch``), so any such file is proof of a
     real download rather than an empty directory.
     """
-    path = _dino_dir(config)
-    return path.is_dir() and any(path.glob("*.safetensors"))
+    return _metric_ready("dinov2", config)
+
+
+def _metric_ready(key: str, config: Any = None) -> bool:
+    """One question for every surface: Settings' and doctor's own predicate.
+
+    The 2026-10-03 audit (pipelines-29): the two ranking gates were looser than
+    ``fetch.present`` / ``fetch.suspect_files`` -- a lone ``model.safetensors``
+    with no processor config read as PickScore, and a zero-byte ``.safetensors``
+    read as DINOv2, while Settings called both rows broken -- so each submit
+    paid a CPU torch import and a logged exception per ranking attempt for a
+    model the UI already reported as not installed. ``fetch`` is imported here,
+    inside the function, to keep this module importable without the registry's
+    config machinery on a bare checkout.
+    """
+    from .. import fetch, models
+    from ..config import get_config
+
+    spec = models.METRIC_MODELS[key]
+    cfg = config or get_config()
+    return fetch.present(cfg, "metric", spec) and not fetch.suspect_files(cfg, "metric", spec)
 
 
 def _dino_dir(config: Any = None) -> Path:
@@ -392,8 +411,10 @@ def reference_cosine(
 
 def pickscore_available(config: Any = None) -> bool:
     """Whether the preference model's weights are on disk. Existence before
-    the torch import, the ordering this whole module keeps."""
-    return (_pickscore_dir(config) / "model.safetensors").exists()
+    the torch import, the ordering this whole module keeps. Answers
+    ``fetch.present`` plus ``not fetch.suspect_files`` (pipelines-29), so a lone
+    ``model.safetensors`` without the processor config is not "available"."""
+    return _metric_ready("pickscore", config)
 
 
 def _pickscore_dir(config: Any = None) -> Path:

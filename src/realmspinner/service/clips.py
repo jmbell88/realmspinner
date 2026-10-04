@@ -199,11 +199,31 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
             raise Invalid("every key pose needs a name", field="poses")
         if name in names:
             raise Conflict(f'two key poses are both named "{name}"', field="poses")
-        if not isinstance(pose.get("bones"), dict) or not pose["bones"]:
-            raise Invalid(f'the key pose "{name}" has no bones', field="poses")
+        # **An empty ``bones`` map is a rest key, and rest is legal.** The
+        # 2026-10-03 audit (poser-poses-03): this refused ``{}`` while
+        # ``poses.validate_bones`` (which every read door runs the map through)
+        # documents it as "exactly a clip's rest key ... the ordinary case". An
+        # imported action whose mapped bones never leave rest -- a T-pose
+        # export, or motion only on unmapped finger bones -- converts to keys
+        # with nothing to say, ``analyse`` previewed it as a normal clip, and
+        # the refusal arrived only at Save clips, naming a pose the user never
+        # authored and blocking every other edit until they deleted the clip.
+        # A missing or non-object map is still the malformed case.
+        if not isinstance(pose.get("bones"), dict):
+            raise Invalid(f'the key pose "{name}" has no bones map', field="poses")
         names.append(name)
         entry: dict[str, Any] = {"name": name, "bones": pose["bones"]}
-        if pose.get("root_translation"):
+        # The 2026-10-03 audit, finding poser-49: a present-but-falsy value (``0``,
+        # ``""``, ``{}``) used to be skipped silently as if absent, dropping a
+        # root motion the payload meant. Absent, null and an empty list stay
+        # "no translation"; anything else non-list is refused by field.
+        raw_translation = pose.get("root_translation")
+        if raw_translation is not None and not isinstance(raw_translation, (list, tuple)):
+            raise Invalid(
+                f'the key pose "{name}" has a root_translation that is not a list of 3 numbers',
+                field="poses",
+            )
+        if raw_translation:
             # The 2026-09-07 audit: poser-05 found this was a bare
             # ``float(v)`` with no finite or magnitude check -- shared here
             # with ``poselib.validate_record``'s, which already refuses the
@@ -273,7 +293,16 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
         # has N because the last key steps back to the first. Getting this
         # wrong is the single easiest way to author a clip whose frame count is
         # off by one, so it is refused with both numbers.
-        closed = bool(clip.get("closed", False))
+        # The 2026-10-03 audit, findings poser-49/poser-54: ``bool("false")`` is
+        # True, so a string-typed ``closed`` was saved as a looping clip -- and
+        # the document then handed to ``parse_clip_library`` already carried a
+        # real bool, so the parser's own refusal (poser-rig-05) never fired.
+        # Only a real bool, or the key's absence (open), passes.
+        closed = clip.get("closed", False)
+        if not isinstance(closed, bool):
+            raise Invalid(
+                f'"{label}" has a "closed" of {closed!r}; it is true or false', field="closed"
+            )
         wanted = len(keys) if closed else len(keys) - 1
         if len(segments) != wanted:
             raise Invalid(

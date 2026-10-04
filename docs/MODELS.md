@@ -3,7 +3,7 @@
 Everything on this page is optional and independently skippable. The core setup in the
 [README](../README.md) — TRELLIS.2 plus SDXL 1.0 — is enough to generate assets; what follows
 widens the choices. SDXL 1.0 is the shipped default because it measured best on the maintainer's
-own benchmark corpus, and because its 7 GB is the one base download four registered recipes share, so most of this page
+own benchmark corpus, and because its 7 GB is the one base download five registered recipes share, so most of this page
 is a small adapter over weights you already have rather than another checkpoint.
 
 One thing on the generation side is **not** on this page and never will be: Create's **Character**
@@ -15,7 +15,7 @@ still use ([manual/22 → Characters](manual/22-generating-references.md#charact
 `realmspinner doctor` lists every entry here with the exact command to fetch it,
 and **Settings → Models** inside the app downloads any of them without touching a terminal (via
 the out-of-process fetch worker described in the README — the app process itself stays offline).
-The same pane removes them again: a **Remove** button beside each downloaded row, showing what it
+The same pane removes them again: a **Delete** button beside each downloaded row, showing what it
 would actually free, which for a recipe sharing its weights with another is far less than the
 download was.
 
@@ -29,8 +29,8 @@ for free.
 ## The reconstruction engine
 
 **Two rows, and they are the one thing Create cannot do without.** Both live under
-*Reconstruction engine* in Settings → Models, and both are ordinary downloads — the second of them
-only since 2026-09-10.
+*Reconstruction engine* in Settings → Models, and both are ordinary downloads — the first of them
+only since 2026-09-10 (the GGUF weights always were).
 
 | Row | What it is | Size |
 |---|---|---|
@@ -44,17 +44,17 @@ it links against. So it became a download, and a machine that only draws pixel a
 fetches none of it. The figures and the verification were confirmed on the maintainer's own machine on
 2026-09-10.
 
-It is the one entry on this page that is **not a Hugging Face repository**: it is a single archive
+It is one of the two entries on this page that are **not a Hugging Face repository**: it is a single archive
 published on trellis.cpp's own GitHub releases, so it is pinned by SHA-256 rather than by a commit
 revision — which is the stronger pin of the two, since a revision names an immutable commit and a
-digest *is* the artifact. The stem-separation checkpoint further down uses the same transport for
-the same reason.
+digest *is* the artifact. The stem-separation checkpoint further down is the other, and it is pinned
+by digest for the same reason.
 
 Nothing here needs a terminal, but the paste-able form is what `realmspinner doctor` prints beside the
 row, as with every other entry:
 
 ```powershell
-curl -L -o $HOME/.realmspinner/engine/trellis/trellis-cuda-windows-x64.zip `
+curl -L -o $HOME/.realmspinner/engine/trellis/trellis-cuda-windows-x64.zip --create-dirs `
   https://github.com/pwilkin/trellis.cpp/releases/download/v0.6.0/trellis-cuda-windows-x64.zip
 # then check its sha256 is 4d08ab27e83094035fd8349aaf34d3460738df0466ef9c4991ddd958c0344bc2
 # then unpack it into $HOME/.realmspinner/engine/trellis
@@ -86,7 +86,8 @@ restricted ones; this table is the same information in full.
 
 | Model | Licence | Output may be sold? |
 |---|---|---|
-| **SDXL 1.0** (the default, and the Hyper-SD / LCM / Lightning / PAG recipes over it) | OpenRAIL++-M | Yes, subject to the licence's use restrictions |
+| **SDXL 1.0** (the default, and the Hyper-SD / Lightning / PAG recipes over it) | OpenRAIL++-M (Hyper-SD and SDXL-Lightning adapters are OpenRAIL++-M too) | Yes, subject to the licence's use restrictions |
+| **SDXL 1.0 + LCM** (the pixel-art recipe) | OpenRAIL++-M (SDXL 1.0) + OpenRAIL-M (LCM-LoRA) | Yes, subject to the use restrictions of both |
 | **SDXL-Turbo** | Stability AI Non-Commercial Research Community License | **No** — commercial use requires a paid Stability AI membership |
 | **Playground v2.5** | Playground v2.5 Community License | Yes below 1M monthly active users, and you must ship the licence text plus its attribution string |
 | **Juggernaut XL v9** | OpenRAIL-M | Yes, subject to the use restrictions |
@@ -101,7 +102,7 @@ The OpenRAIL family is commercially permissive but carries *use* restrictions �
 a list of things you may not generate. They are short; read them once.
 
 **Hybrid Demucs is the second restricted one, and it is the only optional
-download in this list.** The Demucs code is MIT, but Meta has stated the trained
+model Muse has.** The Demucs code is MIT, but Meta has stated the trained
 weights are provided for scientific purposes only, and the checkpoint here was
 trained the same way with no new grant. So stems you make with it are not
 cleanly licensed for a commercial release. Muse works without it — every take
@@ -215,6 +216,19 @@ uvx hf download Limbicnation/pixel-art-lora --revision 0ac8e5c3400af68228811edc3
 Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors pixel-art-klein.safetensors
 ```
 
+**FLUX.1 is not offered; FLUX.2 klein is.** The two `FLUX.1` checkpoints — `dev` and `schnell` —
+are not in the registry above at all, for the two reasons below. FLUX.2 klein is a different
+architecture with neither problem, which is why it *is* an ordinary registry entry.
+
+Both `dev` and `schnell` are click-through gated on Hugging Face, and 12B parameters will not
+coexist with trellis on one card. To use a local FLUX copy anyway: download it yourself
+(`uvx hf auth login` for the download only), point `REALMSPINNER_T2I_DIR` at it, and set
+`REALMSPINNER_VRAM_EXCLUSIVE=1`. Note that `REALMSPINNER_T2I_DIR` only redirects *where* the built-in
+`turbo` entry loads from — the redirect is pinned to that entry *by name*, so the 2026-08-11 move
+of the default onto SDXL 1.0 does not affect it. It still runs at turbo's settings (512 px, 4 steps, guidance 0),
+which suit schnell-like distilled checkpoints and nothing else. A model that needs different
+settings wants a `models.py` entry, not this variable.
+
 ## Conditioning, matting and measurement models
 
 Six more registry entries, none of them required to generate anything. They lived only in
@@ -315,7 +329,7 @@ vocals and everything else.
 # single checkpoint file, pinned by digest rather than by a commit. The model
 # *class* ships inside torchaudio, which `--extra music` already installs, so
 # this is the trained weights and nothing else.
-curl -L -o $HOME/.realmspinner/models/hdemucs-high/hdemucs_high_trained.pt `
+curl -L -o $HOME/.realmspinner/models/hdemucs-high/hdemucs_high_trained.pt --create-dirs `
   https://download.pytorch.org/torchaudio/models/hdemucs_high_trained.pt
 # then check its sha256 is
 #   a004b2790d73ffeaa535db458a1a79b539dfdbafbccc31f275d07e632ebd7816
@@ -325,18 +339,5 @@ curl -L -o $HOME/.realmspinner/models/hdemucs-high/hdemucs_high_trained.pt `
 door, because there is no fallback and there is not supposed to be one. This missing means only
 that the *Stems* button refuses; everything else about a take is unaffected.
 
-See the licence note above before you use its output commercially — this is the one download in
-this document whose weights are non-commercial.
-
-**FLUX.1 is not offered; FLUX.2 klein is.** The two `FLUX.1` checkpoints — `dev` and `schnell` —
-are not in the registry above at all, for the two reasons below. FLUX.2 klein is a different
-architecture with neither problem, which is why it *is* an ordinary registry entry.
-
-Both `dev` and `schnell` are click-through gated on Hugging Face, and 12B parameters will not
-coexist with trellis on one card. To use a local FLUX copy anyway: download it yourself
-(`uvx hf auth login` for the download only), point `REALMSPINNER_T2I_DIR` at it, and set
-`REALMSPINNER_VRAM_EXCLUSIVE=1`. Note that `REALMSPINNER_T2I_DIR` only redirects *where* the built-in
-`turbo` entry loads from — the redirect is pinned to that entry *by name*, so the 2026-08-11 move
-of the default onto SDXL 1.0 does not affect it. It still runs at turbo's settings (512 px, 4 steps, guidance 0),
-which suit schnell-like distilled checkpoints and nothing else. A model that needs different
-settings wants a `models.py` entry, not this variable.
+See the licence note above before you use its output commercially — it is, with SDXL-Turbo, one of
+the two downloads in this document whose weights are non-commercial.

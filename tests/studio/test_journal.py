@@ -13,6 +13,7 @@ provider protocol and the crash-to-recovery span.
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -755,6 +756,76 @@ def test_a_declined_recovery_stays_offered_for_the_rest_of_the_session(tmp_path,
     assert journal.take(ctx, found) is False
 
     assert [row.path for row in journal.snapshot(ctx)] == [found.path]
+
+
+def test_a_declined_recovery_raises_exactly_one_toast_and_it_is_the_providers(tmp_path, kind):
+    """shell-06 residual: the pose provider says why it declined ("open the rig
+    it belongs to...") and Home's Recover button then added a second, generic
+    "could not be reopened" error for the same press. The provider's words are
+    the specific ones, so Home stays quiet; ``Provider.adopt``'s contract is that
+    False already means "and has said so"."""
+    from realmspinner.studio.modes.home.ui.panes import landing
+
+    def declines(ctx, path, meta):
+        ctx.toast("Open the rig it belongs to and it will be offered again.", "warn")
+        return False
+
+    journal.register(journal.Provider(**{**kind.provider.__dict__, "adopt": declines}))
+    ctx = _Ctx(tmp_path)
+    ctx.state.recovery = None
+    payload = tmp_path / "p-x.probe"
+    payload.write_bytes(b"x")
+    journal.meta_path(payload).write_text(
+        json.dumps({"version": journal.VERSION, "kind": "probe", "title": "p", "at": 1}),
+        encoding="utf-8",
+    )
+    (found,) = journal.snapshot(ctx)
+
+    assert journal.take(ctx, found) is False
+
+    assert [text for text, _level in ctx.toasts] == [
+        "Open the rig it belongs to and it will be offered again."
+    ]
+    # The row's own branch on a False ``take`` is the other half of "one toast".
+    assert "could not be reopened" not in inspect.getsource(landing._recovery_row)
+
+
+def test_an_adopter_that_raises_is_still_spoken_for_exactly_once(tmp_path, kind):
+    """The exception path logs and returns "not taken" and, before this, said
+    nothing itself -- Home's generic toast was the only voice. With that toast
+    gone ``adopt`` owns the sentence, in the one wording every provider uses."""
+
+    def explodes(ctx, path, meta):
+        raise RuntimeError("corrupt")
+
+    journal.register(journal.Provider(**{**kind.provider.__dict__, "adopt": explodes}))
+    ctx = _Ctx(tmp_path)
+    ctx.state.recovery = None
+    payload = tmp_path / "p-x.probe"
+    payload.write_bytes(b"x")
+    journal.meta_path(payload).write_text(
+        json.dumps({"version": journal.VERSION, "kind": "probe", "title": "p", "at": 1}),
+        encoding="utf-8",
+    )
+    (found,) = journal.snapshot(ctx)
+
+    assert journal.take(ctx, found) is False
+
+    assert ctx.toasts == [("A recovered probe could not be reopened.", "warn")]
+
+
+def test_an_unreadable_recovered_pose_says_so_instead_of_declining_in_silence(tmp_path):
+    """The one synchronous decline that spoke to nobody: a pose copy that will
+    not read returned False with no toast, which only Home's generic one
+    covered."""
+    from realmspinner.studio.modes.poser import mode as poser_mode
+
+    ctx = _Ctx(tmp_path)
+    missing = tmp_path / "gone.pose.json"
+
+    assert poser_mode._journal_adopt(ctx, missing, {}) is False
+
+    assert ctx.toasts == [("A recovered pose could not be reopened.", "warn")]
 
 
 # --- the whole span, 1 through 5 ----------------------------------------------

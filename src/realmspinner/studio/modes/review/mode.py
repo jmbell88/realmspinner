@@ -159,6 +159,9 @@ BAD_TAG_KEYS = {str(i + 1): tag for i, tag in enumerate(verdicts_mod.BAD_TAGS)}
 RECENT_ID = "recent"
 RECENT_LABEL = "Recent, unreviewed"
 
+#: How often a unit whose mesh was absent when first viewed is looked at again.
+MESH_RETRY_SECONDS = 1.0
+
 # Where a unit's reference image is, in the order to look, is
 # ``verdicts.IMAGE_NAMES`` and is deliberately *not* restated here. This module
 # used to carry an identical copy and then read both of them -- ``_label_rows``
@@ -301,6 +304,11 @@ class ReviewState:
     # those rows. Not "the units that are open": the user can open another sweep
     # while the pass runs. Empty means nothing is in flight.
     score_request: list[str] = field(default_factory=list)
+    # Where the cursor stood, and on which unit, when the open sweep was
+    # presented without all of its scores -- so the first scores to land can put
+    # it best-first **once**, and only for a reviewer who has not yet moved off
+    # that unit (shell-65, the 2026-10-03 audit). ``None`` is "nothing pending".
+    score_order_anchor: tuple[int, str] | None = None
     # The guided pass, or None for "the ordinary loop owns the keyboard".
     # Session-only like everything else here, and for the same reason: a stored
     # pass would resume against buckets that have since been judged or deleted.
@@ -322,6 +330,13 @@ class ReviewState:
     # ``_window_generation`` shape ``jobs_cache.py`` already uses for a
     # stale-async-result race.
     scan_generation: int = 0
+    # The 2026-10-03 audit, finding shell-35: the path ``_review_load`` pinned
+    # because its file did not exist yet (a unit viewed while still generating),
+    # and when it last looked. Without them the early return on
+    # ``viewer.path == wanted`` made "no mesh" permanent until the reviewer
+    # stepped to another unit and back.
+    mesh_wait: Path | None = None
+    mesh_wait_checked: float = float("-inf")
 
 
 def ensure(ctx: Any) -> ReviewState:
@@ -362,6 +377,109 @@ def _unit(job: dict[str, Any], recorded: dict[tuple[str, str], dict[str, Any]],
         # with no prompt, matching ``vectors.prompt_hash``'s own rule.
         "prompt_hash": vectors.prompt_hash(job.get("prompt")),
     }
+
+
+def owes_verdict(unit: dict[str, Any]) -> bool:
+    """Whether this unit still has a verdict to give. Pure.
+
+    **The one owner of "outstanding" on this pane**, and the same rule
+    ``sweeps.outstanding_units`` applies to ``removable``: a unit owes a verdict
+    while it is queued or running (it will get its chance) or finished and
+    ungraded. An errored or cancelled unit can never be graded, so it owes none.
+    The 2026-10-03 audit, finding shell-25: ``todo``, the guided pass and
+    ``auto_cleanup`` counted every unit with no verdict, so one failed unit kept
+    its sweep "outstanding" for ever -- the pass parked on it, never advanced and
+    the sweep's judged files were never cleaned up.
+
+    A unit dict with no ``status`` is read as finished, which is what the
+    recent-unreviewed bucket's rows are.
+    """
+    from ....service import sweeps as sweeps_mod
+
+    if unit.get("verdict") is not None:
+        return False
+    status = unit.get("status") or "done"
+    return status in sweeps_mod.ACTIVE_STATUSES or status in sweeps_mod.JUDGEABLE_STATUSES
+
+
+def verdict_blocker(state: Any, unit: dict[str, Any] | None) -> str:
+    """Why the grade, tag and Accept/Reject controls are greyed, or "".
+
+    Pure, and one function for the pane and the keys. The service refuses a
+    verdict against a unit whose job is not finished and writes the sentence;
+    the pane used to leave the controls live and toast only "Could not record
+    that verdict." (the 2026-10-03 audit, finding shell-27), so the control and
+    the reason are now the same text the door would have raised.
+    """
+    if state.scanning:
+        return "A scan is running; the queue is being rebuilt."
+    if unit is None:
+        return ""
+    return verdicts_mod.mesh_verdict_blocker(unit.get("status") or "done") or ""
+
+
+def _grading_target(units: list[dict[str, Any]]) -> int | None:
+    """The first unit that owes a verdict **and can take one now**, or None."""
+    return next(
+        (
+            i
+            for i, unit in enumerate(units)
+            if owes_verdict(unit)
+            and verdicts_mod.mesh_verdict_blocker(unit.get("status") or "done") is None
+        ),
+        None,
+    )
+
+
+def refresh_unit_statuses(state: ReviewState, jobs: Any) -> bool:
+    """Bring the units' status (and params) up to date from the jobs cache.
+
+    -> whether anything moved. Frame-thread safe: it reads the cache's window of
+    rows, which is already in memory, and only for units still queued or
+    running. The 2026-10-03 audit, finding shell-35: Review rescans only on
+    arrival in the mode, so a unit viewed while it generated showed "status:
+    running" long after it finished, and nothing on screen said to leave and
+    come back.
+    """
+    from ....service import sweeps as sweeps_mod
+
+    live = [
+        unit
+        for sweep in state.sweeps
+        for unit in sweep.get("units") or ()
+        if unit.get("status") in sweeps_mod.ACTIVE_STATUSES
+    ]
+    if not live:
+        return False
+    by_id = {str(job.get("id")): job for job in jobs or () if isinstance(job, dict)}
+    moved = False
+    for unit in live:
+        job = by_id.get(str(unit["job_id"]))
+        if job is None or job.get("status") == unit.get("status"):
+            continue
+        unit["status"] = job.get("status")
+        if isinstance(job.get("params"), dict):
+            unit["params"] = job["params"]
+        moved = True
+    if moved:
+        for sweep in state.sweeps:
+            sweep["todo"] = sum(1 for unit in sweep.get("units") or () if owes_verdict(unit))
+    return moved
+
+
+def mesh_retry_due(state: ReviewState, wanted: Any, now: float) -> bool:
+    """Whether a mesh that was absent when first viewed should be looked for again.
+
+    Pure over ``state``, throttled to once a second because the question is a
+    stat on the frame thread. ``wanted`` is the path ``_review_load`` pinned
+    because the file did not exist; any other path is not waiting.
+    """
+    if wanted is None or state.mesh_wait != wanted:
+        return False
+    if now - state.mesh_wait_checked < MESH_RETRY_SECONDS:
+        return False
+    state.mesh_wait_checked = now
+    return bool(Path(wanted).exists())
 
 
 def _collect(svc: Any) -> list[dict[str, Any]]:
@@ -414,14 +532,14 @@ def _collect(svc: Any) -> list[dict[str, Any]]:
                 # ``spec_summary``.
                 "spec": sweep.get("spec") or {},
                 "units": units,
-                "todo": sum(1 for u in units if u["verdict"] is None),
+                "todo": sum(1 for u in units if owes_verdict(u)),
                 # How many units a bulk delete would refuse to take, so the
                 # confirm can say what overriding that rule actually costs.
                 "retained": sum(1 for job_id in ids if job_id in retained),
-                # **Not the same question as ``todo``**, and the difference is
-                # deliberate: an errored or cancelled unit can never be graded,
-                # so it owes no verdict -- but it does keep ``todo`` above zero
-                # for ever, which is how a failed sweep becomes unremovable.
+                # Both now ask ``owes_verdict``'s question (the 2026-10-03
+                # audit, finding shell-25): ``todo`` used to count every unit
+                # with no verdict, so an errored one kept a sweep outstanding
+                # for ever. ``removable`` stays the service's own count.
                 "removable": sweeps_mod.outstanding_units(jobs, judged) == 0,
             }
         )
@@ -628,7 +746,10 @@ def adopt_scores(state: ReviewState, scores: dict[str, Any]) -> None:
     after the user has moved on still count. The order is deliberately left
     alone: a list that resorts under the cursor is how the wrong thing gets
     judged, which is the lesson ``LabelPass`` rows keeping their place already
-    carries. Order is applied once, when a sweep is opened.
+    carries. Order is applied once, when a sweep is opened -- or, for a sweep
+    opened before its scores existed, once when the first of them land, and only
+    while the reviewer is still on the unit the sweep opened on (the cursor
+    follows that unit to its new place).
 
     An empty dict is "no probe", not "no scores" -- and every asked row is still
     written, with None, or the pump requests them again on every frame forever.
@@ -646,6 +767,16 @@ def adopt_scores(state: ReviewState, scores: dict[str, Any]) -> None:
         unit = index.get(job_id)
         if unit is not None:
             unit["score"] = scores.get(job_id)
+    anchor = state.score_order_anchor
+    if anchor is None or state.blind or not set(asked) & {u["job_id"] for u in state.units}:
+        return
+    state.score_order_anchor = None
+    at, job_id = anchor
+    if not (0 <= at == state.index < len(state.units)) or state.units[at]["job_id"] != job_id:
+        return
+    watching = state.units[at]
+    state.units = by_score(state.units)
+    state.index = next(i for i, unit in enumerate(state.units) if unit is watching)
 
 
 def clear_scores(state: ReviewState) -> None:
@@ -759,6 +890,12 @@ def on_task_done(ctx: Any, done: Any) -> None:
         result = done.result if isinstance(done.result, dict) else {}
         ctx.toast(f"Queued {result.get('units', 0)} unit(s).")
         state.sweep_id = result.get("id")
+        # The 2026-10-03 audit, finding shell-26: bumped like the removal branch
+        # above, before ``scan``. A scan already in flight started before this
+        # sweep existed, ``scan`` below is refused while it runs, and its stale
+        # answer was then applied -- the new sweep missing from the list and the
+        # selection jumping to the first bucket.
+        state.scan_generation += 1
         scan(ctx)
         return
     if done.key == SCORE_KEY:
@@ -926,10 +1063,22 @@ def open_sweep(ctx: Any, sweep_id: str) -> None:
     # blind review exists to hide, and a judge's opinion on screen anchors the
     # independent human judgement it exists to collect.
     state.units = blind_order(units) if state.blind else by_score(units)
+    state.score_order_anchor = None
     _disarm(state)
-    state.index = next(
-        (i for i, unit in enumerate(state.units) if unit["verdict"] is None), 0
-    )
+    # The first unit that can be graded now; failing that the first with no
+    # verdict (so an errored unit's status is what the reviewer sees), else 0.
+    target = _grading_target(state.units)
+    if target is None:
+        target = next(
+            (i for i, unit in enumerate(state.units) if unit["verdict"] is None), 0
+        )
+    state.index = target
+    if not state.blind and state.units and unscored(state.units):
+        # Scores arrive after this (``request_scores`` is asked below, and every
+        # rescan builds fresh unit dicts without them), so the order just applied
+        # is queue order. ``adopt_scores`` applies the score order once when the
+        # first answer lands.
+        state.score_order_anchor = (state.index, str(state.units[state.index]["job_id"]))
     request_scores(ctx)
 
 
@@ -963,7 +1112,19 @@ def advance(state: ReviewState, *, unverdicted_only: bool = False) -> None:
     _disarm(state)
     if unverdicted_only:
         order = list(range(state.index + 1, len(state.units))) + list(range(state.index))
-        ahead = next((i for i in order if state.units[i]["verdict"] is None), None)
+        # Only a unit that can take a verdict *now*: an errored or still-queued
+        # one has no verdict and never will until it finishes, so stopping on it
+        # parked the pass there (the 2026-10-03 audit, finding shell-25).
+        ahead = next(
+            (
+                i
+                for i in order
+                if owes_verdict(state.units[i])
+                and verdicts_mod.mesh_verdict_blocker(state.units[i].get("status") or "done")
+                is None
+            ),
+            None,
+        )
         if ahead is not None:
             state.index = ahead
         return
@@ -1046,7 +1207,15 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
         result = verdicts_mod.record_verdict(
             ctx.svc, unit["job_id"], grade=grade, reasons=tags, source=SOURCE
         )
-    except (ServiceError, OSError):
+    except ServiceError as exc:
+        # The service wrote a sentence ("job is queued; a verdict needs a
+        # finished asset") and this used to throw it away -- and log a routine
+        # refusal as an exception with a traceback (the 2026-10-03 audit,
+        # finding shell-27).
+        log.info("verdict refused for %s: %s", unit["job_id"], exc.message)
+        ctx.toast(exc.message or "Could not record that verdict.", "error")
+        return
+    except OSError:
         log.exception("could not record a verdict for %s", unit["job_id"])
         ctx.toast("Could not record that verdict.", "error")
         return
@@ -1118,7 +1287,7 @@ def _recount(state: ReviewState) -> None:
     with the ``sweeps`` entry, so only the tally needs recomputing."""
     for sweep in state.sweeps:
         if sweep["id"] == state.sweep_id:
-            sweep["todo"] = sum(1 for unit in sweep["units"] if unit["verdict"] is None)
+            sweep["todo"] = sum(1 for unit in sweep["units"] if owes_verdict(unit))
 
 
 # --- the guided judging pass -------------------------------------------------
@@ -1410,7 +1579,12 @@ def record_label(ctx: Any, verdict: str) -> bool:
             ctx.svc, row["job_id"], verdict=verdict, source=SOURCE,
             stage=state.labels.stage,
         )
-    except (ServiceError, OSError):
+    except ServiceError as exc:
+        # See ``record``: the refusal's own sentence, not a generic one.
+        log.info("label refused for %s: %s", row["job_id"], exc.message)
+        ctx.toast(exc.message or "Could not record that label.", "error")
+        return False
+    except OSError:
         log.exception("could not label %s", row["job_id"])
         ctx.toast("Could not record that label.", "error")
         return False
@@ -1435,7 +1609,7 @@ def record_label(ctx: Any, verdict: str) -> bool:
     # flight and nothing re-arms it, so a burst of labels trained once on the set
     # as it stood at the first press and silently dropped the rest -- the
     # ``findings_dirty`` bug, in a loop designed to be pressed even faster.
-    ctx.state.judge_dirty = state.labels.stage
+    ctx.state.judge_dirty.add(state.labels.stage)
     return True
 
 
@@ -1460,11 +1634,14 @@ def pump_judge(ctx: Any) -> None:
     """
     from ....service import judge as judge_mod
 
-    stage = ctx.state.judge_dirty
-    if not stage:
+    stages = ctx.state.judge_dirty
+    if not stages:
         return
+    # One stage per submit, in a fixed order, and only the accepted one leaves
+    # the set: the next frame (or the end of the run in flight) takes the next.
+    stage = sorted(stages)[0]
     if ctx.submit(TRAIN_KEY, judge_mod.train, ctx.svc, stage):
-        ctx.state.judge_dirty = None
+        stages.discard(stage)
 
 
 def next_thumbnail(labels: LabelPass) -> dict[str, Any] | None:
@@ -1662,6 +1839,21 @@ def capture_base(ctx: Any) -> dict[str, Any]:
     return base
 
 
+class PlanError(ValueError):
+    """A form that cannot be planned yet, and *which control* is at fault.
+
+    A ``ValueError`` so every existing ``except ValueError`` still catches it;
+    ``field`` is the form control ("seeds", "axes") the message is about. The
+    2026-10-03 audit, finding shell-28: ``preview_units`` turned every one of
+    these into -1 and the button's reason said "Fill in the prompt and one axis."
+    for all of them, naming a control the user had already filled in.
+    """
+
+    def __init__(self, message: str, *, field: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
 def parse_seeds(text: str) -> tuple[int, ...]:
     """A comma-separated seed list. Raises ValueError, which the caller turns
     into a toast -- an unparseable seed is a typo, not a crash."""
@@ -1670,7 +1862,10 @@ def parse_seeds(text: str) -> tuple[int, ...]:
         raw = raw.strip()
         if not raw:
             continue
-        out.append(int(raw))
+        try:
+            out.append(int(raw))
+        except ValueError:
+            raise ValueError(f"seed {raw!r} is not a whole number") from None
     if not out:
         raise ValueError("a sweep needs at least one seed")
     return tuple(out)
@@ -1712,16 +1907,20 @@ def build_plan(state: ReviewState) -> Any:
         if not param and not raw:
             continue
         if not param or not raw:
-            raise ValueError("every axis needs a parameter and at least one value")
+            raise PlanError("every axis needs a parameter and at least one value", field="axes")
         values = tuple(_coerce(v) for v in raw.split(",") if v.strip())
         if not values:
-            raise ValueError(f"axis {param} has no values")
+            raise PlanError(f"axis {param} has no values", field="axes")
         axes.append(Axis(param=param, values=values))
+    try:
+        seeds = parse_seeds(form.seeds)
+    except ValueError as exc:
+        raise PlanError(str(exc), field="seeds") from exc
     return SweepPlan(
         label=form.label.strip() or (form.prompt.strip()[:40] or "sweep"),
         prompt=form.prompt.strip(),
         base=dict(form.base),
-        seeds=parse_seeds(form.seeds),
+        seeds=seeds,
         axes=tuple(axes),
         stage=form.stage,
     )
@@ -1750,6 +1949,13 @@ def launch(ctx: Any) -> bool:
     try:
         plan = build_plan(state)
     except ValueError as exc:
+        # The control the message is about, when the planner knows it (the
+        # 2026-10-03 audit, finding shell-28): the button used to stay greyed
+        # so this was unreachable, and now that its reason names the problem
+        # the press path rings the same control.
+        field = getattr(exc, "field", "")
+        if field:
+            ctx.state.note_field_error(field, str(exc))
         # Framed rather than forwarded, the ``packwright_mode`` house rule: a
         # bare ``str(exc)`` toast is library text with no subject in front of
         # it, so the user reads "axis 'seed' has no values" and has to guess
@@ -1784,11 +1990,14 @@ def launch(ctx: Any) -> bool:
 # -- an enumerated param draws its own options and a numeric one draws its range
 # -- but the test asserts the complement, so a param that stops resolving is
 # caught by having no help line rather than by somebody noticing the blank box.
-#: One sentence per sweep axis, keyed exactly as ``sweeps.KWARG_AXES`` names
-#: them. **Every axis, and a test says so** (``AXIS_HELP`` covered 3 of 14 when
-#: the three engine flags arrived with tooltips and the older axes had none):
-#: a form that explains a third of its fields teaches the reader that the
-#: tooltips are decoration.
+#: One sentence per sweep axis, keyed exactly as ``sweeps.axis_params()`` names
+#: them -- ``KWARG_AXES`` *and* the catalog fields (``base_model``, ``control``,
+#: ``ip_adapter``, ``platform``, ``style_lora``), which the form offers too and
+#: which had no entry here until the 2026-10-03 audit (shell-64). **Every axis,
+#: and a test says so** (``AXIS_HELP`` covered 3 of 14 when the three engine
+#: flags arrived with tooltips and the older axes had none): a form that
+#: explains a third of its fields teaches the reader that the tooltips are
+#: decoration.
 AXIS_HELP: dict[str, str] = {
     "lora_weight": (
         "How strongly the selected style LoRA is applied. Around 1.0 is its "
@@ -1886,6 +2095,33 @@ AXIS_HELP: dict[str, str] = {
     "trellis_atlas": (
         "UV atlas edge in px for the baked textures (the engine defaults 2048 "
         "at res 1024, 1024 at 512). Restarts the engine per value."
+    ),
+    # The five catalog axes: their values are whatever this install lists, and
+    # each one is a *choice between models or presets* rather than a number.
+    "base_model": (
+        "Which image model draws the reference. Each value is one checkpoint "
+        "this install lists; a style LoRA, an IP-Adapter or a ControlNet fitted "
+        "to a different model family is refused for that unit by name."
+    ),
+    "control": (
+        "Which ControlNet constrains the composition, if any. Needs a base "
+        "model that can run one, and 'control_scale' and 'control_end' only act "
+        "on a unit that has one selected."
+    ),
+    "ip_adapter": (
+        "Which IP-Adapter lets the reference image steer the generation, if "
+        "any. It must be fitted to the base model's family, and 'ip_scale' only "
+        "acts on a unit that has one selected."
+    ),
+    "platform": (
+        "The target the asset is made for, 2D or 3D. It supplies the default "
+        "reconstruction resolution (512 or 1024); an explicit resolution "
+        "overrides it."
+    ),
+    "style_lora": (
+        "Which style LoRA is applied to the image model. It must be fitted to "
+        "the base model's family; 'lora_weight' only acts on a unit that has "
+        "one selected."
     ),
 }
 
@@ -2030,6 +2266,31 @@ def preview_line(state: ReviewState, labels: dict[str, str] | None = None) -> st
         f"{planned} jobs: {' + '.join(parts)}{tail} - everything else from your "
         "captured settings."
     )
+
+
+def plan_problem(state: ReviewState) -> tuple[str, str] | None:
+    """Why the form cannot be planned yet, as ``(field, sentence)``, or None.
+
+    Pure. ``preview_units`` answers only -1 for every failure, which is how the
+    Launch button came to tell a user who had filled in the prompt and an axis
+    to "fill in the prompt and one axis" when the real cause was a seeds field
+    reading "4x" (the 2026-10-03 audit, finding shell-28). A failure that is not
+    a ``ValueError`` is a bug in the planner, not a thing for the user to fix,
+    and answers None so the generic sentence stands.
+    """
+    try:
+        build_plan(state)
+    except PlanError as exc:
+        return exc.field, f"The {exc.field} field: {exc}."
+    except ValueError as exc:
+        return "", f"{exc}."
+    except Exception:
+        # Not the user's to fix, so there is no sentence to give; but a planner
+        # bug must stay findable, and this runs every frame the form is open,
+        # hence debug rather than an exception-level line.
+        log.debug("could not plan the sweep form", exc_info=True)
+        return None
+    return None
 
 
 def preview_units(state: ReviewState) -> int:

@@ -258,7 +258,7 @@ def _fields(state: Any, tab: Any, selected: Any, editable: bool) -> None:
     # ``tab.busy`` -- a rename typed mid-save landed on the document a save
     # was in the middle of reading (the 2026-09-15 audit, finding sirens-04).
     changed, name = controls.input_text(
-        "##sirens-fx-name", selected.name, enabled=editable, commit=True
+        "##sirens-fx-name", selected.name, enabled=editable, reason=_BUSY_WHY, commit=True
     )
     if changed:
         doc.update_oneshot(selected.uid, name=str(name)[: inst.MAX_NAME_LEN])
@@ -268,13 +268,15 @@ def _fields(state: Any, tab: Any, selected: Any, editable: bool) -> None:
     # the Name field above states left Tempo and Speed's own names undrawn --
     # two bare numbers with nothing on screen saying which was which.
     changed, value = widgets.labeled_slider_int(
-        "Tempo", selected.tempo, D.MIN_TEMPO, D.MAX_TEMPO, enabled=editable
+        "Tempo", selected.tempo, D.MIN_TEMPO, D.MAX_TEMPO, enabled=editable,
+        reason=_BUSY_WHY,
     )
     controls.fold_undo(doc.history)
     if changed:
         doc.update_oneshot(selected.uid, tempo=int(value))
     changed, value = widgets.labeled_slider_int(
-        "Speed", selected.speed, D.MIN_SPEED, D.MAX_SPEED, enabled=editable
+        "Speed", selected.speed, D.MIN_SPEED, D.MAX_SPEED, enabled=editable,
+        reason=_BUSY_WHY,
     )
     controls.fold_undo(doc.history)
     if changed:

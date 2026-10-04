@@ -395,11 +395,20 @@ class GroupAddEdit(Edit):
     members: tuple[int, ...]
     parent: int | None = None
 
+    def __post_init__(self) -> None:
+        # The group *as it was created*, 2026-10-03 audit finding inker-33: the
+        # live node is edited in place by every later ``GroupPropsEdit`` (and
+        # swapped for a copy by ``restore_groups``), so a held reference
+        # carried the state of steps that are undone by the time this one is
+        # redone -- add, hide, rotate, undo three, redo one showed the group
+        # hidden. ``uid`` is what later edits are addressed to, and a copy keeps it.
+        self.node = replace(self.node)
+
     def undo(self, doc: Any) -> None:
         doc._drop_group(self.node.uid)
 
     def redo(self, doc: Any) -> None:
-        doc._put_group(self.node, self.members, self.parent)
+        doc._put_group(replace(self.node), self.members, self.parent)
 
 
 @dataclass
@@ -412,8 +421,13 @@ class GroupDissolveEdit(Edit):
     members: tuple[int, ...]
     parent: int | None = None
 
+    def __post_init__(self) -> None:
+        # ``GroupAddEdit``'s reason: the group as it stood when it was
+        # dissolved, not whatever the live object has become since.
+        self.node = replace(self.node)
+
     def undo(self, doc: Any) -> None:
-        doc._put_group(self.node, self.members, self.parent)
+        doc._put_group(replace(self.node), self.members, self.parent)
 
     def redo(self, doc: Any) -> None:
         doc._drop_group(self.node.uid)

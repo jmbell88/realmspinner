@@ -1,15 +1,24 @@
 """Design guidance: the validated settings attached to a job.
 
-trellis-server.exe takes only an image, a seed and a geometry resolution, so
-guidance can act on exactly three things:
+What guidance itself can act on is three things:
 
 * the SDXL prompt -- text jobs only, since image jobs never touch SDXL;
 * the per-request geometry resolution, which the platform preset supplies;
 * the physical scale of the finished GLB (pipelines/postprocess.scale_glb).
 
-Deliberately *not* texture resolution: --tex-res is a server launch flag, not a
-per-request one, and config.py pins it to 512 because the vendored exe bakes
-per-texel noise into the atlas above that.
+**Guidance is not the whole of what a job can tell the engine.** The other
+per-job engine axes are not guidance fields: ``trellis_tex_res``,
+``trellis_band``, ``trellis_gss``, ``trellis_gsh``, ``trellis_max_tokens``,
+``trellis_decim``, ``trellis_atlas`` and ``mesh_finishing`` ride on the job's
+own params (Create's mesh form sends them, ``studio/modes/create/engine/mesh.py``
+``engine_kwargs``/``upload_kwargs``) and are range-checked at the service door
+(``service.validation.check_trellis_*``; ``mesh_finishing`` by the create/rerun
+doors). All but ``mesh_finishing`` are launch flags of trellis-server rather
+than request fields, so ``pipelines/trellis.py``'s ``ensure_config`` stops a
+running server and lets the next lazy start adopt the new values. This module
+validates none of them -- it used to claim the engine took only an image, a
+seed and a geometry resolution, and that texture resolution was "deliberately
+not" per-request, which stopped being true when those axes arrived.
 
 The creative-direction taxonomy this module used to own (twelve tables of
 subject adjectives) was retired on 2026-08-17 -- see
@@ -310,7 +319,10 @@ def _number(raw: dict[str, Any], field: str, *, default: float, low: float, high
         return float(default)
     try:
         value = float(value)
-    except (TypeError, ValueError) as exc:
+    # OverflowError: the 2026-10-04 audit (create-42) -- ``float(10**400)`` raises
+    # it, it is neither of the others, and it left ``normalize`` as a bare crash
+    # past the door's ``except ValueError``.
+    except (TypeError, ValueError, OverflowError) as exc:
         raise GuidanceError(f"{field} must be a number, got {value!r}", field=field) from exc
     if not low <= value <= high:
         raise GuidanceError(
@@ -350,7 +362,7 @@ def normalize(raw: dict[str, Any], *, bg_default: str | None = None) -> dict[str
 
         try:
             resolution = int(resolution)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:  # ``int(inf)``: create-42
             raise GuidanceError(
                 f"resolution must be a number, got {resolution!r}",
                 field="platform",
@@ -368,7 +380,7 @@ def normalize(raw: dict[str, Any], *, bg_default: str | None = None) -> dict[str
     else:
         try:
             size_m = float(size_m)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:  # create-42
             raise GuidanceError(
                 f"size_m must be a number, got {size_m!r}", field="size_m"
             ) from exc
@@ -389,7 +401,7 @@ def normalize(raw: dict[str, Any], *, bg_default: str | None = None) -> dict[str
     else:
         try:
             lora_weight = float(lora_weight)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:  # create-42
             raise GuidanceError(
                 f"lora_weight must be a number, got {lora_weight!r}", field="lora_weight"
             ) from exc

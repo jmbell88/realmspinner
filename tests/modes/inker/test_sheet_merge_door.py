@@ -259,13 +259,17 @@ def test_a_second_press_while_one_is_loading_says_so(wired):
 # -- the refusals the door owns ------------------------------------------------
 
 
-def test_a_document_with_no_newer_sheet_says_so_and_submits_nothing(wired, monkeypatch):
-    ctx, _state, _tab = wired
+def test_a_document_with_no_newer_sheet_says_so_and_writes_nothing(wired, monkeypatch):
+    """The lookup is the task's (the 2026-10-03 audit, inker-88), so the press
+    submits and the sentence arrives with the landing -- and nothing is merged."""
+    ctx, _state, tab = wired
     monkeypatch.setattr(inker_mode, "newest_sheet_after", lambda *a: "")
 
-    assert _press(ctx) is False
-    assert ctx.submitted == []
+    assert _press(ctx) is True
+    assert not any("No newer sheet" in message for message, _ in ctx.toasts)
+    ctx.deliver()
     assert any("No newer sheet" in message for message, _ in ctx.toasts)
+    assert _cel(tab, 0).pixels[3, 3, 0] == 10
 
 
 def test_a_sheet_that_does_not_record_its_job_is_refused_by_name(wired):

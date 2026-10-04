@@ -35,10 +35,12 @@ and the header carries the folder's own eye and its right-click menu. Folding is
 neither saved nor undoable — for the same reason the playhead is.
 
 The strip's controls are two rows. The top one is the frame you are on — the transport, the frame
-operations, the counter and that frame's duration — and the bottom one is what leaves the app: the
-three exports, with the onion-skin and thumbnail switches and the export magnification beside them.
-Both rows give up their labels for their icons before they give up any button, and drop what they
-can into a **…** menu after that, so nothing is ever pushed off the right-hand edge.
+operations, the counter and that frame's duration — and the bottom one is the two switches that
+change what the strip and canvas draw, **Onion** and **Thumbs**. Nothing that leaves the app is on the
+strip: the exports and their settings, Scale included, are in the **Export** block of the right-hand
+panel and in the **File** menu ([Inker](28-inker.md) says where). The top row gives up its labels
+for its icons before it gives up any button, and drops what it can into a **…** menu after that, so
+nothing is ever pushed off the right-hand edge.
 
 Moving the playhead is not an edit. It pushes no undo step and does not make the document unsaved —
 looking at another frame is looking, not drawing.
@@ -57,10 +59,11 @@ and a stroke that changes nothing leaves nothing behind.
 
 ### Continuous layers
 
-**Continuous layers** change what that new cel starts as. The **Cels** toggle at the top of the
-layers panel makes the active track continuous: drawing on an empty frame of it starts from a
-*copy* of the nearest earlier drawing on that track rather than from nothing, which is how you
-carry a held pose or a background forward and then change it.
+**Continuous layers** change what that new cel starts as. The **Cels** toggle in **Layer
+properties** (the Layer menu, or the layer's right-click menu) makes the active track continuous:
+drawing on an empty frame of it starts from a *copy* of the nearest earlier drawing on that track
+rather than from nothing, which is how you carry a held pose or a background forward and then
+change it.
 
 It is a copy and not a link, so editing it leaves the frame it came from alone — if you want them to
 stay the same drawing, use **Link** below. The flag is saved with the document, and an `.aseprite`
@@ -380,7 +383,7 @@ are aids for drawing and this is a check on the result.
 
 ## Exporting part of a clip
 
-The Range section ends with **Export range → sheet** and **→ GIF**, which write only the selected
+The Range section ends with **Export range → sheet**, **→ GIF** and **→ PNG sequence**, which write only the selected
 frames. A tag's own menu has **Export tag → sheet** and **→ GIF**, which use that tag's span and its
 looping — a tag with a repeat count writes a GIF that plays that many times.
 
@@ -390,8 +393,9 @@ not a smaller walk sheet.
 
 ### Splitting one export into several files
 
-The export row also offers **Export sheet per tag** and **Export sheet per layer**, which write a
-whole set of files from one press. You pick one name and each output is that name plus what it holds:
+The **Export** block (and the File menu) also offers **Export sheet per tag** and **Export sheet per
+layer**, which write a whole set of files from one press. You pick one name and each output is that
+name plus what it holds:
 `hero_walk.png` and `hero_idle.png` for the tags, `hero_Background.png` and `hero_ink.png` for the
 layers, each with its own sidecar beside it.
 
@@ -621,7 +625,7 @@ selection as texture** makes one from the selected pixels of the active layer �
 rune, select it, and the layer the inspector is showing takes it if it can. **Generate texture...**
 asks the image model for a single centred ingredient on black from a few words, keys the black out
 into alpha (through the matting model when the machine has one), and lands it the same way; it needs
-an SDXL-family model like every generation, and one runs at a time per document. A layer whose
+an SDXL-family model like every generation, and one runs at a time across all your open documents. A layer whose
 texture is missing renders nothing rather than a placeholder.
 
 **Restyle keyframes...** is the third and least reliable AI door, and it says so. It sends a few
@@ -636,7 +640,11 @@ and unmeasured: judge it against the procedural frames before you keep it.
 ([Exporting part of a clip](#exporting-part-of-a-clip)), since a phase is a tag — each with its
 sidecar. **Engine snippet...** shows the few lines that load one exported phase in Pygame-CE, Godot,
 Unity or Phaser, with a Copy button; it assumes the export's filenames and an origin at the canvas
-centre, which is where an effect is placed.
+centre, which is where an effect is placed. The sheet's columns in the snippet follow the **Arrange**
+setting you exported with, but not the export's scale, padding, trim or merge, so a snippet for a
+sheet exported with those on will not slice it correctly. A phase whose name cannot become a
+filename (a name with no letters, digits, dashes or underscores) shows a one-line reason in place
+of a snippet.
 
 An effect is deterministic: the same recipe with the same seed renders the same bytes on any
 machine, so a preset you tune and save renders the same after an upgrade. Change the **seed** for a

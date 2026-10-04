@@ -54,7 +54,6 @@ def build(span: float, divisions: int = DIVISIONS) -> tuple[np.ndarray, np.ndarr
     """-> (positions (n, 3), colors (n, 3)) for a GL_LINES draw."""
     half = span * 0.5
     step = span / divisions
-    centre = divisions // 2
     # 1 m cells only: Clay's ``grid_size`` picks ``divisions`` so that
     # ``step`` always comes out to 1.0 (see ``clay_view.ClayView.draw``), and
     # every offset is then an exact integer -- no epsilon needed to test
@@ -62,9 +61,19 @@ def build(span: float, divisions: int = DIVISIONS) -> tuple[np.ndarray, np.ndarr
     major_lines = math.isclose(step, 1.0, abs_tol=1e-6)
     positions: list[list[float]] = []
     colors: list[tuple[float, float, float]] = []
-    for i in range(divisions + 1):
-        offset = -half + i * step
-        if i == centre:
+    # Lines sit at whole multiples of ``step``, so the centre line (k == 0)
+    # and the majors are placed by *value*, not by index. The 2026-10-04
+    # audit's create-33: with an odd ``divisions`` (Clay's Grid size field
+    # takes any integer 1-1000) the index-based layout ran from -half in
+    # steps, so every offset was a half-step -- no line through the origin and
+    # ``centre = divisions // 2`` crowned the line at -0.5 m instead. An even
+    # count yields exactly the lines it always has; an odd one has one fewer
+    # than ``divisions + 1`` and stops half a cell short of each edge, which
+    # is the price of keeping the origin a line.
+    reach = int(math.floor(divisions / 2 + 1e-9))
+    for k in range(-reach, reach + 1):
+        offset = k * step
+        if k == 0:
             color = _rgb(CENTRE_COLOR)
         elif major_lines and abs(offset) % MAJOR_STEP < 1e-6:
             color = _rgb(MAJOR_COLOR)

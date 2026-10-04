@@ -185,6 +185,27 @@ def test_the_character_preview_submits_the_parse_and_adopts_it_on_landing():
     assert "adopt_model" in adopt
 
 
+def test_the_pose_pane_submits_the_rig_parse_and_adopts_it_on_landing():
+    """The Pose column's door, and the same shape as the character preview's.
+
+    The 2026-10-04 audit (finding create-50) found "Edit pose" and "Apply"
+    calling ``viewer.load_model`` -- the glTF parse plus a PNG decode per texture
+    slot -- inline on the press, which is the T2 bug this file guards and did
+    not name this door. ``_enter`` parses (and reads ``rig.json``) on a task;
+    ``land_enter``, called from the pane's draw, is the frame-thread half. The
+    behavioural half -- which thread the parse ran on, a stale landing dropped --
+    is in ``tests/test_audit_2026_10_04_pose.py``.
+    """
+    from realmspinner.studio.panes import pose_panel
+
+    dispatch = inspect.getsource(pose_panel._enter)
+    assert "parse_model" in dispatch and "load_model(" not in dispatch
+    assert "submit" in dispatch
+    adopt = inspect.getsource(pose_panel.land_enter)
+    assert "adopt_model" in adopt and "parse_model" not in adopt
+    assert "land_enter(ctx, job)" in inspect.getsource(pose_panel.draw)
+
+
 # --- 2. the character-sheet atlas (Troupe's own, folded into Poser by P9) ---
 
 

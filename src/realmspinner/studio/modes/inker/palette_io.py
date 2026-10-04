@@ -224,7 +224,28 @@ def index_to(ctx: Any, tab: Any, colours: Any) -> bool:
         ctx.toast("Busy -- the picked colours were not applied. Try again.", "warn")
         return False
     state = inker_mode.ensure(ctx)
-    if not tab.doc.set_palette(colours):
+    if state.transforming:
+        # The 2026-10-03 audit, finding inker-41: ``set_palette`` commits the
+        # free transform's floating buffer, so landing a pick mid-transform
+        # left ``state.transforming`` true with nothing floating and the
+        # Transformation key context swallowing every key. Refused the way
+        # a busy tab is, and for the same reason it says so.
+        ctx.toast(
+            "A free transform is open -- the picked colours were not applied."
+            " Finish the transform and try again.",
+            "warn",
+        )
+        return False
+    try:
+        changed = tab.doc.set_palette(colours)
+    except ValueError as exc:
+        # The 2026-10-03 audit, finding inker-43: a .gpl/.pal of more than 256
+        # colours reached ``set_palette``'s own refusal and escaped as the
+        # landing wrapper's anonymous "did not finish landing", where
+        # ``set_color_mode`` frames the same sentence. Same frame, same reason.
+        ctx.toast(f"Cannot index to that palette: {exc}.", "warn")
+        return False
+    if not changed:
         return False
     state.palette_slot = 0
     state.palette_slots = []
@@ -311,6 +332,12 @@ def palette_from_image(ctx: Any) -> None:
             rgb[:, 0].astype(np.uint32) << 16 | rgb[:, 1].astype(np.uint32) << 8 | rgb[:, 2]
         )
         distinct = int(np.unique(packed).size)
+        if distinct == 0:
+            # ``build_palette`` answers one black swatch for a picture with
+            # nothing visible, and ``index_to`` would snap the document to it
+            # with a success toast on a pick that carried no palette (the
+            # 2026-10-03 audit, inker-69). Said by name instead.
+            return {"empty": True}
         return {
             "colours": dither.build_palette([pixels], IMAGE_PALETTE_MAX),
             "distinct": distinct,

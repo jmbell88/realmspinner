@@ -154,6 +154,18 @@ def download(
     for field in ("installer_url", "installer_name", "sha256"):
         if not str(info.get(field) or ""):
             raise Invalid("That update has nothing to download; check for updates again.")
+    # The name came out of a remote manifest and becomes a path under the
+    # staging directory: refuse one that is not its own basename here, before a
+    # child is spawned (the 2026-10-03 audit, pipelines-25). The worker checks
+    # again, because it is the process that writes.
+    installer_name = str(info["installer_name"])
+    if (
+        "/" in installer_name
+        or "\\" in installer_name
+        or ":" in installer_name
+        or installer_name in (".", "..")
+    ):
+        raise Invalid("That update names an installer this app will not write; ignore it.")
     return _run_worker(
         {
             "mode": "download",

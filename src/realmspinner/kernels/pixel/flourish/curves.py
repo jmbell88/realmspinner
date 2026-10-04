@@ -42,6 +42,22 @@ def ease(t: Any, kind: str) -> Any:
     raise ValueError(f"easing must be one of {list(EASINGS)}")
 
 
+def _key_time(raw: Any) -> float:
+    """A key time read from a file or a model: finite, inside 0..1.
+
+    The 2026-10-03 audit (finding inker-37): ``float("nan")`` was stored as a
+    key time as it came, ``sorted`` then ordered the keys by an undefined
+    comparison, and ``sample``'s ``searchsorted`` raised ``ValueError`` out of
+    the renderer on every later frame -- from one number in an animation.json.
+    A curve's time axis is the phase's 0..1, so anything outside it has only
+    one sensible reading; NaN reads as the start.
+    """
+    t = float(raw)
+    if t != t:
+        return 0.0
+    return min(1.0, max(0.0, t))
+
+
 @dataclass(frozen=True)
 class Curve:
     """``keys`` are ``(t, value)`` with ``t`` in 0..1, sorted; at least one."""
@@ -115,9 +131,9 @@ class Curve:
         if isinstance(raw, dict):
             keys = raw.get("keys") or []
             easing = str(raw.get("easing") or "linear")
-            return cls(tuple((float(k[0]), float(k[1])) for k in keys), easing)
+            return cls(tuple((_key_time(k[0]), float(k[1])) for k in keys), easing)
         if isinstance(raw, (list, tuple)):
-            return cls(tuple((float(k[0]), float(k[1])) for k in raw))
+            return cls(tuple((_key_time(k[0]), float(k[1])) for k in raw))
         raise ValueError(f"not a curve: {raw!r}")
 
     def clamped(self, lo: float, hi: float) -> Curve:

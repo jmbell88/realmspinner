@@ -16,12 +16,18 @@ else: a smooth resample produces colours that were never in the table, so its
 indices are re-resolved from the result. That is the one stated place in the
 whole indexed design where indices are inferred rather than permuted.
 
-**A tilemap layer survives exactly one of the five.** ``resize_canvas`` moves
-the picture by whole cells, so it re-grids ``refs`` (``_doc_tiles._tile_regrid``,
-passed down as ``_map_planes``' ``refs_fn``) and refuses a non-tile-aligned
-offset by name. The other four still refuse the document outright, because
-each would have to permute every cell's *flag bits* as well as its position
-and no such algebra is written yet.
+**A tilemap layer survives three of the five: canvas resize, flip and quarter
+turn.** ``resize_canvas`` moves the picture by whole cells, so it re-grids
+``refs`` (``_doc_tiles._tile_regrid``, passed down as ``_map_planes``'
+``refs_fn``) and refuses a non-tile-aligned offset by name. ``flip`` and
+``rotate90`` permute every cell's *flag bits* as well as its position
+(``_doc_tiles._tile_flip``/``_tile_rotate``, over ``gid``'s eight-symmetry
+algebra) and refuse by name a canvas that is not a whole number of tiles --
+and, for a turn, non-square tiles. ``scale``, ``descale`` and ``crop`` still
+refuse the document outright (``_refuse_tilemaps``): a resample invents pixels
+no tile holds, and a crop is not generally tile-aligned. (The 2026-10-03
+audit, finding inker-98: this paragraph used to say flip and turn refused and
+that the algebra was unwritten, long after it was written and tested.)
 """
 
 from __future__ import annotations
@@ -265,9 +271,8 @@ class GeometryOps:
         the anchor is a name for nine of its values -- and because every caller
         that already computed one should keep working unchanged.
 
-        **The one geometry op a tilemap layer survives.** Every other method
-        here still refuses one outright, because a flip or a turn would have to
-        permute each cell's flag bits as well as its position; a resize
+        **A tilemap layer survives this one, and flip and quarter turn too.**
+        ``scale``, ``descale`` and ``crop`` still refuse one outright; a resize
         translates by whole cells and pads or crops, so ``_tile_regrid`` is a
         pure pad/crop of the refs plane. It refuses by name when the offset is
         not a whole number of tiles -- before ``commit_floating``, so a refused

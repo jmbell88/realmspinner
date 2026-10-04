@@ -183,6 +183,10 @@ def _material_from_mtl(name: str, entry: dict[str, object] | None) -> gltf.Mater
         return default_material(name or "Material")
     kd = entry.get("Kd", (0.8, 0.8, 0.8))
     alpha = float(entry.get("d", 1.0))  # type: ignore[arg-type]
+    # glTF's colour factors are 0..1 and an MTL's are not bound to it: clay-88
+    # wrote ``Kd 5 -3 0.5`` / ``d 7`` straight into the GLB's JSON.
+    kd = tuple(min(1.0, max(0.0, float(c))) for c in kd)  # type: ignore[union-attr]
+    alpha = min(1.0, max(0.0, alpha))
     ns = entry.get("Ns")
     roughness = 0.6 if ns is None else roughness_from_ns(float(ns))  # type: ignore[arg-type]
     return gltf.Material(
@@ -373,7 +377,11 @@ def obj_to_claydoc(
     palette: dict[str, int] = {}
 
     def material_index(mat_name: str | None) -> int:
-        key = mat_name or ""
+        # Whitespace collapsed, the way _parse_mtl keys ``newmtl``: the 2026-10-03
+        # audit's clay-88 found ``newmtl Dark  Wood`` / ``usemtl Dark  Wood``
+        # never matching (one side collapsed, the other not) so the face
+        # imported grey.
+        key = " ".join(mat_name.split()) if mat_name else ""
         if key not in palette:
             palette[key] = len(materials)
             materials.append(_material_from_mtl(key, mtl_materials.get(key)))

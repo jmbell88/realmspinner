@@ -200,10 +200,15 @@ Blender's Python module ships **CPython 3.13 wheels only**. On any other Python 
 installs nothing at all. When that happens:
 
 - `realmspinner doctor` reports rigging as unavailable.
-- The app hides the rig controls entirely rather than greying them out — a greyed control implies it
-  could be switched on from where you are standing, and this one cannot.
-- The **Pose** panel says "Posing needs Blender, which is not installed" instead of telling you to
-  press a button that is not on screen.
+- Some controls stay on screen, greyed, with the reason in their tooltip, so you can see the app
+  can rig and what it is missing: the **Rig** and **Pose** segments of the stage rail ("Rigging needs
+  Blender, which is not installed" and its Posing twin) and the **Rig when the mesh lands** checkbox
+  on the Mesh stage, which gives the rail's own sentence — see
+  [Generating meshes](23-generating-meshes.md#mesh-parameters).
+- Others are replaced by a sentence rather than greyed: the Rig stage's column says "Rigging needs
+  Blender, which is not installed", and the **Pose** panel says "Posing needs Blender, which is not
+  installed" instead of telling you to press a button that is not on screen. The Rig rows in a
+  Library card's right-click menu are simply absent.
 - The FBX export button explains itself with "needs Blender".
 
 Everything else in the app works unchanged. Nothing about generating references or meshes depends

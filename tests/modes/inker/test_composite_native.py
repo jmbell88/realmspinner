@@ -397,6 +397,25 @@ def test_a_mode_the_kernel_does_not_know_never_reaches_it(monkeypatch):
 
 
 @needs_dll
+def test_a_plus_lighter_layer_keeps_the_whole_stack_on_the_kernel(monkeypatch):
+    """F15: ``plus-lighter`` was the one mode ``_stack_native`` declined, and the
+    fold is all-or-nothing, so one Flourish glow track put the *whole* stack on
+    numpy. Bit parity cannot see that -- both paths agree whichever ran -- so
+    the claim that the kernel took it is asserted directly."""
+    monkeypatch.setattr(native, "available", lambda: True)
+    rng = np.random.default_rng(5)
+    layers = _layers(rng, 8, 8, 3)
+    entries = [
+        (layers[0], 1.0, "normal"),
+        (layers[1], 0.7, "plus-lighter"),
+        (layers[2], 1.0, "multiply"),
+    ]
+    assert cp._stack_native(entries, (0, 0, 8, 8), None) is not None
+    px = rng.random((4, 4, 4), dtype=np.float32)
+    assert cp._over_native(px, px, 0.5, "plus-lighter") is not None
+
+
+@needs_dll
 def test_an_empty_region_falls_back(monkeypatch):
     """A zero-width crop has meaningless strides, so the kernel never sees one."""
     monkeypatch.setattr(native, "available", lambda: True)

@@ -185,14 +185,37 @@ def ensure(ctx: Any) -> InkerState:
             # hand-editable settings file (``_restore_presets``): a swatch
             # entry holding a string would raise out of ``int`` on the first
             # frame Paint mode is opened.
-            state.swatches = [
-                tuple(int(c) for c in s)  # type: ignore[misc]
-                for s in swatches
-                if isinstance(s, list | tuple)
-                and len(s) == 4
-                and all(isinstance(c, int | float) and not isinstance(c, bool) for c in s)
-            ] or list(inker_state.DEFAULT_SWATCHES)
-        _restore_presets(state, stored.get("presets"))
+            #
+            # The 2026-10-03 audit, finding inker-44: "type" was all it
+            # checked, and ``json.loads`` accepts ``Infinity`` and ``NaN`` --
+            # ``int(inf)`` raises out of here on the frame ``menus.py`` first
+            # calls ``ensure``, and every frame after, so one bad swatch made
+            # Inker unusable -- while 300 or -5 was kept as a colour. A swatch
+            # is four *finite* components in 0..255, or it is dropped; the
+            # try/except is the backstop the shortcuts block below carries.
+            try:
+                state.swatches = [
+                    tuple(int(c) for c in s)  # type: ignore[misc]
+                    for s in swatches
+                    if isinstance(s, list | tuple)
+                    and len(s) == 4
+                    and all(
+                        isinstance(c, int | float)
+                        and not isinstance(c, bool)
+                        and math.isfinite(c)
+                        and 0 <= c <= 255
+                        for c in s
+                    )
+                ] or list(inker_state.DEFAULT_SWATCHES)
+            except (TypeError, ValueError, OverflowError):
+                state.swatches = list(inker_state.DEFAULT_SWATCHES)
+        try:
+            _restore_presets(state, stored.get("presets"))
+        except (TypeError, ValueError, OverflowError):
+            # The same backstop for the preset block: ``_restore_presets``
+            # coerces per option, but a hand-edited file is the one input
+            # this module may never let stop the mode opening.
+            state.presets = {}
         _restore_canvas(state, stored.get("canvas"))
         _restore_export(state, stored.get("export"))
         try:
@@ -355,12 +378,38 @@ def _restore_presets(state: InkerState, stored: Any) -> None:
             continue
         state.presets[name[: inker_state.MAX_PRESET_NAME]] = {
             "tool": saved["tool"],
-            "options": {
-                key: value
-                for key, value in options.items()
-                if key in inker_state.TOOL_OPTION_DEFAULTS
-            },
+            "options": _coerce_preset_options(options),
         }
+
+
+def _coerce_preset_options(options: dict[Any, Any]) -> dict[str, Any]:
+    """*options*, each value coerced to its default's type or dropped.
+
+    The 2026-10-03 audit, finding inker-44: ``_restore_presets`` kept any value
+    of any type for a known key, so a hand-edited ``"brush_size": "huge"`` or a
+    ``NaN`` reached the first stroke or the options panel. A dropped key falls
+    back to :data:`TOOL_OPTION_DEFAULTS` in ``apply_preset``, which is what an
+    option an older build never stored already does.
+    """
+    defaults = inker_state.TOOL_OPTION_DEFAULTS
+    kept: dict[str, Any] = {}
+    for key, value in options.items():
+        if key not in defaults:
+            continue
+        want = defaults[key]
+        if isinstance(want, bool):
+            if isinstance(value, bool):
+                kept[key] = value
+        elif isinstance(want, int | float):
+            if (
+                isinstance(value, int | float)
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            ):
+                kept[key] = int(value) if isinstance(want, int) else float(value)
+        elif isinstance(want, str) and isinstance(value, str):
+            kept[key] = value
+    return kept
 
 
 # --- the image brush --------------------------------------------------------
@@ -928,6 +977,44 @@ def revert(ctx: Any, tab: InkerDoc | None = None) -> None:
     )
 
 
+def ask_rename_layer(ctx: Any, tab: InkerDoc | None = None) -> bool:
+    """Layer > Rename layer...: ask for a name for the active layer.
+
+    The 2026-10-03 audit, finding inker-51: the op was ``dialog("inker-rename-layer")``
+    and nothing in any pane answers that name, so ``bridge.popups`` handed it
+    back every frame and the menu row (and its palette entry) did nothing. The
+    timeline's row menu asked its own prompt directly and never went through
+    the op. This is the same one-line prompt, for the active layer.
+
+    The layer is held by **uid** and looked up when the answer comes back: a
+    prompt is a modal the user can leave up while an undo, a new layer or a
+    reorder moves the stack under it, and an index captured now would rename
+    whichever layer has since moved into that slot.
+    """
+    tab = tab or active(ctx)
+    if tab is None or tab.busy:
+        return False
+    doc = tab.doc
+    layer = doc.stack.active
+    uid = layer.uid
+
+    def accept(text: str) -> None:
+        # Busy again by the time the answer lands (a save started under the
+        # modal) is a refusal, not a write into the stack an encode is walking.
+        if tab.busy:
+            ctx.toast("Not renamed: the document is busy.", "warn")
+            return
+        for row, candidate in enumerate(doc.stack):
+            if candidate.uid == uid:
+                doc.set_layer_props(row, name=text[:60])
+                return
+
+    ctx.prompts.ask(
+        dialogs.Prompt(title="Rename layer", label="Name", value=layer.name, on_accept=accept)
+    )
+    return True
+
+
 # --- task results -----------------------------------------------------------
 
 
@@ -1121,6 +1208,12 @@ def _done_palimg(ctx: Any, state: Any, done: Any) -> None:
     # comes back with it: a median cut is a loss, and one that happened
     # silently is one the user finds out about by noticing their drawing
     # looks wrong.
+    if isinstance(result, dict) and result.get("empty"):
+        ctx.toast(
+            "That image has no visible pixels, so there is no palette to take.",
+            "warn",
+        )
+        return
     if isinstance(result, dict) and result.get("colours"):
         colours = result["colours"]
         if inker_palette_io.index_to(ctx, state.get(key.split(":", 1)[1]), colours):
@@ -1153,6 +1246,16 @@ def _done_tileset_import(ctx: Any, state: Any, done: Any) -> None:
                 # ``palette_io.index_to`` had, for the same reason: a save or
                 # playback started while the native picker was open.
                 ctx.toast("Busy -- the picked tileset was not added. Try again.", "warn")
+            elif state.transforming:
+                # The 2026-10-03 audit, finding inker-41: ``add_tileset``
+                # commits the free transform's floating buffer, leaving
+                # ``state.transforming`` true with nothing floating. A transform
+                # opened while the picker was up is refused like a busy tab.
+                ctx.toast(
+                    "A free transform is open -- the picked tileset was not added."
+                    " Finish the transform and try again.",
+                    "warn",
+                )
             else:
                 slot = target.doc.add_tileset(result["tileset"])
                 ctx.toast(f"{slot.tileset.name} added.", "success")
@@ -1291,6 +1394,23 @@ def _done_walk_view(ctx: Any, state: Any, done: Any) -> None:
     only has to not fall through to the tail, which unlocks a tab."""
 
 
+def _done_grid(ctx: Any, state: Any, done: Any) -> None:
+    """The Image size dialog's pixel-lattice measurement has landed.
+
+    The 2026-10-03 audit, finding inker-54: this scan ran on the frame thread
+    when the dialog opened. It lands in the ``inker_grid:`` entry the Descale
+    row reads. Dropped when the tab is gone, or when the pixels changed while
+    it was being measured -- a lattice found in the old picture is not one to
+    offer ``descale_to_grid`` for the new one (the row is never applied
+    silently, but it must not describe a picture that no longer exists).
+    """
+    tab = state.get(done.key.split(":", 1)[1]) if ":" in done.key else None
+    result = done.result
+    if tab is None or not isinstance(result, dict) or tab.doc.rev != result.get("rev"):
+        return
+    ctx.state.preview[f"inker_grid:{tab.uid}"] = result["found"]
+
+
 # --- what answers for which task key ------------------------------------------
 
 
@@ -1332,6 +1452,7 @@ def _TASK_HANDLERS() -> dict[str, Any]:
         "inker-promote": _done_send,
         "inker-walkbake": _done_walk_bake,
         "inker-walkview": _done_walk_view,
+        "inker-grid": _done_grid,
     }
 
 
@@ -1392,7 +1513,13 @@ def on_task_done(ctx: Any, done: Any) -> None:
         options = result.get("options")
         if isinstance(options, dict):
             tab.export_options = dict(options)
-        ctx.toast(f"Exported to {result['exported']}")
+        notes = [str(note) for note in result.get("notes") or ()]
+        if notes:
+            # A caveat about what was written (a GIF that could not carry the
+            # document's table), so it rides the same toast at a warning level.
+            ctx.toast(f"Exported to {result['exported']}. " + " ".join(notes), "warn")
+        else:
+            ctx.toast(f"Exported to {result['exported']}")
         return
     if result.get("reverted"):
         _reload_linked(ctx, tab, result.get("doc"), result.get("load_error"))
@@ -1444,6 +1571,25 @@ def on_task_done(ctx: Any, done: Any) -> None:
         ctx.toast("Saved.")
 
 
+#: The key heads whose door set ``tab.saving`` (``_start`` is
+#: ``docmodes.start_save``, and the convert door calls it directly) -- the only
+#: tasks whose *failure* should clear it. ``inker-index``, ``inker-palimg`` and
+#: ``inker-tileset-import`` also key themselves ``"inker-...:{tab.uid}"`` but
+#: are plain ``ctx.submit``s that never touch ``saving``: the 2026-10-03
+#: audit's inker-86 -- an unparseable .gpl failing after the user pressed
+#: Ctrl+S on the same tab cleared the lock while the encoder was still
+#: walking the stack, re-opening every mutation mid-save. Plotter's
+#: ``_SAVE_TASK_HEADS`` (plotter-mode-17) is the same fix.
+_SAVE_TASK_HEADS = (
+    "inker-save",
+    "inker-saveas",
+    "inker-send",
+    "inker-revert",
+    "inker-export",
+    "inker-convert",
+)
+
+
 def on_task_failed(ctx: Any, done: Any) -> None:
     """A failed save must not leave the document locked.
 
@@ -1454,7 +1600,10 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     state = ctx.state.inker
     if state is None or ":" not in done.key:
         return
-    tab = state.get(done.key.split(":", 1)[1])
+    head, _, rest = done.key.partition(":")
+    if head not in _SAVE_TASK_HEADS:
+        return
+    tab = state.get(rest)
     if tab is not None:
         tab.saving = False
 
@@ -1897,7 +2046,10 @@ def stamp_text(ctx: Any, state: Any, tab: InkerDoc) -> bool:
         # closes itself on a tab switch, so this is the belt to that braces: a
         # stamp is a write, and a write at coordinates from a different picture
         # is the kind of thing that must be refused at the door rather than
-        # relied on being unreachable.
+        # relied on being unreachable. ``clear_drag`` keeps ``text_uid`` across
+        # a switch for this test's sake: it used to blank it, so the check read
+        # "no owner" and stamped the buffer into the front document at (0, 0)
+        # (the 2026-10-03 audit, finding inker-53).
         return False
     pixels = textstamp.text_stamp(
         state.text_buffer,
@@ -2395,6 +2547,9 @@ def flourish_regenerate(ctx: Any, tab: Any, *, force: bool = False, **_: Any) ->
     if recipe is None:
         return False
     state.flourish_due.pop(group, None)
+    # A fresh press supersedes a ``force`` an earlier, busy-deferred one left
+    # behind (the 2026-10-03 audit, finding inker-35).
+    state.flourish_force.pop(group, None)
     result = inker_flourish.submit_render(
         ctx, tab, group, recipe, force=force, pending_assets=state.flourish_pending_asset.get(group)
     )
@@ -2445,6 +2600,7 @@ def flourish_detach(ctx: Any, tab: Any, **_: Any) -> bool:
         return False
     state.flourish_pending.pop(group, None)
     state.flourish_due.pop(group, None)
+    state.flourish_force.pop(group, None)
     # A texture picked up since the last render is still only pixels in
     # ``state`` (``inker_flourish._new_pending_asset``) -- the group is about
     # to stop being an effect at all, so there is no render left to land them

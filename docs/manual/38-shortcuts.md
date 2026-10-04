@@ -49,9 +49,11 @@ recognise a glyph to know what pressing it would do.
 
 **The arrow keys belong to whatever is on screen.** Home moves its selection with Up and Down and
 the library moves through its grid with all four, Review steps between units with Left and Right,
-Poser's character-sheet section steps a clip a frame at a time with Left and Right, and Inker and
-Plotter pan while Space is held. In those six the arrows do that and nothing else — they do not also
-step the ring, which would be two things answering one key. Tab is never taken over in this way,
+Poser's character-sheet section steps a clip a frame at a time with Left and Right, Muse auditions
+the selected take with Space and moves between takes with Up and Down, Sirens moves its pattern
+caret with all four arrows (Space plays and Page Up and Page Down move a bar), and Inker and
+Plotter pan while Space is held. In those eight the arrows do that and nothing else — they do not
+also step the ring, which would be two things answering one key. Tab is never taken over in this way,
 which is what keeps traversal available everywhere.
 
 Inside a text field the arrows go back to being cursor movement, whichever mode you are in, and Tab
@@ -72,8 +74,9 @@ and each guided tour as **Take the tour: …** — see [New here?](21-home.md#ne
 cannot run right now is still listed, greyed: an empty result would not tell you the command exists
 or which mode owns it.
 
-Everything in the palette is also in the menu bar, and the reverse: both are drawn from the same
-registry, so neither can offer something the other does not.
+Everything in the palette is also in the menu bar: both are drawn from the same registry, so the
+palette cannot offer a command the menu lacks. The menu bar adds a few rows of its own — Window ▸
+Navigation labels, and in Inker the editor's own operations — which the palette does not list.
 
 Typing also searches your most recent assets — by name, prompt or job id, up to the newest 200 —
 picking one selects it and opens it in the pane that made it. An older asset than that is still in
@@ -96,22 +99,25 @@ so pressing Up at the top is not a dead key. The Library is a grid, so Up and Do
 row and Left and Right by one card, over the same filtered, sorted list the cards are drawn from —
 and it is **clamped** rather than wrapped, because that list is the newest N of many and one press
 at the top landing on the oldest asset the window happens to hold is a jump the other arrow will not
-undo. Create's sidebar walks the same list with Up and Down alone, its rows being one card wide.
+undo. Create draws no library list, so Up and Down do nothing there: pick an asset by clicking it in
+the Creations pane.
 
 ## Create
 
 | Keys | Action |
 | --- | --- |
-| Ctrl+Enter | Generate on Reference, Make 3D on Mesh; not Rig, Pose, Export |
+| Ctrl+Enter | Generate on Reference, Make 3D on Mesh; not Rig, Pose, Export (the menu and palette rows are greyed on those stages too) |
 | Tab / Shift+Tab | Move between the form's controls |
 | Enter | Press the stage's button when it is the one focused |
-| Up / Down | Previous / next asset in the library |
 | Right-click a card | The same actions menu the `...` button opens |
 | F | Frame the model |
 | W | Toggle wireframe |
 | S | Toggle turntable |
 | Esc | Exit comparison / pose edit |
 | Ctrl+Z / Ctrl+Y | Undo / redo a pose edit (Ctrl+Shift+Z also redoes) |
+
+`F`, `W` and `S` are plain keys: with `Ctrl`, `Alt` or `Meta` held they do nothing in Create, so
+`Ctrl+S` and `Ctrl+W` never toggle the turntable or the wireframe.
 
 The undo row applies **while pose edit is open**, and only there. It is the pose editor's own
 history — one step per gizmo drag, per preset, per mirror and per reset — and it is the same
@@ -439,6 +445,9 @@ so there is no save, no undo and no tab to close for it.
 | Ctrl+O | Open a file |
 | Ctrl+W | Close the current tab |
 | Ctrl+G | Toggle the grid |
+| Ctrl+R | Toggle the rulers |
+| Ctrl+Shift+G / Ctrl+Shift+P | Snap to the grid / to pixels |
+| Ctrl+Shift+Up / Down | Raise / lower the layer |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous map |
 | Ctrl+0 / Ctrl+1 | Fit to the pane / 100% |
 | Space drag, middle drag | Pan (the wheel zooms) |
@@ -517,6 +526,7 @@ bracket keys place a marker exactly where you are listening — the thing a mous
 | Ctrl+C / Ctrl+X | Copy / cut the selection (or the caret's cell) as a block |
 | Ctrl+V | Paste the block at the caret |
 | Esc | Drop the selection |
+| Shift+Esc | Silence the device at once, from anywhere in the mode — a tab open or not |
 | Ctrl+Z / Ctrl+Y | Undo / redo (Ctrl+Shift+Z also redoes) |
 | Ctrl+Shift+Z | Redo as well |
 | Ctrl+S / Ctrl+Shift+S | Save / save as |

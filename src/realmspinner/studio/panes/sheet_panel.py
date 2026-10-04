@@ -126,7 +126,36 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
             "name": "",
         }
         forms_by_job[job_id] = form
+    _drop_deleted_poses(form, ctx.state.preview.get("poses"))
     return form
+
+
+def _drop_deleted_poses(form: dict[str, Any], poses: list[Any] | None) -> None:
+    """Forget pose ids the saved list no longer carries.
+
+    The 2026-10-03 audit, finding create-08: ``form["poses"]`` and the clip ends
+    outlive the pose they name when it is deleted, the Rows checkboxes are drawn
+    only from the surviving poses so the dead id could not be unticked, and
+    every Render sheet press was then refused by ``create_sheet`` with a
+    fieldless "no such pose". Done where the form is *read*, so what is
+    submitted is what is drawn.
+
+    ``None`` means the list has not landed (``_refresh_rig_side_data`` pops it
+    and the read arrives off-thread), which says nothing about what survives, so
+    nothing is pruned; an empty list is an answer and clears everything.
+    """
+    if poses is None:
+        return
+    alive = {pose["id"] for pose in poses}
+    form["poses"] &= alive
+    for end in ("clip_from", "clip_to"):
+        if form[end] not in alive:
+            # "" is what ``_seed_clip_ends`` re-seeds from the first pose.
+            form[end] = ""
+    if not alive:
+        # The clip toggle is only drawn beside poses, so with none left it
+        # could never be switched off again.
+        form["clip"] = False
 
 
 def _seed_clip_ends(form: dict[str, Any], poses: list[Any]) -> None:

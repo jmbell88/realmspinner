@@ -127,6 +127,17 @@ def clamp(form: dict[str, Any]) -> dict[str, Any]:
     # same cell, so anything ``tile_w``/``tile_h`` may not exceed neither may
     # it.
     form["hex_side"] = max(0, min(int(form.get("hex_side", 0) or 0), MAX_TILE_PX))
+    # The 2026-10-03 audit (finding plotter-17): the dialog has no hex-side
+    # field, so choosing Hexagonal in the Projection combo left hex_side at 0 --
+    # the staggered lattice by ``project.Lattice``'s own docstring -- and a
+    # Hexagonal preset followed by another projection carried its 16 onto that
+    # map. The form means the same through every door only if the projection
+    # decides the flat run: a hexagon gets the default when it has none, every
+    # other lattice gets none.
+    if form["projection"] == project.HEXAGONAL:
+        form["hex_side"] = form["hex_side"] or DEFAULT_HEX_SIDE
+    else:
+        form["hex_side"] = 0
     return form
 
 

@@ -68,7 +68,7 @@ _was_open = [False]
 _card_rect: list[tuple[float, float, float, float] | None] = [None]
 
 #: Whether ``##tour-card`` had keyboard focus as of the last frame it drew.
-#: One frame stale, for ``_viewport_hovered``'s reason (``main.py``): the
+#: One frame stale, for ``_viewport_hovered``'s reason (``shell/app.py``): the
 #: card's own Enter/Left/Right read gates on ``imgui.is_window_focused()``
 #: fresh, in the same frame, because it runs *after* the window is drawn --
 #: but ``App._shortcut`` runs on the raw pygame event, *before* this frame's
@@ -79,7 +79,7 @@ _card_focused: list[bool] = [False]
 
 
 def has_focus() -> bool:
-    """Whether the tour card currently owns the keyboard. -> ``main.py``.
+    """Whether the tour card currently owns the keyboard. -> ``shell/events.py``.
 
     The 2026-09-07 audit, finding tour-01: the card reads Enter/Left/Right
     unconditionally, and so did ``App._shortcut`` underneath it -- an arrow
@@ -608,12 +608,20 @@ def _card(
         focused = imgui.is_window_focused()
         _card_focused[0] = focused
         _card_body(ctx, tour, step, state, focused)
-        pos = imgui.get_window_pos()
-        size = imgui.get_window_size()
-        # Padded, so the shadow under the card is not the one thing the scrim
-        # still darkens -- a bright card with a dimmed halo reads as a seam.
-        pad = sp(HOLE_PAD)
-        _card_rect[0] = (pos.x - pad, pos.y - pad, size.x + pad * 2, size.y + pad * 2)
+        # The 2026-10-03 audit's tour-05: End, Finish and Back-off-the-end all
+        # call ``stop``/``advance`` from inside ``_card_body``, whose
+        # ``_clear_card()`` nulls the rect -- and this write, still inside the
+        # window, put it straight back, so the next tour's first frame was
+        # veiled around the hole the previous card left. A tour that stopped
+        # while the body ran has no card to leave a hole for.
+        if state.running:
+            pos = imgui.get_window_pos()
+            size = imgui.get_window_size()
+            # Padded, so the shadow under the card is not the one thing the
+            # scrim still darkens -- a bright card with a dimmed halo reads as
+            # a seam.
+            pad = sp(HOLE_PAD)
+            _card_rect[0] = (pos.x - pad, pos.y - pad, size.x + pad * 2, size.y + pad * 2)
     else:
         _card_focused[0] = False
     imgui.end()
@@ -656,7 +664,7 @@ def _card_body(ctx: Any, tour: Any, step: Any, state: Any, focused: bool) -> Non
     # the same press.
     back = focused and imgui.is_key_pressed(imgui.Key.left_arrow)
     # Both Enter keys, the 2026-09-13 audit's tour-02: ``App._shortcut``
-    # swallows ``K_KP_ENTER`` whenever the tour has focus (main.py), and
+    # swallows ``K_KP_ENTER`` whenever the tour has focus (shell/events.py), and
     # every other Enter-confirms site in the app reads both keys -- reading
     # only ``Key.enter`` here left the numpad key dead on this one surface.
     forward = focused and (

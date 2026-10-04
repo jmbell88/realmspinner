@@ -32,6 +32,16 @@ IDLE_REFRESH_SECONDS = 3.0
 # How often COUNT(*) is re-run while the page is full (A3). When the page is
 # not full the count is exact for free (total == len(jobs)).
 COUNT_SECONDS = 5.0
+# How long a failed job-list read waits before the next attempt. The 2026-10-03
+# audit (shell-13): ``adopt`` returned on an error reading before it moved
+# ``_next_refresh``, so ``_due()`` stayed true and every frame resubmitted the
+# read and logged a fresh traceback -- a locked database floods the 5 MB x 3
+# log with identical lines and pushes out the evidence that would explain it.
+ERROR_RETRY_SECONDS = 3.0
+# How often the "is anything in the trash" probe re-runs besides after a UI
+# action (shell-18): ``store.trashed()`` builds every trashed row, so it is
+# throttled, and it runs on the read task rather than where the menus ask.
+TRASH_PROBE_SECONDS = 5.0
 LIST_LIMIT = 200
 # How many ids a search widens the window by. Small on purpose: it only needs
 # to find candidates the loaded window is missing, not to become a second
@@ -76,6 +86,22 @@ class JobsCache:
         # attribute write is atomic enough for a flag nothing branches twice on.
         self.storage_error: str | None = None
         self._last_status: dict[str, str] = {}
+        # Whether the trash holds anything, as the last read saw it; ``None``
+        # until one has. The Empty-the-trash gate reads this instead of asking
+        # the store on the frame thread, per menu row, per frame (shell-18, the
+        # 2026-10-03 audit).
+        self.trash_present: bool | None = None
+        self._next_trash_probe = 0.0
+        # Stamped by ``request`` before it submits, like ``_read_was_dirty``:
+        # an attribute rather than an argument so ``read``'s signature stays
+        # the one callers and spies already pass. A direct ``read`` (``tick``,
+        # a test) probes.
+        self._probe_trash = True
+        # Rows a search pulled in from outside the window, kept across the
+        # list refresh that would otherwise rebuild ``jobs`` without them
+        # (shell-19): the matched old rows dropped out for a frame or two at
+        # every refresh until the next search landed.
+        self._widened: dict[str, dict[str, Any]] = {}
         self._next_refresh = 0.0
         self._next_count = 0.0
         self._dirty = True
@@ -207,6 +233,10 @@ class JobsCache:
         page. That is what stops "Load older" from turning into a re-read (and
         a re-stat) of the whole growing window on every tick (O119/A2).
 
+        Also asks the store whether anything is trashed when ``_probe_trash``
+        says to, so the Empty-the-trash gate can answer from the reading
+        (shell-18).
+
         -> ``{"jobs": [...], "old": [...], "files": files_snapshot,
         "window_generation": int}`` or ``{"error": str}`` for :meth:`adopt`
         to publish.
@@ -251,12 +281,18 @@ class JobsCache:
         except Exception as exc:  # a locked DB, a vanished file
             log.exception("could not read the job list")
             return {"error": str(exc)}
-        return {
+        reading: dict[str, Any] = {
             "jobs": top,
             "old": old,
             "files": files_snapshot,
             "window_generation": window_generation,
         }
+        if self._probe_trash:
+            try:
+                reading["trash_present"] = bool(self.svc.store.trashed())
+            except Exception:  # an unknown answer keeps the gate's old fallback
+                log.debug("could not probe the trash", exc_info=True)
+        return reading
 
     def adopt(
         self,
@@ -277,6 +313,11 @@ class JobsCache:
         error = reading.get("error")
         if error:
             self.error = str(error)
+            # shell-13 (the 2026-10-03 audit): without this the failed read
+            # left ``_next_refresh`` where it was, ``_due()`` stayed true and
+            # the very next frame resubmitted it. An ``invalidate`` still
+            # retries at once, so a user action is never made to wait.
+            self._next_refresh = time.monotonic() + ERROR_RETRY_SECONDS
             return False
         if reading.get("window_generation") != self._window_generation:
             # shell-documents-05 (2026-09-26 audit): this reading was started
@@ -294,6 +335,8 @@ class JobsCache:
         jobs = top + old
         self.error = None
         self.jobs = jobs
+        if "trash_present" in reading:
+            self.trash_present = bool(reading["trash_present"])
         self._files = reading.get("files", self._files)
         self._generation += 1
         now = time.monotonic()
@@ -329,6 +372,10 @@ class JobsCache:
                 if previous is not None and previous != job["status"]:
                     on_transition(job, previous)
         self._last_status = {j["id"]: j["status"] for j in jobs}
+        # Last, after every figure above was taken from the window alone: the
+        # widened rows are outside it, so they must not move ``total`` or the
+        # transition diff (shell-19).
+        self._merge_widened()
         return True
 
     def request(
@@ -367,10 +414,17 @@ class JobsCache:
         # (shell-04), and assigning after would race the read it describes.
         previous = self._read_was_dirty
         self._read_was_dirty = was_dirty
+        now = time.monotonic()
+        probe_trash = was_dirty or now >= self._next_trash_probe
+        previous_probe = self._probe_trash
+        self._probe_trash = probe_trash
         accepted = bool(runner.submit("jobs-list", self.read, dict(self._files)))
         if accepted:
             self._dirty = False
+            if probe_trash:
+                self._next_trash_probe = now + TRASH_PROBE_SECONDS
         else:
+            self._probe_trash = previous_probe
             self._read_was_dirty = previous
         return accepted
 
@@ -384,11 +438,10 @@ class JobsCache:
         if not self._due():
             return False
         self._read_was_dirty = self._dirty
+        self._probe_trash = True
         self._dirty = False
         reading = self.read(dict(self._files))
-        if reading.get("error"):
-            self.error = str(reading["error"])
-            return False
+        # ``adopt`` records an error reading itself (and backs the retry off).
         return self.adopt(reading, on_transition)
 
     def refresh_storage(self) -> None:
@@ -544,6 +597,9 @@ class JobsCache:
         key = (self._generation, free_text, tags, names, status, favorite, filters.trash)
         if not active:
             self._search_key = None
+            # Nothing is being searched for any more, so the rows kept for it
+            # go at the next refresh (shell-19).
+            self._widened = {}
             return False
         if key == self._search_key:
             return False
@@ -571,6 +627,10 @@ class JobsCache:
                 status,
                 favorite,
                 filters.trash,
+                # The window's own ids (``_last_status`` is exactly the last
+                # adopted window, with no widened rows in it), so the task
+                # fetches only rows the window does not already hold.
+                frozenset(self._last_status),
             )
         )
         if submitted:
@@ -585,10 +645,20 @@ class JobsCache:
         status: str | None,
         favorite: bool | None,
         trash: bool,
+        have: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """The blocking half of :meth:`request_widen` -- one ``search_ids``
-        call, off the frame thread. -> ``{"ids": [...]}`` or ``{"error": str}``
-        for :meth:`adopt_widen` to publish.
+        call and the rows it names, off the frame thread. ->
+        ``{"ids": [...], "rows": {id: row}}`` or ``{"error": str}`` for
+        :meth:`adopt_widen` to publish.
+
+        **The rows are fetched here, not in** :meth:`adopt_widen`. The
+        2026-09-08 fix moved only the id query off the frame thread, and the
+        merge then ran ``get_job`` (a sqlite read, an ``attach_files`` stat and
+        ``attach_progress``) once per match -- up to ``SEARCH_LIMIT`` -- on
+        the frame thread at every refresh (shell-19, the 2026-10-03 audit).
+        ``have`` is the window's ids, so a match the window holds is not
+        fetched twice.
         """
         try:
             ids = self.svc.store.search_ids(
@@ -603,39 +673,55 @@ class JobsCache:
         except Exception as exc:
             log.exception("could not search the job list")
             return {"error": str(exc)}
-        return {"ids": ids}
+        rows: dict[str, dict[str, Any]] = {}
+        for job_id in ids:
+            if job_id in have:
+                continue
+            try:
+                rows[job_id] = svc_jobs.get_job(self.svc, job_id)
+            except Exception:
+                log.exception("could not load search match %s", job_id)
+        return {"ids": ids, "rows": rows}
 
     def adopt_widen(self, reading: Any) -> None:
         """Frame-thread half of :meth:`request_widen` -- merge a
-        :meth:`_search` reading into ``self.jobs``.
+        :meth:`_search` reading into ``self.jobs``. Reads nothing: the rows
+        arrive already fetched.
 
         Called from wherever ``runner``'s result is collected, keyed on
         :data:`SEARCH_KEY` -- ``main._on_task_done`` does that for the app.
         """
         if not isinstance(reading, dict):
             return
-        ids = reading.get("ids")
-        if ids is None:
+        rows = reading.get("rows")
+        if not isinstance(rows, dict):
             return
-        missing = [i for i in ids if i not in self.by_id]
-        if not missing:
-            return
-        for job_id in missing:
-            try:
-                job = svc_jobs.get_job(self.svc, job_id)
-            except Exception:
-                log.exception("could not load search match %s", job_id)
-                continue
-            self.jobs.append(job)
-            self.by_id[job_id] = job
-        self.jobs.sort(key=lambda j: (j.get("created_at") or 0.0, j.get("id") or ""), reverse=True)
-        # The shape of ``self.jobs`` changed under whatever ``visible``/
-        # ``failures`` last memoized -- invalidate directly rather than
-        # bumping ``_generation``, which would immediately fail the ``key ==
-        # self._search_key`` check in :meth:`request_widen` and re-run the
-        # search next frame.
-        self._visible_memo = None
-        self._failures_memo = None
+        # Kept for :meth:`adopt`, which rebuilds ``jobs`` from the window at
+        # every refresh and would otherwise drop these until the next search.
+        self._widened = dict(rows)
+        if self._merge_widened():
+            # The shape of ``self.jobs`` changed under whatever ``visible``/
+            # ``failures`` last memoized -- invalidate directly rather than
+            # bumping ``_generation``, which would immediately fail the ``key
+            # == self._search_key`` check in :meth:`request_widen` and re-run
+            # the search next frame.
+            self._visible_memo = None
+            self._failures_memo = None
+
+    def _merge_widened(self) -> bool:
+        """Fold the kept search rows the window does not hold into ``jobs``.
+        -> whether anything was added. No I/O."""
+        extras = [row for job_id, row in self._widened.items() if job_id not in self.by_id]
+        if not extras:
+            return False
+        for row in extras:
+            self.by_id[row["id"]] = row
+        self.jobs = sorted(
+            [*self.jobs, *extras],
+            key=lambda j: (j.get("created_at") or 0.0, j.get("id") or ""),
+            reverse=True,
+        )
+        return True
 
     def _filters_key(self, filters: Any) -> Any:
         """A hashable snapshot: the generation plus every filter field. The

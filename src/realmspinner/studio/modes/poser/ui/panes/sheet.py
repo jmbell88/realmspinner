@@ -506,6 +506,9 @@ def _scorecard(ctx: Any, state: Any) -> None:
             f"worst: {metric} {value:.2f}{place} - "
             f"{score.flagged} of {len(score.cells)} cells flagged"
         )
+    note = skipped_note(score)
+    if note:
+        widgets.muted(note)
 
     by = score.lookup()
     animation = str(movement.get("key") or "")
@@ -556,6 +559,32 @@ def _scorecard(ctx: Any, state: Any) -> None:
             if frame + 1 < frames:
                 imgui.same_line(0.0, gap)
     imgui.dummy((0, sp(4)))
+
+
+#: What each metric the sheet scorer can leave out on purpose says about why.
+_SKIPPED_WHY = {
+    "palette_flicker": "Palette flicker is not scored on an HD sheet",
+}
+
+
+def skipped_note(score: Any) -> str:
+    """One muted line naming what the score left out, or ``""``.
+
+    The 2026-10-03 audit's poser-12 follow-up: the scorer stopped scoring
+    palette flicker on a sheet whose sidecar says ``pixel_art: false`` (an
+    exact-RGB histogram distance reads shading as flicker) and recorded that in
+    ``SheetScore.skipped``, but this pane never read it -- the heatmap just
+    had no flicker line, which on a card that also says "No frame flagged"
+    reads as a clean flicker score rather than an unmeasured one.
+    """
+    skipped = tuple(getattr(score, "skipped", ()) or ())
+    if not skipped:
+        return ""
+    parts = [
+        _SKIPPED_WHY.get(name, f"{name.replace('_', ' ').capitalize()} is not scored on this sheet")
+        for name in skipped
+    ]
+    return "; ".join(parts) + "."
 
 
 def _tooltip(cell: Any) -> str:
@@ -857,10 +886,14 @@ def _pixel_report(ctx: Any, state: Any) -> dict[str, Any]:
     import time
 
     now = time.monotonic()
+    # The 2026-10-03 audit (poser-52): a sheet's report is write-once, so a found
+    # one never needs another scan -- it used to re-run a 400-row query under the
+    # store's lock on the frame thread every SHEETS_REFRESH for as long as the
+    # panel stayed open. Only an empty (not yet written) answer keeps polling.
     if (
         state.pixel_report_cache is not None
         and state.pixel_report_key == state.sheet_id
-        and now < state.pixel_report_next
+        and (state.pixel_report_cache or now < state.pixel_report_next)
     ):
         return state.pixel_report_cache
     found: dict[str, Any] = {}

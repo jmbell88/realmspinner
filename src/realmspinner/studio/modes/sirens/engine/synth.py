@@ -386,9 +386,16 @@ def _sound(voice: Voice, count: int, rate: float, samples: dict[str, np.ndarray]
         if pcm is None or pcm.size == 0:
             return np.zeros(0, dtype=np.float32)
         ratio = notes.frequency(pitch) / notes.frequency(notes.SAMPLE_BASE_NOTE)
-        ramp, voice.phase = voices.phase_ramp(
-            voice.phase, ratio / voices.OVERSAMPLE, count
-        )
+        # **The source sits at ``SAMPLE_RATE`` whatever rate is rendered at (the
+        # 2026-10-03 audit, finding sirens-20).** ``rate`` here is the
+        # oversampled rate, so the step per output sample is the ratio times
+        # source-samples-per-second over output-samples-per-second; without the
+        # ``SAMPLE_RATE`` factor a render at any other ``rate`` played samples
+        # at the wrong pitch while pulse, triangle and noise stayed in tune. At
+        # the default the factor is exactly ``1.0``, so the bytes of every
+        # existing render are unchanged.
+        step = ratio * (SAMPLE_RATE / (rate / voices.OVERSAMPLE)) / voices.OVERSAMPLE
+        ramp, voice.phase = voices.phase_ramp(voice.phase, step, count)
         if voice.phase >= pcm.size:
             # A one-shot that has run out. Cut rather than left "active" with a
             # phase climbing forever, so the voice stops costing anything.

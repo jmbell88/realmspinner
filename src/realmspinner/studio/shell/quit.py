@@ -35,7 +35,17 @@ log = logging.getLogger(__name__)
 # "-<word starting with export or save>:" run anywhere in the key, so a
 # future mode's own spelling of the convention is covered without adding a
 # case here.
-_EXPORT_OR_SAVE_KEY = re.compile(r"-(?:export|save)\w*:")
+#
+# shell-74 (2026-10-03 audit): Poser's own write keys carry no colon at all --
+# "poser-save", "poser-clips-save" -- so a colon was never going to follow the
+# word; a run that *ends the key* counts as well. "poser-rename" and
+# "poser-duplicate" write the same pose library and spell neither word, so they
+# are named.
+_EXPORT_OR_SAVE_KEY = re.compile(r"-(?:export|save)\w*(?::|$)|^poser-(?:rename|duplicate)$")
+
+#: The title of the one confirm ``_ask_quit`` raises, named so a second press of
+#: the window's X can recognise the question already waiting.
+QUIT_CONFIRM_TITLE = "Quit Realmspinner?"
 
 
 class QuitMixin:
@@ -196,9 +206,15 @@ class QuitMixin:
         if not summary:
             self._request_quit()
             return
+        # shell-46 (2026-10-03 audit): every ``pygame.QUIT`` reaches here, and a
+        # second press of the X (or Alt+F4) while this question is already up
+        # queued an identical one behind it -- answering "Stay" then left n-1
+        # more modals asking the same thing.
+        if self.app_ctx.confirms.holds(QUIT_CONFIRM_TITLE):
+            return
         self.app_ctx.confirms.ask(
             dialogs.Confirm(
-                title="Quit Realmspinner?",
+                title=QUIT_CONFIRM_TITLE,
                 message=summary,
                 confirm_label="Quit",
                 cancel_label="Stay",
@@ -231,29 +247,24 @@ class QuitMixin:
         clicking "Keep editing" on the first still left two more questions to
         dismiss, after the user has already said they are not quitting.
         """
-        from ..modes.clay import mode as clay_mode
-        from ..modes.inker import mode as inker_mode
-        from ..modes.mason import mode as mason_mode
-        from ..modes.packwright import mode as packwright_mode
-        from ..modes.plotter import mode as plotter_mode
-        from ..modes.poser import mode as poser_mode
-        from ..modes.sirens import mode as sirens_mode
+        from .. import mode_manifest
         from ..panes import pose_panel
 
         ctx = self.app_ctx
+        # **Derived from** ``mode_manifest.DOC_MODES`` (shell-73, the 2026-10-03
+        # audit): this was a hand list of eight beside the manifest that says
+        # which modes are documents, so a mode added to the manifest was
+        # journalled and counted in the caption but never asked about on quit.
+        #
         # The two pose guards are mutually exclusive by construction: the
         # inspector's asks about the shared viewer's editor, the Poser's about
-        # its own instance, so no press ever answers one question twice.
-        guards = (
-            inker_mode.guard,
-            clay_mode.guard,
-            mason_mode.guard,
-            plotter_mode.guard,
-            packwright_mode.guard,
-            sirens_mode.guard,
-            pose_panel.guard,
-            poser_mode.guard,
-        )
+        # its own instance, so no press ever answers one question twice. The
+        # inspector's goes immediately before Poser's own, as it always did.
+        guards = []
+        for entry in mode_manifest.DOC_MODES:
+            if entry.key == "poser":
+                guards.append(pose_panel.guard)
+            guards.append(mode_manifest.module_of(entry).guard)
 
         def step(index: int) -> None:
             if index == len(guards):
@@ -412,9 +423,22 @@ class QuitMixin:
         banner saying so is inside the very pane you have to be looking at.
         """
         ctx = self.app_ctx
-        if ctx is None or bool(dirty) == ctx.state.pose_dirty:
+        if ctx is None:
             return
-        ctx.state.pose_dirty = bool(dirty)
+        # Two viewers report into this one mirror (the shared one and Poser's
+        # own), and each reports only its *own* answer -- so the shared viewer
+        # adopting any model, which reports "clean", used to clear the mark over
+        # a Poser pose still unsaved, and an inspector edit marked Poser's status
+        # label dirty (the 2026-10-03 audit, finding poser-46). The mirror is the
+        # OR of both editors, read where they are, with the reporter's answer
+        # kept for callers that have no viewer to ask.
+        dirty = bool(dirty)
+        for viewer in (getattr(self, "viewer", None), getattr(self, "poser_viewer", None)):
+            if viewer is not None and viewer.pose_mode and viewer.editor.has_unsaved_edits():
+                dirty = True
+        if dirty == ctx.state.pose_dirty:
+            return
+        ctx.state.pose_dirty = dirty
         self._sync_title()
 
     def _sync_title(self) -> None:

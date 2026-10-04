@@ -405,7 +405,13 @@ def _duration(ctx: Any, form: dict[str, Any]) -> None:
         # Hand-answered, as Create's count is: a row of radios is one control
         # to the keyboard even though it is six items to imgui, Custom
         # included now that _step walks keys rather than _DURATIONS itself.
-        if focused:
+        # muse-23 (2026-10-03 audit). Not while a text field has the caret:
+        # ``focus_key`` only moves on Tab, so after Tab-then-click into the
+        # Custom seconds field the ring still reads "duration" and Left/Right
+        # (the caret's keys) also cycled the pills -- Right from Custom wrapped
+        # onto 30 s and rewrote the number being typed. ``want_text_input`` is
+        # last frame's answer, which is the right one: the field is drawn below.
+        if focused and not imgui.get_io().want_text_input:
             stepped = _step(current, tuple(key for key, _ in _DURATION_OPTIONS))
             if stepped is not None:
                 _pick_duration(state, form, stepped)

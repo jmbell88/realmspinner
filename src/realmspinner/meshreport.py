@@ -146,10 +146,10 @@ def build(
     # glTF is Y-up, so the floor is minimum Y.
     grounded = abs(bounds_min[1]) <= max(height * GROUND_TOLERANCE, 1e-6)
 
-    has_normals = bool(
-        getattr(mesh, "vertex_normals", None) is not None
-        and len(mesh.vertex_normals) == len(vertices)
-    )
+    # Read off the file, not off ``mesh.vertex_normals`` (the 2026-10-03 audit,
+    # pipelines-24): trimesh computes that property on access, so asking it was
+    # True for every non-empty mesh and the field measured nothing.
+    has_normals = _glb_has_normals(glb_path)
     has_uvs, textures = _materials(mesh)
     # The 2026-09-26 audit, finding pipelines-mesh-04: Manual 23 has always
     # claimed the mesh report includes a material count; ``build()`` never
@@ -228,20 +228,61 @@ def build(
     }
 
 
+def _glb_has_normals(glb_path: Path) -> bool | None:
+    """Whether every primitive in the GLB declares a ``NORMAL`` attribute.
+
+    ``None`` when the container cannot be read as a GLB at all (trimesh parsed
+    it, so this is a file this module's own reader does not understand), which
+    is "not measured" rather than a claim either way. A file with no primitives
+    has no normals to report.
+    """
+    from .kernels.geom3d import glbio
+
+    try:
+        gltf, _blob = glbio.read_glb(glb_path)
+    except (OSError, ValueError):
+        return None
+    primitives = [
+        p
+        for m in gltf.get("meshes") or []
+        if isinstance(m, dict)
+        for p in m.get("primitives") or []
+        if isinstance(p, dict)
+    ]
+    return bool(primitives) and all(
+        isinstance((p.get("attributes") or {}).get("NORMAL"), int) for p in primitives
+    )
+
+
 def _topology(trimesh: Any, np: Any, mesh: Any) -> tuple[int, int, int]:
     """-> (components, boundary edges, non-manifold edges)."""
-    # Only the *count* is wanted, so the face-adjacency graph is walked
-    # directly rather than through mesh.split(), which builds a full Trimesh --
-    # vertices, faces, visual and all -- for every shell it finds. On a
-    # 500k-triangle trellis reconstruction with a few hundred stray shells that
-    # is a large transient allocation to compute one integer.
+    # Only the *count* is wanted, so the face graph is walked directly rather
+    # than through mesh.split(), which builds a full Trimesh -- vertices,
+    # faces, visual and all -- for every shell it finds. On a 500k-triangle
+    # trellis reconstruction with a few hundred stray shells that is a large
+    # transient allocation to compute one integer.
+    #
+    # The 2026-10-03 audit (pipelines-14): this walked ``mesh.face_adjacency``,
+    # which omits every edge shared by more than two faces, so faces joined
+    # only through a non-manifold edge (three fins on one edge) counted as
+    # separate components -- on trellis meshes, which are non-manifold, the
+    # inflated number was printed in the report's reason and in Export's
+    # "Ready for an engine?" row. Faces that share *any* unique edge are
+    # joined here: sort the three-per-face edge list by unique edge and link
+    # neighbours in the sort, which chains every face on an edge together.
+    face_count = len(mesh.faces)
+    inverse = np.asarray(mesh.edges_unique_inverse)
+    face_of_edge = np.arange(len(inverse)) // 3
+    order = np.argsort(inverse, kind="stable")
+    sorted_edge = inverse[order]
+    sorted_face = face_of_edge[order]
+    shared = sorted_edge[1:] == sorted_edge[:-1]
+    links = np.column_stack([sorted_face[:-1][shared], sorted_face[1:][shared]])
     components = int(
         len(
-            # `nodes` is not optional here: face_adjacency omits any face with
-            # no neighbour, and a lone floating triangle is a component.
-            trimesh.graph.connected_components(
-                mesh.face_adjacency, nodes=np.arange(len(mesh.faces))
-            )
+            # `nodes` is not optional here: a face with no neighbour appears in
+            # no link, and a lone floating triangle is a component.
+            trimesh.graph.connected_components(links, nodes=np.arange(face_count))
         )
     )
     # An edge with exactly one adjacent face is a boundary edge; more than two

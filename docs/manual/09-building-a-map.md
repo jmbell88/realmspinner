@@ -64,10 +64,11 @@ The tools, and their letters, are Tiled's:
 | `I` | Pick — the tile eyedropper. |
 | `S` | Objects. |
 
-Six of those letters mean something different on an object layer, which is again Tiled's
+Several of those letters mean something different on an object layer, which is again Tiled's
 arrangement: the letter belongs to the gesture, and which gesture depends on what you are painting.
-On an object layer `R`, `I`, `E`, `P`, `L`, `T` and `X` insert a rectangle, point, ellipse, polygon,
-polyline, tile and text respectively.
+On an object layer `R`, `I`, `E`, `C`, `P`, `L`, `T` and `X` insert a rectangle, point, ellipse,
+capsule, polygon, polyline, tile and text respectively. The capsule is Realmspinner's own shape —
+Tiled has none — so `C` is the one letter here that is not borrowed from it.
 
 `X`, `Y` and `Z` flip and rotate the *brush* — the tiles about to be placed, not the map.
 

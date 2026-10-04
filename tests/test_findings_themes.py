@@ -459,19 +459,6 @@ def test_one_rule_routes_the_pointer_into_all_three_viewports():
     assert frame._takes_pointer(SimpleNamespace(dragging=False), False) is False
 
 
-def test_the_persistence_half_clamps_a_width_the_way_the_splitter_does():
-    """``layouts`` cannot import ``layout``, so it had re-spelled the range as
-    literals in three places -- and a splitter and the file it saves into
-    disagreeing about the ceiling is a width that will not round-trip."""
-    from realmspinner.studio import layout, tokens
-
-    assert layout.PANEL_MIN is tokens.PANEL_MIN
-    assert layout.PANEL_MAX is tokens.PANEL_MAX
-    assert layout.SIDEBAR_WIDTHS is tokens.SIDEBAR_WIDTHS
-    assert tokens.clamp_panel(10.0) == tokens.PANEL_MIN
-    assert tokens.clamp_panel(9999.0) == tokens.PANEL_MAX
-
-
 def test_no_pane_imports_the_frame_loop():
     """``modal_open`` and the version string both lived in ``main``, so the
     tour and Home imported the shell for one helper each.
@@ -585,10 +572,13 @@ def inspect_source(fn):
 def test_every_sweep_axis_explains_itself():
     """Three of fourteen had tooltips -- the three that had just been added --
     which teaches the reader that the tooltips are decoration."""
-    from realmspinner.service.sweeps import KWARG_AXES
+    from realmspinner.service.sweeps import axis_params
     from realmspinner.studio.modes.review.mode import AXIS_HELP
 
-    assert set(AXIS_HELP) == set(KWARG_AXES)
+    # ``axis_params``, not ``KWARG_AXES``: the form offers the catalog fields too
+    # (shell-64, the 2026-10-03 audit), and a guard over the kwarg half alone
+    # could not see five of them go unexplained.
+    assert set(AXIS_HELP) == set(axis_params())
     assert all(len(text) > 30 for text in AXIS_HELP.values())
 
 

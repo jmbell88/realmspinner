@@ -45,7 +45,7 @@ root whether or not the engine is ever downloaded.
 |---|---|---|---|
 | trellis.cpp | `trellis-server.exe`, `trellis-cli.exe` | <https://github.com/pwilkin/trellis.cpp> | MIT |
 | ggml | `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-cuda.dll` | <https://github.com/ggml-org/ggml> | MIT |
-| NVIDIA CUDA runtime | `cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll` | NVIDIA CUDA Toolkit 12.8 redistributables | NVIDIA CUDA Toolkit EULA — redistribution permitted under the "Attachment A" redistributable list |
+| NVIDIA CUDA runtime | `cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll` | NVIDIA CUDA 13.x redistributables | NVIDIA CUDA Toolkit EULA — redistribution permitted under the "Attachment A" redistributable list |
 
 A source checkout is the one case where these files still arrive by hand, into
 `vendor/trellis/` — see `README.md`. Nothing is redistributed there either: the
@@ -105,7 +105,7 @@ are worth calling out:
 |---|---|---|
 | `bpy` (Blender as a Python module) | **GPL-3.0** | The reason this project is GPL-3.0. Only `src/realmspinner/pipelines/blender_worker.py` imports it, and only in a subprocess — but the installer distributes it inside one executable alongside this program, so the combined work is GPL-3.0. Installed by the `rig` extra. |
 | `pygame-ce` | LGPL-2.1 | Used unmodified as a library. |
-| `PyOpenGL`, `moderngl`, `imgui-bundle`, `trimesh`, `zstandard`, `pillow` | MIT / MIT / MIT / MIT / BSD-3 / MIT-CMU | |
+| `moderngl`, `imgui-bundle`, `trimesh`, `zstandard`, `pillow` | MIT / MIT / MIT / BSD-3 / MIT-CMU | |
 | `numpy`, `scipy`, `opencv-python-headless` | BSD-3 / BSD-3 / Apache-2.0 | |
 | `torch`, `diffusers`, `transformers`, `huggingface-hub`, `manifold3d` | BSD-3 / Apache-2.0 / Apache-2.0 / Apache-2.0 / Apache-2.0 | |
 

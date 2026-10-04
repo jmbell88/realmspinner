@@ -1,10 +1,14 @@
 """Saved workspace arrangements: the data half, with no imgui in it.
 
 What a layout is, and deliberately is not. It captures **arrangement,
-visibility, widths and shares** -- which panes are in which column, in what
-order, how wide the side columns want to be, and how their vertical splits are
-divided.  The rail, UI scale and theme remain application preferences: a
-workspace switch that collapsed navigation would still be a surprise.
+visibility and shares** -- which panes are in which column, in what order, and
+how their vertical splits are divided. It does **not** capture a width: each
+side column is a fixed share of the room (``layout.proportions``), the same in
+every mode, and the per-workspace widths a v2 blob used to carry were never read
+once that landed. A file that still has a ``widths`` key loads (the key is
+ignored, :meth:`Arrangement.from_json`) and the next save drops it.  The rail,
+UI scale and theme remain application preferences: a workspace switch that
+collapsed navigation would still be a surprise.
 
 **Top-level settings keys**, ``workspace_layouts`` and ``active_layout``,
 rather than living inside
@@ -23,12 +27,11 @@ layout quietly rewritten by an older one.
 
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
 from .settings import as_dict, as_list
-from .tokens import SIDEBAR_WIDTHS, clamp_panel, clamp_share
+from .tokens import clamp_share, finite_float
 
 #: This build's layout-blob version. Independent of ``settings.VERSION``.
 VERSION = 2
@@ -48,18 +51,12 @@ class Arrangement:
 
     columns: dict[str, list[str]] = field(default_factory=dict)
     hidden: list[str] = field(default_factory=list)
-    widths: dict[str, float] = field(default_factory=dict)
     shares: dict[str, float] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         return {
             "columns": {key: list(value) for key, value in sorted(self.columns.items())},
             "hidden": sorted(self.hidden),
-            "widths": {
-                key: round(float(value), 3)
-                for key, value in sorted(self.widths.items())
-                if key in ("left", "right")
-            },
             "shares": {key: round(float(value), 3) for key, value in sorted(self.shares.items())},
         }
 
@@ -72,21 +69,17 @@ class Arrangement:
             if isinstance(value, list):
                 columns[str(key)] = [str(item) for item in value]
         hidden = [item for item in as_list(raw.get("hidden")) if isinstance(item, str)]
-        widths: dict[str, float] = {}
-        for key, value in as_dict(raw.get("widths")).items():
-            if str(key) not in ("left", "right"):
-                continue
-            try:
-                widths[str(key)] = float(value)
-            except (TypeError, ValueError):
-                continue
+        # ``widths`` is deliberately not read: a file a build with per-workspace
+        # widths wrote still carries the key, and ignoring it is what lets that
+        # file load -- the next explicit save simply omits it.
         shares: dict[str, float] = {}
         for key, value in as_dict(raw.get("shares")).items():
-            try:
-                shares[str(key)] = float(value)
-            except (TypeError, ValueError):
-                continue
-        return cls(columns=columns, hidden=hidden, widths=widths, shares=shares)
+            # A stored NaN reads as absent (shell-20, the 2026-10-03 audit):
+            # it would pass ``clamp_share`` unchanged and reach a pane height.
+            number = finite_float(value)
+            if number is not None:
+                shares[str(key)] = number
+        return cls(columns=columns, hidden=hidden, shares=shares)
 
 
 @dataclass
@@ -164,18 +157,15 @@ class Library:
         wanted = str(settings.get(ACTIVE_KEY) or BUILT_IN[0])
         self.active = wanted if wanted in self.layouts else BUILT_IN[0]
         legacy = as_dict(settings.get("layout"))
-        self._width_seed = SIDEBAR_WIDTHS.get(
-            str(legacy.get("sidebar", "default")), SIDEBAR_WIDTHS["default"]
-        )
         self._share_seed = 0.55
-        with suppress(TypeError, ValueError):
-            self._share_seed = float(legacy.get("settings_share", 0.55))
+        seed = finite_float(legacy.get("settings_share", 0.55))
+        if seed is not None:
+            self._share_seed = seed
         self._share_seeds: dict[str, float] = {}
         for key, value in as_dict(legacy.get("settings_shares")).items():
-            try:
-                self._share_seeds[str(key)] = float(value)
-            except (TypeError, ValueError):
-                continue
+            number = finite_float(value)
+            if number is not None:
+                self._share_seeds[str(key)] = number
 
     # -- reading ------------------------------------------------------------
 
@@ -208,21 +198,6 @@ class Library:
             return set()
         return set(self.arrangement(workspace).hidden)
 
-    def width(self, workspace: str, side: str, default: float | None = None) -> float:
-        """Desired side-column width in design pixels.
-
-        Missing v1 values are seeded from the retired global sidebar choice,
-        but the seed is never materialised merely by reading it.
-        """
-
-        if side not in ("left", "right") or not self.current().readable:
-            return float(default if default is not None else self._width_seed)
-        value = self.arrangement(workspace).widths.get(side)
-        resolved = float(
-            value if value is not None else (default if default is not None else self._width_seed)
-        )
-        return clamp_panel(resolved)
-
     def share(self, workspace: str, key: str, default: float | None = None) -> float:
         """A workspace-local vertical split, with v1 global values as seeds."""
 
@@ -248,7 +223,6 @@ class Library:
         columns: dict[str, list[str]],
         hidden: set[str],
         *,
-        widths: dict[str, float] | None = None,
         shares: dict[str, float] | None = None,
     ) -> None:
         """Store an arrangement for one workspace of the active layout."""
@@ -260,7 +234,6 @@ class Library:
         layout.workspaces[workspace] = Arrangement(
             columns={key: list(value) for key, value in columns.items()},
             hidden=sorted(hidden),
-            widths=dict(previous.widths if widths is None else widths),
             shares=dict(previous.shares if shares is None else shares),
         )
         self.save()
@@ -269,8 +242,9 @@ class Library:
         """Every ``(workspace, slot id)`` the active layout hides, sorted.
 
         A hidden slot is dropped before it is drawn, so it has no rect for the
-        layout editor to hang an un-hide badge on; this is the list Settings
-        draws its way back from (shell-11).
+        layout editor to hang a badge on; this is the list Settings draws its
+        way back from (shell-11), and the editor's own "Show" chips
+        (``layout_edit.EditState.chips``) read the per-workspace half of it.
         """
 
         if not self.current().readable:
@@ -289,44 +263,8 @@ class Library:
             return
         self.record(workspace, arrangement.columns, set(arrangement.hidden) - {slot_id})
 
-    def set_width(self, workspace: str, side: str, value: float) -> None:
-        """Persist one desired side width after a real splitter edit."""
-
-        layout = self.current()
-        if not layout.readable or side not in ("left", "right"):
-            return
-        arrangement = layout.workspaces.setdefault(workspace, Arrangement())
-        arrangement.widths[side] = clamp_panel(value)
-        self.save()
-
-    def set_width_seed(self, value: float) -> None:
-        """Adopt a newly chosen global side-column width.
-
-        ``_width_seed`` is read once, at construction, from the v1 blob, so a
-        width chosen in Settings during this session reached nothing: a
-        workspace with a stored width consulted that, and one without consulted
-        a seed from the file. Both are answered here -- see
-        ``layout.Layout.set_sidebar_width`` for why replacing the per-workspace
-        overrides is the intended reading of a global preference rather than a
-        loss.
-
-        Clears every *readable* saved layout, not only the active one: this is
-        a global preference, and a layout the user is not currently viewing
-        would otherwise keep stale per-workspace widths that reappear the
-        moment they switch back to it (the 2026-09-18 audit, shell-02, second
-        run -- the first pass over this method only cleared ``self.current()``).
-        """
-
-        self._width_seed = clamp_panel(value)
-        for layout in self.layouts.values():
-            if not layout.readable:
-                continue
-            for arrangement in layout.workspaces.values():
-                arrangement.widths.clear()
-        self.save()
-
     def reset_sizes(self) -> None:
-        """Drop every stored width and split, keeping the pane arrangement.
+        """Drop every stored split, keeping the pane arrangement.
 
         Not :meth:`reset`: that also discards ``columns`` and ``hidden``, which
         are *which panes are where*, and "Reset pane sizes" does not claim to
@@ -337,7 +275,6 @@ class Library:
         if not layout.readable:
             return
         for arrangement in layout.workspaces.values():
-            arrangement.widths.clear()
             arrangement.shares.clear()
         self.save()
 

@@ -1,5 +1,5 @@
-"""Clay's agent tool surface, the UV handler family (tranche 6,
-``dev/CLAY-PLAN.md``): ``clay_uv`` alone.
+"""Clay's agent tool surface, the UV handler family (Clay tranche 6):
+``clay_uv`` alone.
 
 A new family file, the same shape ``studio/modes/clay/agent/tools_structure.py``
 landed in as tranche 3's own family -- one tool, but with five actions behind
@@ -59,10 +59,17 @@ def _validate_edges_arg(mesh: Any, edges_arg: Any) -> tuple[list[list[int]] | No
         return None, fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
     try:
         pairs = [[int(a), int(b)] for a, b in edges_arg]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
     if not pairs:
         return None, fail("edges must not be empty.", field="edges")
+    # See ``_h_select_elements``: a vertex index past int32 is no edge of this
+    # mesh, and reaching the ``dtype="i4"`` cast below it was an OverflowError
+    # in ``call()``'s field-blind backstop (the 2026-10-03 audit's agents-15).
+    n_verts = len(mesh.positions)
+    out_of_mesh = next((p for p in pairs if not all(0 <= v < n_verts for v in p)), None)
+    if out_of_mesh is not None:
+        return None, fail(f"{out_of_mesh} is not an edge of this mesh.", field="edges")
     ids = adjacency(mesh).edge_ids(np.asarray(pairs, dtype="i4"))
     bad_at = next((i for i, e in enumerate(ids) if e < 0), None)
     if bad_at is not None:
@@ -116,17 +123,20 @@ def _uv_density(doc: Any, obj: Any, args: dict) -> dict:
         return fail("give a value for 'target'.", field="target")
     try:
         target = float(args["target"])
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fail("target must be a number.", field="target")
     if not (target > 0.0):
         return fail("target must be a positive number.", field="target")
     texture_px_arg = args.get("texture_px", 1024)
     try:
         texture_px = int(texture_px_arg)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fail("texture_px must be an integer.", field="texture_px")
-    if texture_px < 1:
-        return fail("texture_px must be at least 1.", field="texture_px")
+    # An upper bound as well: a JSON integer past 1e308 is a fine ``int`` but
+    # reaches the kernel's ``float(texture_px)`` as an ``OverflowError`` (the
+    # 2026-10-03 audit's clay-80), and nothing a texture can be is that big.
+    if not (1 <= texture_px <= 65536):
+        return fail("texture_px must be between 1 and 65536.", field="texture_px")
     mesh = uvtools.normalize_density(obj.mesh, target, texture_px=texture_px)
     try:
         changed = doc.set_mesh(obj.uid, mesh, keep_generator=True)

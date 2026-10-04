@@ -9,8 +9,12 @@ dead object under a GL name the driver will reuse.
 What is different is that nothing here is ever re-uploaded in place. A
 tileset's pixels are frozen at construction (``grid2d.tileset.Tileset`` copies
 them and clears the write flag), so a texture goes stale only when the
-document's tileset *list* changes -- which is what ``tileset_epoch`` counts,
-and why it is the staleness stamp here. The key is per tab: two maps that
+document's tileset *list* changes or a tileset's pixels are swapped -- which is
+what ``tileset_pixel_epoch`` counts, and why it is the staleness stamp here and
+``tileset_epoch`` is not: that one also moves for a metadata edit, which leaves
+the frozen pixels shared, so a collision drag stamped with it re-uploaded the
+whole atlas every frame (the 2026-10-03 audit, finding plotter-20). The key is
+per tab: two maps that
 opened the same ``.tsx`` hold two distinct entries, so they get two textures,
 and one map's close cannot free the other's.
 
@@ -39,16 +43,18 @@ def _slot(uid: str, name: str) -> str:
 def tileset_texture(ctx: Any, uid: str, index: int, tileset: Any, epoch: int) -> Any:
     """The GL texture for one tileset of one tab, uploaded on first ask.
 
-    ``epoch`` is the document's ``tileset_epoch``: adding a tileset shifts no
-    index, but *undoing* an add and adding a different one reuses one, and a
-    stale texture under it would draw the old atlas forever with nothing in the
-    data to say why. The stamp is that counter and not ``id(pixels)`` because
+    ``epoch`` is the document's ``tileset_pixel_epoch`` -- **not**
+    ``tileset_epoch``, which a tile-metadata edit moves too: adding a tileset
+    shifts no index, but *undoing* an add and adding a different one reuses
+    one, and a stale texture under it would draw the old atlas forever with
+    nothing in the data to say why. The stamp is that counter and not
+    ``id(pixels)`` because
     CPython recycles an id once the array it named is freed -- a replacement
     atlas landing on a recycled id would false-match, which is the same
     forever-stale atlas by another door.
 
-    Document-wide rather than per tileset, so any change to the list re-uploads
-    every atlas in it. That is deliberate: the list changes only on a user
+    Document-wide rather than per tileset, so any change to the list or to one
+    atlas's pixels re-uploads every atlas in it. That is deliberate: the list changes only on a user
     action a frame budget never sees, and the alternative -- a counter per
     entry -- is a second thing to keep in step with the undo hooks.
 

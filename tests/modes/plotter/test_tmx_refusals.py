@@ -890,8 +890,9 @@ def test_two_far_apart_chunks_are_refused_rather_than_allocated():
     """``_chunk_side`` caps a chunk's sides; nothing capped its *offset*.
 
     Two individually legal 16x16 chunks a billion cells apart are a few hundred
-    bytes of XML and a 64 GB dense box. ``_settle_infinite`` checks the same
-    ceiling but only after every chunked layer has already been built.
+    bytes of XML and a 64 GB dense box. ``_settle_infinite`` checks the union of
+    the chunked layers' extents against the same ceiling, but only after every
+    layer has already been built.
     """
     body = (
         '<layer id="1" name="L"><data encoding="csv">'

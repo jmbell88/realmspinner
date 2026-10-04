@@ -24,6 +24,7 @@ package asks of a caller, restated in that module's own docstring), then the
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import replace
 from typing import Any
 
@@ -134,11 +135,21 @@ def _transform(doc: Any, node: Any) -> None:
         )
 
 
-def _world_transform(doc: Any, node: Any) -> None:
-    """The same node's transform after its whole ancestry has had its say --
-    see the module docstring for why this is the resolver's answer, read
-    only, and never a second computation of its own."""
-    widgets.field_label("world transform")
+_PLACED_CACHE: weakref.WeakKeyDictionary[Any, tuple[int, int, Any]] = weakref.WeakKeyDictionary()
+
+
+def _placed_for(doc: Any, node: Any) -> Any:
+    """``scene.resolved_for`` for the selected node, once per ``(doc, doc.rev)``.
+
+    The 2026-10-03 audit's mason-26: the root-down walk cost 3.7 ms for the
+    last node of a 1,500-node scene and ran every frame with nothing changed.
+    Keyed like the outliner's rows (``doc.rev``, the document pinned by a weak
+    key rather than ``id()``), plus the uid, since the selection moves without
+    a document edit moving ``rev`` for every caller.
+    """
+    cached = _PLACED_CACHE.get(doc)
+    if cached is not None and cached[0] == doc.rev and cached[1] == node.uid:
+        return cached[2]
     try:
         placed = mscene.resolved_for(doc, node.uid)
     except ValueError:
@@ -149,6 +160,16 @@ def _world_transform(doc: Any, node: Any) -> None:
         # panel asking "where did this end up" is not the caller that should
         # be the one to discover a corrupt/absurd document.
         placed = None
+    _PLACED_CACHE[doc] = (doc.rev, node.uid, placed)
+    return placed
+
+
+def _world_transform(doc: Any, node: Any) -> None:
+    """The same node's transform after its whole ancestry has had its say --
+    see the module docstring for why this is the resolver's answer, read
+    only, and never a second computation of its own."""
+    widgets.field_label("world transform")
+    placed = _placed_for(doc, node)
     if placed is None:
         # ``muted_wrapped`` and not ``muted``: this is a sentence rather than
         # a status line, and ``muted`` does not wrap in a 300 dp sidebar --
@@ -192,7 +213,7 @@ def _mesh_block(doc: Any, node: Any) -> None:
         widgets.muted("no source yet")
         return
     widgets.muted(f"source: {node.ref}")
-    if (node.uid, node.ref) in {(n.uid, r) for n, r in doc.missing_refs()}:
+    if (node.uid, node.ref) in {(n.uid, r) for n, r in mason_mode.missing_refs_cached(doc)}:
         widgets.secondary("Missing -- the source could not be resolved.")
     # The 2026-10-03 audit's mason-07: manual 31 and Chapter 17 promise a
     # material override ("retint it") that nothing in the UI ever authored.

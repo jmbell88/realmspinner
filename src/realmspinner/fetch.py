@@ -18,9 +18,9 @@ once as prose:
   the README's spelling of the default root, never where a fetch actually
   goes.
 * **Dedupe is on (repo_id, destination), never on model key.** ``dir_name`` is
-  not unique: ``sdxl``, ``sdxl_cfg``, ``pixel`` and ``lightning`` are four
-  recipes over one copy of ``sdxl-base-1.0``, and a key-keyed plan would fetch
-  7 GB four times.
+  not unique: ``sdxl``, ``sdxl_cfg``, ``sdxl_cfg_pag``, ``pixel`` and ``lightning`` are
+  five recipes over one copy of ``sdxl-base-1.0``, and a key-keyed plan would
+  fetch 7 GB five times.
 """
 
 from __future__ import annotations
@@ -470,7 +470,7 @@ def plan(config: Config, chosen: list[Entry]) -> list[Job]:
     Deduped on ``(repo_id, destination)``. Two entries naming the same
     repository into the same directory are one download, and the size is
     counted once -- which is the difference between "this needs 7 GB" and "this
-    needs 28 GB" for the four SDXL 1.0 recipes.
+    needs 28 GB" for the five SDXL 1.0 recipes.
     """
     order: list[tuple[str, Path]] = []
     jobs: dict[tuple[str, Path], Job] = {}
@@ -675,10 +675,10 @@ def removal_plan(config: Config, chosen: list[Entry]) -> Removal:
     downloaded later, is still a claim, and deleting out from under it would
     turn "not installed yet" into "mysteriously broken".
 
-    The practical shape of that: ``sdxl``, ``sdxl_cfg``, ``pixel`` and
-    ``lightning`` are four recipes over one 7 GiB directory, so uninstalling
+    The practical shape of that: ``sdxl``, ``sdxl_cfg``, ``sdxl_cfg_pag``,
+    ``pixel`` and ``lightning`` are five recipes over one 7 GiB directory, so uninstalling
     any one of them frees only its own small distillation LoRA. The directory
-    goes when all four are chosen together, and not before.
+    goes when all five are chosen together, and not before.
 
     Two whole-plan refusals, all-or-nothing in ``disk_refusal``'s style, because
     a partial delete is the outcome with no good description:

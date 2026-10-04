@@ -160,7 +160,12 @@ def open_path(ctx: Any, path: Path) -> None:
         # Focus rather than fork: two tabs over one path would race on save.
         state.activate(existing.uid)
         return
-    ctx.submit(f"mason-open:{_path_key(path)}", mason_io.load, path)
+    # Keyed by the path itself (Packwright's and Sirens' shape), not a hash of
+    # it: the 2026-10-03 audit's mason-32 -- ``on_task_failed`` could not
+    # recover a path from a sha1, so a moved or deleted .rscn stayed in the
+    # recent list and Home's Resume for ever, offering a file that only ever
+    # produced an error toast.
+    ctx.submit(f"mason-open:{path}", mason_io.load, path)
 
 
 # --- placing ------------------------------------------------------------------
@@ -364,6 +369,16 @@ def place_armed(ctx: Any, point: Any = None) -> int | None:
     # leaving the new node at the origin.
     mark = tab.doc.mark()
     if state.place_prefab:
+        if state.place_prefab not in tab.doc.prefabs:
+            # The 2026-10-03 audit's mason-31: armed in another scene, or its
+            # definition undone since. Said and disarmed, not a silent no-op
+            # that left every click placing nothing until Esc.
+            ctx.toast(
+                f"'{state.place_prefab}' is not a prefab in this scene -- placement cancelled.",
+                "warn",
+            )
+            state.place_prefab = ""
+            return None
         uid = place_prefab(ctx, state.place_prefab)
     else:
         key = state.place_kind
@@ -373,8 +388,50 @@ def place_armed(ctx: Any, point: Any = None) -> int | None:
         uid = placer(ctx, key) if placer is not None else place_primitive(ctx, key)
     if uid is not None and point is not None:
         _move_to(tab.doc, uid, point)
+        if state.snap_ground:
+            _drop_placed_to_ground(ctx, tab.doc, uid)
         tab.doc.collapse_since(mark)
     return uid
+
+
+def _drop_placed_to_ground(ctx: Any, doc: Any, uid: int) -> None:
+    """Rest a just-placed root node's box on the terrain (or ``y = 0``).
+
+    The 2026-10-03 audit's mason-33: ``state.snap_ground`` was honoured by a
+    gizmo drag and read by nothing on a placement click, so with *Drop to
+    ground* on an armed Box clicked on the terrain sat centred on the surface,
+    half sunk. The same ``mops.drop_to_ground`` the drag and the one-shot
+    button use; a node with nothing to measure (a light, a camera, a library
+    asset still parsing) is left where the click put it. A placement is at the
+    root, so the world delta is the local one.
+    """
+    import numpy as np
+
+    from .engine import nodes as nd
+    from .engine import ops as mops
+    from .engine import scene as msc
+
+    node = doc.node(uid)
+    if node is None:
+        return
+    source = mason_assets.ensure(ctx)
+    if isinstance(node, nd.MeshNode) and node.ref is not None:
+        # A primitive resolves on first ask, and nothing has asked yet: the
+        # viewport only draws it next frame, so without this its box is unknown.
+        source.primitives(node.ref)
+    box = msc.world_bounds(doc, source, uids=[uid])
+    if box is None:
+        return
+    delta = mops.drop_to_ground(
+        {uid: box}, terrain=doc.terrain, terrain_world=doc.terrain_world()
+    ).get(uid)
+    if delta is None:
+        return
+    doc.set_transform(
+        uid,
+        translation=np.asarray(node.translation, dtype="f8") + np.asarray(delta, dtype="f8"),
+        was=node.trs(),
+    )
 
 
 def _move_to(doc: Any, uid: int, point: Any) -> None:
@@ -531,6 +588,16 @@ def group_selected(ctx: Any) -> None:
     # anything is built, not just caught after, so the common case never
     # reaches the group half-built.
     uids = _selection_without_selected_ancestor(doc, uids)
+    # The 2026-10-03 audit's mason-15: Ctrl+A then G used to carry the
+    # ``TerrainNode`` into the group, after which every terrain guard (they
+    # all test a *top-level* node) was blind to it -- duplicating the group
+    # exported the ground twice and deleting it left ``doc.terrain`` set with
+    # no node, so Add ground refused with no toast. The ground stays at the
+    # top of the tree; ``move_node`` refuses the same move at its own door.
+    kept = [uid for uid in uids if not isinstance(doc.node(uid), nd.TerrainNode)]
+    if len(kept) != len(uids):
+        ctx.toast("The ground stays at the top of the scene, so it was left out.", "info")
+    uids = kept
     if not uids:
         return
 
@@ -609,6 +676,17 @@ def ungroup_selected(ctx: Any) -> None:
     doc.select(freed)
 
 
+def _unique_prefab_name(doc: Any, base: str) -> str:
+    """``base``, or ``base 2``, ``base 3`` ... -- the first not already naming a
+    template. See :func:`define_prefab_from_selection`'s collision refusal."""
+    if base not in doc.prefabs:
+        return base
+    n = 2
+    while f"{base} {n}" in doc.prefabs:
+        n += 1
+    return f"{base} {n}"
+
+
 def define_prefab_from_selection(ctx: Any, name: str = "") -> str:
     """Turn the one selected node into a template, and the selection itself
     into an instance of it. -> the template's name, or "" if refused.
@@ -644,7 +722,20 @@ def define_prefab_from_selection(ctx: Any, name: str = "") -> str:
         # ``define_prefab`` refuses at the door anyway -- refused here instead
         # so it reads as a disabled button rather than an exception.
         return ""
-    name = name or node.name or "Prefab"
+    name = name or _unique_prefab_name(doc, node.name or "Prefab")
+    if name in doc.prefabs:
+        # The 2026-10-03 audit's mason-18: ``define_prefab`` replaces whatever
+        # template holds ``name``, and the prompt used to seed the node's own
+        # name -- so pressing Enter on a second "Barrel" swapped every
+        # instance of the first prefab to the second asset's geometry with no
+        # confirmation and no toast. Default names collide easily (every
+        # primitive is "Box"), so this is refused here, by name.
+        ctx.toast(
+            f"Could not make a prefab: a prefab named {name!r} already exists. "
+            "Choose a different name.",
+            "error",
+        )
+        return ""
     parent_uid = doc.parent_uid_of(uid)
     index = doc.index_of(uid)
     mark = doc.mark()
@@ -698,7 +789,7 @@ def prompt_define_prefab_from_selection(ctx: Any) -> None:
 
     if isinstance(node, (nd.TerrainNode, nd.PrefabNode)):
         return
-    default = node.name or "Prefab"
+    default = _unique_prefab_name(doc, node.name or "Prefab")
 
     def accept(name: str) -> None:
         define_prefab_from_selection(ctx, name)
@@ -853,6 +944,13 @@ def duplicate_selected(ctx: Any) -> None:
         return
     from .engine import nodes as nd
 
+    # The 2026-10-03 audit's mason-14: Ctrl+A then Ctrl+J on a group and its
+    # two props made 8 nodes, not 6 -- each prop was copied once inside its
+    # ancestor's deep copy and again as a stray sibling in the original
+    # group. The same reduction ``group_selected`` and the gizmo drag make:
+    # a selected descendant rides along inside its selected ancestor's copy.
+    uids = _selection_without_selected_ancestor(doc, uids)
+
     copies: list[Any] = []
     parents: dict[int, int | None] = {}
     for uid in uids:
@@ -948,17 +1046,25 @@ def delete_selected(ctx: Any) -> None:
         if node is None:
             continue
         doc.remove_node(uid)
-        if isinstance(node, nd.TerrainNode):
-            # The 2026-09-26 audit's mason-mode-10: this used to call
-            # ``remove_node`` alone, which takes the outliner row but leaves
-            # ``doc.terrain`` -- the document-singleton height field the node
-            # only refers to (``nodes.TerrainNode``'s own docstring) -- behind
-            # it. ``add_terrain`` refuses whenever ``tab.doc.terrain is not
-            # None``, so a scene whose ground was deleted this way could
-            # never be given a new one. ``remove_terrain``'s own second step,
-            # folded into this same undo mark rather than called wholesale,
-            # since the node itself is already gone.
-            doc.set_terrain(None)
+    if doc.terrain is not None and not any(
+        isinstance(n, nd.TerrainNode) for n in doc.all_nodes()
+    ):
+        # The 2026-09-26 audit's mason-mode-10: this used to call
+        # ``remove_node`` alone, which takes the outliner row but leaves
+        # ``doc.terrain`` -- the document-singleton height field the node
+        # only refers to (``nodes.TerrainNode``'s own docstring) -- behind
+        # it. ``add_terrain`` refuses whenever ``tab.doc.terrain is not
+        # None``, so a scene whose ground was deleted this way could
+        # never be given a new one. ``remove_terrain``'s own second step,
+        # folded into this same undo mark rather than called wholesale,
+        # since the node itself is already gone.
+        #
+        # The 2026-10-03 audit's mason-15: tested after the whole loop, on
+        # "no TerrainNode left anywhere in the tree", rather than per deleted
+        # node -- a ground nested under a deleted group never matched
+        # ``isinstance(node, TerrainNode)`` on the group, and ``doc.terrain``
+        # was orphaned.
+        doc.set_terrain(None)
     doc.collapse_since(mark)
     doc.select([])
 
@@ -1099,6 +1205,9 @@ def export_glb(ctx: Any, tab: MasonTab | None = None) -> None:
     # dict lookup and a miss only *starts* a background parse rather than
     # blocking for it (``AssetSource.primitives``'s own docstring).
     source = mason_assets.ensure(ctx)
+    # Pinned before the walk reads through the cache: the 2026-10-03 audit's
+    # mason-23 (a scene bigger than the cache budget could never export).
+    mason_assets.pin(source, doc)
     export = gltfout.scene_model(doc, source)
 
     def run() -> dict[str, Any] | None:
@@ -1177,6 +1286,7 @@ def export_obj(ctx: Any, tab: MasonTab | None = None) -> None:
     # where the chosen path (and so the stem mason-mode-13 wants, this same
     # audit) is finally known.
     source = mason_assets.ensure(ctx)
+    mason_assets.pin(source, doc)  # mason-23, 2026-10-03: see :func:`export_glb`
     collected = objout.collect_jobs(doc, source)
 
     def run() -> dict[str, Any] | None:
@@ -1255,6 +1365,7 @@ def export_library(ctx: Any, tab: MasonTab | None = None) -> None:
     # frame thread's own ``AssetSource``. Resolved here instead, before
     # ``_start`` hands the network write off.
     source = mason_assets.ensure(ctx)
+    mason_assets.pin(source, doc)  # mason-23, 2026-10-03: see :func:`export_glb`
     export = gltfout.scene_model(doc, source)
 
     def run() -> dict[str, Any]:
@@ -1343,9 +1454,15 @@ def edit_asset_in_mason(ctx: Any, job: Any) -> None:
 #: ``id(doc)``: scenes open and close all session, and an id-keyed dict would
 #: either leak one entry per closed document forever or, worse, let a fresh
 #: document that happened to reuse a freed id read a stale answer.
-_STATS_CACHE: weakref.WeakKeyDictionary[Any, tuple[int, dict[str, Any]]] = (
-    weakref.WeakKeyDictionary()
-)
+#:
+#: The 2026-10-03 audit's mason-20: keyed on ``rev`` alone, the "N missing"
+#: readout kept its first answer when a background parse failed, because
+#: ``MasonView.sync`` records that by rewriting ``doc.missing`` (and bumping
+#: ``AssetSource.rev``) and never moves ``doc.rev``. The set itself is part of
+#: the key, so the memo cannot outlive the answer it was built from.
+_STATS_CACHE: weakref.WeakKeyDictionary[
+    Any, tuple[tuple[int, frozenset[Any]], dict[str, Any]]
+] = weakref.WeakKeyDictionary()
 
 
 def scene_stats(ctx: Any, tab: Any) -> dict[str, Any]:
@@ -1356,8 +1473,9 @@ def scene_stats(ctx: Any, tab: Any) -> dict[str, Any]:
     if tab is None:
         return {"placed": 0, "warn": False, "threshold": msc.PLACED_WARN_THRESHOLD, "missing": 0}
     doc = tab.doc
+    memo_key = (doc.rev, frozenset(doc.missing))
     cached = _STATS_CACHE.get(doc)
-    if cached is not None and cached[0] == doc.rev:
+    if cached is not None and cached[0] == memo_key:
         return cached[1]
     try:
         placed = len(msc.resolve(doc, include_hidden=True))
@@ -1369,8 +1487,41 @@ def scene_stats(ctx: Any, tab: Any) -> dict[str, Any]:
         "threshold": msc.PLACED_WARN_THRESHOLD,
         "missing": len(doc.missing_refs()),
     }
-    _STATS_CACHE[doc] = (doc.rev, stats)
+    _STATS_CACHE[doc] = (memo_key, stats)
     return stats
+
+
+_MISSING_CACHE: weakref.WeakKeyDictionary[
+    Any, tuple[tuple[int, frozenset[Any]], list[Any]]
+] = weakref.WeakKeyDictionary()
+
+
+def shows_exported_tab(ctx: Any, key: str) -> bool:
+    """Whether ``key`` (``mason-library:{tab uid}``) names the tab on screen.
+
+    The library card's thumbnail is read from the viewport when the export task
+    lands (the 2026-10-03 audit's mason-29), so it is only a picture of the
+    exported scene while that scene's tab is still the active one.
+    """
+    tab = active(ctx)
+    return tab is not None and key == f"mason-library:{tab.uid}"
+
+
+def missing_refs_cached(doc: Any) -> list[Any]:
+    """``doc.missing_refs()``, answered once per ``(doc.rev, doc.missing)``.
+
+    The 2026-10-03 audit's mason-26: Properties and the Scene file pane each
+    re-walked the tree for this every frame (0.64 ms at 1,500 nodes) with
+    nothing changed. Keyed the way ``scene_stats`` is, and for its reason: the
+    viewport rewrites ``doc.missing`` without moving ``doc.rev``.
+    """
+    memo_key = (doc.rev, frozenset(doc.missing))
+    cached = _MISSING_CACHE.get(doc)
+    if cached is not None and cached[0] == memo_key:
+        return cached[1]
+    found = doc.missing_refs()
+    _MISSING_CACHE[doc] = (memo_key, found)
+    return found
 
 
 # --- task results -----------------------------------------------------------------
@@ -1441,7 +1592,17 @@ def on_task_done(ctx: Any, done: Any) -> None:
             journal.adopt_failed(ctx, "scene")
             return
         if isinstance(result, dict):
-            tab = adopt(ctx, result["doc"], path=None, title=result.get("title"))
+            # ``view=``: the journal copy carries the camera it was framed
+            # from (``_journal_encode``); the 2026-10-03 audit's mason-30 found
+            # it recorded and then thrown away, so a recovered scene framed
+            # itself fresh instead of where the user left it.
+            tab = adopt(
+                ctx,
+                result["doc"],
+                path=None,
+                title=result.get("title"),
+                view=result.get("view"),
+            )
             docmodes.mark_recovered(tab, result["autosave"])
             _enter_mason(ctx)
         return
@@ -1488,6 +1649,11 @@ def on_task_done(ctx: Any, done: Any) -> None:
 def on_task_failed(ctx: Any, done: Any) -> None:
     """A failed save must not leave the document locked -- ``clay_mode``'s
     own reason."""
+    if done.key.startswith("mason-open:"):
+        # Before the tab lookup: an open that failed has no tab, only a path
+        # that does not open.
+        forget_path(ctx, done.key.split(":", 1)[1])
+        return
     state = ctx.state.mason
     if state is None or ":" not in done.key:
         return
@@ -1674,6 +1840,7 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
         "doc": doc,
         "title": f"{meta.get('title') or path.stem} (recovered)",
         "autosave": str(path),
+        "view": doc.view or None,
     }
 
 

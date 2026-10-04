@@ -1110,11 +1110,16 @@ def test_clay_takes_first_refusal_on_the_keyboard():
 def test_the_quit_guard_asks_about_built_geometry_too():
     """One chain, nested: ConfirmQueue holds a single pending question, so
     three asked side by side would silently drop two."""
+    from realmspinner.studio import mode_manifest
+
+    # The document-mode guards are walked from ``mode_manifest.DOC_MODES`` now
+    # (shell-73, the 2026-10-03 audit), so the order Inker -> Clay is the
+    # manifest's; the inspector's pose guard is the one named by hand.
     source = inspect.getsource(main.App._request_quit)
-    for guard in ("inker_mode.guard", "clay_mode.guard", "pose_panel.guard"):
-        assert guard in source
-    assert source.index("inker_mode.guard") < source.index("clay_mode.guard")
-    assert source.index("clay_mode.guard") < source.index("pose_panel.guard")
+    assert "mode_manifest.DOC_MODES" in source
+    assert "pose_panel.guard" in source
+    keys = [entry.key for entry in mode_manifest.DOC_MODES]
+    assert keys.index("inker") < keys.index("clay")
 
 
 def test_a_dropped_glb_is_refused_in_clay_mode():

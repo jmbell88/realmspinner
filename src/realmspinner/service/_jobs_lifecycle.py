@@ -135,7 +135,7 @@ def clean_jobs(svc: RealmspinnerService) -> dict[str, Any]:
     everything". A user reclaiming a disk, handing a machine on, or starting a
     corpus over is not asking for a reclaim that quietly keeps the largest
     meshes on it. So this one keeps nothing, and the confirmation in
-    ``studio/panes/library.py`` says so in as many words: the accepted meshes
+    ``studio/modes/library/ui/panes/library.py`` says so in as many words: the accepted meshes
     and the labelled references go, the verdict rows survive with nothing
     behind them, and ``tiercheck`` and ``judge.fit`` will have less to read
     afterwards. Do not "fix" this back into a retention check -- that is
@@ -507,12 +507,29 @@ def delete_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     return {"ok": True}
 
 
+def _signal_worker(svc: RealmspinnerService, job_id: str) -> None:
+    """Ask the worker to stop ``job_id`` if it is the job it is running.
+
+    ``request_cancel`` is a no-op for any other job, so this is safe to call
+    whenever a cancel's write may have landed over a claim.
+    """
+    if svc.worker is not None:
+        svc.call_on_loop(lambda: svc.worker.request_cancel(job_id))
+
+
 def cancel_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     job = svc.require_job(job_id)
     if job["status"] == "cancelled":
         # Idempotent success: some earlier request (possibly this exact race)
         # already cancelled it. Only a genuinely terminal done/error status
         # below is "too late" and worth refusing.
+        #
+        # But still signalled when the worker is on this very job: a cancel that
+        # lost the race to the worker's claim wrote the row without ever telling
+        # the worker, and answering "ok" here without signalling meant a second
+        # press could never stop it (the 2026-10-03 audit, finding service-13).
+        if getattr(svc.worker, "current_job_id", None) == job_id:
+            _signal_worker(svc, job_id)
         return {"ok": True}
     if job["status"] not in ("queued", "running"):
         raise Conflict(f"job is {job['status']}")
@@ -539,4 +556,13 @@ def cancel_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
         if current and current["status"] == "cancelled":
             return {"ok": True}
         raise Conflict("job already finished")
+    if job["status"] == "queued":
+        # The row was read as ``queued``, so nothing above told the worker. If
+        # its claim landed between that read and this write, ``store.cancel``
+        # just cancelled a *running* job: the worker would go on to burn the whole
+        # reconstruction with the row already saying cancelled and no way for the
+        # user to stop it, and ``trash_job`` carries the same hole through here
+        # (the 2026-10-03 audit, finding service-13). Signalled unconditionally
+        # because ``request_cancel`` ignores a job that is not the one running.
+        _signal_worker(svc, job_id)
     return {"ok": True}

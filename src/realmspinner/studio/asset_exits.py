@@ -253,7 +253,6 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
 def _inker(ctx: Any, job: Any) -> Exit | None:
     if job.get("stage") not in _REFERENCE_STAGES:
         return None
-    from .modes.create.ui import stages as create_stages
     from .modes.inker import mode as inker_mode
     from .panes import inspector
 
@@ -265,14 +264,17 @@ def _inker(ctx: Any, job: Any) -> Exit | None:
     if inspector.offers_inker(ctx, job):
         return Exit("inker", verbs.open_in("inker"), hint, "", "", door)
 
-    # The viewport toolbar owns this asset's Inker affordance whenever the
-    # Reference stage is on screen -- ready or not -- and ``offers_inker``'s
-    # own docstring is built on exactly one of the two ever being true. A
-    # near miss drawn here on top of that would be the second button its
-    # complement rule exists to prevent, just dimmed instead of lit.
-    if create_stages.at(ctx.state, "reference"):
-        return None
-
+    # The viewport toolbar owns a *ready* reference's Inker button at the
+    # Reference stage, and ``offers_inker``'s own docstring is built on exactly
+    # one of the two ever being true -- a lit exit here would be the second
+    # button its complement rule exists to prevent. Reaching this line means
+    # ``inspector.offers_inker`` is False, so either the stage is not on screen
+    # or the toolbar's own gate (``inker_mode.can_edit_job``: done, with an
+    # ``input.png``) is shut and it draws nothing. The 2026-10-04 audit, finding
+    # create-43: this used to return None for the whole Reference stage, so a
+    # queued, running or failed reference in Create had no Inker affordance
+    # anywhere, not even the dimmed, reasoned one the Library shows. The ready
+    # case stays None below, which is where the toolbar's button lives.
     if job.get("status") != "done":
         reason = _status_reason(job)
     elif "input.png" not in _files(job):

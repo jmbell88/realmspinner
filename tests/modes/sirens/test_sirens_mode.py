@@ -58,7 +58,13 @@ class FakeCtx:
     def toast(self, message: str, kind: str = "info", **_extra: Any) -> None:
         self.toasts.append((message, kind))
 
-    def toast_once(self, message: str, kind: str = "info", **_extra: Any) -> bool:
+    def toast_once(
+        self,
+        message: str,
+        kind: str = "info",
+        action: Any = None,
+        action_arg: Any = None,
+    ) -> bool:
         """The real one coalesces against the toasts still on screen; here
         nothing expires, so it coalesces against all of them."""
         if (message, kind) in self.toasts:
@@ -1020,6 +1026,9 @@ def test_a_sample_is_not_imported_into_a_tab_that_is_being_written(tmp_path):
     tab.saving = True
     sirens_mode.import_sample(ctx, tab, _wav(tmp_path / "shk.wav"))
     assert not ctx.submitted
+    # ...and says so (the 2026-10-03 audit, sirens-16), through ``docmodes.refuse``,
+    # which calls ``toast_once`` with the real positional signature.
+    assert ctx.toasts == [(sirens_io.SAMPLE_WHILE_SAVING, "error")]
 
 
 def test_the_sample_filter_is_the_one_the_drop_router_advertises():

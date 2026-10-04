@@ -36,7 +36,9 @@ means usable, **0** means no opinion either way, and **−5** means nothing abou
 own key, because zero has no sign to arm and is a real answer rather than a refusal to give one.
 That is eleven values inside six keys, which is what keeps a pass moving. `Esc` clears a pending
 sign. `S` skips to the next unverdicted unit, and `Left` / `Right` step through the list. Every one
-of these exists as a button in the verdict panel too.
+of these exists as a button in the verdict panel too. The grade row, the tags and Accept and
+Reject grey out, with the reason, while the unit is queued, running, errored or cancelled, because
+only a finished asset can be graded.
 
 Why a grade rather than an accept and a reject: a bit can say a mesh failed and can never say how
 close it came. A solid slab with no geometry at all, a good shape with a smeared texture, and a mesh
@@ -89,7 +91,9 @@ When the pass ends, early or otherwise, a card reports what it did: per sweep, h
 accepted and rejected out of how many, with the average grade where one was given, and one line for
 the whole run. **Dismiss** clears it.
 
-**Once every unit of a sweep has a verdict, its images and meshes are removed automatically.** There
+**Once every unit of a sweep has a verdict, its images and meshes are removed automatically.** A
+unit that errored or was cancelled can never be graded and does not hold the sweep back; the guided
+pass moves past it. There
 is no confirmation — the offer on the entry card is the warning, which is why it says so up front.
 What goes is the files; what stays is every verdict, observation and finding they produced, because
 each verdict carries its own copy of the settings it judged. This is the one place the app overrides
@@ -130,7 +134,7 @@ for the same reason: by the time you come back to judge it, the name you typed i
 ### What you can vary
 
 Each axis carries its own one-line explanation in the form — hover the parameter. There are
-nineteen, and they fall into three groups:
+twenty-four, and they fall into four groups:
 
 - **The image** — Style strength (the LoRA's weight), Negative prompt, IP-Adapter scale,
   ControlNet scale and ControlNet end. The last three are dropped when the adapter they belong to
@@ -143,6 +147,11 @@ nineteen, and they fall into three groups:
   resolution, the two guidance strengths, the token budget, decimation and atlas size. Anything
   named `trellis_` restarts the engine once per value, so a six-value sweep over one of them is six
   engine launches.
+- **The recipe** — Base model, Style LoRA, IP-Adapter, Control (which ControlNet) and Platform (2D
+  or 3D). Unlike the rest these are choices between models and presets, drawn as the tick boxes
+  of whatever this install lists. A combination the catalog refuses — a Style LoRA fitted to a
+  different model family, a ControlNet on a base model that cannot run one — is refused for that
+  unit by name, before anything is queued.
 
 Leaving an engine flag's value empty runs the engine's own default, which is usually not a number
 this app knows — that is why the help says how to get the default rather than what it is.
@@ -181,8 +190,9 @@ that had already started is left alone and reaches its own outcome; a queued uni
 wall is stopped before it does. This
 does not reach across sweeps: a fan-out over several subjects mints one sweep per subject, and a
 failure in one never touches another's units. If the failure turns out to have been transient
-rather than a real problem with the settings, the cancelled units can be re-queued from the command
-line with `scripts/sweep_refill.py`.
+rather than a real problem with the settings, start a new sweep for the same settings once the
+cause is fixed; a source checkout can also re-queue the cancelled units from the command line with
+`scripts/sweep_refill.py`, which an installed build does not carry.
 
 ### Clearing out the list
 

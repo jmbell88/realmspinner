@@ -50,9 +50,17 @@ def test_the_export_commands_printed_chord_is_the_one_masons_handle_key_binds():
 
 
 def _ctx_with_trash(window_jobs: list[dict[str, Any]], trashed: list[dict[str, Any]]) -> Any:
+    # The store-wide answer arrives as ``cache.trash_present``, taken by the
+    # job-list read task (the 2026-10-03 audit, shell-18, moved it off a
+    # ``store.trashed()`` call the gate made on the frame thread); the store is
+    # a tripwire so this ctx also proves the gate never asks it.
+    class _Tripwire:
+        def __getattr__(self, name: str) -> Any:
+            raise AssertionError(f"the gate reached the store: {name}")
+
     return SimpleNamespace(
-        cache=SimpleNamespace(jobs=window_jobs),
-        svc=SimpleNamespace(store=SimpleNamespace(trashed=lambda: trashed)),
+        cache=SimpleNamespace(jobs=window_jobs, trash_present=bool(trashed)),
+        svc=SimpleNamespace(store=_Tripwire()),
     )
 
 

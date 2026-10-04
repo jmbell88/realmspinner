@@ -674,12 +674,13 @@ def similar_valence(mesh: Mesh, verts: Sequence[int], tolerance: int = 0) -> np.
 # same way it already derives one from ``primitives.GENERATORS``,
 # ``presets.ASSEMBLIES`` and ``clay_ops.OPS``.
 #
-# **Deliberately six entries, not thirteen.** ``all``, ``none``, ``invert``,
+# **Twelve entries -- the six seeded verbs and the six ``similar_*`` rows -- not
+# nineteen.** ``all``, ``none``, ``invert``,
 # ``linked``, ``more``, ``less`` and ``boundary`` are not here, because they
 # already exist as ``select-*`` rows in ``clay_ops.OPS`` and are already in the
-# agent's derived ``clay_op`` enum -- dead only because no element mode can be
-# set from an agent yet, which is a wiring gap the agent surface closes later,
-# not a reason to open a second door for a verb that already has one. A
+# agent's derived ``clay_op`` enum (reachable since ``clay_element_mode`` lets
+# an agent enter an element mode), which is not a reason to open a second door
+# for a verb that already has one. A
 # ``QUERIES`` entry named ``linked`` would be exactly the drift this codebase's
 # "one list, not three" rule (see ``studio/modes/clay/ops.py``'s own module docstring)
 # exists to prevent, one file over.

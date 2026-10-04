@@ -1,6 +1,6 @@
 """Islands, packing, density and distortion over an already-assigned uv.
 
-Clay tranche 6 ("UV and materials", ``dev/CLAY-PLAN.md``). Everything a UV
+Clay tranche 6 ("UV and materials"). Everything a UV
 editor pane needs once a mesh has ``uv`` set -- by :mod:`.uv`'s box/planar
 projection, or by :mod:`.uvunwrap`'s LSCM solve -- lives here: which faces
 form one connected patch, moving a patch around in uv space, packing several

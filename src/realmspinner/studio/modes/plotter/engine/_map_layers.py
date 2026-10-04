@@ -313,6 +313,14 @@ class LayerOps:
         if found is None:
             raise KeyError(f"no layer {uid}")
         layer, parent_uid, index = found
+        # Refused before the copy is minted, not only by ``_add_layer`` after
+        # it: ``_copied_subtree`` takes a layer id and an object id per layer
+        # and object, so a refusal discovered late burnt a block of ids with no
+        # step to show for them. The copy lands beside the original, so the
+        # original's own depth and height are the copy's. A tree already past
+        # the ceiling -- a file read before the readers capped nesting -- is
+        # the only way to meet this (the 2026-10-03 audit, finding plotter-10).
+        self._refuse_if_too_deep(parent_uid, layer)
         copy = self._copied_subtree(layer)
         copy.name = f"{layer.name} copy"
         # One past the original, not at its own index: ``children_of`` is
@@ -519,6 +527,7 @@ class LayerOps:
         if isinstance(layer, ImageLayer):
             layer.pixels = pixels
             self.tileset_epoch += 1
+            self.tileset_pixel_epoch += 1
 
     def set_layer_props(self: MapDoc, uid: int, **values: Any) -> None:
         """Rename, hide, fade, offset, tint or re-key a layer.

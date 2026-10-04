@@ -214,18 +214,38 @@ def snippet_popup(ctx: Any, tab: Any) -> None:
     state.flourish_snippet_engine = widgets.labeled_combo(
         "Engine", state.flourish_snippet_engine, list(ENGINE_OPTIONS)
     )
-    text = inker_flourish.snippet_text(
-        tab, state.flourish_snippet_tag, state.flourish_snippet_engine
+    # The sheet's columns follow the Arrange the export will use (the
+    # 2026-10-03 audit, finding inker-61), so the pasted snippet slices the
+    # file the same menu writes.
+    arrange = state.export_arrange
+    wrap = state.export_wrap
+    # A tag no file can be named after has no snippet; say so instead of
+    # raising on every frame (the 2026-10-03 audit, finding inker-38).
+    problem = inker_flourish.snippet_problem(tab, state.flourish_snippet_tag)
+    text = (
+        ""
+        if problem
+        else inker_flourish.snippet_text(
+            tab,
+            state.flourish_snippet_tag,
+            state.flourish_snippet_engine,
+            arrange=arrange,
+            wrap=wrap,
+        )
     )
-    imgui.set_next_item_width(sp(520))
-    controls.input_text_multiline(
-        "##fl-snippet", text, (sp(520), sp(260)), imgui.InputTextFlags_.read_only.value
-    )
+    if problem:
+        widgets.muted_wrapped(problem)
+    else:
+        imgui.set_next_item_width(sp(520))
+        controls.input_text_multiline(
+            "##fl-snippet", text, (sp(520), sp(260)), imgui.InputTextFlags_.read_only.value
+        )
     widgets.muted_wrapped(
-        "Assumes the per-tag sheet export's filenames and an origin at the canvas "
-        "centre, which is where an effect is placed."
+        "Assumes the per-tag sheet export's filenames and Arrange, and an origin at "
+        "the canvas centre, which is where an effect is placed. Export scale, "
+        "padding, trim and merge change the cells and are not followed."
     )
-    if controls.button("Copy", (sp(90), 0)):
+    if controls.button("Copy", (sp(90), 0), enabled=bool(text), reason=problem):
         imgui.set_clipboard_text(text)
         ctx.toast("Snippet copied.", "success")
     imgui.same_line()
@@ -440,7 +460,14 @@ def draw_inspector(ctx: Any, tab: Any) -> None:
         imgui.begin_group()
         widgets.field_label("Colours")
         imgui.set_next_item_width(sp(120))
-        col_changed, colors = controls.slider_int("##colours##fl", int(recipe.colors), 2, 64)
+        # The recipe's own ceiling, not a hand-picked 64: the 2026-10-03 audit,
+        # finding inker-82 -- ``flourish.recipe.clamp`` keeps up to MAX_COLORS,
+        # so a recipe carrying 128 colours lost 64 of them the first time this
+        # slider was touched (the FPS and phase sliders had the same mismatch
+        # and were fixed in the 2026-09-26 audit).
+        col_changed, colors = controls.slider_int(
+            "##colours##fl", int(recipe.colors), 2, flourish_recipe.MAX_COLORS
+        )
         imgui.end_group()
         if col_changed:
             recipe = replace(recipe, colors=int(colors))

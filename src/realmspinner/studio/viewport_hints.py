@@ -437,10 +437,31 @@ def _faces_of(mesh: Any) -> int:
 # --- the measure readout (tranche 3: scene structure) -----------------------
 
 
-def _selected_vertex_points(doc: Any) -> list[np.ndarray]:
-    """World positions of every selected vertex, document order, one object
-    at a time -- capped at four: :func:`measure_line` only has an answer for
-    exactly two or exactly three, so a caller past that is already "".
+def _element_objects(doc: Any) -> list[Any]:
+    """The objects whose element selections a drag would move: visible and not
+    a collider, ``selection._element_pickable``'s one eligibility.
+
+    The 2026-10-03 audit's clay-70 follow-up: this readout and the selected
+    count read ``doc.element_sel`` for every object, so a hidden object that
+    still held a selection put its distance, area and "N selected" on the HUD
+    while the gizmo and the drag ignored it. Local import, for the reason
+    :func:`_compute_measure_line`'s is.
+    """
+    from ..kernels.mesh.selection import _element_pickable
+
+    return [obj for obj in doc.objects if _element_pickable(obj)]
+
+
+def _selected_vertices(doc: Any) -> list[tuple[Any, int, np.ndarray]]:
+    """``(object, vertex index, world position)`` for every selected vertex,
+    document order, one object at a time -- capped at four: :func:`measure_line`
+    only has an answer for exactly two or exactly three, so a caller past that
+    is already "".
+
+    The index rides along because ``ElementSel.verts`` is sorted: the click
+    order is gone, so the "middle" of three is the middle *number*, and the
+    angle readout has to name which vertex that is (the 2026-10-03 audit's
+    clay-103) or it reads as a wrong angle about an apex the user cannot see.
 
     ``doc.world_matrix`` is duck-typed with ``getattr`` for the reason
     :func:`stats`'s own ``evaluated`` lookup is: this module imports nothing
@@ -448,9 +469,9 @@ def _selected_vertex_points(doc: Any) -> list[np.ndarray]:
     local space rather than raising.
     """
     world_of = getattr(doc, "world_matrix", None)
-    points: list[np.ndarray] = []
+    points: list[tuple[Any, int, np.ndarray]] = []
     sels = getattr(doc, "element_sel", {}) or {}
-    for obj in doc.objects:
+    for obj in _element_objects(doc):
         sel = sels.get(obj.uid)
         verts = None if sel is None else getattr(sel, "verts", None)
         if verts is None or not len(verts):
@@ -459,10 +480,16 @@ def _selected_vertex_points(doc: Any) -> list[np.ndarray]:
         positions = np.asarray(obj.mesh.positions, dtype="f8")
         for idx in verts:
             homo = np.append(positions[int(idx)], 1.0)
-            points.append(homo[:3] if world is None else (np.asarray(world, dtype="f8") @ homo)[:3])
+            point = homo[:3] if world is None else (np.asarray(world, dtype="f8") @ homo)[:3]
+            points.append((obj, int(idx), point))
             if len(points) > 4:
                 return points
     return points
+
+
+def _selected_vertex_points(doc: Any) -> list[np.ndarray]:
+    """:func:`_selected_vertices`' world positions alone."""
+    return [point for _obj, _idx, point in _selected_vertices(doc)]
 
 
 #: *doc* -> ``(rev, line)``, weak so a closed tab's own document takes its
@@ -495,12 +522,13 @@ def measure_line(doc: Any) -> str:
     not only a changed mesh: ``ClayDoc.select``/``set_element_sel``/
     ``set_element_mode``/``clear_element_sel`` each call ``touch()`` (their
     own docstrings), so there is one key, not two. A live gizmo drag is not a
-    counter-case: ``hint_line`` reads ``view.gizmo_drag`` first and calls
-    ``drag_readout`` instead of this function for as long as a drag is live,
-    and a drag mutates ``obj.translation``/``rotation``/``scale`` in place
-    without ``touch()`` until release for exactly that reason (``ClayDoc.
-    set_transform``'s own docstring) -- so this function is never asked to
-    read a moving mesh through a stale ``rev``. ``getattr`` rather than a
+    counter-case, but not because ``rev`` stands still: ``_drag_gizmo`` and
+    ``_drag_keyboard`` call ``doc.touch()`` every frame, so ``rev`` does
+    advance during a drag (the 2026-10-03 audit's clay-123). The safety is
+    that ``hint_line`` reads ``view.gizmo_drag`` first and calls
+    ``drag_readout`` instead of this function for as long as a drag is live
+    -- this function is never asked during one, so the memo is never read
+    through a moving mesh. ``getattr`` rather than a
     named attribute, matching every other duck-typed read in this module: a
     caller with no ``.rev`` at all (this module's own module-scope imports
     stay inward, so nothing here may assume the real ``ClayDoc``) simply
@@ -526,18 +554,30 @@ def _compute_measure_line(doc: Any) -> str:
 
     mode = getattr(doc, "element_mode", "object")
     if mode == "vertex":
-        points = _selected_vertex_points(doc)
+        picked = _selected_vertices(doc)
+        points = [point for _obj, _idx, point in picked]
         if len(points) == 2:
             return f"distance  {bm_measure.distance(points[0], points[1]):.4f} m"
         if len(points) == 3:
-            return f"angle  {bm_measure.angle(points[0], points[1], points[2]):.2f}°"
+            # Named, not implied: the apex is the middle-numbered vertex (the
+            # selection is sorted, clay-103), and across objects its owner's
+            # name too, since two objects can both have a "vertex 1".
+            apex_obj, apex_idx, _pt = picked[1]
+            owners = {id(obj) for obj, _i, _p in picked}
+            where = f"vertex {apex_idx}"
+            if len(owners) > 1:
+                where = f"{apex_obj.name} {where}"
+            return (
+                f"angle  {bm_measure.angle(points[0], points[1], points[2]):.2f}° "
+                f"at {where}"
+            )
         return ""
     if mode == "face":
         world_of = getattr(doc, "world_matrix", None)
         sels = getattr(doc, "element_sel", {}) or {}
         total = 0.0
         any_sel = False
-        for obj in doc.objects:
+        for obj in _element_objects(doc):
             sel = sels.get(obj.uid)
             faces = None if sel is None else getattr(sel, "faces", None)
             if faces is None or not len(faces):
@@ -559,6 +599,7 @@ def _compute_measure_line(doc: Any) -> str:
         # (dev/INVARIANTS.md), and volume had been left reading the wrong one.
         evaluate = getattr(doc, "evaluated", None)
         total = 0.0
+        any_open = False
         for uid in selection:
             try:
                 obj = doc.by_uid(uid)
@@ -566,7 +607,19 @@ def _compute_measure_line(doc: Any) -> str:
                 continue
             mesh = obj.mesh if evaluate is None else evaluate(uid)
             world = None if world_of is None else world_of(uid)
-            total += bm_measure.volume(mesh, world)
+            # The 2026-10-03 audit's clay-25 follow-up: ``clay_measure volume``
+            # answers ``null, closed: false`` for an open mesh because the
+            # divergence sum over an open surface depends on where the object
+            # sits, but this line kept printing that number as a volume. One
+            # open mesh in the selection makes the sum meaningless, so the
+            # line says so instead of adding it in.
+            volume = bm_measure.volume_if_closed(mesh, world)
+            if volume is None:
+                any_open = True
+            else:
+                total += volume
+        if any_open:
+            return "volume  -- (open mesh)"
         return f"volume  {total:.4f} m³"
     return ""
 
@@ -579,8 +632,11 @@ def _selected(doc: Any) -> str:
         count = len(getattr(doc, "selection", ()) or ())
         return f"{count} selected" if count else ""
     total = 0
-    for sel in (getattr(doc, "element_sel", {}) or {}).values():
-        total += sel.count(mode)
+    sels = getattr(doc, "element_sel", {}) or {}
+    for obj in _element_objects(doc):
+        sel = sels.get(obj.uid)
+        if sel is not None:
+            total += sel.count(mode)
     if not total:
         return ""
     word = {"vertex": "vert", "edge": "edge", "face": "face"}.get(mode, mode)

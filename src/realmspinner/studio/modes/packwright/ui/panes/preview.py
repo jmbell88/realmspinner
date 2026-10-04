@@ -184,14 +184,55 @@ def _outlines(state: Any, tab: Any, draw_list: Any, origin) -> None:
     by_key = packwright_mode.source_index(tab)
     faint = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.7))
     accent = imgui.get_color_u32(theme.rgba(theme.ACCENT))
+    # The region the caller clipped to (``draw`` pushes the pane's box). The
+    # 2026-10-03 audit's packwright-11: every packed frame was submitted --
+    # two ``to_screen`` calls, a rect and a pivot cross -- whether or not it
+    # was anywhere near the pane, so zooming into one corner of a 4096-sprite
+    # atlas still cost ~8 ms a frame (half the budget) on the pane that is also
+    # the repack pump. A draw list that cannot say (a test double) draws all.
+    clip = _clip_box(draw_list)
+    reach = sp(8)  # a selected frame's 2px line and a pivot cross's arm
     for frame in tab.layout.frames:
-        selected = state.selected is not None and by_key.get(frame.key) == state.selected
         p0 = paintview.to_screen(view, origin, frame.x, frame.y)
         p1 = paintview.to_screen(view, origin, frame.x + frame.w, frame.y + frame.h)
-        draw_list.add_rect(
-            p0, p1, accent if selected else faint, 0.0, sp(2 if selected else 1)
-        )
-        _pivot_mark(draw_list, view, origin, frame, accent if selected else faint)
+        selected = state.selected is not None and by_key.get(frame.key) == state.selected
+        colour = accent if selected else faint
+        if clip is None or _overlaps(clip, p0, p1, reach):
+            draw_list.add_rect(p0, p1, colour, 0.0, sp(2 if selected else 1))
+        # The cross is judged on its own: a pivot lies anywhere in the
+        # *untrimmed* sprite, so it can sit well outside its frame's box.
+        if frame.pivot is not None and (
+            clip is None or _pivot_visible(clip, view, origin, frame, reach)
+        ):
+            _pivot_mark(draw_list, view, origin, frame, colour)
+
+
+def _clip_box(draw_list: Any) -> tuple[float, float, float, float] | None:
+    lo, hi = getattr(draw_list, "get_clip_rect_min", None), getattr(
+        draw_list, "get_clip_rect_max", None
+    )
+    if lo is None or hi is None:
+        return None
+    a, b = lo(), hi()
+    return (float(a.x), float(a.y), float(b.x), float(b.y))
+
+
+def _overlaps(clip: tuple[float, float, float, float], p0, p1, reach: float) -> bool:
+    """Whether the box ``p0``..``p1`` (either corner order -- a rotated view
+    swaps them) comes within ``reach`` of the clip box."""
+    return not (
+        max(p0[0], p1[0]) < clip[0] - reach
+        or min(p0[0], p1[0]) > clip[2] + reach
+        or max(p0[1], p1[1]) < clip[1] - reach
+        or min(p0[1], p1[1]) > clip[3] + reach
+    )
+
+
+def _pivot_visible(clip, view: Any, origin, frame: Any, reach: float) -> bool:
+    x = frame.x + float(frame.pivot[0]) - frame.trim[0]
+    y = frame.y + float(frame.pivot[1]) - frame.trim[1]
+    at = paintview.to_screen(view, origin, x, y)
+    return _overlaps(clip, at, at, reach)
 
 
 def _pivot_mark(draw_list: Any, view: Any, origin, frame: Any, colour: int) -> None:

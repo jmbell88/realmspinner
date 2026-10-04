@@ -89,8 +89,14 @@ def answer(req: dict[str, Any]) -> dict[str, Any]:
 
     model_dir = str(req["model_dir"])
     schema = str(req.get("schema") or "{}")
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    model = AutoModelForCausalLM.from_pretrained(model_dir, torch_dtype=torch.float32)
+    # local_files_only on both, like every other load in the package: "every
+    # model load is local_files_only" is documented as unconditional, and this
+    # one held only because HF_HUB_OFFLINE is inherited and model_dir exists
+    # (the 2026-10-03 audit, finding pipelines-26).
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir, torch_dtype=torch.float32, local_files_only=True
+    )
     model.eval()
     messages = build_messages(req["recipe"], str(req.get("request") or ""), schema)
     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:

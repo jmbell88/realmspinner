@@ -61,7 +61,10 @@ def _view(doc: bd.ClayDoc, uid: int) -> SimpleNamespace:
     )
     gpu = _FakeGPU()
     overlay = _FakeOverlay()
-    entry = SimpleNamespace(gpu=SimpleNamespace(draws=[(None, gpu)]))
+    # A real ``_Entry`` carries the mesh its GPU buffers were built from, and
+    # ``_preview_positions`` compares it with the base to tell a plain object
+    # from a modifier stack's output (clay-71). No modifiers here, so it is the base.
+    entry = SimpleNamespace(gpu=SimpleNamespace(draws=[(None, gpu)]), mesh=obj.mesh)
     view = SimpleNamespace(
         _key_kind="move",
         _drag_start={},

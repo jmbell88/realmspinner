@@ -6,7 +6,8 @@ closed against. A re-texture is not a mode, it is a button on an asset.
 
 Where the two differ is what they cost and what they invalidate, and the panel
 says both before the button rather than after. A retarget is a couple of seconds
-of gltfpack; this queues six SDXL passes around two Blender runs, so it is a
+of gltfpack; this queues ten SDXL passes (one per ``retexture.VIEWS`` entry)
+around two Blender runs, so it is a
 job with a place in the queue. And a retarget makes a rig, its poses and its
 sheets describe a mesh that no longer exists, where a re-texture makes none of
 them stale -- a rig references geometry, not pixels. What it *does* invalidate
@@ -34,6 +35,7 @@ from ...service import jobs as svc_jobs
 from ...service.validation import MAX_PROMPT
 from .. import controls, forms, theme, widgets
 from ..manual import render as manual_render
+from . import model_gate
 
 # The 2026-09-07 audit, finding create-01: ``ctx.state.field_errors`` is one
 # flat, unnamespaced dict, and this panel's "strength" and "texture_size"
@@ -300,10 +302,31 @@ def dependent_job_reason(jobs: list[dict[str, Any]], job_id: str) -> str | None:
     )
 
 
+def required_rows(ctx: Any, form: dict[str, Any]) -> tuple[str, ...]:
+    """The registry rows this re-texture's door will ask for: the base
+    checkpoint (the panel passes no ``base_model``, so the configured one) and,
+    while the anchor is on, the depth ControlNet.
+
+    The 2026-10-03 audit, finding create-38: the button was enabled whatever
+    was installed, and ``retexture_job``'s refusals carry ``field="base_model"``
+    / ``"control"`` -- which no control here draws a ring for -- so a host
+    without the depth ControlNet met a toast after the press instead of a
+    stated reason beside the button, as ``sprite_panel`` gives one.
+    """
+    rows: list[str] = []
+    base = str(getattr(getattr(ctx.svc, "config", None), "t2i_model", "") or "")
+    if base:
+        rows.append(f"base:{base}")
+    if form.get("depth"):
+        rows.append("control:depth")
+    return tuple(rows)
+
+
 def _submit(ctx: Any, job_id: str, form: dict[str, Any]) -> None:
     key = f"retexture:{job_id}"
     busy = ctx.busy(key)
     problems = validate(form)
+    locked = model_gate.draw(ctx, required_rows(ctx, form), what="A re-texture")
     for problem in problems:
         widgets.muted(problem)
     dep_reason = None if busy else dependent_job_reason(ctx.cache.jobs, job_id)
@@ -314,14 +337,16 @@ def _submit(ctx: Any, job_id: str, form: dict[str, Any]) -> None:
         imgui.same_line()
     if widgets.disabled_button(
         "Re-texture mesh",
-        not problems and not busy and not dep_reason,
+        not problems and not busy and not dep_reason and not locked,
         (-1, 0),
         # ``retarget_panel``'s rule: the problems are listed above, so the
         # reason names the other gate and defers to the list otherwise.
         reason=(
             "A re-texture is already running for this asset."
             if busy
-            else dep_reason or "; ".join(problems)
+            else dep_reason
+            or "; ".join(problems)
+            or ("A model this re-texture needs is not downloaded." if locked else "")
         ),
     ):
         # Last time's rings first: a new submit is judged on its own --

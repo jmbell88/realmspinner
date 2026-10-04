@@ -330,7 +330,13 @@ def _read_indexed_png(data: bytes, size: tuple[int, int]):
 #: read from a foreign file and round-tripped) with one of these went into
 #: ``stack.xml`` verbatim, producing an archive this very reader refuses on
 #: the next open -- a name is not a promise it is well-formed XML.
-_XML_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")
+#:
+#: The 2026-10-03 audit (inker-27): the control range was not the whole set.
+#: XML 1.0's ``Char`` production also excludes U+FFFE, U+FFFF and the surrogate
+#: block (a lone surrogate is what JSON ``"\ud800"`` or a decoded foreign name
+#: can carry; U+FFFF is plain UTF-8 ``EF BF BF``), and expat refuses each on
+#: the next open -- a saved document that cannot be reopened.
+_XML_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
 
 
 def _xml_safe_name(name: object) -> str:
@@ -1560,8 +1566,16 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
                     raise ValueError(
                         f"a palette holds at most {ixp.MAX_COLOURS} colours"
                     )
+                # The 2026-10-03 audit (inker-26): the count was bounded but
+                # the channels were not, so ``[300, 0, 0, 255]`` opened
+                # normally and then raised OverflowError out of the uint8
+                # lut in ``index_plane`` the first time that frame was drawn.
+                # Clamped on read like every sibling value (opacity, note
+                # colour, the document palette), so a hand-edited table
+                # degrades here and never on the frame thread.
                 frame_palettes[frame.uid] = [
-                    tuple(int(v) for v in colour[:4]) for colour in table
+                    tuple(max(0, min(255, int(v))) for v in colour[:4])
+                    for colour in table
                 ]
         tracks = [
             Track(
@@ -1671,11 +1685,20 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
             # re-read.
             try:
                 zed = int(entry.get("z", 0))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 zed = 0
             if zed:
                 cel_z[(tracks[ti].uid, frames[fi].uid)] = max(-32768, min(32767, zed))
 
+        # The 2026-10-03 audit (inker-28): "tags" was the one list in this
+        # member with no ceiling -- a 32 KB archive naming 300,000 tags opened
+        # in 4.3 s as an animation the timeline then drew every frame, and
+        # which ``aseprite_bytes`` could only refuse. Refused inside the same
+        # guarded block, so the file falls back flat like every sibling list.
+        if len(payload.get("tags", [])) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES} tags"
+            )
         tags = [
             Tag(
                 name=entry.get("name") or "tag",
@@ -1701,8 +1724,12 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
         ValueError,
         TypeError,
         OSError,
+        OverflowError,
         json.JSONDecodeError,
     ) as exc:
+        # ``OverflowError`` (the 2026-10-03 audit, inker-72): JSON accepts a
+        # bare ``Infinity`` and ``int(inf)`` raises it, which escaped this
+        # handler and failed a file whose pixels were all intact.
         # ``_read_colour``'s verbatim five, plus ``OSError``: this member is
         # the one whose entries name *PNGs* to decode, and Pillow's
         # ``UnidentifiedImageError`` on a member holding non-image bytes is an

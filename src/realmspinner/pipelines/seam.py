@@ -97,6 +97,8 @@ SEAM_MAX = 3.5
 # 4 of 44 visibly seamed control units, against the ratio's 5. Pooled it caught
 # 40 where the ratio caught 39, which is the whole of its sensitivity claim and
 # is deliberately not more than that.
+# Its dev/measurements document is gone with the backup (confirmed
+# 2026-09-28): re-measure to change.
 SEAM_DOMINANCE_MAX = 1.0
 
 # Below this many pixels on a side there is no interior to compare against.

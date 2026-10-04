@@ -252,7 +252,16 @@ class Fetch:
         same shape the rename and the ``uv sync`` note already take.
         """
         if self.url:
-            return f"curl -L -o {self.dest_text(dest)}/{self.filename} {self.url}"
+            # ``--create-dirs`` because the destination folder does not exist on a
+            # machine that has not downloaded this row yet -- which is the
+            # machine the pasted line is for -- and ``curl -o`` into a missing
+            # folder exits 23 ("client returned ERROR on write"), the 2026-10-03
+            # audit's docs-03. After ``-o``, not before ``-L``: the first line
+            # still starts ``curl -L -o ``, the shape tests/test_fetch.py pins.
+            return (
+                f"curl -L -o {self.dest_text(dest)}/{self.filename} --create-dirs "
+                f"{self.url}"
+            )
         parts = [f"uvx hf download {self.repo_id}"]
         if self.revision:
             # Rendered into the pasted command as well as passed to the

@@ -2,7 +2,9 @@
 
 Realmspinner is one window, one OpenGL context and one interactive process. There is no server,
 no browser and no local HTTP API — the one exception is the reconstruction engine, which is a
-vendored binary that happens to speak HTTP on a loopback port, and nothing else in the app does.
+native binary that happens to speak HTTP on a loopback port, and nothing else in the app does. That
+binary is a download first (two rows in Settings → Models, the runtime and the weights);
+`vendor/trellis/` is only the source-checkout fallback, and `REALMSPINNER_TRELLIS_EXE` beats both.
 Around that one process is a small family of short-lived and long-lived children, each of which
 exists because something it does cannot safely be done in the process that has to keep drawing.
 What follows is how the interactive process is arranged, why each boundary inside it is where it
@@ -12,13 +14,14 @@ is, and what was pushed outside it.
 
 The window has a 16 ms frame budget and the work the app does is measured in minutes. Those two
 facts are irreconcilable on one thread, so there are three, and the split between them is the whole
-design.
+design. A fourth exists only once the agent bridge has been switched on in Settings.
 
 | Thread | Runs | May block |
 | --- | --- | --- |
 | main (pygame) | events, imgui, the viewport, job-store reads | no |
 | `realmspinner-loop` | the asyncio loop hosting the GPU worker | asyncio only |
 | `TaskRunner` pool | service calls: exports, bakes, prune | yes |
+| `realmspinner-agent-host` | the MCP bridge's pipe listener (only when switched on) | its own pipe |
 
 **The frame loop** owns the window, the OpenGL context and every pixel. It reads the job store
 directly, because that is a fast local SQLite query behind a lock and going through another thread
@@ -36,6 +39,13 @@ mesh exports, Blender bakes, the prune sweep, tokenizer loads. Four is a deliber
 that a slow export does not stall a thumbnail decode, few enough that a handful of them cannot
 starve the loop thread of CPU. Each task is submitted under a key, and the key is what a spinner
 binds to and what deduplicates a double-clicked button into one export.
+
+**The agent-host thread** is `realmspinner-agent-host` (`studio/agent_host.py`), and it does not exist
+until an agent client is allowed in. It only listens: a Clay call is queued for the frame thread to
+run, because Clay's document is the frame thread's to touch. A character-pipeline call can block
+(a Blender probe, an `animated.glb` bake), so it runs on a second `TaskRunner` pool the host owns,
+two workers wide, never on the frame thread and never on the listener. Stopping the host shuts that
+pool down without touching the tracked children of ordinary jobs.
 
 Progress needs no protocol at all as a result. The worker keeps its progress in memory, behind its
 own lock, never touching the database from its reader side; the frame loop asks it for a snapshot
@@ -56,13 +66,17 @@ nothing outlives the app however it exits, and a scan test refuses a spawn site 
 
 | Process | Holds | Why it is not in the app |
 | --- | --- | --- |
-| The reconstruction engine | The mesh model, resident between jobs | A vendored native binary; it was never Python |
-| The image model | The SDXL or FLUX checkpoint, resident between jobs | Its host memory was never returned — see below |
+| The reconstruction engine | The mesh model, resident between jobs | A native binary, downloaded in Settings → Models; it was never Python |
+| The image model | The SDXL or FLUX checkpoint, for the length of one image stage | Its host memory was never returned — see below |
 | Blender | Rigging, skinning, sheet renders | `bpy` is process-global and can take the interpreter down with it |
 | BiRefNet matting | The matting model, for one call | Same host-memory problem, at a smaller scale |
 | The load probe | A checkpoint, to measure it | Measuring a load must not perform one |
 | The `bpy` probe | Nothing; it imports Blender and prints its version | `import bpy` takes seconds and must not be one the window waits on |
-| gltfpack | One mesh optimisation | A vendored native binary, like the engine |
+| gltfpack | One mesh optimisation | A native binary you drop into `vendor/gltfpack/`; never Python |
+| The music worker | The ACE-Step music pipeline, resident across takes | Its host memory was never returned either; killing the child returns it |
+| The separation worker | One Demucs run, four stems out | A one-shot child, so cancelling it is a kill |
+| The LoRA trainer | One style-LoRA training run | A run charges about 20 GiB of host commit that nothing short of exit returns |
+| The recipe worker | A small instruct model answering one Flourish request | Load, answer, exit: the load-probe trade, for a few prompts an hour |
 | The fetch worker | One model or engine download | One of three allowed online — see below |
 | The pack worker | One dependency-pack install | Same allowance, for `uv sync`'s equivalent |
 | The update worker | One release-feed check plus an installer download | Same allowance, for the app's own version |
@@ -75,8 +89,10 @@ in a child costs the job; in the app it would cost every unsaved document in eve
 the VRAM exactly as it claimed and did not return the *host* memory: a single checkpoint charged
 about 24 GiB of system commit that nothing but process exit reclaimed, so switching image models
 twice in a session ended with the app correctly refusing its own next job. Measured on both sides
-of the boundary, the child returns all of it. The pipeline object still lives across jobs — the
-child is persistent, not per-call — so nothing about warm-start behaviour changed.
+of the boundary, the child returns all of it. The child process is persistent, not per-call, but the
+checkpoint is not: it is released when each image stage ends, so a job that follows straight on pays
+one reload. That trade was taken deliberately, because a checkpoint held against a job that may never
+come was what kept refusing the next one.
 
 **What crosses a boundary is a file path, never pixels.** Every one of these children is handed
 paths and numbers and writes its output to disk, which is why moving work out of the app process

@@ -5191,11 +5191,18 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     additions cost triple. Catalogue JSON 66,067 chars + instructions 11,998
     chars = 78,065 chars total, over the 78,000 ceiling above by 65. Raised to
     78,100.
+
+    The 2026-10-03 audit's clay-22: ``clay_scene`` gained optional ``offset``
+    and ``limit`` (and one sentence saying so), because its over-budget refusal
+    named a narrowing the tool did not have and a document too large for one
+    reply could never be read again. Catalogue JSON 66,295 chars + instructions
+    11,998 chars = 78,293 chars total, over the 78,100 ceiling above by 193.
+    Raised to 78,350.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 78_100
+    CEILING = 78_350
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

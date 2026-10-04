@@ -21,6 +21,7 @@ for surfaces that take a context and nothing else.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -91,7 +92,9 @@ def _delete_confirm_message(
     return message
 
 
-def _launch_sweep_reason(planned: int, *, submitting: bool, scanning: bool) -> str:
+def _launch_sweep_reason(
+    planned: int, *, submitting: bool, scanning: bool, problem: str = ""
+) -> str:
     """Why "Launch sweep" is greyed, or "" while it is live.
 
     shell-07 (2026-09-15 audit): the button greyed during a scan or a submit
@@ -99,13 +102,18 @@ def _launch_sweep_reason(planned: int, *, submitting: bool, scanning: bool) -> s
     already keeps for Rescan and Remove above it on this pane. Pulled out as
     a free function, rather than built inline in the draw call, so it can be
     checked without an imgui frame.
+
+    ``problem`` is what ``review_mode.plan_problem`` found wrong with the form,
+    and it wins over the generic sentence (the 2026-10-03 audit, finding
+    shell-28): "Fill in the prompt and one axis." was said for an unparsable
+    seeds field too, naming controls the user had already filled in.
     """
     if scanning:
         return "A scan is already running."
     if submitting:
         return "Already launching this sweep."
     if planned <= 0:
-        return "Fill in the prompt and one axis."
+        return problem or "Fill in the prompt and one axis."
     return ""
 
 
@@ -705,8 +713,11 @@ class ReviewPanes:
                     form.axes.pop()
 
         planned = review_mode.preview_units(state)
+        problem = ""
         if planned < 0:
-            widgets.muted("Fill in the prompt and one axis.")
+            found = review_mode.plan_problem(state)
+            problem = found[1] if found else ""
+            widgets.muted_wrapped(problem or "Fill in the prompt and one axis.")
         else:
             labels = {p: create_recipe.field_label(p) for p in rows}
             widgets.muted_wrapped(review_mode.preview_line(state, labels))
@@ -716,7 +727,9 @@ class ReviewPanes:
         # scan or a submit was already in flight, leaving a dead button with
         # nothing to explain it -- the same contract ``disabled_button`` already
         # keeps for Rescan and Remove above.
-        reason = _launch_sweep_reason(planned, submitting=form.submitting, scanning=state.scanning)
+        reason = _launch_sweep_reason(
+            planned, submitting=form.submitting, scanning=state.scanning, problem=problem
+        )
         if widgets.primary_button("Launch sweep", (-1, 0), enabled=enabled, reason=reason):
             review_mode.launch(ctx)
 
@@ -787,7 +800,7 @@ class ReviewPanes:
                 review_mode.step(state, i - state.index)
 
     def _review_judging_controls(
-        self, ctx: Any, state: Any, review_mode: Any, enabled: bool
+        self, ctx: Any, state: Any, review_mode: Any, enabled: bool, reason: str = ""
     ) -> None:
         """Accept / Reject / Finish, for a pass that is running.
 
@@ -802,7 +815,7 @@ class ReviewPanes:
         from .....vectors import BINARY_GRADES
         from .... import controls, widgets
 
-        reason = "A scan is running; the queue is being rebuilt."
+        reason = reason or "A scan is running; the queue is being rebuilt."
         if widgets.disabled_button("Accept (A)", enabled, reason=reason):
             review_mode.record(ctx, BINARY_GRADES["accept"], state.pending_tags)
         imgui.same_line()
@@ -848,6 +861,9 @@ class ReviewPanes:
             ctx.state.comparing = None
             self.viewer.exit_compare()
 
+        # Before ``current``: a unit that finished while it was on screen is
+        # read as finished this frame (the 2026-10-03 audit, finding shell-35).
+        review_mode.refresh_unit_statuses(state, getattr(ctx.cache, "jobs", ()))
         unit = review_mode.current(state)
         if self.viewer.pose_mode:
             # The pose editor owns the viewer and holds unsaved rotations;
@@ -887,11 +903,27 @@ class ReviewPanes:
         from ....main import REVIEW_MESH_KEY
 
         wanted = None if unit is None else review_mode.model_path(unit)
+        state = review_mode.ensure(self.app_ctx)
+        # The 2026-10-03 audit, finding shell-35: ``viewer.path`` is pinned to a
+        # file that does not exist yet (a unit viewed while it generates), and
+        # the equality test below then returns for ever -- the mesh never
+        # loaded when the unit finished, until the reviewer stepped away and
+        # back. ``mesh_wait`` remembers that the pin was made for an absent
+        # file, and a once-a-second stat releases it when the file appears.
+        # An errored unit never gets one, so it is tried once and then costs a
+        # stat a second, not a clear and a toast per frame.
+        if self.viewer.path == wanted and review_mode.mesh_retry_due(
+            state, wanted, time.monotonic()
+        ):
+            state.mesh_wait = None
+            self.viewer.path = None
         if self.viewer.path == wanted or self.viewer.pending == wanted:
             return
         if wanted is None or not wanted.exists():
             self.viewer.clear()
             self.viewer.path = wanted
+            state.mesh_wait = wanted
+            state.mesh_wait_checked = time.monotonic()
             return
         self.viewer.pending = wanted
         if not self.app_ctx.submit(REVIEW_MESH_KEY, self.viewer.parse_model, wanted, tag=wanted):
@@ -964,7 +996,12 @@ class ReviewPanes:
             widgets.muted(judged)
 
         imgui.separator()
-        enabled = not state.scanning
+        # One reason for the whole control group, and the service's own sentence
+        # when the unit's job is not finished (the 2026-10-03 audit, finding
+        # shell-27): the controls were live for a queued or errored unit and a
+        # press toasted only "Could not record that verdict."
+        blocker = review_mode.verdict_blocker(state, unit)
+        enabled = not blocker
 
         if state.pending_negative:
             # R is a *sign*, held until the next digit, and nothing on screen
@@ -983,7 +1020,7 @@ class ReviewPanes:
             # fast path; the eleven-point scale below is the power path and
             # keeps working, files a grade and advances the pass exactly as
             # these two do.
-            self._review_judging_controls(ctx, state, review_mode, enabled)
+            self._review_judging_controls(ctx, state, review_mode, enabled, blocker)
 
         with forms.Form("review-verdict") as form_ui:
             with form_ui.field(
@@ -992,18 +1029,20 @@ class ReviewPanes:
                 help_text="A digit grades; press R first for a negative grade.",
                 helper="+5 ships as-is, +3 is usable, and -5 is unusable.",
             ):
-                grade = widgets.grade_buttons("review", enabled)
+                grade = widgets.grade_buttons("review", enabled, reason=blocker)
             if grade is not None:
                 review_mode.record(ctx, grade, state.pending_tags)
 
             with form_ui.field("tags", "Tags", helper="Optional; S skips without filing a grade."):
-                tag = widgets.tag_toggles("review", state.pending_tags, enabled)
+                tag = widgets.tag_toggles("review", state.pending_tags, enabled, reason=blocker)
             if tag is not None:
                 review_mode.toggle_tag(state, tag)
 
+            # Skip stays live on a unit that cannot be graded: it is the way
+            # off an errored one, so it answers to the scan alone.
             if widgets.disabled_button(
                 "Skip (S)",
-                enabled,
+                not state.scanning,
                 reason="A scan is running; the queue is being rebuilt.",
             ):
                 review_mode.advance(state, unverdicted_only=True)

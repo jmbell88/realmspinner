@@ -1,6 +1,6 @@
 """Per-engine export conventions: collider naming, LOD naming, axis handling.
 
-CLAY-PLAN.md tranche 7's other half. :mod:`.colliders` decides *what shape* a
+Clay tranche 7's other half. :mod:`.colliders` decides *what shape* a
 collider is; this module decides *what a target engine has to see in the
 file* to recognise it as one, plus the two other per-target facts an export
 profile bundles: how far past ``readiness.PROFILES``' own budgets an export

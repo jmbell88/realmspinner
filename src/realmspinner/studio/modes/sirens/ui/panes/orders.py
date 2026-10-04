@@ -293,7 +293,12 @@ def _order(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
     # a bare imgui label undrawn, and "Loop from" was one of the sliders it
     # was happening to.
     changed, value = widgets.labeled_slider_int(
-        "Loop from", doc.loop_order, 0, max(0, len(order) - 1), enabled=editable
+        "Loop from",
+        doc.loop_order,
+        0,
+        max(0, len(order) - 1),
+        enabled=editable,
+        reason=_BUSY_WHY,
     )
     controls.fold_undo(doc.history)
     if changed and doc.set_song(loop_order=int(value)):
@@ -401,12 +406,13 @@ def _patterns(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
             f"##sirens-pattern-name-{pattern.uid}",
             pattern.name,
             enabled=editable,
+            reason=_BUSY_WHY,
             commit=True,
         )
         if changed:
             doc.rename_pattern(pattern.uid, name)
         changed, value = widgets.labeled_slider_int(
-            "Rows", pattern.rows, 1, 256, enabled=editable
+            "Rows", pattern.rows, 1, 256, enabled=editable, reason=_BUSY_WHY
         )
         controls.fold_undo(doc.history)
         if changed and doc.resize_pattern(pattern.uid, int(value)):
@@ -435,7 +441,11 @@ def _patterns(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
         used = sum(1 for one in doc.order if one == pattern.uid)
         if widgets.disabled_button(
             f"{icons.TRASH} Delete###sirens-pattern-drop-{pattern.uid}",
-            editable and len(doc.patterns) > 1,
+            # The song's own patterns, not ``doc.patterns``: every sound effect
+            # keeps a private pattern in that list, so with one song pattern and
+            # one effect the button was enabled and deleting the only visible
+            # pattern emptied the order (the 2026-10-03 audit, finding sirens-10).
+            editable and len(patterns) > 1,
             (width, 0),
             reason=_BUSY_WHY
             if not editable

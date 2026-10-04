@@ -7,7 +7,7 @@ The generation pipeline:
 - **Image → 3D**: reference image → textured GLB (base colour plus a combined metallic/roughness texture; surface detail rides on vertex normals, not a normal map), powered by Microsoft **TRELLIS.2-4B** running natively via [trellis.cpp](https://github.com/pwilkin/trellis.cpp) (C++/GGML, CUDA).
 - **Text → 3D**: prompt → reference image via a diffusers pipeline, loaded from a local weights dir. **SDXL 1.0 at full CFG** is the default and the one base download the setup below asks for — 30 steps at 1024 px, with the negative prompt and ControlNet live; the same 7 GB also powers three faster recipes over the same weights, and **SDXL-Turbo** remains the 4-step fast option one install away. Eleven base models are registered (`src/realmspinner/models.py`) from 4-step distillations to full-CFG SDXL, Playground, Juggernaut, DreamShaper and FLUX.2 klein, with per-job style LoRAs, IP-Adapter appearance conditioning, ControlNet silhouette lock, and a seamless-tile mode with seam measurement. See [docs/MODELS.md](docs/MODELS.md).
 - **Text → 2D sheets**: the same prompt as a **tileset**, in one of three layouts — *Materials* (1–16 surface descriptions × 1–4 draws, capped at 64 cells, each cell its own **seamless** generation, so the tiles genuinely repeat), *Terrain set* (an inside and an outside surface composited into a complete 47-case blob autotile that lands in Plotter with the Terrain tool live, by record, with no import prompt), or *Grid (legacy)* (the original 8×8 single generation onto a ControlNet grid guide — the only layout offering 3/4 and 2:1 isometric, and the only one offering a 48 px tile; the seamless two are top-down at 16/32/64 px, since a seamless tile must divide the 1024 px material and must wrap a square). Or as a **sprite sheet**: pick an action (idle, walk, run, attack, cast, hurt, jump) and a direction count, and it draws the character first, keeps it as its own asset, then imagines candidate sheets from it with animation tags and frame durations baked in. Neither is reconstructed into a mesh; a tileset goes on to Plotter or Packwright. The legacy grid mechanism is measured on the maintainer's own corpus; its art direction is not settled.
-- **Rig → pose → sprite sheet**: fit one of seven template skeletons (humanoid, quadruped, bird, fish, insect, serpent, tailed biped), pose it with 3D gizmos or reusable poses from the Poser's global library, and bake poses into sprite sheets — flat or lit, 4/8/16 directions, optionally restyled into pixel art. Beyond single poses, Poser's own character-sheet section renders whole animation clips: keyframes authored in the Poser, interpolated into a 256-cell character sheet of five animations across eight directions.
+- **Rig → pose → sprite sheet**: fit one of eight template skeletons (humanoid, quadruped, bird, blob, fish, insect, serpent, tailed biped), pose it with 3D gizmos or reusable poses from the Poser's global library, and bake poses into sprite sheets — flat or lit, 4/8/16 directions, optionally restyled into pixel art. Beyond single poses, Poser's own character-sheet section renders whole animation clips: keyframes authored in the Poser, interpolated into a 256-cell character sheet of five animations across eight directions.
 - **The approval gate**: text jobs stop at the reference by default — the image is shown full-size for approval (with candidate fan-out and per-stage seeds) before anything pays for a trellis run.
 
 ## The modes
@@ -259,7 +259,7 @@ uv run realmspinner doctor   # checks dependencies, weights, and configuration
 
 `realmspinner sweep --image ~/.realmspinner/assets/<job-id>/input.png --bands auto,4,8 --seed 42` regenerates one reference at several trellis `--band` values with a fixed seed and audits each resulting mesh.
 
-`python -m realmspinner.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v2`, `pixel-v2`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `run`, `score`, `calibrate`, `prune`, `purge`.
+`python -m realmspinner.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v2`, `pixel-v2`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `suite`, `run`, `quality`, `blind-review`, `import-review`, `score`, `compare`, `calibrate`, `prune`, `purge`.
 
 ### Configuration
 
@@ -299,9 +299,10 @@ the app process — but the installer distributes both inside one executable, so
 the combined work is GPL. A source checkout without `--extra rig` contains no
 GPL dependency; the licence on this project is unchanged either way.
 
-Third-party components — the vendored `trellis-server.exe` and ggml DLLs, the
-NVIDIA CUDA redistributables, `gltfpack`, the bundled fonts and the vendored
-BiRefNet code — carry their own terms, collected in
+Third-party components — the `trellis-server.exe`, ggml DLLs and NVIDIA CUDA
+libraries the app downloads on request (Settings → Models; Realmspinner does not
+redistribute them), `gltfpack`, the bundled fonts and the vendored BiRefNet
+code — carry their own terms, collected in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 **Model weights are not part of this project.** They are downloaded by you, from

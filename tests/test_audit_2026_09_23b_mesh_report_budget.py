@@ -1,5 +1,5 @@
 """Regression tests for the 2026-09-23 (second run) audit, finding
-pipelines-01 (dev/TODO.md P65 item 3): ``_q_mesh.py``'s two
+pipelines-01 (the second run's third open item): ``_q_mesh.py``'s two
 ``meshreport.build`` call sites recorded every mesh's report against the
 module's 150k ``TRIANGLE_BUDGET`` default, even a mesh retargeted or
 remeshed to a larger, explicitly accepted budget. Beside ``tests/test_remesh.py``,

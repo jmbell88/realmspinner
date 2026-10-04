@@ -171,8 +171,13 @@ def rerun_job(
         # running it again would write the identical four files over
         # themselves. The way to get different stems is a different take.
         raise Invalid(
-            "a stem split has no seed to change; split a different take, or "
-            "delete these stems and split this one again"
+            # muse-18 (2026-10-03 audit). This used to end by offering to remove
+            # the stems and split the take again, an action no door provides:
+            # deleting the ``separate`` row removes only that row's own
+            # directory, and ``separate_job`` refuses a take whose
+            # ``stems.json`` exists. A take is split once.
+            "a stem split has no seed to change, and a take is split once; "
+            "split a different take"
         )
 
     if source["kind"] == "lora_train":
@@ -260,8 +265,16 @@ def rerun_job(
             params.pop(key, None)
     fresh = seed if seed is not None else random_seed()
     params["seed"] = fresh
-    if mode == "remesh":
+    if mode == "remesh" or kind == "image":
         # The reference is being reused verbatim; only the 3D stage rerolls.
+        # ``kind == "image"`` is the reroll of a model-stage row: the source is
+        # an image job, ``input.png`` is copied from it below and SDXL never
+        # runs, so the 2026-10-04 audit (create-39) found the fresh
+        # ``reference_seed`` this arm used to write naming a seed that did not
+        # draw the reference the Inspector shows. ``reference_seed`` is not in
+        # ``DERIVED_PARAMS`` (it is provenance of the pixels, and the strip would
+        # make every door mint one by accident), so the source's survives the
+        # copy above; the fallback is the legacy single seed, as for a remesh.
         params["reference_seed"] = source["params"].get(
             "reference_seed", source["params"].get("seed", fresh)
         )
@@ -423,7 +436,7 @@ def rerun_job(
         # never loaded. Gated on the *stored* reference rather than the params'
         # adapter, because ``carry_ref`` below is what decides whether the new
         # row will actually have one.
-        from .tilesheets import MODE_GRID, TILE_MODES
+        from .tilesheets import MODE_GRID, TILE_MODES, effective_style_lock
         from .tilesheets import _check_weights as _check_sheet_weights
 
         # Which weights this row needs is a property of its *mode*, not of the
@@ -444,7 +457,14 @@ def rerun_job(
         # reference-less reroll against a models directory missing the
         # adapter passed every check here and died inside
         # ``text2image.generate`` instead of being refused at the door.
-        style_locked = bool(isinstance(sheet_block, dict) and sheet_block.get("style_lock"))
+        #
+        # The 2026-10-03 audit (plotter-23): read through the same count the
+        # door applies, because the worker only locks when there is a second
+        # cell. A one-material sheet admitted without the adapter was refused
+        # here, on reroll, for a download it never needed.
+        style_locked = isinstance(sheet_block, dict) and effective_style_lock(
+            sheet_block.get("style_lock"), len(sheet_block.get("materials") or ())
+        )
         _check_sheet_weights(
             svc,
             mode=sheet_mode if sheet_mode in TILE_MODES else MODE_GRID,
@@ -705,7 +725,16 @@ def promote_to_model(
     # reference that cannot reconstruct should be refused before it is spent.
     # Bypassable because the rules are heuristics about composition, not
     # facts -- the 3D pane sends force behind a confirm.
-    report = source["params"].get("reference_report") or {}
+    report = source["params"].get("reference_report")
+    if not isinstance(report, dict) or not report:
+        # A reference drawn as an ordinary 2D image breaks out of the generate
+        # loop before ``measure_file``, and an uploaded or hand-edited one has its
+        # report cleared, so there is nothing stored to read. The cutout modal
+        # measures such a reference on demand and offers Build anyway; reading
+        # only the stored report here granted no composition override for it, and
+        # the promoted job was queued and then refused by ``reference.prepare``
+        # with the same sentences (the 2026-10-03 audit, finding service-14).
+        report = reference.measure_file(src_png).as_dict()
     refused = report.get("ok") is False
     if not force and refused:
         raise Invalid(
@@ -749,7 +778,7 @@ def promote_to_model(
     # meaning flat and readable, whose 512 is a *reference* resolution. Copying
     # it wholesale reconstructed every promotion of a 2D-styled reference at
     # half the geometry resolution, invisibly. So the model side decides,
-    # exactly as ``studio/review_mode.capture_base`` decides it for a sweep:
+    # exactly as ``capture_base`` in ``studio/modes/review/mode.py`` decides it for a sweep:
     # the 3D platform wins, an explicit resolution survives. The 2D taxonomy
     # value itself is left alone -- this is the geometry resolution, not a
     # relabelling of the prompt the reference was drawn from.

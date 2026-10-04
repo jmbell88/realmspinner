@@ -224,7 +224,7 @@ def draw(ctx: Any) -> None:
     ref = doc.tilesets[index]
     imgui.dummy((0, sp(tokens.SP_1)))
     _tileset_bar(ctx, state, tab, ref, index)
-    _picker(ctx, state, tab, ref, index, tab.uid, doc.tileset_epoch)
+    _picker(ctx, state, tab, ref, index, tab.uid, doc.tileset_pixel_epoch)
     _tile_form(ctx, state, tab, ref, index)
 
 

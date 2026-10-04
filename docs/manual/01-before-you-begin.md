@@ -3,7 +3,7 @@
 Realmspinner makes game art on your own machine. You give it a text prompt or a picture; it gives
 you back a textured 3D model, a sprite sheet, a tile map or a drawing — whichever you asked for. It
 is one desktop window with no server to start, no browser tab and no account, and after the initial
-downloads it never touches the network again.
+downloads it never goes online on its own.
 
 This is the first of the tutorial chapters. It is the only one about getting ready rather than about
 making something, and it exists because Realmspinner asks for two large downloads and a particular kind

@@ -415,6 +415,19 @@ class StampEdit(Edit):
     before: Any
     after: Any
 
+    def __post_init__(self) -> None:
+        # Both halves hold a block of gids -- a captured selection can be the
+        # size of a layer -- so a cost of zero hid every re-stored stamp from the
+        # byte budget (the 2026-10-03 audit, finding plotter-30). Counted by
+        # array identity: a rename keeps one block in both halves, and charging
+        # it twice would evict steps for memory that is not held twice.
+        arrays = {
+            id(cells): cells
+            for cells in (getattr(half, "cells", None) for half in (self.before, self.after))
+            if cells is not None
+        }
+        self.cost = sum(int(getattr(cells, "nbytes", 0)) for cells in arrays.values())
+
     def undo(self, doc: Any) -> None:
         doc._apply_stamp(self.slot, self.before)
 

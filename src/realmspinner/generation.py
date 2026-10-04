@@ -31,6 +31,15 @@ from . import models
 # at the layer both sides can reach.
 MAX_REFERENCE_COUNT = 8
 
+#: How many reference *images* one request document may name. Not the same
+#: number as ``MAX_REFERENCE_COUNT`` (how many references a submit generates):
+#: every image named here is read up to 20 MB, re-encoded, written once per
+#: candidate and then loaded into memory by ``_q_generate``, so a saved recipe or
+#: bench suite naming hundreds had no per-document bound although each accessor
+#: was capped (the 2026-10-03 audit, finding service-31). The Create form attaches
+#: one; eight is the multi-reference modes' own working range.
+MAX_INPUT_REFERENCES = 8
+
 GENERATION_TYPES = ("image", "3d_model", "seamless_material", "tileset", "sprite_sheet")
 GENERATION_TYPE_OPTIONS = (
     ("image", "Image"),
@@ -299,7 +308,7 @@ class GenerationRequest:
                 **{"prompt_items": _as_items(tile["prompt_items"])}
                 if "prompt_items" in tile
                 else {},
-                **{"target_cell_px": _optional_int(tile["target_cell_px"])}
+                **{"target_cell_px": _optional_int_kept(tile["target_cell_px"])}
                 if "target_cell_px" in tile
                 else {},
             ),
@@ -309,7 +318,7 @@ class GenerationRequest:
                     _SPRITE_COERCIONS,
                 ),
                 **{
-                    k: _optional_int(sprite[k])
+                    k: _optional_int_kept(sprite[k])
                     for k in ("frame_count", "candidate_count", "target_cell_px")
                     if k in sprite
                 },
@@ -319,7 +328,7 @@ class GenerationRequest:
                     {k: v for k, v in model.items() if k in ModelSettings.__dataclass_fields__},
                     _MODEL_COERCIONS,
                 ),
-                **{"custom_triangles": _optional_int(model["custom_triangles"])}
+                **{"custom_triangles": _optional_int_kept(model["custom_triangles"])}
                 if "custom_triangles" in model
                 else {},
             ),
@@ -565,6 +574,21 @@ def _checksum(key: str, config: Any | None) -> str | None:
     return None
 
 
+def _lora_checksum(config: Any | None, style_lora: str | None) -> str | None:
+    """The fingerprint a resolved recipe records for the style LoRA it names.
+
+    One reader for both routing arms: a built-in LoRA is fingerprinted through
+    its registry row, an imported one carries the checksum its manifest was
+    written with (and wins, as it always has).
+    """
+    if not style_lora:
+        return None
+    manifest = imported_lora(config, style_lora)
+    if manifest is not None:
+        return manifest.checksum
+    return _checksum(f"lora:{style_lora}", config)
+
+
 def resolve_recipe(
     request: GenerationRequest,
     config: Any | None = None,
@@ -624,12 +648,7 @@ def resolve_recipe(
             if base.commercial
             else f"{base.license or 'This model'} does not permit commercial use."
         )
-        lora_checksum = (
-            _checksum(f"lora:{request.style_lora}", config) if request.style_lora else None
-        )
-        manifest = imported_lora(config, request.style_lora or "")
-        if manifest is not None:
-            lora_checksum = manifest.checksum
+        lora_checksum = _lora_checksum(config, request.style_lora or candidate.default_lora)
         return ResolvedRecipe(
             candidate,
             key,
@@ -646,10 +665,10 @@ def resolve_recipe(
                 continue
         elif not all(_present(k, config) for k in candidate.required_downloads):
             continue
-        lora_checksum = None
-        manifest = imported_lora(config, request.style_lora or "")
-        if manifest is not None:
-            lora_checksum = manifest.checksum
+        # The 2026-10-04 audit (create-41): this arm filled the checksum for an
+        # imported LoRA only, so a built-in style recorded None where Advanced
+        # recorded its fingerprint -- the same pick, two provenance answers.
+        lora_checksum = _lora_checksum(config, request.style_lora or candidate.default_lora)
         return ResolvedRecipe(
             candidate,
             candidate.base_model,
@@ -760,11 +779,42 @@ def validate_request(
         issues.append(CompatibilityIssue(
             "model.mesh_finishing", "Choose Preserve shape or Repair."
         ))
+    # The 2026-10-03 audit, finding create-47: ``output_profile`` and
+    # ``custom_triangles`` were accepted, stored in ``params["generation_request"]``
+    # and never forwarded to ``create_job``, which builds at the app's configured
+    # budget -- so the recorded request claimed a mesh profile and triangle
+    # budget the job never used, the same document-versus-pixels mismatch the
+    # ``tile.target_cell_px`` refusal ended. Refused rather than forwarded:
+    # forwarding the default ``"raw"`` would silently change every request's
+    # budget from the configured one to none. The default (nobody said) passes.
+    if request.model.output_profile != "raw":
+        issues.append(
+            CompatibilityIssue(
+                "model.output_profile",
+                "A generation request builds at the configured mesh budget; "
+                "change the budget in Settings, or retarget the finished model.",
+            )
+        )
+    if request.model.custom_triangles is not None:
+        issues.append(
+            CompatibilityIssue(
+                "model.custom_triangles",
+                "A generation request cannot set a triangle budget; "
+                "retarget the finished model instead.",
+            )
+        )
     if request.reference_mode not in REFERENCE_MODES:
         issues.append(CompatibilityIssue("reference_mode", "Unknown reference mode."))
     if request.reference_mode == "multi" and len(request.references) < 2:
         issues.append(
             CompatibilityIssue("references", "Multi-reference mode needs at least two images.")
+        )
+    if len(request.references) > MAX_INPUT_REFERENCES:
+        issues.append(
+            CompatibilityIssue(
+                "references",
+                f"A request may name at most {MAX_INPUT_REFERENCES} reference images.",
+            )
         )
     # The 2026-09-26 audit, finding create-workspace-01: ``request_to_legacy``
     # only writes ``init_image``/``init_strength`` onto the legacy payload
@@ -875,11 +925,28 @@ def validate_request(
             issues.append(
                 CompatibilityIssue("sprite.directions", "Sprites support 4 or 8 directions.")
             )
-        if s.candidate_count is not None and not 1 <= s.candidate_count <= 2:
+        # ``from_dict`` now leaves an unconvertible optional int in place (the
+        # 2026-10-03 audit's create-30), so the comparison below must check the
+        # type first, as ``tile.variants`` does.
+        if s.candidate_count is not None and (
+            not isinstance(s.candidate_count, int) or isinstance(s.candidate_count, bool)
+        ):
+            issues.append(
+                CompatibilityIssue(
+                    "sprite.candidate_count", "Sprite candidate count must be a whole number."
+                )
+            )
+        elif s.candidate_count is not None and not 1 <= s.candidate_count <= 2:
             issues.append(
                 CompatibilityIssue(
                     "sprite.candidate_count", "Sprite candidate count must be 1 or 2."
                 )
+            )
+        if s.frame_count is not None and (
+            not isinstance(s.frame_count, int) or isinstance(s.frame_count, bool)
+        ):
+            issues.append(
+                CompatibilityIssue("sprite.frame_count", "Frame count must be a whole number.")
             )
         issues.extend(validate_target_cell(s.target_cell_px))
     if resolved is None:
@@ -917,8 +984,12 @@ def validate_request(
             issues.append(
                 CompatibilityIssue(
                     "base_model",
-                    f"{resolved.recipe.label} runs at guidance 0 and cannot run a "
-                    "ControlNet. Choose a full-CFG model.",
+                    # The 2026-10-04 audit, finding create-54's sibling: "guidance 0"
+                    # was true of Turbo/Hyper/Lightning and false of LCM and FLUX.2
+                    # klein distilled, which run at 1.0 -- "1.0 or lower" is true of
+                    # every model this refuses (``recipe.py``'s notes say the same).
+                    f"{resolved.recipe.label} runs at guidance 1.0 or lower and cannot "
+                    "run a ControlNet. Choose a full-CFG model.",
                 )
             )
         if request.init_image and not _takes_img2img(resolved):
@@ -1207,6 +1278,29 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _optional_int_kept(value: Any) -> Any:
+    """:func:`_optional_int` for a *document*: an unconvertible value survives.
+
+    The 2026-10-03 audit, finding create-30: ``from_dict`` folded
+    ``{"target_cell_px": "banana"}`` to ``None`` ("nobody said"), so the
+    request was recorded as valid and ``validate_request``'s "Cell target must
+    be a whole number." branch was unreachable from a document -- the silent
+    substitution :func:`_required_int` exists to avoid for the other fields.
+    ``None``/``""`` still mean "nobody said"; a value that converts is
+    converted; anything else comes back unchanged for ``validate_request`` to
+    refuse by type. The form-decoding callers keep :func:`_optional_int`: a
+    text box's content is not a stored document.
+    """
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
 def _required_int(value: Any, default: int) -> Any:
     """Coerce a sub-document field declared as a bare ``int`` (no ``None``).
 
@@ -1336,10 +1430,10 @@ _TILE_COERCIONS: dict[str, tuple[type, Any]] = {
 }
 
 #: :data:`_TILE_COERCIONS`, for :class:`SpriteSettings`. ``candidate_count``,
-#: ``frame_count`` and ``target_cell_px`` are ``int | None`` fields already
-#: served by :func:`_optional_int` (the same helper the legacy form-decoding
-#: path below already uses for exactly this reason), so they are coerced
-#: separately in :func:`GenerationRequest.from_dict` rather than listed here.
+#: ``frame_count`` and ``target_cell_px`` are ``int | None`` fields served by
+#: :func:`_optional_int_kept`, so they are coerced separately in
+#: :func:`GenerationRequest.from_dict` rather than listed here (the legacy
+#: form-decoding path below keeps :func:`_optional_int`).
 _SPRITE_COERCIONS: dict[str, tuple[type, Any]] = {
     "mode": (str, SpriteSettings.mode),
     "action": (str, SpriteSettings.action),
@@ -1349,7 +1443,7 @@ _SPRITE_COERCIONS: dict[str, tuple[type, Any]] = {
 }
 
 #: :data:`_TILE_COERCIONS`, for :class:`ModelSettings`. ``custom_triangles``
-#: is ``int | None`` and coerced with :func:`_optional_int` alongside the
+#: is ``int | None`` and coerced with :func:`_optional_int_kept` alongside the
 #: other optional-int sub-fields, not listed here.
 _MODEL_COERCIONS: dict[str, tuple[type, Any]] = {
     "output_profile": (str, ModelSettings.output_profile),
@@ -1459,6 +1553,13 @@ def load_lora_manifests(config: Any) -> list[LoraManifest]:
         _MANIFEST_CACHE[path] = (mtime, [])
         return []
     rows = raw.get("manifests", raw) if isinstance(raw, Mapping) else []
+    # The 2026-10-03 audit, finding create-31: "total by construction" stopped at
+    # the row loop, which sat outside the ``try`` -- ``"manifests": null`` (or any
+    # non-iterable) raised ``TypeError`` out of every ``resolve_recipe``, taking
+    # Create's recipe column down until the hand-edited file was deleted. Anything
+    # that is not a list of rows is "no adapters", like the other malformed shapes.
+    if not isinstance(rows, (list, tuple)):
+        rows = []
     out: list[LoraManifest] = []
     for row in rows:
         try:
@@ -1500,6 +1601,12 @@ def register_imported_loras(config: Any | None) -> None:
                 and existing.label == manifest.label
                 and existing.trigger == manifest.trigger_text
                 and existing.default_weight == manifest.tuned_weight
+                # create-14 (2026-10-03 audit): the comparison above stopped
+                # one field short -- re-importing the same adapter with a
+                # corrected family rewrote manifests.json and left the registry
+                # on the old family until restart, so ``lora_fits`` kept fitting
+                # or refusing the style against the wrong architecture.
+                and existing.family == manifest.family
             ):
                 continue
             models.STYLE_LORAS[manifest.key] = models.StyleLora(
@@ -1518,6 +1625,14 @@ def remove_imported_lora(config: Any, key: str) -> bool:
     Only an *imported* key -- a built-in ``STYLE_LORAS`` entry has no manifest
     and is left alone. The manifest is rewritten first, so a crash between the
     two leaves an orphan file rather than a registered entry with no file.
+
+    **An unlink that fails puts the manifest back and raises** (the 2026-10-03
+    audit, finding service-17). On Windows a loader mid-read or an antivirus scan
+    makes the adapter's ``unlink`` a sharing violation; the manifest had already
+    been rewritten, so the picker kept offering a style whose row was gone until
+    restart and the user saw a raw ``PermissionError``. The registry entry is
+    popped only after the file is gone, so the two halves stay in step on either
+    outcome.
     """
     with _MANIFEST_LOCK:
         manifests = load_lora_manifests(config)
@@ -1526,18 +1641,7 @@ def remove_imported_lora(config: Any, key: str) -> bool:
             return False
         root = Path(config.t2i_model_root) / "loras"
         root.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            {"version": 1, "manifests": [asdict(x) for x in manifests if x.key != key]},
-            indent=2,
-            sort_keys=True,
-        )
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
-        ) as fh:
-            fh.write(payload)
-            temp = Path(fh.name)
-        temp.replace(lora_manifest_path(config))
-        _forget_manifests(lora_manifest_path(config))
+        _write_manifests(config, root, [x for x in manifests if x.key != key])
         # Resolved and re-checked against the directory before it is deleted, the
         # rule ``service.palettes._path`` and ``fetch.removal_plan`` both follow.
         # ``import_lora`` cannot write a filename with a separator in it, so today
@@ -1548,10 +1652,30 @@ def remove_imported_lora(config: Any, key: str) -> bool:
         # an orphan is a much better outcome than an ``unlink`` somewhere else.
         target = (root / gone.filename).resolve()
         if target.parent == root.resolve():
-            target.unlink(missing_ok=True)
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                _write_manifests(config, root, manifests)
+                raise
     with models.STYLE_LORAS_LOCK:
         models.STYLE_LORAS.pop(key, None)
     return True
+
+
+def _write_manifests(config: Any, root: Path, manifests: list[LoraManifest]) -> None:
+    """Stage ``manifests.json`` beside itself and replace it. Caller holds the lock."""
+    payload = json.dumps(
+        {"version": 1, "manifests": [asdict(x) for x in manifests]},
+        indent=2,
+        sort_keys=True,
+    )
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
+    ) as fh:
+        fh.write(payload)
+        temp = Path(fh.name)
+    temp.replace(lora_manifest_path(config))
+    _forget_manifests(lora_manifest_path(config))
 
 
 def lora_catalog(config: Any | None = None) -> list[dict[str, Any]]:

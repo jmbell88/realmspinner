@@ -497,8 +497,17 @@ def test_an_agent_may_ask_for_a_custom_sprite_size(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(svc_troupe, "send_to_troupe", fake_send_to_troupe)
 
+    # A bare object() no longer does: an unrigged mesh's family decides the rig
+    # template (the 2026-10-03 audit, agents-12), so the handler reads the row.
+    class _Svc:
+        def job_dir(self, jid):
+            return Path("nowhere") / jid
+
+        def require_job(self, jid):
+            return {"params": {}}
+
     result = ac.call(
-        object(),
+        _Svc(),
         ac.Session(),
         "character_sheet_create",
         {"job_id": "a" * 12, "movements": [{"name": e.movements[0]}], "size": 40},

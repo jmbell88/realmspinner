@@ -65,7 +65,7 @@ class FakeCtx:
     def busy(self, key: str) -> bool:
         return key in self.busy_keys
 
-    def submit(self, key: str, run: Any, *args: Any) -> bool:
+    def submit(self, key: str, run: Any, *args: Any, tag: Any = None) -> bool:
         self.submitted.append(key)
         if not self.accept:
             return False
@@ -791,6 +791,10 @@ def test_a_key_release_does_nothing(ctx):
 def test_select_wraps_in_both_directions(ctx):
     jobs = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
     state = muse_mode.ensure(ctx)
+    # From no selection the first Down enters at the newest card (muse-07,
+    # 2026-10-03 audit); it used to skip it and land on "b".
+    muse_mode.select(ctx, jobs, 1)
+    assert state.selected_job == "a"
     muse_mode.select(ctx, jobs, 1)
     assert state.selected_job == "b"
     muse_mode.select(ctx, jobs, -1)

@@ -17,9 +17,9 @@ view and the file panel. Several documents stay open at once.
 
 With nothing open, the middle column offers **New model** and **Open a file...**, and lists the
 documents you had open recently — clicking one reopens it, and hovering it shows the full path. The
-document panel on the right offers the same two buttons, with **Save** and **Save As...** beside
-them once a document is open — the same four buttons every workspace has, over the file's path and
-one line saying whether it is saved. `Ctrl+N` and `Ctrl+O` do the same two things from the keyboard.
+document panel on the right shows only that recent list until a document is open; then it gains
+**New**, **Open**, **Save** and **Save As...** — the same four buttons every workspace has, over
+the file's path and one line saying whether it is saved. `Ctrl+N` and `Ctrl+O` do the same two things from the keyboard.
 
 Choosing **Clay** from the Home screen opens an empty document for you when there is nothing open
 already. When there is, it leaves your documents exactly as they were — the documents *are* the
@@ -261,6 +261,10 @@ viewport header says the same thing, and highlights whichever mode the document 
 The mode belongs to the *document*, not to the app, so switching tabs does not reinterpret what you
 had selected in the other one.
 
+Going from one element mode to another carries the selection across. Down — faces to edges to
+vertices — takes everything the selection touches. Up takes a face only when *every* one of its
+edges (or corners) is selected, so two edges of a triangle do not select the triangle.
+
 Clicking replaces the selection, `Shift`+click adds to it and `Ctrl`+click removes from it. Clicking
 the object but missing everything on it clears that object; clicking empty space with the **Select**
 tool (`Q`) starts a marquee, and a marquee that ends where it started clears everything. A marquee
@@ -284,6 +288,8 @@ removes every selected object as **one** undo step rather than one per object, s
 brings the whole selection back. Neither
 `Ctrl+A` nor `Ctrl+Shift+I` reaches a **hidden** object, in either sense of everything: hiding
 something takes it out of what you are working on, so nothing you select can act on it by accident.
+Delete, Duplicate and element drags leave a hidden object alone too, without a message, and in an
+element mode `Ctrl+A` and `Ctrl+Shift+I` also skip colliders, which are not drawn to be selected.
 
 **Element selection is transient.** It is not saved with the document, and an undo that changes
 geometry drops it — the indices it named describe a mesh that no longer exists. An undo that only
@@ -311,29 +317,32 @@ round the mesh. A ring has no such rule and works where a loop does not.
 `L` selects everything **joined** to what is selected. `Ctrl`+`=` grows the selection by one ring and
 `Ctrl`+`-` shrinks it — shrinking peels the border off, leaving the middle of what you had, which
 includes the mesh's own open border. **Select Boundary** in the context menu takes every open edge:
-the border of every hole, which is what Fill Hole is about to close.
+the border of every hole, which is what Fill Hole is about to close. With nothing selected it takes
+the open edges of every visible object.
 
 ### The operations
 
 | Mode | Operation | What it does |
 | --- | --- | --- |
 | Any | Extrude (`E`) | Pulls the selection off the surface and walls in the gap. It moves nothing — drag what it hands back with `W`. |
-| Faces | Inset | Shrinks each face in place and rings it with the rim it vacated. |
+| Faces | Inset Faces | Shrinks each face in place and rings it with the rim it vacated. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
-| Edges | Bevel | Replaces each edge with a flat quad, mitring the corners where several meet. |
+| Edges | Bevel Edges | Replaces each edge with a flat quad, mitring the corners where several meet. |
 | Edges | Loop Cut | Rings a strip of quads with a new edge loop. |
 | Edges | Bridge Loops | Joins two selected boundary loops with a strip of quads. |
 | Edges | Fill Hole | Caps the boundary ring the selected edge belongs to. |
 | Edges, Faces | Collapse | Pulls the selection down to a single point. |
-| Verts | Weld | Merges vertices closer together than a distance you give. |
+| Verts | Weld | Merges vertices closer together than a distance you give. A vertex joins a group only if it is within that distance of the group's first vertex, so a long run of closely spaced points is not collapsed into one. |
 | Any | Dissolve | Removes the selection and merges what it separated, rather than leaving a hole. |
 | Faces | Merge Faces | The same operation as Dissolve in face mode, under the name most people look for. |
 | Any | Smooth | Catmull-Clark subdivision over the whole object. Each level multiplies the face count by four. |
 
 An operation that cannot do what you asked says so in a toast naming the element and what to do
-instead, and changes nothing. Bevel refuses a boundary edge; dissolve refuses a selection that rings
-a face it does not include; fill hole refuses a pinched boundary. Those are refusals, not failures:
+instead, and changes nothing. Bevel Edges refuses a boundary edge; dissolve refuses a selection that rings
+a face it does not include; fill hole refuses a pinched boundary. Bevel Edges also refuses a very large
+selection — about ten thousand corners at the selected edges' end vertices, half that on a mesh
+with UVs — so bevel a big mesh in parts. Those are refusals, not failures:
 the alternative is geometry that looks right and is not.
 
 **Merge Faces** and **Dissolve** in face mode are one operation with two names, and the duplication
@@ -445,7 +454,7 @@ strip. Setting the radius to zero is the same as switching it off.
 
 Several operations act on the whole selection at once, and all of them are one undo step however
 many objects or copies they touch. **Duplicate** (`Ctrl+J`) makes a copy under a new name, counting
-up — `Box`, `Box.001`, `Box.002`. **Bake** folds an object's position, rotation and scale into its
+up — `Box`, `Box.001`, `Box.002`. **Bake Transform** folds an object's position, rotation and scale into its
 geometry and resets the transform to identity, which is what you want before measuring something or
 exporting it into a frame that has to match.
 
@@ -454,7 +463,9 @@ along `x`, `y` and `z` — a negative step runs the array backwards along that a
 total number of instances, so `3` means two copies beside the original; it is capped at 200, a soft
 ceiling on outliner rows and document size rather than on memory, since every copy shares its
 source's geometry (arraying an array multiplies rather than adds, so two arrays near the ceiling can
-still exceed it). **Array Radial...** spins copies of the selection around the *world* origin, not
+still exceed it). One press also refuses to make more than 2,000 copies in all (the selection's
+object count times `count - 1`), before it makes one, and tells you the figure to lower. **Array
+Radial...** spins copies of the selection around the *world* origin, not
 the object's own centre — put the hub at the origin and one shape beside it, and this makes the rest
 of the spokes; reach a hub anywhere else by arraying at the origin first and moving the whole result
 together. `angle` is the total sweep in degrees (360 by default) and `axis` picks which world axis it
@@ -488,7 +499,7 @@ the two extreme objects fixed — with fewer than three selected there is no gap
 so the row is disabled rather than a no-op. **Drop to Ground** rests each selected object's own world
 box on `y=0`, one at a time rather than as a group, so an object already on the ground and one
 floating three metres up both land correctly in the same press. **Snap to Grid...** rounds every
-selected object's translation onto a grid of the given step, each axis independently — unlike **Snap**
+selected object's world position onto a grid of the given step, each axis independently — unlike **Snap**
 below, this acts once on whatever is already selected rather than following a live gizmo drag.
 
 ## The outliner
@@ -585,8 +596,10 @@ one case where moving a pivot changes what you see.
 
 The hint line under the viewport answers the question the selection implies. Two selected vertices
 show the distance between them; three show the angle at the middle one; a face selection shows the
-total area; and in object mode a selection shows its volume. Everything is measured in world space,
-so a scaled parent is accounted for rather than ignored.
+total area; and in object mode a selection shows its volume — or "open mesh" instead of a number
+when any selected object has holes, because the volume of an open surface is not a volume. Counts,
+distance and area ignore hidden objects and colliders, so they match what a drag would move.
+Everything is measured in world space, so a scaled parent is accounted for rather than ignored.
 
 ## Merging objects
 
@@ -787,7 +800,10 @@ gone rather than letting them point somewhere arbitrary.
 **Unwrap Seams** flattens the object by cutting along them, which is what gives an organic shape a
 layout with far less distortion than a projection can manage. A closed surface with no seam cannot
 be flattened at all — there is nowhere for it to open — and Clay says exactly that rather than
-producing a tangle. For anything dense, **Smart Unwrap** through Blender is the better tool.
+producing a tangle. For anything dense, **Smart Unwrap** through Blender is the better tool, and
+Unwrap Seams says so when it refuses: it will not take an island of more than 4,000 vertices (mark
+more seams to split it), or a mesh whose islands together are too much work for one press (a very
+large number of tiny islands counts), and points you to Smart Unwrap for those.
 
 ### The UV view
 
@@ -796,7 +812,8 @@ seams, and the element selection highlighted inside them. An object with no layo
 **Box Unwrap**, **Unwrap Seams** and **Smart Unwrap...** right there; the same three sit under the
 toolbar once there is a layout, beside **Pack islands...**, which asks for its margin the way the UV
 menu's Pack Islands does. The wheel zooms, the middle button pans,
-and dragging either box-selects islands or moves whichever ones are selected. `E` and `R` rotate and
+clicking an island selects it (a click on empty space deselects), and dragging either box-selects islands or moves
+whichever ones are selected. `E` and `R` rotate and
 scale what is selected — the same letters the viewport uses — following the mouse until you click to
 keep the result or press `Esc` to drop it. The fields beside the canvas do the same thing to an
 exact number. Either way each island turns about its own centre.
@@ -812,9 +829,12 @@ what keeps two props next to each other in a game looking equally sharp.
 
 The **Data** tab of Properties has a **mesh check**. It measures the selected
 object against the defects a mesh can carry without anything noticing: holes, non-manifold edges
-(three or more faces on one edge), inconsistently wound faces, duplicate faces and vertices no face
-uses. Each finding is a button — clicking it switches to the element mode the defect lives in and
-selects exactly the offenders, so "3 non-manifold edges" becomes three edges you are looking at.
+(three or more faces on one edge), inconsistently wound faces, duplicate faces (faces over the same
+vertices) and vertices no face uses. The check reports a double-sided card's two faces as
+duplicates, but Clean Up and the Game check, which count only faces repeating the same vertices in
+the same winding, leave it alone. Each finding is a button — clicking it switches to the element
+mode the defect lives in and selects exactly the offenders, so "3 non-manifold edges" becomes three
+edges you are looking at.
 
 It runs when you press the button and not before. Building the tables it needs is proportional to
 the size of the mesh, which is fine once and unacceptable sixty times a second, so the answer is
@@ -831,7 +851,8 @@ at once, and each is one undo step however many objects it touched.
 
 **Clean Up** fixes the defects the mesh check finds and nothing else. In order, it removes faces
 with no area, merges vertices closer than the distance you give, removes faces that repeat another
-face's corners, and drops vertices no face uses. It then makes every face wind the same way as its
+face's corners in the same winding (the back face of a double-sided card is kept), and drops
+vertices no face uses. It then makes every face wind the same way as its
 neighbours and turns each closed shell outward. **Fill holes** is off by default, because an open
 edge is sometimes the point: a cape, a leaf, a decal. An object with nothing wrong is left exactly
 as it was, generator and all, and nothing is said about it.
@@ -848,7 +869,8 @@ short, and the toast tells you when it did.
 
 Decimate runs in the background, so the window stays responsive on a large mesh. If you edit an
 object before its result comes back, that object's result is thrown away rather than pasted over
-your edit, and the toast names it.
+your edit, and the toast names it. A result that arrives while you are mid-drag or while the tab is
+saving waits, and lands when the drag or the save ends.
 
 ## The game check
 
@@ -876,7 +898,7 @@ extra installed; without it each one is greyed out and says so. Each runs in the
 window stays responsive, and each throws its result away rather than pasting it over an object you
 edited while it was working.
 
-**Retopologise** rebuilds the selected objects as an even quad mesh at roughly the triangle count
+**Retopologize** rebuilds the selected objects as an even quad mesh at roughly the triangle count
 you ask for. It is what turns a sculpted or reconstructed blob into something you can edit, and the
 answer replaces the mesh you had, so the object stops claiming to be a generated shape. Any modifier
 stack is cleared, not stacked on top of the result — Blender's own answer already has its effect
@@ -920,7 +942,8 @@ A material can be saved to the **material library**, which lives outside any one
 materials are listed by name and applied to the selected objects in one step, which is how a set of
 props ends up sharing one look without copying numbers between files. Each saved material is its own
 small file with its textures beside it, so a half-written or hand-edited one is skipped rather than
-taking the rest of the shelf down with it.
+taking the rest of the shelf down with it. The trash button beside a saved material asks first,
+because deleting removes the file and its textures for good.
 
 **Shade Smooth** and **Shade Flat** set how faces are shaded — the whole object in object mode, the
 selected faces in face mode. **Shade Auto** decides per face from the angle between neighbours: a
@@ -1011,9 +1034,16 @@ finished model row from the moment it lands, so it inherits everything the rest 
 mesh: rigging, posing, sprite sheets, the triangle retarget, and the STL, OBJ, FBX, collision and
 texture exports. Use it when the shape you modelled is the shape you meant.
 
-**Export GLB** and **Export OBJ** write the document straight to a file you choose, for handing to
-another tool. OBJ writes a `.mtl` of the same name beside it with each material's colour. Neither
-touches the library, and neither counts as saving the document.
+**Export GLB**, **Export OBJ** and **Export .blend** write the document straight to a file you
+choose, for handing to another tool. OBJ writes a `.mtl` of the same name beside it with each
+material's colour. The `.blend` is a native Blender file with the textures packed into it; Blender
+converts it in a separate process, so it needs the rig extra (the button says so when it is greyed)
+and takes a few seconds. None of them touches the library, and none counts as saving the document.
+
+**Save screenshot** saves a lit PNG of the document from the angle you are looking at it, 2048
+pixels square, with no grid, gizmos or selection outlines. Place objects with the gizmos or the
+Position fields, orbit to the view you want, and press it. It does not reframe: what you see is the
+direction and distance you get.
 
 **Make 3D** renders the document flat, on a plain background, with no grid and no gizmos, and
 hands that picture to the reconstruction stage. What comes back is *not* your geometry — it is a
@@ -1040,14 +1070,18 @@ coordinates. Each `o` or `g` line starts a new object, and `usemtl` picks the ma
 come from the `.mtl` file the OBJ names, when it sits in the same folder; without it the materials
 arrive grey. An OBJ that Clay exported comes back with the colours it left with. STL and PLY carry
 neither materials nor texture coordinates, so each arrives as one grey object with its triangles
-joined back into one surface.
+joined back into one surface. A GLB brings in only the meshes its active scene places, each with its
+own transform, so the nodes of a file's other scenes are not stacked at the origin. A file whose
+positions or transforms hold NaN or infinity, or whose vertex data is corrupt (a stride smaller than
+its elements, say), is refused by name.
 
 **Open in Clay** prefers the document you authored. If the asset was exported from Clay, its
 `build.rblk` sidecar is reopened — objects, names, generator parameters and all. If it was not, the
 served `model.glb` is imported instead: that is the optimized, grounded mesh, not the raw
 reconstruction.
 
-An imported mesh comes in as one object per material, with its vertices merged back together
+An imported mesh comes in as one object per primitive of each node (two nodes that share a
+material are two objects, which share one palette slot), with its vertices merged back together
 bitwise. An exporter splits a vertex wherever a normal or a texture coordinate disagrees, and those
 split copies are bit-identical in position, so merging them is exact — there is no tolerance to
 choose and no chance of welding two features that are a hair apart. If you *want* tolerance welding,
@@ -1073,7 +1107,8 @@ pressed Generate in Create; nothing about it is special to Clay except where the
 From a prompt, this is two steps, the same shape Create's own Reference stage takes. Typing a
 description and pressing **Generate** queues a reference picture using Create's own model and style
 settings — the popup says which. Once it is ready, the popup shows it with **Accept**, **Reroll** and
-**Cancel**: Reroll tries again with a fresh seed, Accept sends it on to be reconstructed into a mesh.
+**Cancel**: Reroll tries again with a fresh seed, Accept sends it on to be reconstructed into a mesh,
+and Cancel stops the reference or mesh job, which stays in the Library as a cancelled row.
 A reference the reconstruction step doubts shows its reason and a **Build anyway** button beside
 Accept, which retries past that doubt — the same override the promote-to-mesh preview elsewhere in
 the app offers.

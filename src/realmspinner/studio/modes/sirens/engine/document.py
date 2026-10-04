@@ -50,6 +50,7 @@ write a bassline has already learned to write a laser.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
@@ -109,11 +110,22 @@ FULL_INSTRUMENTS = f"a song holds {MAX_INSTRUMENTS} instruments"
 
 _next_uid = 0
 
+#: Guards ``_next_uid``. The 2026-10-03 audit, finding sirens-05: ``read_rsng``
+#: runs on task threads (render, audition, preview, export snapshots) and bumped
+#: this counter while the frame thread minted pattern, channel and one-shot uids
+#: from it, and ``_next_uid += 1`` / ``max(...)`` are not atomic -- a stale store
+#: moved the counter backwards and re-issued a uid already in use, which is the
+#: "order list points at two different patterns through one number" corruption
+#: the uid rule exists to prevent (a hammer run handed the frame thread hundreds
+#: of duplicates in 400k).
+_UID_LOCK = threading.Lock()
+
 
 def new_uid() -> int:
     global _next_uid
-    _next_uid += 1
-    return _next_uid
+    with _UID_LOCK:
+        _next_uid += 1
+        return _next_uid
 
 
 def reserve_uid(above: int) -> None:
@@ -130,7 +142,8 @@ def reserve_uid(above: int) -> None:
     bytes, which makes every ``.rsng`` in a repository undiffable.
     """
     global _next_uid
-    _next_uid = max(_next_uid, int(above))
+    with _UID_LOCK:
+        _next_uid = max(_next_uid, int(above))
 
 
 def _copy_name(name: str, taken: Any) -> str:
@@ -320,7 +333,7 @@ class SongDoc:
         self.samples = dict(samples or {})
         self.history = UndoStack()
         self.saved_head = 0
-        # P65 item 2 ("sirens-02" in the plan). Mirrors ``DocTab.saving`` /
+        # The 2026-09-23 audit's finding sirens-02. Mirrors ``DocTab.saving`` /
         # ``.busy`` (``studio/docmodes.py``) -- set and cleared by whichever
         # studio module starts and lands a save (``studio/modes/sirens/
         # fileio.py``, ``mode.py``) -- so a mutator down here can refuse a
@@ -377,6 +390,23 @@ class SongDoc:
             if one.uid == uid:
                 return one
         return None
+
+    @staticmethod
+    def _refuse_bad_fields(target: Any, values: dict[str, Any], what: str) -> None:
+        """Refuse a keyword an ``update_*`` mutator must not pass to ``replace``.
+
+        The 2026-10-03 audit, finding sirens-19: ``update_instrument`` alone
+        carried the unknown-field guard (sirens-engine-06), so ``update_channel``
+        and ``update_oneshot`` raised a bare ``TypeError`` for a misspelled key
+        where every other refusal here is a ``ValueError``. (The finding also
+        said ``uid=`` went through; it cannot -- ``uid`` is each mutator's own
+        positional parameter, so Python refuses the duplicate before the body
+        runs -- and the test pins that rather than a guard that could never
+        fire.)
+        """
+        unknown = set(values) - {one.name for one in fields(target)}
+        if unknown:
+            raise ValueError(f"{what} has no {', '.join(sorted(unknown))}")
 
     def _require(self, uid: int, finder: Any, message: str) -> Any:
         found = finder(uid)
@@ -772,9 +802,7 @@ class SongDoc:
         # rather than the ``ValueError`` every other refusal in this module
         # gives -- ``set_song``'s own ``unknown = set(values) - fields``
         # guard, applied here too.
-        unknown = set(values) - {one.name for one in fields(instrument)}
-        if unknown:
-            raise ValueError(f"an instrument has no {', '.join(sorted(unknown))}")
+        self._refuse_bad_fields(instrument, values, "an instrument")
         after = replace(instrument, **values)
         if after == instrument:
             return False
@@ -830,6 +858,7 @@ class SongDoc:
         "this pattern's cells are unchanged".
         """
         channel = self._require(uid, self.channel, MISSING_CHANNEL)
+        self._refuse_bad_fields(channel, values, "a channel")
         after = replace(channel, **values)
         if after == channel:
             return False
@@ -923,6 +952,12 @@ class SongDoc:
 
     def update_oneshot(self, uid: int, **values: Any) -> bool:
         oneshot = self._require(uid, self.oneshot, MISSING_ONESHOT)
+        self._refuse_bad_fields(oneshot, values, "a sound effect")
+        # An effect naming a pattern the song does not hold passes here and
+        # then fails every export with ``MISSING_PATTERN`` -- and a file saved
+        # that way is one ``read_rsng`` refuses.
+        if "pattern" in values:
+            self._require(values["pattern"], self.pattern, MISSING_PATTERN)
         after = replace(oneshot, **values)
         if after == oneshot:
             return False
@@ -990,7 +1025,7 @@ class SongDoc:
 
     def set_song(self, **values: Any) -> bool:
         """Title, author, tempo, speed or loop point. Only the keys that moved."""
-        # P65 item 2 ("sirens-02"). "Loop the song" is greyed at its one door
+        # The 2026-09-23 audit's finding sirens-02. "Loop the song" is greyed at its one door
         # while a save is running, but the setter itself took a change from
         # any caller regardless -- refused here so that stays true no matter
         # what reaches it.

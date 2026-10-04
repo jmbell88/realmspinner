@@ -551,6 +551,10 @@ def append_prefix(text: str, field: str) -> str:
 STATUS_OPTIONS = [
     ("all", "any status"),
     ("done", "done"),
+    # ``queued`` is the 2026-10-03 audit's shell-22: ``Filters.matches`` compares
+    # status by equality, so a job waiting its turn was reachable by no filter
+    # and Home's "queued: ..." row opened onto "Nothing matches."
+    ("queued", "queued"),
     ("running", "running"),
     ("error", "failed"),
 ]
@@ -1317,8 +1321,13 @@ def open_selected(ctx: Any) -> None:
     asset_open.open_asset(ctx, job)
 
 
-def copy_settings(ctx: Any, job: Any) -> None:
+def copy_settings(ctx: Any, job: Any, *, announce: bool = True, follow: bool = True) -> None:
     """Load a job's recipe back into the 2D form, so it can be varied.
+
+    ``announce=False`` skips the toast and ``follow=False`` makes the stage
+    switch leave the selection where it is: the results tray's Vary says its own
+    sentence and switches with ``follow=False``, and calling this raised two
+    toasts for one press (the 2026-10-03 audit, finding create-48).
 
     Reroll re-runs a job as it was; this is the other half -- start from what
     it used and change one thing. Prompt history only ever restored the prompt
@@ -1363,8 +1372,9 @@ def copy_settings(ctx: Any, job: Any) -> None:
     from ....create.ui import stages as create_stages
 
     ctx.state.form_2d = form
-    create_stages.go(ctx, "reference")
-    ctx.toast("Settings copied to the form.")
+    create_stages.go(ctx, "reference", follow=follow)
+    if announce:
+        ctx.toast("Settings copied to the form.")
 
 
 def _remeshable(job: Any) -> bool:

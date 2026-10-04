@@ -771,7 +771,9 @@ def test_unpack_selected_unpacks_what_it_can_and_reports_only_what_it_skipped(
     doc.select([small_instance, big_instance.uid])
     # One node of headroom: enough for the 1-for-1 small unpack, not enough
     # for the big template's net growth of +2.
-    monkeypatch.setattr(msc, "MAX_PLACED", len(doc.all_nodes()) + 1)
+    # Counted the way ``read_rscn`` counts (the 2026-10-03 audit's mason-10):
+    # the scene tree plus every template.
+    monkeypatch.setattr(msc, "MAX_PLACED", doc._node_count + doc._template_nodes() + 1)
 
     mason_mode.unpack_selected(ctx)
 

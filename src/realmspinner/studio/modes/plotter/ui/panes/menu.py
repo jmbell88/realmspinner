@@ -24,6 +24,7 @@ from imgui_bundle import imgui
 from ..... import controls, layout_edit, toolbar, verbs
 from ... import mode as plotter_mode
 from ... import tilesets as plotter_tilesets
+from . import layers as plotter_layers
 from . import tools as plotter_tools
 
 BAR = "plotter-menu"
@@ -78,6 +79,25 @@ def _layer_reason(
     return ""
 
 
+def _map_reason(tab: Any, *, need_tileset: bool = False) -> str:
+    """Why a Map or Tileset row is greyed -- the first gate that fails.
+
+    The 2026-10-03 audit (finding plotter-15) found eleven rows passing the
+    fixed ``BUSY`` sentence for every gate, so with no map open they told the
+    user "this map is being written; the rows come back when it lands" about a
+    write that was never going to happen. ``NO_MAP`` first, as
+    :func:`_layer_reason` does, then ``BUSY``, then the tileset.
+    """
+
+    if tab is None:
+        return NO_MAP
+    if tab.busy:
+        return BUSY
+    if need_tileset and not tab.doc.tilesets:
+        return NO_TILESET
+    return ""
+
+
 def draw(ctx: Any) -> None:
     state = plotter_mode.ensure(ctx)
     tab = state.active
@@ -115,17 +135,17 @@ def _map_rows(ctx: Any, state: Any, tab: Any) -> None:
     if _row("Open...", "Ctrl+O"):
         plotter_mode.ask_open(ctx)
     controls.menu_separator()
-    if _row("Save", "Ctrl+S", enabled=ready, reason=BUSY):
+    if _row("Save", "Ctrl+S", enabled=ready, reason=_map_reason(tab)):
         plotter_mode.save(ctx, tab)
-    if _row("Save As...", "Ctrl+Shift+S", enabled=ready, reason=BUSY):
+    if _row("Save As...", "Ctrl+Shift+S", enabled=ready, reason=_map_reason(tab)):
         plotter_mode.save_as(ctx, tab)
     controls.menu_separator()
-    if _row("Resize...", enabled=ready, reason=BUSY):
+    if _row("Resize...", enabled=ready, reason=_map_reason(tab)):
         # A flag, not a call: the dialog is a popup and a popup belongs to the
         # window that begins it. ``plotter_state.setup_pending`` is the same
         # pattern with the same reason written out.
         state.resize_pending = True
-    if _row("Map properties...", enabled=ready, reason=BUSY):
+    if _row("Map properties...", enabled=ready, reason=_map_reason(tab)):
         state.map_settings_pending = True
     if _row("Go to coordinate...", enabled=tab is not None, reason="Nothing is open."):
         # Outside the busy gate, unlike the two above it: a jump moves the view
@@ -138,18 +158,18 @@ def _map_rows(ctx: Any, state: Any, tab: Any) -> None:
         "Export .tmx...",
         "Ctrl+Shift+E",
         enabled=ready and tilesets,
-        reason=BUSY if not ready else NO_TILESET,
+        reason=_map_reason(tab, need_tileset=True),
     ):
         plotter_mode.export_map(ctx, "tmx", tab)
     if _row(
-        "Export .tmj...", enabled=ready and tilesets, reason=BUSY if not ready else NO_TILESET
+        "Export .tmj...", enabled=ready and tilesets, reason=_map_reason(tab, need_tileset=True)
     ):
         plotter_mode.export_map(ctx, "tmj", tab)
     if _row(
         verbs.EXPORT_TO_LIBRARY,
         "Ctrl+E",
         enabled=ready and tilesets,
-        reason=BUSY if not ready else NO_TILESET,
+        reason=_map_reason(tab, need_tileset=True),
     ):
         plotter_mode.export_library(ctx, tab)
     controls.menu_separator()
@@ -192,7 +212,7 @@ def _layer_rows(ctx: Any, state: Any, tab: Any) -> None:
         enabled=ready and active is not None,
         reason=_layer_reason(tab, active=active, need_active=True),
     ):
-        doc.duplicate_layer(active)
+        plotter_layers._duplicate_layer(ctx, doc, active)
     if _row(
         "Delete layer",
         enabled=ready and many and active is not None,
@@ -238,12 +258,12 @@ def _layer_rows(ctx: Any, state: Any, tab: Any) -> None:
 def _tileset_rows(ctx: Any, state: Any, tab: Any) -> None:
     ready = tab is not None and not tab.busy
     tilesets = tab is not None and bool(tab.doc.tilesets)
-    if _row("Import a tileset...", enabled=ready, reason=BUSY):
+    if _row("Import a tileset...", enabled=ready, reason=_map_reason(tab)):
         plotter_tilesets.ask_add_tileset(ctx)
     if _row(
         "Reload the image...",
         enabled=ready and tilesets,
-        reason=BUSY if not ready else NO_TILESET,
+        reason=_map_reason(tab, need_tileset=True),
     ):
         # The other half of *Polish in Inker*, for a paint program that is not
         # Inker: an atlas exported, edited in Aseprite or Photoshop and saved
@@ -256,7 +276,7 @@ def _tileset_rows(ctx: Any, state: Any, tab: Any) -> None:
     if _row(
         "Edit tileset...",
         enabled=ready and tilesets,
-        reason=BUSY if not ready else NO_TILESET,
+        reason=_map_reason(tab, need_tileset=True),
     ):
         # The sheet over the centre pane; see ``plotter_tileset_editor``. The
         # palette's own footer opens the same one through the same door.
@@ -265,7 +285,7 @@ def _tileset_rows(ctx: Any, state: Any, tab: Any) -> None:
     if _row(
         "Remove this tileset",
         enabled=ready and tilesets,
-        reason=BUSY if not ready else NO_TILESET,
+        reason=_map_reason(tab, need_tileset=True),
     ):
         # ``MapDoc.remove_tileset`` was modelled, refused-when-in-use and
         # undoable, and had no way in from the app at all: a tileset imported

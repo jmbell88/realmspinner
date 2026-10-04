@@ -323,3 +323,44 @@ def test_roots_is_just_the_six_fixed_roots_when_no_row_is_contextual():
 
     assert menus.roots([]) == list(menus.ROOTS)
     assert menus.roots([_row(("File",)), _row(("Help",))]) == list(menus.ROOTS)
+
+
+def test_every_mode_with_a_skeleton_has_a_view_menu_row_that_rearranges_panes():
+    """shell-02 residual: Shift+W opened the layout editor in every skeleton
+    mode, and the palette had a "Rearrange panes" command, but ``_COMMAND_PATHS``
+    gave it no menu path -- so ``_command_specs`` skipped it and the chord (or
+    Ctrl+K) was the only door. The mode list comes from the skeleton registry,
+    not from a hand list, so the next skeleton enrols itself. A mode without a
+    skeleton keeps the row, greyed, with the palette command's reason.
+
+    ``evaluate=False`` plus the command's own gate, because evaluating the whole
+    menu runs every other command's gate and those read each mode's real state;
+    a row's ``enabled`` is exactly ``command.enabled(ctx)``."""
+    from realmspinner.studio import layout_edit, menus, palette, skeletons
+    from realmspinner.studio.modes.inker import state as inker_state
+
+    def door(mode):
+        ctx = _ctx(mode)
+        ctx.state.inker = inker_state.InkerState()  # ``_inker_specs`` ensures it in Inker
+        rows = menus.specs(ctx, evaluate=False)
+        row = next((r for r in rows if r.identity == "command:rearrange-panes"), None)
+        command = next(c for c in palette.commands(ctx) if c.key == "rearrange-panes")
+        return ctx, row, command
+
+    assert skeletons.BUILDERS, "the registry this test derives its modes from is empty"
+    for mode in sorted(skeletons.BUILDERS):
+        ctx, row, command = door(mode)
+        assert row is not None, f"{mode} has no View > Rearrange panes row"
+        assert row.path == ("View",), mode
+        assert row.shortcut == "Shift+W", mode
+        assert command.enabled(ctx), mode
+
+        row.callback()  # the chord's own toggle, not a second implementation
+        assert layout_edit.ensure(ctx.state).open is True, mode
+
+    ctx, row, command = door("create")
+    assert row is not None, "the row is greyed in a mode with no skeleton, not absent"
+    assert not command.enabled(ctx)
+    assert command.why, "a greyed row must say why"
+    row.callback()
+    assert layout_edit.ensure(ctx.state).open is False, "create has no skeleton"

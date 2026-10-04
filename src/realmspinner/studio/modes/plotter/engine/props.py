@@ -219,7 +219,10 @@ def _coerce_scalar(kind: str, value: Any) -> Any:
         if isinstance(value, str):
             try:
                 return int(float(value))
-            except ValueError:
+            except (ValueError, OverflowError):
+                # ``OverflowError`` is ``float("1e999")`` reaching ``int``: a
+                # whole-number refusal like any other (the 2026-10-03 audit,
+                # finding plotter-09).
                 pass
         raise ValueError(f"an int property's value must be a whole number, not {value!r}")
     if kind == "float":
@@ -245,13 +248,42 @@ def _coerce_scalar(kind: str, value: Any) -> Any:
 # --- the XML codec ------------------------------------------------------------
 
 
+def _whole_text(text: str, kind: str) -> int:
+    """An XML ``int``/``object`` value as a whole number, or a ``ValueError``.
+
+    ``int(float(text))`` raises ``OverflowError`` for ``1e999``, which the open
+    doors do not frame; the 2026-10-03 audit (finding plotter-09) found it
+    leaving the ``.tmx`` reader as a generic task failure.
+    """
+    try:
+        return int(float(text))
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"an {kind} property's value must be a whole number, not {text!r}"
+        ) from exc
+
+
+def _object_id(raw: Any) -> int:
+    """A JSON/rmap ``object`` property's id, refused by name when it is not one.
+
+    ``int(raw or 0)`` raised ``OverflowError`` for ``inf`` and ``TypeError`` for a
+    list or object (the 2026-10-03 audit, finding plotter-09).
+    """
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"an object property's value must be a whole number, not {raw!r}"
+        ) from exc
+
+
 def _parse_value(kind: str, text: str) -> Any:
     if kind == "bool":
         return text.strip().lower() == "true"
     if kind == "int":
-        return int(float(text))
+        return _whole_text(text, "int")
     if kind == "object":
-        return int(float(text or 0))
+        return _whole_text(text or "0", "object")
     if kind == "float":
         return float(text)
     return str(text)
@@ -444,7 +476,15 @@ def json_number(entry: Any, key: str, default: float) -> float:
     ``None`` -- the member absent, or JSON ``null`` -- means the default.
     """
     value = entry.get(key) if isinstance(entry, dict) else None
-    return float(default) if value is None else float(value)
+    if value is None:
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        # A list, an object or a 400-digit integer where a number belongs: a
+        # refusal by name, not the bare ``TypeError``/``OverflowError`` the open
+        # doors do not frame (the 2026-10-03 audit, finding plotter-09).
+        raise ValueError(f"{key!r} must be a number, not {value!r}") from exc
 
 
 def read_json_properties(entries: Any) -> dict[str, Prop]:
@@ -454,7 +494,14 @@ def read_json_properties(entries: Any) -> dict[str, Prop]:
     the same model on the other side of it -- one document, two syntaxes.
     """
     out: dict[str, Prop] = {}
+    # A list of records, and nothing else: ``[5]`` and the old ``{name: value}``
+    # dict both used to leave ``entry.get`` as ``AttributeError`` (the
+    # 2026-10-03 audit, finding plotter-09).
+    if entries is not None and not isinstance(entries, list):
+        raise ValueError("a properties block is an array of records")
     for entry in entries or []:
+        if not isinstance(entry, dict):
+            raise ValueError("a property record is not an object")
         name = str(entry.get("name", ""))
         if not name:
             continue
@@ -480,7 +527,7 @@ def read_json_properties(entries: Any) -> dict[str, Prop]:
             )
             continue
         if kind == "object":
-            raw = int(raw or 0)
+            raw = _object_id(raw)
         elif kind == "file":
             raw = str(raw or "")
         # ``Prop`` refuses an unknown type by name, so the JSON side needs no
@@ -513,7 +560,7 @@ def _json_item(record: Any, where: str) -> Prop:
             propertytype=propertytype,
         )
     if kind == "object":
-        raw = int(raw or 0)
+        raw = _object_id(raw)
     elif kind == "file":
         raw = str(raw or "")
     return Prop(kind, raw, propertytype=propertytype)
@@ -633,7 +680,7 @@ def _rmap_prop(name: str, record: Any, depth: int = 0) -> Prop:
             propertytype=propertytype,
         )
     if kind == "object":
-        return Prop("object", int(raw or 0), propertytype=propertytype)
+        return Prop("object", _object_id(raw), propertytype=propertytype)
     if kind == "file":
         return Prop("file", str(raw or ""), propertytype=propertytype)
     # ``Prop`` refuses an unknown type by name, so there is one list of legal

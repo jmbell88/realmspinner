@@ -171,6 +171,7 @@ class StripRender:
             flat=self._flat,
             show_grid=False,
             background=(0.0, 0.0, 0.0, 0.0),
+            keep_alpha=True,
         )
         # Rendered against a transparent clear (above), so the MSAA resolve's
         # edge texels are premultiplied by coverage -- ``capture.unpremultiply``

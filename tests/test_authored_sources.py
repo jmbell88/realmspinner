@@ -232,12 +232,11 @@ def test_job_dir_file_validates_the_id_it_is_given(svc):
 
 
 def test_job_dir_file_refuses_a_name_that_is_not_a_bare_leaf(svc):
-    """L03. Every caller today passes a literal (``input.png``,
-    ``sheet.json``), so there is no exploit against the current source -- but
-    ``name`` used to be joined onto the job directory with no check at all,
-    trusting that shape to hold forever. Hardened so a future caller handing
-    this a path fragment gets a refusal instead of a join that walks out of
-    the job directory."""
+    """L03. Three callers pass a literal (``input.png``, ``sheet.json``), but
+    the Clay agent's ``clay_reference_add`` passes the MCP agent's own ``file``
+    argument, so the name really can come from outside. ``name`` used to be
+    joined onto the job directory with no check at all; a path fragment now
+    gets a refusal instead of a join that walks out of the job directory."""
     job_id = _exported(svc, "plotter")
     from realmspinner.service.errors import Invalid
 

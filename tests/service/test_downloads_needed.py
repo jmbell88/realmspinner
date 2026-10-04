@@ -5,7 +5,7 @@ properties are that it resolves through the registry rather than a hand-written
 list (so a feature naming a row that does not exist is a loud failure, not a
 quiet "nothing missing"), and that it deliberately does *not* dedupe sizes --
 the dedupe is a composition with ``plan_for``, and the whole point of that split
-is the four SDXL recipes sharing one 7 GiB checkpoint.
+is the five SDXL recipes sharing one 7 GiB checkpoint.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def test_an_unknown_row_raises_rather_than_reporting_nothing_missing(svc):
 def test_the_size_is_deduped_only_when_composed(svc):
     """The split the docstring promises, measured on the shared checkpoint.
 
-    Four recipes over one ``sdxl-base-1.0`` directory: summing the per-row
+    Five recipes over one ``sdxl-base-1.0`` directory: summing the per-row
     figures counts 7 GiB four times, and ``needed_gib`` -- which composes with
     ``plan_for`` -- counts it once.
     """

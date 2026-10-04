@@ -151,6 +151,12 @@ def test_a_stale_queued_task_from_a_cancelled_tab_does_not_overwrite_a_newer_tab
 
     ids = iter(["stale-ref-job", "live-ref-job"])
     monkeypatch.setattr(svc_jobs, "create_job", lambda svc, **kw: {"id": next(ids)})
+    # The 2026-10-03 audit's clay-78: a late job from a cancelled request is now
+    # cancelled when its result lands, through the one ``cancel_job`` door.
+    cancelled: list[str] = []
+    monkeypatch.setattr(
+        svc_jobs, "cancel_job", lambda svc, job_id: cancelled.append(job_id) or {"ok": True}
+    )
 
     # tab1's own reference job is queued but never landed -- exactly "the
     # decode task this landing comes from was already submitted by the time
@@ -186,6 +192,7 @@ def test_a_stale_queued_task_from_a_cancelled_tab_does_not_overwrite_a_newer_tab
     assert pending["reference_job_id"] == "", (
         "the stale job id must not have been written into the live tab's pending request"
     )
+    assert cancelled == ["stale-ref-job"]
 
     ctx.land(live_key)
     pending = ctx.state.clay.generate_pending

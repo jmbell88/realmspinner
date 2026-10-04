@@ -473,6 +473,18 @@ def clay_unwrap_spec(
     }
 
 
+def clay_blend_spec(source_glb: Path, out_blend: Path, result_dir: Path) -> dict[str, Any]:
+    """The worker spec for Clay's "Export .blend": the document's GLB imported
+    into an empty scene and saved as a native Blender file, textures packed in
+    so the file opens on another machine with nothing beside it."""
+    return {
+        "op": "clay_blend",
+        "source_glb": str(source_glb),
+        "out_blend": str(out_blend),
+        "result_path": str(result_dir / ".clay_blend_result.json"),
+    }
+
+
 def clay_bake_spec(
     high_glb: Path,
     low_glb: Path,

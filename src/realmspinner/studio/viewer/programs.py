@@ -240,6 +240,15 @@ __BRDF__
 // Screen-space derivative TBN. The GLBs this app produces carry no TANGENT
 // attribute, and a normal map without one has to derive its frame somehow;
 // this is the standard Mikkelsen construction three falls back to as well.
+//
+// The 2026-10-04 audit, finding create-49: ``inversesqrt`` of an exactly-zero
+// determinant is Inf, and Inf * 0 is NaN, so a triangle whose UVs collapse (t
+// and b both vanish) shaded as NaN -- black or flickering -- on an imported
+// normal-mapped GLB. This is three r170's perturbNormal2Arb: a zero
+// determinant scales the tangent frame to nothing and leaves the geometric
+// normal, and the face direction is a factor of that scale so a back face's
+// tangent frame mirrors with its normal rather than sampling the map upside
+// down.
 vec3 perturbNormal(vec3 n, vec3 viewDir) {
     vec3 dp1 = dFdx(v_world);
     vec3 dp2 = dFdy(v_world);
@@ -249,9 +258,15 @@ vec3 perturbNormal(vec3 n, vec3 viewDir) {
     vec3 dp1perp = cross(n, dp1);
     vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
     vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
-    float invmax = inversesqrt(max(dot(t, t), dot(b, b)));
+    float det = max(dot(t, t), dot(b, b));
+    float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
+    float scale = (det == 0.0) ? 0.0 : faceDirection * inversesqrt(det);
     vec3 mapped = texture(u_normal_map, v_uv).xyz * 2.0 - 1.0;
-    return normalize(mat3(t * invmax, b * invmax, n) * mapped);
+    vec3 perturbed = t * (mapped.x * scale) + b * (mapped.y * scale) + n * mapped.z;
+    // A map texel with z == 0 on a degenerate triangle sums to the zero
+    // vector, and normalising that is the same NaN by another road.
+    float len2 = dot(perturbed, perturbed);
+    return len2 > 0.0 ? perturbed * inversesqrt(len2) : n;
 }
 #endif
 

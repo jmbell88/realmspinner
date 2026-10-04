@@ -1393,16 +1393,42 @@ class StrokeState:
             self._pickup = source + (crop - source) * float(self.strength)
 
         out = crop + (source - crop) * weight
-        if self.alpha_lock:
-            out[..., 3] = crop[..., 3]
         # Divide the premultiplication back out before narrowing -- the
         # masked-lane guard is ``composite.over``'s own, for the identical
         # ``np.errstate(all="raise")`` reason.
+        #
+        # **By the blended alpha, and only then does the lock put the original
+        # alpha back.** The 2026-10-03 audit, finding inker-48: the lock used
+        # to restore ``out[..., 3]`` *before* this division while ``out[..., :3]``
+        # was still premultiplied by the blended alpha, so every opaque pixel
+        # beside transparency was divided by too large an alpha and came out
+        # darker than either of its sources -- a dark halo dragged into the whole
+        # edge of a sprite by the standard pixel-art use of the lock. The lock
+        # constrains the channel, not the colour arithmetic.
         out_alpha = out[..., 3:4] / 255.0
         lit = out_alpha > 0.0
         rgb = np.empty_like(out[..., :3])
         np.divide(out[..., :3], np.where(lit, out_alpha, 1.0), out=rgb)
-        out[..., :3] = np.where(lit, rgb, 0.0)
+        # **A pixel that was fully transparent and still is keeps the RGB it
+        # had.** The 2026-10-03 audit, finding inker-71: ``np.where(lit, rgb,
+        # 0.0)`` alone rewrote the hidden RGB of every transparent pixel in the
+        # dab's rectangle to zero -- at strength 0, and outside a selection
+        # clip -- so a blur over an erased area pushed an undo step (the funnel
+        # compares whole RGBA) for a stroke that looked unchanged, and wrote
+        # bytes the dab never meant to touch. A pixel that *had* alpha and lost
+        # it (a smudge that picked up pure transparency) still goes to zero.
+        idle = (~lit) & (raw[..., 3:4] <= 0.0)
+        out[..., :3] = np.where(lit, rgb, np.where(idle, raw[..., :3], 0.0))
+        if self.alpha_lock:
+            # Where the blended alpha vanished but the pixel had some (a smudge
+            # that picked up pure transparency), the pixel keeps the colour it
+            # had rather than going black under an alpha the lock keeps; and a
+            # pixel that was fully transparent stays byte-identical, the
+            # ``_resolve`` rule (inker-paint-04) -- the blend would otherwise
+            # leave a neighbour's colour hidden under it.
+            keep_rgb = (~lit) | (raw[..., 3:4] <= 0.0)
+            out[..., :3] = np.where(keep_rgb, raw[..., :3], out[..., :3])
+            out[..., 3] = raw[..., 3]
         target[y0:y1, x0:x1] = composite.to_uint8_255(out)
 
     def _shade(

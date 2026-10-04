@@ -62,9 +62,13 @@ ONE_DIRECTION = "This animation has only one direction on the sheet."
 NO_MIRROR = "{direction} has no mirror direction."
 NO_SELECTION = "Select the pixels to move first."
 NO_REACH = "That scope reaches no other cell."
+#: Two documents reach this refusal -- one never opened from a rendered sheet,
+#: and one opened from a pixel-restyled sheet, which has no render of its own to
+#: compare a re-render against. The sentence names both so the second reader is
+#: not told something untrue about how their document was opened.
 NO_BASE = (
-    "This document was not opened from a rendered sheet, so there is no render "
-    "to merge against."
+    "This document was not opened from a rendered sheet (or is a pixel restyle "
+    "of one), so there is no render to merge against."
 )
 NO_CONFLICTS = "No cell is in conflict."
 
@@ -241,6 +245,26 @@ def _ready(state: Any, tab: Any) -> bool:
     )
 
 
+def _busy_reason(state: Any, tab: Any) -> str:
+    """:data:`ops.BUSY` when a document is open but cannot be edited right now.
+
+    The 2026-10-03 audit, finding inker-47: ``can_propagate``/``can_scope``/
+    ``can_shift``/``can_mirror`` and ``can_merge`` all fold ``_ready`` in, but
+    their reason functions only ever asked about document facts, so a sheet row
+    greyed purely because a save or playback was running answered an empty
+    string -- ``disabled-no-reason`` to the exercise driver, and silence on a
+    key press (``ops.run`` says nothing when the reason is falsy). ``""`` when
+    there is no document (the document-fact branch says why) or the tab is
+    ready.
+    """
+
+    if tab is None or _ready(state, tab):
+        return ""
+    from .ops import BUSY
+
+    return BUSY
+
+
 def can_propagate(state: Any, tab: Any) -> bool:
     return (
         _ready(state, tab)
@@ -251,6 +275,9 @@ def can_propagate(state: Any, tab: Any) -> bool:
 
 
 def propagate_reason(state: Any, tab: Any) -> str:
+    busy = _busy_reason(state, tab)
+    if busy:
+        return busy
     if not is_sheet(tab):
         return NO_SHEET
     if mark_weight(tab) is None:
@@ -267,6 +294,9 @@ def can_scope(state: Any, tab: Any) -> bool:
 
 
 def scope_reason(state: Any, tab: Any) -> str:
+    busy = _busy_reason(state, tab)
+    if busy:
+        return busy
     if not is_sheet(tab):
         return NO_SHEET
     if not targets(state, tab):
@@ -291,6 +321,9 @@ def can_mirror(state: Any, tab: Any) -> bool:
 
 
 def mirror_reason(state: Any, tab: Any) -> str:
+    busy = _busy_reason(state, tab)
+    if busy:
+        return busy
     if not is_sheet(tab):
         return NO_SHEET
     here = run_of(tab)
@@ -378,11 +411,17 @@ def has_base(tab: Any) -> bool:
 
 
 def can_merge(state: Any, tab: Any) -> bool:
-    return is_sheet_tab(state, tab) and has_base(tab)
+    # ``_ready`` (the 2026-10-03 audit, finding inker-42): Keep the hand edit
+    # pushes a ``SheetBaseEdit`` and Merge pushes a history step into a stack a
+    # save may be encoding, but this was gated on the sheet facts alone.
+    return _ready(state, tab) and is_sheet_tab(state, tab) and has_base(tab)
 
 
 def merge_reason(state: Any, tab: Any) -> str:
     """Why the merge is greyed, or "" when it is not. Never silently disabled."""
+    busy = _busy_reason(state, tab)
+    if busy:
+        return busy
     if not is_sheet_tab(state, tab):
         return no_sheet_reason(state, tab)
     return "" if has_base(tab) else NO_BASE
@@ -437,7 +476,15 @@ def land_merge(ctx: Any, state: Any, done: Any) -> bool:
     tab = state.get(key.split(":", 1)[1])
     if tab is None:
         return False
-    if tab.busy:
+    if not result.get("sheet"):
+        # The task looked and found nothing newer (the lookup moved off the
+        # frame thread -- the 2026-10-03 audit, finding inker-88).
+        ctx.toast("No newer sheet of this character to merge in.", "info")
+        return False
+    if tab.busy or getattr(state, "transforming", False):
+        # ``transforming`` too (the 2026-10-03 audit, finding inker-41):
+        # ``merge_render`` commits the free transform's floating buffer and
+        # leaves ``state.transforming`` true with nothing floating.
         ctx.toast(
             "The re-render finished loading while this document was busy; "
             "press Merge re-render again.",

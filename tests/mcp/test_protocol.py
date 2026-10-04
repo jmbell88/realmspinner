@@ -845,7 +845,13 @@ def test_modern_unsupported_version_is_minus_32022_with_data() -> None:
         state,
     )
     assert reply["error"]["code"] == -32022
-    assert reply["error"]["data"] == {"supported": list(p.MODERN), "requested": "1999-01-01"}
+    # ``legacy`` (the 2026-10-03 audit's agents-26): the fallback handshake the
+    # refusal no longer forecloses, so a client knows it exists.
+    assert reply["error"]["data"] == {
+        "supported": list(p.MODERN),
+        "legacy": list(p.LEGACY),
+        "requested": "1999-01-01",
+    }
 
 
 def test_bridge_dispatch_never_replies_to_a_modern_notification_with_a_bad_protocol_version() -> (

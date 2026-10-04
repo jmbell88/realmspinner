@@ -230,7 +230,7 @@ def rows_for(mesh: Mesh, report: ManifoldReport) -> list[Finding]:
         # The count is *shells*, the same "count the loop, select the edges"
         # split the ``hole`` row above uses -- a shell reads as one defect
         # however many faces make it up.
-        shells = ops_clean.survey(mesh).inside_out_shells
+        shells = masks.inside_out_shells  # not a second survey (clay-105)
         out.append(
             Finding(
                 kind="inside_out",

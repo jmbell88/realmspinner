@@ -557,17 +557,11 @@ SHADOW_DROP = 0.35
 
 # --- side columns -------------------------------------------------------------
 
-# The three legacy named sidebar sizes, and the range a dragged splitter may
-# land in, in design pixels.
-#
-# **Here rather than in ``layout``**, which is where they were written and
-# where ``layout.SIDEBAR_WIDTHS``/``PANEL_MIN``/``PANEL_MAX`` still name them:
-# ``layouts`` is the persistence half of the same pair and cannot import
-# ``layout`` (that is the direction the dependency runs), so it had re-spelled
-# all three as literals -- ``{"narrow": 260.0, ...}`` and ``min(max(v, 220.0),
-# 480.0)`` in three places. Two spellings of a clamp is a clamp that stops
-# agreeing, and a splitter and the file it is saved into disagreeing about the
-# ceiling is a width that will not round-trip.
+# The three named sidebar sizes, and the range a side column was once draggable
+# within, in design pixels. No width is saved or dragged now (each side column
+# is a fixed share of the room, ``layout.proportions``), so ``clamp_panel`` and
+# the persistence half's width plumbing are gone; ``layout.SIDEBAR_WIDTHS``/
+# ``PANEL_MIN``/``PANEL_MAX`` still name these.
 SIDEBAR_WIDTHS: dict[str, float] = {
     "narrow": 260.0,
     "default": 300.0,
@@ -575,12 +569,6 @@ SIDEBAR_WIDTHS: dict[str, float] = {
 }
 PANEL_MIN = 220.0
 PANEL_MAX = 480.0
-
-
-def clamp_panel(value: float) -> float:
-    """A side-column width, held inside the range a splitter may reach."""
-
-    return min(max(float(value), PANEL_MIN), PANEL_MAX)
 
 
 # --- vertical splits ------------------------------------------------------------
@@ -594,7 +582,7 @@ def clamp_panel(value: float) -> float:
 # direction the dependency runs), so it had re-spelled the bound as a bare
 # ``(0.25, 0.75)`` literal four times -- the 2026-09-16 audit, shell-settings,
 # the same class of drift this file's own docstring names as the reason
-# ``SIDEBAR_WIDTHS``/``PANEL_MIN``/``PANEL_MAX`` were centralised here rather
+# the side-column constants above were centralised here rather
 # than left in ``layout``.
 SHARE_MIN, SHARE_MAX = 0.25, 0.75
 
@@ -603,6 +591,22 @@ def clamp_share(value: float) -> float:
     """A vertical-split share, held inside the range a splitter may reach."""
 
     return min(max(float(value), SHARE_MIN), SHARE_MAX)
+
+
+def finite_float(value: object) -> float | None:
+    """``float(value)``, or ``None`` when it is not a finite number.
+
+    For a stored geometry value, which is untrusted input: ``json.loads``
+    accepts the bare tokens ``NaN`` and ``Infinity``, and a NaN survives every
+    ``min(max(x, lo), hi)`` clamp unchanged (both comparisons are False), so it
+    reached ``give_way`` as a pane height and stayed NaN after a drag nudge --
+    the 2026-10-03 audit, shell-20. Callers treat ``None`` as "absent".
+    """
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 # --- floating surface widths --------------------------------------------------

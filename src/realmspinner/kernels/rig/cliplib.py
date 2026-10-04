@@ -219,6 +219,21 @@ def validate_clip_source(value: Any, label: str) -> dict[str, Any]:
     return out
 
 
+def _whole_number(value: Any, what: str) -> int:
+    """A whole number off a file, refusing what a bare ``int()`` coerces.
+
+    The 2026-10-03 audit, finding poser-34: ``int(2.9)`` is 2, ``int("8")`` is 8
+    and ``int(True)`` is 1, so a hand-edited or externally produced library
+    played at frame counts its file did not say -- the write door
+    (``service.clips._segment_length``) refuses all three, and a whole float
+    (``8.0``) passes there too, so it does here."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{what} must be a whole number, not {value!r}")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"{what} must be a whole number, not {value!r}")
+    return int(value)
+
+
 def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
     """One clip library file's contents, validated. Raises on a bad one.
 
@@ -247,7 +262,7 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
     such a name is still refused, because every save is a v3 write.
     """
     raw_version = raw.get("version")
-    version = 2 if raw_version is None else int(raw_version)
+    version = 2 if raw_version is None else _whole_number(raw_version, "version")
     if version not in CLIP_LIBRARY_VERSIONS:
         raise ValueError(f"unknown clip library version {version}")
     raw_poses = raw["poses"]
@@ -352,7 +367,7 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
                     f'clip {name!r} is {"closed" if closed else "open"} with {len(keys)} keys, '
                     f"so it needs {wanted} segment lengths, not {len(raw_segments)}"
                 )
-        segments = [int(n) for n in raw_segments]
+        segments = [_whole_number(n, f"clip {name!r} segment") for n in raw_segments]
         for n in segments:
             if not MIN_CLIP_SEGMENT <= n <= MAX_CLIP_SEGMENT:
                 raise ValueError(

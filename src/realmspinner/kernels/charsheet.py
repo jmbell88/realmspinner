@@ -114,8 +114,8 @@ MAX_FRAME_SIZE = 256
 #: seen straight down is a pair of shoulders and a hat brim -- it reads as a
 #: blob, and every "top-down" sprite anyone actually ships is tilted.
 #:
-#: **The table lives in ``pipelines`` rather than in ``service.troupe``**
-#: because the worker frames from it too, and ``pipelines`` is the one layer
+#: **The table lives in ``kernels`` rather than in ``service.troupe``**
+#: because the worker frames from it too, and ``kernels`` is the one layer
 #: both the door and the worker can see -- ``service`` is importable in neither
 #: the Blender process nor the worker.
 CAMERA_PRESETS: tuple[tuple[str, str, float], ...] = (
@@ -604,9 +604,13 @@ def resolve_layout(
             if directions not in DIRECTION_PRESETS.values():
                 raise ValueError("directions must use the 1, 4, 8, or 16 direction preset")
         else:
+            # ``_refused_int`` like ``version``/``fps``/``frames``/``columns``
+            # above (2026-10-03 audit, poser-30): a bare ``int()`` read ``8.9``
+            # as an 8-direction sheet in silence, a bool as 1 or 0, and let an
+            # infinite float escape as a raw OverflowError.
             try:
-                directions = DIRECTION_PRESETS[int(raw_directions)]
-            except (KeyError, TypeError, ValueError):
+                directions = DIRECTION_PRESETS[_refused_int(raw_directions, "directions")]
+            except (KeyError, ValueError):
                 raise ValueError("directions must be 1, 4, 8, or 16") from None
         movements.append(MovementSpec(name, frames, loop, duration_ms, directions))
     if not movements:

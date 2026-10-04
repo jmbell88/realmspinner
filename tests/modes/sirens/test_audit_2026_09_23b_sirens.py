@@ -1,5 +1,4 @@
-"""The 2026-09-23 (second run) audit, sirens-01/02 and P65 item 2 ("sirens-02"
-in ``dev/TODO.md`` P65).
+"""The 2026-09-23 (second run) audit, sirens-01 and sirens-02.
 
 ``sirens-01``: ``rsng._patterns_from`` reads the instrument column of each
 pattern's cells. When the file's instrument list needed renumbering (an id
@@ -19,7 +18,7 @@ sequence (``release == len(sequence)``, i.e. no sustain body at all) put an
 invisible loop marker inside the release-only tail instead of routing it
 through ``marker_bounds`` the way every other loop placement does.
 
-P65 item 2 ("sirens-02" in ``dev/TODO.md`` P65): ``SongDoc.set_song`` had no
+sirens-02: ``SongDoc.set_song`` had no
 busy check, unlike its sibling mutators, so a caller could commit a change
 mid-save.
 """
@@ -118,7 +117,7 @@ def test_toggled_loop_still_lands_at_zero_when_there_is_room():
     assert toggled.loop == 0
 
 
-# --- P65 item 2 ("sirens-02"): document.py -----------------------------------
+# --- sirens-02: document.py -----------------------------------
 
 
 def test_set_song_refuses_while_a_save_is_running(tmp_path):

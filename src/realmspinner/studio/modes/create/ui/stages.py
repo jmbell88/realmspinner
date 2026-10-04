@@ -247,13 +247,44 @@ def ticked(job: Any, rig_meta: Any = None, poses: Any = None) -> frozenset[str]:
     Reference, because Mesh -- the very next stage, and required -- ends the
     walk exactly as :func:`reached` does.
     """
+    on_rail = _rail_of(job)
     out: set[str] = set()
     for stage in STAGES:
+        if on_rail is not None and stage not in on_rail:
+            # The 2026-10-04 audit, finding create-44: the walk stopped at Mesh,
+            # which an image, material, tileset or sprite sheet has no segment
+            # for, so Export never ticked on any 2D asset. A stage the asset's
+            # own rail does not draw is neither earned nor required.
+            continue
         if _REACHED[stage](job, rig_meta, poses):
             out.add(stage)
         elif stage not in OPTIONAL_STAGES:
             break
     return frozenset(out)
+
+
+def _rail_of(job: Any) -> tuple[str, ...] | None:
+    """The segments ``job``'s own rail draws, or None when it is not known to be short.
+
+    ``engine.workspace.journey`` is the rail's answer from the *form*; this asks
+    the same function from the *row*. A tile or a tile sheet has no Mesh by its
+    stage alone (:func:`available` refuses one for that reason), and a reference
+    row whose recorded asset type is a picture rather than a 3D model or a
+    character is a two-stage journey. A reference with no recorded type is a
+    legacy row and stays unknown: it may be the front of a 3D journey.
+    """
+    from ..engine import assets
+    from ..engine import workspace as families
+
+    if not isinstance(job, dict):
+        return None
+    stage = _stage_of(job)
+    if stage not in IMAGE_STAGES:
+        return None
+    kind = assets.asset_type_from_params(job.get("params") or {}, stage=stage or "")
+    if kind == "" and stage == "reference":
+        return None
+    return families.journey(kind or "image", current=None)
 
 
 def shows(stage: str, job: Any) -> bool:
@@ -294,7 +325,22 @@ def blender_reason(stage: str, ctx: Any) -> str | None:
     return None
 
 
-def available(stage: str, job: Any, ctx: Any = None) -> str | None:
+def _rig_evidence(job: Any, ctx: Any, rig_meta: Any) -> Any:
+    """``rig.json``'s record for ``job``, from the caller or off the ctx, or None.
+
+    Read only when the row does not already list ``rig.glb`` (the file is the
+    cheaper evidence) and only through a ctx that has a service to ask.
+    """
+    if rig_meta is not None or "rig.glb" in ((job or {}).get("files") or []):
+        return rig_meta
+    if ctx is None or getattr(ctx, "svc", None) is None or not isinstance(job, dict):
+        return None
+    from ....panes import inspector
+
+    return inspector.rig_meta(ctx, job)
+
+
+def available(stage: str, job: Any, ctx: Any = None, rig_meta: Any = None) -> str | None:
     """Why ``stage`` cannot be entered from ``job``, or None when it can.
 
     A *reason*, not a bool, because the rail's third segment state is
@@ -303,10 +349,18 @@ def available(stage: str, job: Any, ctx: Any = None) -> str | None:
     tooltip on the disabled segment and the toast from the refusal it is
     predicting are one sentence and not two paraphrases.
 
-    ``ctx`` is read only by the two stages that need Blender. Optional rather
-    than required so the pure tests can call this with a job and nothing else --
-    and a missing ctx is treated as "rigging is available", because refusing a
-    stage on the strength of an absent object would be a gate nobody chose.
+    ``ctx`` is read only by the two stages that need Blender (and, for Pose, by
+    the ``rig.json`` fallback below). Optional rather than required so the pure
+    tests can call this with a job and nothing else -- and a missing ctx is
+    treated as "rigging is available", because refusing a stage on the strength
+    of an absent object would be a gate nobody chose.
+
+    ``rig_meta`` is the same evidence :func:`ticked` takes. The 2026-10-04 audit,
+    finding create-45: Pose asked "is it rigged" without it, so between
+    ``rig.json`` landing and the row listing ``rig.glb`` the rail ticked Rig
+    while Pose said "job is not rigged". When it is not passed and ``ctx`` can
+    read it (the shell's call passes only ``ctx``), it is read the way the rail
+    reads it, through the inspector's mtime-cached ``rig_meta``.
     """
     if stage not in STAGES:
         raise ValueError(f"stage must be one of {list(STAGES)}")
@@ -364,7 +418,7 @@ def available(stage: str, job: Any, ctx: Any = None) -> str | None:
             # the segment open, and a click through it landed a refusal the
             # rail's own docstring promised would not happen.
             return "job has no finished mesh to rig"
-        if stage == "pose" and not _reached_rig(job, None, None):
+        if stage == "pose" and not _reached_rig(job, _rig_evidence(job, ctx, rig_meta), None):
             # ``service.rig.save_joints``'s refusal, verbatim. The Rig segment
             # beside it is open, which is where this sends you.
             return "job is not rigged"

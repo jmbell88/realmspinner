@@ -94,7 +94,9 @@ def _family(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str,
         form["character_body"] = "{}"
         if not character_engine.theme_offered(opts, picked, str(form.get("character_theme") or "")):
             form["character_theme"] = character_engine.THEME_UNSET
-        ctx.state.clear_field_error("character_family")
+            # The refusal about the look went with the look it was about.
+            character_engine.clear_refusal(ctx.state, "character_theme")
+        character_engine.clear_refusal(ctx.state, "character_family")
 
 
 def _theme(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:
@@ -115,7 +117,7 @@ def _theme(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, 
     if changed:
         form["character_theme"] = picked
         character_engine.touched(form, "character_theme")
-        ctx.state.clear_field_error("character_theme")
+        character_engine.clear_refusal(ctx.state, "character_theme")
 
 
 def _camera(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:
@@ -131,7 +133,7 @@ def _camera(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str,
     if changed:
         form["character_camera"] = picked
         character_engine.touched(form, "character_camera")
-        ctx.state.clear_field_error("character_camera")
+        character_engine.clear_refusal(ctx.state, "character_camera")
 
 
 def _actions(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
@@ -156,7 +158,7 @@ def _actions(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
                 key for key, _f in character_engine.MOVEMENTS if key in live
             )
             character_engine.touched(form, "character_actions")
-            ctx.state.clear_field_error("character_actions")
+            character_engine.clear_refusal(ctx.state, "character_actions")
             live = set(character_engine.actions_of(form))
     widgets.muted(f"{character_engine.cell_count(form)} cells")
 
@@ -182,7 +184,7 @@ def _pixels(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str,
     if changed:
         form["character_pixel"] = picked
         character_engine.touched(form, "character_pixel")
-        ctx.state.clear_field_error("character_pixel")
+        character_engine.clear_refusal(ctx.state, "character_pixel")
     changed, picked = form_ui.segmented_choice(
         "character_colors",
         "Colours",
@@ -194,7 +196,7 @@ def _pixels(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str,
     if changed:
         form["character_colors"] = picked
         character_engine.touched(form, "character_colors")
-        ctx.state.clear_field_error("character_colors")
+        character_engine.clear_refusal(ctx.state, "character_colors")
 
 
 def _appearance(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:
@@ -226,7 +228,7 @@ def _appearance(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[
         if changed:
             character_engine.set_channel(form, key, value)
             character_engine.touched(form, "character_body")
-            ctx.state.clear_field_error("character_body")
+            character_engine.clear_refusal(ctx.state, "character_body")
 
 
 def _name(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
@@ -243,7 +245,7 @@ def _name(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     if changed:
         form["character_name"] = text
         character_engine.touched(form, "character_name")
-        ctx.state.clear_field_error("character_name")
+        character_engine.clear_refusal(ctx.state, "character_name")
 
 
 def _unrecognised(form: dict[str, Any]) -> None:
@@ -251,9 +253,11 @@ def _unrecognised(form: dict[str, Any]) -> None:
 
     Said out loud rather than dropped: a user who typed "a fire ogre with a
     greataxe" is owed the fact that the axe was not understood, or they will
-    look for it on the sheet.
+    look for it on the sheet. An action the resolver understood and the sheet
+    does not carry ("a running wolf") is listed too -- the 2026-10-04 audit
+    (create-23) found it vanished with nothing said.
     """
-    words = character_engine.resolution_of(form).unrecognised
+    words = character_engine.not_interpreted(form)
     if words:
         widgets.muted_wrapped("Not interpreted: " + ", ".join(words))
 
@@ -370,10 +374,9 @@ def _offer_fixes(ctx: Any, form: dict[str, Any]) -> None:
     """
     opts = character_engine.options(ctx)
     resolution = character_engine.resolution_of(form)
-    offer = resolution.offer[0] if resolution.offer else ""
-    row = next((f for f in opts["families"] if f["key"] == offer), None)
-    if row is not None and controls.button(
-        f"Make it a {row['label'].lower()}##character-offer",
+    label = character_engine.offer_button_label(opts, resolution)
+    if label and controls.button(
+        f"{label}##character-offer",
         role=controls.ButtonRole.GHOST,
     ):
         character_engine.apply_offer(form, opts)

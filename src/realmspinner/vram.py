@@ -445,6 +445,56 @@ def estimate_parts(
     return (max(sdxl, trellis) if exclusive else sdxl + trellis), image
 
 
+def trellis_charge(kind: str, stage: str, params: dict[str, Any] | None = None) -> float:
+    """What the *coexist* estimate adds for a trellis that stays resident.
+
+    ``estimate_parts``' own trellis term, spelled out for the one caller that
+    must credit exactly what was charged: ``queue._check_resources`` used to
+    credit a running trellis at the RESIDENT resolution while the estimate
+    charged this job's own (or a flat 16 GiB for a reference/tile stage and every
+    image-model kind), so after one res-1536 job a smaller job was admitted on
+    8-10 GiB of headroom that was never free (the 2026-10-03 audit, finding
+    service-15). The pairing test in
+    ``tests/service/test_audit_2026_10_03_medium_service1.py`` derives each case
+    from ``estimate_parts`` so the two cannot drift.
+    """
+    if kind == "lora_train":
+        return 0.0  # priced alone, and the trainer stops trellis first
+    if kind in ("retexture", "pixel_sheet", "sprite_synthesis", "tile_sheet", "music", "separate"):
+        return TRELLIS_GIB
+    if kind not in ("text", "image"):
+        return 0.0
+    if stage in ("reference", "tile"):
+        return TRELLIS_GIB
+    return _trellis_cost(params)
+
+
+def trellis_credit(
+    kind: str,
+    stage: str,
+    params: dict[str, Any] | None,
+    resident_gib: float,
+    *,
+    exclusive: bool,
+) -> float:
+    """What a running trellis gives back to a job that is about to be dispatched.
+
+    Two cases, and they differ for a reason. When a handoff will stop the server
+    before anything loads (exclusive, an offloaded checkpoint, a LoRA trainer)
+    what it frees is what it is actually holding: ``resident_gib``. When it stays
+    resident the estimate has *charged* ``trellis_charge`` for it, and crediting
+    more than that makes the two halves of the accounting disagree -- but never
+    more than the server really holds either, which is the other direction:
+    a res-1536 job beside a server last primed at 1024 is charged 24 GiB while
+    only 16 are resident, and crediting the charge would admit it on 8 GiB that
+    are not there (``tests/test_queue.py``'s
+    ``test_dispatch_still_refuses_past_what_the_resident_models_explain``).
+    """
+    if kind == "lora_train" or exclusive or offloaded_base(params or {}):
+        return resident_gib
+    return min(resident_gib, trellis_charge(kind, stage, params))
+
+
 def estimate_job(job: dict[str, Any], *, exclusive: bool = False) -> float:
     """``estimate`` for a job row as the store hands it back."""
     return estimate_job_parts(job, exclusive=exclusive)[0]

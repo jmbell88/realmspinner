@@ -272,7 +272,12 @@ def _text_popup(ctx: Any, state: Any, tab: Any) -> None:
     ``text_open`` flag beside ``filter_uid``.
     """
     if not imgui.begin_popup(TEXT_POPUP):
-        state.text_uid = ""
+        # **Nothing is cleared on a miss.** This used to blank ``text_uid`` here,
+        # and every canvas view draws this function: with two views the one that
+        # did *not* open the popup missed every frame and erased the owner, so
+        # the check below -- and ``stamp_text``'s -- saw "no owner" and let a
+        # stamp through (the 2026-10-03 audit, finding inker-53). A stale uid is
+        # harmless: the press that opens the popup writes it again first.
         return
     if state.text_uid and state.text_uid != tab.uid:
         # The tab changed under the popup. ``text_at`` is a point in the *other*
@@ -280,7 +285,12 @@ def _text_popup(ctx: Any, state: Any, tab: Any) -> None:
         # coordinates that mean nothing -- with the antialias default decided
         # from the other document's palette. Closed rather than redirected: the
         # user pointed at a place on a picture that is no longer on screen.
-        state.text_uid = ""
+        #
+        # This only works because ``clear_drag`` keeps ``text_uid`` across a tab
+        # switch: it used to blank it, which made this test (and
+        # ``stamp_text``'s) read "no owner, nothing to guard" -- the popup stayed
+        # up over the other document and OK stamped "your text" at (0, 0) there
+        # (the 2026-10-03 audit, finding inker-53).
         imgui.close_current_popup()
         imgui.end_popup()
         return

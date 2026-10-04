@@ -69,7 +69,11 @@ REFERENCE_MAX_THUMBS = 3
 # Library's Details tab carried a second copy of the call instead of a third
 # stage entry, since the Library draws no stage rail to hang one off. ``draw``
 # now calls it once, above every stage and every tab, which is what makes it
-# visible at all five stages and in the Library at once.
+# *reachable* at all five stages and in the Library at once. In Create it sits
+# behind an "Open in..." header that starts closed and remembers how it was
+# left (``persist_key="create/destinations"``); in the Library it is drawn
+# open, with no header (the 2026-10-03 audit's shell-63 -- this comment said
+# "visible" and the manual said "opens with" for a section that is collapsed).
 _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
     "reference": (
         "_lineage",
@@ -181,7 +185,9 @@ def draw(ctx: Any) -> None:
     # Above the stage dispatch and above the tab bar, deliberately: this is
     # what puts "Take it somewhere" at all five Create stages instead of two,
     # and above the Library's tabs instead of buried inside Details -- see the
-    # comment on ``_STAGE_SECTIONS`` for the two copies this replaced.
+    # comment on ``_STAGE_SECTIONS`` for the two copies this replaced. In Create
+    # it is wrapped in a header that is closed by default, so the exits are one
+    # click away rather than on screen.
     if not create_stages.in_create(ctx.state) or widgets.header("Open in...", default_open=False,
                                                               persist_key="create/destinations"):
         _edit_actions(ctx, job)
@@ -640,7 +646,7 @@ def _deform_qa(ctx: Any, job: Any) -> None:
     if texture is None:
         return
     # The 192dp cap wins while the sidebar is wide, so this looked stable --
-    # but it stops winning once ``layout.fit`` narrows the sidebar toward
+    # but it stops winning once ``layout.proportions`` narrows the sidebar toward
     # ``SIDEBAR_MIN`` at high UI scale, and a square image sized off the live
     # avail is exactly the oscillation ``widgets.stable_width`` exists to
     # break (see its docstring). Stable even though this box is square and the
@@ -1361,7 +1367,10 @@ def _quality(ctx: Any, job: Any) -> None:
         # silhouette check and never proved it.
         for label, key in (
             ("triangles", "triangles"),
-            ("materials", "materials"),
+            # ``meshreport.build`` writes ``material_count``: this read
+            # ``materials`` (the 2026-10-03 audit, pipelines-18), so the line
+            # never drew.
+            ("materials", "material_count"),
         ):
             if key in report:
                 widgets.muted(f"{label}: {report[key]}")

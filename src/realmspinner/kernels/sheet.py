@@ -585,7 +585,7 @@ def extrude_edges(atlas: Any, x: int, y: int, w: int, h: int, margin: int) -> No
     finds that sprite's own colour rather than its neighbour's.
 
     Ported byte-for-byte, ordering included, from
-    ``studio.packwright.compose._extrude``: sides first, one-pixel-wide slices
+    ``studio.modes.packwright.engine.compose._extrude``: sides first, one-pixel-wide slices
     broadcast across the gutter's width, then top and bottom across the
     *widened* span -- which is what carries the columns just written into the
     four corners with no separate corner case, and is why the order here

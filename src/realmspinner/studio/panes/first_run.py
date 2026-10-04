@@ -18,7 +18,7 @@ from imgui_bundle import imgui
 
 from ... import config as config_module
 from ... import fetch, models, vram
-from .. import controls, theme, tokens, widgets
+from .. import controls, modes, theme, tokens, widgets
 from ..tokens import sp
 from . import model_gate
 
@@ -38,9 +38,13 @@ POPUP = "Welcome to Realmspinner"
 #: Python this panel says nothing about -- is not a row at all, which is why
 #: :func:`snapshot` reads ``model_gate.missing_packs`` separately rather than
 #: adding a fourth thing here that ``fetch.find`` cannot resolve.
-GENERATION_ROWS: tuple[str, ...] = (
-    "engine:trellis_gguf", "engine:trellis_runtime", "base:sdxl_cfg",
-)
+#:
+#: Derived from the rail gate rather than written a second time (the
+#: 2026-10-03 audit's shell-71): the same three keys lived here and in
+#: ``modes.NEEDS_ROWS["create"]`` with nothing tying them together, so a row
+#: added to one left the first-run offer ticking a different set than the one
+#: Create's rail item waits for.
+GENERATION_ROWS: tuple[str, ...] = modes.NEEDS_ROWS["create"]
 
 
 def marker_path(config: Any) -> Path:

@@ -152,6 +152,30 @@ def _apply_affine(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
     return (np.asarray(matrix, dtype="f8") @ homo.T).T[:, :3]
 
 
+def _evaluate_stack(doc: Any, obj: Any, mesh: Any) -> Any:
+    """*obj*'s enabled modifiers run over *mesh*, for a live drag preview. -> the
+    result, or ``None`` when the stack holds a boolean (it needs its target's
+    own evaluation, which only ``modifiers.evaluate`` resolves, against the
+    document). A modifier that refuses is skipped, as ``evaluate`` skips it.
+    """
+    from .....kernels.mesh import elements as el
+    from .....kernels.mesh import modifiers as mod
+
+    stack = [m for m in obj.modifiers if m.enabled]
+    if any(m.kind == "boolean" for m in stack):
+        return None
+    ctx = mod.EvalContext(doc=doc, obj=obj, visiting=frozenset({obj.uid}))
+    for m in stack:
+        kind = mod.MODIFIERS.get(m.kind)
+        if kind is None:
+            continue
+        try:
+            mesh = kind.apply(mesh, m.as_dict(), ctx)
+        except el.OpError:
+            continue
+    return mesh
+
+
 def _drag_lock_error(doc: Any, uids: Any, *, check_ancestors: bool) -> str | None:
     """The document's own refusal for the first of *uids* a drag may not
     move, or ``None`` if every one of them may be.
@@ -296,6 +320,19 @@ class DragOps:
 
     def _press(self: ClayView, doc: Any, button: int, local: tuple[float, float]) -> bool:
         self._last_mouse = local
+        # The 2026-10-03 audit's clay-74: one wheel notch delivers
+        # ``MOUSEBUTTONDOWN`` (button 4 or 5) as well as ``MOUSEWHEEL``, and the
+        # keyboard-drag branch below read every button but the left as a cancel
+        # -- so zooming in mid-move, the normal way to place something
+        # precisely, threw the whole drag away. The wheel is never a button
+        # press for any grab here (the dolly is ``handle_event``'s own
+        # ``MOUSEWHEEL`` branch), so it is out before any of them look. It is
+        # reported as consumed only while a drag is live, which is what the
+        # gizmo branch below already said for its own stray buttons. The middle
+        # button deliberately still cancels a keyboard drag: it has no meaning
+        # there, and a pan that began under a live drag would strand it.
+        if button not in (1, 2, 3):
+            return self.dragging
         # The knife gesture owns the mouse from the moment it is armed --
         # before ``_grab`` is even set, which is exactly why this has to be
         # checked ahead of every branch below rather than folded into one of
@@ -734,6 +771,14 @@ class DragOps:
             return False
         from .....kernels.mesh import elements as el
 
+        # The 2026-10-03 audit's clay-75: this replaced only the clicked object's
+        # entry and then narrowed ``doc.selection`` to it, leaving every other
+        # object's element selection alive while it dropped out of the object
+        # selection -- the outliner showed it unselected while its edges stayed
+        # red, were averaged into the gizmo centre and moved with the next
+        # drag. A plain click's replace clears first (``_press_element``); so
+        # does this.
+        doc.clear_element_sel()
         doc.set_element_sel(uid, el.ElementSel(edges=pairs))
         doc.select([uid])
         return True
@@ -1260,21 +1305,31 @@ class DragOps:
         history = getattr(doc, "history", None)
         head = None if history is None else history.head
         mark = 0 if history is None else history.mark()
-        for uid, was in self._drag_start.items():
-            try:
-                doc.set_transform(uid, was=was)
-            except KeyError:
-                continue  # deleted mid-drag
-            except OpError:
-                # clay-03 (2026-10-03): the drag landed on a scale/rotation
-                # the document refuses (all-zero); put the pre-drag values
-                # back rather than leave a live value no step records.
-                obj = doc.by_uid(uid)
-                obj.translation, obj.rotation, obj.scale = (
-                    np.array(v, copy=True) for v in was
-                )
+        # try/finally: the 2026-10-03 audit's clay-73 -- anything that escapes
+        # the loop (a lock taken in the outliner while G was live is one) skipped
+        # ``collapse_since``, so ``UndoStack._open_gestures`` stayed at 1 and the
+        # history's byte and depth eviction was off for the rest of the session.
+        try:
+            for uid, was in self._drag_start.items():
+                try:
+                    doc.set_transform(uid, was=was)
+                except KeyError:
+                    continue  # deleted mid-drag
+                except OpError as error:
+                    # clay-03 (2026-10-03): the drag landed on a scale/rotation
+                    # the document refuses (all-zero), or (clay-73) the object
+                    # was locked after the press; put the pre-drag values back
+                    # rather than leave a live value no step records, and say
+                    # why instead of reverting in silence.
+                    obj = doc.by_uid(uid)
+                    obj.translation, obj.rotation, obj.scale = (
+                        np.array(v, copy=True) for v in was
+                    )
+                    self._toast(str(error))
+        finally:
+            if history is not None:
+                history.collapse_since(mark)
         if history is not None:
-            history.collapse_since(mark)
             top = history.top
             # Only when the drag actually pushed: a press-and-release that moved
             # nothing must not relabel whatever step happens to be underneath.
@@ -1334,6 +1389,7 @@ class DragOps:
         """Snapshot every selected object's affected vertices at the press."""
         from .....kernels.mesh import drag as bdrag
         from .....kernels.mesh import elements as el
+        from .....kernels.mesh.selection import _element_pickable
 
         state = self.state
         radius = 0.0
@@ -1347,6 +1403,13 @@ class DragOps:
             try:
                 obj = doc.by_uid(uid)
             except KeyError:
+                continue
+            # The 2026-10-03 audit's clay-41: hiding an object leaves its
+            # element selection in ``doc.element_sel``, and a gizmo grab moved
+            # the vertices of an object the user cannot see. The same
+            # eligibility the pick doors use, so a hidden object (or a collider,
+            # clay-42) is never moved by what it happens to still hold selected.
+            if not _element_pickable(obj):
                 continue
             verts = el.affected_verts(obj.mesh, sel)
             if not len(verts):
@@ -1447,15 +1510,30 @@ class DragOps:
         200k-triangle import went 368 ms a frame to 92 -- see
         ``dev/measurements/2026-08-16-interactive-defects.md``.
         """
+        # The overlay first, and whatever the GPU half below does: the 2026-10-03
+        # audit's clay-71 found a ``ValueError`` from ``update_vertices`` (an
+        # object whose modifier changes the vertex count) returning from here
+        # before this write, so the selection overlay froze with the drawn mesh.
+        # The overlay is keyed on the *base* mesh, which is what moves.
+        overlay = getattr(self, "_overlays", {}).get(uid)
+        if overlay is not None:
+            overlay.write_positions(positions)
         entry = self._cache.get(uid)
         if entry is None:
             return
         obj = doc.by_uid(uid)
         drag = self._element_drags.get(uid)
-        # Deliberately the *base* mesh, not ``doc.evaluated`` -- a drag moves
-        # base vertices, so the preview is exactly what is being dragged, not
-        # what a modifier stack would additionally build on top of it.
+        # The base mesh is what a drag moves, so with no modifier running the
+        # preview is exactly what is being dragged.
         base = obj.mesh if drag is None else drag.before
+        if entry.mesh is not base:
+            # The GPU entry holds the *evaluated* mesh (``_view_cache``), and a
+            # modifier stack's output is not the base's vertices: a Mirror's has
+            # twice as many, so writing the base's primitive into it raised, and
+            # the picture sat frozen until release (clay-71). Run the stack over
+            # the moved base instead and preview what it draws.
+            self._preview_evaluated(doc, entry, obj, base, positions)
+            return
         # ``drag.verts`` is exactly the set written into ``positions`` above,
         # which is what makes the incremental normals safe; with no element drag
         # in hand the mover is a gizmo over the whole object and there is no
@@ -1468,9 +1546,42 @@ class DragOps:
                 gpu.update_vertices(primitive)
             except ValueError:  # pragma: no cover - topology changed under a drag
                 return
-        overlay = getattr(self, "_overlays", {}).get(uid)
-        if overlay is not None:
-            overlay.write_positions(positions)
+
+    def _preview_evaluated(
+        self: ClayView, doc: Any, entry: Any, obj: Any, base: Any, positions: Any
+    ) -> None:
+        """The drag preview for an object whose GPU entry is a modifier stack's output.
+
+        Re-runs the object's enabled modifiers over the base with the dragged
+        vertices in place and writes what that draws: in place when the result
+        has the topology the buffers were built for, and by rebuilding this
+        entry's GPU model when it does not (a Mirror's weld merging or splitting
+        a vertex as one crosses the seam). A boolean modifier needs its target's
+        own evaluation and is not rerun per mouse-move; such an object keeps the
+        last picture while its overlay -- written by the caller -- still tracks
+        the drag, and it draws correctly again at release.
+
+        The entry keeps its key throughout: the doc has not changed, so the next
+        ``sync`` must not rebuild it, and release, no-op or cancel all evict it
+        the way they already do for any previewed object.
+        """
+        from dataclasses import replace
+
+        evaluated = _evaluate_stack(doc, obj, replace(base, positions=positions))
+        if evaluated is None:
+            return
+        prims = bd.to_primitives(obj, doc.materials, evaluated)
+        draws = entry.gpu.draws
+        if len(prims) == len(draws):
+            try:
+                for (_node, gpu), primitive in zip(draws, prims, strict=True):
+                    gpu.update_vertices(primitive)
+                return
+            except ValueError:
+                pass
+        fresh = self._build(obj, doc, entry.key, evaluated)
+        entry.gpu.release()
+        entry.gpu, entry.model = fresh.gpu, fresh.model
 
     def _commit_element_drag(self: ClayView, doc: Any) -> None:
         """One history step for the whole gesture, against the mesh each drag began on.
@@ -1496,27 +1607,43 @@ class DragOps:
         """
         from dataclasses import replace
 
+        from .....kernels.mesh.elements import OpError
+
         history = getattr(doc, "history", None)
         mark = 0 if history is None else history.mark()
         drags, self._element_drags = self._element_drags, {}
-        for uid, drag in drags.items():
-            try:
-                doc.by_uid(uid)
-            except KeyError:
-                continue
-            final = drag.before.positions if drag.preview is None else drag.preview
-            if np.array_equal(final, drag.before.positions):
-                entry = self._cache.pop(uid, None)
-                if entry is not None:
-                    entry.gpu.release()
-                continue
-            doc.set_mesh(
-                uid,
-                replace(drag.before, positions=final),
-                select=doc.element_sel_of(uid),
-            )
-        if history is not None:
-            history.collapse_since(mark)
+        # try/finally and the ``OpError`` catch are the 2026-10-03 audit's
+        # clay-73: an object locked in the outliner while the drag was live made
+        # ``set_mesh`` raise out of here, so ``collapse_since`` never ran
+        # (``UndoStack._open_gestures`` stuck at 1, eviction off for the session)
+        # and the previewed buffers stayed on screen over an unchanged mesh.
+        try:
+            for uid, drag in drags.items():
+                try:
+                    doc.by_uid(uid)
+                except KeyError:
+                    continue
+                final = drag.before.positions if drag.preview is None else drag.preview
+                if np.array_equal(final, drag.before.positions):
+                    entry = self._cache.pop(uid, None)
+                    if entry is not None:
+                        entry.gpu.release()
+                    continue
+                try:
+                    doc.set_mesh(
+                        uid,
+                        replace(drag.before, positions=final),
+                        select=doc.element_sel_of(uid),
+                    )
+                except OpError as error:
+                    entry = self._cache.pop(uid, None)
+                    if entry is not None:
+                        entry.gpu.release()
+                    self._restore_overlays(doc, [uid])
+                    self._toast(str(error))
+        finally:
+            if history is not None:
+                history.collapse_since(mark)
 
     def _drag_gizmo(self: ClayView, doc: Any, local: tuple[float, float]) -> None:
         """Apply a gizmo delta to every selected object, in place.

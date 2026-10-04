@@ -225,9 +225,8 @@ def test_a_sprite_sheet_is_a_reference_job_carrying_a_follow_up():
         "candidates": 2,
         "logical_size": 64,
         "colors": svc_sprites.DEFAULT_SPRITE_COLORS,
-        # Blank by default: the optional final reduction, which never upscales
-        # and so means "keep the working cell" when nothing asked for one.
-        "target_cell_px": None,
+        # No ``target_cell_px``: the sprite door keeps no final reduction, so the
+        # block stopped sending one (the 2026-10-04 audit, finding create-22).
         # The pixel look. Sent always rather than only when set, so "no palette"
         # and "the form was never asked" are different requests -- and the
         # outline is the pipeline's own forced default rather than "none",

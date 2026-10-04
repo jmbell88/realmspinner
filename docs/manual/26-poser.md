@@ -43,9 +43,10 @@ Posing works exactly the way the pose editor on an asset does:
 - **Reset joint** returns the selected joint to its rest rotation. It is disabled until you have
   selected one, and says why on hover.
 - **Reset all** returns every joint.
-- **Mirror** copies the pose across the body's centre line. It is hidden for a skeleton with no
-  mirror pairs — the serpent, whose chain of spine joints has no left and right — where it could
-  only do nothing.
+- **Mirror** copies the pose across the body's centre line: limbs swap sides, and the head, spine
+  and other centre bones are reflected in place, so a head turn or a lean goes the other way. It is
+  hidden for a skeleton with no mirror pairs — the serpent, whose chain of spine joints has no left
+  and right — where it could only do nothing.
 
 Poses are forward-kinematic only: no inverse kinematics, no translation on ordinary joints, no
 scaling. The one exception is the root, which is [its own section](#moving-the-root) below.
@@ -90,9 +91,11 @@ Two limits come with it, both about where the offset shows up:
   is real, but it appears in the baked GLB and in sprite sheet rows rather than in the inspector's
   preview. Poser's own asset session binds the rig's root bone, so there the offset shows too.
 - An animated sheet clip interpolates a root offset the same way it interpolates a rotation: frame 0
-  sits at the start pose's own offset, and later frames climb toward the end pose's without reaching
-  it, so a clip whose endpoint poses carry one plays as a vertical bob rather than being refused —
-  see [Sprite sheets](27-sprite-sheets.md).
+  sits at the start key's own offset and later frames follow the clip's keys, so a clip whose key
+  poses carry one plays as a vertical bob rather than being refused. A cycle (Idle, Walk, Run) never
+  lands on a key that is the next segment's frame 0, so its last frame stops short of the key it
+  returns to; a one-shot (Attack, Jump) lands exactly on its last key's offset and holds it — see
+  [Sprite sheets](27-sprite-sheets.md).
 
 ## Posing a real asset directly
 
@@ -130,7 +133,10 @@ can take a while; the session stays open and usable meanwhile. Once the new rig 
 rebinds to it on its own — unless you kept posing the old rig while it queued, in which case landing
 asks before discarding that edit, the same as submitting the re-rig did — and if you picked a
 different skeleton than the one you had, the clip editor and the shared library beneath it switch to
-match the new one, exactly as they do when you change skeletons in an unbound session.
+match the new one, exactly as they do when you change skeletons in an unbound session. If you
+decline that question and keep posing the old rig, **Re-rig...** grows a **Load new rig** button
+above it until you take the new rig or reopen the asset, so a finished rig is never left unbound
+with nothing on screen saying it exists.
 
 ## Editing the skeleton
 
@@ -265,7 +271,8 @@ The section is absent entirely for a skeleton with no presets, rather than drawn
 Below the presets is **Clips** — the keyframe editor for the animations a character sheet plays (see
 [Rendering a character sheet](#rendering-a-character-sheet) below). A *clip* is an ordered list of
 key poses plus how many frames each step between them holds,
-and every skeleton ships ten: the original idle, walk, run, attack and jump, plus five added later
+and each of the four skeletons with a clip library ships ten (the other four have none, below): the original idle, walk,
+run, attack and jump, plus five added later
 — attack_02 (a second attack), cast, fall, hit and death — built the same way and marked
 `provisional` in the library file, meaning they are an early pass still awaiting an art review
 rather than something wrong with your own edits. Until this editor existed clips could only be
@@ -302,7 +309,9 @@ Everything the clip adds on top of that is *timing*:
 
 **Onion skin** ghosts the keys either side of the selected one in the viewport, dimmed, so a
 contact pose can be judged against the passing poses it sits between. A looping clip wraps — the
-first key's neighbour is the last one, which is exactly the comparison a walk cycle needs.
+first key's neighbour is the last one, which is exactly the comparison a walk cycle needs. Onion
+skin turns itself off when you change skeleton, open another asset or close the asset, so a clip's
+ghosts never carry over onto the next one.
 
 **Play** scrubs the clip as the renderer will actually build it: the slider runs over the expanded
 frames, through the same interpolation the character sheet uses, so what you see is what it will
@@ -367,7 +376,9 @@ of the source's own length. The saved clip remembers which file and which mappin
 it, so a later look at the library can still say where a clip came from. An action longer than 900
 frames is not sampled at all — Blender skips it rather than failing the whole import — so it has
 no entry of its own; it is named above them as **Skipped**, with the reason, and a file whose every
-action is skipped says so in the toast rather than reading "Imported 0 clip(s)".
+action is skipped says so in the toast rather than reading "Imported 0 clip(s)". An action that
+never leaves the rest pose (a T-pose or other static animation) is not skipped: it imports as a held
+rest clip and saves like any other.
 
 **Licensing.** Realmspinner downloads nothing for this — you supply the file. The animation data itself
 is governed by wherever you got it: Mixamo's motion library is Adobe's, under Adobe's own terms, and
@@ -504,8 +515,9 @@ first (or cancel it) before asking again.
 A mesh **already** rigged is animated on the skeleton it already carries, so the dialog does not ask
 about a skeleton — and one rigged on a skeleton that has no clips is refused immediately, before
 anything is queued: a walk cycle means nothing to a skeleton nobody wrote one for. Four of the eight
-templates ship with clips — `humanoid`, `quadruped`, `bird` and `blob` — and each carries all five
-movements. `fish`, `insect`, `serpent` and `biped_tail` have none, so a mesh rigged on one of those
+templates ship with clips — `humanoid`, `quadruped`, `bird` and `blob` — and each ships all ten
+clips (the five movements and the five added later). `fish`, `insect`, `serpent` and `biped_tail` have none, so a mesh
+rigged on one of those
 means re-rigging it on one of the four (see [Editing the skeleton](#editing-the-skeleton) or
 [Re-rig...](#posing-a-real-asset-directly) above) and sending it again.
 
@@ -551,7 +563,9 @@ before it, a cycle's last frame does not meet its first, or that direction has d
 the rest; red with a cross means well past that, or an empty cell. Hover for the numbers, click to
 land the preview on that cell. It is computed once when you pick a sheet -- "scoring..." while it
 runs -- and it ranks cells for you to look at. Nothing downstream reads it; a red square refuses
-nothing.
+nothing. On an **HD** sheet (one whose sidecar says `pixel_art: false`) the palette-flicker score is
+not computed, because an exact-colour comparison reads shading as flicker; the panel says so in a muted
+line with the heatmap's summary, so a clean heatmap there is not a clean flicker score.
 
 The row above the sprite carries the transport and the two selectors:
 
@@ -684,8 +698,10 @@ without the other holds an asset nothing can interpret. Either both land or neit
 
 **Export frames...** cuts the same atlas into one PNG per frame instead, for an engine that wants
 `AnimatedSprite2D`-style frame folders rather than an atlas-plus-sidecar pair: one folder per
-movement, one subfolder per compass direction inside it, and `000.png`, `001.png` and so on inside
-that — beside a `manifest.json` naming the format, the frame size, whether the sheet is pixel art or
+movement, one subfolder per compass direction inside it (`N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW`;
+a sixteen-direction sheet also writes the eight points between them: `NNE`, `ENE`, `ESE`, `SSE`,
+`SSW`, `WSW`, `WNW`, `NNW`), and `000.png`, `001.png` and so on inside that — beside a
+`manifest.json` naming the format, the frame size, whether the sheet is pixel art or
 HD, and each clip's own loop, frame count, frame time, fps and directions. A re-export never
 replaces or merges into a folder that already exists: it takes the next free name
 (`Knight-frames-2`) and leaves the first alone. **Export package...** does the same with

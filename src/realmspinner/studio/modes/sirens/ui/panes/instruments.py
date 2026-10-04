@@ -147,7 +147,7 @@ def draw(ctx: Any) -> None:
     # ``tab.busy`` -- a rename typed mid-save landed on the document a save
     # was in the middle of reading (the 2026-09-15 audit, finding sirens-04).
     changed, name = controls.input_text(
-        "##sirens-inst-name", selected.name, enabled=editable, commit=True
+        "##sirens-inst-name", selected.name, enabled=editable, reason=_BUSY_WHY, commit=True
     )
     if changed and doc.update_instrument(selected.uid, name=str(name)[: inst.MAX_NAME_LEN]):
         sirens_mode.request_rerender(ctx, tab)
@@ -164,6 +164,7 @@ def draw(ctx: Any) -> None:
         selected.kind,
         [(name_, name_.title()) for name_ in inst.KINDS],
         enabled=editable,
+        reason=_BUSY_WHY,
     )
     if changed and doc.update_instrument(selected.uid, kind=kind):
         sirens_mode.request_rerender(ctx, tab)
@@ -202,6 +203,7 @@ def _sample(ctx: Any, tab: Any, selected: Any) -> None:
             selected.sample if selected.sample in keys else "",
             [("", "-- none --"), *((one, one) for one in keys)],
             enabled=editable,
+            reason=_BUSY_WHY,
         )
         if changed and doc.update_instrument(selected.uid, sample=key):
             sirens_mode.request_rerender(ctx, tab)

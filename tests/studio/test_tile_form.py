@@ -297,6 +297,10 @@ def test_locking_the_style_asks_for_the_adapter_it_will_load():
     form = default_form_2d()
     form["output"] = "sheet"
     form["sheet_type"] = "tile"
+    # Two materials: a one-cell lock never reaches the adapter (the 2026-10-03
+    # audit, plotter-23), and the lock is a Materials-layout control.
+    form["tile_mode"] = "materials"
+    form["materials"] = "mossy stone\ncracked mud"
     plain = create_recipe.sheet_rows(form)
     form["style_lock"] = True
     locked = create_recipe.sheet_rows(form)

@@ -46,6 +46,15 @@ SUFFIXES = (".hex", ".gpl", ".pal", ".txt")
 SUFFIX_HELP = f"Files in the palette folder: {', '.join(SUFFIXES)}."
 
 
+#: The most a palette file may weigh. The parser's row ceiling
+#: (``pixel.MAX_PALETTE_ROWS``, 65,536) only applies *after* ``read_text`` has
+#: allocated the whole file, so the byte count of a file dropped in the folder was
+#: what was unbounded (the 2026-10-03 audit, finding service-23). 4 MiB is 64 bytes
+#: for each of those rows -- far more than any real palette line, ``.gpl`` names
+#: included -- and a real one is a few kilobytes.
+MAX_PALETTE_BYTES = 4 * 1024 * 1024
+
+
 def available(config: Config) -> list[str]:
     """Every palette the directory offers, by stem, sorted.
 
@@ -89,6 +98,16 @@ def load(config: Config, name: str) -> tuple[str, tuple[pixel.RGB, ...], str]:
     channel does.
     """
     path = _path(config, name)
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise Invalid(f"could not read palette {name!r}: {exc}", field="palette") from exc
+    if size > MAX_PALETTE_BYTES:
+        raise Invalid(
+            f"{path.name} is {size / (1024 * 1024):.1f} MB; a palette file is at most "
+            f"{MAX_PALETTE_BYTES // (1024 * 1024)} MB",
+            field="palette",
+        )
     try:
         colors = pixel.parse_palette(path.read_text("utf-8"), path.suffix)
     except OSError as exc:

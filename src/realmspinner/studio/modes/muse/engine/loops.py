@@ -145,10 +145,16 @@ class Candidate(NamedTuple):
 
 def _mono(pcm: np.ndarray) -> np.ndarray:
     data = np.asarray(pcm)
-    if data.ndim == 2:
-        data = data.mean(axis=1)
+    # muse-04 (2026-10-03 audit). The integer scaling used to run *after* the
+    # channel mean, but ``mean`` on int16 returns float64, so the dtype test
+    # never passed for a stereo take: every real take was analysed at raw
+    # +/-32768 while mono takes and every test ran at +/-1, and the finder's
+    # log1p compression and floors (written for the unit scale) saw different
+    # audio. Scale on the original dtype first, as ``waveform.peaks`` does.
     if np.issubdtype(data.dtype, np.integer):
         data = data.astype(np.float32) / float(max(np.iinfo(data.dtype).max, 1))
+    if data.ndim == 2:
+        data = data.mean(axis=1)
     return np.ascontiguousarray(data, dtype=np.float32)
 
 
@@ -464,31 +470,69 @@ def crossfade(pcm: np.ndarray, start: int, end: int, fade: int) -> np.ndarray:
     # Two samples is the least that lets ``sin``/``cos`` differ from their
     # endpoints, so under that is excluded rather than "fixed" for free.
     usable = [c for c in candidates if c[2] >= 2 and c[0] < plain]
-    if not usable:
-        return body.astype(dtype)
-    _, side, fade = min(usable, key=lambda c: c[0])
+    # muse-05 (2026-10-03 audit). A side is costed by the wrap it lands on and
+    # nothing else, so a ramp clamped to a few samples of room (a marker within
+    # a millisecond of either end of the take) "fixed" the wrap by moving the
+    # click into the body's own first or last samples: 7503 against the
+    # music's own 752 on a 440 Hz tone. A clamped ramp is therefore built and
+    # its own largest step measured; one that steps more than
+    # ``_RAMP_STEP_SLACK`` times the music's own (or the wrap it landed on) is
+    # unusable, and the next side is tried.
+    original_fade = fade
+    own_step: float | None = None
+    for cost, side, fade in sorted(usable, key=lambda c: c[0]):
+        angle = np.linspace(0.0, np.pi / 2.0, fade, dtype=np.float32)
+        rising, falling = np.sin(angle), np.cos(angle)
+        if body.ndim == 2:
+            rising, falling = rising[:, None], falling[:, None]
 
-    angle = np.linspace(0.0, np.pi / 2.0, fade, dtype=np.float32)
-    rising, falling = np.sin(angle), np.cos(angle)
-    if body.ndim == 2:
-        rising, falling = rising[:, None], falling[:, None]
+        faded = body.copy()
+        if side == "tail":
+            # The body fades out into the material that immediately precedes
+            # the region, so it ends on ``data[start - 1]`` -- the sample the
+            # source itself puts before ``data[start]``.
+            lead_out = data[start - fade : start].astype(np.float32)
+            faded[n - fade : n] = faded[n - fade : n] * falling + lead_out * rising
+            touched = faded[max(0, n - fade - 1) :]
+        else:
+            # The body begins on ``data[end]`` and fades into its own head, so
+            # the wrap crosses the source's own ``end - 1 -> end`` step.
+            lead_in = data[end : end + fade].astype(np.float32)
+            faded[:fade] = lead_in * falling + faded[:fade] * rising
+            touched = faded[: fade + 1]
 
-    if side == "tail":
-        # The body fades out into the material that immediately precedes the
-        # region, so it ends on ``data[start - 1]`` -- the sample the source
-        # itself puts before ``data[start]``.
-        lead_out = data[start - fade : start].astype(np.float32)
-        body[n - fade : n] = body[n - fade : n] * falling + lead_out * rising
+        if fade < original_fade:
+            if own_step is None:
+                own_step = _largest_step(body)
+            if _largest_step(touched) > _RAMP_STEP_SLACK * max(own_step, cost):
+                continue
+
+        body = faded
+        break
     else:
-        # The body begins on ``data[end]`` and fades into its own head, so the
-        # wrap crosses the source's own ``end - 1 -> end`` step.
-        lead_in = data[end : end + fade].astype(np.float32)
-        body[:fade] = lead_in * falling + body[:fade] * rising
+        return body.astype(dtype)
 
     if np.issubdtype(dtype, np.integer):
         info = np.iinfo(dtype)
         body = np.clip(body, info.min, info.max)
     return body.astype(dtype)
+
+
+#: How many times the music's own biggest step a clamped ramp's biggest step may
+#: be. A blend of two unrelated passages over a short ramp steps a little more
+#: than either alone (1.6x on the one-sample-room test's ramp), which nobody
+#: hears; the 10x the 2026-10-03 audit measured at a 3-sample ramp is a click.
+#: Chosen by that gap, not measured on a corpus.
+_RAMP_STEP_SLACK = 2.0
+
+
+def _largest_step(block: np.ndarray) -> float:
+    """The biggest sample-to-sample jump inside ``block``, summed across
+    channels the way :func:`_wrap_step` is, so the two compare."""
+    if block.shape[0] < 2:
+        return 0.0
+    steps = np.abs(np.diff(block.astype(np.float64), axis=0))
+    return float(steps.reshape(steps.shape[0], -1).sum(axis=1).max())
 
 
 __all__ = [

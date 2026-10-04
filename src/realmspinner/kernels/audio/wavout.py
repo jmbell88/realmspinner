@@ -46,6 +46,16 @@ LOOP_FORWARD = 0
 MAX_SAMPLE_FRAMES = 48_000 * 600
 
 
+class SampleTooLong(ValueError):
+    """A sample's frame count is past the limit the caller allowed.
+
+    A ``ValueError`` so every caller that already frames one still does; its own
+    type so a reader that handed :func:`read_wav` a *smaller* limit than
+    :data:`MAX_SAMPLE_FRAMES` (``rsng``'s running document total) can tell this
+    refusal from a malformed file and name the right ceiling.
+    """
+
+
 def to_int16(samples: np.ndarray) -> np.ndarray:
     """Float samples in ``[-1, 1]`` as ``int16``.
 
@@ -102,7 +112,11 @@ def wav_bytes(
     if data.ndim != 2:
         raise ValueError("samples are (n,) or (n, channels)")
     frames, channels = data.shape
-    pcm = to_int16(data).astype("<i2").tobytes()
+    # int16 is already the file's own format: passed through untouched rather
+    # than divided and re-quantised, which cannot hold ``-32768`` (muse-14,
+    # 2026-10-03 audit: ``to_int16`` clips to [-1, 1] and scales by 32767, so a
+    # full-scale negative sample was written one LSB short).
+    pcm = (data if data.dtype == np.int16 else to_int16(data)).astype("<i2").tobytes()
     fmt = struct.pack(
         "<HHIIHH",
         1,  # PCM
@@ -131,7 +145,7 @@ def write(path, samples: np.ndarray, rate: int, *, loop: tuple[int, int] | None 
         handle.write(wav_bytes(samples, rate, loop=loop))
 
 
-def read_wav(data: bytes, rate: int) -> np.ndarray:
+def read_wav(data: bytes, rate: int, *, max_frames: int = MAX_SAMPLE_FRAMES) -> np.ndarray:
     """A WAV file's bytes as mono ``float32`` at ``rate``. For sample import.
 
     Three conversions, each of which the caller would otherwise have to know
@@ -144,17 +158,24 @@ def read_wav(data: bytes, rate: int) -> np.ndarray:
     Linear resampling, matching :func:`~.voices.sampled`'s own interpolation --
     a sample is a drum hit or a bass note, and the decimation filter over the
     mix sits downstream of both.
+
+    ``max_frames`` is the most this one decode may produce, at most
+    :data:`MAX_SAMPLE_FRAMES`; a caller summing several samples against a
+    document-wide ceiling passes what is left of it (the 2026-10-03 audit,
+    finding sirens-06). Past it the refusal is a :class:`SampleTooLong`, raised
+    before the array that would pass it is allocated.
     """
+    max_frames = min(int(max_frames), MAX_SAMPLE_FRAMES)
     try:
         with wave.open(io.BytesIO(data)) as handle:
             channels = handle.getnchannels()
             width = handle.getsampwidth()
             source_rate = handle.getframerate()
             frames = handle.getnframes()
-            if frames > MAX_SAMPLE_FRAMES:
-                raise ValueError(
+            if frames > max_frames:
+                raise SampleTooLong(
                     f"this sample is {frames} frames, past the"
-                    f" {MAX_SAMPLE_FRAMES} this build will load"
+                    f" {max_frames} this build will load"
                 )
             # The 2026-09-07 audit found sirens-01: a WAV declaring a 0 Hz rate
             # sailed through here and hit the resample branch's division by
@@ -234,10 +255,10 @@ def read_wav(data: bytes, rate: int) -> np.ndarray:
         # ``sirens_io._sample_ceiling`` (sized on the same frame count) while
         # projecting to an array many times the ~10-minute budget, allocated
         # here by ``np.interp`` before anything else could refuse it.
-        if count > MAX_SAMPLE_FRAMES:
-            raise ValueError(
+        if count > max_frames:
+            raise SampleTooLong(
                 f"this sample would decode to {count} frames at {rate} Hz,"
-                f" past the {MAX_SAMPLE_FRAMES} this build will load"
+                f" past the {max_frames} this build will load"
             )
         mono = np.interp(
             np.arange(count, dtype=np.float64) * (source_rate / rate),

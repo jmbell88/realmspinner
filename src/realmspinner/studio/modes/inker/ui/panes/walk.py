@@ -191,13 +191,22 @@ def _part_row(ctx: Any, tab: Any, session: Any, name: str, layers: list) -> None
     chosen = widgets.combo(
         f"##{name}", current, layers, -1.0 - sp(CUT_W + 8.0), tooltip=R.label(name)
     )
+    reason = inker_walk.selection_reason(ctx.state.inker, tab)
     if chosen != current:
         if chosen == "":
             inker_walk.clear_part(ctx, tab, name)
         elif chosen.isdigit():
             inker_walk.assign_layer(ctx, tab, name, int(chosen))
+        elif chosen == "selection":
+            # The entry is listed because a Cut part *reads* "From selection",
+            # and picking it used to change nothing and snap back (the
+            # 2026-10-03 audit, finding inker-95). It now does what the Cut
+            # button beside it does, and says why when it cannot.
+            if reason:
+                ctx.toast(reason, "info")
+            else:
+                inker_walk.assign_selection(ctx, tab, name)
     imgui.same_line()
-    reason = inker_walk.selection_reason(ctx.state.inker, tab)
     if widgets.disabled_button(
         "Cut",
         not reason,

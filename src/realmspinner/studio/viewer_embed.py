@@ -56,6 +56,8 @@ class Viewer(PoseOps, FrameOps):
         self.placement = m3.identity()
         self.radius = 1.0
         self.path: Path | None = None
+        # ``(model, world_version, lo, hi)`` for ``stats`` -- see there.
+        self._bounds_memo: tuple[Any, int, Any, Any] | None = None
 
         self.compare_model: gltf.Model | None = None
         self.compare_gpu: scenelib.GpuModel | None = None
@@ -127,6 +129,11 @@ class Viewer(PoseOps, FrameOps):
         # until the result lands, and so nothing else decides the viewer is
         # "showing the wrong thing" while a load is in flight.
         self.pending: Path | None = None
+        # The create-50 (2026-10-04 audit) half of the same hand-over, for the
+        # one load the pose pane owns the landing of: its ``_Entering`` while
+        # "Edit pose" / "Apply" has a rig parsing on a task, else None.
+        # ``pending`` above is the freshness check; this is what to adopt.
+        self.pose_loading: Any = None
         # The direction strip being rendered a cell at a time, if any.
         self._strip: Any = None
 
@@ -181,11 +188,14 @@ class Viewer(PoseOps, FrameOps):
     def load_model(self, path: Path) -> None:
         """Show a GLB, both halves at once. Blocking -- it decodes textures.
 
-        Kept for the callers where the wait is the point: entering the pose
-        editor and loading a Review unit both happen because the user just
-        pressed something, and a hand-over there would flash an empty viewport
-        for a frame instead. ``_sync_viewer`` uses the split above, because it
-        fires on a *timer*, on the frame a job finishes.
+        Kept for the callers where the wait is the point: loading a Review
+        unit happens because the user just pressed something, and a hand-over
+        there would flash an empty viewport for a frame instead.
+        ``_sync_viewer`` uses the split above, because it fires on a *timer*,
+        on the frame a job finishes. The pose pane's "Edit pose" and "Apply"
+        were on this list until the 2026-10-04 audit's create-50 found the
+        parse stalling the frame they were pressed on; they now parse on a task
+        and adopt on landing (``pose_panel.land_enter``).
         """
         self.adopt_model(self.parse_model(path), path)
 
@@ -204,6 +214,7 @@ class Viewer(PoseOps, FrameOps):
         self._release_model()
         self.exit_pose_mode()
         self.model = self.gpu = self.path = None
+        self._bounds_memo = None
         # See ``adopt_model``: an in-flight parse must not land on an emptied
         # viewport either.
         self.pending = None
@@ -270,7 +281,21 @@ class Viewer(PoseOps, FrameOps):
         describes model.glb and the viewer may be showing rig.glb or a pose."""
         if self.model is None:
             return {}
-        lo, hi = self.model.bounds()
+        # The 2026-10-03 audit, finding create-28: ``Model.bounds`` walks every
+        # mesh instance (about 11 microseconds each) and this runs per frame for
+        # the inspector's size line, so a 5,000-instance scene import cost 57 ms
+        # a frame to say a number that had not changed. Keyed on the model's own
+        # ``world_version`` (bumped by each ``update_world``, i.e. each pose
+        # change) rather than on time; placement is applied below, per call,
+        # because it is three multiplies.
+        version = getattr(self.model, "world_version", None)
+        memo = getattr(self, "_bounds_memo", None)
+        if memo is not None and version is not None and memo[:2] == (self.model, version):
+            lo, hi = memo[2], memo[3]
+        else:
+            lo, hi = self.model.bounds()
+            if version is not None:
+                self._bounds_memo = (self.model, version, lo, hi)
         size = (hi - lo) * np.array(
             [self.placement[0, 0], self.placement[1, 1], self.placement[2, 2]]
         )
@@ -398,7 +423,13 @@ class Viewer(PoseOps, FrameOps):
             self.camera,
             self.gpu,
             model_matrix=self.placement,
-            wireframe=self.wireframe,
+            # ``wire_overlay``, not ``wireframe``: the manual's Wireframe
+            # toggle "draws the triangles over the shaded surface", and
+            # ``wireframe`` *replaces* the fill (the 2026-10-03 audit, finding
+            # create-19: the chapter described a picture this toggle did not
+            # produce, in the one chapter a reader checks a triangle budget
+            # against). Clay and Mason already pass the overlay.
+            wire_overlay=self.wireframe,
             overlays=self._overlays(height),
         )
         if self.comparing and self.compare_viewport is not None:
@@ -411,7 +442,7 @@ class Viewer(PoseOps, FrameOps):
                 self.compare_camera,
                 self.compare_gpu,
                 model_matrix=self.compare_placement,
-                wireframe=self.wireframe,
+                wire_overlay=self.wireframe,
             )
         return self.viewport.texture
 
@@ -692,6 +723,14 @@ class Viewer(PoseOps, FrameOps):
         elif self._grab == "gizmo":
             origin, direction = self._ray(local)
             gizmo = self._active_gizmo()
+            if gizmo is None:
+                # The 2026-10-03 audit, finding create-11: pose mode ended
+                # mid-drag (a model adopted, ``clear``) and ``_grab`` still said
+                # "gizmo", so every motion until the button came up raised
+                # ``'NoneType' has no attribute 'update'``. ``exit_pose_mode``
+                # drops the grab now; this is the same guard ``_release`` keeps.
+                self._grab = None
+                return True
             # Dispatch on which gizmo is active, not on the mode: pose mode
             # holds the translate gizmo too while the root is being moved.
             if gizmo is self.translate_gizmo:

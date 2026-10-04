@@ -139,13 +139,14 @@ job keeps running whichever mode you are in, and the progress card floats over e
 
 ## The window
 
-The app opens on Home, every launch: no mode is remembered between runs, because none of them is
+The app opens on Home, every launch, unless you turn on Settings ▸ Startup ▸ **Last workspace**
+(Chapter 42): by default no mode is remembered between runs, because none of them is
 what you want to be dropped into before you have said what you are doing. **Home**
 is the first entry in the rail described above, and returns there at any time.
 
 Once you are in the workspace, the window is four columns, left to right: the rail, the left
 sidebar, the canvas and the right sidebar — and none of them is a size you drag. The rail is an
-icon strip, just wide enough for its icons; the two sidebars are a quarter of the window each; the
+icon strip, just wide enough for its icons; the two sidebars are about a seventh of the window each; the
 canvas takes everything left over. Neither sidebar has a drag handle of its own any more; a window
 too narrow for a column's comfortable width compresses it instead, following a stated order (the
 sidebars give way first, then the canvas), so there is one width per mode rather than a
@@ -170,22 +171,27 @@ Above the columns is the menu bar, described next.
 
 ## What is the same in every workspace
 
-Eight workspaces are eight editors, and they are deliberately one program eight times. Whichever
-one is open:
+Eight workspaces are eight editors, and they are deliberately one program eight times. Six of them
+— **Inker**, **Clay**, **Mason**, **Plotter**, **Packwright** and **Sirens** — edit a saved
+document, and those six share the file panel and the tab chords below. The other two
+do not: **Poser** keeps a pose library and **Muse** produces a job row in the Library, so neither has
+a file panel, the four file verbs or document tabs, and `Ctrl+Tab` and `Ctrl+W` have nothing to cycle
+or close there. Everything else below holds in all eight.
 
-- **The file panel** in the right column carries the same four verbs — **New**, **Open**, **Save**,
-  **Save As** — over one sentence saying where the document stands, then **Undo** and **Redo** with
-  the step count, which is a button onto the history when the mode has one. Under **Take it
-  somewhere** are the ways out of the mode: the library, and whichever workspaces read what this one
-  makes. Each panel has exactly one accented button, and it is the mode's own commit — export to the
-  library, send to Poser, export the audio.
+- **The file panel** of a document workspace, in the right column, carries the same four verbs —
+  **New**, **Open**, **Save**, **Save As** — over one sentence saying where the document stands, then
+  **Undo** and **Redo** with the step count, which is a button onto the history when the mode has
+  one. Under **Take it somewhere** are the ways out of the mode: the library, and whichever
+  workspaces read what this one makes. Each panel has exactly one accented button, and it is the
+  mode's own commit — export to the library, send to Poser, export the audio.
 - **The same gestures.** The wheel zooms, in 5% steps, in every canvas; `Shift` and the wheel scrolls
   sideways; the middle button pans. In a 3D view, `Alt`+drag orbits and the middle button pans.
   `Ctrl+1`, `Ctrl+3` and `Ctrl+7` look along an axis and `Ctrl+5` toggles perspective, in Clay, in
   Poser and in Mason alike.
 - **The same chords.** `Ctrl+S` and `Ctrl+Shift+S` save; `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z` walk
-  the history; `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle the tabs; `Ctrl+W` closes one; `Ctrl+Shift+E`
-  is the file export and `Ctrl+E` the library export wherever each exists. A chord is printed in a
+  the history; in the six document workspaces `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle the tabs and
+  `Ctrl+W` closes one; `Ctrl+Shift+E` is the file export and `Ctrl+E` the library export wherever
+  each exists. A chord is printed in a
   control's tooltip and in the menu's right-hand column, never in a button's label.
 - **The same words.** **Delete** destroys a thing and wears the trash glyph; **Remove** takes it out
   of this document and leaves it on disk; **Clear** empties a field. **Play** and **Stop** are the

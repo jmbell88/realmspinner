@@ -69,17 +69,26 @@ def test_dino_available_is_false_for_an_empty_directory(tmp_path, monkeypatch):
     empty = tmp_path / "dinov2-base"
     empty.mkdir()
     monkeypatch.setattr(metrics, "_dino_dir", lambda config=None: empty)
+    from realmspinner.config import Config
 
-    assert metrics.dino_available() is False
+    assert metrics.dino_available(Config(t2i_model_root=tmp_path)) is False
 
 
-def test_dino_available_is_true_once_a_safetensors_file_exists(tmp_path, monkeypatch):
-    weights_dir = tmp_path / "dinov2-base"
+def test_dino_available_is_true_once_a_safetensors_file_exists(tmp_path):
+    # Config plus a non-empty weights file: ``dino_available`` answers
+    # ``fetch.present`` and ``not fetch.suspect_files`` since the 2026-10-03
+    # audit (pipelines-29), so a bare or zero-byte ``.safetensors`` no longer
+    # counts as the model.
+    from realmspinner import models
+    from realmspinner.config import Config
+
+    cfg = Config(t2i_model_root=tmp_path)
+    weights_dir = tmp_path / models.METRIC_MODELS["dinov2"].dir_name
     weights_dir.mkdir()
-    (weights_dir / "model.safetensors").write_bytes(b"")
-    monkeypatch.setattr(metrics, "_dino_dir", lambda config=None: weights_dir)
+    (weights_dir / "config.json").write_text("{}", encoding="utf-8")
+    (weights_dir / "model.safetensors").write_bytes(b"x")
 
-    assert metrics.dino_available() is True
+    assert metrics.dino_available(cfg) is True
 
 
 # --- pipelines-install-09: sweep_job scores a leftover PNG from a prior run --

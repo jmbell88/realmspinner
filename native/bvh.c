@@ -15,7 +15,7 @@
  * guaranteed, which here is the *pick result*: the triangle a ray returns,
  * whose tie-break (lowest triangle index) is already pinned so that the tree
  * and the full linear sweep agree. See dev/INVARIANTS.md and
- * tests/viewer/test_bvh_native.py.
+ * tests/test_bvh_native.py.
  *
  * The arithmetic that is *not* licensed to differ is the boxes: min and max
  * over doubles are exact, so a node's bounds are bit-identical whatever order

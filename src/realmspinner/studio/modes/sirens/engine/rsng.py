@@ -52,11 +52,33 @@ _EPOCH = (1980, 1, 1, 0, 0, 0)
 #: megabytes, so this is only ever reached by a file we did not write.
 MAX_DECOMPRESSED_BYTES = 1 << 30
 
+#: The most frames all of a song's samples may decode to together, four times
+#: the per-sample ceiling (``wavout.MAX_SAMPLE_FRAMES``, ten minutes). The
+#: 2026-10-03 audit, finding sirens-06: each sample was bounded after resampling
+#: but nothing bounded the *document*, so a 966-byte file whose samples declared
+#: a 1 Hz rate decoded two of them to 226 MB in under a second -- and the 64 the
+#: format admits to about 7.2 GB, a ``MemoryError`` that is not a ``ValueError``.
+#: Read from the module at call time so a test lowers it rather than decoding
+#: gigabytes.
+MAX_DOC_SAMPLE_FRAMES = 4 * wavout.MAX_SAMPLE_FRAMES
+
 _NOT_A_SONG = "this is not a Realmspinner song"
 _MALFORMED = "this song's manifest is malformed"
 
 
-def _member(name: str) -> zipfile.ZipInfo:
+#: A sample whose encoded WAV is longer than this is stored, not deflated. The
+#: 2026-10-03 audit, finding sirens-07: ``_wav_of`` caches the encoded WAV so an
+#: edit does not re-encode it, but ``rsng_bytes`` then DEFLATEd the whole cached
+#: WAV on every call -- 1.8 s on the frame thread for a ten-minute take, on
+#: every render request, typed-note preview, audition, journal encode and export
+#: snapshot -- and 16-bit PCM barely deflates anyway. Short samples (a drum hit,
+#: well under this) keep the compression, where it is cheap and does shrink a
+#: synthetic one. The choice is a pure function of the sample's size, so two
+#: saves of an unchanged document stay byte-identical.
+_STORE_ABOVE_BYTES = 256 * 1024
+
+
+def _member(name: str, *, deflate: bool = True) -> zipfile.ZipInfo:
     """A deflated archive member at the fixed epoch.
 
     ``inker/ora.py``'s ``_member`` verbatim, and for the reason it names: a
@@ -68,7 +90,7 @@ def _member(name: str) -> zipfile.ZipInfo:
     ~30x the size for a sparse pattern grid.
     """
     info = zipfile.ZipInfo(name, _EPOCH)
-    info.compress_type = zipfile.ZIP_DEFLATED
+    info.compress_type = zipfile.ZIP_DEFLATED if deflate else zipfile.ZIP_STORED
     info.external_attr = 0o600 << 16
     return info
 
@@ -101,11 +123,9 @@ def _sequence_from(raw: Any) -> inst.Sequence:
             f" {inst.MAX_SEQUENCE_LEN} this build ticks"
         )
     try:
-        return inst.Sequence(
-            values=tuple(int(v) for v in values),
-            loop=int(raw.get("loop", -1)),
-            release=int(raw.get("release", -1)),
-        )
+        whole = tuple(int(v) for v in values)
+        loop = int(raw.get("loop", -1))
+        release = int(raw.get("release", -1))
     # The 2026-09-26 audit, finding sirens-engine-01: a JSON ``1e999`` parses
     # as ``float("inf")``, and ``int(inf)`` raises ``OverflowError`` -- past
     # this except clause, which only ever caught the ``TypeError``/``ValueError``
@@ -114,6 +134,11 @@ def _sequence_from(raw: Any) -> inst.Sequence:
     # other malformed field here.
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(_MALFORMED) from exc
+    # The 2026-10-03 audit, finding sirens-08: built outside the clause above so
+    # ``Sequence``'s own named refusal (a value past ``MAX_SEQUENCE_VALUE``,
+    # which would otherwise raise ``OverflowError`` inside the render) reaches
+    # the user instead of the generic one.
+    return inst.Sequence(values=whole, loop=loop, release=release)
 
 
 def manifest_json(doc: D.SongDoc) -> str:
@@ -230,15 +255,26 @@ def rsng_bytes(doc: D.SongDoc) -> bytes:
             )
             zf.writestr(_member(f"{PATTERN_DIR}/{index}.npy"), buffer.getvalue())
         for index, key in enumerate(sorted(doc.samples)):
-            zf.writestr(_member(f"{SAMPLE_DIR}/{index}.wav"), _wav_of(doc.samples[key]))
+            wav = _wav_of(doc.samples[key])
+            zf.writestr(
+                _member(f"{SAMPLE_DIR}/{index}.wav", deflate=len(wav) <= _STORE_ABOVE_BYTES),
+                wav,
+            )
     return out.getvalue()
 
 
-def read_rsng(data: bytes) -> D.SongDoc:
+def read_rsng(data: bytes, *, reserve: bool = True) -> D.SongDoc:
     """A ``.rsng``'s bytes back into a :class:`~.document.SongDoc`.
 
     Restored by construction, so the document reads clean: a file that has just
     been opened is not unsaved.
+
+    ``reserve`` is for the document the user is going to edit: it moves the
+    process-global uid counter above every uid the file used (see
+    :func:`~.document.reserve_uid`). A **throwaway snapshot** -- the render,
+    audition, preview and export readers, which run on task threads and hand the
+    document to nothing that mints a uid -- passes ``False`` and never touches
+    the counter at all (the 2026-10-03 audit, finding sirens-05).
     """
     try:
         zf = zipguard.BoundedZip(io.BytesIO(data))
@@ -330,7 +366,8 @@ def read_rsng(data: bytes) -> D.SongDoc:
         + [one.uid for one in doc.patterns]
         + [one.uid for one in doc.oneshots]
     )
-    D.reserve_uid(highest)
+    if reserve:
+        D.reserve_uid(highest)
     return doc
 
 
@@ -353,6 +390,20 @@ def _int(manifest: dict, key: str, default: int) -> int:
     # refusing by name like every other malformed field here.
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(_MALFORMED) from exc
+
+
+def _uid(entry: dict) -> int:
+    """An entry's ``uid``, minting one only when the file has none.
+
+    The 2026-10-03 audit, finding sirens-05: this used to be
+    ``_int(entry, "uid", D.new_uid())``, whose default is evaluated eagerly --
+    so every entry of every file read bumped the process-global counter even
+    when it named its own uid, on whichever thread the read ran. A uid is now
+    drawn only for the entry that really has none.
+    """
+    if "uid" in entry:
+        return _int(entry, "uid", 0)
+    return D.new_uid()
 
 
 def _float(manifest: dict, key: str, default: float) -> float:
@@ -390,7 +441,7 @@ def _channels_from(manifest: dict) -> list[D.Channel]:
         # int() with base 10: ..." instead of the same malformed-manifest
         # refusal every sibling check in this file gives -- ``_int()`` is
         # this module's own helper for exactly that translation.
-        uid = _int(entry, "uid", D.new_uid())
+        uid = _uid(entry)
         if uid in seen:
             raise ValueError(f"this song lists the channel {uid} twice")
         seen.add(uid)
@@ -555,7 +606,7 @@ def _patterns_from(
                 unknown = ~np.isin(plane, np.fromiter(valid_instruments, dtype=plane.dtype))
                 plane[unknown] = notes.EMPTY
         # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
-        uid = _int(entry, "uid", D.new_uid())
+        uid = _uid(entry)
         if uid in seen:
             raise ValueError(f"this song lists the pattern {uid} twice")
         seen.add(uid)
@@ -578,7 +629,7 @@ def _oneshots_from(manifest: dict) -> list[D.OneShot]:
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
         # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
-        uid = _int(entry, "uid", D.new_uid())
+        uid = _uid(entry)
         if uid in seen:
             raise ValueError(f"this song lists the sound effect {uid} twice")
         seen.add(uid)
@@ -596,6 +647,10 @@ def _oneshots_from(manifest: dict) -> list[D.OneShot]:
 
 def _samples_from(zf: Any, manifest: dict) -> dict[str, np.ndarray]:
     out: dict[str, np.ndarray] = {}
+    # The running decoded total (sirens-06, 2026-10-03 audit). What is left of
+    # the document ceiling is handed to each decode as its own frame limit, so
+    # the refusal comes before the allocation that would pass it.
+    decoded = 0
     for index, entry in enumerate(_list(manifest, "samples")[: D.MAX_SAMPLES]):
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
@@ -613,5 +668,18 @@ def _samples_from(zf: Any, manifest: dict) -> dict[str, np.ndarray]:
             # last one wins) is a song that opens and plays the wrong sound on
             # whichever instrument lost, with nothing anywhere saying so.
             raise ValueError(f"this song lists the sample {key!r} twice")
-        out[key] = wavout.read_wav(raw, synth.SAMPLE_RATE)
+        remaining = max(0, MAX_DOC_SAMPLE_FRAMES - decoded)
+        try:
+            pcm = wavout.read_wav(
+                raw, synth.SAMPLE_RATE, max_frames=min(remaining, wavout.MAX_SAMPLE_FRAMES)
+            )
+        except wavout.SampleTooLong:
+            if remaining >= wavout.MAX_SAMPLE_FRAMES:
+                raise
+            raise ValueError(
+                f"this song's samples decode to more than the {MAX_DOC_SAMPLE_FRAMES}"
+                " frames this build will hold at once"
+            ) from None
+        decoded += int(pcm.size)
+        out[key] = pcm
     return out

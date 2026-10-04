@@ -273,6 +273,12 @@ PUBLISHERS = [
     # about them, not the artifact itself -- see that function's docstring).
     ("realmspinner._q_music", "_music", "client.generate"),
     ("realmspinner._q_music", "_separate", "blender_run.run_worker"),
+    # service-33 (the 2026-10-03 audit): ``_lora_train`` registers the trained
+    # adapter onto the shared model store through ``generation.import_lora`` --
+    # the one publisher that writes outside a job directory, and a name the
+    # style picker serves -- and commits the cancel token right after, but was
+    # in no row, so deleting that commit failed nothing. The twelfth row.
+    ("realmspinner._q_lora", "_lora_train", "import_lora"),
 ]
 
 
@@ -283,10 +289,11 @@ def test_every_served_publish_commits_the_cancel_token(module, func, publish):
     itself was stale rather than merely incomplete: ``_sheet``,
     ``_sprite_synthesis``, ``_tile_sheet`` and ``_tile_set`` published without
     committing and were never in ``PUBLISHERS`` at all, so this scan never
-    looked at them. Six of these eleven rows have shipped the bug this test
+    looked at them. Six of the first eleven rows have shipped the bug this test
     exists to catch; the list now names every publishing stage in the tree as
-    of this audit, and the comment above it is why it stays a list instead of
-    a scan of its own.
+    of the 2026-10-03 audit (twelve, ``_lora_train`` being the one that had
+    gone missing a third time), and the comment above it is why it stays a
+    list instead of a scan of its own.
 
     ``_retexture`` in particular has no cheap end-to-end harness -- it wants a
     resident SDXL pipe, ten Blender renders and a texture bake -- and it is the

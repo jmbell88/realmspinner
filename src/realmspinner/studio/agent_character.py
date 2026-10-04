@@ -253,15 +253,24 @@ def _enums() -> _Enums:
     )
 
 
-def _range_refusal(value: Any, lo: int, hi: int, field: str) -> dict | None:
+def _range_refusal(
+    value: Any, lo: int, hi: int, field: str, label: str | None = None
+) -> dict | None:
     """``None`` when *value* is a real, in-range number; otherwise the
     refusal :func:`fail` builds for it. A ``bool`` is rejected outright --
     ``isinstance(True, int)`` is ``True`` in Python, and a caller sending
-    ``true`` where a count belongs is a type mistake, not a boundary one."""
+    ``true`` where a count belongs is a type mistake, not a boundary one.
+
+    *label* is what the sentence calls the value when that is more exact than
+    the argument *field* the refusal points at: a bad per-movement ``frames``
+    is refused as ``field="movements"`` but must say ``movements[1].frames``,
+    or the agent cannot tell which key of which entry to change (the
+    2026-10-03 audit's agents-30)."""
+    what = label or field
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return fail(f"{field} must be a number.", field=field)
+        return fail(f"{what} must be a number.", field=field)
     if not (lo <= value <= hi):
-        return fail(f"{field} must be between {lo} and {hi}.", field=field)
+        return fail(f"{what} must be between {lo} and {hi}.", field=field)
     return None
 
 
@@ -627,9 +636,10 @@ def instructions() -> str:
         "progress: poll character_job on the rig_job_id (the mesh's own id "
         "reports the same follow_up_sheet_job too) until follow_up_sheet_job "
         "names a job, then poll character_job on that job until it is done. "
-        "If the rig itself ends in error, no follow-up sheet is ever "
-        "queued -- read follow_up_failure (or the rig job's own error) and "
-        "stop, rather than poll forever for a sheet that will not appear. "
+        "Any terminal status but done (error, cancelled) on either job ends "
+        "the loop: a rig that ends that way queues no follow-up sheet, so "
+        "read follow_up_failure (or its own error) rather than poll for one; "
+        "a sheet job that does, read its own error. "
         "character_sheet_preview, or a sheet's own resource URI "
         "(character_job lists them), shows one once it is done; a sheet's "
         "atlas resource itself refuses to read for a sheet whose PNG does "
@@ -641,8 +651,9 @@ def instructions() -> str:
         "layout a sheet will contain -- nothing is added behind it.\n\n"
         "This surface starts no inference of its own: a prompt is matched "
         "against species and theme words, never sent to a generator, and "
-        "every mesh is built procedurally and rigged by a Blender "
-        "subprocess the call blocks on.\n\n"
+        "every mesh is built procedurally while the call waits; the rig is "
+        "a queued Blender job, so character_create and character_rig "
+        "return as soon as it is queued.\n\n"
         "An agent may cancel only a job this same connection minted, or the "
         "sheet job a rig it minted has since queued; character_cancel "
         "refuses by job_id otherwise. A call that outruns this bridge's "
@@ -868,6 +879,9 @@ def _h_character_options(svc: Any, session: Session, args: Args) -> dict:
             for key, label, elevation in charsheet.CAMERA_PRESETS
         ],
         "sizes": list(charsheet.SIZES),
+        # The 2026-10-03 audit's agents-29: the schema accepts any whole size
+        # in this range, and "sizes" alone read as the only legal values.
+        "size_range": list(svc_troupe.TROUPE_CUSTOM_SIZE_RANGE),
         "fps": list(charsheet.FPS_CHOICES),
         "colors": list(svc_troupe.TROUPE_COLOR_CHOICES),
         "outlines": list(pixelize.OUTLINE_MODES),
@@ -966,7 +980,7 @@ def _h_character_create(svc: Any, session: Session, args: Args) -> dict:
         if not movements:
             return fail("movements must name at least one clip.", field="movements")
         seen: set[str] = set()
-        for move in movements:
+        for index, move in enumerate(movements):
             move_name = move.get("name")
             if move_name not in e.movements:
                 return fail(
@@ -977,7 +991,13 @@ def _h_character_create(svc: Any, session: Session, args: Args) -> dict:
                 return fail(f"two movements are named {move_name!r}.", field="movements")
             seen.add(move_name)
             if "frames" in move:
-                refusal = _range_refusal(move["frames"], 1, charsheet.MAX_FRAMES, "movements")
+                refusal = _range_refusal(
+                    move["frames"],
+                    1,
+                    charsheet.MAX_FRAMES,
+                    "movements",
+                    f"movements[{index}].frames",
+                )
                 if refusal:
                     return refusal
         overrides["animations"] = {m["name"]: m.get("frames") for m in movements}
@@ -1061,6 +1081,31 @@ def _h_character_create(svc: Any, session: Session, args: Args) -> dict:
     return ok(text(_json(payload)), structured=payload)
 
 
+def _family_template(job: Mapping[str, Any]) -> tuple[str, str] | None:
+    """``(family key, that family's rig template)`` for a mesh row a character
+    door built, else ``None``.
+
+    The 2026-10-03 audit (agents-12) found ``character_rig`` and
+    ``character_sheet_create`` with no ``template`` rigged on the user's
+    configured default (humanoid) -- which is exactly the recovery path after
+    an agent cancels, or sees fail, the rig ``character_create`` queued on the
+    family's own skeleton. A quadruped, bird or blob character came back with a
+    humanoid skeleton that is then locked in (this surface never replaces a
+    rig) and animated from the wrong clip library. A mesh that is not a
+    character, or names a family this build no longer ships, falls back to the
+    door's own default as before."""
+    from ..characters import family as family_mod
+    from ..characters.errors import CharacterError
+
+    family_key = str((job.get("params") or {}).get("family") or "")
+    if not family_key:
+        return None
+    try:
+        return family_key, family_mod.get_family(family_key).template
+    except CharacterError:
+        return None
+
+
 def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
     from ..kernels.rig import store
     from ..service import rig as svc_rig
@@ -1073,8 +1118,13 @@ def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
         return fail(f"{template!r} is not a rig template.", field="template")
 
     check_job_id(job_id)
-    svc.require_job(job_id)
+    job = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
+    from_family: tuple[str, str] | None = None
+    if template is None:
+        from_family = _family_template(job)
+        if from_family is not None:
+            template = from_family[1]
     # The 2026-09-26 audit, finding agents-character-03: this read alone used
     # to be the whole of the "never replaces" guard, with nothing holding the
     # gap between it and the create_rig call below -- two concurrent
@@ -1098,6 +1148,9 @@ def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
     if session.toast:
         session.toast(f"Rigging {job_id}")
     payload = {**result, "minted": [{"job_id": rig_id, "kind": "rig", "role": "rig"}]}
+    if from_family is not None:
+        # Said in the reply, not left to be inferred from the template field.
+        payload["template_from_family"] = from_family[0]
     return ok(text(_json(payload)), structured=payload)
 
 
@@ -1119,7 +1172,7 @@ def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
         return fail("movements must name at least one clip.", field="movements")
 
     seen: set[str] = set()
-    for move in movements:
+    for index, move in enumerate(movements):
         move_name = move.get("name")
         if move_name not in e.movements:
             return fail(
@@ -1130,7 +1183,13 @@ def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
             return fail(f"two movements are named {move_name!r}.", field="movements")
         seen.add(move_name)
         if "frames" in move:
-            refusal = _range_refusal(move["frames"], 1, charsheet.MAX_FRAMES, "movements")
+            refusal = _range_refusal(
+                move["frames"],
+                1,
+                charsheet.MAX_FRAMES,
+                "movements",
+                f"movements[{index}].frames",
+            )
             if refusal:
                 return refusal
 
@@ -1221,6 +1280,15 @@ def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
     if "name" in args:
         pixel_kwargs["name"] = args["name"]
 
+    # An unrigged character mints its rig in this call, so it takes its own
+    # family's skeleton, not the humanoid default (the 2026-10-03 audit,
+    # agents-12). A rigged mesh keeps the rig it has; template stays unset.
+    from_family: tuple[str, str] | None = None
+    if template is None and not (svc.job_dir(job_id) / "rig.glb").exists():
+        from_family = _family_template(svc.require_job(job_id))
+        if from_family is not None:
+            template = from_family[1]
+
     result = svc_troupe.send_to_troupe(
         svc,
         job_id,
@@ -1235,6 +1303,8 @@ def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
     if session.toast:
         session.toast(f"Queued a character sheet for {job_id}")
     payload = {**result, "minted": [{"job_id": new_id, "kind": kind, "role": "sheet"}]}
+    if from_family is not None:
+        payload["template_from_family"] = from_family[0]
     if kind == "rig":
         # The mesh had no rig yet: this call minted one, and the follow-up
         # sheet is queued to render once it lands (see module docstring's

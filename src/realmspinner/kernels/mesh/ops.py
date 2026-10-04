@@ -514,23 +514,53 @@ def bake_transform(obj: Obj, world: np.ndarray | None = None) -> Obj:
     )
 
 
+class UsedNames(set):
+    """A ``set`` of names in use that also remembers, per probe origin, where
+    :func:`next_name` should resume.
+
+    The 2026-10-03 audit's clay-mesh follow-up: ``next_name`` copied *taken*
+    into a fresh ``set`` on every call and then probed from ``base.001``, so
+    naming N copies of one object (an Array, a mirror, Ctrl+D on a big
+    selection) was O(N^2) twice over -- the copy and the probe. A plain ``set``
+    now skips the copy; this one also skips the probe. Names are only ever
+    added to it, so everything below the remembered suffix is still taken. The
+    hint is the candidate *returned*, not the one after it, because
+    ``next_name`` does not add the name it hands back and a caller that never
+    does must still get it again; one that does costs a single extra probe.
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)  # type: ignore[arg-type]
+        self.resume: dict[tuple[str, int], int] = {}
+
+
 def next_name(name: str, taken: Iterable[str] = ()) -> str:
     """``Box`` -> ``Box.001`` -> ``Box.002``, skipping any name already in use.
 
     Counting up rather than prefixing ("Copy of Copy of Box") keeps the name
     the same length however many times it is duplicated, and keeps the original
     name readable at the front where the outliner truncates from the right.
+
+    *taken* may be any iterable of names. A ``set`` is read in place, never
+    copied, and is never mutated; a loop naming many copies should keep one
+    :class:`UsedNames` and ``add`` each name it takes.
     """
-    used = set(taken)
+    used = taken if isinstance(taken, (set, frozenset)) else set(taken)
     match = _SUFFIX.match(name)
     base = match.group("base") if match else name
     start = int(match.group("n")) if match else 0
+    first = start + 1
+    resume = used.resume if isinstance(used, UsedNames) else None
+    if resume is not None:
+        first = max(first, resume.get((base, start), first))
     # Bounded rather than a bare ``while True``: the loop cannot run past one
     # candidate per name already in use plus the source's own, and a bound is
     # cheaper than trusting that.
-    for n in range(start + 1, start + len(used) + 3):
+    for n in range(first, start + len(used) + 3):
         candidate = f"{base}.{n:03d}"
         if candidate not in used and candidate != name:
+            if resume is not None:
+                resume[(base, start)] = n
             return candidate
     return f"{base}.{start + len(used) + 3:03d}"  # pragma: no cover - unreachable
 

@@ -131,6 +131,7 @@ from .....kernels.grid2d.tileset import (
 )
 from .....kernels.grid2d.wang import WangColour, WangSet
 from . import project
+from ._map_layers import MAX_GROUP_DEPTH
 from .pngio import png_bytes
 from .props import read_rmap_properties, write_rmap_properties
 from .tilemap import (
@@ -920,18 +921,36 @@ def _stamps_from(zf: Any, entries: Any) -> dict[int, Stamp]:
     if not isinstance(entries, (list, tuple)):
         _malformed("this map's stamps")
     out: dict[int, Stamp] = {}
+    # One decode per distinct member, charged to the same ceiling a layer's is:
+    # the 2026-10-03 audit (finding plotter-31) found a manifest naming one large
+    # member under slot 1 many times re-reading and re-decoding it every time,
+    # the amplification ``_ReadBudget.decoded`` closed for tile layers.
+    budget = _ReadBudget()
+    decoded: dict[str, np.ndarray] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             _malformed("this map's stamps")
         slot = int(entry.get("slot", 0))
         if not 1 <= slot <= 9:
             continue
-        raw = _member(zf, str(entry.get("member", "")), "a stamp")
-        cells = npyguard.read_array(raw, f"stamp {slot}")
-        if cells.ndim != 2 or not cells.size:
-            raise ValueError(f"this map's stamp {slot} is not a block of cells")
-        block = cells.astype(gidlib.DTYPE, copy=False)
-        block.setflags(write=False)
+        member = str(entry.get("member", ""))
+        block = decoded.get(member)
+        if block is None:
+            raw = _member(zf, member, "a stamp")
+            cells = npyguard.read_array(raw, f"stamp {slot}")
+            if cells.ndim != 2 or not cells.size:
+                raise ValueError(f"this map's stamp {slot} is not a block of cells")
+            # Refused like a layer for the same reason (``_read_layer_array``)
+            # rather than cast: a float array's gids are not the gids it names.
+            if cells.dtype != gidlib.DTYPE:
+                raise ValueError(
+                    f"this map's stamp {slot} is stored as {cells.dtype}, "
+                    f"not {np.dtype(gidlib.DTYPE)}"
+                )
+            budget.decoded(int(cells.nbytes))
+            block = cells.astype(gidlib.DTYPE, copy=False)
+            block.setflags(write=False)
+            decoded[member] = block
         out[slot] = Stamp(name=str(entry.get("name", "")), cells=block)
     return out
 
@@ -1073,12 +1092,14 @@ class _ReadBudget:
     would ever notice.
     """
 
-    __slots__ = ("nodes", "objects", "decoded_bytes")
+    __slots__ = ("nodes", "objects", "decoded_bytes", "depth")
 
     def __init__(self) -> None:
         self.nodes = 0
         self.objects = 0
         self.decoded_bytes = 0
+        # How many groups enclose the layer being read.
+        self.depth = 0
 
     def node(self) -> None:
         self.nodes += 1
@@ -1086,6 +1107,17 @@ class _ReadBudget:
             raise ValueError(
                 f"this map's layer tree holds more than the {MAX_LAYER_NODES} "
                 "layers this build reads"
+            )
+        # The editor's own ceiling, applied where a file comes in: the
+        # 2026-10-03 audit (finding plotter-10) found ``MAX_GROUP_DEPTH``
+        # enforced only at the editing doors, so a hand-built or generated
+        # manifest opened past it and Duplicate on its outer group then raised
+        # from the layers pane. Per layer, not per group, so a layer may sit
+        # exactly ``MAX_GROUP_DEPTH`` groups deep, as it may in the editor.
+        if self.depth > MAX_GROUP_DEPTH:
+            raise ValueError(
+                f"this map nests layers {self.depth} groups deep, past the "
+                f"{MAX_GROUP_DEPTH}-deep limit on the layer tree"
             )
 
     def object_count(self, count: int) -> None:
@@ -1223,12 +1255,12 @@ def _read_layers(
                 )
             )
         elif kind == "group":
-            out.append(
-                GroupLayer(
-                    **common,
-                    children=_read_layers(entry.get("layers", []), zf, doc, budget, pictures),
-                )
-            )
+            budget.depth += 1
+            try:
+                children = _read_layers(entry.get("layers", []), zf, doc, budget, pictures)
+            finally:
+                budget.depth -= 1
+            out.append(GroupLayer(**common, children=children))
         else:
             raise ValueError(f"this map holds a layer of unknown kind {kind!r}")
     return out
@@ -1345,7 +1377,22 @@ def read_rmap(data: bytes) -> MapDoc:
     empty history and reads clean: a file that has just been opened is not
     unsaved, and the layers are placed directly rather than through the
     mutators, which would push a step apiece.
+
+    **Every member of the manifest can be any type**, which is the other half of
+    :func:`.tmx.read_tmj`'s note: ``"tilesets": [5]``, a ``width`` of ``[1]`` or
+    an object property of ``Infinity`` leave a parse written for the right type
+    as ``TypeError``, ``AttributeError`` or ``OverflowError``, and the open
+    doors frame only ``ValueError``. The 2026-10-03 audit (finding plotter-09)
+    found them arriving as a generic task failure, so the translation is made
+    once, here, rather than at every field.
     """
+    try:
+        return _read_rmap(data)
+    except (TypeError, AttributeError, OverflowError) as exc:
+        raise ValueError(f"this map document holds a malformed value: {exc}") from exc
+
+
+def _read_rmap(data: bytes) -> MapDoc:
     try:
         zf = zipguard.BoundedZip(io.BytesIO(data))
     except zipfile.BadZipFile as exc:
@@ -1441,9 +1488,16 @@ def read_rmap(data: bytes) -> MapDoc:
         skew = _two(manifest, "skew", (0, 0))
         doc.skew_x, doc.skew_y = int(skew[0]), int(skew[1])
         stagger = _three(manifest, "stagger", ("y", "odd", 0))
-        doc.stagger_axis = str(stagger[0])
-        doc.stagger_index = str(stagger[1])
-        doc.hex_side = int(stagger[2])
+        # Falling back like both Tiled readers (``tmx._offset_fields``) and
+        # refusing like the settings setter, for ``renderorder``'s reason above:
+        # the 2026-10-03 audit (finding plotter-26) opened ``["z", "weird", -5]``
+        # as a lattice no projection function understands, and every later
+        # ``set_map_settings`` then raised "unknown stagger axis 'z'" -- the
+        # form could not save even an unrelated change.
+        axis, index = str(stagger[0]), str(stagger[1])
+        doc.stagger_axis = axis if axis in project.STAGGER_AXES else "y"
+        doc.stagger_index = index if index in project.STAGGER_INDICES else "odd"
+        doc.hex_side = max(0, int(stagger[2]))
         doc.properties = read_rmap_properties(manifest.get("properties"))
         # Absent in every file before version 11, where the absence meant a map
         # with no stamps -- which is what ``get(..., [])`` says without a
@@ -1469,6 +1523,8 @@ def read_rmap(data: bytes) -> MapDoc:
 
         previous = 0
         for entry in raw_tilesets:
+            if not isinstance(entry, dict):
+                _malformed("a tileset")
             firstgid = int(entry.get("firstgid", 1))
             if firstgid <= previous:
                 # Contiguity is what ``resolve`` walks; a list that does not

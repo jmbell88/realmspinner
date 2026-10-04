@@ -304,12 +304,24 @@ def _evaluated_world(obj: Any, doc: Any) -> Any:
     mesh = doc.evaluated(obj.uid)
     if getattr(obj, "parent", None) is None:
         return replace(obj, mesh=mesh)
-    t, r, s = m3.decompose(doc.world_matrix(obj.uid))
-    return replace(obj, mesh=mesh, translation=t, rotation=r, scale=s)
+    world = doc.world_matrix(obj.uid)
+    t, r, s = m3.decompose(world)
+    out = replace(obj, mesh=mesh, translation=t, rotation=r, scale=s)
+    # The 2026-10-03 audit's clay-46: a rotated child under a non-uniformly
+    # scaled parent has a *sheared* world matrix, and ``decompose`` (which
+    # assumes no shear) drops the shear, so every vertex measured below used to
+    # land somewhere the viewport and the exported GLB do not draw it (bounds
+    # +-1.55 where the world box is +-2.12, volume 4.85 where it is 3.0). The
+    # TRS above stays for any reader that wants a scale; geometry reads the
+    # matrix itself.
+    out._world_matrix = world  # type: ignore[attr-defined]
+    return out
 
 
 def _world_positions(obj: Any) -> np.ndarray:
-    matrix = m3.compose(obj.translation, obj.rotation, obj.scale)
+    matrix = getattr(obj, "_world_matrix", None)
+    if matrix is None:
+        matrix = m3.compose(obj.translation, obj.rotation, obj.scale)
     positions = np.asarray(obj.mesh.positions, dtype="f8")
     if len(positions) == 0:
         return np.zeros((0, 3), dtype="f8")
@@ -335,11 +347,23 @@ def _geometry(obj: Any) -> _Geom:
 def _is_closed(mesh: Any) -> bool:
     """No hole, no non-manifold edge -- the same reading ``clay_add_mesh``'s
     own ``closed`` uses, and the one fact this module shares with
-    :mod:`~.diagnose` rather than recomputing its own version of."""
+    :mod:`~.diagnose` rather than recomputing its own version of.
+
+    **And no flipped edge.** The 2026-10-03 audit's clay-49: a box with one
+    face reversed has no hole and no non-manifold edge, so it read closed, and
+    the divergence-theorem volume of a mesh whose winding disagrees with itself
+    is not a volume (0.667 for a unit box whose true volume is 1.0) -- yet it
+    was reported with no marker, and ``_overlap`` then ran on it. ``closed``
+    here means "a solid whose enclosed volume can be trusted", so a mis-wound
+    mesh is not, and Clean's normals step is the way to make it one."""
     if len(mesh.starts) <= 1:
         return False
     report = check_manifold(mesh)
-    return len(report.boundary_edges) == 0 and len(report.nonmanifold_edges) == 0
+    return (
+        len(report.boundary_edges) == 0
+        and len(report.nonmanifold_edges) == 0
+        and len(report.flipped_edges) == 0
+    )
 
 
 def _triangle_areas(tri_pts: np.ndarray) -> np.ndarray:
@@ -1079,7 +1103,9 @@ def analyze(
     module docstring's "objects are duck-typed" paragraph, which this keeps
     true, and :func:`_evaluated_world`. A parentless object's world TRS *is*
     its own TRS, so nothing about this changes for a document with no
-    parenting. Every downstream helper still only ever reads ``obj.mesh``/
+    parenting; a parented one also carries its world **matrix**, which the
+    geometry reads in preference to the decomposed TRS (a sheared chain has no
+    TRS). Every downstream helper still only ever reads ``obj.mesh``/
     ``obj.translation``/``obj.rotation``/``obj.scale`` as it always has -- the
     swap happens once, here, rather than threading a mesh or a matrix
     override through every one of them. ``None`` -- the default -- measures

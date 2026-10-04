@@ -78,15 +78,30 @@ def plan_from_spec(sweep: dict) -> sweeps_mod.SweepPlan:
 
 
 def lost_units(svc: RealmspinnerService, sweep_id: str) -> tuple[list[str], list[str]]:
-    """-> (unit labels with no measurement, unit labels genuinely refused)."""
+    """-> (unit labels with no measurement, unit labels genuinely refused).
+
+    A unit is judged by its *latest* row. The 2026-10-03 audit (pipelines-11)
+    found every row judged alone: a cancelled or shutdown-interrupted row kept
+    naming its unit as lost after a refill had queued, run or finished a later
+    row for it, so running this twice queued the unit twice (``sweep_unit`` has
+    no uniqueness) and double-counted one arm of the matched pairs. A unit with
+    a finished row is never lost either way.
+    """
+    latest: dict[str, dict] = {}
+    measured: set[str] = set()
+    for job in svc.store.sweep_jobs(sweep_id):  # submission order, oldest first
+        latest[job["sweep_unit"]] = job
+        if job["status"] == "done":
+            measured.add(job["sweep_unit"])
     lost: list[str] = []
     refused: list[str] = []
-    for job in svc.store.sweep_jobs(sweep_id):
+    for unit, job in latest.items():
         status = job["status"]
         if status == "cancelled" or (status == "error" and SHUTDOWN in (job["error"] or "")):
-            lost.append(job["sweep_unit"])
+            if unit not in measured:
+                lost.append(unit)
         elif status == "error":
-            refused.append(job["sweep_unit"])
+            refused.append(unit)
     return lost, refused
 
 

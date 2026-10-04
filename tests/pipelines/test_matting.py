@@ -38,6 +38,9 @@ def _weights(tmp_path):
     root = tmp_path / spec.dir_name
     root.mkdir(parents=True)
     (root / "config.json").write_text("{}", encoding="utf-8")
+    # ``available`` answers ``fetch.present``'s question now (the 2026-10-03
+    # audit, pipelines-22): config plus a weights file, not config alone.
+    (root / "model.safetensors").write_bytes(b"x")
     return root
 
 
@@ -61,6 +64,7 @@ def test_weights_on_disk_mean_available(tmp_path):
     root = tmp_path / spec.dir_name
     root.mkdir(parents=True)
     (root / "config.json").write_text("{}", encoding="utf-8")
+    (root / "model.safetensors").write_bytes(b"x")
     assert matting.available(_config(tmp_path)) is True
 
 
@@ -161,6 +165,7 @@ def test_the_model_path_is_used_when_it_works(tmp_path, monkeypatch):
     root = tmp_path / spec.dir_name
     root.mkdir(parents=True)
     (root / "config.json").write_text("{}", encoding="utf-8")
+    (root / "model.safetensors").write_bytes(b"x")
     fake = np.zeros((96, 96), dtype=bool)
     fake[10:20, 10:20] = True
     monkeypatch.setattr(matting, "_model_mask", lambda image, path, device: fake)

@@ -153,7 +153,7 @@ DIRECTION_YAWS = {"front": 0, "left": 90, "right": 270, "back": 180}
 #: Every direction name this repo has, with its yaw in degrees clockwise from
 #: the front view. **Imported from ``charsheet``, not copied.** That module
 #: already owns the canonical eight names, their yaws and the 1/4/8/16 presets
-#: for the mesh path, it is a ``pipelines`` module importing only ``sheet``, so
+#: for the mesh path, it is a ``kernels`` module importing only ``sheet``, so
 #: there is nothing circular and nothing heavy about depending on it -- and a
 #: third copy of eight names and eight angles is a third thing to drift. The
 #: yaws are narrowed to ``int`` because that is what a ``Cell`` and the sidecar

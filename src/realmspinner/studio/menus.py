@@ -68,6 +68,12 @@ _COMMAND_PATHS: dict[str, tuple[str, ...]] = {
     "turntable": ("View",),
     "clear-viewport": ("View",),
     "fps": ("View",),
+    # shell-02 residual: the palette command existed but had no path, so
+    # ``_command_specs`` skipped it and Shift+W was the layout editor's only
+    # on-screen-less door in Inker, Clay, Mason and Sirens. Every mode keeps the
+    # row; the command's own gate greys it, with a reason, where there is no
+    # skeleton to rearrange.
+    "rearrange-panes": ("View",),
     "workspace-layout": ("Window",),
     "show-trash": ("Window",),
     "empty-trash": ("Window",),
@@ -206,7 +212,8 @@ def _inker_export_specs(
     from .modes.inker import export as inker_export
     from .modes.inker import mode as inker_mode
 
-    tab = inker_mode.ensure(ctx).active
+    state = inker_mode.ensure(ctx)
+    tab = state.active
     # The same order as the File menu's own ``export`` row, so the five land
     # beside it rather than under Quit: ``sorted`` is stable and these rows are
     # appended after the command rows, so a tie puts them immediately after it.
@@ -214,7 +221,7 @@ def _inker_export_specs(
     out = []
     for index, door in enumerate(inker_export.doors()):
         enabled, reason = (
-            inker_export.door_state(door, tab) if evaluate else (True, "")
+            inker_export.door_state(door, tab, state) if evaluate else (True, "")
         )
         out.append(
             MenuSpec(

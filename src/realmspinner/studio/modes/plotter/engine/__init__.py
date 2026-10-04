@@ -5,8 +5,10 @@ plus a lazy Pillow, no imgui, no moderngl, no pygame, no ``service``. Every rule
 about where a tile lands, what a gid means and what a ``.tmx`` may contain is
 therefore assertable headlessly, which is the whole reason the split exists.
 
-The one outward import is :mod:`realmspinner.core.undo`, the history engine the
-raster editor and Clay already share -- pinned by
+The outward imports are :mod:`realmspinner.core.undo` (the history engine the
+raster editor and Clay already share), :mod:`realmspinner.core.safeio` (the
+bounded readers), :mod:`realmspinner.kernels.grid2d` (the shared tile
+vocabulary) and :mod:`realmspinner.native` (the flood and blit kernels) -- pinned by
 ``tests/modes/plotter/test_plotter_imports.py`` along with everything else this
 package reaches for, so the next outward import is a decision rather than a
 discovery.

@@ -23,7 +23,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import controls, icons, verbs, widgets
+from ..... import controls, icons, theme, verbs, widgets
 from .....tokens import sp
 from ....sirens import audio as sirens_audio
 from ... import mode as muse_mode
@@ -57,6 +57,16 @@ def draw(ctx: Any) -> None:
     muse_mode.sync(ctx)
     jobs = plan_for(ctx)
     if not jobs:
+        if _window_is_partial(ctx):
+            # muse-12 (2026-10-03 audit): "No takes yet" was a claim about the
+            # whole Library, made from a window of the newest rows.
+            widgets.empty_state(
+                icons.MUSIC,
+                "No takes among the newest jobs",
+                "Older takes are still in the Library -- press Load older there "
+                "to bring them back here.",
+            )
+            return
         widgets.empty_state(
             icons.MUSIC,
             "No takes yet",
@@ -65,7 +75,24 @@ def draw(ctx: Any) -> None:
         )
         return
     _grid(ctx, jobs)
+    if _window_is_partial(ctx):
+        widgets.muted("Older takes are behind Load older in the Library.")
     derive_popup(ctx)
+
+
+def _window_is_partial(ctx: Any) -> bool:
+    """Whether ``ctx.cache.jobs`` is only the newest slice of the Library.
+
+    muse-12 (2026-10-03 audit): ``jobs`` is a window of the newest rows of every
+    kind (widened only by the Library's "Load older"), so the tray is the music
+    *in that window* -- a session of 200 Create or Clay jobs pushes older takes
+    out of it. ``total`` is the store's own count; a failed count falls back to
+    ``len(jobs)`` and is reported in ``count_error``, which is not "whole".
+    """
+    cache = ctx.cache
+    if getattr(cache, "count_error", None):
+        return True
+    return int(getattr(cache, "total", 0) or 0) > len(getattr(cache, "jobs", []) or [])
 
 
 def _grid(ctx: Any, jobs: list[dict[str, Any]]) -> None:
@@ -83,9 +110,9 @@ def _grid(ctx: Any, jobs: list[dict[str, Any]]) -> None:
 def _card(ctx: Any, job: dict[str, Any], width: float) -> None:
     job_id = str(job["id"])
     state = muse_mode.ensure(ctx)
-    with widgets.card(f"muse-take/{job_id}", (width, sp(CARD_H))):
-        if imgui.is_item_clicked():
-            state.selected_job = job_id
+    origin = imgui.get_cursor_screen_pos()
+    size = (width, sp(CARD_H))
+    with widgets.card(f"muse-take/{job_id}", size):
         widgets.stage_badge(job, inline=True)
         imgui.same_line()
         widgets.status_pill(str(job.get("status") or ""))
@@ -112,10 +139,30 @@ def _card(ctx: Any, job: dict[str, Any], width: float) -> None:
             task = str(params.get("task") or "derived")
             widgets.muted(f"{task} of {str(parent)[:8]}")
         _actions(ctx, job, job_id)
+    # muse-07 (2026-10-03 audit). Read off the card *after* ``end_child``: inside
+    # the ``with``, ``is_item_clicked`` asks about whatever item was drawn last
+    # (not the card), so clicking a card never selected it and nothing drew the
+    # selection Space and Up/Down act on. ``library``'s full grid reads its cells
+    # the same way, and rings the selected one the same way.
+    if imgui.is_item_clicked():
+        state.selected_job = job_id
+    if state.selected_job == job_id:
+        widgets.ring(
+            imgui.ImVec2(origin.x, origin.y),
+            imgui.ImVec2(origin.x + size[0], origin.y + size[1]),
+            theme.ACCENT,
+            1.0,
+            2.0,
+        )
 
 
-def _ready_reason(ready: bool) -> str:
+def _ready_reason(ready: bool, status: str = "") -> str:
     """Why a tray control is greyed until the take finishes. -> "" once done.
+
+    **muse-22 (2026-10-03 audit).** ``status`` says which wait this is: an
+    ``error`` or ``cancelled`` row will never finish, and "has not finished yet"
+    promised a wait that never ends. Those two say what happened and that there
+    is no audio; queued and running (and an unknown status) keep the wait.
 
     The 2026-09-08 audit, finding muse-04: this file's transport/ghost_button
     calls each spelled ``"" if ready else "this take has not finished yet"``
@@ -125,10 +172,16 @@ def _ready_reason(ready: bool) -> str:
     so a future edit to the sentence, or a bug that greys these buttons for
     the wrong reason, had nothing here to catch it.
     """
-    return "" if ready else "this take has not finished yet"
+    if ready:
+        return ""
+    if status == "error":
+        return "this take failed, so there is no audio"
+    if status == "cancelled":
+        return "this take was cancelled, so there is no audio"
+    return "this take has not finished yet"
 
 
-def _play_reason(ready: bool) -> str:
+def _play_reason(ready: bool, status: str = "") -> str:
     """Why the tray's transport is greyed. -> "" once it may be pressed.
 
     muse-01 (2026-09-11 audit): checks the device the same way
@@ -138,11 +191,11 @@ def _play_reason(ready: bool) -> str:
     device, and the device's own reason otherwise.
     """
     if not ready:
-        return _ready_reason(ready)
+        return _ready_reason(ready, status)
     return sirens_audio.unavailable_reason()
 
 
-def _stems_reason(ready: bool, stems: bool) -> str:
+def _stems_reason(ready: bool, stems: bool, status: str = "") -> str:
     """Why the Stems button is greyed. -> "" once it may be pressed.
 
     muse-05 (2026-09-11 audit): this fifth literal -- "this take has already
@@ -152,7 +205,7 @@ def _stems_reason(ready: bool, stems: bool) -> str:
     """
     if stems:
         return "this take has already been split"
-    return _ready_reason(ready)
+    return _ready_reason(ready, status)
 
 
 def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
@@ -162,7 +215,8 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     audio yet, and a button that reads the disk every frame to find that out
     would be a stat per card per frame for an answer the row already carries.
     """
-    ready = str(job.get("status") or "") == "done"
+    status = str(job.get("status") or "")
+    ready = status == "done"
     playing = muse_mode.is_playing(ctx, job_id)
     # muse-01 (2026-09-11 audit): also greyed on ``sirens_audio.available()``,
     # the same idiom ``sirens_transport.py`` already uses for its own
@@ -173,7 +227,7 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
         f"muse-{job_id}",
         playing,
         enabled=ready and sirens_audio.available(),
-        reason=_play_reason(ready),
+        reason=_play_reason(ready, status),
         shortcut="",
     ):
         if playing:
@@ -184,17 +238,17 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     if widgets.ghost_button(
         verbs.open_in("sirens"),
         enabled=ready,
-        reason=_ready_reason(ready),
+        reason=_ready_reason(ready, status),
         tooltip="Import this track into the tracker as a sample instrument.",
     ):
         muse_mode.open_in_sirens(ctx, job_id)
-    _derive_menu(ctx, job_id, ready)
+    _derive_menu(ctx, job_id, ready, status)
     imgui.same_line()
     stems = muse_mode.has_stems(ctx, job)
     if widgets.ghost_button(
         "Stems" if not stems else f"{icons.CHECK} Stems",
         enabled=ready and not stems,
-        reason=_stems_reason(ready, stems),
+        reason=_stems_reason(ready, stems, status),
         tooltip=(
             "Split this take into drums, bass, vocals and everything else. "
             "Needs a one-off ~320 MiB download."
@@ -296,12 +350,12 @@ def _extend_reason(parent_duration: float) -> str:
     return ""
 
 
-def _derive_menu(ctx: Any, job_id: str, ready: bool) -> None:
+def _derive_menu(ctx: Any, job_id: str, ready: bool, status: str = "") -> None:
     """The "Make more" button and the task menu it opens."""
     if widgets.ghost_button(
         "Make more",
         enabled=ready,
-        reason=_ready_reason(ready),
+        reason=_ready_reason(ready, status),
         tooltip="Derive another take from this one.",
     ):
         muse_mode.ensure(ctx).selected_job = job_id

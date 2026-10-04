@@ -2,9 +2,14 @@
 
 Import and export both go through here, and the governing rule is that **a
 feature this editor does not model is refused by name rather than dropped**.
-Tiled's format is much larger than a finite stamp-and-fill editor: staggered
-and hexagonal grids, infinite chunked layers, image-collection tilesets, Wang
-sets and per-tile animation. Loading such a file and
+Tiled's format is much larger than this editor. Staggered and hexagonal grids,
+infinite chunked layers, image-collection tilesets, Wang sets and per-tile
+animation are all modelled now; what is still refused is the short list of
+``TiledUnsupported`` raises below -- object templates, an embedded tileset
+image, layer tile coordinates, an image layer's transparent colour, an
+unknown orientation and hexagonal 120-degree tile rotation (the 2026-10-03
+audit, finding plotter-32, found this paragraph still listing the modelled
+ones). Loading such a file and
 quietly keeping the half we understand would be fine right up to the moment the
 user saved, at which point the other half is gone. So the reader raises
 :class:`~.props.TiledUnsupported`, whose message names the feature and says what to
@@ -37,6 +42,7 @@ host supplies: ``tsx_loader(source) -> Tileset`` and
 from __future__ import annotations
 
 import base64
+import contextlib
 import gzip
 import io
 import itertools
@@ -46,7 +52,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from typing import Any
@@ -56,6 +62,7 @@ import numpy as np
 from .....kernels.grid2d import gid as gidlib
 from .....kernels.grid2d.tileset import Tileset, TilesetRef, colour_text
 from . import project
+from ._map_layers import MAX_GROUP_DEPTH
 from .pngio import png_bytes
 from .props import (
     TiledUnsupported,
@@ -195,6 +202,8 @@ class _Budget:
         self.chunks = 0
         self.objects = 0
         self.cells = 0
+        # How many groups enclose the layer being read; see ``descend``.
+        self.depth = 0
 
     def layer(self) -> None:
         self.layers += 1
@@ -202,6 +211,27 @@ class _Budget:
             raise ValueError(
                 f"this map declares more than the {MAX_LAYERS} layers this build reads"
             )
+        # The editor's own ceiling (``_map_layers.MAX_GROUP_DEPTH``), applied
+        # where a foreign file comes in. The 2026-10-03 audit (finding
+        # plotter-10) found that cap enforced only at the two editing doors, so
+        # a ``.tmj`` nested 100 groups deep opened and then Duplicate on its
+        # outer group raised -- and past ~200 it was a ``RecursionError`` out of
+        # the layers pane. Checked per *layer*, not per group, so the limit is
+        # the editor's exactly: a layer may sit ``MAX_GROUP_DEPTH`` groups deep.
+        if self.depth > MAX_GROUP_DEPTH:
+            raise ValueError(
+                f"this map nests layers {self.depth} groups deep, past the "
+                f"{MAX_GROUP_DEPTH}-deep limit on the layer tree"
+            )
+
+    @contextlib.contextmanager
+    def descend(self) -> Iterator[None]:
+        """One group level down, for the layers read inside the ``with``."""
+        self.depth += 1
+        try:
+            yield
+        finally:
+            self.depth -= 1
 
     def chunk(self) -> None:
         self.chunks += 1
@@ -441,15 +471,28 @@ def _decompress(raw: bytes, compression: str, expected: int) -> bytes:
     """
     if compression == "zlib":
         engine = zlib.decompressobj()
-        out = engine.decompress(raw, expected + 1)
+        try:
+            out = engine.decompress(raw, expected + 1)
+        except zlib.error as exc:
+            # A corrupt stream is a file this reader cannot hold, and it has to
+            # leave as ``ValueError`` like every other refusal here: the open
+            # doors frame only that, so ``zlib.error`` arrived as a generic task
+            # failure (the 2026-10-03 audit, finding plotter-09).
+            raise ValueError(f"a layer's zlib data could not be read: {exc}") from exc
         if len(out) > expected or engine.unconsumed_tail:
             raise ValueError(
                 f"a layer's compressed data unpacks past the {expected} bytes its size declares"
             )
         return out
     if compression == "gzip":
-        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as fh:
-            out = fh.read(expected + 1)
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(raw)) as fh:
+                out = fh.read(expected + 1)
+        except (OSError, EOFError, zlib.error) as exc:
+            # ``BadGzipFile`` (an ``OSError``), ``EOFError`` for a truncated
+            # stream and ``zlib.error`` for a corrupt body: the zlib branch's
+            # reason above, for the three spellings gzip has of it.
+            raise ValueError(f"a layer's gzip data could not be read: {exc}") from exc
         if len(out) > expected:
             raise ValueError(
                 f"a layer's compressed data unpacks past the {expected} bytes its size declares"
@@ -1080,18 +1123,17 @@ def _read_tmx_layers(
                 )
             )
         else:
-            layers.append(
-                GroupLayer(
-                    **common,
-                    children=_read_tmx_layers(
-                        node,
-                        doc,
-                        image_loader=image_loader,
-                        placed=placed,
-                        budget=budget,
-                    ),
+            # One level down for the children (``_Budget.descend``), counted in
+            # both layer readers so the depth cannot drift between spellings.
+            with budget.descend():
+                children = _read_tmx_layers(
+                    node,
+                    doc,
+                    image_loader=image_loader,
+                    placed=placed,
+                    budget=budget,
                 )
-            )
+            layers.append(GroupLayer(**common, children=children))
     return layers
 
 
@@ -1468,18 +1510,15 @@ def _read_tmj_layer_list(
                 )
             )
         elif kind == "group":
-            layers.append(
-                GroupLayer(
-                    **common,
-                    children=_read_tmj_layer_list(
-                        entry.get("layers", []),
-                        doc,
-                        image_loader=image_loader,
-                        placed=placed,
-                        budget=budget,
-                    ),
+            with budget.descend():
+                children = _read_tmj_layer_list(
+                    entry.get("layers", []),
+                    doc,
+                    image_loader=image_loader,
+                    placed=placed,
+                    budget=budget,
                 )
-            )
+            layers.append(GroupLayer(**common, children=children))
         elif kind:
             raise TiledUnsupported(f"{kind} layers", f"layer {name!r}")
         else:
@@ -1516,7 +1555,34 @@ def read_tmj(
     -- so the two formats are one shape read twice rather than two readers that
     happen to agree today. ``import_warnings`` is :func:`read_tmx`'s parameter
     of the same name.
+
+    **Every member of a JSON document can be any type**, unlike an XML
+    attribute, which is always text. ``"width": [1]``, ``"properties": [5]`` or
+    a float of ``1e999`` reach a numeric parse or a ``.get`` that was written
+    for the right type and leave as ``TypeError``, ``AttributeError`` or
+    ``OverflowError`` -- thirty sites, one cause. The 2026-10-03 audit (finding
+    plotter-09) found the open doors frame only ``ValueError`` as "this map
+    could not be opened", so those arrived as a generic task failure; the
+    translation is made once, here, rather than guarded at each parse.
     """
+    try:
+        return _read_tmj(
+            data,
+            image_loader=image_loader,
+            tsx_loader=tsx_loader,
+            import_warnings=import_warnings,
+        )
+    except (TypeError, AttributeError, OverflowError) as exc:
+        raise ValueError(f"this Tiled JSON map holds a malformed value: {exc}") from exc
+
+
+def _read_tmj(
+    data: bytes,
+    *,
+    image_loader: ImageLoader,
+    tsx_loader: TilesetLoader,
+    import_warnings: list[ImportWarning] | None,
+) -> MapDoc:
     try:
         payload = json.loads(data)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:

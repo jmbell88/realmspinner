@@ -112,6 +112,10 @@ def draw(ctx: Any) -> None:
 #: existing when the panel became four popups with nothing to draw them from).
 BUSY_WHY = "This document is being written; the buttons come back when it lands."
 
+#: The transform's twin of :data:`BUSY_WHY`, spelled by ``inker_export.TRANSFORM_WHY``
+#: and said again here for the same reason as the line above it.
+TRANSFORM_WHY = "Finish or cancel the free transform first."
+
 
 def _verbs(ctx: Any, state: Any, tab: Any) -> None:
     """New tilemap layer, and the way back out of one.
@@ -166,7 +170,26 @@ def can_convert(state: Any, tab: Any) -> bool:
     """
     if tab is None or tab.busy:
         return False
+    # An open free transform holds a floating buffer over the layer this
+    # rewrites -- the same rule the 2026-10-03 audit's inker-41 set for every
+    # other verb that would commit it from under the modal.
+    if getattr(state, "transforming", False):
+        return False
     return tab.doc.active_tilemap_uid() is None and bool(len(tab.doc.stack))
+
+
+def convert_gate(state: Any, tab: Any) -> tuple[bool, str]:
+    """``(enabled, reason)`` for the size popup's Convert button.
+
+    The popup can stay open across a save starting or a transform beginning, so
+    the button re-asks every frame; a bare ``begin_disabled(tab.busy)`` dimmed
+    it with no sentence and did not know about the transform at all.
+    """
+    if tab is None or tab.busy:
+        return (False, BUSY_WHY)
+    if getattr(state, "transforming", False):
+        return (False, TRANSFORM_WHY)
+    return (True, "")
 
 
 def convert_row(ctx: Any, state: Any, tab: Any) -> None:
@@ -214,11 +237,10 @@ def _tile_size_popup(ctx: Any, state: Any, tab: Any) -> None:
         "costs no tile at all."
     )
     imgui.dummy((0, sp(tokens.SP_1)))
-    imgui.begin_disabled(tab.busy)
-    if controls.button("Convert", (sp(180), 0)):
+    enabled, reason = convert_gate(state, tab)
+    if widgets.disabled_button("Convert", enabled, (sp(180), 0), reason=reason):
         inker_mode.convert_to_tilemap(ctx, tab, max(1, tile_w), max(1, tile_h))
         imgui.close_current_popup()
-    imgui.end_disabled()
     imgui.end_popup()
 
 

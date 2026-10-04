@@ -426,9 +426,12 @@ def _theme(key: str, label: str, **hexes: str) -> Theme:
     a ``TypeError`` at import rather than a black face at render time -- the
     2026-09-15 audit, finding troupe-09: this used to cite
     ``test_every_theme_paints_every_region``, which does not exist.
+    The signature is ``**hexes``, so *this helper* checks nothing about regions
+    (the 2026-10-03 audit, finding poser-37 -- the old text claimed a
+    ``TypeError``); :func:`_check_registry` compares every look's regions to its
+    archetype's at import, and
     ``test_every_species_offers_a_look_and_every_look_paints_every_region``
-    (``tests/characters/test_recipe.py``) makes the same claim over the
-    registry, but failing at import is the earlier and cheaper of the two.
+    (``tests/characters/test_recipe.py``) makes the same claim in a test.
     """
     effects = ()
     params: dict[str, float] = {}
@@ -1101,6 +1104,18 @@ def _check_registry(_families: Mapping[str, Family] = _FAMILIES) -> None:
             raise CharacterError(f"{key}: {sorted(unknown)} are not {arch.key} channels")
         if not fam.themes:
             raise CharacterError(f"{key} has no themes")
+        # The 2026-10-03 audit, finding poser-37: ``_theme`` takes ``**hexes``, so
+        # nothing checked a look's regions at import -- a hole or a misspelt
+        # region surfaced only in a test, then as the instantiate refusal.
+        regions = set(arch.regions)
+        for theme in fam.themes:
+            missing = regions - set(theme.materials)
+            extra = set(theme.materials) - regions
+            if missing or extra:
+                raise CharacterError(
+                    f"{key}/{theme.key}: look misses regions {sorted(missing)} "
+                    f"and paints unknown ones {sorted(extra)}"
+                )
 
 
 _check_registry()

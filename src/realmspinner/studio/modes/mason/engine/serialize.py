@@ -141,6 +141,16 @@ _EPOCH = (1980, 1, 1, 0, 0, 0)
 # global at call time so a test can lower it.
 MAX_DECOMPRESSED_BYTES = 1 << 30
 
+# The 2026-10-03 audit's mason-12: the per-document half of "a ceiling per
+# accessor, none per document" for textures, restated from
+# ``kernels/mesh/serialize.py``'s MAX_DECLARED_TEXTURES and
+# MAX_TOTAL_TEXTURE_BYTES (clay-01 of the 2026-09-18 audit) rather than
+# imported, for ``_EPOCH``'s reason. Same sizes: comfortably above what a scene
+# this editor writes ever holds, well short of exhausting memory. Read from the
+# module globals at call time so a test can lower them.
+MAX_DECLARED_TEXTURES = 100_000
+MAX_TOTAL_TEXTURE_BYTES = 768 * (1 << 20)
+
 #: The texture slots a material can carry, in ``TEXTURE_FIELDS`` order --
 #: mirrored from ``clay/serialize.py`` rather than imported, for the reason
 #: ``_EPOCH`` is: this package may not reach for a sibling engine, and the
@@ -485,11 +495,16 @@ def snapshot_bytes(snap: RscnSnapshot) -> bytes:
     """
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(zipfile.ZipInfo(SCENE, _EPOCH), snap.scene)
+        # A ZipInfo carries its own compress_type (ZIP_STORED), which beats the
+        # archive default: say ZIP_DEFLATED per member (the 2026-10-03 audit's
+        # clay-84, same shape as the Clay writer).
+        zf.writestr(zipfile.ZipInfo(SCENE, _EPOCH), snap.scene, zipfile.ZIP_DEFLATED)
         if snap.heights is not None:
             member = io.BytesIO()
             np.lib.format.write_array(member, np.ascontiguousarray(snap.heights, dtype=np.float32))
-            zf.writestr(zipfile.ZipInfo(TERRAIN_HEIGHTS, _EPOCH), member.getvalue())
+            zf.writestr(
+                zipfile.ZipInfo(TERRAIN_HEIGHTS, _EPOCH), member.getvalue(), zipfile.ZIP_DEFLATED
+            )
         for i, image in enumerate(snap.images):
             info = zipfile.ZipInfo(f"{TEXTURE_DIR}/{i}.png", _EPOCH)
             # Stored, not deflated: a PNG is already compressed, and deflating
@@ -697,12 +712,12 @@ def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
             **slots,
             name=str(entry.get("name", "")),
             base_color_factor=base_color_factor,
-            metallic_factor=float(entry.get("metallic_factor", 1.0)),
-            roughness_factor=float(entry.get("roughness_factor", 1.0)),
+            metallic_factor=_float_field(entry, "metallic_factor", 1.0),
+            roughness_factor=_float_field(entry, "roughness_factor", 1.0),
             emissive_factor=emissive_factor,
             double_sided=bool(entry.get("double_sided", False)),
             alpha_mode=str(entry.get("alpha_mode", "OPAQUE")),
-            alpha_cutoff=float(entry.get("alpha_cutoff", 0.5)),
+            alpha_cutoff=_float_field(entry, "alpha_cutoff", 0.5),
         )
     except (TypeError, ValueError, AttributeError) as exc:
         raise ValueError("a material in this mason scene is malformed") from exc
@@ -737,6 +752,19 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
         # ``.get`` -- an unnamed ``AttributeError`` rather than this reader's
         # refusal.
         raise ValueError("this mason scene's textures is not a list")
+    # The 2026-10-03 audit's mason-12, Clay's clay-01 one document over: nothing
+    # bounded the *sum* of decoded bytes, so one small PNG member declared N
+    # times was decoded N times, each up to pixelguard's per-image cap (a
+    # 650-byte ``.rscn`` decoded to 960 MiB). Charged from each image's
+    # already-known size -- ``Image.open`` is lazy -- before ``convert``
+    # allocates, against ``MAX_TOTAL_TEXTURE_BYTES`` (read at call time so a
+    # test can lower it).
+    if len(declared) > MAX_DECLARED_TEXTURES:
+        raise ValueError(
+            f"this mason scene names {len(declared):,} textures, "
+            f"past the {MAX_DECLARED_TEXTURES:,} Mason reads"
+        )
+    spent = 0
     out = []
     for entry in declared:
         if not isinstance(entry, dict):
@@ -752,6 +780,12 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
             with pixelguard.opened(
                 io.BytesIO(raw), f"a texture in this mason scene ({name})"
             ) as im:
+                spent += im.width * im.height * 4
+                if spent > MAX_TOTAL_TEXTURE_BYTES:
+                    raise ValueError(
+                        f"this mason scene's decoded texture bytes pass the "
+                        f"{MAX_TOTAL_TEXTURE_BYTES:,} byte budget a document may spend"
+                    )
                 image = im.convert("RGBA")
         except OSError as exc:
             # The 2026-09-26 audit's fix pass, mirroring clay-document-07's
@@ -928,7 +962,12 @@ def read_rscn(data: bytes) -> MasonDoc:
             # than a refusal" rule the rest of this function already follows.
             raise ValueError("this is not a Realmspinner Mason scene")
 
-        version = int(scene.get("version", 0))
+        # The 2026-10-03 audit's mason-27: a hand-edited ``"version": null`` (or a
+        # list, or NaN) reached a bare ``int()`` as an unnamed TypeError.
+        try:
+            version = int(scene.get("version", 0))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("this mason scene has a version that is not a number") from exc
         if version > VERSION:
             raise ValueError(
                 f"this mason scene was written by a newer version of Realmspinner "

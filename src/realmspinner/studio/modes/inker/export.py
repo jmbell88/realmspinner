@@ -57,6 +57,33 @@ def _export_scale_overflow(size: tuple[int, int], scale: int) -> str | None:
     )
 
 
+#: Why every export is refused while a free transform is open. The sentence is
+#: the user's way out, so it names the two exits rather than the mechanism.
+TRANSFORM_WHY = "Finish or cancel the free transform first."
+
+
+def _transform_open(ctx: Any) -> bool:
+    """Whether a free transform is open -- and, if so, say so.
+
+    The 2026-10-03 audit, finding inker-41: every export opens with
+    ``inker_mode._settle``, which commits the floating buffer, and an open free
+    transform *is* a floating buffer plus ``state.transforming``. Committing it
+    from under the modal left ``transforming`` true with nothing floating -- the
+    canvas held in a transform the user could no longer see or apply -- and
+    folded a move they had not yet accepted into the file. Refused rather than
+    settled, the way Next frame and Index-to-palette already are; the user's
+    Enter or Escape is what closes it.
+
+    Read off ``ctx.state.inker`` leniently: this is a gate on verbs that tests
+    and headless callers reach with a bare context.
+    """
+    state = getattr(getattr(ctx, "state", None), "inker", None)
+    if state is None or not getattr(state, "transforming", False):
+        return False
+    ctx.toast(TRANSFORM_WHY, "warn")
+    return True
+
+
 def export_png(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False) -> None:
     """A flattened PNG. Not a save: it does not change what the tab points at,
     so the document stays dirty against its own file.
@@ -68,6 +95,8 @@ def export_png(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False) -
     """
     tab = tab or inker_mode.active(ctx)
     if tab is None or tab.saving:
+        return
+    if _transform_open(ctx):
         return
     inker_mode.stop_play(tab)  # settle the stack before capturing; see save()
     doc = tab.doc
@@ -234,6 +263,10 @@ def export_slices(
     """
     tab = tab or inker_mode.active(ctx)
     if tab is None or tab.busy:
+        return
+    # Before the slice check below, which would otherwise answer "no slices"
+    # for a document whose real problem is the open transform.
+    if _transform_open(ctx):
         return
     doc = tab.doc
     if not doc.slices:
@@ -741,6 +774,8 @@ def _begin_export(
         return
     if tab.busy:
         ctx.toast(inker_mode._no_document_reason(tab), "warn")
+        return
+    if _transform_open(ctx):
         return
     if state.export is not None:
         ctx.toast("An export is already being set up; finish that one first.", "warn")
@@ -1282,6 +1317,29 @@ def _submit_export(ctx: Any, export: _Export) -> None:
     # the ORA and Aseprite writers both honoured the override and GIF was the
     # only exporter that did not.
     palette = list(doc.palette) if doc.palette else None
+    # Whether any frame's table is too long for a GIF to carry verbatim
+    # (``gifout.write_gif`` falls back to the adaptive per-frame quantiser past
+    # ``MAX_PALETTE``, because the 256th slot is the transparent one). Worked
+    # out here, with the tables, so the landing can say so: the 2026-10-03
+    # audit, finding inker-80 -- a full 256-colour indexed document silently
+    # exported recoloured frames where the manual promises "slot n is the same
+    # colour in every frame".
+    over_tables = [
+        len(table)
+        for load in loads
+        for own in (load.palettes or [None] * len(load.frames))
+        for table in [own or palette]
+        if table and len(table) > gifout.MAX_PALETTE
+    ]
+    gif_notes = (
+        [
+            f"The colour table has {max(over_tables)} colours and a GIF holds "
+            f"{gifout.MAX_PALETTE} plus its transparent slot, so each frame was "
+            "given its own palette instead of your table."
+        ]
+        if over_tables
+        else []
+    )
 
     def run_gif() -> dict[str, Any] | None:
         dest = export.recorded or dialogs.save_file(
@@ -1332,6 +1390,7 @@ def _submit_export(ctx: Any, export: _Export) -> None:
             "dest": dest,
             "options": dict(export_options),
             "export_kind": _recorded_kind(export.kind, split_kind),
+            "notes": list(gif_notes),
         }
 
     def run_pngs() -> dict[str, Any] | None:
@@ -1439,6 +1498,11 @@ NO_DOCUMENT_WHY = "No drawing is open."
 #: Mid-write. The same sentence the rest of the app's document buttons give.
 BUSY_WHY = "This document is being written; the buttons come back when it lands."
 
+#: ``tab.busy`` is ``saving or playing`` (``InkerDoc.busy``), so the sentence
+#: above told someone watching a clip that a write was in progress when nothing
+#: was being written -- the 2026-10-03 audit, finding inker-87.
+PLAYING_WHY = "Playback is running; stop it to export."
+
 #: A still document has no frames to export. The 2026-09-16 audit found
 #: "sheet", "gif" and "pngs" drew live and clickable for one -- ``door_state``
 #: never asked about ``tab.doc.anim`` -- so the user learned this only after
@@ -1503,17 +1567,30 @@ def doors() -> tuple[Door, ...]:
     return DOORS
 
 
-def door_state(door: Door, tab: Any) -> tuple[bool, str]:
+def door_state(door: Door, tab: Any, state: Any = None) -> tuple[bool, str]:
     """``(enabled, reason)`` for one door against the open document.
 
     Both readers -- the bridge's buttons and the File menu's rows -- call this,
     so a door is never live in one place and grey in the other, and a grey one
     always carries a sentence (the harness audits for exactly that).
+
+    ``state`` is Inker's, and only its ``transforming`` flag is read: an open
+    free transform holds the floating buffer every export would commit (the
+    2026-10-03 audit, finding inker-41), and that is a fact about the *mode*,
+    not the tab. Optional so a caller with no state -- every call written
+    before this one -- keeps the answer it always had.
     """
     if tab is None:
         return (False, NO_DOCUMENT_WHY)
     if getattr(tab, "busy", False):
-        return (False, BUSY_WHY)
+        # A write wins when both are true: it is the one that outlasts a press
+        # of Stop.
+        playing_only = bool(getattr(tab, "playing", False)) and not getattr(
+            tab, "saving", False
+        )
+        return (False, PLAYING_WHY if playing_only else BUSY_WHY)
+    if getattr(state, "transforming", False):
+        return (False, TRANSFORM_WHY)
     if door.key in _TIMELINE_DOORS and tab.doc.anim is None:
         return (False, NO_TIMELINE_WHY)
     if door.key == "per-tag":

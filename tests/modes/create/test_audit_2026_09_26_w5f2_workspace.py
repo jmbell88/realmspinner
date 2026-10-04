@@ -4,8 +4,6 @@ and create-workspace-07, both in ``studio/modes/create/ui/workspace.py``.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from realmspinner.studio.modes.create.ui import workspace as gw
 
 # --- create-workspace-07: count_line pluralises "generation" ---------------
@@ -21,36 +19,19 @@ def test_count_line_keeps_generation_singular_for_exactly_one():
     assert plan.count_line == "1 candidate · 1 image generation"
 
 
-# --- create-workspace-06: _recent_results stops once it has three ----------
+# --- create-workspace-06: the tray never walks the whole cache ---------------
+#
+# ``_recent_results`` (an ``islice`` over ``ctx.cache.jobs``) was the first fix
+# here and has since been replaced by ``families.results`` over the memoised
+# index; it was deleted when nothing called it (2026-10-03 audit, finding
+# create-46). What the old test guarded -- a frame never walks every cached job
+# to draw three cards -- is asserted on the functions the tray really calls.
 
 
-class _CountingJobs:
-    """Wraps a job list and counts how many entries a consumer actually
-    pulled, so a fix that stops early is distinguishable from one that scans
-    everything and throws the rest away."""
+def test_the_tray_reads_the_memoised_index_and_never_walks_the_cache():
+    import inspect
 
-    def __init__(self, jobs):
-        self._jobs = jobs
-        self.yielded = 0
-
-    def __iter__(self):
-        for job in self._jobs:
-            self.yielded += 1
-            yield job
-
-
-def _done_job(job_id):
-    return {"id": job_id, "status": "done"}
-
-
-def test_recent_results_stops_once_three_matches_are_found():
-    jobs = _CountingJobs([_done_job(str(i)) for i in range(50)])
-    ctx = SimpleNamespace(cache=SimpleNamespace(jobs=jobs))
-
-    result = gw._recent_results(ctx)
-
-    assert len(result) == gw._RESULT_COLUMNS == 3
-    assert jobs.yielded == 3, (
-        "the tray only ever shows three cards, so building it must not walk "
-        f"every cached job -- it pulled {jobs.yielded} of 50"
-    )
+    for fn in (gw.draw, gw.should_draw):
+        source = inspect.getsource(fn)
+        assert "ctx.cache.jobs" not in source, fn.__name__
+        assert "families.results(" in source or "session.index" in source, fn.__name__

@@ -47,7 +47,7 @@ from .anim_edits import (
     FrameRemoveEdit,
     TrackPropsEdit,
 )
-from .animation import TRACK_PROPS, Frame, clamp_duration
+from .animation import Frame, clamp_duration
 from .tile_edits import TileRefsEdit
 from .tiles import TilemapCel
 from .undo import IndexPatchEdit, PatchEdit, one_step
@@ -114,6 +114,14 @@ def masked_apply(
         # Copy only if the array is still the caller's: the blended one above
         # is ours to write into, the memoised one is not.
         out = out.copy() if out is filtered else out
+        # RGB too where the pixel was fully transparent (the 2026-10-03 audit,
+        # finding inker-49): ``_resolve`` has held "a transparent pixel stays
+        # byte-identical under the lock" since inker-paint-04, but every filter
+        # and ``apply_pixels`` came through here restoring the alpha alone, so
+        # a filter over a locked layer wrote hidden colour under transparency,
+        # pushed an undo step for a change nobody could see and dirtied the file.
+        hidden = before[..., 3:4] == 0
+        out[..., :3] = np.where(hidden, before[..., :3], out[..., :3])
         out[..., 3] = before[..., 3]
     return out
 
@@ -420,9 +428,7 @@ class RangeOps:
         anim = self.anim
         if anim is None:
             return False
-        unknown = set(props) - TRACK_PROPS
-        if unknown:
-            raise ValueError(f"unknown track property: {sorted(unknown)[0]}")
+        self._check_track_props(props)
         rows = sorted({int(i) for i in indices if 0 <= int(i) < len(anim.tracks)})
         if not rows:
             return False

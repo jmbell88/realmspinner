@@ -62,9 +62,10 @@ class GenerateOps:
         from .pipelines.conditioning import Conditioning
 
         # A guide the caller drew itself, rather than a hint derived from a
-        # reference. Troupe's reference stage writes ``control.png`` at the
-        # door (``spritesynth.render_reference_guide``) and asks for it by
-        # name here, for the reason ``render_guide``'s docstring gives: the
+        # reference. Troupe's reference stage records ``control_hint_source``
+        # and the guide's variant and pose at the door and *this worker* draws
+        # ``control.png`` (``spritesynth.render_reference_guide``, below) --
+        # the door writes no file -- for the reason ``render_guide``'s docstring gives: the
         # guide is already line art in canny space, and running the detector
         # over it would return the outline of each stroke -- two lines where
         # the guide means one, which is the "why does my character have four
@@ -338,7 +339,27 @@ class GenerateOps:
                 seed = reference_seed
                 retries = max(0, int(self.config.reference_retries))
                 is_reference = job.get("stage") == "reference"
+                # How many draws this loop can make, for the one ``t2i_sample``
+                # window to be spent across (the 2026-10-03 audit, finding
+                # service-28): every redraw used to feed its own ``(i, n)`` to
+                # ``_t2i_step`` and the never-regress creep floor held the bar at
+                # the top of the window for all of them. The same
+                # ``(k*n + i) / (N*n)`` arithmetic the band and view loops use.
+                # The loop below breaks after one draw for a tile, an ordinary
+                # image, or a model stage with the reroll off -- those are one.
+                rerolls = (
+                    retries
+                    if (is_reference or retries)
+                    and not is_tile
+                    and not (
+                        int(params.get("prompt_policy", 8)) >= 9
+                        and params.get("generation_type") in ("image", "image_2d")
+                    )
+                    else 0
+                )
+                draws = rerolls + 1
                 while True:
+                    draw = len(attempts)
                     await asyncio.to_thread(
                         functools.partial(
                             t2i.generate,
@@ -351,7 +372,9 @@ class GenerateOps:
                             conditioning=cond,
                             reference_images=native_reference_images,
                             on_state=lambda s: self._t2i_state(job_id, s),
-                            on_step=lambda i, n: self._t2i_step(job_id, i, n),
+                            on_step=lambda i, n, k=draw: self._t2i_step(
+                                job_id, k * n + i, draws * n
+                            ),
                             cancel_event=self._cancel.event,
                             tile=is_tile,
                             generation_type=params.get("generation_type"),

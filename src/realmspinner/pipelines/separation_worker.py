@@ -179,6 +179,19 @@ def separate(spec: dict) -> dict:
             piece = model(chunk[None])[0]
             span = end - start
             shape = window[:span] if window is not None else torch.ones(span, device=device)
+            if window is not None and overlap:
+                # muse-15 (2026-10-03 audit). The take's own head and tail have
+                # no neighbour to cross-fade with, so tapering them only
+                # attenuates: the Hann ramp starts at exactly 0 and
+                # ``weights.clamp(min=1e-6)`` capped the divisor, which
+                # silenced the first samples of every stem (the first several
+                # exactly) and broke "the stems sum back to the take" at the
+                # first sample of a loop. Flat weight there instead.
+                shape = shape.clone()
+                if start == 0:
+                    shape[:overlap] = 1.0
+                if end >= total and span > segment - overlap:
+                    shape[segment - overlap :] = 1.0
             stems[..., start:end] += piece * shape
             weights[start:end] += shape
             _emit(0.10 + 0.85 * (end / max(total, 1)), "Separating")

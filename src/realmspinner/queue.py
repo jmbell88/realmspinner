@@ -228,9 +228,10 @@ class _Cancel:
         service-queue-04 (the 2026-09-16 audit): this used to read
         ``self.event.is_set()`` alone, which is the opposite of what the
         docstring above promises -- it would report ``True`` (stop) even
-        after a commit. Harmless only because nothing in ``src/`` or
-        ``tests/`` calls ``.stopping`` at all; every real cancel check in
-        ``_q_*.py`` reads ``event.is_set()`` and ``committed`` directly.
+        after a commit. Harmless only because no stage in ``src/`` calls
+        ``.stopping``; every real cancel check in ``_q_*.py`` reads
+        ``event.is_set()`` and ``committed`` directly, and
+        ``tests/test_queue.py`` pins this property to its own contract.
         """
         return self.event.is_set() and not self.committed
 
@@ -1038,8 +1039,10 @@ class Worker(
     def wake(self) -> None:
         """Tell an idle dispatch loop there is work now.
 
-        Called from the routes that insert a row, on the event loop the worker
-        runs on -- so this is a plain Event.set(), not a threadsafe hop. The
+        Called by ``RealmspinnerService.wake_worker`` after a row is inserted,
+        already on the event loop the worker runs on -- so this is a plain
+        Event.set(), and ``wake_worker`` does the threadsafe hop from any other
+        thread. The
         POLL_INTERVAL timeout in _run stays as the backstop: a caller that
         forgets to wake costs a second of latency, not a stuck queue.
         """
@@ -1677,8 +1680,24 @@ class Worker(
             # prevent. None (nothing has primed trellis yet this process) is
             # the one case the flat baseline is still the right answer for,
             # which is what dict.get's default below gives it.
-            headroom += vram.TRELLIS_GIB * vram.TRELLIS_RES_MULT.get(
-                self._trellis_resolution, 1.0
+            #
+            # **Only where a handoff will stop it** (the 2026-10-03 audit,
+            # finding service-15). Where trellis stays resident the estimate
+            # charged *this job's* price for it -- its own resolution at the
+            # model stage, a flat 16 GiB at a reference or tile stage and for
+            # every image-model kind -- so the credit is that same figure (capped
+            # at what is resident) and the two cancel. Crediting the resident
+            # resolution there meant that after one res-1536 job (24 GiB) a
+            # res-1024 or res-512 job was admitted on 8-10 GiB of headroom that
+            # was never free: an SDXL load that spills into shared memory and
+            # host commit, the 2026-08-03 class, instead of a refusal at the
+            # door.
+            headroom += vram.trellis_credit(
+                job.get("kind", ""),
+                job.get("stage", "model"),
+                job.get("params") or {},
+                vram.TRELLIS_GIB * vram.TRELLIS_RES_MULT.get(self._trellis_resolution, 1.0),
+                exclusive=bool(self.config.vram_exclusive),
             )
         if image_term > 0 and self._text2image is not None and self._text2image.loaded:
             # Gated on "did the estimate charge for a checkpoint", not on the

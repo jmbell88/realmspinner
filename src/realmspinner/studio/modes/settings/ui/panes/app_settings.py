@@ -129,10 +129,22 @@ SEARCH_INDEX: tuple[SearchRow, ...] = (
     SearchRow("appearance", "Show frame rate", "The FPS counter, also toggled by F10."),
     SearchRow("appearance", "System resources", "VRAM, RAM and CPU in the status bar."),
     SearchRow("appearance", "Reduce motion", "Turns off transitions and hover motion."),
+    # Missing until the 2026-10-03 audit's shell-45: the pane drew both of
+    # these switches while a search for their own labels answered "Nothing
+    # matches.". The tooltip carries "matte" because that is the compositing
+    # word a user may type for a cutout.
+    SearchRow(
+        "appearance", "Don't ask for clean cutouts",
+        "Skip the cutout (matte) preview on Make 3D when nothing is wrong with it.",
+    ),
     SearchRow("models", "Models", "Which weights are downloaded, and how much room they take."),
     SearchRow("models", "Style LoRAs", "Import or train a style adapter from your own art."),
     SearchRow("packs", "Packs", "The heavy extras: torch, bpy, the music stack."),
     SearchRow("updates", "Updates", "Check for and install a newer Realmspinner."),
+    SearchRow(
+        "updates", "Check for updates on startup",
+        "Look for a newer release each time Realmspinner opens.",
+    ),
     SearchRow("storage", "Storage", "What the library and the model store hold on disk."),
     SearchRow("storage", "Maintenance", "Check, back up, prune or clean the library."),
     SearchRow("health", "Checks", "What doctor found, and what to do about it."),
@@ -603,6 +615,29 @@ def _layout_pick_reason(chosen: str, active: str, readable: bool) -> str:
     )
 
 
+def _rename_layout(ctx: Any, library: Any, name: str, text: str) -> bool:
+    """Rename ``name`` to ``text`` and say so when the library refuses.
+
+    The 2026-10-03 audit, finding shell-36: the prompt's ``on_accept`` called
+    ``library.rename`` and discarded its bool, so a name already in use (or a
+    40-character truncation that collided with one) closed the dialog with no
+    toast and no change -- the user believed a layout was renamed. The same
+    "a refusal names the control it came from" rule ``_layout_pick_reason``
+    keeps beside it. A blank name never gets here (the prompt's Save is
+    disabled for one); keeping the current name is a no-op, not a refusal.
+    """
+    into = text.strip()[:40]
+    if into == name:
+        return True
+    if library.rename(name, into):
+        return True
+    if into in library.layouts:
+        ctx.toast(f'There is already a layout called "{into}". Pick another name.', "warn")
+    else:
+        ctx.toast("That layout could not be renamed.", "warn")
+    return False
+
+
 def hidden_pane_rows(ctx: Any) -> list[tuple[str, str, str]]:
     """``(workspace, slot id, label)`` for every pane the active layout hides.
 
@@ -682,7 +717,9 @@ def _layouts(ctx: Any) -> None:
                 title="Rename this layout",
                 label="Name",
                 value=library.active,
-                on_accept=lambda text: library.rename(library.active, text.strip()[:40]),
+                on_accept=lambda text, name=library.active: _rename_layout(
+                    ctx, library, name, text
+                ),
             )
         )
     imgui.same_line()
@@ -1176,10 +1213,13 @@ def _model_storage(ctx: Any) -> None:
     from .....state import format_bytes
 
     if not _MEASURED:
-        _MEASURED = True
         from ......service import downloads as svc_downloads
 
-        ctx.submit("model-storage", svc_downloads.disk_usage, ctx.svc)
+        # Latched only once the submit is accepted (the 2026-10-03 audit's
+        # shell-68): a refusal means a task of this key is still running, and
+        # a download landing during it is exactly the refresh this latch is
+        # cleared for -- latching first lost it and kept the old figure.
+        _MEASURED = bool(ctx.submit("model-storage", svc_downloads.disk_usage, ctx.svc))
     found = getattr(ctx, "model_storage", None)
     if found:
         noun = "file" if found["files"] == 1 else "files"
@@ -1205,10 +1245,12 @@ def _evidence_storage(ctx: Any) -> None:
     from .....state import format_bytes
 
     if not _EVIDENCE_MEASURED:
-        _EVIDENCE_MEASURED = True
         from ......service import evidence as svc_evidence
 
-        ctx.submit("evidence-storage", svc_evidence.usage, ctx.svc.config)
+        # Latched on acceptance only -- see ``_model_storage`` (shell-68).
+        _EVIDENCE_MEASURED = bool(
+            ctx.submit("evidence-storage", svc_evidence.usage, ctx.svc.config)
+        )
     found = getattr(ctx, "evidence_storage", None)
     if found and found["jobs"]:
         noun = "job" if found["jobs"] == 1 else "jobs"
@@ -1281,8 +1323,9 @@ def _storage(ctx: Any) -> None:
         # No folder dialog. A backup nobody can be bothered to take is worth
         # nothing, and the destination is not a decision worth a modal -- it
         # goes to a stamped folder beside the library, which is also where a
-        # user looking for one would think to look. ``realmspinner library backup
-        # --to`` is the surface for putting it somewhere else.
+        # user looking for one would think to look. There is no CLI verb for a
+        # different destination (``cli.py`` has doctor, sweep and mcp only -- the
+        # 2026-10-03 audit, finding service-24): copy the stamped folder.
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         dest = Path(ctx.svc.config.home) / "backups" / stamp
         ctx.submit("library-backup", svc_library.backup, ctx.svc, dest)
@@ -1366,10 +1409,10 @@ def _sweep_staging(ctx: Any) -> None:
     global _SWEPT
     if _SWEPT or ctx.tasks.any_busy("download:"):
         return
-    _SWEPT = True
     from ......service import downloads as svc_downloads
 
-    ctx.submit("sweep-staging", svc_downloads.sweep_staging, ctx.svc)
+    # Latched on acceptance only -- see ``_model_storage`` (shell-68).
+    _SWEPT = bool(ctx.submit("sweep-staging", svc_downloads.sweep_staging, ctx.svc))
 
 
 def _models(ctx: Any) -> None:
@@ -1432,8 +1475,11 @@ def _models(ctx: Any) -> None:
     if widgets.disabled_button(
         f"Download selected ({len(picks)})",
         bool(picks) and not busy,
+        # ``busy`` is a download *or* a removal, so the sentence is the one the
+        # per-row buttons already use (the 2026-10-03 audit's shell-67): a
+        # sentence that blamed a download alone was false during a removal.
         reason=(
-            "A download is already running."
+            _MODEL_BUSY_REASON
             if busy
             else "Tick a model above that is not on disk yet."
         ),
@@ -1638,13 +1684,28 @@ def lora_import_kwargs(form: dict[str, Any]) -> dict[str, Any]:
 
 
 def training_images(folder: Path) -> list[Path]:
-    """Every image the trainer would take from ``folder``, sorted, not recursive."""
+    """Every image the trainer would take from ``folder``, sorted, not recursive.
+
+    Stops one past ``lora_train.MAX_IMAGES``: this runs on the frame thread
+    when the folder changes, and the trainer refuses more than that anyway, so
+    walking a photo library or a network share to count past the ceiling froze
+    the window for nothing (the 2026-10-03 audit's shell-69). A result longer
+    than ``MAX_IMAGES`` therefore means "too many", not a true count.
+    """
+    from itertools import islice
+
+    from ......pipelines import lora_train
     from ......service import loras as svc_loras
 
     try:
         return sorted(
-            p for p in Path(folder).iterdir()
-            if p.is_file() and p.suffix.lower() in svc_loras.IMAGE_SUFFIXES
+            islice(
+                (
+                    p for p in Path(folder).iterdir()
+                    if p.is_file() and p.suffix.lower() in svc_loras.IMAGE_SUFFIXES
+                ),
+                lora_train.MAX_IMAGES + 1,
+            )
         )
     except OSError:
         return []
@@ -1748,8 +1809,15 @@ def _lora_train_form(ctx: Any) -> None:
             form["images"] = training_images(Path(form["folder"]))
             form["scanned_folder"] = form["folder"]
         images = form["images"]
+        # ``training_images`` stops counting one past the ceiling, so a longer
+        # list is "too many", not a figure to print.
+        count = (
+            f"more than {lora_train.MAX_IMAGES}"
+            if len(images) > lora_train.MAX_IMAGES
+            else str(len(images))
+        )
         widgets.muted_wrapped(
-            f"Training from {Path(form['folder']).name}: {len(images)} images "
+            f"Training from {Path(form['folder']).name}: {count} images "
             f"({lora_train.MIN_IMAGES} to {lora_train.MAX_IMAGES})"
         )
     with forms.Form(
@@ -1881,7 +1949,7 @@ def _remove_control(ctx: Any, row: dict[str, Any], busy: bool) -> None:
     that refused on click would be worse than no button.
 
     The freed figure is ``removal_plan``'s, not the download size, and that is
-    the whole reason it is shown: uninstalling one of the four SDXL 1.0 recipes
+    the whole reason it is shown: uninstalling one of the five SDXL 1.0 recipes
     frees 0.8 GB, and a row that implied 7 would be lying about a delete. It
     is on this button's tooltip since the rows became a table, and the confirm
     dialog repeats it before anything is removed.
@@ -2600,9 +2668,14 @@ def _staged(ctx: Any, info: dict[str, Any]) -> Path | None:
     slot = (str(path), stat.st_size, stat.st_mtime, digest)
     if slot in _STAGED:
         return path if _STAGED[slot] else None
-    if slot != _STAGED_PENDING:
+    # Pending only once the submit is accepted (shell-68): a refusal means the
+    # previous file's verification is still in flight under this one key, and
+    # recording the new slot as pending then never asked for it again -- the
+    # pane kept offering Download Update over a verified installer.
+    if slot != _STAGED_PENDING and ctx.submit(
+        STAGED_TASK_KEY, _verify_staged_task, ctx.svc, info, slot
+    ):
         _STAGED_PENDING = slot
-        ctx.submit(STAGED_TASK_KEY, _verify_staged_task, ctx.svc, info, slot)
     return None
 
 

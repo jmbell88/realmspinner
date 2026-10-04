@@ -16,6 +16,7 @@ import pytest
 from realmspinner.kernels.grid2d import gid as gidlib
 from realmspinner.kernels.grid2d.tileset import Tileset
 from realmspinner.studio.modes.plotter.engine.tilemap import MapDoc
+from realmspinner.studio.modes.plotter.state import PlotterState
 from realmspinner.studio.modes.plotter.ui.panes.canvas import status_bits
 
 
@@ -34,9 +35,14 @@ def _map(with_tileset: bool = True):
 
 
 def _state(**kwargs):
+    # A real ``PlotterState``, since the status line reads the marquee through
+    # ``selection_in`` (plotter-27) rather than the raw ``select`` field.
     base = {"hover_cell": None, "select": None, "tool": "stamp", "terrain": None}
     base.update(kwargs)
-    return SimpleNamespace(**base)
+    state = PlotterState()
+    for key, value in base.items():
+        setattr(state, key, value)
+    return state
 
 
 def _tab(doc, busy: bool = False):

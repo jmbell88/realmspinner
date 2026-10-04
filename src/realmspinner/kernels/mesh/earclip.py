@@ -87,6 +87,16 @@ TURN_EPS = 1e-6
 #: down from inside a draw.
 MAX_EARCLIP_FACE_CORNERS = 1_200
 
+#: The most ear-search work one :func:`corner_triangles` call will start, in
+#: the search's own unit: the sum over faces of corners squared. The per-face
+#: ceiling above bounds one face, and nothing bounded the sum -- the 2026-10-03
+#: audit's clay-90 found 20 concave 500-corner faces (10k corners, each under
+#: the ceiling) taking 1.2 s inside one call, and every edit builds a new mesh
+#: and so a new triangulation on the frame thread. One maximal face's worth
+#: (about a third of a second by the table above) is the whole budget; a face
+#: that would spend past it keeps the fan, exactly as an oversized one does.
+MAX_EARCLIP_TOTAL_WORK = MAX_EARCLIP_FACE_CORNERS * MAX_EARCLIP_FACE_CORNERS
+
 
 def fan_corners(starts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """``(tri_corners, tri_face)`` fanning every face from its first corner.
@@ -169,13 +179,19 @@ def corner_triangles(
     per_face = np.maximum(counts - 2, 0)
     offsets = np.concatenate([[0], np.cumsum(per_face)[:-1]])
     unit_n = _unit(normals.astype("f8"))
+    work = 0
     for f in suspect.tolist():
         lo, hi = int(starts[f]), int(starts[f + 1])
+        # The per-mesh half of the same bound (MAX_EARCLIP_TOTAL_WORK): faces
+        # are visited in order, so which ones keep the fan is deterministic.
+        if work + (hi - lo) ** 2 > MAX_EARCLIP_TOTAL_WORK:
+            continue
         if hi - lo > MAX_EARCLIP_FACE_CORNERS:
             # See MAX_EARCLIP_FACE_CORNERS: past the ceiling, leave this face
             # as the fan `fan_corners` already wrote into `corners` above,
             # rather than running the O(n^2) ear search on the frame thread.
             continue
+        work += (hi - lo) ** 2
         pts = _flatten(positions[loops[lo:hi]].astype("f8"), unit_n[f])
         local = _earclip(pts)
         corners[offsets[f] : offsets[f] + per_face[f]] = lo + local

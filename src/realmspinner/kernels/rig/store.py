@@ -27,7 +27,9 @@ log = logging.getLogger(__name__)
 
 # Same shape and generator as a job id (uuid4().hex[:12]), and validated for the
 # same reason: config.job_dir() and every path built under it do no sanitisation.
-RESOURCE_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+# ``\Z``, not ``$``, for the reason ``service.validation.JOB_ID_RE`` gives: ``$``
+# matches before a trailing newline (the 2026-10-03 audit, finding service-21).
+RESOURCE_ID_RE = re.compile(r"^[0-9a-f]{12}\Z")
 
 
 def new_id() -> str:
@@ -113,18 +115,15 @@ def finalize_rig(job_dir: Path) -> None:
     (``poses/<id>.json``) are untouched -- a pose is still the same rotation
     request, only its cached bake is invalidated.
     """
-    (job_dir / "animated.glb").unlink(missing_ok=True)
+    _unlink_stale(job_dir / "animated.glb")
     # The previous rig's deformation review (poser-09, 2026-10-03): the QA tail
     # only replaces these when it renders, so a re-rig whose QA is skipped
     # (no battery for the template, kill switch, cancel) or fails would serve
     # the old skeleton's sheet beside the new one. JSON first, PNG second, so a
     # reader never finds a verdict without its picture's absence meaning "none".
-    rig_qa_path(job_dir).unlink(missing_ok=True)
-    rig_qa_png_path(job_dir).unlink(missing_ok=True)
-    poses_dir = job_dir / POSE_DIR_NAME
-    if poses_dir.is_dir():
-        for stale in poses_dir.glob("*.glb"):
-            stale.unlink(missing_ok=True)
+    _unlink_stale(rig_qa_path(job_dir))
+    _unlink_stale(rig_qa_png_path(job_dir))
+    _sweep_pose_bakes(job_dir)
 
     for src, dest in ((RIG_GLB_TMP, "rig.glb"), (RIG_JSON_TMP, "rig.json")):
         for attempt in range(10):
@@ -138,6 +137,54 @@ def finalize_rig(job_dir: Path) -> None:
                             (job_dir / "rig.json").unlink()
                     raise
                 time.sleep(0.5)
+    # Again, now that the new rig.json is the one served: a bake that began under
+    # the old skeleton and published between the sweep above and this point is
+    # exactly the stale pose the first sweep could not see yet (the 2026-10-03
+    # audit, finding service-09). Anything baked after this line reads the new
+    # rig, and ``service.rig.posed_model`` refuses to publish a bake whose
+    # rig.json moved underneath it.
+    _sweep_pose_bakes(job_dir)
+
+
+def _unlink_stale(path: Path, *, attempts: int = 4) -> bool:
+    """Delete one stale derived artifact, riding out a transient reader.
+
+    The 2026-10-03 audit, finding poser-33: these unlinks sat outside the
+    PermissionError retry that wraps the renames, so an export or Save GLB copy
+    holding ``animated.glb`` (or a pose bake) open on Windows made the publish
+    raise before any rename and threw a minutes-long Blender solve away -- the
+    trade this module's own docstring calls wrong. A file that is still held
+    after the retries is left for the next sweep (``finalize_rig`` runs two,
+    and a stale bake is only ever a rebake away) rather than failing the job;
+    the return value says whether it went."""
+    for attempt in range(attempts):
+        try:
+            path.unlink(missing_ok=True)
+            return True
+        except PermissionError:
+            if attempt == attempts - 1:
+                log.warning(
+                    "could not remove stale %s; a reader still holds it open", path
+                )
+                return False
+            time.sleep(0.5)
+    return False
+
+
+def _sweep_pose_bakes(job_dir: Path) -> None:
+    """Delete every published pose bake, and nothing a bake is still writing.
+
+    Dot-prefixed files are ``posed_model``'s staging names
+    (``.<id>.tmp.glb``): ``glob("*.glb")`` matches them, and deleting one under
+    a running Blender made the bake's own rename fail with only "could not bake
+    this pose" (the 2026-10-03 audit, finding service-09). The bake publishes or
+    discards its own staging file.
+    """
+    poses_dir = job_dir / POSE_DIR_NAME
+    if poses_dir.is_dir():
+        for stale in poses_dir.glob("*.glb"):
+            if not stale.name.startswith("."):
+                _unlink_stale(stale)
 
 
 def discard_rig_temps(job_dir: Path) -> None:
@@ -373,7 +420,11 @@ def list_poses(job_dir: Path) -> list[dict[str, Any]]:
 
 def delete_pose(job_dir: Path, pose_id: str) -> bool:
     path = pose_path(job_dir, pose_id)
-    if not path.exists():
+    # ``is_file``, not ``exists``: the 2026-10-03 audit (poser-32) -- a directory
+    # squatting at ``poses/<id>.json`` read as found and ``unlink`` raised
+    # PermissionError on Windows, the failure ``delete_sheet`` and
+    # ``delete_sprite_draft`` were already fixed against (2026-09-18, poser-02).
+    if not path.is_file():
         return False
     # The derived GLB goes before the source JSON it depends on, matching
     # save_pose's ordering above and for the same reason (poser-05, the

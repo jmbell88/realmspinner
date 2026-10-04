@@ -187,8 +187,26 @@ def convert(mesh: Mesh, sel: ElementSel, target: str) -> ElementSel:
 
     if target == "face":
         faces = [sel.faces.astype("i8")]
-        if len(sel.verts) or len(sel.edges):
-            faces.append(np.flatnonzero(_face_corner_mask(mesh, verts)))
+        if len(sel.verts):
+            faces.append(np.flatnonzero(_face_corner_mask(mesh, sel.verts)))
+        if len(sel.edges) and a.n_edges:
+            # The 2026-10-03 audit's clay-44: an edge selection used to go
+            # through its endpoints and the all-corners rule, so two of a
+            # triangle's three edges, three of a quad's four, or two opposite
+            # edges of a quad all selected the face -- against this function's
+            # own "all of its edges" promise -- and Delete then removed faces
+            # nobody had selected. A face is up only when every one of its
+            # edges is selected.
+            ids = a.edge_ids(sel.edges)
+            picked = np.zeros(a.n_edges, dtype=bool)
+            picked[ids[ids >= 0]] = True
+            if len(mesh.loops):
+                inside = picked[a.corner_edge]
+                every = (
+                    np.minimum.reduceat(inside.astype("i1"), mesh.starts[:-1].astype("i8"))
+                    > 0
+                )
+                faces.append(np.flatnonzero(every))
         return ElementSel(faces=np.concatenate(faces) if faces else None)
 
     raise ValueError(f"unknown element mode {target!r}")

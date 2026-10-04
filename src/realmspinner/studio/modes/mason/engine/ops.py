@@ -250,7 +250,11 @@ def distribute(boxes: Boxes, axis: int) -> dict[int, np.ndarray]:
 
 
 def drop_to_ground(
-    boxes: Boxes, *, terrain: Terrain | None = None, ground: float = 0.0
+    boxes: Boxes,
+    *,
+    terrain: Terrain | None = None,
+    ground: float = 0.0,
+    terrain_world: np.ndarray | None = None,
 ) -> dict[int, np.ndarray]:
     """A world-space translation delta per owner that rests each box's
     *bottom* on the ground, sampled under the box's own footprint centre.
@@ -264,19 +268,51 @@ def drop_to_ground(
     it is correct regardless of where any given asset's pivot happens to sit.
 
     Samples ``terrain.height_at`` (local space) or the flat ``ground`` plane
-    otherwise, at the box's own XZ centre -- this module has no node transform
-    to carry a terrain's own placement through, so a document with a terrain
-    that is not sitting at the world origin is the caller's problem to solve
-    before calling this, the same way a caller already has to for ``ground``
-    meaning anything but world Y zero.
+    otherwise, at the box's own XZ centre. **``terrain_world`` is the
+    ``TerrainNode``'s world matrix** (what ``scene.Placed.world`` holds for it,
+    as ``pick.ray_scene`` takes it): the 2026-10-03 audit's mason-22 found the
+    world-space footprint centre sampled straight against the height field's
+    local frame, so a ground node that was moved, scaled or turned -- all of
+    which the node allows, and the picker and renderer both honour -- left
+    props floating or buried by the node's offset. With it, the centre is
+    carried into the terrain's local frame, the local height is read, and the
+    height is carried back out to world Y. Omitted, the terrain is taken to sit
+    at the world origin, which is what this did before. A tilted terrain makes
+    the world height depend on the local sample point, which depends on the
+    height; a few fixed-point passes settle it (one is exact for any
+    translation, scale and yaw).
     """
+    inverse: np.ndarray | None = None
+    world: np.ndarray | None = None
+    if terrain is not None and terrain_world is not None:
+        world = np.asarray(terrain_world, dtype="f8")
+        try:
+            inverse = np.linalg.inv(world)
+        except np.linalg.LinAlgError:
+            # A singular matrix (a zero scale) has no local frame to sample;
+            # fall back to the origin-placed reading rather than raise out of
+            # a menu click.
+            inverse = None
     out: dict[int, np.ndarray] = {}
     for owner, (lo, hi) in boxes.items():
         lo_arr = np.asarray(lo, dtype="f8")
         hi_arr = np.asarray(hi, dtype="f8")
         cx = float(lo_arr[0] + hi_arr[0]) / 2.0
         cz = float(lo_arr[2] + hi_arr[2]) / 2.0
-        target = height_at(terrain, cx, cz) if terrain is not None else float(ground)
+        if terrain is None:
+            target = float(ground)
+        elif inverse is None or world is None:
+            target = height_at(terrain, cx, cz)
+        else:
+            target = float(world[1, 3])
+            for _ in range(4):
+                local = (inverse @ np.array([cx, target, cz, 1.0]))[:3]
+                h = height_at(terrain, float(local[0]), float(local[2]))
+                settled = float((world @ np.array([local[0], h, local[2], 1.0]))[1])
+                done = abs(settled - target) < 1e-9
+                target = settled
+                if done:
+                    break
         delta = np.zeros(3, dtype="f8")
         delta[1] = target - float(lo_arr[1])
         out[owner] = delta

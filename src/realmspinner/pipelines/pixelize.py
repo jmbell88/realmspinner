@@ -299,7 +299,11 @@ def pixelize_atlas(
             arr[y : y + cell, x : x + cell] = np.asarray(piece)
     small = Image.fromarray(arr, "RGBA")
 
-    small = map_palette(small, entries, dither=dither)
+    # ``cell=`` anchors the dither tile to each cell's own corner: the whole
+    # atlas is mapped in one call, and a tile anchored at the atlas origin gave
+    # a cell size that is not a multiple of 4 a different threshold for the same
+    # sprite pixel in every cell (the 2026-10-03 audit, finding poser-render-03).
+    small = map_palette(small, entries, dither=dither, cell=cell)
 
     ink = outline_color or darkest(entries)
     arr = np.asarray(small).copy()

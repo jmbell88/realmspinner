@@ -45,7 +45,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     favorite    INTEGER NOT NULL DEFAULT 0,
     sweep_id    TEXT,                           -- NULL for an ordinary job
     sweep_unit  TEXT NOT NULL DEFAULT '',       -- display label, e.g. "lora_weight=0.6 s42"
-    candidate_group TEXT,                       -- NULL once decided, and for an ordinary job
+    candidate_group TEXT,                       -- NULL once decided (legacy groups) and for an
+                                                -- ordinary job; a create_workspace batch keeps
+                                                -- it forever and is never offered a picker
     candidate_index INTEGER NOT NULL DEFAULT 0  -- which candidate of the group this was
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
@@ -422,6 +424,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+#: Primary result codes (an extended code's low byte) that describe the
+#: machine and not the file: busy, locked, readonly, I/O error, disk full,
+#: cannot open. ``SQLITE_CORRUPT`` (11) and ``SQLITE_NOTADB`` (26) are
+#: deliberately absent -- those are the file.
+_ENVIRONMENTAL_CODES = frozenset({5, 6, 8, 10, 13, 14})
+
+
+def _is_environmental(exc: BaseException) -> bool:
+    """True for a fault of the disk, lock or permissions rather than the file."""
+    if isinstance(exc, OSError):
+        return True
+    code = getattr(exc, "sqlite_errorcode", None)
+    return isinstance(code, int) and (code & 0xFF) in _ENVIRONMENTAL_CODES
+
+
 class StoreUnreadable(RuntimeError):
     """``jobs.sqlite`` exists and is not a database this build can open.
 
@@ -537,6 +554,17 @@ class JobStore:
                 # A half-opened connection is still a file handle, and the
                 # recovery the caller is about to offer *renames the file*.
                 self._conn.close()
+            # The 2026-10-03 audit (service-32): ``OperationalError`` is a
+            # ``DatabaseError``, so "database is locked", "disk is full",
+            # "readonly database" and a WAL on a network share were all
+            # offered the "damaged file, start with an empty index" rename --
+            # a transient or environmental fault presented as corruption,
+            # whose Yes button moves the whole library index aside. Those
+            # surface as themselves (``main._run_locked`` names the cause in
+            # its startup alert); only the malformed / not-a-database
+            # classes are an unreadable *file*.
+            if _is_environmental(exc):
+                raise
             raise StoreUnreadable(path, exc) from exc
         # ``list``'s params-JSON memo: raw params string -> parsed dict.
         # Bounded and cleared wholesale; see ``_row_dict``.

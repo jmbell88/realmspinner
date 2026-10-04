@@ -70,7 +70,7 @@ MODES: list[tuple[str, str, str, str]] = [
     ("create", "Create", icons.SPARKLES, "Prompt to picture to mesh."),
     ("inker", "Inker", icons.PEN_TOOL, "Paint and animate pixel art."),
     ("clay", "Clay", icons.RULER, "Build meshes from shapes."),
-    # Mason: the fourteenth mode, and the counterpart to Plotter one dimension
+    # Mason: added after Plotter, and the counterpart to it one dimension
     # up. Plotter answers "what does my world look like" for a tile map and
     # nothing answered it for a mesh -- a user with thirty generated props and
     # a Clay blockout could look at each of them alone and never at the place
@@ -97,7 +97,7 @@ MODES: list[tuple[str, str, str, str]] = [
     ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh, author clips and sheets."),
     ("plotter", "Plotter", icons.GRID, "Paint maps, export to Tiled."),
     ("packwright", "Packwright", icons.LAYERS, "Pack sprites into an atlas."),
-    # Muse: the thirteenth mode, and the one whose output is a **job row**.
+    # Muse: added after Sirens landed, and the one whose output is a **job row**.
     #
     # Sirens' comment below justifies its own workspace status partly with
     # "nothing it produces is a job row", and that sentence is about Sirens and
@@ -117,7 +117,7 @@ MODES: list[tuple[str, str, str, str]] = [
     # The glyph is a *note* against Sirens' waveform, which reads as the right
     # distinction: a waveform is sound you build, a note is a song you ask for.
     ("muse", "Muse", icons.MUSIC, "Generate a soundtrack."),
-    # Sirens: the twelfth mode, and the first thing in this app that makes a
+    # Sirens: added with the workspaces, and the first thing in this app that makes a
     # sound. A workspace rather than a stage of Create for the reason Plotter
     # and Packwright are: it owns a document type (``.rsng``), it has its own
     # tabs and its own undo stack, and nothing it produces is a job row. It
@@ -236,9 +236,38 @@ WORKSPACE_MODES = frozenset(
 # the pattern caret, Space starts and stops playback, and Page Up/Down move a
 # bar -- so every key imgui would use to walk a focus ring is a key the grid
 # has already spoken for.
+#
+# **Membership is "may reserve", and Poser reserves only while a sheet is on
+# screen.** The 2026-10-03 audit (poser-render-04): "poser" sat here
+# unconditionally while the comment above and ``poser.mode.sheet_handle_key``
+# both say the keys are Poser's only with the sheet section up, so in the pose
+# view all nine reserved keys were withheld from imgui's focus navigation and
+# given to no consumer -- a keyboard user could not walk the focus ring with
+# the arrows or press Space on a focused button. :func:`reserves_nav_keys` is
+# what the frame loop asks; this set stays the list of modes it may say yes for.
 NAV_KEY_MODES = frozenset(
     {"home", "library", "review", "inker", "plotter", "poser", "muse", "sirens"}
 )
+
+#: Modes in :data:`NAV_KEY_MODES` that reserve the keys only while a surface of
+#: theirs is up: ``mode -> (attribute of the app state holding the mode's own
+#: state, boolean field on it)``. Read by ``getattr`` rather than by importing
+#: the mode, because this module is data and the shell reads it.
+NAV_KEY_SURFACES: dict[str, tuple[str, str]] = {"poser": ("poser", "sheet_view")}
+
+
+def reserves_nav_keys(mode: str, state: object) -> bool:
+    """Whether the surface on screen binds the arrows or Space itself, so
+    imgui's keyboard navigation must not also take them. A function of the mode
+    *and* what it is showing: see :data:`NAV_KEY_MODES`."""
+    if mode not in NAV_KEY_MODES:
+        return False
+    surface = NAV_KEY_SURFACES.get(mode)
+    if surface is None:
+        return True
+    holder, flag = surface
+    return bool(getattr(getattr(state, holder, None), flag, False))
+
 
 KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
 

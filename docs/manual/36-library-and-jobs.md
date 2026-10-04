@@ -192,7 +192,9 @@ tile sheet's own picture can become **WebP** (lossless, alpha kept) or **JPEG**.
 exactly like a Downloads button in the inspector's Export tab — the same lazily-derived file, the same
 save dialog — because it is the same door, reached from a card with no inspector open. A **JPEG** of a
 cutout with transparency (an icon, a hand-edited reference with an erased background) is refused rather
-than silently flattened onto black; pick **WebP** instead. Converting several cards at once asks for a
+than silently flattened onto black; pick **WebP** instead. The refusal is only for a picture in which
+some pixel really is transparent: an uploaded or edited picture that carries an alpha channel but is
+fully opaque exports as a JPEG without complaint. Converting several cards at once asks for a
 destination *folder* instead of one file, and skips whichever ticked rows cannot produce the chosen
 format rather than failing the rest of the batch — a mixed selection of different kinds is refused
 outright, since there is no one format list that would apply to all of it.

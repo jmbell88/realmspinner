@@ -34,7 +34,9 @@ down in its own ``OUTWARD_IMPORTS`` and passes it to :func:`siblings_of` as an
 exception, which is a decision recorded in one place rather than an omission
 from a list nobody reads.
 
-**Not yet adopted by the other six pins, and that is a live loose end.**
+**Not yet adopted by ``inker``, ``plotter``, ``packwright`` and ``grid2d``,
+and that is a live loose end.** (Clay, Create, Mason, Muse, Poser's ``engine/``
+and Sirens have since converted: each calls :func:`siblings_of`.)
 ``packwright`` imports ``plotter`` for real, so retrofitting this helper there
 is a decision about that edge rather than a mechanical substitution, and it
 belongs to whoever takes that decision. What is here is the derivation the next

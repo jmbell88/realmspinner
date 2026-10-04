@@ -122,7 +122,16 @@ def noise(phase: np.ndarray, mode: int = 0) -> np.ndarray:
     pitched one.
     """
     table = _NOISE[1 if int(mode) else 0]
-    index = np.mod(phase.astype(np.int64), table.size)
+    # The 2026-10-03 audit, finding sirens-03: the register-step phase of a noise
+    # voice slid up toward ``synth._NOTE_CLAMP`` runs far past int64 (the clock
+    # is ``NOISE_RATIO`` times the pitch's frequency, past 9e18 steps a tick from
+    # about note 480), and ``astype(np.int64)`` of such a float is an undefined
+    # cast: the hiss collapsed to a constant plateau and its bytes depended on
+    # the platform. Wrapped to the table's period **in float, before the cast**
+    # -- ``trunc`` first keeps the old ``astype`` rounding for a negative phase,
+    # and ``mod`` of an integer-valued float is exact, so every phase that fit
+    # int64 before indexes the same entry and no existing render changes a byte.
+    index = np.mod(np.trunc(phase), float(table.size)).astype(np.int64)
     return table[index]
 
 
@@ -140,6 +149,13 @@ def sampled(pcm: np.ndarray, phase: np.ndarray, *, loop: bool = False) -> np.nda
     if pcm.size == 0:
         return np.zeros(phase.size, dtype=np.float32)
     position = np.mod(phase, float(pcm.size)) if loop else phase
+    if not loop:
+        # Past the end a one-shot is silent whatever the phase is, so a phase
+        # far beyond int64 (a sample voice slid toward ``synth._NOTE_CLAMP``) is
+        # held just outside the sample before the cast instead of making
+        # ``astype`` undefined -- the 2026-10-03 audit, finding sirens-03's
+        # sample-ratio half. Nothing inside ``[-1, size + 1]`` moves.
+        position = np.clip(position, -1.0, float(pcm.size) + 1.0)
     left = np.floor(position).astype(np.int64)
     frac = (position - left).astype(np.float32)
     inside = (left >= 0) & (left < pcm.size)

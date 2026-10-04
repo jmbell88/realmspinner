@@ -98,7 +98,61 @@ def write_files(files: dict[str, bytes], path: Path, *, primary: str) -> None:
     targets: dict[Path, bytes] = {}
     for name, blob in files.items():
         targets[path if name == primary else path.parent / name] = blob
+    _refuse_foreign_sidecars(targets, path)
     atomic.staged_set(targets)
+
+
+def _is_mason_export(target: Path) -> bool:
+    """Whether an existing ``target`` is one Mason's own exporters wrote: a
+    manifest naming :data:`manifest.FORMAT`, or an MTL opening with the OBJ
+    header. Unreadable or unrecognisable is *not* ours."""
+    import json
+
+    from .engine import manifest, objout
+
+    try:
+        head = target.read_bytes()[:65536]
+    except OSError:
+        return False
+    if target.suffix == ".json":
+        try:
+            found = json.loads(target.read_bytes())
+        except (OSError, ValueError):
+            return False
+        return isinstance(found, dict) and found.get("format") == manifest.FORMAT
+    if target.suffix == ".mtl":
+        return head.startswith(objout.EXPORT_HEADER.encode("utf-8"))
+    return False
+
+
+def _refuse_foreign_sidecars(targets: dict[Path, bytes], primary: Path) -> None:
+    """Refuse, before anything is written, to replace a file the user did not
+    pick and that is not a previous Mason export.
+
+    The 2026-10-03 audit's mason-34: the native dialog confirmed an overwrite
+    of the one filename the user typed, while the GLB export also writes
+    ``<stem>.json`` and the OBJ export ``<stem>.mtl`` and a texture directory
+    beside it -- all through ``staged_set`` with no check, so exporting
+    ``level.glb`` next to the user's own ``level.json`` silently replaced it.
+    A previous export of ours (the manifest's ``format`` field, the MTL's
+    header) is still replaced without asking, which is what re-exporting a
+    scene under one name has always done. A texture has no marker of its own,
+    so it counts as ours only when an MTL of ours is among the existing files
+    being replaced alongside it.
+    """
+    from ....service.errors import Conflict
+
+    existing = [t for t in targets if t != primary and t.is_file()]
+    owns_textures = any(t.suffix == ".mtl" and _is_mason_export(t) for t in existing)
+    for target in existing:
+        ours = _is_mason_export(target) if target.suffix in (".json", ".mtl") else owns_textures
+        if not ours:
+            raise Conflict(
+                f"{target.name} already exists beside {primary.name} and is not a "
+                "Mason export -- exporting would replace it. Pick another file name "
+                "or move it first.",
+                field="export",
+            )
 
 
 def glb_bundle(doc: Any, source: Any) -> dict[str, bytes]:

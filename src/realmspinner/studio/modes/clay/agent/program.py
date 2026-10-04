@@ -1084,6 +1084,32 @@ def _resolve_singular(
     return {"$ref": name}
 
 
+def _group_members(
+    group: str,
+    objects: dict[str, _Obj],
+    groups: dict[str, tuple[str, ...]],
+    path: str,
+    field_name: str,
+) -> list[Any]:
+    """A group's members as references, each checked alive the way
+    ``_resolve_singular`` checks one id. The 2026-10-03 audit's agents-19: a
+    group whose member a later boolean or delete had consumed still compiled,
+    and was refused only when that dead member's turn came at run time -- a
+    full run and rollback for what every other stale reference refuses at
+    compile time with a path."""
+    members = []
+    for member in groups[group]:
+        obj = objects.get(member)
+        if obj is not None and not obj.alive:
+            raise _err(
+                f"{member!r}, a member of group {group!r}, was consumed by a "
+                f"{obj.consumed_by} step and no longer exists.",
+                field=field_name, path=path,
+            )
+        members.append({"$ref": member})
+    return members
+
+
 def _resolve_plural(
     value: Any,
     objects: dict[str, _Obj],
@@ -1099,7 +1125,7 @@ def _resolve_plural(
     if isinstance(value, dict) and set(value) == {"group"}:
         value = value["group"]
     if isinstance(value, str) and value in groups:
-        return [{"$ref": member} for member in groups[value]]
+        return _group_members(value, objects, groups, path, field_name)
     if isinstance(value, dict) and set(value) in ({"id"}, {"name"}, {"$ref"}):
         return [_resolve_singular(value, objects, groups, path, field_name)]
     if isinstance(value, (str, int)):
@@ -1111,7 +1137,7 @@ def _resolve_plural(
     out: list[Any] = []
     for i, item in enumerate(value):
         if isinstance(item, str) and item in groups:
-            out.extend({"$ref": member} for member in groups[item])
+            out.extend(_group_members(item, objects, groups, f"{path}[{i}]", field_name))
             continue
         out.append(_resolve_singular(item, objects, groups, f"{path}[{i}]", field_name))
     return out
@@ -1506,6 +1532,17 @@ class _Compiler:
                 if not isinstance(raw_values, list) or not raw_values:
                     raise _err(
                         f"range {name!r}'s list must be non-empty.", field="steps", path=path
+                    )
+                # Length first (the 2026-10-03 audit's agents-18): a frame-sized
+                # list of expression strings spent seconds compiling on the
+                # frame thread, outside PROGRAM_DEADLINE_S, before the total
+                # below refused it. No single range may exceed the cap, since
+                # every other range holds at least one value.
+                if len(raw_values) > PROGRAM_MAX_REPEAT:
+                    raise _err(
+                        f"range {name!r}'s list has {len(raw_values)} values, "
+                        f"over PROGRAM_MAX_REPEAT ({PROGRAM_MAX_REPEAT}).",
+                        field="steps", path=path,
                     )
                 values = [_num(v, scope, f"{path}.ranges.{name}", "steps") for v in raw_values]
             elif {"from", "to"} <= set(spec) <= {"from", "to", "step"}:

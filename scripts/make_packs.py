@@ -53,7 +53,6 @@ import tarfile
 import tempfile
 import tomllib
 import urllib.parse
-import urllib.request
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -365,8 +364,12 @@ def download(source: Source, into: Path, *, offline: bool) -> Path:
         raise PackError(f"{source.filename} is not collected and --offline was given")
     into.mkdir(parents=True, exist_ok=True)
     staging = target.with_suffix(target.suffix + ".part")
+    # ``timeout=60`` like every runtime download (the 2026-10-03 audit,
+    # pipelines-33): the bare ``urlopen`` had none, so a stalled host hung
+    # ``installer/build.ps1`` forever with no error. It bounds each socket read,
+    # not the whole transfer, so a slow 3 GB wheel still completes.
     with (
-        urllib.request.urlopen(_download.request(source.url)) as response,
+        _download.open_url(source.url, timeout=60) as response,
         staging.open("wb") as handle,
     ):
         shutil.copyfileobj(response, handle)

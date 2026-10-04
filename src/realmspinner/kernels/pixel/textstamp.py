@@ -176,4 +176,11 @@ def text_stamp(
     # a fully opaque colour leaves the mask exactly as it was rendered -- which
     # is what keeps the ``antialias=False`` promise of 0-or-255.
     out[..., 3] = (coverage.astype(np.float32) * alpha / 255.0).astype(np.uint8)
+    if not out[..., 3].any():
+        # A colour whose alpha is 0 (or low enough to truncate every pixel to 0)
+        # inks nothing: the same "there is nothing to float" as ink-free text,
+        # and the docstring's promise of "never a blank array" (the 2026-10-03
+        # audit, finding inker-75 -- the pane floated an invisible stamp with
+        # no toast, where every other decline says why).
+        return None
     return out

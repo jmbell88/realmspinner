@@ -52,7 +52,7 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 # Must match REALMSPINNERC_ABI in native/realmspinnerc.h.
-ABI = 11
+ABI = 12
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_DLL = _PROJECT_ROOT / "vendor" / "realmspinnerc" / "realmspinnerc.dll"
@@ -682,12 +682,23 @@ def _pillow_rotate_matrix(
 # mouse-move. A fresh ``np.empty`` of this size is not free even though numpy
 # never zeroes it: Windows still has to page-fault the whole thing in on first
 # touch, and a free-transform drag calls this once per move -- one page-fault
-# storm every ~16 ms. Grown to the largest request seen and never shrunk;
-# ``rotsprite_fits``/``ROTSPRITE_MAX_PIXELS`` bound the worst case at
-# 80 * 512 * 512 * 4 = 83,886,080 bytes (~80 MiB), so this never grows without
-# limit. Guarded by a lock because the buffer is shared process-wide and nothing
-# here stops two callers overlapping -- held for the whole kernel call, not just
-# the resize, since the kernel writes into this exact array by pointer.
+# storm every ~16 ms. Grown to the largest *interactive* request seen and never
+# shrunk. ``rotsprite_fits``/``ROTSPRITE_MAX_PIXELS`` bound that worst case at
+# 80 * 512 * 512 * 4 = 83,886,080 bytes (~80 MiB), which is
+# ``_ROTSPRITE_RETAIN_BYTES``.
+#
+# **The walk bake is not interactive and gets 4x that budget** (``walk.render``'s
+# ``ROTSPRITE_BUDGET``), so one RGBA plane at it needs 320 MiB. The 2026-10-03
+# audit (pipelines-16) found that buffer kept "grown and never shrunk" for the
+# rest of the session -- one Inker walk bake pinning 320 MiB of host commit on
+# an app whose recorded worst crash is host-commit exhaustion, while this
+# comment said the bound was a quarter of that. A request past the retain bound
+# is therefore served from a buffer that is dropped when the call returns; the
+# bake is off the frame thread and pays one page-fault storm per turn, not per
+# mouse-move. Guarded by a lock because the buffer is shared process-wide and
+# nothing here stops two callers overlapping -- held for the whole kernel call,
+# not just the resize, since the kernel writes into this exact array by pointer.
+_ROTSPRITE_RETAIN_BYTES = 80 * 512 * 512 * 4
 _rotsprite_scratch: Any = None
 _rotsprite_scratch_lock = threading.Lock()
 
@@ -747,6 +758,9 @@ def rotsprite_u8(pixels: Any, degrees: float) -> Any | None:
             ctypes.c_size_t(scratch.nbytes),
             _ptr(out, ctypes.c_uint8),
         )
+        if scratch.nbytes > _ROTSPRITE_RETAIN_BYTES:
+            # Past the interactive bound (the walk bake's budget): do not keep it.
+            _rotsprite_scratch = None
     if result != 0:
         return None
     return out

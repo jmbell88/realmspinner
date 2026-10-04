@@ -116,6 +116,10 @@ class SheetScore:
     #: unconditionally.
     worst: tuple[str, float, int] | None
     flagged: int
+    #: Metrics this score left out on purpose, so a pane can say so rather than
+    #: let an absent number read as a clean one. Today only ``palette_flicker``
+    #: on an HD sheet (the 2026-10-03 audit, finding poser-12).
+    skipped: tuple[str, ...] = ()
 
     def lookup(self) -> dict[tuple[str, str, int], CellScore]:
         return {(c.animation, c.direction, c.frame): c for c in self.cells}
@@ -226,8 +230,19 @@ def score_sheet(
     columns: int,
     frame_w: int,
     frame_h: int,
+    pixel_art: bool = True,
 ) -> SheetScore:
-    """Every cell the runs name, scored. Runs off the atlas are skipped."""
+    """Every cell the runs name, scored. Runs off the atlas are skipped.
+
+    ``pixel_art=False`` is an HD sheet, one the worker never snapped to a
+    palette. ``palette_flicker`` is an exact-RGB histogram distance, which
+    only means "colours changed" when a sheet has a palette to recur in: on a
+    continuous-colour atlas almost no exact value survives a sub-pixel move,
+    so a sprite that barely shifted scored 0.81-0.93 and went red (the
+    2026-10-03 audit, finding poser-12). The metric is left out for an HD
+    sheet and named in ``SheetScore.skipped``; the silhouette and position
+    metrics are resampling-safe and still run.
+    """
     import numpy as np
 
     atlas = np.asarray(atlas)
@@ -279,7 +294,8 @@ def score_sheet(
                     )
                 )
                 metrics["foot_jitter"] = abs(here.foot - prev.foot)
-                metrics["palette_flicker"] = _flicker(prev, here)
+                if pixel_art:
+                    metrics["palette_flicker"] = _flicker(prev, here)
             elif len(cells) > 1 and loops.get(animation, False):
                 # ``loops.get(animation, True)`` used to default an *unknown*
                 # movement to cyclic -- one that names no entry in
@@ -360,4 +376,9 @@ def score_sheet(
         cells_out.append(
             CellScore(index, animation, direction, offset, dict(metrics), ordered)
         )
-    return SheetScore(tuple(cells_out), worst, flagged)
+    return SheetScore(
+        tuple(cells_out),
+        worst,
+        flagged,
+        skipped=() if pixel_art else ("palette_flicker",),
+    )

@@ -95,8 +95,9 @@ when more than one thing is selected.
 **angle (deg)** is the step a rotation turns in. With snapping on and the grid at 1, a row of crates
 lines up without you aiming.
 
-**Drop to ground** makes a move end on the ground rather than in the air — on the terrain's surface
-where there is one, and on Y=0 where there is not.
+**Drop to ground** makes a move, or a placement click, end on the ground rather than in the air —
+on the terrain's surface where there is one, and on Y=0 where there is not. A ground you have moved
+or scaled is followed.
 
 ### Align, distribute and array
 
@@ -130,7 +131,9 @@ own right-click menu carries the ones that make sense there.
 
 `G` puts everything selected under a new group node, and `Shift+G` takes a group apart again. A group
 is a transform and a name and nothing else: moving it moves its children, and it draws nothing
-itself. Groups are how a scene of two hundred nodes stays a scene of twelve things.
+itself. Groups are how a scene of two hundred nodes stays a scene of twelve things. The ground
+always stays at the top of the scene: Group leaves it out, with a message, and you cannot drag it
+into a group.
 
 Nesting is limited to 64 levels deep, which no hand-built scene reaches.
 
@@ -166,7 +169,9 @@ A mesh whose source cannot be found says so here — "Missing — the source cou
 
 A **prefab** is a subtree you have named as a template. **Make prefab**, from either right-click
 menu, takes what is selected and stores it under a name; the Prefabs panel then appears in the left
-column with a row for it.
+column with a row for it. Make prefab refuses a name an existing prefab already has, with an error
+toast, and the name box starts from the first free one — `Barrel`, then `Barrel 2`, `Barrel 3` — so
+making a second prefab never swaps the geometry under the instances of the first.
 
 Placing a prefab row puts an **instance** in the scene: a node that says "one of those, here". It is
 not a copy. Editing the template changes every instance, because an instance holds nothing of its own

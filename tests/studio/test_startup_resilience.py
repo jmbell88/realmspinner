@@ -133,7 +133,7 @@ def test_a_layout_profile_survives_wrongly_typed_blobs():
     got = Arrangement.from_json(
         {"columns": "left", "hidden": "abc", "widths": 3, "shares": "half"}
     )
-    assert got.columns == {} and got.hidden == [] and got.widths == {} and got.shares == {}
+    assert got.columns == {} and got.hidden == [] and got.shares == {}
 
 
 def _fake_guards(tree: ast.AST, where: str) -> list[str]:

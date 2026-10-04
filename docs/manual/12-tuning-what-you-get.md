@@ -32,8 +32,9 @@ than most people expect — so this is often the more valuable of the two.
 
 One dropdown decides this. Its first entry is *Automatic* — the app resolves a checkpoint and says
 which underneath — and every other entry is an installed checkpoint you name yourself. The four-step
-distilled entries cannot use the negative prompt or structure control, and picking one clears both
-rather than leaving you a Generate button refusing on a hidden field.
+distilled entries cannot use the structure control or the negative prompt. Picking one clears the
+structure control, rather than leaving you a Generate button refusing on a hidden field, and hides
+the **Avoid** box while keeping its text, which reappears when you pick a model that reads it.
 See [Models and style LoRAs](22-generating-references.md#models-and-style-loras).
 
 The default base model is SDXL 1.0 run at **full CFG**, and it is the default because it measured

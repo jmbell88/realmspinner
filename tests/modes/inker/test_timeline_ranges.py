@@ -435,10 +435,20 @@ def test_filling_a_range_respects_alpha_lock():
     doc.set_layer_props(0, alpha_lock=True)
     before = [_cel(doc, 0, i).pixels[..., 3].copy() for i in range(2)]
 
+    hidden_rgb = [_cel(doc, 0, i).pixels[..., :3].copy() for i in range(2)]
+
     assert doc.fill_range(GREEN, 0, 0, 0, 1)
     for index in range(2):
-        assert np.array_equal(_cel(doc, 0, index).pixels[..., 3], before[index])
-        assert (_cel(doc, 0, index).pixels[..., :3] == np.array(GREEN[:3])).all()
+        pixels = _cel(doc, 0, index).pixels
+        assert np.array_equal(pixels[..., 3], before[index])
+        # The colour still moves where there is something to colour. A fully
+        # transparent pixel keeps its RGB byte for byte (the 2026-10-03 audit,
+        # finding inker-49): the lock has never been permission to write hidden
+        # colour under transparency, and this used to assert that it was.
+        seen = pixels[..., 3] > 0
+        assert seen.any()
+        assert (pixels[..., :3][seen] == np.array(GREEN[:3])).all()
+        assert np.array_equal(pixels[..., :3][~seen], hidden_rgb[index][~seen])
 
 
 def test_filling_a_range_never_autovivifies_an_empty_cel():

@@ -131,8 +131,17 @@ def test_run_worker_spawns_the_named_module_and_reads_its_marker(monkeypatch, tm
 # --- the import door --------------------------------------------------------------------
 
 
+# A whole (one-tensor) safetensors archive: the import door reads the header since
+# the 2026-10-03 audit (service-10), so the old 64 zero bytes are now refused.
+_ARCHIVE = (
+    len(b'{"w":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}').to_bytes(8, "little")
+    + b'{"w":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}'
+    + b"\x00" * 4
+)
+
+
 def _adapter(
-    tmp_path: Path, name: str = "mystyle.safetensors", content: bytes = b"\x00" * 64
+    tmp_path: Path, name: str = "mystyle.safetensors", content: bytes = _ARCHIVE
 ) -> Path:
     path = tmp_path / name
     path.write_bytes(content)

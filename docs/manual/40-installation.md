@@ -2,7 +2,7 @@
 
 Realmspinner is a local desktop app with two heavy dependencies it does not ship: a vendored
 native binary and several gigabytes of model weights. Everything below is done once, by hand, and
-after it the app never touches the network again.
+after it the app never goes online on its own.
 
 ## Requirements
 
@@ -35,13 +35,14 @@ different capability:
 | `music` | ACE-Step's own stack, pinned separately from `text2image`: torch cu128, torchaudio (pinned `<2.9`), diffusers, transformers, accelerate, peft, librosa, loguru, spacy, and the lyric-language stack (py3langid, pypinyin, num2words, hangul-romanize, cutlet, fugashi). `pyproject.toml`'s `[project.optional-dependencies].music` is the list that decides, and it carries a comment for every pin. | Muse's text-to-music generation and its Hybrid Demucs stem separation. |
 
 `text2image`'s tail is longer than it looks because two of the things it pulls in are not declared
-by anything else. BiRefNet — the learned matting model — is loaded with `trust_remote_code`, so the
-modelling code that builds it is the checkpoint's own and no resolver can see its imports: `einops`,
-`kornia` and `timm` are what that code reaches for, and without them the matting silently fell back
-to a corner fill on a machine where `realmspinner doctor` could see every weight on disk. `torchvision` is
-the other: `transformers` builds its fast image processors on it, and the DINOv2 embedding behind
-candidate ranking needs it, so leaving it undeclared meant any `uv sync` removed it and candidate
-ranking quietly degraded to composition alone.
+by anything else. BiRefNet — the learned matting model — has its modelling code vendored in the app
+(`pipelines/birefnet/`), so it runs from the install and nothing is downloaded or executed as remote
+code, but that code imports `einops`, `kornia` and `timm`, which no other dependency declares, and
+without them the matting silently fell back to a corner fill on a machine where `realmspinner
+doctor` could see every weight on disk. `torchvision` is the other: `transformers` builds its fast
+image processors on it, and the DINOv2 embedding behind candidate ranking needs it, so leaving it
+undeclared meant any `uv sync` removed it and candidate ranking quietly degraded to composition
+alone.
 
 `studio` is an extra rather than a core dependency because `realmspinner doctor` and `realmspinner sweep` have
 to run on a machine with no display — the command line only imports the window on the path that

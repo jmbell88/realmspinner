@@ -2941,7 +2941,12 @@ def _ants(ctx: Any, tab: Any, draw_list: Any, origin, state: Any = None) -> None
         ys = [p[1] for p in corners]
         if min(xs) > clip[2] or max(xs) < clip[0] or min(ys) > clip[3] or max(ys) < clip[1]:
             continue
-        starts, ends, on = ants.dash_segments(verts, cum, view.zoom, offset, phase, basis=matrix)
+        # ``window=clip`` so the walk is bounded to the visible span rather than
+        # the loop's perimeter (the 2026-10-03 audit, finding inker-45); the
+        # ``cull`` below still trims the surviving runs to the rectangle.
+        starts, ends, on = ants.dash_segments(
+            verts, cum, view.zoom, offset, phase, basis=matrix, window=clip
+        )
         starts, ends, on = ants.cull(starts, ends, on, clip)
         # One call per dash. imgui has no batched per-segment-colour API, so
         # this loop is irreducible -- but it is over dashes now rather than over

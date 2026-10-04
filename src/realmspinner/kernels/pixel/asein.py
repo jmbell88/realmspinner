@@ -121,8 +121,9 @@ _TILESET = 0x2023
 #: Aseprite's blend modes by their stored number, mapped onto ours. The lists
 #: are the same nineteen modes -- C6 added the seven this package was missing
 #: for exactly this reason -- so nothing here is approximated and no file loses
-#: a mode on the way in. ``add`` is the one spelling difference: Aseprite calls
-#: it "addition".
+#: a mode on the way in. Ours is twenty: ``plus-lighter`` has no Aseprite
+#: number and is written as Addition by ``aseout._BLEND_WRITTEN_AS``. ``add``
+#: is the one spelling difference: Aseprite calls it "addition".
 _BLEND_BY_INDEX = (
     "normal",
     "multiply",
@@ -928,6 +929,43 @@ def _read_layer(state: _Parse, r: _Reader, opacity_valid: bool) -> None:
     )
 
 
+#: How many canvases of grid one tilemap cel may span on an axis: the canvas
+#: itself plus one canvas of overhang on each side. A cel is pasted onto the
+#: canvas's own grid and cropped (with a warning), so overhang is legal; this
+#: only refuses a grid no placement could ever use. There was no per-cel
+#: bound before it -- the raw/compressed path is held by the running total
+#: alone -- so this is a new constant, not one shared with that path.
+_TILEMAP_SPAN_CANVASES = 3
+
+
+def _check_tilemap_grid_fits(
+    state: _Parse, layer: int, grid_w: int, grid_h: int
+) -> None:
+    """Refuse one tilemap cel whose grid dwarfs the canvas, before its inflate.
+
+    The tile size is the one the cel's own layer draws through when that
+    tileset chunk has already been read (it precedes the cels in every file
+    Aseprite writes); a layer or tileset not yet known falls back to 1x1,
+    the most lenient reading, and ``_build_tilemap_cel`` still refuses it
+    for naming a tileset the file does not define.
+    """
+    tile_w = tile_h = 1
+    if 0 <= layer < len(state.sprite.layers):
+        tileset = state.sprite.tilesets.get(state.sprite.layers[layer].tileset)
+        if tileset is not None:
+            tile_w, tile_h = max(1, tileset.tile_w), max(1, tileset.tile_h)
+    sprite = state.sprite
+    # Ceil: a canvas that is not a tile multiple still owns the partial tile.
+    max_w = _TILEMAP_SPAN_CANVASES * -(-sprite.width // tile_w)
+    max_h = _TILEMAP_SPAN_CANVASES * -(-sprite.height // tile_h)
+    if grid_w > max_w or grid_h > max_h:
+        raise ValueError(
+            f"a tilemap cel on layer {layer} declares a {grid_w}x{grid_h} grid,"
+            f" larger than the {max_w}x{max_h} a {sprite.width}x{sprite.height}"
+            " canvas can place"
+        )
+
+
 def _read_cel(state: _Parse, r: _Reader) -> None:
     layer = r.u16()
     x = r.i16()
@@ -999,6 +1037,13 @@ def _read_cel(state: _Parse, r: _Reader) -> None:
                 f"a tilemap cel on layer {layer} declares more than the"
                 f" {pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
             )
+        # Residual of the same finding: the running total bounds the *sum* of
+        # the grids, not one of them, so a single cel could still name a 16384
+        # x 16384 grid (a 1 GiB inflate out of ~1 MB of zlib) and pass while
+        # the total had room. ``_build_tilemap_cel`` pastes a cel onto the
+        # canvas's own grid, so anything beyond a canvas of overhang on each
+        # side can never be placed -- refused here, before the inflate.
+        _check_tilemap_grid_fits(state, layer, grid_w, grid_h)
         raw = r.rest()
         wanted = grid_w * grid_h * 4
         decompressed = _inflate(raw, wanted, f"a tilemap cel on layer {layer}")
@@ -1792,7 +1837,9 @@ def _slices_for(
     this reader's own u16 ceiling hung Inker on open. ``keys`` is sorted by
     frame and ``index`` only increases, so a single forward pointer reaches
     the identical answer (the latest key at or before the current frame) in
-    one pass over each list: O(frames + keys) per slice.
+    one pass over each list: O(frames + keys) per slice -- and since inker-68
+    (2026-10-03) O(keys + frames the keys actually cover), because the pass
+    over every frame was still slices x frames across a file's chunks.
     """
     out: list[Slice] = []
     for entry in sprite.slices:
@@ -1803,15 +1850,20 @@ def _slices_for(
                 f"the slice {entry.name!r} starts partway through the timeline;"
                 " it is shown from the first frame here"
             )
+        # Walk the *keys*, not the frames: key ``i`` applies from its own
+        # frame to the next key's (the last runs to the end), so a one-key
+        # slice costs nothing however long the timeline is. The 2026-10-03
+        # audit (inker-68): the frame loop here was slices x frames, so 4 000
+        # one-key slices over 65 535 empty frames took 10 s to open. A later
+        # key at the same frame as its successor covers an empty range, which is
+        # the "last of equal frames wins" the per-frame scan gave.
         overrides: dict[int, SliceKey] = {}
-        applies = base
-        pos = 0
-        for index, frame in enumerate(frames):
-            while pos < len(keys) and keys[pos][0] <= index:
-                applies = keys[pos][1]
-                pos += 1
-            if applies is not base:
-                overrides[frame.uid] = applies
+        for position, (at, key) in enumerate(keys):
+            if key is base:
+                continue
+            stop = keys[position + 1][0] if position + 1 < len(keys) else len(frames)
+            for index in range(max(0, at), min(stop, len(frames))):
+                overrides[frames[index].uid] = key
         out.append(
             Slice(
                 name=entry.name,

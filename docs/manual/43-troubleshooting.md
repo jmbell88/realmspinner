@@ -39,9 +39,9 @@ the fastest way to see it. `realmspinner doctor` prints the same block.
 they cannot change without the disk changing — so having just installed something a row complained
 about, nothing short of a restart would otherwise change its mind. This button re-runs everything.
 
-A first run that has downloaded nothing yet is better served by Home's own rows: a health row
-mirroring the status group's count, and, separately, **Generation is not set up yet** — which opens
-the model list and its Download buttons rather than this read-only list.
+A first run that has downloaded nothing yet is better served by Home's own **Generation is not set
+up yet** row, which opens the model list and its Download buttons rather than this read-only list.
+Home draws no health row of its own — the menu bar's issue count is where a failed check shows.
 
 ## Out of memory
 
@@ -68,8 +68,10 @@ not be in `realmspinner.log`. Look in `crash.log` instead — see
 
 ## Missing weights
 
-**What you see.** Home's health row is amber and reads "*n* things need attention — see Health";
-clicking it opens **Settings → Health**, which names the failing check and its detail. The
+**What you see.** On a fresh install Home's status line reads **Generation is not set up yet**,
+with how many downloads and about how many GB are missing, and pressing it opens the model list.
+The menu bar's amber **N issue(s)** count appears too; **Settings → Health** names the failing
+check and its detail. The
 **Models** table beside it marks every download that is not on disk. At the Reference stage the
 model combo shows an entry as "weights missing". Submitting anyway is refused, and the refusal
 itself carries an **Install** button that ticks exactly the downloads that job needed.
@@ -185,8 +187,28 @@ it says where to look: `crash.log` for a native traceback with a matching sessio
 `realmspinner.log` for the run's final entries. A run that ended normally logs `teardown complete`, so
 the absence of that line is the sharpest confirmation of a hard death.
 
-A variant of the same warning says another Realmspinner **appears to be running**. Two instances share
-one job database and one engine port, and the second will lose fights over both.
+A variant of the same warning says the previous session's marker **names a process that is still
+alive**. Realmspinner takes a lock on its data before it writes that marker, so a second copy never
+gets this far: the live process is almost certainly a recycled process id, a number the operating
+system handed to something unrelated after the old Realmspinner died, rather than another
+Realmspinner. Nothing to fix; the warning is saying only what it knows.
+
+## Realmspinner is already running
+
+**What you see.** A dialog, "Realmspinner is already running", and the window never opens.
+
+**Why.** Only one copy can use a home directory, job database and model directory at a time:
+sharing them can corrupt jobs or model installs, and a second copy would also fight the first for
+the engine port. The lock is taken before anything else starts, so the second copy is refused
+outright.
+
+**Fix.** Close the other window (check the taskbar and Task Manager for a Realmspinner that has no
+window) and start again. To run two copies on purpose, give the second its own `REALMSPINNER_HOME`,
+`REALMSPINNER_DB` and `REALMSPINNER_T2I_ROOT`; the lock is taken on all three, so a copy that shares
+any one of them is still refused. A different dialog, "Realmspinner cannot protect its data", means
+the lock file itself could not be opened or taken, usually a permissions problem on the data
+directory: fix the permissions. `REALMSPINNER_ALLOW_UNSAFE_LOCK=1` starts it anyway, for emergency
+recovery only (see [Configuration](41-configuration.md)).
 
 ## Holes or artifacts in a mesh
 

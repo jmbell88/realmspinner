@@ -222,21 +222,56 @@ def test_an_arrangement_round_trips():
     assert again.hidden("inker") == {"a"}
 
 
-def test_v2_arrangement_round_trips_widths_and_vertical_shares():
+def test_v2_arrangement_round_trips_vertical_shares():
     settings = _Settings()
     library = layouts.Library(settings)
     library.record(
         "plotter",
         {"left": ["tools"], "right": ["layers"]},
         set(),
-        widths={"left": 272.0, "right": 418.0},
         shares={"plotter-tools": 0.37, "plotter-layers": 0.61},
     )
     again = layouts.Library(settings)
     assert settings.data[layouts.LAYOUTS_KEY]["default"]["v"] == 2
-    assert again.width("plotter", "left") == 272.0
-    assert again.width("plotter", "right") == 418.0
     assert again.share("plotter", "plotter-tools") == 0.37
+    assert "widths" not in settings.data[layouts.LAYOUTS_KEY]["default"]["workspaces"]["plotter"]
+
+
+def test_a_saved_layout_that_still_carries_widths_loads_and_drops_them_on_the_next_save():
+    """shell-03: per-workspace ``widths`` were written by every build before the
+    proportional shell and are on disk for anyone who ever dragged a splitter.
+    Nothing reads them now, so the file must still *load* -- including a value
+    that is not even a number -- and the next explicit save omits the key."""
+    settings = _Settings(
+        {
+            layouts.LAYOUTS_KEY: {
+                "default": {
+                    "v": 2,
+                    "workspaces": {
+                        "plotter": {
+                            "columns": {"left": ["b", "a"]},
+                            "widths": {"left": 272.0, "right": "wide"},
+                            "shares": {"plotter-tools": 0.37},
+                        },
+                        "clay": {"widths": 3},
+                    },
+                }
+            }
+        }
+    )
+
+    library = layouts.Library(settings)
+
+    assert library.order("plotter", "left", ["a", "b"]) == ["b", "a"]
+    assert library.share("plotter", "plotter-tools") == 0.37
+    assert not hasattr(library.arrangement("plotter"), "widths")
+    assert settings.writes == 0, "loading never rewrites the file"
+
+    library.set_share("plotter", "plotter-tools", 0.4)
+
+    saved = settings.data[layouts.LAYOUTS_KEY]["default"]["workspaces"]
+    assert "widths" not in saved["plotter"] and "widths" not in saved["clay"]
+    assert saved["plotter"]["columns"] == {"left": ["b", "a"]}
 
 
 def test_v1_uses_legacy_seeds_without_writing_until_an_edit():
@@ -250,10 +285,9 @@ def test_v1_uses_legacy_seeds_without_writing_until_an_edit():
         }
     )
     library = layouts.Library(settings)
-    assert library.width("clay", "left") == 360.0
     assert library.share("clay", "clay-tools") == 0.42
     assert settings.writes == 0
-    library.set_width("clay", "right", 410.0)
+    library.set_share("clay", "clay-tools", 0.45)
     assert settings.data[layouts.LAYOUTS_KEY]["default"]["v"] == 2
     assert settings.writes == 1
 
@@ -477,22 +511,105 @@ def test_layout_editor_can_actually_hide_a_hideable_slot(monkeypatch):
     # Written straight through, with no separate "done" gesture to press.
     assert library.hidden("inker") == {"swatches"}
 
+
+def test_a_hidden_pane_has_a_show_chip_in_the_editor_that_brings_it_back(monkeypatch):
+    """shell-11: Settings listed a hidden pane with a way back, but the editor
+    drew its un-hide badge per *pane rect*, and a hidden slot is dropped by
+    ``skeletons.ordered`` before ``layout.column`` draws it -- so it never has
+    a ``FRAME_PANES`` rect and the badge branch was unreachable. The first half
+    of the test above used to hand the hidden slot a rect to get past that, which
+    is exactly the gap. Here ``FRAME_PANES`` is left as the real frame leaves it
+    (empty for the hidden slot) and the way back is a chip the editor draws and
+    records in ``EditState.chips``."""
+    from _ui_context import imgui_context
+
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import layout_edit, skeletons
+
+    slot = skeleton.Slot(id="swatches", label="Swatches", draw=lambda ctx: None, hideable=True)
+    other = skeleton.Slot(id="tools", label="Tools", draw=lambda ctx: None)
+    column = skeleton.Column("left", (slot, other))
+    monkeypatch.setattr(skeletons, "for_mode", lambda ctx, mode: {"left": column})
+
+    library = layouts.Library(_Settings())
+    library.record("inker", {"left": ["tools", "swatches"]}, {"swatches"})
+    app = SimpleNamespace(layouts=library)
+    ctx = SimpleNamespace(state=SimpleNamespace(mode="inker"))
+
+    drawn = skeletons.ordered(ctx, library, "inker", column)
+    assert [s.id for s in drawn] == ["tools"], "the hidden slot is not part of the frame"
+
     with imgui_context(monkeypatch) as imgui:
+        # What ``layout.column`` would have recorded: the shown pane only.
+        layout_mod.FRAME_PANES = {"tools": (0.0, 200.0, 200.0, 60.0)}
+        edit = layout_edit.ensure(ctx.state)
+        edit.open = True
         io = imgui.get_io()
 
-        def _frame2(pos: tuple[float, float], down: bool) -> None:
+        def _frame(pos: tuple[float, float], down: bool) -> None:
             io.add_mouse_pos_event(pos[0], pos[1])
             io.add_mouse_button_event(0, down)
             imgui.new_frame()
             layout_edit.draw(app, ctx, None)
             imgui.end_frame()
 
-        _frame2((-100.0, -100.0), False)
-        _frame2(centre, True)
-        _frame2(centre, False)
+        _frame((-100.0, -100.0), False)
+        assert "swatches" in edit.chips, "a hidden pane needs an un-hide control"
+        assert "tools" not in edit.chips, "a shown pane does not"
+        x, y, w, h = edit.chips["swatches"]
+        centre = (x + w / 2.0, y + h / 2.0)
+        _frame(centre, True)
+        _frame(centre, False)
 
+    assert library.hidden("inker") == set(), "pressing the chip un-hides it, written through"
     assert "swatches" not in edit.hidden
-    assert library.hidden("inker") == set()
+    # And it comes back where the user had put it, not at its built-in place.
+    assert library.order("inker", "left", ["swatches", "tools"]) == ["tools", "swatches"]
+
+
+def test_a_drag_keeps_a_hidden_panes_saved_place(monkeypatch):
+    """F14: a drag wrote its column from ``skeletons.ordered``, which drops a
+    hidden slot, so reordering any *other* pane in a workspace that has one
+    hidden sent the hidden pane back to its built-in position the next time it
+    was shown -- the same defect the toggle path had before ``_stored_order``."""
+    from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import layout_edit, skeletons
+
+    slots = [
+        skeleton.Slot(id="a", label="A", draw=lambda ctx: None),
+        skeleton.Slot(id="h", label="H", draw=lambda ctx: None, hideable=True),
+        skeleton.Slot(id="b", label="B", draw=lambda ctx: None),
+        skeleton.Slot(id="c", label="C", draw=lambda ctx: None),
+    ]
+    column = skeleton.Column("left", tuple(slots))
+    monkeypatch.setattr(skeletons, "for_mode", lambda ctx, mode: {"left": column})
+
+    library = layouts.Library(_Settings())
+    # Saved with H first, which is *not* its built-in place: ``reconcile`` puts
+    # a missing id back at the built-in one, so only a place that differs
+    # from it can tell a kept position from a reset one.
+    library.record("inker", {"left": ["h", "a", "b", "c"]}, {"h"})
+    app = SimpleNamespace(layouts=library)
+    ctx = SimpleNamespace(state=SimpleNamespace(mode="inker"))
+    edit = layout_edit.ensure(ctx.state)
+    edit.hidden = {"h"}
+    edit.dragging = "c"
+    edit.dragging_column = "left"
+    monkeypatch.setattr(
+        layout_mod,
+        "FRAME_PANES",
+        {
+            "a": (0.0, 0.0, 200.0, 100.0),
+            "b": (0.0, 100.0, 200.0, 100.0),
+            "c": (0.0, 200.0, 200.0, 100.0),
+        },
+    )
+
+    # Dropped above A: c, a, b is the visible order, and H stays ahead of all.
+    layout_edit._commit(app, ctx, {"left": column}, edit, SimpleNamespace(x=10.0, y=5.0))
+
+    assert library.hidden("inker") == {"h"}
+    assert library.order("inker", "left", ["a", "h", "b", "c"]) == ["h", "c", "a", "b"]
 
 
 def test_the_splitters_are_suppressed_while_editing():
@@ -894,15 +1011,6 @@ def test_a_rail_toggle_after_a_splitter_drag_is_still_saved():
     assert settings.get("layout")["rail"] == "labels"
 
 
-def test_a_sidebar_width_after_a_splitter_drag_is_still_saved():
-    settings, _library, lay = _bound()
-
-    lay.set_share("inker.timeline", 0.4)
-    lay.set_sidebar_width("wide")
-
-    assert settings.get("layout")["sidebar"] == "wide"
-
-
 def test_a_clamped_drag_does_not_swallow_the_next_save():
     """The latch was armed by *any* call, including one clamped to the rail --
     so a drag that moved nothing still cost the following preference."""
@@ -916,34 +1024,16 @@ def test_a_clamped_drag_does_not_swallow_the_next_save():
     assert settings.get("layout")["rail"] == "icons"
 
 
-def test_choosing_a_named_sidebar_width_reaches_a_workspace_already_dragged():
-    """Settings' "Sidebar width" moved ``SIDEBAR_W``, which nothing in the
-    running app reads: ``measure`` fills ``SIDE_FIT`` from
-    ``Library.width``. The control was inert on every workspace."""
-    from realmspinner.studio import layout as layout_mod
-
-    _settings, library, lay = _bound()
-    library.set_width("inker", "left", 460.0)
-    assert library.width("inker", "left") == 460.0
-
-    lay.set_sidebar_width("narrow")
-
-    assert library.width("inker", "left") == layout_mod.SIDEBAR_WIDTHS["narrow"]
-    assert library.width("clay", "left") == layout_mod.SIDEBAR_WIDTHS["narrow"]
-
-
 def test_reset_pane_sizes_clears_the_splits_a_drag_actually_wrote():
     """The button cleared the legacy global dict, which ``Layout.share`` only
     consults when the library has nothing -- i.e. for the splits nobody had
     ever moved. Every split the user had dragged came back unchanged."""
     _settings, library, lay = _bound()
     lay.set_share("inker.timeline", 0.7)
-    library.set_width("inker", "left", 460.0)
 
     lay.reset_sizes()
 
     assert library.arrangement("inker").shares == {}
-    assert library.arrangement("inker").widths == {}
     assert library.share("inker", "inker.timeline") != pytest.approx(0.7)
 
 
@@ -969,7 +1059,7 @@ def test_an_unreadable_layout_is_never_rewritten_by_either_reset():
     library = layouts.Library(settings)
 
     library.reset_sizes()
-    library.set_width_seed(360.0)
+    library.reset()
 
     assert settings.get(layouts.LAYOUTS_KEY)["default"] == {"v": 999, "mystery": 1}
 
@@ -1202,28 +1292,6 @@ def test_layouts_share_clamp_matches_layout_share_min_and_max(monkeypatch):
     library = layouts.Library(settings)
     library.set_share("clay", "clay-tools", 0.05)
     assert library.share("clay", "clay-tools") == pytest.approx(0.10)
-
-
-def test_set_width_seed_clears_widths_in_every_saved_layout_not_only_the_active_one():
-    """The 2026-09-18 audit, shell-02 (second run): ``set_width_seed`` iterated
-    only ``self.current().workspaces``, so a saved layout the user was not
-    currently viewing kept its stale per-workspace widths -- though
-    ``Layout.set_sidebar_width`` calls this "a global preference", not a
-    per-layout one. Duplicating a layout and setting the width while on the
-    *other* one reproduces it: only the active layout's widths cleared."""
-
-    settings = _Settings()
-    library = layouts.Library(settings)
-    library.set_width("inker", "left", 300.0)
-    library.duplicate("default", "mine")
-    library.set_active("mine")
-    library.set_width("inker", "left", 250.0)
-
-    library.set_active("default")
-    library.set_width_seed(200.0)
-
-    assert "left" not in library.layouts["default"].workspaces["inker"].widths
-    assert "left" not in library.layouts["mine"].workspaces["inker"].widths
 
 
 def test_settings_does_not_offer_a_sidebar_width_the_shell_ignores():

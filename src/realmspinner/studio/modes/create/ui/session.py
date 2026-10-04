@@ -35,11 +35,33 @@ def save_draft(ctx: Any, outgoing: tuple[Any, Any] | None = None) -> None:
         return
     from ....settings import sanitise_form
 
+    source = ctx.state.source_job if outgoing is None else outgoing[0]
+    selected = ctx.state.selected if outgoing is None else outgoing[1]
+    # The 2026-10-03 audit, finding create-50: ``sync`` files the draft every
+    # frame, and each call deep-copied both forms, sanitised both and compared
+    # the result with the stored dict whether or not anything had changed -- two
+    # ~100-key copies a frame in a mode that stays open for hours. The draft
+    # already on file *is* the last snapshot, so when the live forms equal it
+    # (a compare, no copies) and the durable copy exists, there is nothing to
+    # file.
+    previous = state.drafts.get(state.workspace)
+    if (
+        previous is not None
+        and previous.get("source") == source
+        and previous.get("selected") == selected
+        and previous.get("form_2d") == ctx.state.form_2d
+        and previous.get("form_3d") == ctx.state.form_3d
+    ):
+        settings = getattr(ctx, "settings", None)
+        stored = settings.get(SETTINGS_KEY) if settings is not None else None
+        if settings is None or (isinstance(stored, dict) and state.workspace in stored):
+            return
+
     draft = {
         "form_2d": copy.deepcopy(ctx.state.form_2d),
         "form_3d": copy.deepcopy(ctx.state.form_3d),
-        "source": ctx.state.source_job if outgoing is None else outgoing[0],
-        "selected": ctx.state.selected if outgoing is None else outgoing[1],
+        "source": source,
+        "selected": selected,
     }
     state.drafts[state.workspace] = draft
     if len(state.drafts) > MAX_DRAFTS:
@@ -112,6 +134,36 @@ def resume(ctx: Any, job: dict[str, Any]) -> None:
     state.reference_path_checked = False
 
 
+def _rekey_legacy(ctx: Any) -> None:
+    """Follow a legacy creation whose root moved under the tray.
+
+    The 2026-10-04 audit, finding create-30: a legacy family's key is its
+    smallest member, so loading older history can bring in a sibling that sorts
+    lower and the key the tray holds names nothing. Stamped rows no longer move
+    it (``build_index`` ranks a stamped node first); this is the route with no
+    stamp to pin it. The selection still belongs to the family, so the key is
+    re-derived from it, and the draft filed under the dead key goes with it.
+    Only a legacy spelling is followed: a ``creation:`` key is a fresh
+    creation's own id and never drifts.
+    """
+    state = ctx.state.create
+    workspace = state.workspace
+    if workspace is None or not workspace.startswith(families.LEGACY_ROOTS):
+        return
+    if state.workspace_selection is None:
+        return
+    found = index(ctx)
+    if workspace in found.families:
+        return
+    key = found.by_job.get(str(state.workspace_selection))
+    if key is None or key == workspace:
+        return
+    if workspace in state.drafts:
+        draft = state.drafts.pop(workspace)
+        state.drafts.setdefault(key, draft)
+    state.workspace = key
+
+
 def sync(ctx: Any) -> None:
     selected = getattr(ctx.state, "selected", None)
     state = ctx.state.create
@@ -120,6 +172,7 @@ def sync(ctx: Any) -> None:
         if job is not None:
             resume(ctx, job)
         state.workspace_selection = selected
+    _rekey_legacy(ctx)
     save_draft(ctx)
     state.synced = (ctx.state.source_job, ctx.state.selected)
 

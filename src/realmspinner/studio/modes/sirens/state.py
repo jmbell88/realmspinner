@@ -189,7 +189,9 @@ class SongTab(docmodes.DocTab):
     #: went on showing a mix that disagreed with the mask.
     muted: set[int] = field(default_factory=set)
     solo: int = -1
-    # Bumped once, where a render is adopted. Playback keys on it.
+    # Bumped once, where a render is adopted. It only *names* the render a
+    # ``Sounding`` was stamped from; nothing reads it as a freshness check
+    # (playback keys on ``sirens_audio``'s tag -- see the module docstring).
     render_generation: int = 0
     # A render is in flight. Separate from ``saving`` because a re-render does
     # not stop the user editing -- it only means the audio is a beat behind.

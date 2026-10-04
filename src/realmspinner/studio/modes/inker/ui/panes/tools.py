@@ -14,6 +14,7 @@ from imgui_bundle import imgui
 
 from ......kernels import pixel as inker
 from ......kernels.pixel import nineslice
+from ......kernels.pixel.slices import SliceKey
 from ..... import anchors, controls, docmodes, icons, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -466,7 +467,10 @@ def _options(ctx: Any, state: Any, tab: Any) -> None:
     # walking, and the gate the canvas, the timeline and the keyboard already
     # share is one question with two answers behind it (``busy`` is ``saving or
     # playing``). Asking it once here is what stops a third reason being added
-    # in one place and forgotten in nine.
+    # in one place and forgotten in nine. Grouped so the hover says why it is
+    # greyed (the 2026-10-03 audit, finding inker-64: the bare wrap dimmed every
+    # panel here with no sentence for a user playing a clip).
+    imgui.begin_group()
     imgui.begin_disabled(tab.busy)
 
     if tool in STAMP_TOOLS | PATTERN_TOOLS:
@@ -522,6 +526,8 @@ def _options(ctx: Any, state: Any, tab: Any) -> None:
     if _has_options(tool):
         _presets(ctx, state)
     imgui.end_disabled()
+    imgui.end_group()
+    inker_colors.busy_reason(tab)
 
     # Free transform is the Edit menu's row and Ctrl+T, and its live handles
     # are the context bar's Transformation state. The button that used to be
@@ -603,7 +609,10 @@ def _slices(ctx: Any, state: Any, tab: Any) -> None:
     if changed:
         state.show_slices = value
 
-    imgui.begin_disabled(tab.busy)
+    # No ``begin_disabled(tab.busy)`` of its own: the only caller is
+    # ``_options``, whose block is already greyed on ``tab.busy`` and says why
+    # on hover (the 2026-10-03 audit, finding inker-64). A second grey-and-say
+    # wrap here drew the same tooltip twice.
     if not doc.slices:
         widgets.muted("No slices yet.")
     for entry in list(doc.slices):
@@ -617,7 +626,34 @@ def _slices(ctx: Any, state: Any, tab: Any) -> None:
     chosen = doc.slice_by_uid(state.slice_uid)
     if chosen is not None:
         _slice_options(ctx, state, tab, chosen)
-    imgui.end_disabled()
+
+
+def _set_slice_field(doc: Any, entry: Any, frame_uid: int | None, **fields: Any) -> bool:
+    """Write the Pivot or Nine-slice toggle into what the panel is *showing*.
+
+    The 2026-10-03 audit, finding inker-52: the two ticks read their state off
+    ``entry.at(frame_uid)`` -- the frame's own key on a keyed frame -- but wrote
+    through ``doc.set_slice(pivot=...)``, which sets the base rectangle's field.
+    On a keyed frame the box stayed unticked and the frame did not change, while
+    the base (and every unkeyed frame) silently gained the pivot or the centre.
+    ``slices._slice_drag`` already moves whatever the overlay draws; this is
+    the same rule for the toggles. A fresh frozen key in a fresh dictionary, as
+    that drag does, because the undo step is holding the old one.
+    """
+    if frame_uid is not None and frame_uid in entry.keys:
+        key = entry.keys[frame_uid]
+        return doc.set_slice(
+            entry.uid,
+            keys={
+                **entry.keys,
+                frame_uid: SliceKey(
+                    key.bounds,
+                    fields.get("pivot", key.pivot),
+                    fields.get("center", key.center),
+                ),
+            },
+        )
+    return doc.set_slice(entry.uid, **fields)
 
 
 def _slice_options(ctx: Any, state: Any, tab: Any, entry: Any) -> None:
@@ -648,8 +684,10 @@ def _slice_options(ctx: Any, state: Any, tab: Any, entry: Any) -> None:
         # comment claiming "the centre of the slice" over code that had
         # already been planting the feet; the code was right and the comment
         # was not.
-        doc.set_slice(
-            entry.uid,
+        _set_slice_field(
+            doc,
+            entry,
+            frame_uid,
             pivot=None if not value else ((x1 - x0) / 2.0, float(y1 - y0)),
         )
     widgets.help_marker(
@@ -661,8 +699,10 @@ def _slice_options(ctx: Any, state: Any, tab: Any, entry: Any) -> None:
     if changed:
         # A third in from each edge: the conventional starting nine-patch, and
         # the one shape that is obviously editable rather than degenerate.
-        doc.set_slice(
-            entry.uid,
+        _set_slice_field(
+            doc,
+            entry,
+            frame_uid,
             center=None
             if not value
             else (

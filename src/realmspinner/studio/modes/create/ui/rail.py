@@ -9,11 +9,13 @@ Putting the rail's own drawing into ``create_stages`` would have dragged
 imgui into a module whose own docstring promises it imports nothing from it,
 so the rail gets its own file instead of folding into that one.
 
-``create_brief`` measures the rail with :func:`stage_rail_width` before
-drawing anything else on its row (the rail is the row's leftmost element and
-shares it with the type combo, the prompt, the count and Generate); ``main``'s
-``App._stage_rail`` builds the live ``items``/``done`` from a job and calls
-:func:`stage_rail` to actually draw it.
+``create_brief.draw`` hands the header's rail to ``App._stage_rail`` (the rail
+now holds the header alone, with New and Inspector beside it), which builds the
+live ``items``/``done`` from a job and calls :func:`stage_rail` to draw it.
+:func:`stage_rail_width` has no caller in ``src``: it is the measuring seam the
+tests fit the ladder against, kept because it shares :func:`_rail_fit` with the
+drawn rail (the 2026-10-04 audit, finding create-61, struck the claim that the
+brief measured with it).
 """
 
 from __future__ import annotations
@@ -45,11 +47,11 @@ def _rail_fit(
     draws it) and :func:`stage_rail_width` (which only wants the number).
 
     Factored out rather than left inline, and rather than reimplemented at the
-    second call site: ``create_brief._row_widths`` needs to know how wide the
-    rail wants to be *before* the rail is drawn -- it is the row's leftmost
-    element now, sharing one line with the type combo, the prompt, the count
-    and Generate -- and a second copy of ``faces``/``measure`` is exactly how
-    the two numbers would drift the day either rung changes. Must run inside
+    second call site: a caller that wants to know how wide the rail would be
+    *before* it is drawn (``stage_rail_width``; the brief row's old width
+    ladder was one, and has since been deleted) must not carry a second copy
+    of ``faces``/``measure``, which is exactly how the two numbers would drift
+    the day either rung changes. Must run inside
     ``fonts.label(imgui)``, as both callers already do: ``calc_text_size``
     reads the currently pushed font.
 
@@ -98,13 +100,13 @@ def stage_rail_width(
     """What :func:`stage_rail` would measure for ``items`` at this budget --
     without drawing anything.
 
-    ``create_brief._row_widths`` calls this to learn how much of the row the
-    rail wants before deciding how much of the row everyone else keeps: the
-    rail used to own the whole width of its own bar and could size itself with
-    no help from a caller, but sharing a row means something else now has to
-    ask. Sharing :func:`_rail_fit` with :func:`stage_rail` rather than
-    guessing a constant (304 was one, and wrong the moment a label changed) is
-    what keeps this answer and the one actually drawn from disagreeing.
+    For a caller that has to know how much of a shared row the rail wants
+    before deciding how much everyone else keeps. The brief row's width ladder
+    was the caller and is gone; the header now holds the rail alone, so only
+    tests call this (``test_audit_2026_09_26_w1f5_modes_create``). Sharing
+    :func:`_rail_fit` with :func:`stage_rail` rather than guessing a constant
+    (304 was one, and wrong the moment a label changed) is what keeps this
+    answer and the one actually drawn from disagreeing.
 
     Needs an active imgui context the way :func:`stage_rail` does --
     ``calc_text_size`` inside ``fonts.label`` -- and nothing else: no GL, no
@@ -174,17 +176,16 @@ def stage_rail(
        full-strength text against a not-yet-reached segment's 0.55.
     3. Icons, each keeping its label in a tooltip.
 
-    ``row_height``, added when the rail moved onto Create's command bar
-    (2026-09-07): the rail's own content is one line, ``get_text_line_height()
-    + 2 * sp(6)`` tall, roughly 25 dp at the default font -- short beside the
-    40 dp prompt and
-    Generate it now shares a line with. Handing a taller ``row_height`` does
-    **not** stretch the track to fill it (a pill rail the height of a text
-    field reads as broken, not tall); it centres the rail's own natural-height
-    content inside the reserved band instead, the same way a short glyph
-    button sits centred beside a full-height field. ``None`` (every other
-    caller) keeps the old behaviour: the reserved height *is* the content
-    height.
+    ``row_height``, added when the rail shared Create's command bar
+    (2026-09-07) with a 40 dp prompt and Generate: the rail's own content is
+    one line, ``get_text_line_height() + 2 * sp(6)`` tall, roughly 25 dp at the
+    default font. Handing a taller ``row_height`` does **not** stretch the track
+    to fill it (a pill rail the height of a text field reads as broken, not
+    tall); it centres the rail's own natural-height content inside the reserved
+    band instead. The bar no longer shares its row, so ``create_brief.draw``
+    passes none and ``None`` (the live caller) keeps the reserved height equal
+    to the content height; the argument stays for ``App._stage_rail``'s
+    pass-through and the tests that centre against it.
     """
     draw = imgui.get_window_draw_list()
     pad_y = sp(6)

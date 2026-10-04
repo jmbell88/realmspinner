@@ -27,6 +27,7 @@ own package pin requires.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -90,7 +91,15 @@ def _point(value: Any) -> tuple[float, float] | None:
     if value is None:
         return None
     x, y = value  # a wrong length raises here, which is what the caller catches
-    return (float(x), float(y))
+    x, y = float(x), float(y)
+    if not (math.isfinite(x) and math.isfinite(y)):
+        # The 2026-10-03 audit's packwright-14: ``float()`` accepts ``inf``/``nan``
+        # and the manifest then wrote the literal tokens ``Infinity``/``NaN``,
+        # which ``read_rpack`` refuses -- an atlas this app authored and could
+        # not reopen. A ``ValueError`` is what the caller already catches to
+        # cost the pivot rather than the sprite.
+        raise ValueError("a pivot must be a finite number")
+    return (x, y)
 
 
 def _rect(value: Any) -> tuple[int, int, int, int] | None:

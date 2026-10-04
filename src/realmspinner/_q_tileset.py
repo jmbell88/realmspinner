@@ -241,8 +241,13 @@ class TileSetOps:
         # and the door stores the result rather than making the worker guess
         # which derivation it used.
         seed = int(params.get("seed", 42))
-        style_lock = bool(block.get("style_lock"))
         count = len(subjects)
+        # The effective lock, not the stored flag: ``service.tilesheets.
+        # effective_style_lock``'s rule (``queue.py`` may not import service),
+        # so the one-cell sheet that ran no lock does not record one. The
+        # 2026-10-03 audit (plotter-23) found its sidecar claiming
+        # ``style_lock: true`` for a sheet that was never conditioned.
+        style_lock = bool(block.get("style_lock")) and count > 1
 
         base_key = self._resolve_base_key(params, default="sdxl_cfg")
         spec = models.BASE_MODELS[base_key]
@@ -326,7 +331,7 @@ class TileSetOps:
             # pixel-sheet and sprite-synthesis doors did.
             try:
                 composed = [guidance.compose_prompt(subject, params) for subject in subjects]
-                reports: list[dict[str, Any]] = []
+                reports: list[dict[str, Any] | None] = []
                 for index in range(count):
                     if self._cancel is not None and self._cancel.event.is_set():
                         # Before each pass, not only after the last: every one is
@@ -372,10 +377,12 @@ class TileSetOps:
                         )
                     )
                     # Advisory, never a rejection. ``seam.SEAM_MAX`` was measured
-                    # on turbo at 4 steps and ``seam.py:36-37`` says outright to
-                    # re-measure it per checkpoint, so a CFG base at 30 steps is
-                    # outside the corpus that produced the threshold. The number
-                    # goes in the sidecar and on the row; the user decides.
+                    # on turbo at 4 steps and a CFG base at 30 steps is outside
+                    # the corpus that produced it; ``seam.py`` records that later
+                    # corpora (cfg, and the pixelxl LoRA) overlapped rather than
+                    # moved it -- a limit of the statistic, so re-measuring per
+                    # checkpoint is a settled question, not an open one. The
+                    # number goes in the sidecar and on the row; the user decides.
                     if block.get("seam_erase"):
                         # The seam, made visible and redrawn: roll by half so
                         # the wrap join is a cross through the centre, inpaint
@@ -405,7 +412,11 @@ class TileSetOps:
                             "seam measurement failed for material %d of job %s",
                             index, job_id,
                         )
-                        reports.append({})
+                        # ``None``, not ``{}``: an empty report read back below
+                        # as ``worst: 0.0, seamless: False`` -- the best possible
+                        # score for a measurement that never ran (the 2026-10-03
+                        # audit, service-29).
+                        reports.append(None)
             finally:
                 # Every reference dropped before the reclaim, which is why the
                 # decode below happens after this and not inside the try.
@@ -524,14 +535,17 @@ class TileSetOps:
             with contextlib.suppress(OSError):
                 out_tmp.unlink(missing_ok=True)
 
+        # A material whose measurement raised is ``None`` here and records an
+        # absent ``worst``/``seamless`` rather than a perfect 0.0 (service-29).
         seams = [
             {
                 "index": index,
-                "worst": float(report.get("worst", 0.0)),
-                "seamless": bool(report.get("seamless", False)),
+                "worst": None if report is None else float(report.get("worst", 0.0)),
+                "seamless": None if report is None else bool(report.get("seamless", False)),
             }
             for index, report in enumerate(reports)
         ]
+        measured_worst = [e["worst"] for e in seams if e["worst"] is not None]
         recipe: dict[str, Any] = {
             "base_model": base_key,
             "seed": seed,
@@ -548,8 +562,9 @@ class TileSetOps:
             "seam_erase": bool(block.get("seam_erase")),
             "seams": seams,
             # The worst material decides, because a set is only as seamless as
-            # the tile somebody notices.
-            "seam_worst": max((entry["worst"] for entry in seams), default=0.0),
+            # the tile somebody notices. ``None`` when nothing was measured:
+            # 0.0 would be the best possible score for a run that never ran.
+            "seam_worst": max(measured_worst) if measured_worst else None,
             "seam_threshold": seam.SEAM_MAX,
             # Empty unless a palette was named or dither asked for, so a set
             # drawn the way every set before today was drawn writes the sidecar

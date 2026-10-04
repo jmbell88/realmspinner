@@ -352,3 +352,112 @@ def _with_colour(material: Any, rgba: tuple[float, ...]) -> Any:
     import dataclasses
 
     return dataclasses.replace(material, base_color_factor=rgba)
+
+
+# --- export .blend and save screenshot ---------------------------------------
+
+
+def _blender_stub(monkeypatch: pytest.MonkeyPatch, *, ok: bool = True) -> list[bytes]:
+    from realmspinner.pipelines import clay_blender
+
+    sent: list[bytes] = []
+    why = "" if ok else "Needs Blender, which is not installed."
+    monkeypatch.setattr(clay_blender, "available", lambda: (ok, why))
+
+    def fake(glb: bytes, **_k: Any) -> bytes:
+        sent.append(glb)
+        return b"BLENDER-v500"
+
+    monkeypatch.setattr(clay_blender, "blend_bytes", fake)
+    return sent
+
+
+def test_export_mesh_file_blend_hands_blender_the_documents_glb(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from realmspinner.kernels.geom3d import gltf as gltf_mod
+
+    sent = _blender_stub(monkeypatch)
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    out = tmp_path / "scene"  # no suffix: the extension is appended, as for GLB/OBJ
+    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: out)
+
+    clay_mode.export_mesh_file(ctx, tab, "blend")
+    clay_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
+
+    assert (tmp_path / "scene.blend").read_bytes() == b"BLENDER-v500"
+    assert gltf_mod.load(sent[0]).nodes
+    assert any("Exported to" in m for m, _ in ctx.toasts)
+
+
+def test_export_mesh_file_blend_cancelled_picker_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = _blender_stub(monkeypatch)
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: None)
+
+    clay_mode.export_mesh_file(ctx, tab, "blend")
+
+    assert ctx.result is None
+    assert not sent, "a cancelled dialog must not start Blender"
+
+
+def test_export_mesh_file_blend_without_blender_is_a_toast_not_a_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blender_stub(monkeypatch, ok=False)
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+
+    clay_mode.export_mesh_file(ctx, tab, "blend")
+
+    assert not ctx.submitted
+    assert any(level == "error" and "Blender" in m for m, level in ctx.toasts)
+    assert not tab.saving
+
+
+class _FakeView:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def render_png(self, doc: Any, **kwargs: Any) -> bytes:
+        self.calls.append(kwargs)
+        return b"\x89PNG-test"
+
+
+def test_save_screenshot_draws_through_the_live_camera_and_writes_the_png(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = FakeCtx()
+    ctx.clay_view = _FakeView()
+    tab = _tab(ctx)
+    out = tmp_path / "shot"
+    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: out)
+
+    clay_mode.save_screenshot(ctx, tab)
+    clay_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
+
+    assert (tmp_path / "shot.png").read_bytes() == b"\x89PNG-test"
+    # frame=False is the whole point: the picture is the view the user posed,
+    # not a reframed one.
+    assert ctx.clay_view.calls == [
+        {"size": clay_mode.SCREENSHOT_SIZE, "frame": False, "shading": "lit"}
+    ]
+
+
+def test_save_screenshot_refuses_when_nothing_is_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = FakeCtx()
+    ctx.clay_view = _FakeView()
+    doc = bd.ClayDoc()
+    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
+    tab = clay_mode.adopt(ctx, doc, title="Scene")
+    doc.set_props(obj.uid, visible=False)
+
+    clay_mode.save_screenshot(ctx, tab)
+
+    assert not ctx.submitted
+    assert not ctx.clay_view.calls
+    assert any(level == "error" for _m, level in ctx.toasts)

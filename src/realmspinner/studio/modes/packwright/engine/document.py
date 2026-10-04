@@ -20,7 +20,9 @@ nothing anywhere to say so.
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
+import math
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -43,6 +45,26 @@ MISSING_SOURCE = "that source is not in this pack"
 # be true: a name typed into the field is bounded by the widget, and a name that
 # arrived in a hand-edited manifest is not bounded by anything.
 MAX_NAME_LEN = 64
+
+#: The bound on a *display* name read from a manifest: a sprite's own name is
+#: its file's stem (or a library asset's name), which may run past the 64 a
+#: typed override is held to, but not past what a filesystem allows.
+MAX_DISPLAY_NAME_LEN = 255
+
+
+def check_name(name: str, limit: int = MAX_NAME_LEN) -> None:
+    """The rename door's rules, in one place so the ``.rpack`` reader can ask
+    the same questions of a name that arrives in a hand-edited manifest (the
+    2026-10-03 audit's packwright-15).
+
+    A name lands verbatim in the TexturePacker sidecar's ``filename`` and in a
+    ``.tsx``, read by other programs, so a path separator or a control
+    character in it means something else once it leaves here.
+    """
+    if len(name) > limit:
+        raise ValueError(f"a sprite name is at most {limit} characters")
+    if any(ch in name for ch in "/\\") or any(ch < " " for ch in name):
+        raise ValueError("a sprite name cannot hold a path separator or a control character")
 
 
 def new_uid() -> int:
@@ -227,6 +249,28 @@ class PackDoc:
         self.settings = settings or PackSettings()
         self.history = UndoStack()
         self.saved_head = 0
+        # The 2026-10-03 audit's packwright-05: key lookup, uid lookup and the
+        # pixel total were each a scan of every source held, asked once per
+        # sprite of a batch -- so a 4096-tile Import was quadratic and froze
+        # the window for 1.8 s. Kept incrementally by ``_attach``/``_detach``/
+        # ``_apply_sprite``, the only three places a source enters, leaves or
+        # changes size; ``_index`` rebuilds if ``sources`` was edited by hand
+        # (the length gives it away).
+        self._by_key: dict[str, Source] = {}
+        self._by_uid: dict[int, Source] = {}
+        self._pixel_total = 0
+        self._reindex()
+
+    def _reindex(self) -> None:
+        self._by_key = {entry.key: entry for entry in self.sources}
+        self._by_uid = {entry.uid: entry for entry in self.sources}
+        self._pixel_total = sum(
+            entry.sprite.width * entry.sprite.height for entry in self.sources
+        )
+
+    def _index(self) -> None:
+        if len(self._by_uid) != len(self.sources):
+            self._reindex()
 
     # -- identity ------------------------------------------------------------
 
@@ -242,10 +286,13 @@ class PackDoc:
     # -- lookup --------------------------------------------------------------
 
     def source(self, uid: int) -> Source | None:
-        for entry in self.sources:
-            if entry.uid == uid:
-                return entry
-        return None
+        self._index()
+        return self._by_uid.get(uid)
+
+    def source_by_key(self, key: str) -> Source | None:
+        """The source holding ``key``, or ``None``. O(1): see ``__init__``."""
+        self._index()
+        return self._by_key.get(key)
 
     def index_of(self, uid: int) -> int:
         for index, entry in enumerate(self.sources):
@@ -254,7 +301,7 @@ class PackDoc:
         raise ValueError(MISSING_SOURCE)
 
     def has_key(self, key: str) -> bool:
-        return any(entry.key == key for entry in self.sources)
+        return self.source_by_key(key) is not None
 
     def total_pixels(self) -> int:
         """The sum of every held source's decoded pixel count -- what
@@ -262,7 +309,8 @@ class PackDoc:
         audit's packwright-01: nothing tracked this sum before, so a document
         already near ``rpack.MAX_DOCUMENT_PIXELS`` had no way to refuse the
         next sprite that would push it over."""
-        return sum(entry.sprite.width * entry.sprite.height for entry in self.sources)
+        self._index()
+        return self._pixel_total
 
     def sprites(self) -> list[Sprite]:
         """Every sprite, in canonical key order, wearing its display name.
@@ -364,8 +412,24 @@ class PackDoc:
             self.total_pixels() - source.sprite.width * source.sprite.height, sprite
         )
         before = source.sprite
-        if before.pixels.shape == sprite.pixels.shape and np.array_equal(
-            before.pixels, sprite.pixels
+        # **The document owns a pivot the incoming sprite does not carry**, and
+        # the comparison below is over the pixels *and* the metadata. The
+        # 2026-10-03 audit's packwright-06: a loose PNG has an empty ``meta``,
+        # so re-adding an edited file swapped it in wholesale and silently
+        # wiped the pivot the user set in the Sources pane (the next export
+        # carried 0.5/0.5 under a plain "Updated 1 sprite"); and identical
+        # pixels with a changed producer pivot or slice -- an Inker edit -- hit
+        # the pixels-only early return as "unchanged", so that edit could never
+        # be picked up by re-adding. A pivot the producer *does* name wins, which
+        # is what "re-adding is how you pick up a change" means for it.
+        if sprite.meta.pivot is None and before.meta.pivot is not None:
+            sprite = dataclasses.replace(
+                sprite, meta=dataclasses.replace(sprite.meta, pivot=before.meta.pivot)
+            )
+        if (
+            before.pixels.shape == sprite.pixels.shape
+            and sprite.meta == before.meta
+            and np.array_equal(before.pixels, sprite.pixels)
         ):
             return
         self.history.push(SourceReplaceEdit(uid=int(uid), before=before, after=sprite))
@@ -390,13 +454,17 @@ class PackDoc:
         sprite with the same key and the same pixels, applied through the same
         ``_apply_sprite`` a replacement uses.
         """
-        import dataclasses
-
         source = self.source(uid)
         if source is None:
             raise ValueError(MISSING_SOURCE)
         before = source.sprite
         spot = None if pivot is None else (float(pivot[0]), float(pivot[1]))
+        if spot is not None and not all(math.isfinite(v) for v in spot):
+            # The 2026-10-03 audit's packwright-14: ``inf``/``nan`` were accepted,
+            # the manifest wrote the literal tokens ``Infinity``/``NaN``, and
+            # ``read_rpack`` (whose ``_read_point`` refuses them) could not
+            # reopen the file this app had just saved.
+            raise ValueError("a pivot must be a finite number")
         if before.meta.pivot == spot:
             return
         after = dataclasses.replace(
@@ -419,12 +487,7 @@ class PackDoc:
         if source is None:
             raise ValueError(MISSING_SOURCE)
         after = str(name)
-        if len(after) > MAX_NAME_LEN:
-            raise ValueError(f"a sprite name is at most {MAX_NAME_LEN} characters")
-        if any(ch in after for ch in "/\\") or any(ch < " " for ch in after):
-            raise ValueError(
-                "a sprite name cannot hold a path separator or a control character"
-            )
+        check_name(after)
         if after == source.name_override:
             return
         self.history.push(SourceRenameEdit(uid=int(uid), before=source.name_override, after=after))
@@ -480,12 +543,21 @@ class PackDoc:
         self._apply_settings(after)
 
     def _attach(self, source: Source, index: int) -> None:
+        self._index()
         self.sources.insert(index, source)
+        self._by_key[source.key] = source
+        self._by_uid[source.uid] = source
+        self._pixel_total += source.sprite.width * source.sprite.height
 
     def _detach(self, source: Source) -> None:
+        self._index()
         for index, entry in enumerate(self.sources):
             if entry is source:
                 del self.sources[index]
+                if self._by_key.get(source.key) is source:
+                    del self._by_key[source.key]
+                self._by_uid.pop(source.uid, None)
+                self._pixel_total -= source.sprite.width * source.sprite.height
                 return
         raise ValueError(MISSING_SOURCE)
 
@@ -493,6 +565,8 @@ class PackDoc:
         source = self.source(uid)
         if source is None:
             raise ValueError(MISSING_SOURCE)
+        self._pixel_total += sprite.width * sprite.height
+        self._pixel_total -= source.sprite.width * source.sprite.height
         source.sprite = sprite
 
     def _apply_name(self, uid: int, name: str) -> None:

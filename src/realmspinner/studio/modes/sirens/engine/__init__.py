@@ -14,12 +14,15 @@ The modules, in dependency order:
 
 ``notes``        note numbers, names and frequencies
 ``instruments``  the per-tick sequences an instrument is made of
+``envelope``     the arithmetic of editing one of those sequences
 ``voices``       the oscillators, as pure functions over sample arrays
 ``document``     the song: channels, patterns, order, one-shots, history
 ``edits``        the reversible steps over it
 ``synth``        the tick loop that turns a document into samples
-``wavout``       16-bit PCM WAV, with loop points
 ``rsng``         the ``.rsng`` container
+
+16-bit PCM WAV with loop points is not here: ``wavout`` has been
+``kernels/audio/wavout.py`` since P3, shared with the other audio modes.
 """
 
 from __future__ import annotations

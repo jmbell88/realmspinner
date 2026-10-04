@@ -42,9 +42,19 @@ def _composite_onto(layer: Any, base: np.ndarray, crop: np.ndarray) -> np.ndarra
     out and forget the lock: a paste onto an alpha-locked layer wrote alpha.
     "Preserve transparency" is exactly *the alpha does not change*, which is
     ``masked_apply``'s rule, so the channel is put back after the blend.
+
+    **RGB too where the base pixel was fully transparent** (a follow-up to the
+    2026-10-03 audit's inker-49, which fixed this for fills, gradients, shapes
+    and filters and missed the landing): ``over`` onto an alpha-0 pixel yields
+    the pasted colour, and restoring the alpha alone left that colour hidden
+    under transparency -- invisible, but a real byte difference that returns the
+    moment the lock comes off, and a step pushed for a paste that changed
+    nothing visible.
     """
     merged = cp.to_uint8(cp.over(cp.to_float(base), cp.to_float(crop)))
     if getattr(layer, "alpha_lock", False):
+        hidden = base[..., 3:4] == 0
+        merged[..., :3] = np.where(hidden, base[..., :3], merged[..., :3])
         merged[..., 3] = base[..., 3]
     return merged
 
@@ -325,9 +335,10 @@ class SelectionOps:
         subject is in four places at once. Deliberate for T-B v1.
 
         **Deliberately not refused by the content lock.** A buffer floats for as
-        long as the user leaves it floating -- across layer switches, frame
-        steps and the panel's lock checkbox -- and every save, every geometry op
-        and every structural op commits it first. So refusing here would not
+        long as the user leaves it floating -- across the panel's lock checkbox
+        and lock toggles; selecting another layer or stepping to another frame
+        commits it first (``set_active_layer``, ``set_current_frame``), as does
+        every save, every geometry op and every structural op. So refusing here would not
         protect the pixels; it would wedge the document, leaving a buffer that
         can neither land nor be saved. See ``LayerOps.write_locked``.
         """
@@ -341,8 +352,10 @@ class SelectionOps:
             self.rev += 1
             return True
         # Keyed by the buffer's own layer, not the active one: a paste chooses
-        # its target when it is made, and the user may have selected another row
-        # while it floated.
+        # its target when it is made. (Selecting another row or frame commits
+        # the float first, so today the two agree; the uid is the address the
+        # undo stack uses everywhere, and a path that moved the selection
+        # without committing would still land on the right cel.)
         self._ensure_cel_for(floating.layer_uid)
         layer = self.stack.by_uid(floating.layer_uid)
         x0, y0, x1, y1 = box

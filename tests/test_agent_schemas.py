@@ -35,7 +35,7 @@ here with nobody having to remember to extend a list for it.
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
 ``exclusiveMinimum`` reproduces an independently measured count exactly:
-267/56/50/56/40/38/26/23/25/14/3/2 respectively (600 total) -- see
+269/56/50/56/40/38/26/23/27/14/3/2 respectively (604 total) -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
 it covers is checked rather than asserted. Two of those twelve keywords,
@@ -1587,7 +1587,7 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 267,
+        "type": 269,
         "additionalProperties": 56,
         "properties": 50,
         "items": 56,
@@ -1595,7 +1595,7 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         "minItems": 38,
         "enum": 26,
         "maxItems": 23,
-        "minimum": 25,
+        "minimum": 27,
         "maximum": 14,
         "anyOf": 3,
         "exclusiveMinimum": 2,
@@ -1710,8 +1710,13 @@ def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> 
     ``clay_export``'s own +2 (its new ``engine`` property) are each derived
     the same way every tool above is, in that same module docstring
     paragraph. 20 + 10 + 4 + 2 = 36, and 422 + 36 = 458.
+
+    The 2026-10-03 audit's clay-22: ``clay_scene`` gained optional ``offset``
+    (``type``, ``minimum: 0``) and ``limit`` (``type``, ``minimum: 1``) so a
+    document too large for one reply can be read in pages. Two new properties,
+    two walk cases each: 458 + 4 = 462.
     """
-    assert len(_ALL_CASES) == 458
+    assert len(_ALL_CASES) == 462
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------

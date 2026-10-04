@@ -19,6 +19,7 @@ from ..... import controls, docmodes, icons, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as packwright_mode
+from . import textures as packwright_textures
 
 
 def draw(ctx: Any) -> None:
@@ -113,7 +114,7 @@ TILESET_POPUP = "packwright-tileset-import"
 #: parked at a time (``PackwrightState.tileset_import`` is a single slot), so
 #: a bare prefix sweep is enough to forget it -- ``packwright_textures``'s
 #: rule, shrunk to one entry.
-_SLICE_TEX_PREFIX = "packwright_tileset_slice:"
+_SLICE_TEX_PREFIX = packwright_textures.SLICE_PREFIX
 
 #: The last occupancy grid the slice preview drew, and the ``(id(pixels),
 #: tile)`` it was drawn for. Module-level rather than on ``PackwrightState``:
@@ -239,6 +240,17 @@ def _hatch(
     draw.pop_clip_rect()
 
 
+#: The most per-cell marks one preview frame submits: a 64 x 64 grid, already
+#: finer than a popup-sized picture can tell apart.
+_SLICE_MAX_MARKS = 4096
+
+
+def _slice_cells_markable(rows: int, columns: int, step_w: float, step_h: float) -> bool:
+    """Whether outlining every cell is both affordable and legible: at most
+    :data:`_SLICE_MAX_MARKS` of them, each at least 2 screen pixels a side."""
+    return rows * columns <= _SLICE_MAX_MARKS and min(step_w, step_h) >= 2.0
+
+
 def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
     """The sheet with its occupancy grid over it: what Import is about to keep.
 
@@ -282,7 +294,14 @@ def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
     kept_colour = imgui.get_color_u32(theme.rgba(theme.OK, 0.9))
     dropped_colour = imgui.get_color_u32((0.0, 0.0, 0.0, 0.55))
     hatch_colour = imgui.get_color_u32(theme.rgba(theme.WARN, 0.7))
-    for row in range(rows):
+    # **Bounded.** The 2026-10-03 audit's packwright-12: one rect per cell with
+    # no cap, and ``input_int`` reports every keystroke (clamping 0 or empty to
+    # 1), so backspacing the tile-size field on a 4096 px sheet drew a rect per
+    # pixel for real -- ~0.5 s a frame, and a multi-second freeze at 1 x 1.
+    # Past the cap the cells are smaller than a mark can show anyway; the
+    # counts line above the picture still says how many were kept and dropped.
+    cells_marked = _slice_cells_markable(rows, columns, step_w, step_h)
+    for row in range(rows if cells_marked else 0):
         for column in range(columns):
             lo = (origin.x + column * step_w, origin.y + row * step_h)
             hi = (lo[0] + step_w, lo[1] + step_h)
@@ -290,6 +309,8 @@ def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
                 draw.add_rect(lo, hi, kept_colour, 0.0, max(sp(1.5), 1.0))
             else:
                 draw.add_rect_filled(lo, hi, dropped_colour)
+    if not cells_marked:
+        widgets.muted_wrapped("Too many small tiles to outline here -- the counts still hold.")
 
     # The remainder: whatever the grid above does not reach because the sheet's
     # own size leaves less than one tile on the right, the bottom, or both.

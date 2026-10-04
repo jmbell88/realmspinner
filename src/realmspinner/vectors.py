@@ -124,6 +124,9 @@ VECTOR_PARAMS = (
 # Model (mesh) stage only. Image labels stay binary and keep ``grade`` NULL: they
 # feed binary logistic probes, so a grade would be thresholded straight back to a
 # bit, and the two-key loop is what makes a hundred-image pass viable at all.
+# Its dev/measurements document is gone with the backup (confirmed 2026-09-28):
+# re-measure to change. The cut and the backfill below (``USABLE_GRADE``,
+# ``BINARY_GRADES``) are part of the same scale.
 GRADE_MIN, GRADE_MAX = -5, 5
 
 # The one binary cut, and the only threshold in the whole scale. ``verdict`` TEXT

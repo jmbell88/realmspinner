@@ -507,7 +507,12 @@ def process_event(event: Any) -> bool:
         # is how Shift+Tab stops going backwards.
         if event.key in _MODIFIER_MAP:
             io.add_key_event(_MODIFIER_MAP[event.key], down)
-        if event.key in _KEY_MAP and _forwards(event, io):
+        # Only a *press* is gated. A release is harmless to any surface, and gating
+        # it too stranded a nav key pressed before a surface reserved the arrows and
+        # released after: imgui never saw it come up, held it down, and auto-repeated
+        # its navigation until the reservation lifted (the 2026-10-03 audit's
+        # shell-48).
+        if event.key in _KEY_MAP and (not down or _forwards(event, io)):
             io.add_key_event(_KEY_MAP[event.key], down)
         return False
     return False

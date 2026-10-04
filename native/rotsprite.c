@@ -10,7 +10,7 @@
  * affine path (src/libImaging/Geometry.c, ImagingTransformAffine's nearest
  * branch) operand for operand, because that is what the numpy reference calls
  * through PIL.Image.rotate. A future Pillow whose affine_fixed rounds
- * differently is meant to fail tests/inker/test_rotsprite_native.py, not to
+ * differently is meant to fail tests/modes/inker/test_rotsprite_native.py, not to
  * silently drift from this file.
  *
  * Scratch layout (see realmspinnerc_rotsprite_u8 in realmspinnerc.h for the contract):

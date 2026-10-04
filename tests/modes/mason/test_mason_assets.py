@@ -116,7 +116,7 @@ def test_resolving_a_primitive_synchronously_does_not_move_rev() -> None:
 def test_adopting_a_library_parse_moves_rev() -> None:
     ctx = _Ctx(Path("."))
     source = mason_assets.ensure(ctx)
-    ref = mason_refs.LibraryRef(job_id="job1", artifact="model.glb")
+    ref = mason_refs.LibraryRef(job_id="0000000000a1", artifact="model.glb")
     before = source.rev
 
     node = gltf.Node(mesh=0)
@@ -127,7 +127,7 @@ def test_adopting_a_library_parse_moves_rev() -> None:
     model = gltf.Model([node], [0], [[prim]], [])
 
     assert source.primitives(ref) == []
-    task_key = f"{mason_assets.TASK_PREFIX}job1:model.glb"
+    task_key = f"{mason_assets.TASK_PREFIX}0000000000a1:model.glb"
     # ``result`` is what ``_start_library.run`` now hands back -- already
     # baked, per the 2026-09-15 audit's mason-02 (baking moved off the frame
     # thread onto the task thread).
@@ -168,7 +168,7 @@ def test_a_primitive_builder_that_raises_resolves_to_empty_without_raising(
 def test_an_unresolved_library_ref_is_empty_but_not_missing() -> None:
     ctx = _Ctx(Path("."))
     source = mason_assets.ensure(ctx)
-    ref = mason_refs.LibraryRef(job_id="job2", artifact="model.glb")
+    ref = mason_refs.LibraryRef(job_id="0000000000a2", artifact="model.glb")
     prims = source.primitives(ref)
     assert prims == []
     assert mason_refs.ref_key(ref) not in source.missing
@@ -177,9 +177,9 @@ def test_an_unresolved_library_ref_is_empty_but_not_missing() -> None:
 def test_a_library_asset_with_no_such_artifact_is_recorded_missing() -> None:
     ctx = _Ctx(Path("."))  # no job dir on disk at all
     source = mason_assets.ensure(ctx)
-    ref = mason_refs.LibraryRef(job_id="does-not-exist", artifact="model.glb")
+    ref = mason_refs.LibraryRef(job_id="0000000000de", artifact="model.glb")
     source.primitives(ref)
-    task_key = f"{mason_assets.TASK_PREFIX}does-not-exist:model.glb"
+    task_key = f"{mason_assets.TASK_PREFIX}0000000000de:model.glb"
     result, error = ctx.run(task_key)
     assert error is not None
     done = _Done(task_key, ctx.tag_for(task_key), result=result, error=error)
@@ -191,7 +191,7 @@ def test_a_library_asset_with_no_such_artifact_is_recorded_missing() -> None:
 def test_box_is_none_before_resolution() -> None:
     ctx = _Ctx(Path("."))
     source = mason_assets.ensure(ctx)
-    ref = mason_refs.LibraryRef(job_id="job3", artifact="model.glb")
+    ref = mason_refs.LibraryRef(job_id="0000000000a3", artifact="model.glb")
     assert source.box(ref) is None
 
 
@@ -213,7 +213,7 @@ def test_box_is_a_real_aabb_after_resolution_and_not_recomputed_per_call() -> No
 def test_baking_folds_a_node_translation_into_the_positions() -> None:
     ctx = _Ctx(Path("."))
     source = mason_assets.ensure(ctx)
-    ref = mason_refs.LibraryRef(job_id="job4", artifact="model.glb")
+    ref = mason_refs.LibraryRef(job_id="0000000000a4", artifact="model.glb")
 
     node = gltf.Node(translation=np.array([5.0, 0.0, 0.0]), mesh=0)
     prim = gltf.Primitive(
@@ -223,7 +223,7 @@ def test_baking_folds_a_node_translation_into_the_positions() -> None:
     model = gltf.Model([node], [0], [[prim]], [])
 
     source.primitives(ref)
-    task_key = f"{mason_assets.TASK_PREFIX}job4:model.glb"
+    task_key = f"{mason_assets.TASK_PREFIX}0000000000a4:model.glb"
     done = _Done(task_key, ctx.tag_for(task_key), result=mason_assets._bake_model(model))
     mason_assets.on_task_done(ctx, done)
 
@@ -276,16 +276,16 @@ def test_mason_library_asset_bake_runs_on_the_task_thread_not_on_landing(
         mason_assets.sizeguard, "read_bytes_within_ceiling", lambda path, ceiling: b""
     )
 
-    job_dir = tmp_path / "job5"
+    job_dir = tmp_path / "0000000000a5"
     job_dir.mkdir()
     (job_dir / "model.glb").write_bytes(b"")
 
     ctx = _Ctx(tmp_path)
     source = mason_assets.ensure(ctx)
-    ref = mason_refs.LibraryRef(job_id="job5", artifact="model.glb")
+    ref = mason_refs.LibraryRef(job_id="0000000000a5", artifact="model.glb")
     assert source.primitives(ref) == []
 
-    task_key = f"{mason_assets.TASK_PREFIX}job5:model.glb"
+    task_key = f"{mason_assets.TASK_PREFIX}0000000000a5:model.glb"
     result, error = ctx.run(task_key)  # stands in for the task pool running run()
     assert error is None
     assert len(calls) == 1  # baked already, on the "task thread"

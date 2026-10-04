@@ -35,7 +35,13 @@ from .....service.errors import NotFound
 from ....viewer.camera import Camera
 from .. import mode as clay_mode
 from . import program as agent_program
-from .schema import BATCH_MAX, MAX_REFERENCES, MINTS_A_DOCUMENT, RENDER_FRAME_RESERVE
+from .schema import (
+    BATCH_MAX,
+    MAX_NAME_LENGTH,
+    MAX_REFERENCES,
+    MINTS_A_DOCUMENT,
+    RENDER_FRAME_RESERVE,
+)
 from .validate import (
     Session,
     _euler_xyz_from_quat,
@@ -86,7 +92,7 @@ def _move_history(ctx: Any, session: Session, args: dict, *, redo: bool) -> dict
     steps = args.get("steps", 1)
     try:
         steps = int(steps)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fail("steps must be an integer.", field="steps")
     if not (1 <= steps <= 64):
         return fail("steps must be between 1 and 64.", field="steps")
@@ -396,24 +402,36 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
                 f"unknown keys in a batch call entry: {sorted(extra)}.", field="calls"
             )
         name = entry.get("name")
-        if name not in allowed:
+        # isinstance first (the 2026-10-03 audit's agents-16): ``allowed`` is a
+        # set, and a list or object name is unhashable, which raised a bare
+        # ``TypeError`` that only ``call()``'s "failed unexpectedly" backstop
+        # caught, naming no field.
+        if not isinstance(name, str) or name not in allowed:
             return fail(f"{name!r} is not a batchable tool.", field="calls")
         arguments = entry.get("arguments")
         if arguments is not None and not isinstance(arguments, dict):
             return fail("each call's arguments must be an object.", field="calls")
 
-    if not session.tab_uid:
-        first_name = calls[0].get("name")
-        if first_name not in MINTS_A_DOCUMENT:
-            return fail(
-                "This session has no document yet. The first call in a "
-                "batch that starts one must be clay_add_primitive, "
-                "clay_add_figure or clay_add_mesh.",
-                recovery="start_document",
-            )
+    # The 2026-10-03 audit's clay-26: this used to mint only when
+    # ``not session.tab_uid``, but a session whose tab the person closed still
+    # holds the dead uid, so a batch opening with a creator skipped the mint
+    # and was refused with "call clay_add_primitive ... to start a new one"
+    # while that same single call succeeded. A pin naming a tab that no longer
+    # exists counts as no document for this purpose; ``_tab(create=True)``
+    # releases the stale pin itself.
+    first_name = calls[0].get("name")
+    has_tab = bool(session.tab_uid) and clay_mode.ensure(ctx).get(session.tab_uid) is not None
+    if not has_tab and first_name in MINTS_A_DOCUMENT:
         _, failure = _tab(ctx, session, create=True)
         if failure:
             return failure
+    elif not session.tab_uid:
+        return fail(
+            "This session has no document yet. The first call in a "
+            "batch that starts one must be clay_add_primitive, "
+            "clay_add_figure or clay_add_mesh.",
+            recovery="start_document",
+        )
 
     tab, failure = _tab(ctx, session)
     if failure:
@@ -508,7 +526,15 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # past ``protocol.MAX_FRAME``. Checked here, against the *assembled*
     # payload -- after the run, not per-entry -- because it is the sum that
     # travels the wire.
-    over_budget = _over_frame_budget(payload)
+    #
+    # The 2026-10-03 audit's clay-20: every entry has already run and been
+    # kept by here (a successful batch is not rolled back), so the refusal
+    # carries ``changed`` from the fold's own history mark -- ``changed:
+    # false`` plus "try again" made the retry duplicate every edit.
+    over_budget = _over_frame_budget(
+        payload, changed=changed,
+        hint="split the work into smaller clay_batch calls",
+    )
     if over_budget is not None:
         return over_budget
     encoded = json.dumps(payload)
@@ -922,7 +948,14 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
     # MAX_FRAME`` before it reaches the wire twice over (see
     # ``_over_frame_budget``'s own docstring). Checked against the fully
     # assembled payload, the same point ``_h_batch`` checks its own.
-    over_budget = _over_frame_budget(payload)
+    #
+    # ``changed`` rides along for the reason ``_h_batch``'s own check gives
+    # (the 2026-10-03 audit's clay-20): a program that ran to the end is not
+    # rolled back, so its edits stand under this refusal.
+    over_budget = _over_frame_budget(
+        payload, changed=changed,
+        hint="split the program into smaller clay_program calls",
+    )
     if over_budget is not None:
         return over_budget
     encoded = json.dumps(payload)
@@ -935,11 +968,15 @@ def _h_reference_add(ctx: Any, session: Session, args: dict) -> dict:
     """Hand this session a picture from a Library job or inline base64. See
     ``studio/modes/clay/agent/dispatch.py``'s own module docstring's references paragraph and
     ``agent_clay.tools``'s description for the full contract."""
+    from PIL import Image
+
     from . import refs as agent_refs
 
     name = args.get("name")
     if not isinstance(name, str) or not name.strip():
         return fail("name must not be empty.", field="name")
+    if len(name) > MAX_NAME_LENGTH:
+        return fail(f"name must be at most {MAX_NAME_LENGTH} characters.", field="name")
 
     job_id = args.get("job_id")
     png_b64 = args.get("png_base64")
@@ -1024,6 +1061,16 @@ def _h_reference_add(ctx: Any, session: Session, args: dict) -> dict:
         png, width, height = agent_refs.normalise(data)
     except svc_files.ImageTooLarge as error:
         return fail(str(error), field="job_id" if job_id is not None else "png_base64")
+    except (OSError, SyntaxError, Image.DecompressionBombError):
+        # The 2026-10-03 audit's clay-81: valid base64 that is not an image
+        # (``UnidentifiedImageError`` is an ``OSError``), a truncated PNG
+        # (``OSError``, or PIL's ``SyntaxError`` for a broken chunk) and a
+        # decompression bomb all escaped to ``call()``'s "failed
+        # unexpectedly" backstop. A Library job's file can be just as bad.
+        return fail(
+            "that is not an image Clay can read.",
+            field="job_id" if job_id is not None else "png_base64",
+        )
 
     replaced = name in session.references
     if not replaced and len(session.references) >= MAX_REFERENCES:
@@ -1077,7 +1124,9 @@ def _h_reference_get(ctx: Any, session: Session, args: dict) -> dict:
 
     del ctx
     name = args.get("name")
-    ref = session.references.get(name)
+    # isinstance first, as for every enum door (clay-agent-tools-06): a list or
+    # object name is unhashable and raised a bare ``TypeError`` at the lookup.
+    ref = session.references.get(name) if isinstance(name, str) else None
     if ref is None:
         return fail(f"no reference named {name!r}.", field="name")
     meta = {
@@ -1114,7 +1163,7 @@ def _h_reference_get(ctx: Any, session: Session, args: dict) -> dict:
 def _h_reference_remove(ctx: Any, session: Session, args: dict) -> dict:
     del ctx
     name = args.get("name")
-    if name not in session.references:
+    if not isinstance(name, str) or name not in session.references:
         return fail(f"no reference named {name!r}.", field="name")
     del session.references[name]
     return _json({"removed": name})

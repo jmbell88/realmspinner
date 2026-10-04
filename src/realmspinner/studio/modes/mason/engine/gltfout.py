@@ -59,6 +59,7 @@ __all__ = [
     "DEFAULT_NAMES",
     "ExportedNode",
     "SceneExport",
+    "TakenNames",
     "scene_glb",
     "scene_model",
     "unique_name",
@@ -102,6 +103,23 @@ def kind_of(node: Node) -> str:
     return "group"  # pragma: no cover - the node hierarchy is closed
 
 
+class TakenNames(set):
+    """A ``set`` of claimed names that also remembers, per base, the suffix to
+    try next.
+
+    The 2026-10-03 audit's mason-13: :func:`unique_name` restarted every
+    duplicate's probe at ``base.001``, so naming N identically-named nodes was
+    O(N^2) -- 2,000 copies 0.39 s, 8,000 copies 5.67 s, on the frame thread
+    (Export GLB, Export OBJ and Export to the library all name every node). The
+    hint lives on the set because the set is what every caller already threads
+    through one export; a plain ``set`` still works, at the old cost.
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)  # type: ignore[arg-type]
+        self.next_suffix: dict[str, int] = {}
+
+
 def unique_name(base: str, taken: set[str]) -> str:
     """``base``, or the first ``base.001``-style variant nothing has claimed.
 
@@ -112,15 +130,23 @@ def unique_name(base: str, taken: set[str]) -> str:
     named ``Rock.001`` alongside two called ``Rock`` would otherwise have the
     uniquifier generate the name that is already taken, which is the one thing
     it exists not to do.
+
+    With a :class:`TakenNames` the probe resumes from the last suffix this base
+    was given instead of ``.001`` (names are only ever added, so everything
+    below it is still taken); the membership re-check stays, so a literal
+    ``Rock.003`` is still stepped over.
     """
     if base not in taken:
         taken.add(base)
         return base
-    index = 1
+    hints = taken.next_suffix if isinstance(taken, TakenNames) else None
+    index = 1 if hints is None else hints.get(base, 1)
     while True:
         candidate = f"{base}.{index:03d}"
         if candidate not in taken:
             taken.add(candidate)
+            if hints is not None:
+                hints[base] = index + 1
             return candidate
         index += 1
 
@@ -240,7 +266,7 @@ class _Builder:
         #: ``glbwrite._Writer._material_keep`` makes explicit for the same
         #: reason rather than resting it on a caller's object graph.
         self._material_keep: list[gltf.Material] = []
-        self._taken: set[str] = set()
+        self._taken: set[str] = TakenNames()
         #: Path tuple -> index into ``self.nodes``. The parent lookup.
         self._by_path: dict[tuple[int, ...], int] = {}
 

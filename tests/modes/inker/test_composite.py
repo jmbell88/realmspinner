@@ -164,10 +164,10 @@ def test_every_declared_blend_mode_has_a_kernel_id():
     The 2026-09-15 audit, finding inker-08: assert the equality the comment
     already claims.
     """
-    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES) - cp.NATIVE_DECLINED
-    # The declined set is a decision, not an omission: exactly this one, and
-    # what it declines to must still composite (numpy), never as normal.
-    assert {"plus-lighter"} == cp.NATIVE_DECLINED
+    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES)
+    # plus-lighter was the one declined mode until ABI 12 (F15): the kernel has
+    # its case now, so nothing is declined and a glow track keeps a stack native.
+    assert not hasattr(cp, "NATIVE_DECLINED")
 
 
 def test_plus_lighter_is_the_premultiplied_sum_with_the_union_alpha():

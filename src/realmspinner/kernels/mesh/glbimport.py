@@ -2,7 +2,7 @@
 
 The loop the rest of Clay was built to close: ``jobs.import_mesh`` turns a Clay
 document into an ordinary library asset, and this turns an ordinary asset back
-into a Clay document. It goes through :func:`~..viewer.gltf.load`, which already
+into a Clay document. It goes through :func:`~..geom3d.gltf.load`, which already
 composes every node's transform (including the grounding ``normalize_glb``
 inserts under each root), already decodes textures, and already refuses sparse
 accessors and non-triangle modes -- so nothing here re-implements a loader, and
@@ -49,7 +49,7 @@ from . import topo
 from .document import ClayDoc, Obj, new_uid
 from .elements import OpError
 
-__all__ = ["MAX_OBJECTS", "MAX_TRIANGLES", "glb_to_claydoc"]
+__all__ = ["MAX_OBJECTS", "MAX_TRIANGLES", "MAX_VERTICES", "glb_to_claydoc"]
 
 # Above this an import is refused rather than attempted. A Clay document holds
 # every mesh in memory twice per undo step, and the rebuild-per-edit cost is
@@ -64,10 +64,40 @@ MAX_TRIANGLES = 2_000_000
 # mesh a hundred thousand times is a few megabytes of JSON.
 MAX_OBJECTS = 4_096
 
+# The 2026-10-03 audit, finding clay-36: the two ceilings above count triangles
+# and objects but never vertices, and a primitive's POSITION stream can be far
+# longer than anything its indices reach -- a 588-byte GLB declaring a
+# 4,000,000-vertex bufferless POSITION accessor and four instancing nodes took
+# 11.4 s in ``np.unique`` and held 244 MB, with one triangle. Counted as
+# vertex *references* (a primitive's POSITION count, once per node placing
+# it), because every placing node gets a mesh of that many vertices. Three per
+# triangle at the triangle ceiling: a triangle soup of exactly the largest
+# mesh Clay edits still passes, and anything past it is vertex data nothing
+# draws. A new ceiling, not a raised one.
+MAX_VERTICES = 3 * MAX_TRIANGLES
+
 # How closely a corner normal must agree with its face's own normal to count as
 # flat. cos(2.5 degrees); tighter than this and float noise in an exporter's
 # normals reads every flat face as smooth.
 FLAT_COSINE = 0.999
+
+
+def _placed_nodes(model: gltf.Model) -> list[gltf.Node]:
+    """The nodes that name a mesh *and* that the active scene places.
+
+    The 2026-10-03 audit, finding clay-31: this used to be every node in
+    ``model.nodes`` that names a mesh, but ``Model.update_world`` only visits
+    what the scene's roots reach. A node in another scene, or one nobody
+    parents, was imported anyway -- at the identity, with its own translation,
+    rotation and scale dropped -- so a valid multi-scene GLB came in as extra
+    objects stacked at the origin that the file never places.
+    """
+    reached = model.reached
+    return [
+        node
+        for index, node in enumerate(model.nodes)
+        if node.mesh is not None and index in reached
+    ]
 
 
 def _instanced_budget(model: gltf.Model) -> tuple[int, int]:
@@ -83,17 +113,82 @@ def _instanced_budget(model: gltf.Model) -> tuple[int, int]:
     """
     tris = 0
     objects = 0
-    for node in model.nodes:
-        if node.mesh is None:
-            continue
+    for node in _placed_nodes(model):
         for prim in model.meshes[node.mesh]:
             tris += len(prim.indices) // 3
             objects += 1
     return tris, objects
 
 
+def _instanced_vertices(model: gltf.Model) -> int:
+    """Vertex references this GLB will actually build: every placed node times
+    every primitive's POSITION rows (clay-36, see ``MAX_VERTICES``)."""
+    return sum(
+        len(prim.positions) for node in _placed_nodes(model) for prim in model.meshes[node.mesh]
+    )
+
+
+def _declared_reachable(doc: dict, nodes: list) -> set[int] | None:
+    """The node indices the active scene places, read off the JSON alone, or
+    ``None`` when the structure is too odd to say (the caller then counts every
+    node, the old and merely pessimistic answer).
+
+    The 2026-10-03 audit, finding clay-31: the declared budget counted every
+    node naming a mesh, so a multi-scene GLB whose *other* scenes held the
+    bulk of the nodes was refused as a scene it did not place. The same walk
+    ``gltf._roots`` and ``Model.update_world`` make, tolerant of a malformed
+    file because this runs before ``gltf.load``'s own named refusals.
+    """
+    scenes = doc.get("scenes") or []
+    if not isinstance(scenes, list):
+        return None
+    index = doc.get("scene", 0)
+    roots: list | None = None
+    if scenes:
+        if not isinstance(index, int) or isinstance(index, bool):
+            return None
+        if 0 <= index < len(scenes):
+            scene = scenes[index]
+            if not isinstance(scene, dict):
+                return None
+            if "nodes" in scene:
+                roots = scene["nodes"]
+                if not isinstance(roots, list):
+                    return None
+    if roots is None:
+        parented: set[int] = set()
+        for node in nodes:
+            kids = node.get("children") if isinstance(node, dict) else None
+            if isinstance(kids, list):
+                parented.update(k for k in kids if isinstance(k, int))
+        roots = [i for i in range(len(nodes)) if i not in parented]
+    reached: set[int] = set()
+    stack = [r for r in roots if isinstance(r, int)]
+    while stack:
+        i = stack.pop()
+        if i in reached or not 0 <= i < len(nodes):
+            continue
+        reached.add(i)
+        kids = nodes[i].get("children") if isinstance(nodes[i], dict) else None
+        if isinstance(kids, list):
+            stack.extend(k for k in kids if isinstance(k, int) and k not in reached)
+    return reached
+
+
 def _declared_budget(data: bytes) -> tuple[int, int]:
-    """Triangles and objects this GLB's JSON *claims*, with no accessor decoded.
+    """Triangles and objects this GLB's JSON *claims*. See :func:`_declared_counts`."""
+    tris, objects, _vertices = _declared_counts(data)
+    return tris, objects
+
+
+def _declared_vertices(data: bytes) -> int:
+    """Vertex references this GLB's JSON *claims*. See :func:`_declared_counts`."""
+    return _declared_counts(data)[2]
+
+
+def _declared_counts(data: bytes) -> tuple[int, int, int]:
+    """Triangles, objects and vertex references this GLB's JSON *claims*, with
+    no accessor decoded. -> (tris, objects, vertices)
 
     H01: the real count below (``_instanced_budget``) is trustworthy but only
     answers after ``gltf.load`` has already decoded every primitive it names
@@ -108,7 +203,7 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
     try:
         _header, doc, _rest = glbio.split_glb(data)
     except ValueError:
-        return 0, 0
+        return 0, 0, 0
     # The 2026-09-26 audit's clay-io-04: a node count already past what
     # ``gltf.load`` would refuse for (``gltf.MAX_NODES``) is refused here too,
     # on the JSON-only count alone, rather than walking every one of them (and
@@ -128,7 +223,7 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
     if not isinstance(nodes, list):
         nodes = []
     if len(nodes) > gltf.MAX_NODES:
-        return 0, MAX_OBJECTS + 1
+        return 0, MAX_OBJECTS + 1, 0
     accessors = doc.get("accessors") or []
     if not isinstance(accessors, list):
         accessors = []
@@ -157,9 +252,13 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
             # for this exact "int() of a JSON number" shape elsewhere.
             return 0
 
+    reached = _declared_reachable(doc, nodes)
     tris = 0
     objects = 0
-    for node in nodes:
+    vertices = 0
+    for position, node in enumerate(nodes):
+        if reached is not None and position not in reached:
+            continue
         mesh_index = node.get("mesh") if isinstance(node, dict) else None
         if not isinstance(mesh_index, int) or not 0 <= mesh_index < len(meshes):
             continue
@@ -179,7 +278,13 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
         for prim in primitives:
             if not isinstance(prim, dict):
                 continue
-            attrs = prim.get("attributes") or {}
+            attrs = prim.get("attributes")
+            # The 2026-10-03 audit, finding clay-87: ``or {}`` only covers an
+            # absent or falsy value, so a list/string/number "attributes"
+            # reached ``attrs.get`` below as a bare AttributeError -- from a
+            # function that runs before ``glb_to_claydoc``'s own try/except.
+            if not isinstance(attrs, dict):
+                attrs = {}
             declared = (
                 _count(prim["indices"])
                 if "indices" in prim
@@ -187,13 +292,14 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
             )
             tris += declared // 3
             objects += 1
-            # The early exit itself (see the docstring): once either running
+            vertices += _count(attrs.get("POSITION"))
+            # The early exit itself (see the docstring): once any running
             # total is already past what the caller refuses for, there is
             # nothing left for the rest of this file's own declared entries
             # to change about the verdict.
-            if tris > MAX_TRIANGLES or objects > MAX_OBJECTS:
-                return tris, objects
-    return tris, objects
+            if tris > MAX_TRIANGLES or objects > MAX_OBJECTS or vertices > MAX_VERTICES:
+                return tris, objects, vertices
+    return tris, objects, vertices
 
 
 def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
@@ -209,7 +315,7 @@ def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
     # ``gltf.load`` runs, but by then the load has already paid for whatever
     # it is about to refuse. A GLB that declares more than Clay will ever hold
     # gets the same verdict for a JSON parse instead of a full decode.
-    declared_tris, declared_objects = _declared_budget(data)
+    declared_tris, declared_objects, declared_vertices = _declared_counts(data)
     if declared_tris > MAX_TRIANGLES:
         raise OpError(
             f"This mesh declares {declared_tris:,} triangles, past the "
@@ -221,6 +327,14 @@ def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
             f"This GLB declares placing {declared_objects:,} objects, past the "
             f"{MAX_OBJECTS:,} Clay holds. It is a scene rather than a model -- "
             "import the part you mean to edit."
+        )
+
+    if declared_vertices > MAX_VERTICES:
+        raise OpError(
+            f"This GLB declares {declared_vertices:,} vertices across the objects "
+            f"it places, past the {MAX_VERTICES:,} Clay can hold. Most of that is "
+            "vertex data its triangles never reach, or one mesh instanced very "
+            "widely -- import the part you mean to edit."
         )
 
     try:
@@ -235,6 +349,13 @@ def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
             "(Home > Import mesh..., or drop it on Home or the Library)."
         )
     total, objects_wanted = _instanced_budget(model)
+    if _instanced_vertices(model) > MAX_VERTICES:
+        raise OpError(
+            f"This GLB places {_instanced_vertices(model):,} vertices, past the "
+            f"{MAX_VERTICES:,} Clay can hold. Most of that is vertex data its "
+            "triangles never reach, or one mesh instanced very widely -- import "
+            "the part you mean to edit."
+        )
     if total > MAX_TRIANGLES:
         raise OpError(
             f"This mesh has {total:,} triangles, past the {MAX_TRIANGLES:,} Clay "
@@ -251,11 +372,16 @@ def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
     palette: dict[int, int] = {}
     objects: list[Obj] = []
     taken: set[str] = set()
-    for node in model.nodes:
-        if node.mesh is None:
-            continue
+    # The 2026-10-03 audit, finding clay-36: one merged ``Mesh`` per
+    # (primitive, material slot), shared by every node that places it. The
+    # merge (``np.unique`` over the whole POSITION stream) used to run once per
+    # *node*, so instancing one large primitive a few thousand times paid for
+    # it a few thousand times. ``Mesh`` is frozen with read-only arrays, so
+    # sharing one between objects is safe -- every edit builds a new one.
+    built: dict[tuple[int, int], Any] = {}
+    for node in _placed_nodes(model):
         for prim in model.meshes[node.mesh]:
-            obj = _object_for(prim, node, name, materials, palette, taken)
+            obj = _object_for(prim, node, name, materials, palette, taken, built)
             if obj is not None:
                 objects.append(obj)
 
@@ -271,11 +397,23 @@ def _object_for(
     materials: list[gltf.Material],
     palette: dict[int, int],
     taken: set[str],
+    built: dict[tuple[int, int], Any] | None = None,
 ) -> Obj | None:
     if len(prim.indices) < 3 or len(prim.positions) == 0:
         return None
     slot = _material_index(prim.material, materials, palette)
-    mesh = _mesh_for(prim, slot)
+    if built is None:
+        mesh = _mesh_for(prim, slot)
+    else:
+        mesh = built.get((id(prim), slot))
+        if mesh is None:
+            mesh = built[(id(prim), slot)] = _mesh_for(prim, slot)
+    # The 2026-10-03 audit, finding clay-37: a node transform that is not
+    # finite (a NaN the loader's own TRS check cannot see, or a chain of scales
+    # that overflows when composed) would be baked into the mesh or stored on
+    # the object, and the document would fail at export far from here.
+    if not np.all(np.isfinite(node.world)):
+        raise OpError(f"Node {node.name or base!r} has a non-finite transform.")
     translation, rotation, scale = m3.decompose(node.world)
     # The 2026-09-26 audit's clay-io-02: ``gltf.py``'s own loader refuses a
     # node whose *own* declared ``matrix`` has shear (the 2026-09-20 audit's
@@ -353,6 +491,13 @@ def _bake_world(mesh: Any, matrix: np.ndarray) -> Any:
 def _mesh_for(prim: gltf.Primitive, material: int) -> Any:
     """One primitive's triangles as a CSR mesh, vertices merged bitwise."""
     positions = np.ascontiguousarray(prim.positions, dtype="f4").reshape(-1, 3)
+    # The 2026-10-03 audit, finding clay-37: GLB, STL and PLY accepted a NaN or
+    # infinite position that ``objimport`` already refuses by name, so the
+    # import succeeded and the document could not be saved to a GLB (the bound
+    # is non-finite) or round-tripped through OBJ -- the failure arriving far
+    # from the file that caused it.
+    if not np.all(np.isfinite(positions)):
+        raise OpError("This mesh has a non-finite (NaN or infinite) vertex position.")
     indices = np.asarray(prim.indices, dtype="i8").reshape(-1)
     tris = indices[: (len(indices) // 3) * 3].reshape(-1, 3)
 

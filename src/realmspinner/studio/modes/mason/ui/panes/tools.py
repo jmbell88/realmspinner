@@ -136,13 +136,10 @@ def _snap(ctx: Any, state: Any) -> None:
 
 
 def _world_boxes(ctx: Any, doc: md.MasonDoc, uids: list[int]) -> dict[int, tuple[Any, Any]]:
-    source = mason_assets.ensure(ctx)
-    out: dict[int, tuple[Any, Any]] = {}
-    for uid in uids:
-        box = scene.world_bounds(doc, source, uids=[uid])
-        if box is not None:
-            out[uid] = box
-    return out
+    # One resolve for every selected node (the 2026-10-03 audit's mason-17: a
+    # ``world_bounds`` call per uid ran a whole-scene resolve each, so Align /
+    # Distribute / Drop over a big selection froze the frame for seconds).
+    return scene.world_bounds_by_owner(doc, mason_assets.ensure(ctx), uids=uids)
 
 
 #: ``MasonView._parent_basis``'s own guard against a parent scaled flat on
@@ -207,8 +204,19 @@ def _apply_deltas(doc: md.MasonDoc, deltas: dict[int, Any]) -> None:
     wrong direction entirely under a rotated one. Converted through the
     parent's inverse basis first, the same call the gizmo drag makes.
     """
+    #
+    # The 2026-10-03 audit's mason-16: a node whose ancestor is *also* being
+    # moved was moved twice -- once by its own delta, and again because the
+    # ancestor's move already carries every child -- so a child 5 m up under a
+    # prop 5 m up dropped to world y = -4.0 instead of 0.5. Dropped from
+    # ``deltas`` the way ``group_selected`` and the gizmo drag drop a node with
+    # a selected ancestor. (An ancestor with no box -- a group -- is not in
+    # ``deltas`` and does not move, so its children keep their own deltas.)
+    movers = set(mason_mode._selection_without_selected_ancestor(doc, list(deltas)))
     mark = doc.mark()
     for uid, delta in deltas.items():
+        if uid not in movers:
+            continue
         node = doc.node(uid)
         if node is None:
             continue
@@ -284,7 +292,14 @@ def _placement(ctx: Any, state: Any, tab: Any) -> None:
         reason="Select at least 1 node to drop.",
     ):
         boxes = _world_boxes(ctx, doc, uids)
-        _apply_deltas(doc, mops.drop_to_ground(boxes, terrain=doc.terrain))
+        # The 2026-10-03 audit's mason-22: through the ground node's own world
+        # matrix, as the context menu's drop already does.
+        _apply_deltas(
+            doc,
+            mops.drop_to_ground(
+                boxes, terrain=doc.terrain, terrain_world=doc.terrain_world()
+            ),
+        )
 
     imgui.dummy((0, sp(8)))
     widgets.field_label("array")

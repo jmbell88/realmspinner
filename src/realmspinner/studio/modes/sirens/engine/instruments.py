@@ -57,6 +57,18 @@ MAX_SEQUENCE_LEN = 256
 
 MAX_NAME_LEN = 32
 
+#: How large one sequence value's magnitude may be: 2**53, the last integer a
+#: float64 holds exactly. Nothing musical is near it (volume is 0..15, duty 0..3,
+#: an arpeggio is semitones and a pitch step is cents per tick) and it is far
+#: above the billions the engine already clamps (``synth._NOTE_CLAMP``); it
+#: exists because the engine does float arithmetic on these before any clamp
+#: can act. The 2026-10-03 audit, finding sirens-08: a 400-digit
+#: integer in an arpeggio, pitch or volume list was accepted by ``read_rsng`` and
+#: by ``update_instrument``, and the render then raised ``OverflowError`` ("int
+#: too large to convert to float") -- not a ``ValueError`` -- failing that song's
+#: render, playback and every export for good.
+MAX_SEQUENCE_VALUE = 1 << 53
+
 
 @dataclass(frozen=True)
 class Sequence:
@@ -88,6 +100,17 @@ class Sequence:
                 f"a sequence of {len(self.values)} steps is past the"
                 f" {MAX_SEQUENCE_LEN} this build ticks"
             )
+        # Refused by name here rather than clamped later: a value past float
+        # range raises inside the render before ``synth._NOTE_CLAMP`` can act.
+        for value in self.values:
+            try:
+                too_big = abs(int(value)) > MAX_SEQUENCE_VALUE
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError("a sequence holds whole numbers") from exc
+            if too_big:
+                raise ValueError(
+                    f"a sequence value is past the {MAX_SEQUENCE_VALUE} this build plays"
+                )
 
     def __bool__(self) -> bool:
         return bool(self.values)

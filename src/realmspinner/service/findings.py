@@ -331,10 +331,14 @@ def _marginals(
     scoping is that a scoped number means exactly what the pooled one means,
     over a narrower set.
 
-    ``full`` is what the global one gets. A scoped bucket keeps only the four
-    fields ``bench.findings.hint`` reads, because there is one of them per
-    distinct prompt and ``sources``/``top_reasons`` are read by the Review
-    pane's whole-vector view, which stays global.
+    ``full`` is what the global one gets. A scoped bucket keeps only the six
+    fields ``bench.findings.hint`` reads -- ``n``, ``accepts``, ``accept_rate``,
+    ``wilson_low``, ``graded_n`` and ``mean_grade`` (the last two joined in v4) --
+    plus a ``metrics`` sub-object wherever machine evidence exists for the value.
+    There is one bucket per distinct prompt, and ``grades``, ``tags``,
+    ``sources`` and ``top_reasons`` are read by the Review pane's whole-vector
+    view, which stays global. (The 2026-10-03 audit, finding service-25: this said
+    "four" while the tuple below carried six.)
     """
     judged: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for record in records:

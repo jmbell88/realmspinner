@@ -36,18 +36,27 @@ def test_review_manual_sweep_axis_count_matches_kwarg_axes():
     ``KWARG_AXES``. The count is read off ``KWARG_AXES`` itself rather than
     hand-typed a second time, and every axis's label must appear somewhere
     in the chapter's "What you can vary" prose."""
-    from realmspinner.service.sweeps import KWARG_AXES
+    from realmspinner.service.sweeps import KWARG_AXES, axis_params
     from realmspinner.studio.modes.create.engine.recipe import FIELD_LABELS
 
     assert FIELD_LABELS["lowpoly_triangles"] == "Game-ready triangles"
 
-    words = {17: "seventeen", 18: "eighteen", 19: "nineteen", 20: "twenty"}
-    counted = words[len(KWARG_AXES)]
+    # The count is the form's -- ``axis_params()``, which is ``KWARG_AXES`` plus
+    # the five catalog fields -- not ``KWARG_AXES`` alone (shell-64, the
+    # 2026-10-03 audit): the chapter said "nineteen" over a form offering 24.
+    words = {
+        17: "seventeen",
+        18: "eighteen",
+        19: "nineteen",
+        20: "twenty",
+        24: "twenty-four",
+    }
+    counted = words[len(axis_params())]
 
     text = _flat(_chapter("37-review"))
     assert f"There are {counted}" in text, (
-        f"docs/manual/37-review.md disagrees with KWARG_AXES, which has "
-        f"{len(KWARG_AXES)} axes"
+        f"docs/manual/37-review.md disagrees with axis_params(), which has "
+        f"{len(axis_params())} axes"
     )
     if counted != "eighteen":
         assert "There are eighteen" not in text, (
@@ -76,8 +85,13 @@ def test_review_manual_sweep_axis_count_matches_kwarg_axes():
         "trellis_max_tokens": "token budget",
         "trellis_decim": "decimation",
         "trellis_atlas": "atlas size",
+        "base_model": "Base model",
+        "style_lora": "Style LoRA",
+        "ip_adapter": "IP-Adapter",
+        "control": "Control (which ControlNet)",
+        "platform": "Platform",
     }
-    assert set(axis_phrases) == set(KWARG_AXES), (
+    assert set(axis_phrases) == set(axis_params()) >= set(KWARG_AXES), (
         "this test's axis_phrases map has drifted from sweeps.KWARG_AXES -- "
         "update both together"
     )

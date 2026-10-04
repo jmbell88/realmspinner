@@ -19,6 +19,7 @@ context or a real GLTF skeleton bound to it.
 
 from __future__ import annotations
 
+import contextlib
 from types import SimpleNamespace
 from typing import Any
 
@@ -39,6 +40,13 @@ class _FakeEditor:
 
     def pose(self) -> dict[str, Any]:
         return dict(self._bones)
+
+    @contextlib.contextmanager
+    def record(self):
+        """``_apply_saved_pose`` brackets its three calls in one ``record()`` since
+        the 2026-10-04 audit's create-31; this fake has no history to push to, so
+        it only has to be enterable."""
+        yield
 
 
 class _FakeViewer:

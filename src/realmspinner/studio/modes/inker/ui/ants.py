@@ -87,6 +87,7 @@ def dash_segments(
     phase: float,
     dash: float = DASH,
     basis: np.ndarray | None = None,
+    window: tuple[float, float, float, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The lines to draw for one loop: ``(starts, ends, lit)`` in screen space.
 
@@ -95,11 +96,11 @@ def dash_segments(
     the dash pattern along it.
 
     ``offset`` is the screen position of canvas ``(0, 0)`` -- the caller gets it
-    from ``inker_state.to_screen`` rather than restating the formula, because
+    from ``paintview.to_screen`` rather than restating the formula, because
     the ants sitting one pixel off the mask they describe is exactly what a
     duplicated affine looks like.
 
-    ``basis`` is the view's 2x2 orientation (``inker_state.basis``), or ``None``
+    ``basis`` is the view's 2x2 orientation (``paintview.basis``), or ``None``
     for the upright view. It is deliberately **separate from the zoom** and
     deliberately orthonormal: every distance in this function is an arc length
     measured in canvas space, so a transform that turns leaves the whole dash
@@ -112,11 +113,27 @@ def dash_segments(
     the old walk's ``int((walked + travelled) // DASH) % 2 == 0`` with ``walked``
     starting at ``-phase``. The dash straddling the loop's start is clipped at
     both ends rather than wrapped: it is drawn from 0, exactly as before.
+
+    ``window`` is the screen rectangle ``(left, top, right, bottom)`` the caller
+    will draw into, or ``None`` for the whole loop. **With a window, only the
+    segments whose box touches it are walked** -- the 2026-10-03 audit, finding
+    inker-45: every dash boundary and interpolated point of the *whole* loop
+    were generated on every frame (the phase moves each frame, so nothing can
+    be cached) and ``cull`` ran afterwards, so a loop straddling the window cost
+    its full perimeter times the zoom: 97 ms a frame at 64x for a 20,000-px
+    perimeter, a second at 200,000. The vertices are transformed in one
+    vectorised pass (cheap -- it is the *dashes* that scale with the zoom), the
+    segments that miss the window are dropped, and the dash boundaries are then
+    laid inside the survivors only. The dash pattern is a function of arc length
+    from the loop's start, so it is unchanged; runs are simply not merged across
+    a segment that was skipped.
     """
     empty = np.zeros((0, 2), dtype=np.float64)
     total = float(cum[-1]) * float(zoom)
     if not (total > 0.0) or not math.isfinite(total) or dash <= 0.0:
         return empty, empty.copy(), np.zeros(0, dtype=bool)
+    if window is not None:
+        return _dash_segments_in(verts, cum, zoom, offset, phase, dash, basis, window)
 
     # Break the loop at every dash boundary *and* at every vertex. The vertices
     # are already the sorted array `cum`, so the boundaries are spliced into it
@@ -144,6 +161,92 @@ def dash_segments(
     lit = (index % 2.0) == 0.0
 
     return _merge_runs(head, tail, lit)
+
+
+def _dash_segments_in(
+    verts: np.ndarray,
+    cum: np.ndarray,
+    zoom: float,
+    offset: tuple[float, float],
+    phase: float,
+    dash: float,
+    basis: np.ndarray | None,
+    window: tuple[float, float, float, float],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """:func:`dash_segments` over the segments that can touch ``window``.
+
+    Every piece lies inside exactly one segment, so the segment each belongs to
+    is known without a ``searchsorted``: the dash boundaries strictly inside a
+    segment are expanded with one ``repeat``, and each piece is interpolated on
+    its own segment.
+    """
+    empty = np.zeros((0, 2), dtype=np.float64)
+    nothing = (empty, empty.copy(), np.zeros(0, dtype=bool))
+    zoom = float(zoom)
+    screen = verts
+    if basis is not None:
+        screen = screen @ np.asarray(basis, dtype=np.float64).T
+    screen = screen * zoom + np.asarray(offset, dtype=np.float64)
+    left, top, right, bottom = window
+    ax, ay = screen[:-1, 0], screen[:-1, 1]
+    bx, by = screen[1:, 0], screen[1:, 1]
+    touches = (
+        (np.maximum(ax, bx) >= left)
+        & (np.minimum(ax, bx) <= right)
+        & (np.maximum(ay, by) >= top)
+        & (np.minimum(ay, by) <= bottom)
+    )
+    seg = np.flatnonzero(touches)
+    if seg.size == 0:
+        return nothing
+
+    # Arc range of each surviving segment on screen, and the dash boundaries
+    # strictly inside it: ``phase + k * dash`` for k from ``first`` to ``last``.
+    lo = cum[seg] * zoom
+    hi = cum[seg + 1] * zoom
+    first = np.floor((lo - phase) / dash) + 1.0
+    last = np.floor((hi - phase) / dash)
+    inner = np.maximum(last - first + 1.0, 0.0).astype(np.int64)
+    pieces = inner + 1
+    owner = np.repeat(np.arange(seg.size), pieces)
+    base = np.cumsum(pieces) - pieces
+    slot = np.arange(int(pieces.sum())) - np.repeat(base, pieces)
+    # Slot 0 starts at the segment; slot m >= 1 starts on boundary ``first+m-1``.
+    # The last slot of a segment ends at the segment; the rest end on the next
+    # boundary.
+    head_arc = np.where(
+        slot == 0, lo[owner], phase + (first[owner] + slot - 1.0) * dash
+    )
+    tail_arc = np.where(
+        slot == inner[owner], hi[owner], phase + (first[owner] + slot) * dash
+    )
+    keep = tail_arc > head_arc
+    if not keep.any():
+        return nothing
+    owner, head_arc, tail_arc = owner[keep], head_arc[keep], tail_arc[keep]
+
+    index = seg[owner]
+    start = cum[index]
+    span = cum[index + 1] - start
+    safe = np.where(span > 0.0, span, 1.0)
+    here = verts[index]
+    step = verts[index + 1] - here
+
+    def at(arc: np.ndarray) -> np.ndarray:
+        ratio = np.where(span > 0.0, (arc / zoom - start) / safe, 0.0)[:, None]
+        points = here + step * ratio
+        if basis is not None:
+            points = points @ np.asarray(basis, dtype=np.float64).T
+        return points * zoom + np.asarray(offset, dtype=np.float64)
+
+    head, tail = at(head_arc), at(tail_arc)
+    lit = (np.floor(((head_arc + tail_arc) * 0.5 - phase) / dash) % 2.0) == 0.0
+    # Two consecutive pieces are one contiguous run only when they belong to the
+    # same or adjacent segments; a skipped segment between them is a gap.
+    joined = np.empty(len(head), dtype=bool)
+    joined[0] = False
+    joined[1:] = (index[1:] - index[:-1]) <= 1
+    return _merge_runs(head, tail, lit, joined)
 
 
 def cull(
@@ -186,7 +289,10 @@ def loop_box(verts: np.ndarray) -> tuple[float, float, float, float]:
 
 
 def _merge_runs(
-    head: np.ndarray, tail: np.ndarray, lit: np.ndarray
+    head: np.ndarray,
+    tail: np.ndarray,
+    lit: np.ndarray,
+    joined: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Collapse consecutive collinear pieces of the same colour into one line.
 
@@ -194,6 +300,11 @@ def _merge_runs(
     the next begins) and collinear, so their union *is* the line this emits.
     What it buys is the draw call count -- a rectangle's edge arrives here as
     one piece per pixel and leaves as one per dash.
+
+    ``joined[i]`` says whether piece ``i`` begins where piece ``i - 1`` ended;
+    ``None`` means every piece does, which is the whole-loop walk. The windowed
+    walk skips segments, and two collinear same-colour pieces either side of a
+    skipped one must stay two runs.
     """
     step = tail - head
     length = np.hypot(step[:, 0], step[:, 1])
@@ -204,6 +315,8 @@ def _merge_runs(
     fresh = np.empty(len(head), dtype=bool)
     fresh[0] = True
     fresh[1:] = (cross > _STRAIGHT) | (lit[1:] != lit[:-1])
+    if joined is not None:
+        fresh[1:] |= ~joined[1:]
 
     begin = np.flatnonzero(fresh)
     finish = np.append(begin[1:] - 1, len(head) - 1)

@@ -66,9 +66,10 @@ class LayerOps:
     # much worse than one that lets a user undo work they locked afterwards.
     #
     # **``commit_floating`` is deliberately not refused.** A float outlives lock
-    # toggles -- it survives selecting another layer, another frame and the
-    # panel checkbox -- and every save, every geometry op and every structural
-    # op commits it first, so refusing here would not protect the pixels, it
+    # toggles and the panel checkbox -- selecting another layer or frame
+    # commits it first (``set_active_layer``, ``set_current_frame``), as do
+    # every save, every geometry op and every structural
+    # op -- so refusing here would not protect the pixels, it
     # would wedge the document: the buffer could never land and never be saved.
     #
     # **Document-scope ops apply regardless**: geometry (flip, rotate, scale,
@@ -98,6 +99,19 @@ class LayerOps:
         # flag that is on in the panel and off at one of them.
         if bool(layer.locked) or bool(getattr(layer, "reference", False)):
             return True
+        # The 2026-10-03 audit (inker-31): ``apply_pixels`` addresses a cel by
+        # uid and may reach one on a frame the playhead has left. Such a cel's
+        # own ``locked``/``reference`` are copies stamped when its frame was
+        # last materialised, and ``member_uid_of`` falls back to the cel's own
+        # uid for it -- so a lock (or a group's lock) set since was invisible,
+        # and a late-landing regeneration wrote onto a locked track. The track
+        # is the authority, so ask it, the way ``_cels_in`` does for range ops.
+        if (
+            self.anim is not None
+            and not isinstance(layer, Track)
+            and not self._in_stack(layer.uid)
+        ):
+            return any(self.write_locked(track) for track in self._owning_tracks(layer))
         if not self.groups:
             return False
         # A group's lock folds down onto everything inside it (L3): locking a
@@ -449,6 +463,27 @@ class LayerOps:
         self.stack.active_index = max(0, min(int(index), len(self.stack) - 1))
         self.invalidate_all()
 
+    @staticmethod
+    def _check_track_props(*prop_sets: dict) -> None:
+        """Refuse an unknown key or an unknown blend before anything mutates.
+
+        The 2026-10-03 audit, finding inker-32: the blend validation the
+        2026-09-26 audit added (inker-document-13) lived inside
+        ``set_layer_props`` and ``set_group_props`` only, while
+        ``_set_row_props`` (behind ``set_layers_props`` and ``solo``) and
+        ``set_tracks_props`` (behind ``set_range_props``) still ``setattr``
+        an unknown blend, pushed the step, and raised from the next
+        recomposite -- leaving a document whose every later ``invalidate_all``
+        raised. One helper, called by all five writers *before* the first
+        ``setattr``, so a sixth cannot be taught one check and not the other.
+        """
+        unknown = set().union(*(set(props) for props in prop_sets), set()) - TRACK_PROPS
+        if unknown:
+            raise ValueError(f"unknown track property: {sorted(unknown)[0]}")
+        for props in prop_sets:
+            if "blend" in props and props["blend"] not in cp.BLEND_MODES:
+                raise ValueError(f"unknown blend mode {props['blend']!r}")
+
     def set_layer_props(
         self: Document, index: int | None = None, *, was: dict | None = None, **props: Any
     ) -> bool:
@@ -467,17 +502,13 @@ class LayerOps:
         silently, and be lost at the next save.
         """
         index = self.stack.active_index if index is None else index
-        unknown = set(props) - TRACK_PROPS
-        if unknown:
-            raise ValueError(f"unknown track property: {sorted(unknown)[0]}")
-        if "blend" in props and props["blend"] not in cp.BLEND_MODES:
-            # The 2026-09-26 audit, finding inker-document-13: ``Layer``'s own
-            # ``__post_init__`` refuses an unknown blend mode, but this writes
-            # with ``setattr`` onto a *live* layer/track, which skips it --
-            # the bad value landed, the undo step was pushed, and only the
-            # next recomposite (``invalidate_all`` -> ``composite_region`` ->
-            # ``composite.blend``) raised, several calls and one push later.
-            raise ValueError(f"unknown blend mode {props['blend']!r}")
+        # The 2026-09-26 audit, finding inker-document-13: ``Layer``'s own
+        # ``__post_init__`` refuses an unknown blend mode, but this writes
+        # with ``setattr`` onto a *live* layer/track, which skips it -- the bad
+        # value landed, the undo step was pushed, and only the next recomposite
+        # (``invalidate_all`` -> ``composite_region`` -> ``composite.blend``)
+        # raised, several calls and one push later.
+        self._check_track_props(props)
         if "continuous" in props and self.anim is None:
             # The one track property a ``Layer`` has no counterpart for: it
             # says what autovivification writes, and a still document has no
@@ -557,9 +588,7 @@ class LayerOps:
         change contribute an edit, ``was`` supplies the "before" for a gesture
         that already wrote the new value live, and the edits compound into one.
         """
-        unknown = set().union(*(set(props) for props in per_row.values()), set()) - TRACK_PROPS
-        if unknown:
-            raise ValueError(f"unknown track property: {sorted(unknown)[0]}")
+        self._check_track_props(*per_row.values())
         self.commit_floating()
         anim = self.anim
         rows = list(anim.tracks) if anim is not None else list(self.stack)

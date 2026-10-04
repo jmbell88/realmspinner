@@ -142,7 +142,10 @@ def _indexed(ctx: Any, state: Any) -> None:
     )
     # ``busy`` for ``inker_bridge._canvas_ops``'s reason: everything below
     # rebinds whole layer planes, and one landing mid-save writes an archive
-    # whose parts disagree about the document.
+    # whose parts disagree about the document. Grouped so the hover can say so
+    # (the 2026-10-03 audit, finding inker-64: a bare ``begin_disabled`` dimmed
+    # the whole section and gave a user playing a clip no sentence why).
+    imgui.begin_group()
     imgui.begin_disabled(tab.busy)
     _mode_row(ctx, tab)
     if not doc.palette:
@@ -150,6 +153,33 @@ def _indexed(ctx: Any, state: Any) -> None:
     else:
         _slots(ctx, state, tab)
     imgui.end_disabled()
+    imgui.end_group()
+    busy_reason(tab)
+
+
+def busy_reason(tab: Any) -> None:
+    """Say why a greyed block is greyed, when the pointer is over it.
+
+    Call straight after ``imgui.end_group()`` on a group whose body was wrapped
+    in ``imgui.begin_disabled(tab.busy)``. The 2026-10-03 audit, finding
+    inker-64: those blocks (the Palette section, the tool panels, the slice
+    list, the Filter and Convert popups) dimmed with no sentence, the shape the
+    2026-09-26 audit's inker-panes-09 fixed in the timeline menus with
+    ``_busy_gate``. A block cannot give each of its widgets an
+    ``enabled``/``reason`` pair -- most are ``widgets.*`` helpers with no such
+    parameter -- so the block says it once, on hover; where a block's own
+    controls take a reason (the popup buttons) they say it themselves as well.
+    ``allow_when_disabled`` because a disabled item is never "hovered" to imgui
+    otherwise, which is the whole reason a bare wrap is silent.
+    """
+    if not tab.busy:
+        return
+    try:
+        hovered = imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value)
+    except (AttributeError, RuntimeError, TypeError):
+        return
+    if hovered:
+        imgui.set_tooltip(widgets.DOCUMENT_SAVING_WHY)
 
 
 def _mode_row(ctx: Any, tab: Any) -> None:

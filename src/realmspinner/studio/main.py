@@ -106,7 +106,13 @@ CHARACTER_PREVIEW_LOAD_KEY = "character-preview-load"
 #:                        so ``TaskRunner.submit``'s per-key dedupe silently
 #:                        dropped whichever of the two buttons Settings ->
 #:                        Updates draws side by side was pressed second.
-#: ``thumb:``             a card image written to disk. ``ThumbnailCache``
+#: ``convert:``           a single-card Convert... flow. It returns ``None`` on
+#:                        purpose: ``ctx.save_artifact`` starts the inner
+#:                        ``save:`` task, and that one toasts "Saved to ...".
+#:                        Missing here until the 2026-10-03 audit's shell-44,
+#:                        so every single-asset convert logged the line that
+#:                        exists to report a genuine routing bug.
+#: ``thumb:``             a card image written to disk.``ThumbnailCache``
 #:                        keys on mtime, so the library picks it up without
 #:                        being told.
 #: ``derive:``            an artifact derived *inside* the job directory.
@@ -121,6 +127,7 @@ SILENT_TASK_KEYS = (
     "open-folder:",
     "open-release-notes",
     "run-installer",
+    "convert:",
     "thumb:",
     "derive:",
     "wrap:",
@@ -293,7 +300,11 @@ def _window_size(
     size = default
     try:
         width, height = (int(stored[0]), int(stored[1]))  # type: ignore[index]
-    except (TypeError, ValueError, IndexError, KeyError):
+    except (TypeError, ValueError, IndexError, KeyError, OverflowError):
+        # ``OverflowError`` too: ``json.loads`` reads ``1e999`` as ``inf`` and
+        # ``int(inf)`` raises it -- the 2026-10-03 audit (shell-14) found that
+        # escaping ``setup_window`` on every launch, the permanent boot loop
+        # this function exists to rule out.
         pass
     else:
         floor = _min_window_size(first_run_scale)
@@ -339,6 +350,25 @@ def _background() -> tuple[float, float, float, float]:
     from .theme import BG, rgba
 
     return rgba(BG)
+
+
+def _log_level(raw: str | None) -> int:
+    """``REALMSPINNER_LOG_LEVEL`` as a level number; INFO when it names none.
+
+    ``basicConfig`` accepts only the upper-case names and raises on anything
+    else, and ``run`` calls :func:`_setup_logging` outside every ``try`` -- so
+    ``debug``, the way most people type it, killed the app before the window
+    existed (shell-15, the 2026-10-03 audit). The fallback is said once, on the
+    log the new level opens, rather than refused.
+    """
+    name = (raw or "INFO").strip().upper()
+    level = logging.getLevelName(name)
+    if isinstance(level, int):
+        return level
+    logging.getLogger(__name__).warning(
+        "REALMSPINNER_LOG_LEVEL=%r is not a log level name; using INFO", raw
+    )
+    return logging.INFO
 
 
 def _setup_logging() -> None:
@@ -400,7 +430,7 @@ def _setup_logging() -> None:
     # handler and made this call a silent no-op -- realmspinner.log was created on
     # every launch and never written to on the one path anybody actually uses.
     logging.basicConfig(
-        level=os.environ.get("REALMSPINNER_LOG_LEVEL", "INFO"),
+        level=_log_level(os.environ.get("REALMSPINNER_LOG_LEVEL")),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=handlers,
         force=True,

@@ -1,6 +1,6 @@
 """Collision proxies as ordinary meshes: box, sphere, capsule, convex, compound.
 
-CLAY-PLAN.md tranche 7's pure kernel half. Everything here is a function of a
+Clay tranche 7's pure kernel half. Everything here is a function of a
 :class:`~.mesh.Mesh`'s ``positions`` (never its faces -- a collider is a fit
 *over a point cloud*, and a caller with a loose set of points, not yet a valid
 mesh, is exactly :func:`compound`'s own situation for each part it hulls), and
@@ -206,7 +206,7 @@ MAX_COMPOUND_PARTS = 800
 #: margin :data:`MAX_COMPOUND_PARTS`'s own re-measured table keeps (700-900
 #: comfortably under the point its BFS-adjacent cost stops being sub-second),
 #: and the same order of magnitude as this package's other per-face ceilings
-#: (``ops_subdiv.MAX_SUBDIVIDED_FACES`` is 1,000,000, but that op is a single
+#: (``ops_subdiv.MAX_SUBDIVIDED_FACES`` is 500,000, and that op is a single
 #: vectorised numpy pass rather than a Python BFS).
 MAX_COMPOUND_SHELL_FACES = 250_000
 

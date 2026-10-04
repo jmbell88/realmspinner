@@ -47,7 +47,13 @@ def split_glb(data: bytes) -> tuple[bytes, dict, bytes]:
         # ValueError either way; this one says what actually went wrong.
         raise ValueError("truncated GLB: the JSON chunk overruns the file")
     start = 20
-    doc = json.loads(data[start : start + chunk_len])
+    # The 2026-10-03 audit, finding clay-87: a JSON chunk nested ~100,000 deep
+    # makes the decoder raise RecursionError, which is not the ValueError every
+    # caller (``_declared_budget``'s ``except ValueError``) keys on.
+    try:
+        doc = json.loads(data[start : start + chunk_len])
+    except RecursionError:
+        raise ValueError("not a GLB file: its JSON chunk is nested too deeply") from None
     # The 2026-09-11 audit, finding clay-03: a JSON chunk that parses cleanly
     # but is not an object (a bare array, say) used to reach every downstream
     # ``.get(...)`` call -- gltf.load's own, and clay/glbimport.py's

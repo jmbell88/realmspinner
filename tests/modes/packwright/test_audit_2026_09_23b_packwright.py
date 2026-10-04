@@ -19,7 +19,7 @@ packwright-04: the "From Inker" button in the sources pane greys on
 ``tab.busy`` with no ``reason=``, unlike its two siblings above it
 (``Add an image...``, ``Add a tile set...``).
 
-dev/TODO.md P65 item 4 (the 2026-09-23 audit, second run): every busy
+The 2026-09-23 audit (second run), the busy-refusal finding: every busy
 refusal in ``packwright/mode.py`` used to return silently. Every one of them
 now toasts the same shared sentence, ``widgets.DOCUMENT_SAVING_WHY``.
 """
@@ -172,11 +172,11 @@ def test_from_inker_button_greys_out_with_a_reason_while_saving():
     )
 
 
-# --- P65 item 4: every busy refusal in mode.py toasts the shared sentence --
+# --- the busy-refusal finding: every busy refusal in mode.py toasts the shared sentence --
 
 
 def test_every_packwright_busy_refusal_says_why():
-    """dev/TODO.md P65 item 4 (second run): every ``tab.busy`` refusal in
+    """The 2026-09-23 audit (second run), the busy-refusal finding: every ``tab.busy`` refusal in
     ``packwright/mode.py`` used to return with nothing said. Exercised by
     source rather than one test per door -- the claim is that *all* of them
     share one sentence, which a per-function test would not itself prove."""
@@ -197,7 +197,7 @@ def test_every_packwright_busy_refusal_says_why():
 
 def test_add_source_paths_still_refuses_while_saving_and_now_says_why():
     """The first run of packwright-01 already stopped the drop; this checks
-    the toast P65 item 4 adds on top of that existing (silent) refusal."""
+    the toast the second run adds on top of that existing (silent) refusal."""
     ctx = FakeCtx()
     _busy_tab(ctx)
 

@@ -140,6 +140,7 @@ def test_a_promotion_is_gated_too(svc):
     job_id = svc_jobs.create_job(svc, kind="text", prompt="a barrel", output="reference")["id"]
     svc.job_dir(job_id).mkdir(parents=True, exist_ok=True)
     (svc.job_dir(job_id) / "input.png").write_bytes(_png_bytes())
+    svc.store.merge_params(job_id, {"reference_report": {"ok": True}})  # service-14
     svc.store.claim(job_id)
     svc.store.finish(job_id, "done", None)
     _small_card(svc)
@@ -264,6 +265,10 @@ def _reference(svc, **params):
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x", output="reference", **params)["id"]
     svc.job_dir(job_id).mkdir(parents=True, exist_ok=True)
     (svc.job_dir(job_id) / "input.png").write_bytes(_png_bytes())
+    # What a real reference run stores. The promote door measures a reference with
+    # no stored report (the 2026-10-03 audit, service-14), and these fixtures are a
+    # flat colour with no subject, which that measurement honestly refuses.
+    svc.store.merge_params(job_id, {"reference_report": {"ok": True}})
     svc.store.set_status(job_id, "done")
     return job_id
 
@@ -1394,6 +1399,7 @@ def test_a_promotion_drops_the_conditioning_and_copies_no_reference(svc):
         reference=_png_bytes(), guidance_fields={"ip_adapter": "plus"},
     )["id"]
     (svc.job_dir(src) / "input.png").write_bytes(_png_bytes())
+    svc.store.merge_params(src, {"reference_report": {"ok": True}})  # service-14
     svc.store.set_status(src, "done")
 
     new_id = svc_jobs.promote_to_model(svc, src)["id"]

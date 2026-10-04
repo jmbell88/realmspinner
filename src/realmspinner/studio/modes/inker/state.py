@@ -1526,6 +1526,12 @@ class InkerState(docmodes.DocTabs[InkerDoc]):
     #: and ``flourish_preset`` what the insert popup has picked.
     flourish_pending: dict[int, Any] = field(default_factory=dict)
     flourish_due: dict[int, float] = field(default_factory=dict)
+    #: Groups whose owed render was pressed as "Replace painted cels" and is
+    #: waiting on a busy tab (``inker_flourish.land``): the press's ``force``
+    #: has to ride the retry, or it comes back as a plain regenerate that
+    #: flags the very cels the user asked to replace (the 2026-10-03 audit,
+    #: finding inker-35).
+    flourish_force: dict[int, bool] = field(default_factory=dict)
     flourish_layer: dict[int, int] = field(default_factory=dict)
     #: A texture the pending recipe edit for a group already names, but the
     #: *document* does not hold yet -- ``{asset_id: pixels}`` per group uid,
@@ -2121,13 +2127,19 @@ class InkerState(docmodes.DocTabs[InkerDoc]):
         # then push one ``set_layers_props`` with a pre-image belonging partly
         # to each -- an undo that restores the wrong values.
         #
-        # ``text_at`` is dropped with them; the popup that reads it is closed by
-        # ``text_uid`` no longer naming the tab in front.
+        # ``text_at`` and ``text_uid`` are **not** dropped with them, and that is
+        # deliberate: the popup that reads them is closed by ``text_uid`` no
+        # longer naming the tab in front, which only works while ``text_uid``
+        # still names the tab that was pressed. The 2026-10-03 audit, finding
+        # inker-53, found both blanked here, and a blank owner reads as "no
+        # owner" to the popup's close test and to ``stamp_text``'s refusal -- so
+        # a popup left open across a tab switch stayed up and stamped "your
+        # text" at (0, 0) in the other document. The pair is one press: it stays
+        # valid for the tab it names and is meaningless for any other, and the
+        # press that opens the popup rewrites both first.
         self.timeline_anchor = None
         self.eye_drag = None
         self.eye_drag_was = {}
-        self.text_at = (0, 0)
-        self.text_uid = ""
         # An open multi-click gesture goes with it, which is what makes a tab
         # switch, a tab close and Escape cancel a half-drawn polygon for free --
         # all three already come through here. Safe *because* a gesture holds no
@@ -2524,7 +2536,7 @@ def closes_gesture(points, point, zoom: float, radius: float) -> bool:
 
     Image-space distance times the zoom *is* the screen distance, because the
     view is a uniform scale after a quarter turn and a turn preserves length
-    (``inker_state.basis`` is orthonormal). So this is quarter-turn and flip
+    (``paintview.basis`` is orthonormal). So this is quarter-turn and flip
     invariant without ever building a screen coordinate -- which is what lets it
     be a pure function of three numbers rather than of the view.
 

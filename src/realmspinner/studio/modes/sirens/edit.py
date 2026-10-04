@@ -23,6 +23,24 @@ from . import mode as sirens_mode
 from .state import COLUMN_DIGITS, SongTab, ensure  # noqa: F401
 
 
+def first_song_pattern(doc: Any) -> int | None:
+    """The uid of the first pattern that is the *song's*, or any pattern, or ``None``.
+
+    The 2026-10-03 audit, finding sirens-17: ``document.add_oneshot`` mints each
+    effect's private pattern into ``doc.patterns``, so ``patterns[0]`` can be a
+    sound effect's while song patterns remain (``[A, fx, B]``). A caret sent
+    there after deleting ``A`` turned the grid into the effect editor with no
+    word said, and the next typed note was written into the effect. A song
+    pattern is preferred; an effect's own is only the answer when it is all the
+    document has.
+    """
+    owned = {one.pattern for one in doc.oneshots}
+    for pattern in doc.patterns:
+        if pattern.uid not in owned:
+            return pattern.uid
+    return doc.patterns[0].uid if doc.patterns else None
+
+
 def clamp_caret(ctx: Any, tab: SongTab | None = None) -> None:
     """Put the caret back inside the pattern it names.
 
@@ -39,7 +57,7 @@ def clamp_caret(ctx: Any, tab: SongTab | None = None) -> None:
         return
     doc = tab.doc
     if state.pattern is None or doc.pattern(state.pattern) is None:
-        state.pattern = doc.patterns[0].uid if doc.patterns else None
+        state.pattern = first_song_pattern(doc)
         state.anchor = None
     pattern = None if state.pattern is None else doc.pattern(state.pattern)
     rows = pattern.rows if pattern is not None else 1
@@ -161,14 +179,22 @@ def set_caret(ctx: Any, *, pattern: int | None = None, row: int | None = None,
 # --- editing ------------------------------------------------------------------
 
 
-def _touch(tab: SongTab, changed: bool) -> bool:
+def _touch(tab: SongTab, changed: bool, pattern: int | None = None) -> bool:
     """Arm the renderer if something moved. -> what it was told.
 
     One line, and it exists so no mutator can forget it: an edit that does not
     set ``render_dirty`` is an edit you cannot hear, and that is indisting-
     uishable from an edit that did not happen.
+
+    ``pattern`` is the pattern a cell edit landed in, and it is why an edit
+    inside a sound effect's private pattern arms nothing (the 2026-10-03 audit,
+    finding sirens-27): the song render reads the order list only, so the buffer
+    it already holds is identical, and re-arming re-synthesised a long song for
+    nothing on every typed effect note -- with Play refusing "Still rendering
+    your latest edits" for the duration. An edit with no pattern (an instrument,
+    a channel, a sample) can change any voice and always arms.
     """
-    if changed:
+    if changed and (pattern is None or pattern in tab.doc.order):
         tab.render_dirty = True
     return changed
 
@@ -218,7 +244,7 @@ def _write_at_caret(
     except ValueError as exc:
         ctx.toast(f"That note was not written: {exc}", "error")
         return False
-    _touch(tab, changed)
+    _touch(tab, changed, state.pattern)
     if advance:
         # The entry is finished, so the next hex key starts a fresh byte.
         # Cleared here as well as in :func:`move_caret` because a step of zero
@@ -332,7 +358,7 @@ def write_hex(ctx: Any, value: int) -> bool:
         # Ctrl+Z took back half a number; the first step is withdrawn here,
         # without a redo, and the whole byte lands as one.
         history.undo(tab.doc, redoable=False)
-        tab.render_dirty = True
+        _touch(tab, True, state.pattern)
     before = history.head
     written = write_cell(ctx, wanted, column=column, advance=last)
     if written and not last:
@@ -393,7 +419,7 @@ def clear_selection(ctx: Any) -> bool:
         return False
     state.digit = 0  # the edit moved on; a half-typed nibble must not land in it
     block = state.selection() or (state.row, state.channel, 1, 1)
-    return _touch(tab, tab.doc.clear_cells(state.pattern, *block))
+    return _touch(tab, tab.doc.clear_cells(state.pattern, *block), state.pattern)
 
 
 def transpose(ctx: Any, by: int) -> bool:
@@ -404,7 +430,7 @@ def transpose(ctx: Any, by: int) -> bool:
         return False
     state.digit = 0  # the edit moved on; a half-typed nibble must not land in it
     block = state.selection() or (state.row, state.channel, 1, 1)
-    return _touch(tab, tab.doc.transpose(state.pattern, *block, by))
+    return _touch(tab, tab.doc.transpose(state.pattern, *block, by), state.pattern)
 
 
 def shift_rows(ctx: Any, by: int) -> bool:
@@ -423,7 +449,9 @@ def shift_rows(ctx: Any, by: int) -> bool:
     row, chan, _rows, chans = state.selection() or (state.row, state.channel, 1, 1)
     # From the caret's row, not from the block's top: Insert is about where the
     # caret is, and a block is here only to say *which channels* it reaches.
-    return _touch(tab, tab.doc.shift_rows(state.pattern, state.row, chan, chans, by))
+    return _touch(
+        tab, tab.doc.shift_rows(state.pattern, state.row, chan, chans, by), state.pattern
+    )
 
 
 def interpolate_selection(ctx: Any) -> bool:
@@ -446,7 +474,7 @@ def interpolate_selection(ctx: Any) -> bool:
         )
         return False
     state.digit = 0  # the edit moved on; a half-typed nibble must not land in it
-    return _touch(tab, tab.doc.interpolate(state.pattern, *block))
+    return _touch(tab, tab.doc.interpolate(state.pattern, *block), state.pattern)
 
 
 def update_channel(ctx: Any, uid: int, **values: Any) -> bool:
@@ -532,7 +560,9 @@ def cut_selection(ctx: Any) -> bool:
     if not copy_selection(ctx):
         return False
     row, chan, rows, chans = state.selection() or (state.row, state.channel, 1, 1)
-    return _touch(tab, tab.doc.clear_cells(state.pattern, row, chan, rows, chans))
+    return _touch(
+        tab, tab.doc.clear_cells(state.pattern, row, chan, rows, chans), state.pattern
+    )
 
 
 def paste(ctx: Any) -> bool:
@@ -547,7 +577,11 @@ def paste(ctx: Any) -> bool:
     if tab is None or tab.busy or state.pattern is None or state.clip is None:
         return False
     state.digit = 0  # the edit moved on; a half-typed nibble must not land in it
-    return _touch(tab, tab.doc.set_cells(state.pattern, state.row, state.channel, 0, state.clip))
+    return _touch(
+        tab,
+        tab.doc.set_cells(state.pattern, state.row, state.channel, 0, state.clip),
+        state.pattern,
+    )
 
 
 # --- instruments --------------------------------------------------------------

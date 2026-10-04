@@ -129,6 +129,9 @@ def open_path(ctx: Any, path: Path) -> None:
 #: same sample table rather than a feature.
 SAMPLE_PREFIX = "sirens-sample:"
 
+#: What a sample dropped on a song that is being written is told.
+SAMPLE_WHILE_SAVING = "Still saving -- add the sample once the save lands."
+
 
 def _sample_ceiling(path: Path) -> bytes:
     """Refuse and read a file too big to be a sample, in one bounded call.
@@ -187,8 +190,8 @@ def import_sample(
     path: Path,
     instrument: int | None = None,
     switch: bool = False,
-) -> None:
-    """Decode a ``.wav`` into the tab's sample table. What a drop does.
+) -> bool:
+    """Decode a ``.wav`` into the tab's sample table. What a drop does. -> whether it started.
 
     Decoding is task work and not frame work: a minute of 48 kHz stereo is a
     resample over three million frames, which is not something to do between
@@ -198,10 +201,21 @@ def import_sample(
     what the Muse bridge wants, and the reason it is a flag on the task rather
     than a ``set_mode`` beside this call: a refusal must be read where the file
     was chosen, not in the mode the import never reached.
+
+    **A tab that is being written refuses out loud (the 2026-10-03 audit,
+    finding sirens-16).** The turn-away was silent, so a ``.wav`` dropped on
+    Sirens during a save did nothing the person could see, and Muse's "Open in
+    Sirens" went on to report that it had started. A refusal says why and the
+    return value says no, which is what ``docmodes.refuse`` exists for.
     """
-    if tab is None or tab.busy:
-        return
-    ctx.submit(f"{SAMPLE_PREFIX}{tab.uid}", _decode_sample, Path(path), instrument, switch)
+    if tab is None:
+        return False
+    if tab.busy:
+        docmodes.refuse(ctx, SAMPLE_WHILE_SAVING)
+        return False
+    return bool(
+        ctx.submit(f"{SAMPLE_PREFIX}{tab.uid}", _decode_sample, Path(path), instrument, switch)
+    )
 
 
 def ask_sample(ctx: Any, tab: SongTab, instrument: int | None = None) -> None:
@@ -210,8 +224,16 @@ def ask_sample(ctx: Any, tab: SongTab, instrument: int | None = None) -> None:
     The dialog runs *inside* the task for the reason every other picker here
     does: a native file dialog is modal to the OS and blocks until it is
     dismissed, which on the frame thread is a frozen window.
+
+    A busy tab refuses out loud, the way :func:`import_sample` does (the
+    2026-10-03 audit's follow-up to sirens-16): the instrument pane's "add a
+    sample" button used to turn away during a save without a word, which is the
+    same dead click the drop path was fixed for.
     """
-    if tab is None or tab.busy:
+    if tab is None:
+        return
+    if tab.busy:
+        docmodes.refuse(ctx, SAMPLE_WHILE_SAVING)
         return
 
     def run() -> dict[str, Any] | None:
@@ -272,7 +294,7 @@ def save_to(ctx: Any, tab: SongTab, path: Path) -> None:
         return {"head": head, "path": str(path), "retitle": True}
 
     _start(ctx, tab, f"sirens-save:{tab.uid}", run)
-    # P65 item 2 ("sirens-02"): mirrors ``tab.saving``/``.busy`` onto the
+    # The 2026-09-23 audit's finding sirens-02: mirrors ``tab.saving``/``.busy`` onto the
     # document itself, so a mutator like ``set_song`` can refuse a mid-save
     # change even from a caller that never goes through this tab's own
     # doors. ``_start`` may have already reverted ``tab.saving`` (a save
@@ -424,13 +446,39 @@ def _unique(stems: list[str]) -> list[str]:
     refuses a collision because a template that collides is a template the user
     should fix; a channel list is not a template, and the fix here is simply a
     number.
+
+    **Compared case-insensitively (the 2026-10-03 audit, finding sirens-15).**
+    ``export_plan`` keys its ``{Path: bytes}`` map by ``Path``, whose equality is
+    case-insensitive on Windows -- so channels called ``Lead`` and ``lead`` were
+    two stems here and one dict entry there: one stem file silently lost, the
+    surviving ``Lead.wav`` holding the second channel's audio, and the toast
+    still reporting the planned count. The names are made unique under the
+    filesystem's own comparison, which for a name that is only ever written to
+    Windows and macOS is the folded one.
     """
-    seen: dict[str, int] = {}
+    # **A generated name is checked against every name that is or will be
+    # taken, not just its own base (the 2026-10-03 audit's follow-up to
+    # sirens-15).** Counting per base minted ``Lead-2`` for a third ``Lead``
+    # beside a channel the user had already typed as ``Lead-2``: two files, one
+    # name, the same silent overwrite the counter exists to prevent. ``reserved``
+    # is every typed name up front, so a suffix is also stepped over when the
+    # channel that owns it comes *later* in the list.
+    reserved = {stem.casefold() for stem in stems}
+    used: set[str] = set()
+    next_suffix: dict[str, int] = {}
     out: list[str] = []
     for stem in stems:
-        count = seen.get(stem, 0) + 1
-        seen[stem] = count
-        out.append(stem if count == 1 else f"{stem}-{count}")
+        key = stem.casefold()
+        if key not in used:
+            used.add(key)
+            out.append(stem)
+            continue
+        count = next_suffix.get(key, 2)
+        while (candidate := f"{stem}-{count}").casefold() in used | reserved:
+            count += 1
+        next_suffix[key] = count + 1
+        used.add(candidate.casefold())
+        out.append(candidate)
     return out
 
 
@@ -502,15 +550,22 @@ def export_plan(doc: Any, directory: Path) -> dict[Path, bytes]:
 
     directory = Path(directory)
     rate = synth.SAMPLE_RATE
-    pcm, loop = synth.render(doc)
-    files: dict[Path, bytes] = {
-        _under(directory, SONG_NAME): wavout.wav_bytes(pcm, rate, loop=loop)
-    }
-    for index, stem in enumerate(channel_stems(doc)):
-        samples, stem_loop = _stem_render(doc, index)
-        files[_under(directory, STEM_DIR, f"{stem}.wav")] = wavout.wav_bytes(
-            samples, rate, loop=stem_loop
-        )
+    files: dict[Path, bytes] = {}
+    # **No order list, no song (the 2026-10-03 audit, finding sirens-18).**
+    # ``export_files`` refuses an export with nothing at all to write so as not
+    # to leave "a folder of empty WAVs", but a song with an empty order and one
+    # effect passed that check and wrote a header-only ``song.wav`` plus a
+    # header-only stem per channel beside the effect -- six zero-length files a
+    # build script globbing the folder would pick up. Only the effects are
+    # written then.
+    if doc.order:
+        pcm, loop = synth.render(doc)
+        files[_under(directory, SONG_NAME)] = wavout.wav_bytes(pcm, rate, loop=loop)
+        for index, stem in enumerate(channel_stems(doc)):
+            samples, stem_loop = _stem_render(doc, index)
+            files[_under(directory, STEM_DIR, f"{stem}.wav")] = wavout.wav_bytes(
+                samples, rate, loop=stem_loop
+            )
     for one, stem in zip(doc.oneshots, oneshot_stems(doc), strict=True):
         files[_under(directory, SFX_DIR, f"{stem}.wav")] = wavout.wav_bytes(
             synth.render_oneshot(doc, one.uid), rate
@@ -531,7 +586,10 @@ def _export(data: bytes, directory: Path) -> dict[str, Any]:
 
     directory = Path(directory)
     try:
-        doc = rsng.read_rsng(data)
+        # ``reserve=False``: a throwaway snapshot on a task thread must not move
+        # the shared uid counter the frame thread mints from (the 2026-10-03
+        # audit, sirens-05; this reader was the one the first pass missed).
+        doc = rsng.read_rsng(data, reserve=False)
         files = export_plan(doc, directory)
     except ValueError as exc:
         # Framed: only a ``ServiceError``'s text survives the task classifier,

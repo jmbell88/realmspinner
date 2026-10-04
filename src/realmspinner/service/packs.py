@@ -48,7 +48,7 @@ from .. import winjob
 from ..config import PROJECT_ROOT
 from ..core.safeio import atomic as safeio_atomic
 from .core import RealmspinnerService
-from .errors import Invalid, NotFound
+from .errors import Conflict, Invalid, NotFound
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +59,29 @@ log = logging.getLogger(__name__)
 PACK_TIMEOUT = 4 * 60 * 60.0
 
 _STDERR_KEEP_LINES = 40
+
+#: Held for the whole of an install or a repair. Both write into the
+#: ``site-packages`` the app is running out of, and the only thing that stopped a
+#: second caller was the pane disabling its buttons -- ``downloads._maintenance``'s
+#: own docstring calls that an imitation of the backend lock, one a headless
+#: caller or a second pane does not share (the 2026-10-03 audit, finding
+#: service-26). Process-local, like ``_maintenance``; two pip runs into one
+#: site-packages from *this* process is the case it closes. Taken without
+#: blocking: a second press is told so rather than queued behind hours of download.
+_PACK_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _one_pack_operation(what: str) -> Any:
+    if not _PACK_LOCK.acquire(blocking=False):
+        raise Conflict(
+            f"Another pack install or repair is already running, so {what} would not be "
+            "safe. Wait for it to finish and try again."
+        )
+    try:
+        yield
+    finally:
+        _PACK_LOCK.release()
 
 # ``percent, label, phase``. ``phase`` is the worker's own word for which
 # side of the "can this still be cancelled" line it is on (H02) -- see
@@ -327,6 +350,20 @@ def install(
     wants the wheels beside an installer asks for, and what a test can exercise
     without writing into ``site-packages``.
     """
+    with _one_pack_operation("installing a pack"):
+        return _install(
+            svc, keys, on_progress=on_progress, timeout=timeout, collect_only=collect_only
+        )
+
+
+def _install(
+    svc: RealmspinnerService,
+    keys: Sequence[str],
+    *,
+    on_progress: Progress | None,
+    timeout: float,
+    collect_only: bool,
+) -> dict[str, Any]:
     chosen = packs_mod.chosen_packs(keys)
     plan = plan_for([pack.key for pack in chosen])
     have = installed_versions()
@@ -417,6 +454,17 @@ def repair(
     ``--force-reinstall``, so pip overwrites what is there instead of skipping
     it a second time for the same reason it was skipped the first.
     """
+    with _one_pack_operation("repairing a pack"):
+        return _repair(svc, keys, on_progress=on_progress, timeout=timeout)
+
+
+def _repair(
+    svc: RealmspinnerService,
+    keys: Sequence[str],
+    *,
+    on_progress: Progress | None,
+    timeout: float,
+) -> dict[str, Any]:
     chosen = packs_mod.chosen_packs(keys)
     plan = plan_for([pack.key for pack in chosen])
     said = refusal(svc, [pack.key for pack in chosen])

@@ -203,6 +203,47 @@ def test_unwrap_bytes_round_trips_through_a_faked_worker(monkeypatch):
     assert result == {"ok": True, "objects": []}
 
 
+def test_clay_blend_spec_names_the_op_and_paths(tmp_path):
+    spec = blender_spec.clay_blend_spec(tmp_path / "in.glb", tmp_path / "out.blend", tmp_path)
+    assert spec == {
+        "op": "clay_blend",
+        "source_glb": str(tmp_path / "in.glb"),
+        "out_blend": str(tmp_path / "out.blend"),
+        "result_path": str(tmp_path / ".clay_blend_result.json"),
+    }
+
+
+def test_clay_blend_is_a_registered_worker_op():
+    from realmspinner.pipelines import blender_worker
+
+    assert blender_worker.OPS["clay_blend"] is blender_worker.op_clay_blend
+
+
+def test_blend_bytes_round_trips_through_a_faked_worker(monkeypatch):
+    seen = {}
+
+    def fake_run_worker(spec, *, timeout=None, name=None, **_kwargs):
+        assert spec["op"] == "clay_blend"
+        seen["glb"] = Path(spec["source_glb"]).read_bytes()
+        seen["dir"] = Path(spec["out_blend"]).parent
+        Path(spec["out_blend"]).write_bytes(b"BLENDER-v500")
+        return {"ok": True, "objects": 1}
+
+    monkeypatch.setattr(clay_blender.blender_run, "run_worker", fake_run_worker)
+    assert clay_blender.blend_bytes(b"IN-BYTES") == b"BLENDER-v500"
+    assert seen["glb"] == b"IN-BYTES"
+    assert not seen["dir"].exists()
+
+
+def test_blend_bytes_maps_a_blender_failure_to_clay_blender_error(monkeypatch):
+    def fake_run_worker(spec, **_kwargs):
+        raise blender_run.BlenderError("Blender worker exited with code 3")
+
+    monkeypatch.setattr(clay_blender.blender_run, "run_worker", fake_run_worker)
+    with pytest.raises(clay_blender.ClayBlenderError, match="code 3"):
+        clay_blender.blend_bytes(b"x")
+
+
 def test_bake_bytes_writes_both_inputs_and_round_trips(monkeypatch, tmp_path):
     seen = {}
 
@@ -273,7 +314,9 @@ def test_available_names_the_rig_extra_when_blender_is_missing(monkeypatch):
 
     monkeypatch.setattr(
         doctor, "blender_check",
-        lambda probe=False: doctor.Check("Blender (rigging)", False, "no bpy", fatal=False),
+        lambda probe=False: doctor.Check(
+            "Blender (rigging)", False, "no bpy", fatal=False, pending_install=True
+        ),
     )
     ok, reason = clay_blender.available()
     assert ok is False
@@ -455,3 +498,10 @@ def test_bake_produces_the_requested_maps_and_a_metallic_constant(
         for p in prims:
             assert p.material.base_color is not None, "no base colour survived the bake"
             assert p.material.normal is not None, "no normal map survived the bake"
+
+
+def test_blend_export_writes_a_real_blend_file(require_bpy, two_object_glb_bytes):
+    blend = clay_blender.blend_bytes(two_object_glb_bytes)
+    # Every .blend starts with this magic, compressed or not -- a compressed one
+    # is a zstd frame, which starts with its own.
+    assert blend[:7] == b"BLENDER" or blend[:4] == b"\x28\xb5\x2f\xfd"

@@ -55,6 +55,7 @@ class _Ctx:
                 settings_3d._LAST_AUTO_MATTE_SLOT: {"slot": 3},
             },
             preview_dirty_at=0.0,
+            clear_field_errors=lambda: None,
         )
         self.confirms = dialogs.ConfirmQueue()
         self.toasts: list[str] = []
@@ -145,17 +146,29 @@ def test_applying_a_saved_pose_pushes_exactly_one_undo_step():
     both ``pose_panel._apply_saved_pose`` and ``poser.mode.apply_asset_pose``
     run after their own ``reset_all`` -- fold into one step, not zero (the
     bug: neither call pushed anything) and not two (each pushing its own
-    would still be closer, but the audit asked for one)."""
+    would still be closer, but the audit asked for one).
+
+    The 2026-10-04 audit, finding create-31: this used to count from *after*
+    the ``reset_all`` and drive the three viewer calls by hand, so it measured
+    only the pair and blessed a gesture that still cost two undo steps -- the
+    reset, then the load. It now counts from before the reset and goes through
+    the real door, so the whole of Apply has to be the one step."""
+    from realmspinner.studio.panes import pose_panel
+
     viewer = _bound_viewer()
-    saved_bones = {"hip": list(m3.quat_from_axis_angle(m3.vec3(0, 1, 0), 0.9))}
+    saved = {
+        "bones": {"hip": list(m3.quat_from_axis_angle(m3.vec3(0, 1, 0), 0.9))},
+        "root_translation": [0.1, 0.0, 0.0],
+    }
+    # Something to reset away from, so the reset step is a real step and not
+    # one ``record()`` drops because nothing changed.
+    with viewer.editor.record():
+        viewer.editor.apply({"hip": list(m3.quat_from_axis_angle(m3.vec3(1, 0, 0), 0.4))})
+    steps_before = len(viewer.editor.history)
 
-    viewer.reset_all(dirty=False)
-    steps_after_reset = len(viewer.editor.history)
+    pose_panel._apply_saved_pose(SimpleNamespace(viewer=viewer), {"id": "j"}, saved, "P1")
 
-    viewer.set_pose(saved_bones, pose_id="P1", dirty=False)
-    viewer.set_root_translation([0.1, 0.0, 0.0], dirty=False)
-
-    assert len(viewer.editor.history) == steps_after_reset + 1
+    assert len(viewer.editor.history) == steps_before + 1
 
 
 def test_redo_after_applying_a_saved_pose_restores_it_not_the_reset_state():

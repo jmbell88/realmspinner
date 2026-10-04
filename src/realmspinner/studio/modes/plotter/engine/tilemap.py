@@ -202,6 +202,16 @@ class MapDoc(ProjectionOps, TilesetOps, LayerOps, PaintOps, GeometryOps, ObjectO
         # undoable: it counts changes, and a restored count would let a stale
         # cache match. Starts at 0 and only ever rises.
         self.tileset_epoch = 0
+        # The GPU texture's change stamp, and a strict subset of the above: moved
+        # only when a tileset's *pixels* or the tile *list* change, never by a
+        # metadata edit. ``tileset_epoch`` has to move for metadata (the palette
+        # and the form read the tileset object), but the panes used it as the
+        # texture stamp too, so dragging a collision shape destroyed and
+        # re-uploaded the whole atlas every frame (the 2026-10-03 audit,
+        # finding plotter-20). Same rules: not serialized, not undoable, only
+        # ever rises, and every hook that swaps pixels bumps it so an undo or a
+        # redo re-uploads exactly as the edit did.
+        self.tileset_pixel_epoch = 0
         # Document state, not view state: see the module docstring. Both start
         # at 1 because 0 is "unassigned" on a layer or object's own ``id``,
         # matching Tiled's own convention that a real id is never zero.

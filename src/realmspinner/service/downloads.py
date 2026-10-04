@@ -124,7 +124,7 @@ def rows(svc: RealmspinnerService) -> list[dict[str, Any]]:
         # What removing *this* row alone would free, and whether it would free
         # anything at all. Only for rows that are here -- there is nothing to
         # offer against a model that is not installed -- and computed rather
-        # than guessed, because one of four recipes over one checkpoint frees
+        # than guessed, because one of five recipes over one checkpoint frees
         # 0.8 GB and not 7, and a button that said 7 would be a lie.
         #
         # Path arithmetic only (no stat, no walk), ~17 entries, on the
@@ -210,7 +210,7 @@ def plan_for(svc: RealmspinnerService, row_keys: list[str]) -> list[fetch_mod.Jo
     """The deduped set of fetches these rows need. Raises on an unknown row.
 
     Deduped across the whole selection rather than per row, which is the only
-    reason ticking all four SDXL 1.0 recipes asks for 7 GB rather than 28.
+    reason ticking all five SDXL 1.0 recipes asks for 7 GB rather than 28.
     """
     chosen: list[fetch_mod.Entry] = []
     for row_key in row_keys:
@@ -778,7 +778,7 @@ def uninstall(
     The mirror of ``download`` and the same posture at the door: the whole
     selection is refused, or the whole selection runs. What it may delete is
     ``fetch.removal_plan``'s answer and nothing else -- reference-counted over
-    the registry, so uninstalling one of four recipes over one checkpoint frees
+    the registry, so uninstalling one of five recipes over one checkpoint frees
     only that recipe's own adapter.
 
     Removing the *default* base model is deliberately allowed. It degrades to

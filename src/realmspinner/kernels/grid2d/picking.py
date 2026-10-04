@@ -287,12 +287,16 @@ def resized(
         top = ay
     if "s" in handle:
         bottom = ay
-    if right - left < minimum:
+    # Only an axis the handle moves: dragging the south handle of a 0.4-wide
+    # rectangle (fractional and zero-size Tiled shapes are read in) used to push
+    # its width up to ``minimum`` as well (the 2026-10-03 audit, finding
+    # plotter-29), changing the exported collision geometry from a vertical drag.
+    if ("w" in handle or "e" in handle) and right - left < minimum:
         if "w" in handle:
             left = right - minimum
         else:
             right = left + minimum
-    if bottom - top < minimum:
+    if ("n" in handle or "s" in handle) and bottom - top < minimum:
         if "n" in handle:
             top = bottom - minimum
         else:

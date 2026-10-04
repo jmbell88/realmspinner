@@ -10,16 +10,17 @@ what the next placement will point one at.
 The same three-group shape ``clay_tools`` settled on for "pick a thing to
 add" -- library rows, then the derived primitive grid, then lights and a
 camera -- because a scene editor's palette is the modeller's palette plus two
-more kinds of thing a scene can hold. Only the library rows place
-*immediately*, on click: a library mesh already has a size and an origin, so
-there is nothing left for a viewport click to decide, and the row also lifts
-for a drag onto a specific point (``panes.library.draggable_mesh``, which
-this pane's own owner also built -- see that function's docstring for why
-Mason gets a second drag payload rather than a widened one). Everything else
--- a primitive, a light, a camera -- has no size or position of its own until
-the user says where, so a click here only **arms** ``state.place_kind`` and
-the viewport's own click handler is what actually calls
-``mason_mode.place_primitive``/``place_light``/``place_camera``.
+more kinds of thing a scene can hold. **Every** row **arms** rather than
+places -- a click here only sets ``state.place_kind`` (``job:<id>`` for a
+library row) and the viewport's own click handler is what actually calls
+``mason_mode.place_armed``, which dispatches to ``place_job``/
+``place_primitive``/``place_light``/``place_camera``. The library rows used to
+place immediately on click; the 2026-09-26 audit's mason-mode-05 made them arm
+like the rest, so the click-then-click-in-the-viewport gesture the manual
+promises is one gesture for everything. A library row additionally lifts for a
+drag onto a specific point (``panes.library.draggable_mesh``, which this pane's
+own owner also built -- see that function's docstring for why Mason gets a
+second drag payload rather than a widened one).
 """
 
 from __future__ import annotations

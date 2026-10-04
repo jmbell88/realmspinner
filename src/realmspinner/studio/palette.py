@@ -9,7 +9,7 @@ Two things here are deliberate and easy to undo.
 
 **The mode commands are derived from** :data:`.modes.MODES`, not written out.
 A palette is a second index of everything the app can do, and a hand-written
-one is a second index that drifts -- a thirteenth mode would gain a switch
+one is a second index that drifts -- a fourteenth mode would gain a switch
 segment and be missing from the one surface whose entire job is telling the
 user what exists. It is also, since the positional Alt+digit bindings went
 away, the *only* keyboard route to a mode, which is what turns the derivation
@@ -151,14 +151,22 @@ def _generate(ctx: Any) -> None:
 
     if create_stages.at(ctx.state, "reference"):
         settings_2d.generate(ctx, ctx.state.form_2d)
-    else:
+    elif create_stages.at(ctx.state, "mesh"):
         settings_3d.promote(ctx, ctx.cache.get(ctx.state.source_job), ctx.state.form_3d)
 
 
 def _in_generate_mode(ctx: Any) -> bool:
+    """Whether Create is at a stage that has a Generate of its own.
+
+    The same two stages ``shell.events``' Ctrl+Enter acts on. This used to be
+    "Create, any stage", so the palette and File menu rows (which print that
+    chord as their hint) opened the cutout dialog for a fresh mesh job from
+    Rig, Pose and Export while the chord itself did nothing there -- the
+    2026-10-03 audit, shell-17.
+    """
     from .modes.create.ui import stages as create_stages
 
-    return create_stages.in_create(ctx.state)
+    return create_stages.at(ctx.state, "reference") or create_stages.at(ctx.state, "mesh")
 
 
 def _viewport(ctx: Any) -> bool:
@@ -195,23 +203,31 @@ def _selected(ctx: Any) -> Any:
 def _any_trashed(ctx: Any) -> bool:
     """Whether there is anything for "Empty the trash..." to empty.
 
-    Prefers the store's own figure (``svc.store.trashed()``, what
-    ``empty_trash`` itself reads) over ``ctx.cache.jobs``, which is only the
+    Prefers ``cache.trash_present``, the store-wide answer the job-list read
+    task took (``JobsCache.read``), over ``ctx.cache.jobs``, which is only the
     newest ``jobs_cache.LIST_LIMIT`` (200) rows -- a trash entirely older than
     that window used to read as empty here while the store still held rows to
     delete (shell-chrome-06, the 2026-09-26 audit).
 
-    Falls back to the old ``cache.jobs`` scan when ``ctx`` carries no ``svc``
-    at all: ``specs()`` builds every command's ``enabled`` on every call it
-    makes (menus and the palette both), including from callers -- the menu
-    bar's own tests among them -- that hand it a ctx built for a narrower
-    question and never gave it a service door. The same tolerance
-    :func:`_selected` above already has, for the same reason.
+    **Never asks the store.** The first fix called ``store.trashed()`` -- a
+    full ``SELECT *`` that decodes every trashed row under the store's lock --
+    from this gate, and the gate runs for every command row on every frame a
+    menu root or the palette is open: 5.5 ms a call at 500 trashed rows, 35 ms
+    at 2000 (the 2026-10-03 audit, shell-18). The figure is one frame stale at
+    worst, and ``invalidate`` -- which every trash, restore and empty calls --
+    re-reads it.
+
+    Falls back to the ``cache.jobs`` scan until a read has landed, and for a
+    ``ctx`` with no cache at all: ``specs()`` builds every command's
+    ``enabled`` on every call it makes (menus and the palette both), including
+    from callers that hand it a ctx built for a narrower question. The same
+    tolerance :func:`_selected` above already has, for the same reason.
     """
-    store = getattr(getattr(ctx, "svc", None), "store", None)
-    if store is not None:
-        return bool(store.trashed())
-    jobs = getattr(getattr(ctx, "cache", None), "jobs", None) or ()
+    cache = getattr(ctx, "cache", None)
+    present = getattr(cache, "trash_present", None)
+    if present is not None:
+        return bool(present)
+    jobs = getattr(cache, "jobs", None) or ()
     return any(job.get("deleted_at") for job in jobs)
 
 
@@ -603,7 +619,7 @@ def commands(ctx: Any) -> list[Command]:
             run=_generate,
             hint="Ctrl+Enter",
             enabled=_in_generate_mode,
-            why="Open the 2D or 3D generate pane first.",
+            why="Go to Create's Reference or Mesh stage first.",
         ),
         Command(key="new-drawing", label="New drawing", group="Actions", run=new_drawing),
         Command(key="new-clay", label="New Clay document", group="Actions", run=new_clay),
@@ -639,7 +655,10 @@ def commands(ctx: Any) -> list[Command]:
         ),
         Command(
             key="delete",
-            label="Delete the selected asset...",
+            # No ellipsis: the 2026-10-03 audit's shell-55. Chapter 20 says a
+            # label ending in one opens a dialog, and this command trashes at
+            # once (see ``delete`` above -- the trash is the confirmation).
+            label="Delete the selected asset",
             group="Actions",
             run=delete,
             enabled=lambda ctx: _selected(ctx) is not None,

@@ -1,9 +1,10 @@
 """Muse's controller: the brief, the takes, playback and the bridge to Sirens.
 
 An ordinary ``studio/`` module, and that is worth saying because the *other*
-audio mode is not: ``studio/sirens/`` is a headless engine forbidden to import
-imgui, moderngl, pygame, scipy or ``service``, and ``sirens_mode`` is the thin
-layer that reaches those on its behalf. Muse has no engine to keep pure -- the
+audio mode is not: ``studio/modes/sirens/engine/`` is a headless engine
+forbidden to import imgui, moderngl, pygame, scipy or ``service``, and
+``studio/modes/sirens/`` (``sirens_mode`` and friends) is the thin layer that
+reaches those on its behalf. Muse has no engine to keep pure -- the
 model lives in a subprocess two layers down -- so this module imports
 ``service``, ``sirens_audio`` and ``sirens_io`` freely.
 
@@ -71,6 +72,16 @@ log = logging.getLogger(__name__)
 #: results by prefix and a key without one is a result delivered nowhere.
 LOAD_PREFIX = "muse-load:"
 
+#: The tag Muse puts on every task it submits under the shared ``"submit"`` key.
+#: The 2026-10-03 audit, finding shell-29: ``_collect_tasks`` decides whether a
+#: ``"submit"`` result still belongs to the screen by comparing its tag with
+#: Create's current workspace, and Muse submitted with *no* tag -- which equals
+#: Create's workspace only while Create has none, so after the first Create
+#: generation a Muse refusal lost its ring and a landing did not select its row.
+#: A tuple, never a string: Create's tags are workspace strings (or None), and
+#: the shell reads any other type as "not Create's".
+SUBMIT_TAG = ("muse",)
+
 
 def generate(ctx: Any) -> bool:
     """Queue the brief. -> whether the submit was accepted.
@@ -126,7 +137,7 @@ def generate(ctx: Any) -> bool:
     # Cleared on every press: the rings from the last one describe a request
     # that no longer exists.
     ctx.state.clear_field_errors()
-    if not ctx.submit("submit", run):
+    if not ctx.submit("submit", run, tag=SUBMIT_TAG):
         ctx.toast("Still submitting the last one - try again in a moment.")
         return False
     ctx.state.remember_prompt(str(form["prompt"]))
@@ -270,7 +281,11 @@ def derive(ctx: Any) -> bool:
     # muse-mode-02 (2026-09-26 audit): no longer cleared here -- ``open_derive``
     # clears on open now, so a refusal from *this* submit survives to ring its
     # control instead of being wiped by the very call that might reproduce it.
-    if not ctx.submit("submit", lambda: svc_jobs.derive_music_job(ctx.svc, job_id, **kwargs)):
+    if not ctx.submit(
+        "submit",
+        lambda: svc_jobs.derive_music_job(ctx.svc, job_id, **kwargs),
+        tag=SUBMIT_TAG,
+    ):
         ctx.toast("Still submitting the last one - try again in a moment.")
         return False
     # Left open, and marked waiting, rather than closed here: accepted only
@@ -347,6 +362,9 @@ def play(ctx: Any, job_id: str) -> None:
     just puts them back on the channel from wherever they were left.
     """
     state = ensure(ctx)
+    # muse-08 (2026-10-03 audit): a Play from a card or the strip selects the
+    # take, so Space and Up/Down act on what the user just pressed.
+    state.selected_job = job_id
     one = state.player
     if one is not None and one.job == job_id and one.pcm is not None:
         state.audition_job = job_id
@@ -401,7 +419,26 @@ def on_task_done(ctx: Any, done: Any) -> None:
             # landing to misfire on.
             pending = getattr(one, "pending_play", None)
             one.pending_play = None
-            if muse_io.loop_cache_key(one) == cache_key:
+            current_key = muse_io.loop_cache_key(one)
+            if current_key != cache_key:
+                # **muse-10 (2026-10-03 audit).** A Play that deferred while an
+                # earlier ``muse-loopcache:<job>`` task for the *previous*
+                # region was still running had its own ``precompute_loop``
+                # refused (``TaskRunner`` refuses a key already in flight), so
+                # when that earlier task landed here with the old key nothing
+                # was computing the current region at all: "Preparing the
+                # loop..." and then silence, until a second press. Recompute
+                # the current region now (the key is free -- ``poll`` removes
+                # it before it hands the result over) and keep a request that
+                # is still waiting for exactly that region.
+                if (
+                    pending is not None
+                    and pending[0] == one.job
+                    and pending[2] == current_key
+                ):
+                    one.pending_play = pending
+                precompute_loop(ctx)
+            if current_key == cache_key:
                 one.loop_cache = buffer
                 one.loop_cache_key = cache_key
                 if (
@@ -477,6 +514,16 @@ def on_task_done(ctx: Any, done: Any) -> None:
     # being compared was thirty seconds in. Read before the player is
     # replaced, since afterwards there is nothing left to read it from.
     previous = state.player
+    # **muse-09 (2026-10-03 audit).** ``play_offset`` is the base the current
+    # buffer was *sliced from*, not where the playhead is: a take that started
+    # at 0 s and had played for 20 s handed the next one 0 s, so an A/B
+    # comparison mid-listen restarted from the top against the manual's promise.
+    # ``position`` is the only thing that knows the live figure, and it has to
+    # be read now, while ``previous`` is still the player and the mixer still
+    # carries its tag.
+    carried = 0.0
+    if previous is not None:
+        carried = position(ctx) if is_playing(ctx, previous.job) else previous.play_offset
     # **One take at a time.** ~42 MB for four minutes, so replaced rather than
     # cached per job -- see ``MuseState.player``.
     state.player = MusePlayer(
@@ -489,13 +536,24 @@ def on_task_done(ctx: Any, done: Any) -> None:
     remembered = state.loop_memory.get(job_id)
     if remembered is not None:
         start, end, fade = remembered
+        # **muse-06 (2026-10-03 audit).** Clamped to the take just decoded: a
+        # remembered region outlives the file under its id (a take replaced
+        # under the same job id, or a shorter one), and an unclamped restore
+        # left ``position`` wrapping modulo a region longer than the loop body
+        # that was actually played.
+        duration = state.player.duration
+        if duration > 0.0 and start is not None and end is not None:
+            start = min(max(float(start), 0.0), duration)
+            end = min(max(float(end), 0.0), duration)
+            if end <= start:
+                start = end = None  # nothing of the region is left in this take
         state.player.loop_start = start
         state.player.loop_end = end
         state.player.xfade_ms = float(fade)
     if previous is not None:
         # Clamped, not carried outright: a shorter take cannot hold a
         # position the longer one reached.
-        state.player.play_offset = min(previous.play_offset, state.player.duration)
+        state.player.play_offset = min(carried, state.player.duration)
     # Tagged with the job id, which is what lets a card ask "am *I* the one
     # playing" rather than only "is anything playing".
     #
@@ -515,8 +573,22 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if sirens_audio.play(result["pcm"][start:], result["rate"], tag=job_id):
         state.playing_job = job_id
     else:
-        ctx.toast(sirens_audio.unavailable_reason() or "could not play that take",
-                  "warn")
+        ctx.toast(_play_refusal(), "warn")
+
+
+def _play_refusal() -> str:
+    """The sentence for a ``sirens_audio.play`` that returned False.
+
+    muse-16 (2026-10-03 audit). ``unavailable_reason()`` returns its "No audio
+    device" sentence unconditionally, so ``unavailable_reason() or "could not
+    play that take"`` never reached its second operand and an empty take (or a
+    device refusing the buffer) on a machine with a working device told the
+    user their hardware was missing. The device sentence is chosen only when
+    ``available()`` says there is no device.
+    """
+    if not sirens_audio.available():
+        return sirens_audio.unavailable_reason()
+    return "Could not play that take: it is empty, or the audio device refused it."
 
 
 def on_task_failed(ctx: Any, done: Any) -> None:
@@ -601,8 +673,22 @@ def sync(ctx: Any) -> None:
         # 60 times a second for as long as the tray was drawn. A
         # short-circuiting membership scan answers the same question and
         # stops at the first match rather than visiting every row.
-        jobs = getattr(ctx.cache, "jobs", []) or []
-        if jobs and not any(str(job["id"]) == state.player.job for job in jobs):
+        #
+        # **muse-12 (2026-10-03 audit).** ``cache.jobs`` is a window (the
+        # newest ``LIST_LIMIT`` rows of every kind, widened only by the
+        # Library's "Load older"), not the Library, so an id missing from it is
+        # not "left the Library": a loaded take that scrolled out of the window
+        # lost its player without ``remember_loop`` -- the strip and region
+        # vanished while it kept sounding. Dropped only when the window is
+        # known to hold the whole history (``total`` no bigger than what is
+        # loaded, and the count did not fail).
+        cache = ctx.cache
+        jobs = getattr(cache, "jobs", []) or []
+        whole = (
+            int(getattr(cache, "total", 0) or 0) <= len(jobs)
+            and not getattr(cache, "count_error", None)
+        )
+        if whole and jobs and not any(str(job["id"]) == state.player.job for job in jobs):
             state.player = None
 
 
@@ -802,7 +888,7 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
             one.loop_anchor = one.loop_start + (cut % len(body)) / rate
             ensure(ctx).playing_job = one.job
         else:
-            ctx.toast(sirens_audio.unavailable_reason() or "could not play that take", "warn")
+            ctx.toast(_play_refusal(), "warn")
         return
 
     one.loop_anchor = None
@@ -814,7 +900,7 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
         one.play_offset = seconds
         ensure(ctx).playing_job = one.job
     else:
-        ctx.toast(sirens_audio.unavailable_reason() or "could not play that take", "warn")
+        ctx.toast(_play_refusal(), "warn")
 
 
 def play_region(ctx: Any) -> None:
@@ -944,7 +1030,14 @@ def select(ctx: Any, jobs: list[Any], delta: int) -> None:
         return
     state = ensure(ctx)
     ids = [str(job["id"]) for job in jobs]
-    here = ids.index(state.selected_job) if state.selected_job in ids else 0
+    if state.selected_job not in ids:
+        # **muse-07 (2026-10-03 audit).** "No selection" is a position before
+        # the first card, not card 0: ``here`` used to start at 0, so the first
+        # Down from nothing landed on the *second*-newest take. Down enters at
+        # the first card and Up wraps to the last.
+        state.selected_job = ids[0] if delta > 0 else ids[-1]
+        return
+    here = ids.index(state.selected_job)
     state.selected_job = ids[(here + delta) % len(ids)]
 
 
@@ -989,12 +1082,19 @@ def handle_key(ctx: Any, event: Any) -> bool:
         return True
     state = ensure(ctx)
     if event.key == pygame.K_SPACE:
+        # **muse-08 (2026-10-03 audit).** Space stopped nothing unless the
+        # *selected* take was the sounding one, and a card's Play never set the
+        # selection -- so after pressing a card's Play, Space was consumed and
+        # the take played on, or started a different (selected) one on top.
+        # Whatever is sounding stops first; only a silent mixer falls back to
+        # playing the selection.
+        held = state.player.job if state.player is not None else ""
+        for sounding in (state.playing_job, held, state.selected_job):
+            if sounding and is_playing(ctx, sounding):
+                stop(ctx)
+                return True
         job_id = state.selected_job
-        if not job_id:
-            return True
-        if is_playing(ctx, job_id):
-            stop(ctx)
-        else:
+        if job_id:
             play(ctx, job_id)
         return True
     if event.key in (pygame.K_UP, pygame.K_DOWN):
@@ -1056,8 +1156,11 @@ def open_in_sirens(ctx: Any, job_id: str) -> bool:
     tab = sirens_mode.active(ctx)
     if tab is None:
         tab = sirens_mode.new_document(ctx)
-    sirens_io.import_sample(ctx, tab, path, switch=True)
-    return True
+    # Its own answer, not a flat ``True``: a tab that is being saved turns the import
+    # away (out loud, in Sirens) and the docstring promises "whether it started"
+    # -- the 2026-10-03 audit, finding sirens-16.
+    # ``is not False``: a refusal is the one answer that means "did not start".
+    return sirens_io.import_sample(ctx, tab, path, switch=True) is not False
 
 
 def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
@@ -1124,7 +1227,10 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
         from ..sirens.engine import synth
 
         try:
-            doc = rsng.read_rsng(data)
+            # A throwaway snapshot, rendered and dropped on this task thread:
+            # ``reserve=False`` so it never moves the shared uid counter the
+            # frame thread mints from (the 2026-10-03 audit, finding sirens-05).
+            doc = rsng.read_rsng(data, reserve=False)
             samples, loop, _marks = synth.render_marked(doc)
         except ValueError as exc:
             raise invalid_from(exc, "That song did not render") from exc
@@ -1146,7 +1252,7 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
         )
 
     ctx.state.clear_field_errors()
-    if not ctx.submit("submit", run):
+    if not ctx.submit("submit", run, tag=SUBMIT_TAG):
         ctx.toast("Still submitting the last one - try again in a moment.")
         return False
     ctx.state.remember_prompt(str(form["prompt"]))

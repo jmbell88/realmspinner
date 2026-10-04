@@ -176,3 +176,82 @@ def test_many_large_tilemap_cels_are_refused_before_they_are_inflated(monkeypatc
     data = _ase_file(_ase_header(1, 2, 2), frames)
     with pytest.raises(ValueError, match="pixels"):
         asein.document_from_aseprite(data)
+
+
+def _tilemap_file(
+    canvas: int, tile: int, grid_w: int, grid_h: int, payload: bytes, *, x=0, y=0
+):
+    """A one-tilemap-layer file whose one cel declares ``grid_w``x``grid_h``."""
+    import struct
+
+    from tests.modes.inker.test_asein import _chunk as chunk
+    from tests.modes.inker.test_asein import (
+        _file,
+        _frame,
+        _header,
+        _layer,
+        _rgba,
+        _tileset_chunk,
+    )
+
+    body = struct.pack("<HhhBHh5s", 0, x, y, 255, 3, 0, b"\0" * 5)
+    masks = (0x1FFFFFFF, 0x80000000, 0x40000000, 0x20000000)
+    body += struct.pack("<HHHIIII10s", grid_w, grid_h, 32, *masks, b"\0" * 10)
+    body += payload
+    blank = _rgba(tile, tile, (0, 0, 0, 0))
+    chunks = [
+        _tileset_chunk(7, tile, tile, [blank]),
+        _layer("Map", kind=2, tileset=7),
+        chunk(0x2005, body),
+    ]
+    return _file(_header(1, canvas, canvas), [_frame(chunks)])
+
+
+def test_one_tilemap_cel_larger_than_the_canvas_can_place_is_refused_before_it_is_inflated(
+    monkeypatch,
+):
+    # inker-08 (residual): the running total bounds the *sum* of the grids, so
+    # one cel declaring a 16384x16384 grid (a 1 GiB inflate from ~1 MB of
+    # zlib) was only bounded by that shared ceiling, not by its own
+    # plausibility. A 2x2 canvas can place a 1x1 grid of 2px tiles; this cel
+    # names 4000x4000 of them, and zlib must never be asked to open it.
+    # The tileset chunk legitimately inflates; only the cel's own call counts.
+    asked: list[str] = []
+    real = asein._inflate
+
+    def spy(raw, expected, what):
+        asked.append(what)
+        return real(raw, expected, what)
+
+    monkeypatch.setattr(asein, "_inflate", spy)
+    data = _tilemap_file(2, 2, 4000, 4000, b"not zlib at all")
+    with pytest.raises(ValueError, match="larger than"):
+        asein.document_from_aseprite(data)
+    assert not [w for w in asked if "tilemap cel" in w], (
+        "the grid was refused only after its inflate was asked for"
+    )
+
+
+def test_a_tilemap_cel_reaching_a_canvas_width_past_each_edge_still_opens():
+    # The same bound's other side: a legitimate cel is allowed to overhang the
+    # canvas (it is cropped, with a warning), up to one canvas on each side.
+    # 4x4 canvas, 2x2 tiles: a 6x6 grid at (-4, -4) spans -4..8 on both axes.
+    import zlib
+
+    import numpy as np
+
+    from realmspinner.kernels.pixel.tiles import TilemapCel
+
+    refs = np.zeros((6, 6), dtype="<u4")
+    payload = zlib.compress(refs.tobytes())
+    data = _tilemap_file(4, 2, 6, 6, payload, x=-4, y=-4)
+    doc, warnings = asein.document_from_aseprite(data)
+    assert isinstance(doc.stack[0], TilemapCel)
+    assert any("past the canvas" in w for w in warnings)
+
+    # And one tile past that bound, on one axis alone, is refused.
+    refs = np.zeros((6, 7), dtype="<u4")
+    payload = zlib.compress(refs.tobytes())
+    data = _tilemap_file(4, 2, 7, 6, payload, x=-4, y=-4)
+    with pytest.raises(ValueError, match="larger than"):
+        asein.document_from_aseprite(data)

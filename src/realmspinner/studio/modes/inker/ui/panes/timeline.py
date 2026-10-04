@@ -566,9 +566,11 @@ def _transport(ctx: Any, tab: Any) -> None:
     The transport is pinned, so it collapses to glyphs and stops -- a play
     button that moves into an overflow menu when the window is dragged is not a
     transport. **Delete frame** is pinned for the other half of the same rule.
-    The non-buttons -- the counter, the duration box, the toggles, the scale
-    combo, the (?) -- go in each row's ``trailing``, which is measured before
-    the tiers are chosen and so cannot be the thing that gets clipped.
+    The non-buttons -- the counter and the duration box -- go in the row's
+    ``trailing``, which is measured before the tiers are chosen and so cannot
+    be the thing that gets clipped. (The scale combo that used to sit there
+    left with the exports; the 2026-10-03 audit, finding docs-26, found chapter
+    29 still placing both on this strip.)
     """
     doc = tab.doc
     anim = doc.anim
@@ -1164,6 +1166,7 @@ def _frame_headers(ctx: Any, tab: Any, cell: float, gutter: float) -> float:
         label = str(index + 1) if index % 10 == 0 or current else "."
         if controls.button(label, (cell, cell)) and not tab.busy:
             tab.doc.set_current_frame(index)
+        _busy_tip(tab)
         if current:
             imgui.pop_style_color()
         _frame_menu(tab, index)
@@ -1222,6 +1225,47 @@ def _busy_gate(tab: Any, ok: bool = True, reason: str = "") -> tuple[bool, str]:
     if tab.busy:
         return False, widgets.DOCUMENT_SAVING_WHY
     return ok, reason
+
+
+def _busy_tip(tab: Any) -> None:
+    """Say why the control just drawn ignored its click, when it did.
+
+    The 2026-10-03 audit, finding inker-94: the frame numbers, the cels, the
+    layer name and the tag name all swallow a press with ``and not tab.busy``
+    while the transport beside them is greyed with a sentence -- so during
+    playback or a save a click did nothing and nothing said why. A hover
+    tooltip rather than a greyed control: the cells carry the playhead's
+    highlight and a marquee that starts on the press, and dimming the whole
+    grid every playback frame would hide the one thing playback is showing.
+    """
+    if tab.busy and imgui.is_item_hovered():
+        imgui.set_tooltip(widgets.DOCUMENT_SAVING_WHY)
+
+
+def _move_gate(tab: Any, doc: Any, index: int, step: int) -> tuple[bool, str]:
+    """(enabled, reason) for the row menu's Move up (``+1``) / Move down (``-1``).
+
+    The 2026-10-03 audit, finding inker-93: both stayed enabled on the top and
+    bottom rows, and where a background layer refuses the move, while
+    ``move_layer`` returned False in silence -- the sibling ``_frame_menu``
+    already greys Move left/right at the ends with a sentence for exactly this.
+    Rows run bottom-up, so ``+1`` is up.
+    """
+    rows = list(doc.stack)
+    target = index + step
+    if not 0 <= target < len(rows):
+        return _busy_gate(
+            tab,
+            False,
+            "This is already the top layer." if step > 0 else "This is already the bottom layer.",
+        )
+    # The rule ``LayerStack.move`` enforces by raising: a background layer must
+    # stay on the bottom row, so it cannot move up and nothing can move below it.
+    moved = rows.copy()
+    moved.insert(target, moved.pop(index))
+    if any(pos != 0 and getattr(row, "background", False) for pos, row in enumerate(moved)):
+        return _busy_gate(tab, False, "The background layer stays at the bottom.")
+    return _busy_gate(tab)
 
 
 def _frame_menu(tab: Any, index: int) -> None:
@@ -1452,6 +1496,8 @@ def _track_row(
             detail += "  alpha locked"
         if layer.locked:
             detail += "  locked"
+        if tab.busy:
+            detail += f"\n{widgets.DOCUMENT_SAVING_WHY}"
         note = None if doc.anim is None else doc.anim.tracks[track_index].note
         if note is not None and note.text:
             # On its own line: the row above is a list of flags read at a
@@ -1842,9 +1888,11 @@ def _row_menu(ctx: Any, tab: Any, doc: Any, index: int) -> None:
         doc.set_active_layer(index)
         ctx.state.inker.pending_dialog = "inker-layer-properties"
     widgets.divider()
-    if controls.selectable("Move up", False, enabled=enabled, reason=why)[0]:
+    up, up_why = _move_gate(tab, doc, index, +1)
+    if controls.selectable("Move up", False, enabled=up, reason=up_why)[0]:
         doc.move_layer(index, index + 1)
-    if controls.selectable("Move down", False, enabled=enabled, reason=why)[0]:
+    down, down_why = _move_gate(tab, doc, index, -1)
+    if controls.selectable("Move down", False, enabled=down, reason=down_why)[0]:
         doc.move_layer(index, index - 1)
     widgets.divider()
     if controls.selectable(f"Duplicate{span or ' layer'}", False, enabled=enabled, reason=why)[0]:
@@ -1945,6 +1993,7 @@ def _cell(
         doc.set_active_layer(ti)
         if anim is not None:
             doc.set_current_frame(fi)
+    _busy_tip(tab)
     imgui.pop_style_color()
     if geom is not None:
         low = imgui.get_item_rect_min()
@@ -2315,6 +2364,7 @@ def _tag_row(ctx: Any, tab: Any, cell: float, gutter: float) -> None:
                     begin_tag_rename(state, index, tag)
                 else:
                     tag_jump(tab.doc, tag)
+            _busy_tip(tab)
             _tag_menu(ctx, tab, index, tag)
         imgui.pop_id()
 

@@ -267,9 +267,7 @@ def import_tileset(ctx: Any) -> bool:
         # (silently) a sheet whose tab closed before *it* lands; this is the
         # same closure one step later, but Import is a button the user just
         # pressed, so it gets a word rather than doing nothing.
-        state.tileset_import = None
-        state.tileset_preview_key = None
-        state.tileset_import_open = False
+        release_parked_import(ctx, state)
         docmodes.refuse(ctx, "That atlas was closed before the tile set was imported.")
         return False
     if tab.busy:
@@ -295,11 +293,28 @@ def import_tileset(ctx: Any) -> bool:
         sprites, _dropped = dedup_tiles(
             sprites, orientations=state.tileset_dedup_flips
         )
-    state.tileset_import = None
-    state.tileset_preview_key = None
-    state.tileset_import_open = False
+    # Through ``clear_tileset_import`` rather than the three field resets this
+    # used to do inline: the 2026-10-03 audit's packwright-01. Resetting the
+    # fields here made the pane's closed-popup guard ("is something parked?")
+    # False on the next frame, so nothing ever forgot the slice preview's GL
+    # texture (the sheet's size, up to 16 MP) or its cached occupancy grid --
+    # a texture leaked per Import, and both caches are keyed on ``id(pixels)``,
+    # so a later sheet reusing the freed address could draw the old picture.
+    release_parked_import(ctx, state)
     ctx.toast(_added_sentence(*_add_sprites(ctx, tab, sprites), noun="tile"))
     return True
+
+
+def release_parked_import(ctx: Any, state: PackwrightState) -> None:
+    """Drop the parked sheet and everything the popup cached about it.
+
+    ``clear_tileset_import`` lives in the pane (it owns the slice texture and
+    grid cache) and the pane imports this module, so the reach is function
+    scope -- ``close_tab``'s own shape.
+    """
+    from .ui.panes import sources as packwright_sources
+
+    packwright_sources.clear_tileset_import(ctx, state)
 
 
 def tileset_preview_key(
@@ -543,36 +558,47 @@ def _add_sprites(ctx: Any, tab: PackTab, sprites: list[Any]) -> tuple[int, int]:
     twenty undo steps.
     """
     added = replaced = 0
-    for sprite in sprites:
-        existing = next(
-            (one for one in tab.doc.sources if one.key == sprite.key), None
-        )
-        try:
-            if existing is None:
-                tab.doc.add_source(sprite)
-                added += 1
-                continue
-            before = tab.doc.history.head
-            tab.doc.replace_source(existing.uid, sprite)
-            if tab.doc.history.head != before:
-                replaced += 1
-        except ValueError as exc:
-            # A ceiling tripped partway through a multi-file batch used to
-            # propagate straight out of this loop, past on_task_done, into
-            # main.py's generic task-landing handler, which toasted "That did
-            # not finish landing: packwright-add:..." -- a fact about the
-            # frame loop, not the pack -- and left whatever sprite *did* land
-            # before it with pack_dirty unset (the 2026-09-14 audit,
-            # packwright-01). Caught here instead: what landed stays landed
-            # and dirty, and a second toast (the tsx-skip idiom in
-            # on_task_done, below) names the ceiling and how far the batch got.
-            if added or replaced:
-                tab.pack_dirty = True
-            ctx.toast(
-                f"Stopped after {added + replaced} of {len(sprites)}: {exc}",
-                "warn",
-            )
-            return added, replaced
+    # **One gesture, one undo step.** The 2026-10-03 audit's packwright-03:
+    # every add and replace pushed its own step, so a 6-file add took six
+    # Ctrl+Z, and a tile-set Import (up to 4096 tiles) past ``UNDO_MAX_DEPTH``
+    # evicted every earlier edit in the document and part of itself -- an add
+    # that could no longer be undone at all. ``mark`` also defers the budget
+    # eviction until the fold; the ``finally`` closes the gesture on every
+    # path, the early return below included.
+    history = tab.doc.history
+    gesture = history.mark()
+    try:
+        for sprite in sprites:
+            existing = tab.doc.source_by_key(sprite.key)
+            try:
+                if existing is None:
+                    tab.doc.add_source(sprite)
+                    added += 1
+                    continue
+                before = history.head
+                tab.doc.replace_source(existing.uid, sprite)
+                if history.head != before:
+                    replaced += 1
+            except ValueError as exc:
+                # A ceiling tripped partway through a multi-file batch used to
+                # propagate straight out of this loop, past on_task_done, into
+                # main.py's generic task-landing handler, which toasted "That did
+                # not finish landing: packwright-add:..." -- a fact about the
+                # frame loop, not the pack -- and left whatever sprite *did* land
+                # before it with pack_dirty unset (the 2026-09-14 audit,
+                # packwright-01). Caught here instead: what landed stays landed
+                # and dirty, and a second toast (the tsx-skip idiom in
+                # on_task_done, below) names the ceiling and how far the batch got.
+                if added or replaced:
+                    tab.pack_dirty = True
+                ctx.toast(
+                    f"Stopped after {added + replaced} of {len(sprites)}: {exc}",
+                    "warn",
+                )
+                return added, replaced
+    finally:
+        if history.collapse_since(gesture):
+            history.top.label = "add sprites"
     if added or replaced:
         tab.pack_dirty = True
     return added, replaced
@@ -734,6 +760,7 @@ def request_pack(ctx: Any, tab: PackTab | None = None) -> None:
             raise invalid_from(exc, "That pack did not work") from exc
         return {"layout": result, "atlas": composelib.compose(sprites, result), "uid": uid}
 
+    was_packing = tab.packing
     tab.packing = True
     if ctx.submit(f"packwright-pack:{uid}", run):
         # Cleared *only* on an accepted submit. The runner refuses a key already
@@ -741,7 +768,13 @@ def request_pack(ctx: Any, tab: PackTab | None = None) -> None:
         # while the previous pack was running.
         tab.pack_dirty = False
     else:
-        tab.packing = False
+        # Put back what it was, not forced to False (the 2026-10-03 audit's
+        # packwright-10): a refusal means a pack for this key is *already* in
+        # flight, so ``packing`` is True and belongs to it -- clearing it made
+        # the preview read "not packing" (the empty state, and "Add a sprite")
+        # about a pack that was still running. ``on_task_done`` clears it where
+        # the pack lands or fails.
+        tab.packing = was_packing
 
 
 def pump(ctx: Any) -> None:
@@ -1151,10 +1184,22 @@ def _ctrl_key(
 # seconds and is the only answer that cannot be stale.
 
 
-def _journal_encode(tab: Any) -> bytes:
+def _journal_encode(tab: Any) -> Any:
+    """The frame thread's half only: a snapshot, and the PNG encode deferred.
+
+    The 2026-10-03 audit's packwright-04: this was ``rpack.rpack_bytes``
+    (documented "for the callers that are already off-thread"), and
+    ``journal.write`` calls the encoder on the frame thread -- so every tick
+    for a dirty atlas ran the PNG encode of every source there (718 ms for
+    300 x 128 px of noise, 2.5 s for 64 x 512 px). ``rpack.snapshot`` is the
+    split ``fileio.save_to`` already uses to keep Save's frame-thread half to
+    well under a millisecond; the returned callable is what the journal's task
+    runs.
+    """
     from .engine import rpack
 
-    return rpack.rpack_bytes(tab.doc)
+    snap = rpack.snapshot(tab.doc)
+    return lambda: rpack.snapshot_bytes(snap)
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:

@@ -29,7 +29,7 @@ from imgui_bundle import imgui
 from ...kernels.rig import store
 from ...service import sprites as svc_sprites
 from ...service import validation
-from .. import asset_open, controls, forms, theme, verbs, widgets
+from .. import asset_open, controls, dialogs, forms, theme, verbs, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import model_gate, stamps
@@ -39,6 +39,37 @@ from . import model_gate, stamps
 THUMB_SIZE = 96
 
 log = logging.getLogger(__name__)
+
+
+# The 2026-10-03 audit, finding poser-26: ``sprite_options()`` and
+# ``sprite_cost()`` each stat the pose-guide files and parse a guide JSON (about
+# 2.3 ms together), and the section called both on every draw it was open for.
+# The options are read from files that ship with the install, so one read is
+# good for the process -- the rule Create's ``recipe.sprite_options`` already
+# keeps -- and a cost is a pure function of (sheet type, cell size), so it is
+# memoised on exactly those two.
+_options_memo: list[dict[str, Any] | None] = [None]
+_cost_memo: dict[tuple[str, int], dict[str, Any]] = {}
+
+
+def _options() -> dict[str, Any]:
+    if _options_memo[0] is None:
+        _options_memo[0] = svc_sprites.sprite_options() or {}
+    return _options_memo[0]
+
+
+def _cost(sheet_type: str, logical_size: int) -> dict[str, Any]:
+    key = (str(sheet_type), int(logical_size))
+    plan = _cost_memo.get(key)
+    if plan is None:
+        plan = _cost_memo[key] = svc_sprites.sprite_cost(*key)
+    return plan
+
+
+def _reset_memo() -> None:
+    """Forget both answers (a test's hook; nothing in the app needs it)."""
+    _options_memo[0] = None
+    _cost_memo.clear()
 
 
 def _pixel_scale(size: tuple[int, int], avail: int) -> int:
@@ -107,7 +138,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
         ctx.state.preview.pop("sprite_focus", None)
     form = forms_by_job.get(job_id)
     if form is None:
-        defaults = (svc_sprites.sprite_options() or {}).get("defaults") or {}
+        defaults = _options().get("defaults") or {}
         form = {
             "job_id": job_id,
             "sheet_type": str(defaults.get("sheet_type") or "turnaround"),
@@ -121,7 +152,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
 
 
 def _controls(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
-    options = svc_sprites.sprite_options()
+    options = _options()
     types = options.get("sheet_types") or []
     labels = {
         entry["key"]: f"{entry['key']} ({entry['columns']}x{entry['rows']})" for entry in types
@@ -146,9 +177,14 @@ def _controls(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         [(str(n), f"{n} colours") for n in options.get("colors") or ()],
     )
     form["colors"] = int(colors)
+    # Captioned in words and addressed by the identifier: ``field`` is also what
+    # ``create_sprite_synthesis`` refuses by (``seed_b``), so it stays the form
+    # id, but drawing it as the caption put ``seed_a`` on a user-facing control
+    # (the 2026-10-03 audit's create-39).
+    captions = {"seed_a": "Seed A", "seed_b": "Seed B"}
     for field in ("seed_a", "seed_b"):
         imgui.push_id(field)
-        changed, seed = form_ui.number(field, field, int(form[field]))
+        changed, seed = form_ui.number(field, captions[field], int(form[field]))
         if changed:
             form[field] = max(0, seed)
         # Asked rather than assumed, the rule the rest of the sidebar follows:
@@ -247,7 +283,7 @@ def _submit(ctx: Any, job_id: str, form: dict[str, Any]) -> None:
     locked = model_gate.draw(ctx, svc_sprites.SPRITE_ROWS, what="A sprite sheet")
     # The plan for what is *currently selected*, so the label and the note below
     # move with the two combos rather than describing the default forever.
-    plan = svc_sprites.sprite_cost(form["sheet_type"], form["logical_size"])
+    plan = _cost(form["sheet_type"], form["logical_size"])
     cap_reason = None
     if not busy:
         cap_reason = sprite_draft_cap_reason(draft_records(ctx, job_id), ctx.cache.jobs, job_id)
@@ -367,15 +403,26 @@ def _draft(ctx: Any, job_id: str, record: dict[str, Any]) -> None:
         ):
             _candidate(ctx, job_id, draft_id, letter, candidate)
         if controls.small_button("Delete draft"):
-            # No confirm, exactly as deleting a rendered sheet has none: a
-            # draft is regenerable from the seed recorded beside it, and the
-            # listing above refreshes off the directory stamp on its own.
-            ctx.submit(
-                f"sprite-del:{job_id}:{draft_id}",
-                svc_sprites.delete_sprite_draft,
-                ctx.svc,
-                job_id,
-                draft_id,
+            # The 2026-10-04 audit, finding create-37: this used to delete with no
+            # confirm on the theory that a draft regenerates from its recorded
+            # seed -- but it removes up to 16 generations at once, with no undo,
+            # and each is a text2image run to get back. Asked the way the
+            # sibling sheet Delete asks (``sheet_panel._ask_delete``).
+            dialogs.ask_delete(
+                ctx,
+                title="Delete this draft?",
+                message=(
+                    f"The {len(record.get('candidates') or [])} generation(s) in "
+                    "this draft are deleted. This cannot be undone.\n\n"
+                    "Making them again means running the generation again."
+                ),
+                on_confirm=lambda: ctx.submit(
+                    f"sprite-del:{job_id}:{draft_id}",
+                    svc_sprites.delete_sprite_draft,
+                    ctx.svc,
+                    job_id,
+                    draft_id,
+                ),
             )
     finally:
         imgui.pop_id()

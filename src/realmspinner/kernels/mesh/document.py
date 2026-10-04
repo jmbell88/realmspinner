@@ -592,16 +592,28 @@ class ClayDoc:
         changes, which is not true of the other doors (a mesh edit, a
         modifier stack, a delete) that only ever affect the object itself.
         """
+        message = self.lock_refusal(uid, check_ancestors=check_ancestors)
+        if message is not None:
+            raise el.OpError(message)
+
+    def lock_refusal(self, uid: int, *, check_ancestors: bool = False) -> str | None:
+        """The sentence :meth:`_refuse_if_locked` would raise, or ``None``.
+
+        The same predicate as a question rather than a raise, so a pane can grey
+        a field on exactly what the door will refuse on. The 2026-10-03 audit's
+        clay-67: Properties greyed the transform fields on ``obj.locked`` alone
+        while ``set_transform`` also refuses under a locked ancestor, so typing
+        into a child of a locked group toasted once per keystroke.
+        """
         obj = self.by_uid(uid)
         if obj.locked:
-            raise el.OpError(f"{obj.name!r} is locked.")
+            return f"{obj.name!r} is locked."
         if check_ancestors:
             for a in self.ancestors(uid):
                 ancestor = self.by_uid(a)
                 if ancestor.locked:
-                    raise el.OpError(
-                        f"{obj.name!r} is locked: its parent {ancestor.name!r} is locked."
-                    )
+                    return f"{obj.name!r} is locked: its parent {ancestor.name!r} is locked."
+        return None
 
     def set_parent(self, uid: int, parent: int | None, *, keep_world: bool = True) -> bool:
         """Reparent *uid* onto *parent* (or make it a root), as one step.
@@ -647,6 +659,18 @@ class ClayDoc:
         if keep_world:
             world = self.world_matrix(uid)
             t, r, s = self._local_relative(world, parent)
+            # The 2026-10-03 audit's clay-24: a parent whose scale is a
+            # denormal (``1e-320``, finite and nonzero, so past both
+            # ``set_transform``'s checks and ``np.linalg.inv``'s singular
+            # test) inverts to ``inf``, and ``decompose`` then handed back
+            # ``NaN`` translation, rotation and scale that were written onto
+            # the child without a look -- the poisoned transform
+            # ``set_transform``'s own finiteness assertion exists to keep out.
+            if not all(np.isfinite(np.asarray(v, dtype="f8")).all() for v in (t, r, s)):
+                raise el.OpError(
+                    f"{obj.name!r} cannot keep its place under that parent: the "
+                    "transform between them is not finite (an extreme scale)."
+                )
             before_trs = tuple(np.array(v, copy=True) for v in obj.trs())
             after_trs = (t, r, s)
             if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
@@ -1025,6 +1049,7 @@ class ClayDoc:
         *,
         select: el.ElementSel | None = None,
         keep_generator: bool = False,
+        drop_seams: bool = False,
     ) -> bool:
         """Replace one object's geometry as one step, and freeze its generator.
 
@@ -1065,6 +1090,15 @@ class ClayDoc:
         in the same step as the mesh replacement. See that function's own
         docstring for why a range check is the honest answer here.
 
+        ``drop_seams`` is for a caller that *knows* it renumbered the
+        vertices (the 2026-10-03 audit's clay-60: Decimate, Retopologize,
+        Clean and Smart Unwrap's rebuilt-mesh path replace the base mesh with
+        one that has no vertex correspondence to the old, and the range check
+        let the marked seams survive as in-range pairs naming different edges,
+        so a later Unwrap Seams cut where the user never marked). The seams go
+        in the same step as the mesh, the way :meth:`apply_modifiers` and
+        :meth:`join_objects` drop theirs.
+
         Refuses (OpError, nothing pushed) a locked object -- one of the
         locking doors the module docstring lists.
         """
@@ -1083,8 +1117,8 @@ class ClayDoc:
             obj.generator, obj.params = None, {}
             edits.append(ObjectPropsEdit(uid, was, {"generator": None, "params": {}}))
         seams_before = obj.seams
-        seams_after = _restrict_seams(seams_before, mesh)
-        if seams_after is not seams_before:
+        seams_after = () if drop_seams else _restrict_seams(seams_before, mesh)
+        if seams_after != seams_before:
             obj.seams = seams_after
             edits.append(ObjectPropsEdit(uid, {"seams": seams_before}, {"seams": seams_after}))
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
@@ -1670,7 +1704,9 @@ class ClayDoc:
         for mesh in pieces:
             bm.validate(mesh)
 
-        taken = {o.name for o in self.objects}
+        # ``UsedNames``, not a plain set: N pieces of one name probed from
+        # ``.001`` each time otherwise (the 2026-10-03 audit's naming follow-up).
+        taken = mesh_ops.UsedNames(o.name for o in self.objects)
         new_objs: list[Obj] = []
         for mesh in pieces:
             name = mesh_ops.next_name(obj.name, taken)
@@ -1730,7 +1766,15 @@ class ClayDoc:
         removed_index = self.index_of(uid)
         removed = self.objects.pop(removed_index)
         self.selection.discard(uid)
-        self.selection.update(o.uid for o in new_objs)
+        # The 2026-10-03 audit's clay-30: the pieces joined ``selection`` in
+        # every mode, but in an element mode a piece has nothing selected
+        # inside it, so ``selection`` stopped being "exactly the uids with a
+        # non-empty element_sel" for any caller that did not repair it (the
+        # 2026-09-26 repair lived in ``ops._separate_selection`` only, and
+        # ``clay_separate by="selection"`` never made it). The document keeps
+        # its own invariant here, as ``set_element_sel`` does.
+        if self.element_mode == "object":
+            self.selection.update(o.uid for o in new_objs)
         self.element_sel.pop(uid, None)
         self._mesh_stamps.pop(uid, None)
         self._evaluated.pop(uid, None)
@@ -2330,7 +2374,10 @@ def preview_primitives(
             layout,
             positions,
             moved=moved,
-            previous=None if moved is None else bm.raw_face_normals(layout),
+            # The stash is only valid for the moved set it was computed under:
+            # the 2026-10-03 audit's clay-39 found a second drag on this same
+            # unchanged mesh reading the first drag's last-frame normals.
+            previous=None if moved is None else bm.raw_face_normals(layout, moved),
         )
         prims.append(
             gltf.Primitive(
@@ -2363,10 +2410,29 @@ def kept_objects(doc: ClayDoc) -> list[Obj]:
     misalign that zip.
     """
     keep: dict[int, bool] = {obj.uid: obj.visible for obj in doc.objects}
+    # One uid -> parent map and one walk per chain, not ``doc.ancestors`` per
+    # visible object: each hop there is a linear ``index_of`` scan, so the
+    # cost was objects x depth x objects -- a 1,000-deep chain took 4.9 s and
+    # a 4,096-deep one minutes (the 2026-10-03 audit's clay-85), stalling an
+    # export and the viewport's per-rebuild visibility rule. Same answer as
+    # ``ancestors``: first-seen uid wins on a duplicate, a dangling parent
+    # ends the walk, and a cycle ends it at the first revisit.
+    parent_of: dict[int, int | None] = {}
     for obj in doc.objects:
-        if obj.visible:
-            for ancestor_uid in doc.ancestors(obj.uid):
-                keep[ancestor_uid] = True
+        parent_of.setdefault(obj.uid, obj.parent)
+    walked: set[int] = set()
+    for obj in doc.objects:
+        if not obj.visible or obj.uid in walked:
+            continue
+        seen = {obj.uid}
+        current = parent_of[obj.uid]
+        while current is not None and current not in seen and current in parent_of:
+            keep[current] = True
+            if current in walked:
+                break  # an earlier walk already marked everything above it
+            walked.add(current)
+            seen.add(current)
+            current = parent_of[current]
     return [obj for obj in doc.objects if keep.get(obj.uid, False)]
 
 

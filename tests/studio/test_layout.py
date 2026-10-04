@@ -457,7 +457,16 @@ def test_the_canvas_gets_what_the_icon_strip_gave_up():
     content = room - 3.0 * spacing
     rail, left, centre, right = layout_mod.proportions(room, spacing, rail=44.0, scale=1.0)
     assert left == right == pytest.approx(content * layout_mod.LEFT_SHARE_CLOSED)
-    assert centre == pytest.approx(content * 0.5 - 44.0)
+    assert centre == pytest.approx(content * (1.0 - 2 * layout_mod.LEFT_SHARE_CLOSED) - 44.0)
+
+
+def test_sidebars_leave_the_centre_at_least_two_thirds_at_1920():
+    """Two quarter-window sidebars left Clay's viewer half a 1920 px window
+    (2026-10-04); the canvas is the point of a workspace, so it keeps most of it."""
+    spacing = 8.0
+    content = 1920.0 - 3.0 * spacing
+    _rail, _left, centre, _right = layout_mod.proportions(1920.0, spacing, rail=44.0, scale=1.0)
+    assert centre >= content * 0.65
 
 
 def test_the_rail_argument_defaults_to_what_rail_tick_reserved(monkeypatch):

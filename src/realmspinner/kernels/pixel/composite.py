@@ -128,17 +128,13 @@ _MODE_IDS: dict[str, int] = {
     "saturation": 16,
     "color": 17,
     "luminosity": 18,
+    # Above the non-separable four, and the C bounds its ``is_nonseparable`` on
+    # both sides to allow it: this is the premultiplied sum, which replaces
+    # ``combine_channel`` rather than supplying a blend for it. It was the one
+    # mode the kernel declined until ABI 12 (2026-10-03, F15): a stack holding a
+    # Flourish glow track fell wholly to the numpy fold.
+    "plus-lighter": 19,
 }
-
-# **``plus-lighter`` is deliberately absent**, which is the declined-fallback
-# the paragraph above describes rather than the silent one it warns about: the
-# premultiplied sum needs a clamp *after* ``combine_channel``'s divide, which the
-# kernel has no seam for, so it composites on the numpy fold. The price is the
-# all-or-nothing ``_stack_native`` -- a stack with one such layer (a Flourish
-# glow track) runs wholly on numpy -- and it is paid knowingly; the C case
-# is one clamp and a rebuilt DLL away and wants its own parity measurement.
-# ``tests/modes/inker/test_composite.py`` pins the exact set that is declined.
-NATIVE_DECLINED: frozenset[str] = frozenset({"plus-lighter"})
 
 # Not a mode: what ``over``'s early-out does, spelled so the fused stack kernel
 # can be told about it. The test behind it is a reduction over the whole region

@@ -627,6 +627,13 @@ _MATERIAL_README = (
     "All four images tile seamlessly, as the albedo does.\n"
 )
 
+def _mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
 def _derive_2d(
     svc: RealmspinnerService,
     job: dict,
@@ -692,6 +699,16 @@ def _derive_2d(
             # and the alpha it came out with, and these have neither.
             _derive_material(job_dir, name, source)
             return
+        # The source's stamp, taken *before* its pixels are read. The matte is
+        # seconds of work, and a hand edit that lands inside it left an export
+        # cut from the pre-edit pixels carrying an mtime newer than the edited
+        # input.png, which ``fresh_2d`` then served until the next edit (the
+        # 2026-10-03 audit, finding service-08). So the stamp is compared again
+        # before the export is published and once more after, and a source that
+        # moved is refused rather than published. Not a back-dated mtime on the
+        # export: that would make "when was this made" unanswerable for every
+        # other reader of the file's clock.
+        read_stamp = _mtime_ns(source)
         with Image.open(source) as image:
             image.load()
             mask, matte = matting.mask(image, svc.config)
@@ -721,7 +738,23 @@ def _derive_2d(
                 raise NotReady(str(exc)) from exc
         meta["matte"] = matte
         meta["alpha"] = asset2d.alpha_report(out)
-        _staged(job_dir, name, lambda tmp: out.save(tmp, "PNG"))
+
+        edited = NotReady(
+            "this reference was edited while its export was being made; ask for it again"
+        )
+
+        def write(tmp: Path) -> None:
+            out.save(tmp, "PNG")
+            if read_stamp is None or _mtime_ns(source) != read_stamp:
+                raise edited
+
+        _staged(job_dir, name, write)
+        if _mtime_ns(source) != read_stamp:
+            # An edit in the instant between the check above and the rename:
+            # take the export back down rather than leave it to be called fresh.
+            with contextlib.suppress(OSError):
+                (job_dir / name).unlink(missing_ok=True)
+            raise edited
         _write_manifest(svc, job, job_id, job_dir, name, meta)
 
 

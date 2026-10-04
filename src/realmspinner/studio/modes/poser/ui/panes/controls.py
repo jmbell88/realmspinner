@@ -420,7 +420,12 @@ def _save_library_reason(busy: bool) -> str:
 
 def _save_library(ctx: Any, viewer: Any) -> None:
     busy = ctx.busy(poser_mode.SAVE_KEY)
-    editing = viewer.editor.current is not None
+    # The 2026-10-03 audit, finding poser-43: ``current`` is also an *asset*
+    # pose's id in an asset session, which is no library record -- "Save" there
+    # said "Overwrite the pose named above, in the shared library" and then
+    # fell through to ``save_as``'s name prompt. Offered only where
+    # ``poser_mode.save`` itself would overwrite (``state.find`` hits).
+    editing = poser_mode.ensure(ctx).find(viewer.editor.current) is not None
     reason = _save_library_reason(busy)
     if editing and widgets.disabled_button(
         "Save",

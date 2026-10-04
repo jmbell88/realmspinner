@@ -66,12 +66,14 @@ def test_a_locked_objects_transform_fields_are_drawn_disabled_not_live_and_error
     so a locked object's fields cannot be edited at all rather than being
     edited and then refused."""
     source = inspect.getsource(clay_props._transform)
-    disable_at = source.index("imgui.begin_disabled(obj.locked)")
+    # The 2026-10-03 audit's clay-67 widened the predicate from ``obj.locked``
+    # to the one ``set_transform`` refuses on (a locked ancestor included).
+    disable_at = source.index("imgui.begin_disabled(doc.lock_refusal(")
     enable_at = source.index("imgui.end_disabled()")
     position_at = source.index('"position##bt"')
     dimensions_at = source.index("_dimensions(doc, obj)")
     assert disable_at < position_at < enable_at < dimensions_at, (
-        "the position field must be drawn between begin_disabled(obj.locked) and end_disabled()"
+        "the position field must be drawn between begin_disabled(...) and end_disabled()"
     )
 
 

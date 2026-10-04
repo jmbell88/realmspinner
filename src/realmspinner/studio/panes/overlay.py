@@ -145,7 +145,15 @@ def toolbar(ctx: Any) -> None:
         if shows_front(ctx, job):
             _front_yaw(ctx, job, viewer)
     _wrap(icons.CAMERA)
-    if widgets.icon_button(icons.CAMERA, "Screenshot...", enabled=viewer.has_model):
+    # ``reason``: on the Reference stage a reference image is on screen and no mesh,
+    # so this greyed with only its own name for a tooltip (the 2026-10-03 audit's
+    # shell-56) and nothing said that only a loaded mesh can be captured.
+    if widgets.icon_button(
+        icons.CAMERA,
+        "Screenshot...",
+        enabled=viewer.has_model,
+        reason="Screenshots capture a mesh. Open a finished mesh in the viewport first.",
+    ):
         _screenshot(ctx)
     if viewer.has_model:
         # The wheel already dollies; these exist so the control is findable at

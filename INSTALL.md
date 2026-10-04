@@ -84,10 +84,11 @@ Below that, it lists what *generation* still needs, with sizes, and tells you up
 
 It also names any **dependency pack** those downloads would be useless without, which the panel did not do before 2026-09-10 — it was possible to accept everything it offered, wait for 24 GB, and still find Create greyed out because the Image generation pack was never installed.
 
-Two buttons:
+Three buttons:
 
-- **The first depends on what is missing, and the order is deliberate.** With a pack absent it reads **Install the Image generation pack** and takes you to Settings → Packs; otherwise it reads **Download models** and starts the downloads in the background. Packs come first because a pack is the code and the models are what that code reads, so the smaller download is also the one that has to happen first. The app stays fully usable (and offline apart from this and pack downloads) throughout.
+- **The first depends on what is missing, and the order is deliberate.** With a pack absent it reads **Install the Image generation pack (~N GB)** (the pack's own size) and takes you to Settings → Packs; otherwise, with models still to fetch, it reads **Download models (~N GB)** and starts the downloads in the background; and when nothing is left to fetch it reads **Continue** and simply closes the panel. Packs come first because a pack is the code and the models are what that code reads, so the smaller download is also the one that has to happen first. The app stays fully usable (and offline apart from this and pack downloads) throughout.
 - **Not now** — skip for good, not just for now. Nothing is owed: the app is fully usable without any of it, and the same rows are always reachable at **Settings → Models** and **Settings → Packs**. The Home screen keeps one quiet line offering them again.
+- **Show me around first** — closes the panel the same way and starts the guided tour, which is a good use of the time while a large download runs.
 
 A few things worth knowing so you don't worry unnecessarily:
 

@@ -957,10 +957,17 @@ def _skin_bones(model: Model) -> list[str]:
     so a marker list reads root-outwards the way a skeleton does.
     """
     names: list[str] = []
+    # A set beside the list: ``name not in names`` against the list was
+    # quadratic in the joint count, and the loader's own ceiling
+    # (``MAX_SKIN_JOINTS``, 100,000) admits enough joints for that to be a
+    # half-minute hang on entering the pose editor (the 2026-10-03 audit's
+    # create-27). The list stays because palette order is the contract.
+    seen: set[str] = set()
     for skin in model.skins:
         for index in skin.joints:
             name = model.nodes[index].name
-            if name and name not in names:
+            if name and name not in seen:
+                seen.add(name)
                 names.append(name)
     return names
 
@@ -996,6 +1003,11 @@ def ghost_handles(
     wanted = {by_name[b]: b for b in bones if b in by_name}
     out: dict[str, np.ndarray] = {}
     seen: set[int] = set()
+    # ``update_world``'s ``queued`` set, for the same reason (the 2026-10-03
+    # audit's create-26): a node may name one child a million times, and every
+    # repetition pushed its own stack entry on each call -- which runs every
+    # frame of pose mode for each onion ghost. A reference is pushed once.
+    queued: set[int] = set(model.roots)
     stack = [(r, m3.identity()) for r in reversed(model.roots)]
     while stack:
         index, parent = stack.pop()
@@ -1017,5 +1029,8 @@ def ghost_handles(
         if name is not None:
             out[name] = world[:3, 3].copy()
         for child in reversed(node.children):
+            if child in queued:
+                continue
+            queued.add(child)
             stack.append((child, world))
     return out

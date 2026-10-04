@@ -117,7 +117,15 @@ def read_dynamic(ctx: Any, session: Any, uri: str) -> tuple[str, bytes] | None:
 
         result = agent_clay.call(ctx, session, "clay_scene", {})
         if result.get("isError"):
-            return None
+            # Only "no document" is not_found. The 2026-10-03 audit's agents-34:
+            # every refusal used to read that way, so a scene refused for
+            # exceeding the frame budget looked like a missing document; it now
+            # answers with a small body carrying the refusal's own words.
+            if (result.get("structuredContent") or {}).get("recovery") == "start_document":
+                return None
+            content = result.get("content") or [{}]
+            message = str(content[0].get("text") or "clay_scene was refused.")
+            return "application/json", json.dumps({"error": message}).encode("utf-8")
         return "application/json", json.dumps(result.get("structuredContent")).encode("utf-8")
     if uri == RENDER_LAST_URI:
         png = getattr(session, "last_render_png", None)

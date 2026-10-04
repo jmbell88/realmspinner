@@ -513,9 +513,16 @@ class JobOps:
             sources = spec_model.sources if spec_model is not None else (
                 "drums", "bass", "other", "vocals"
             )
-            paths = [stems / "stems.json"] + [
-                stems / f"{name}.wav" for name in sources
-            ]
+            # muse-17 (2026-10-03 audit). Also the staging names: the child
+            # writes each stem to ``.{name}.wav.tmp`` and renames it, and the
+            # sidecar goes through ``.stems.json.tmp``, so a cancel (a kill) or a
+            # failure landing inside ``sf.write`` left up to ~100 MB per stem
+            # behind in an invisible file. Every other staged-write kind below
+            # lists its temp names for the same reason.
+            paths = [stems / "stems.json", stems / ".stems.json.tmp"]
+            for name in sources:
+                paths.append(stems / f"{name}.wav")
+                paths.append(stems / f".{name}.wav.tmp")
             for path in paths:
                 with contextlib.suppress(OSError):
                     path.unlink(missing_ok=True)
@@ -670,8 +677,15 @@ class JobOps:
             # argument, verbatim -- and it goes with the directory when the job
             # is pruned, which is where an input belongs.
             job_dir = self.config.job_dir(job["id"])
-            with contextlib.suppress(OSError):
-                (job_dir / "track.wav").unlink(missing_ok=True)
+            #
+            # ``track_input_params.json`` goes with it (muse-21, 2026-10-03
+            # audit): the vendored sampler writes its recipe beside every take
+            # in place, and the worker deletes it after a finished generate, so
+            # the only way one survives is a cancel or a kill landing after the
+            # sampler wrote it.
+            for name in ("track.wav", "track_input_params.json"):
+                with contextlib.suppress(OSError):
+                    (job_dir / name).unlink(missing_ok=True)
             return
         elif job["kind"] == "lora_train":
             # The trainer writes adapter weights into its own directory as it

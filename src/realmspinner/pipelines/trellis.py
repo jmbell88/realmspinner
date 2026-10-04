@@ -334,13 +334,26 @@ class TrellisServer:
             # so trellis.log keeps receiving byte-identical output.
             # bufsize=0 is load-bearing: with the default buffering, read(65536)
             # blocks until 65536 bytes arrive and progress would arrive in bursts.
-            self._proc = subprocess.Popen(
-                self._argv(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=0,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+            try:
+                self._proc = subprocess.Popen(
+                    self._argv(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=0,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except OSError as exc:
+                # A zero-byte or non-executable trellis-server.exe passes the
+                # ``is_file()`` test and fails here (the 2026-10-03 audit,
+                # pipelines-35). The log handle was opened above: close it, or
+                # the next press's ``_open_log`` overwrites the reference and
+                # leaks one handle per failed attempt -- and say it in the
+                # RuntimeError the lines above already use, not a bare WinError.
+                if self._logfh is not None:
+                    with contextlib.suppress(OSError):
+                        self._logfh.close()
+                    self._logfh = None
+                raise RuntimeError(f"trellis-server at {exe} could not be started: {exc}") from exc
             # Kill-on-close job object, assigned as early as possible: the
             # window between Popen and this call is the only one in which a
             # parent crash can still orphan the child.
@@ -560,9 +573,14 @@ class TrellisServer:
         if self._log_path is None:
             return
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
+        # Rolled to a ``.1`` sibling, not deleted (the 2026-10-03 audit,
+        # pipelines-34): this runs on the spawn *after* a crash, so unlinking
+        # the oversize log erased exactly the output that explains the crash
+        # (trellis.log is the evidence trail for the 2026-08-03 startup
+        # incident). One generation is kept; the one before it is replaced.
         with contextlib.suppress(OSError):
             if self._log_path.stat().st_size > LOG_MAX_BYTES:
-                self._log_path.unlink()
+                os.replace(self._log_path, self._log_path.with_name(self._log_path.name + ".1"))
         self._logfh = self._log_path.open("ab")
 
     def _write_log(self, chunk: bytes) -> None:
@@ -742,11 +760,36 @@ def _validate_glb(data: bytes) -> None:
     """
     detail = f"{len(data)} bytes, starts with {data[:16]!r}"
     try:
-        _header, gltf, _rest = split_glb(data)
+        header, gltf, rest = split_glb(data)
+        _check_glb_extent(header, rest, len(data))
     except (ValueError, struct.error, UnicodeDecodeError) as exc:
         raise RuntimeError(f"trellis-server returned an invalid GLB: {exc} ({detail})") from exc
     if not gltf.get("meshes"):
         raise RuntimeError(f"trellis-server returned a GLB with no meshes ({detail})")
+
+
+def _check_glb_extent(header: bytes, rest: bytes, total: int) -> None:
+    """Refuse a GLB whose declared length or chunk sizes disagree with what arrived.
+
+    The 2026-10-03 audit (pipelines-12): ``split_glb`` only reads the 12-byte
+    header and the JSON chunk, so a body cut short *inside its BIN chunk*
+    passed, was written atomically onto ``source.glb``, and the job went done
+    with a mesh trimesh later refused ("chunk was not expected length") -- the
+    queue swallows optimize/normalize/audit failures by design. The header's
+    declared length must be the byte count received, and every chunk after the
+    JSON one must fit exactly inside what is left.
+    """
+    (declared,) = struct.unpack_from("<I", header, 8)
+    if declared != total:
+        raise ValueError(f"header declares {declared} bytes but {total} arrived")
+    at = 0
+    while at < len(rest):
+        if at + 8 > len(rest):
+            raise ValueError("truncated GLB: a chunk header is cut short")
+        (chunk_len,) = struct.unpack_from("<I", rest, at)
+        at += 8 + chunk_len
+        if at > len(rest):
+            raise ValueError("truncated GLB: a chunk overruns the file")
 
 
 def _atomic_write(path: Path, data: bytes) -> None:

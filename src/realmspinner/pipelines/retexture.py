@@ -592,6 +592,30 @@ def atlas_size(glb_path: Path) -> int | None:
     return int(width) if width == height else None
 
 
+def match_the_mesh_size(glb_path: Path) -> int | None:
+    """:func:`atlas_size`, held to the largest ``TEXTURE_SIZES`` entry.
+
+    The 2026-10-03 audit (pipelines-13): with ``texture_size`` unset a
+    re-texture baked at whatever square albedo the mesh carried, bypassing the
+    ceiling the door enforces for an explicit size -- a 4096 atlas (an imported
+    GLB, or the Engine section's Atlas resolution) needed about 8.4 GiB of
+    float32 colour, weight, depth and result arrays for the ten views, inside
+    the app process, with nothing refusing it first. Clamped rather than
+    refused: the mesh is fine, and baking at the ceiling keeps the match the
+    default as far as the host can afford. None passes through, as before.
+    """
+    size = atlas_size(glb_path)
+    if size is None:
+        return None
+    ceiling = max(TEXTURE_SIZES)
+    if size > ceiling:
+        log.warning(
+            "the albedo of %s is %d px; re-texturing at the %d px ceiling", glb_path, size, ceiling
+        )
+        return ceiling
+    return size
+
+
 def extract_base_colour(glb_path: Path, dest: Path, *, size: int) -> bool:
     """Write the mesh's current albedo out as a square PNG. -> whether it worked.
 

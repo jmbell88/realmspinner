@@ -7,7 +7,7 @@ pane is therefore a *list permutation across three ordered lists*, not a tree
 edit -- which is what makes saved arrangements a small feature instead of a
 docking system.
 
-General docking is refused, with the cost named. ``layout.fit``,
+General docking is refused, with the cost named. ``layout.proportions``,
 ``layout.centre_width`` and ``rail.expanded_fits`` are all arithmetic over
 exactly two sidebars and one centre; under a dock tree
 ``test_the_expanded_rail_gives_way_before_the_columns_do`` becomes *unstatable*
@@ -187,10 +187,14 @@ def sp(value: float, scale: float) -> float:
 def reconcile(builtin: list[str], stored: list[str]) -> list[str]:
     """A saved arrangement, brought up to date with the built-in one.
 
-    Two rules, and the second is the one that matters:
+    Three rules, and the second is the one that matters:
 
     * **A retired id is dropped**, so a pane deleted by a later wave does not
       leave a hole in everybody's saved layout.
+    * **A repeated id keeps its first place only** (shell-42, the 2026-10-03
+      audit): a hand-edited or damaged column naming a pane twice drew it twice
+      in one frame, under one imgui child id, and the second draw overwrote the
+      first's ``FRAME_PANES`` rect on every launch that read the file.
     * **A new id is inserted after its last already-placed predecessor**, not
       appended. Appending would put every pane added after a user saved their
       layout at the bottom of a column -- so the tileset editor a designer
@@ -202,8 +206,12 @@ def reconcile(builtin: list[str], stored: list[str]) -> list[str]:
     """
 
     known = set(builtin)
-    out = [slot for slot in stored if slot in known]
-    placed = set(out)
+    out: list[str] = []
+    placed: set[str] = set()
+    for slot in stored:
+        if slot in known and slot not in placed:
+            out.append(slot)
+            placed.add(slot)
     for index, slot in enumerate(builtin):
         if slot in placed:
             continue

@@ -2408,7 +2408,7 @@ def _remesh_object(
     ``op_remesh``'s single-object call, where ``obj`` was already the sole
     selected, active object coming out of ``_weld``.
 
-    Split out of ``op_remesh`` (``dev/CLAY-PLAN.md`` tranche 4) with no
+    Split out of ``op_remesh`` (Clay tranche 4) with no
     change to its behaviour: the operator calls, their order and their
     arguments are unchanged from what used to sit inline.
     """
@@ -2582,15 +2582,51 @@ def _bake_maps(
     return material, images
 
 
-def _preserve_alpha_mode(source: Any, material: Any, gltf_materials: Sequence[Any]) -> None:
-    """Keep glTF opacity semantics when several source materials share an atlas."""
-    materials = [m for m in source.data.materials if m is not None]
+def _used_gltf_materials(gltf: Mapping[str, Any]) -> list[Any]:
+    """The glTF materials some primitive of the file actually references.
+
+    The 2026-10-03 audit (pipelines-19): the alpha mode and cutoff were taken
+    over *every* material in the file, so an unused MASK or BLEND material
+    changed the mode of a mesh that never used it, and an OPAQUE material
+    beside a MASK 0.3 one lifted the cutoff to the glTF default. A document
+    with no ``meshes`` array at all cannot say which are used, so it keeps the
+    whole list rather than guessing none.
+    """
+    materials = gltf.get("materials") or []
+    meshes = gltf.get("meshes")
+    if meshes is None:
+        return list(materials)
+    used: set[int] = set()
+    for mesh in meshes or []:
+        for primitive in (mesh or {}).get("primitives") or []:
+            index = primitive.get("material")
+            if isinstance(index, int) and 0 <= index < len(materials):
+                used.add(index)
+    return [materials[i] for i in sorted(used)]
+
+
+def _source_alpha_mode(gltf_materials: Sequence[Any]) -> str:
+    """The one alpha mode a repaired atlas can carry, from the source GLB alone.
+
+    Split out of ``_preserve_alpha_mode`` because the 2026-10-03 audit
+    (pipelines-06) found the answer was only asked for after all five Cycles
+    bakes had run: a mesh mixing MASK and BLEND burned minutes of bake and then
+    failed deterministically, and every OPAQUE source paid for an alpha bake
+    the OPAQUE branch threw away. The mode is a property of the glTF material
+    list, so ``op_remesh`` asks it before the first bake.
+    """
     modes = {m.get("alphaMode", "OPAQUE") for m in gltf_materials}
     if "MASK" in modes and "BLEND" in modes:
         raise RuntimeError("repair cannot combine MASK and BLEND alpha modes in one atlas")
     # A shared atlas can retain opaque areas in a blended material. It cannot
     # express several different cutoffs; keep the highest one and report it.
-    mode = "BLEND" if "BLEND" in modes else "MASK" if "MASK" in modes else "OPAQUE"
+    return "BLEND" if "BLEND" in modes else "MASK" if "MASK" in modes else "OPAQUE"
+
+
+def _preserve_alpha_mode(source: Any, material: Any, gltf_materials: Sequence[Any]) -> None:
+    """Keep glTF opacity semantics when several source materials share an atlas."""
+    materials = [m for m in source.data.materials if m is not None]
+    mode = _source_alpha_mode(gltf_materials)
     material["gltf_alpha_mode"] = mode
     tree = material.node_tree
     principled = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
@@ -2602,7 +2638,12 @@ def _preserve_alpha_mode(source: Any, material: Any, gltf_materials: Sequence[An
     else:
         material.surface_render_method = "BLENDED" if mode == "BLEND" else "DITHERED"
     if mode == "MASK":
-        cutoff = max(float(m.get("alphaCutoff", 0.5)) for m in gltf_materials)
+        # Over the MASK materials only (pipelines-19): an OPAQUE or BLEND
+        # material has no cutoff, and counting its missing key as the glTF
+        # default 0.5 raised a MASK 0.3 atlas's cutoff to 0.5.
+        cutoff = max(
+            float(m.get("alphaCutoff", 0.5)) for m in gltf_materials if m.get("alphaMode") == "MASK"
+        )
         material["gltf_alpha_cutoff"] = cutoff
         # The glTF exporter reads clipping from the node graph in Blender 5.
         # Alpha was baked after the source clip, so values are already binary.
@@ -2747,6 +2788,18 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         on_remesh=lambda: progress(0.15, f"Remeshing to {target:,} quads"),
     )
 
+    # glTF packs roughness in G and metallic in B of one image; the exporter
+    # builds that image from the two data textures.
+    from ..kernels.geom3d import glbio
+
+    # The alpha mode is read before the first bake, not after the last (the
+    # 2026-10-03 audit, pipelines-06): a MASK+BLEND source refuses here instead
+    # of after minutes of Cycles, and an OPAQUE source skips the alpha bake its
+    # own branch of ``_preserve_alpha_mode`` discards.
+    source_gltf, _ = glbio.read_glb(source_path)
+    source_materials = _used_gltf_materials(source_gltf)
+    alpha_mode = _source_alpha_mode(source_materials)
+
     progress(0.45, "Unwrapping")
     _smart_unwrap(bpy, work)
 
@@ -2757,23 +2810,21 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         "metallic": (0.86, "Baking metallic"),
         "alpha": (0.89, "Baking opacity"),
     }
+    remesh_maps = ("base_color", "roughness", "normal", "metallic", "alpha")
+    if alpha_mode == "OPAQUE":
+        remesh_maps = tuple(m for m in remesh_maps if m != "alpha")
     material, _images = _bake_maps(
         bpy,
         work,
         [source],
-        maps=("base_color", "roughness", "normal", "metallic", "alpha"),
+        maps=remesh_maps,
         texture_size=texture_size,
         cage_extrusion=diagonal * 0.02,
         max_ray_distance=diagonal * 0.05,
         on_bake=lambda key: progress(*_remesh_bake_labels[key]),
     )
 
-    # glTF packs roughness in G and metallic in B of one image; the exporter
-    # builds that image from the two data textures.
-    from ..kernels.geom3d import glbio
-
-    source_gltf, _ = glbio.read_glb(source_path)
-    _preserve_alpha_mode(source, material, source_gltf.get("materials") or [])
+    _preserve_alpha_mode(source, material, source_materials)
 
     progress(0.92, "Exporting")
     bpy.data.objects.remove(source, do_unlink=True)
@@ -2794,7 +2845,7 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# --- Clay background ops (dev/CLAY-PLAN.md tranche 4) -----------------------
+# --- Clay background ops (Clay tranche 4) -----------------------
 #
 # Three GLB-in/GLB-out ops for Clay's mesh-cleanup menu, each a background op
 # run on a temp GLB of the caller's selection. Unlike every op above, none of
@@ -3086,6 +3137,32 @@ def op_clay_unwrap(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "objects": report}
 
 
+def op_clay_blend(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Import a Clay-sent GLB and save it as a native ``.blend``.
+
+    The same import ``op_fbx`` does (so the .blend, the FBX and the GLB agree on
+    every object's transform), with the textures packed into the file: a .blend
+    otherwise stores image paths, and the GLB's images live in a temp directory
+    that is gone by the time anyone opens the result.
+    """
+    source = Path(spec["source_glb"])
+    if not source.exists():
+        raise RuntimeError(f"nothing to convert at {source}")
+
+    progress(0.10, "Loading model")
+    _reset_scene(bpy)
+    bpy.ops.import_scene.gltf(filepath=str(source))
+    _purge_import_helpers(bpy)
+
+    progress(0.60, "Writing .blend")
+    out = Path(spec["out_blend"]).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    bpy.ops.file.pack_all()
+    bpy.ops.wm.save_as_mainfile(filepath=str(out), compress=True)
+    progress(1.0, ".blend written")
+    return {"ok": True, "objects": len(bpy.context.scene.objects)}
+
+
 def op_clay_bake(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     """Selected-to-active Cycles bake from a high GLB onto a low GLB's UVs.
 
@@ -3118,7 +3195,13 @@ def op_clay_bake(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"nothing to bake onto at {low_path}")
     texture_size = int(spec["texture_size"])
     cage_extrusion = float(spec.get("cage_extrusion", 0.0))
-    requested = spec.get("maps") or list(_BAKE_MAP_KINDS)
+    # The three Clay maps, restated: ``kernels.rig.blender_spec.CLAY_BAKE_MAPS``
+    # is the host's constant and this worker may not import the host side. The
+    # 2026-10-03 audit (pipelines-20): the default here was ``list(_BAKE_MAP_KINDS)``,
+    # which grew from three maps to five when metallic and alpha joined that
+    # table for ``op_remesh`` -- so a spec that omitted ``maps`` baked two
+    # unrequested full-size maps, against ``CLAY_BAKE_MAPS``' own comment.
+    requested = spec.get("maps") or ["base_color", "roughness", "normal"]
     maps = [m for m in requested if m in _BAKE_MAP_KINDS]
     if not maps:
         raise RuntimeError("no bake maps requested")
@@ -3162,14 +3245,23 @@ def op_clay_bake(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
                 f"{labels.get(key, f'Baking {key}')}: {low.name}",
             ),
         )
-        _set_metallic_constant(material, metallic)
+        # Only when no metallic map was baked: with one, the Metallic input is
+        # linked to that texture, and stamping the averaged constant on it (and
+        # reporting it) described nothing in the output (pipelines-20).
+        if "metallic" not in maps:
+            _set_metallic_constant(material, metallic)
 
     progress(0.9, "Exporting")
     for high in highs:
         bpy.data.objects.remove(high, do_unlink=True)
     _export(bpy, out_glb)
     progress(1.0, "Baked")
-    return {"ok": True, "maps": maps, "texture_size": texture_size, "metallic": metallic}
+    return {
+        "ok": True,
+        "maps": maps,
+        "texture_size": texture_size,
+        "metallic": "baked" if "metallic" in maps else metallic,
+    }
 
 
 OPS = {
@@ -3186,6 +3278,7 @@ OPS = {
     "clay_retopo": op_clay_retopo,
     "clay_unwrap": op_clay_unwrap,
     "clay_bake": op_clay_bake,
+    "clay_blend": op_clay_blend,
 }
 
 

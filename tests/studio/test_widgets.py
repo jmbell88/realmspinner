@@ -38,6 +38,8 @@ def test_the_undo_and_redo_buttons_grey_while_the_document_is_saving(monkeypatch
         can_undo = True
         can_redo = True
 
+        total = 3
+
         def __len__(self):
             return 3
 

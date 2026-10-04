@@ -12,11 +12,13 @@ from .core import RealmspinnerService
 from .errors import Conflict, Invalid, NotFound, invalid_from
 from .validation import (
     check_base_model_weights,
+    check_blender_known,
     check_job_id,
     check_pack,
     check_pose_id,
     check_seed,
     check_sheet_id,
+    check_view,
     check_vram,
     install_remedy,
     random_seed,
@@ -64,14 +66,16 @@ def list_sheets(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
 def queued_sheets(svc: RealmspinnerService, job_id: str) -> int:
     """Rows not yet finished that will each end as one sheet of *job_id*.
 
-    Three doors mint them and they draw on one ``MAX_SHEETS`` pool:
-    ``create_sheet`` (a ``sheet`` row), ``troupe.create_charsheet`` (a
-    ``charsheet`` row) and ``troupe.send_to_troupe`` on an unrigged mesh (a
-    ``rig`` row carrying ``troupe_sheet``, which ``_maybe_queue_sheet_after_rig``
-    turns into the charsheet). Each door used to count a different subset of
-    the other two, so the pool could be reserved one past the cap through
-    whichever door was not counting -- one function, the same count at all
-    three.
+    Three kinds of row end as a sheet and they draw on one ``MAX_SHEETS`` pool:
+    a ``sheet`` row (``create_sheet``), a ``charsheet`` row
+    (``troupe.create_charsheet``) and, for ``troupe.send_to_troupe`` on an
+    unrigged mesh, a ``rig`` row carrying ``troupe_sheet``, which
+    ``_maybe_queue_sheet_after_rig`` turns into the charsheet. Five doors
+    reserve a slot through :func:`check_sheet_cap` -- those three plus
+    ``troupe.rerender_charsheet`` and ``rerun_job`` on a sheet row. Each door
+    used to count a different subset of the others, so the pool could be
+    reserved one past the cap through whichever door was not counting -- one
+    function, the same count at every door.
     """
     total = 0
     for j in svc.store.active_jobs():
@@ -118,7 +122,9 @@ def create_sheet(
 
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if source["status"] != "done" or not (job_dir / "model.glb").exists():
+    # ``is_file()``: a directory squatting at the name is not a mesh (the
+    # 2026-10-03 audit, poser-40; ``store.list_sheets`` already reads it so).
+    if source["status"] != "done" or not (job_dir / "model.glb").is_file():
         raise Invalid("job has no finished mesh to render")
 
     pose_ids = [p for p in (poses or []) if p]
@@ -129,7 +135,7 @@ def create_sheet(
         if record is None:
             raise NotFound(f"no such pose {pose_id}")
         records.append(record)
-    if records and not (job_dir / "rig.glb").exists():
+    if records and not (job_dir / "rig.glb").is_file():
         raise Invalid("posed sheets need a rigged mesh")
 
     # A clip replaces the pose rows rather than adding to them: its rows *are*
@@ -149,7 +155,7 @@ def create_sheet(
         ends = [store.read_pose(job_dir, pid) for pid in (clip_from, clip_to)]
         if any(e is None for e in ends):
             raise NotFound("no such pose")
-        if not (job_dir / "rig.glb").exists():
+        if not (job_dir / "rig.glb").is_file():
             raise Invalid("an animated clip needs a rigged mesh")
         try:
             records = sheetlib.interpolate(ends[0], ends[1], clip_frames)
@@ -163,16 +169,38 @@ def create_sheet(
                 exc, "That clip cannot be built", field="clip_frames"
             ) from exc
 
+    # Refused by control before ``plan`` files the same limits under no field at
+    # all, and before a non-numeric angle escapes as a bare TypeError (the
+    # 2026-10-03 audit, poser-27).
+    angle = check_view(elevation, lighting)
+    if angle is not None:
+        elevation = angle
+    # ``is None``, not ``or``: ``frame_size=0`` and ``yaws=0`` are values, refused
+    # by name, never the default -- ``service/pixelopts.py``'s rule. ``or`` answered
+    # a request for a zero-sized frame or zero directions with a 128px,
+    # eight-direction sheet and told nobody (the 2026-10-03 audit, finding
+    # service-22). ``lighting`` keeps the empty string as "unset": ``check_view``
+    # accepts it deliberately, and the form sends it for "not chosen".
+    if frame_size is None:
+        frame_size = sheetlib.DEFAULT_FRAME_SIZE
+    elif frame_size not in sheetlib.FRAME_SIZES:
+        raise Invalid(
+            f"frame_size must be one of {list(sheetlib.FRAME_SIZES)}", field="frame_size"
+        )
+    if yaws is None:
+        yaws = sheetlib.DEFAULT_YAWS
+    elif not isinstance(yaws, int) or isinstance(yaws, bool) or yaws < 1:
+        raise Invalid("a sheet needs at least one view direction", field="yaws")
     try:
         # Built and thrown away: the worker plans it again from the same
         # inputs. This call is here purely so a bad frame size or an atlas over
         # the texture limit is refused now instead of failing a job later.
         sheetlib.plan(
             records,
-            frame_size=frame_size or sheetlib.DEFAULT_FRAME_SIZE,
+            frame_size=frame_size,
             elevation=sheetlib.DEFAULT_ELEVATION if elevation is None else elevation,
             lighting=lighting or "flat",
-            yaws=yaws or sheetlib.DEFAULT_YAWS,
+            yaws=yaws,
         )
     except ValueError as exc:
         raise invalid_from(exc, "That sprite sheet cannot be laid out") from exc
@@ -182,16 +210,19 @@ def create_sheet(
         raise Invalid(
             f"sheet name must be at most {store.MAX_SHEET_NAME} characters", field="name"
         )
+    # Every option's own sentence first, then the host-level one -- but before a
+    # row exists (2026-10-03 audit, poser-39).
+    check_blender_known()
 
     params = {
         "source_job": job_id,
         "sheet_id": store.new_id(),
         "poses": pose_ids,
         "elevation": sheetlib.DEFAULT_ELEVATION if elevation is None else elevation,
-        "frame_size": frame_size or sheetlib.DEFAULT_FRAME_SIZE,
+        "frame_size": frame_size,
         "lighting": lighting or "flat",
         "name": sheet_name,
-        "yaws": yaws or sheetlib.DEFAULT_YAWS,
+        "yaws": yaws,
         # The two ends, not the expanded frames: the host is the single place a
         # clip is decided, and storing the frames would be a second copy that
         # could disagree with sheet.interpolate.
@@ -232,7 +263,7 @@ def sheet_png(svc: RealmspinnerService, job_id: str, sheet_id: str) -> Path:
     path = store.sheet_png_path(job_dir, sheet_id)
     # The sidecar is the completion marker (the worker writes the PNG first),
     # so PNG existence alone can serve a partial file mid-save.
-    if not path.exists() or not store.sheet_path(job_dir, sheet_id).exists():
+    if not path.is_file() or not store.sheet_path(job_dir, sheet_id).is_file():
         raise NotFound("no such sheet")
     return path
 
@@ -486,7 +517,7 @@ def create_pixel_sheet(
     # leaves the other a fresh, correct answer to check against.
     with svc.convert_lock(job_id, "sheets"):
         meta = store.read_sheet(job_dir, sheet_id)
-        if meta is None or not store.sheet_png_path(job_dir, sheet_id).exists():
+        if meta is None or not store.sheet_png_path(job_dir, sheet_id).is_file():
             raise NotFound("no such sheet")
 
         # Through the shared checker, in the same sentences on the same fields as
@@ -515,7 +546,13 @@ def create_pixel_sheet(
                 exc, "This sheet cannot be restyled as pixel art", field="logical_size"
             ) from exc
 
-        value = models.DEFAULT_IMG2IMG_STRENGTH if strength is None else float(strength)
+        # Coerced inside the guard, like ``create_sheet``'s elevation: a bare
+        # ``float`` raised a ValueError out of the door for a non-numeric strength
+        # (the 2026-10-03 audit, finding service-22).
+        try:
+            value = models.DEFAULT_IMG2IMG_STRENGTH if strength is None else float(strength)
+        except (TypeError, ValueError):
+            raise Invalid("strength must be a number", field="strength") from None
         if not models.IMG2IMG_STRENGTH_MIN <= value <= models.IMG2IMG_STRENGTH_MAX:
             raise Invalid(
                 f"strength must be between {models.IMG2IMG_STRENGTH_MIN} "
@@ -607,6 +644,6 @@ def sheet_pixel_png(svc: RealmspinnerService, job_id: str, sheet_id: str) -> Pat
     path = store.sheet_pixel_png_path(job_dir, sheet_id)
     # The sidecar is the completion marker here too: the worker writes the PNG
     # first, so existence alone can serve a partial file mid-save.
-    if not path.exists() or not store.sheet_pixel_path(job_dir, sheet_id).exists():
+    if not path.is_file() or not store.sheet_pixel_path(job_dir, sheet_id).is_file():
         raise NotFound("no such pixel sheet")
     return path

@@ -34,6 +34,7 @@ from ... import keys as inker_keys
 from ... import mode as inker_mode
 from ... import ops as inker_ops
 from ... import state as inker_state
+from . import colors as inker_colors
 
 #: A chord's non-modifier token, as it must spell to ever answer a real key
 #: press. Mirrors ``keys.chord_of``'s own two ways of naming one -- the special
@@ -192,9 +193,16 @@ def _properties_popup(ctx: Any, state: Any, tab: Any) -> None:
         # twice on the task thread, and a blend mode changed between the two
         # passes writes an archive whose ``stack.xml`` disagrees with its own
         # PNG members.
+        #
+        # Grouped so the hover can say why they are dimmed (a follow-up to the
+        # 2026-10-03 audit's inker-64, which fixed the same bare wrap in the
+        # Colour and tool panes and missed this one).
+        imgui.begin_group()
         imgui.begin_disabled(tab.busy)
         header_controls(ctx, tab.doc)
         imgui.end_disabled()
+        imgui.end_group()
+        inker_colors.busy_reason(tab)
 
 
 def _history_popup(ctx: Any, state: Any, tab: Any) -> None:

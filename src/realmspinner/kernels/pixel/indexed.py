@@ -153,7 +153,7 @@ def grayscale(pixels: np.ndarray) -> np.ndarray:
     the indexed design was shaped to avoid forking, and here with nothing on the
     other side of the trade.
 
-    *All nineteen blend modes preserve grayness.* The channelwise ones trivially
+    *All twenty blend modes preserve grayness.* The channelwise ones trivially
     (they compute each channel from equal inputs by one formula); the HSL family
     because a grey has zero saturation, so hue and saturation transfers from a
     grey source leave a grey and luminosity transfer is grey by definition. So
@@ -378,7 +378,11 @@ def histogram(pixels: np.ndarray, palette: Sequence[RGBA]) -> list[int]:
 HARMONIES: dict[str, tuple[float, ...]] = {
     "complement": (0.0, 180.0),
     "triad": (0.0, 120.0, 240.0),
-    "tetrad": (0.0, 90.0, 180.0, 270.0),
+    # The conventional tetrad -- two complementary pairs 60 degrees apart. It
+    # was (0, 90, 180, 270), the same four colours as "square" below, so the
+    # wheel's menu offered two entries that did the same thing and read as a bug
+    # in one of them (the 2026-10-03 audit, finding inker-92).
+    "tetrad": (0.0, 60.0, 180.0, 240.0),
     "analogous": (0.0, 30.0, -30.0),
     "split": (0.0, 150.0, 210.0),
     "square": (0.0, 90.0, 180.0, 270.0),

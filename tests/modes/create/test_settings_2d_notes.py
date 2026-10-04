@@ -363,12 +363,24 @@ def test_a_restored_form_is_not_rewritten_merely_by_being_opened():
 
     source = Path(settings_2d.__file__).read_text(encoding="utf-8")
     lines = source.splitlines()
-    calls = [
+    # The 2026-10-04 audit's create-20 moved ``clear_unusable`` into
+    # ``_pick_base_model`` so the findings "Use <model>" button runs it too. The
+    # rule is unchanged, one hop further: the one call lives in that helper, and
+    # the combo reaches the helper only under ``picked != before``.
+    clearing = [
         i
         for i, line in enumerate(lines)
         if "clear_unusable(" in line and not line.lstrip().startswith("def ")
     ]
-    assert len(calls) == 1, "one call site, or the guard is not the only path"
+    assert len(clearing) == 1, "one clearing site, or the guard is not the only path"
+    owner = next(i for i in range(clearing[0], -1, -1) if lines[i].startswith("def "))
+    assert lines[owner].startswith("def _pick_base_model("), lines[owner]
+    calls = [
+        i
+        for i, line in enumerate(lines)
+        if "_pick_base_model(ctx, form, picked)" in line and not line.lstrip().startswith("def ")
+    ]
+    assert len(calls) == 1, "one combo call site, or the guard is not the only path"
     # Inside the guard's block, not necessarily on the line under it: changing
     # the base does other work in the same branch. Walk up to the comparison
     # and require the call to be indented beneath it, which is the actual rule

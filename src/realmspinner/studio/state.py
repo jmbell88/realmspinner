@@ -256,17 +256,9 @@ def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, An
         value = params.get(key)
         if value is None:
             continue
-        try:
-            if isinstance(default, bool):
-                form[key] = bool(value)
-            elif isinstance(default, float):
-                form[key] = float(value)
-            elif isinstance(default, int):
-                form[key] = int(value)
-            elif isinstance(default, str):
-                form[key] = str(value)
-        except (TypeError, ValueError):
-            continue
+        coerced = _coerce_like(default, value)
+        if coerced is not _UNCOERCIBLE:
+            form[key] = coerced
     from .modes.create.engine import assets as create_assets
 
     _restore_sheet_block(form, params)
@@ -277,6 +269,35 @@ def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, An
     form["generation_type"] = form["asset_type"]
     create_assets.sync_legacy_fields(form)
     return form
+
+
+_UNCOERCIBLE = object()
+
+
+def _coerce_like(default: Any, value: Any) -> Any:
+    """``value`` as the type of ``default``, or ``_UNCOERCIBLE``.
+
+    The one coercion both passes of :func:`form_from_params` share. The request
+    pass used to copy ``GenerationRequest.from_dict``'s fields as they came, and
+    ``from_dict`` leaves an unconvertible scalar unchanged on purpose (so
+    ``validate_request`` can refuse it by type) -- which put ``"banana"`` into a
+    numeric form field, the exact case ``test_copying_settings_survives_a_junk_value``
+    guards on the flat path (shell-41, the 2026-10-03 audit).
+    """
+    try:
+        if isinstance(default, bool):
+            return bool(value)
+        if isinstance(default, float):
+            return float(value)
+        if isinstance(default, int):
+            return int(value)
+        if isinstance(default, str):
+            return str(value)
+    except (TypeError, ValueError, OverflowError):
+        # ``OverflowError``: ``int(inf)``, from a stored ``1e999``
+        # (shell-14, the 2026-10-03 audit).
+        return _UNCOERCIBLE
+    return _UNCOERCIBLE
 
 
 def _restore_generation_request(form: dict[str, Any], params: dict[str, Any]) -> None:
@@ -302,16 +323,19 @@ def _restore_generation_request(form: dict[str, Any], params: dict[str, Any]) ->
         "count",
     ):
         value = getattr(request, key)
-        if value is not None:
-            form[key] = value
+        if value is None:
+            continue
+        coerced = _coerce_like(form.get(key), value)
+        if coerced is not _UNCOERCIBLE:
+            form[key] = coerced
     if request.generation_type == "sprite_sheet":
         sprite = request.sprite
         form["sheet_layout"] = sprite_layout_of(sprite)
         if sprite.target_cell_px:
             form["target_cell_px"] = str(sprite.target_cell_px)
             form["cell_size"] = str(sprite.target_cell_px)
-        if sprite.candidate_count:
-            form["sprite_candidates"] = str(sprite.candidate_count)
+        # No ``sprite_candidates`` here: ``default_form_2d`` does not declare
+        # it, so writing it left hidden state no control shows (shell-41).
         form["palette"] = sprite.palette
         form["dither"] = sprite.dither
 
@@ -322,7 +346,7 @@ def _restore_int(value: Any, default: int) -> int:
     function's one call site."""
     try:
         return int(value or default)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -478,21 +502,33 @@ def parse_query(text: str) -> tuple[list[str], list[tuple[str, str]]]:
     search starts returning nothing with no explanation.
 
     Values may be quoted for a space: ``name:"a wooden chest"``.
-    """
-    import shlex
 
-    try:
-        words = shlex.split(text)
-    except ValueError:
-        # An unbalanced quote is not an error the user should see: they are
-        # mid-typing, and the half-written query is `name:"a wo`. Closing it
-        # for them reads it the way they clearly meant it; a plain split would
-        # hand `"a` to the field and leave `wo` as a separate word, which
-        # matches nothing and looks like the box being broken.
-        try:
-            words = shlex.split(text + '"')
-        except ValueError:
-            words = text.split()
+    **Only the double quote groups.** This used to be ``shlex.split``, whose
+    POSIX rules also read an apostrophe as a quote and a backslash as an
+    escape, so ``knight's sword and dragon's lair`` collapsed to the one term
+    ``knights sword and dragons``, and a path's backslashes vanished, so a
+    prompt pasted back into the box matched nothing, the row it came from
+    included (shell-16, the 2026-10-03 audit).
+    """
+    # An unclosed quote is not an error the user should see: they are
+    # mid-typing, and the half-written query is `name:"a wo`. Reading it as
+    # closed at the end is what they clearly meant; a plain split would hand
+    # `"a` to the field and leave `wo` as a separate word, which matches
+    # nothing and looks like the box being broken.
+    words: list[str] = []
+    current: list[str] = []
+    quoted = False
+    for char in text:
+        if char == '"':
+            quoted = not quoted
+        elif char.isspace() and not quoted:
+            if current:
+                words.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+    if current:
+        words.append("".join(current))
     terms: list[str] = []
     fields: list[tuple[str, str]] = []
     for word in words:
@@ -502,6 +538,23 @@ def parse_query(text: str) -> tuple[list[str], list[tuple[str, str]]]:
         elif word:
             terms.append(word.lower())
     return terms, fields
+
+
+def is_undecided_candidate(job: dict[str, Any]) -> bool:
+    """Whether a row is a mesh candidate nobody has picked yet.
+
+    The one spelling of "hidden from the finished-work lists": a
+    ``candidate_group`` row is one of several near-identical attempts whose
+    choice belongs to the picker -- *except* a Create workspace's, whose
+    ``create_workspace`` param makes it ordinary work (``candidates.pending``
+    agrees). The library filter and Home's Resume list each carried their own
+    copy, and only one learned the exception: the 2026-10-03 audit, finding
+    shell-23, found a finished Create-workspace mesh in the Library and never
+    in "what was I working on".
+    """
+    return bool(job.get("candidate_group")) and not (job.get("params") or {}).get(
+        "create_workspace"
+    )
 
 
 def _field_matches(job: dict[str, Any], field: str, value: str) -> bool:
@@ -599,7 +652,7 @@ class Filters:
             # one launched sweep buries a workshop's actual assets. They are
             # reachable by their sweep, and deleting the sweep deletes them.
             return False
-        if job.get("candidate_group") and not (job.get("params") or {}).get("create_workspace"):
+        if is_undecided_candidate(job):
             # And the same rule for a mesh candidate nobody has picked yet:
             # three attempts at one asset are three near-identical cards, and
             # the choice between them belongs in the picker rather than in a
@@ -1464,13 +1517,16 @@ class AppState:
     # thread by a component that cannot submit anything, so the frame loop
     # notices the job finishing and marks this instead.
     findings_dirty: bool = False
-    # Which probe question needs retraining, or None. The ``findings_dirty``
-    # pattern exactly, and for the identical reason -- ``TaskRunner.submit``
-    # refuses a key already in flight and nothing re-arms it, so a burst of
-    # labels would train once on the set as it stood at the first press and drop
-    # the rest. A stage string rather than a bool because a labelling pass is
-    # about one question at a time, and the training run needs to know which.
-    judge_dirty: str | None = None
+    # Which probe questions need retraining. The ``findings_dirty`` pattern
+    # exactly, and for the identical reason -- ``TaskRunner.submit`` refuses a
+    # key already in flight and nothing re-arms it, so a burst of labels would
+    # train once on the set as it stood at the first press and drop the rest.
+    # Stage strings rather than a bool because the training run needs to know
+    # which question, and a *set* rather than one slot because a reviewer works
+    # the "Teach the judge" passes back to back: a label filed under a second
+    # stage before the first was submitted overwrote the first stage's request,
+    # which was then never retrained (shell-66, the 2026-10-03 audit).
+    judge_dirty: set[str] = field(default_factory=set)
     # Whether the open review's units need scoring by the judge. The same flag
     # pattern for the third time, and the third time for the same reason: a
     # score request follows every scan and every retrain, and a direct submit

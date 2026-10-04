@@ -36,7 +36,13 @@ from ..kernels.rig import cliplib, skeleton, store, templates
 from ..pipelines import pixelize, spritesynth
 from .errors import Conflict, Invalid, NotFound, invalid_from
 from .sheets import check_sheet_cap
-from .validation import DERIVED_PARAMS, check_job_id, check_vram
+from .validation import (
+    DERIVED_PARAMS,
+    check_blender_known,
+    check_job_id,
+    check_view,
+    check_vram,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .core import RealmspinnerService
@@ -105,6 +111,11 @@ _SCAN_LIMIT = 400
 #: exists to close -- has to land within a minute of the rig finishing to be
 #: mistaken for it.
 FOLLOW_UP_WINDOW_S = 60.0
+
+#: How far *before* a rig's ``finished_at`` a candidate's ``created_at`` may
+#: sit and still count as its follow-up -- clock slack only: the follow-up is
+#: minted after the terminal write, never before it.
+FOLLOW_UP_CLOCK_SLACK_S = 1.0
 
 #: The rig template every door here *defaults* to, and no longer the only one
 #: allowed: what a character sheet actually needs is a template with clips
@@ -513,9 +524,11 @@ def create_charsheet(
     check_job_id(job_id)
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if source["status"] != "done" or not (job_dir / "model.glb").exists():
+    # ``is_file()`` at these gates, the way ``store.list_sheets`` is (2026-10-03
+    # audit, poser-40): a directory squatting at ``rig.glb`` is not a rig.
+    if source["status"] != "done" or not (job_dir / "model.glb").is_file():
         raise Invalid("job has no finished mesh to render")
-    if not (job_dir / "rig.glb").exists():
+    if not (job_dir / "rig.glb").is_file():
         # Every Troupe cell is a posed frame, so an unrigged mesh would render
         # 256 copies of one T-pose. Named as the missing step rather than as a
         # layout failure, because rigging it is what the user has to do next.
@@ -552,6 +565,11 @@ def create_charsheet(
             "pixel_art": pixel_art,
         },
     )
+    # The angle and the lighting by their own controls, before ``plan`` files
+    # the same refusal under "layout" (2026-10-03 audit, poser-27).
+    angle = check_view(elevation, lighting)
+    if angle is not None:
+        elevation = angle
 
     try:
         resolved_layout = _timed_layout(layout, template)
@@ -586,6 +604,9 @@ def create_charsheet(
         raise Invalid(
             f"sheet name must be at most {store.MAX_SHEET_NAME} characters", field="name"
         )
+    # Last of the refusals, so every option's own sentence still wins over this
+    # host-level one -- but before a row exists (2026-10-03 audit, poser-39).
+    check_blender_known()
 
     params = {
         "source_job": job_id,
@@ -699,6 +720,37 @@ def rerender_charsheet(
             raise invalid_from(exc, "Those runs cannot be re-rendered", field="subset") from exc
 
         params = dict(row.get("params") or {})
+        # **The rig the cells will be drawn from is read now, under this hold.**
+        # The 2026-10-03 audit (poser-jobs-02) found the row's ``template``
+        # copied below without ever looking at ``rig.json``, which
+        # ``create_charsheet`` does read: after a re-rig on another skeleton a
+        # re-render was accepted, expanded from the wrong skeleton's clip
+        # library and composited into the old atlas (bones that do not exist
+        # are skipped, so nothing complained), and with ``rig.glb`` gone it
+        # was accepted and spent a queue slot to be told "that mesh is no
+        # longer rigged" minutes later in the worker. An unrenderable request
+        # costs the request, not a render.
+        if not (job_dir / "rig.glb").is_file():
+            raise Invalid(
+                "that mesh is no longer rigged, so its sheet cannot be re-rendered",
+                field="sheet_id",
+            )
+        recorded_template = str(params.get("template") or "humanoid")
+        current_template = str((store.read_rig(job_dir) or {}).get("template") or "")
+        if current_template != recorded_template:
+            raise Invalid(
+                f"that sheet was rendered on the {recorded_template} rig, and the "
+                f"mesh is now rigged as {current_template or 'unknown'} -- build a "
+                "new sheet instead",
+                field="sheet_id",
+            )
+        if not has_clips(current_template):
+            raise Invalid(
+                "a character sheet is animated from a clip library, and nothing is "
+                f"authored for the {current_template or 'unknown'} rig",
+                field="sheet_id",
+            )
+        check_blender_known()
         # Not inherited: they are the *previous* run's answers about its own
         # output and a fresh row must not wear them. Stripped via
         # ``DERIVED_PARAMS`` itself rather than a hand-copied subset of it --
@@ -754,8 +806,10 @@ def follow_up_sheet_job(svc: RealmspinnerService, rig_job_id: str) -> str | None
 
     Matched, not merely the newest ``charsheet`` row naming this mesh:
     ``source_job`` -- the mesh -- equal; ``base_sheet`` absent, which excludes
-    a re-render of some other sheet on the same character; minted within
-    :data:`FOLLOW_UP_WINDOW_S` of this rig's own ``finished_at``; and every
+    a re-render of some other sheet on the same character; minted at or after
+    this rig's own ``finished_at`` (within :data:`FOLLOW_UP_WINDOW_S`), and not
+    when a failure recorded on the mesh in that window says the real follow-up
+    never queued; and every
     setting the reservation actually pinned (``troupe_sheet`` minus
     ``sheet_id``, which it never carries) equal on the candidate's own params.
     **The oldest match wins** -- a re-render of *this* sheet is a second
@@ -788,8 +842,27 @@ def follow_up_sheet_job(svc: RealmspinnerService, rig_job_id: str) -> str | None
     if not store.is_valid_id(source):
         return None
     wanted = {k: v for k, v in block.items() if k != "sheet_id"}
-    window_start = float(finished_at) - FOLLOW_UP_WINDOW_S
+    # The 2026-10-03 audit's agents-28: the half of the window *before*
+    # ``finished_at`` can never hold the follow-up (the worker writes the rig's
+    # terminal row first and mints the sheet after it), so a human's own
+    # same-settings sheet made while the rig was still running was matchable
+    # as the agent's -- and ``character_cancel`` would then act on it. Only a
+    # second of clock slack is kept below ``finished_at``.
+    window_start = float(finished_at) - FOLLOW_UP_CLOCK_SLACK_S
     window_end = float(finished_at) + FOLLOW_UP_WINDOW_S
+    # A failure recorded on the mesh inside the window says the real follow-up
+    # never queued, so any matching row in it is somebody else's. A failure
+    # older than the rig finishing belongs to an earlier attempt and is ignored.
+    try:
+        failure = follow_up_failure(svc, source)
+    except NotFound:
+        failure = None
+    recorded = failure.get("recorded_at") if failure else None
+    if (
+        isinstance(recorded, (int, float))
+        and window_start <= recorded <= window_end
+    ):
+        return None
     matches: list[tuple[Any, str]] = []
     for candidate in svc.store.list(limit=_SCAN_LIMIT, kind="charsheet"):
         cparams = candidate.get("params") or {}
@@ -873,7 +946,9 @@ def send_to_troupe(
     Two shapes, one press:
 
     * **Already rigged** -- delegate to ``create_charsheet`` verbatim. One row,
-      the existing path, including the humanoid refusal and the sheet cap.
+      the existing path, including its clip-library refusal (a rig nothing is
+      authored for) and the sheet cap. ``template`` and ``bones`` are **not
+      read** on this branch: the rig on disk already decided both.
     * **Not rigged** -- mint a rig row carrying a nested ``troupe_sheet``
       block, and let the worker mint the sheet on the finished rig
       (``_maybe_queue_sheet_after_rig``). That keeps the "four ordinary jobs,
@@ -908,11 +983,13 @@ def send_to_troupe(
     None so the row a bare call mints is byte-identical to the one it minted
     before they existed:
 
-    * ``template`` -- the rig template to use instead of the default. A family
+    * ``template`` -- the rig template to use instead of the default, applied
+      only when this call mints the rig (the unrigged branch). A family
       that ships its own clip library is rigged on its own skeleton, and
       ``expand_clips`` has to be given the same one or the frame table is
       filled from the wrong library.
-    * ``bones`` -- an exact skeleton the caller already holds, validated the
+    * ``bones`` -- an exact skeleton the caller already holds, again only when
+      this call mints the rig, validated the
       way ``rig.adjust_joints`` validates a user correction. Passing it also
       *withholds* ``joints="measured"``: measuring is a guess from the
       reference image, and re-deriving joints a family stated exactly would
@@ -925,11 +1002,11 @@ def send_to_troupe(
     check_job_id(job_id)
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if source["status"] != "done" or not (job_dir / "model.glb").exists():
+    if source["status"] != "done" or not (job_dir / "model.glb").is_file():
         # ``create_charsheet``'s sentence, verbatim: one refusal, one wording.
         raise Invalid("job has no finished mesh to render")
 
-    if (job_dir / "rig.glb").exists():
+    if (job_dir / "rig.glb").is_file():
         return create_charsheet(
             svc,
             job_id,
@@ -1092,6 +1169,11 @@ def _charsheet_spec(
             "pixel_art": pixel_art,
         },
     )
+    # The angle and the lighting by their own controls, before ``plan`` files the
+    # same refusal under "layout" (2026-10-03 audit, poser-27).
+    angle = check_view(elevation, lighting)
+    if angle is not None:
+        elevation = angle
     sheet_template = str(template or TROUPE_TEMPLATE)
     # **Refused here, with a field, rather than as a missing key.** The
     # expansion below already fails for a clipless skeleton, but it fails as

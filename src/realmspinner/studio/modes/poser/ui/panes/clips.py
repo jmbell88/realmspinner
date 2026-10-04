@@ -265,6 +265,19 @@ def _import_report(ctx: Any, state: Any) -> None:
         imgui.dummy((0, sp(tokens.SP_1)))
 
 
+def _clip_carriers() -> str:
+    """The templates that ship a clip library, as a phrase, read off the shipped
+    files. The 2026-10-03 audit, finding poser-44: the sentence hard-coded "only
+    the humanoid template" while humanoid, quadruped, bird and blob all ship
+    one, so on a fish or a serpent the pane denied the other three."""
+    keys = list(cliplib.shipped_clip_templates())
+    if not keys:
+        return "no template"
+    if len(keys) == 1:
+        return f"only the {keys[0]} template"
+    return "only the " + ", ".join(keys[:-1]) + f" and {keys[-1]} templates"
+
+
 def draw(ctx: Any) -> None:
     state = poser_mode.ensure(ctx)
     # A section, not a collapsing header: every other workspace's column pane
@@ -299,7 +312,7 @@ def draw(ctx: Any) -> None:
     if not state.clips.get("clips"):
         widgets.muted_wrapped(
             "This skeleton ships no clips. Clips are what a character sheet "
-            "animates; only the humanoid template has them today."
+            f"animates; {_clip_carriers()} have them today."
         )
         return
 

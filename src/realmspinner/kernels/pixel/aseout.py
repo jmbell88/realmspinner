@@ -155,7 +155,7 @@ _HEADER_SIZE = 128
 _DEPTHS = {"rgb": _RGBA, "grayscale": _GRAYSCALE, "indexed": _INDEXED}
 
 #: :data:`asein._BLEND_BY_INDEX`, inverted. Built from that tuple rather than
-#: written out, because two hand-maintained copies of nineteen names are two
+#: written out, because two hand-maintained copies of Aseprite's nineteen names are two
 #: chances to file ``divide`` under ``subtract``'s number and produce files that
 #: only this build reads correctly.
 _BLEND_INDEX = {name: index for index, name in enumerate(_BLEND_BY_INDEX)}
@@ -237,8 +237,18 @@ class _Writer:
     def i32(self, value: int) -> None:
         self.out += struct.pack("<i", int(value))
 
-    def string(self, text: str) -> None:
+    def string(self, text: str, what: str = "a string") -> None:
         raw = str(text).encode("utf-8")
+        # Refused by name here, not left to ``struct``: an .ora layer name or
+        # user-data text of any length is accepted on read, and the length
+        # prefix is a WORD, so a 70 000-byte name used to die with a bare
+        # ``struct.error`` naming neither the field nor the layer (2026-10-03
+        # audit, inker-67) -- against this module's "refusals are by name".
+        if len(raw) > _MAX_U16:
+            raise ValueError(
+                f"{what} is {len(raw)} bytes long and an .aseprite stores at"
+                f" most {_MAX_U16} bytes in a string"
+            )
         self.u16(len(raw))
         self.out += raw
 
@@ -246,9 +256,9 @@ class _Writer:
         return bytes(self.out)
 
 
-def _string(text: str) -> bytes:
+def _string(text: str, what: str = "a string") -> bytes:
     writer = _Writer()
-    writer.string(text)
+    writer.string(text, what)
     return writer.bytes()
 
 
@@ -558,7 +568,7 @@ def _user_data_chunks(note: Any) -> list[bytes]:
     flags = (_UD_TEXT if note.text else 0) | (_UD_COLOUR if note.colour else 0)
     body = struct.pack("<I", flags)
     if note.text:
-        body += _string(note.text)
+        body += _string(note.text, "a note's text")
     if note.colour:
         body += struct.pack("<BBBB", *note.colour)
     return [_chunk(_USER_DATA, body)]
@@ -619,7 +629,7 @@ def _layer_chunk(row: _Row) -> bytes:
         opacity,
         b"\0\0\0",
     )
-    body += _string(row.name)
+    body += _string(row.name, f"the name of the layer {row.name[:40]!r}")
     if kind == _LAYER_TILEMAP:
         body += struct.pack("<I", row.tileset)
     return _chunk(_LAYER, body)
@@ -1019,7 +1029,7 @@ def _tileset_chunk(
         tile_h,
         _TILESET_BASE_INDEX,
     ) + b"\0" * 14
-    body += _string(ts.name)
+    body += _string(ts.name, f"the name of the tileset {ts.name[:40]!r}")
     body += struct.pack("<I", len(compressed)) + compressed
     return _chunk(_TILESET, body)
 
@@ -1115,7 +1125,9 @@ def _slice_chunk(entry, runs: list[tuple[int, object]]) -> bytes:
     flags = (_SLICE_NINE_PATCH if fallback_centre is not None else 0) | (
         _SLICE_PIVOT if fallback_pivot is not None else 0
     )
-    body = struct.pack("<III", len(runs), flags, 0) + _string(entry.name)
+    body = struct.pack("<III", len(runs), flags, 0) + _string(
+        entry.name, f"the name of the slice {entry.name[:40]!r}"
+    )
     for index, key in runs:
         x0, y0, x1, y1 = key.bounds
         body += struct.pack(
@@ -1200,7 +1212,7 @@ def _tags_chunk(tags, frames: int) -> bytes:
             b"\0" * 6,
             b"\0\0\0",
             0,
-        ) + _string(tag.name)
+        ) + _string(tag.name, f"the name of the tag {tag.name[:40]!r}")
     return _chunk(_TAGS, body)
 
 
@@ -1410,6 +1422,15 @@ def dropped_by_aseprite(doc) -> list[str]:
         out.append("Flourish recipes (the layers travel; regenerating does not)")
     if getattr(doc, "matte", None) is not None:
         out.append("the flatten matte")
+    # The 2026-10-03 audit, inker-78: the recorded render digests travel in an
+    # .ora (animation.json's "sheet") and have no chunk here, yet no line said
+    # so -- after Save As .aseprite a Merge against a re-rendered sheet was
+    # silently off. docs/COMPAT.md's ORA -> aseprite table has the matching row.
+    if getattr(doc, "sheet_base", None) is not None:
+        out.append(
+            "the sheet merge base (Merge against a re-rendered sheet stops"
+            " working)"
+        )
     if str(getattr(doc, "color_mode", "rgb")) == "rgb" and getattr(doc, "palette", None):
         # Palette-constrained RGB: the chunks *are* written, so the file
         # carries the colours -- what has nowhere to live is the constraint.

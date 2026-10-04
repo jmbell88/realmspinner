@@ -322,7 +322,9 @@ def require_distinct_names(names: Sequence[str]) -> None:
         seen[key] = name
 
 
-def rebase_tags(tags: Sequence[Any], f0: int, f1: int) -> list[Any]:
+def rebase_tags(
+    tags: Sequence[Any], f0: int, f1: int, total: int | None = None
+) -> list[Any]:
     """The tags of frames ``f0..f1``, renumbered as if that span were the file.
 
     Pure, and it is three rules rather than one. A tag wholly outside the span
@@ -332,10 +334,22 @@ def rebase_tags(tags: Sequence[Any], f0: int, f1: int) -> list[Any]:
     there and refusing to name it at all would lose more than it protects. And
     every surviving tag is **shifted** by ``f0``, because the exported sheet's
     first cell is index 0 whatever the document called it.
+
+    ``total`` is the timeline's frame count, when the caller has it. Given, a
+    tag a frame delete left wholly past the end is first clamped onto the last
+    frame -- what the timeline plays (:meth:`Animation.tag_span`) and the whole
+    export writes (:func:`tag_span`) -- so a range that includes that cell
+    carries the tag too (the 2026-10-03 audit, inker-77: it used to be dropped
+    here and kept by the whole export). An inverted tag is ordered first, for
+    :func:`tag_span`'s reason.
     """
     out = []
     for tag in tags:
-        start, end = max(int(tag.start), f0), min(int(tag.end), f1)
+        lo, hi = sorted((int(tag.start), int(tag.end)))
+        if total is not None:
+            last = max(total - 1, 0)
+            lo, hi = max(0, min(lo, last)), max(0, min(hi, last))
+        start, end = max(lo, f0), min(hi, f1)
         if start > end:
             continue
         out.append(replace(tag, start=start - f0, end=end - f0))
@@ -380,7 +394,11 @@ def remap_tags(tags: Sequence[Any], frame_cells: Sequence[int | None]) -> list[A
         start, end = int(tag.start), int(tag.end)
         if start > end:
             start, end = end, start
-        start, end = max(0, start), min(end, last)
+        # Both ends are clamped onto the frames that exist, so a tag a frame
+        # delete left wholly past the end lands on the tail the way the
+        # timeline and the whole export (:func:`tag_span`) place it, instead of
+        # vanishing here (the 2026-10-03 audit, inker-77).
+        start, end = max(0, min(start, last)), max(0, min(end, last))
         kept = [
             positions[i] for i in range(start, end + 1) if positions[i] is not None
         ]
@@ -1263,11 +1281,14 @@ def tag_span(anim: Any, tag: Any) -> tuple[int, int]:
     timeline (a delete leaves one behind) would otherwise clamp in one path and
     not in the other.
     """
-    last = len(anim.frames) - 1
-    return (
-        max(0, min(int(tag.start), last)),
-        max(0, min(int(tag.end), last)),
-    )
+    last = max(len(anim.frames) - 1, 0)
+    start = max(0, min(int(tag.start), last))
+    end = max(0, min(int(tag.end), last))
+    # Ordered like :meth:`Animation.tag_span`, the one the timeline plays: both
+    # file readers build tags unordered, and a sidecar written ``start 2, end
+    # 0`` is one this app's own ``sheetin.span_tags`` refuses (the 2026-10-03
+    # audit, inker-76).
+    return min(start, end), max(start, end)
 
 
 def layer_splits(doc: Any) -> list[tuple[str, tuple[int, ...]]]:
@@ -1429,7 +1450,7 @@ def timing(
             else:
                 tags_out.append(replace(tag, start=start, end=end))
     else:
-        tags_out = rebase_tags(anim.tags, f0, f1)
+        tags_out = rebase_tags(anim.tags, f0, f1, len(anim.frames))
     return (
         [frame.duration_ms for frame in anim.frames[f0 : f1 + 1]],
         tags_out,

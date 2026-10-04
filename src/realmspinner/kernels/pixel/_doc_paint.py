@@ -344,8 +344,17 @@ class PaintOps:
             # The lock, in one line and after the formula rather than inside
             # it: "preserve transparency" is exactly *the alpha does not
             # change*, so restoring the channel is the definition rather than
-            # an approximation of it. Colour written where alpha is zero is
-            # invisible, which is what makes this enough on its own.
+            # an approximation of it.
+            #
+            # The 2026-10-03 audit, finding inker-49: *not* enough on its own.
+            # Colour written where alpha is zero is invisible, but it is a real
+            # byte difference -- it reappears when the pixel is unlocked, and it
+            # made ``_commit_patch`` push an undo step for a fill that changed
+            # nothing visible. ``StrokeState._resolve`` fixed this for the brush
+            # at inker-paint-04 and this door (fill, shapes, pattern fill) was
+            # missed: a pixel that was fully transparent keeps its RGB.
+            hidden = before[..., 3:4] <= 0
+            out[..., :3] = np.where(hidden, before[..., :3].astype(np.float32), out[..., :3])
             out[..., 3] = before[..., 3]
         layer.pixels[y0:y1, x0:x1] = cp.to_uint8_255(out)
         self._commit_patch(layer, box, before)
@@ -1093,8 +1102,15 @@ class PaintOps:
         stroke = self._stroke
         if stroke is None:
             return None
+        # ``layer_by_uid``, not ``stack.by_uid``: the 2026-10-03 audit (inker-30)
+        # found that Home/End/a frame click move the playhead mid-drag, the
+        # stack is rebuilt for the new frame, and a stack-only lookup then
+        # "lost" a cel that still exists on its own frame -- the stroke was
+        # abandoned with every dab already on that cel and no history step, so
+        # a saved-looking document silently differed from its undo stack. The
+        # uid reaches the cel on any frame, as ``PatchEdit`` already does.
         try:
-            return self.stack.by_uid(stroke.layer_uid)
+            return self.layer_by_uid(stroke.layer_uid)
         except KeyError:
             return None
 
@@ -1159,7 +1175,7 @@ class PaintOps:
             # this flush a click marks nothing and every stroke is one pixel
             # short. Before the ``dirty is None`` test, since for a click the
             # flush is the only thing that makes it non-None.
-            stroke.finish(self.stack.by_uid(stroke.layer_uid).pixels)
+            stroke.finish(self.layer_by_uid(stroke.layer_uid).pixels)
         if stroke is None or stroke.dirty is None:
             # A brush-down with no dab. ``begin_stroke`` may have autovivified a
             # cel for it, and nothing below will reach ``_commit_patch`` to
@@ -1170,7 +1186,7 @@ class PaintOps:
         if box is None:
             self._discard_pending_cel()
             return False
-        layer = self.stack.by_uid(stroke.layer_uid)
+        layer = self.layer_by_uid(stroke.layer_uid)
         x0, y0, x1, y1 = box
         # inker-paint-01/02 (the 2026-09-26 audit): a coverage-mode stroke's
         # own accumulated coverage is the one signal that tells a pixel the
@@ -1571,6 +1587,10 @@ class PaintOps:
             # composite above sets ``out_a`` from the ramp's own coverage.
             # Restoring the channel *is* the definition of the lock rather than
             # an approximation of it, which is why it goes after the formula.
+            # RGB of a fully transparent pixel too (the 2026-10-03 audit,
+            # finding inker-49): ``write_colour``'s reason.
+            hidden = before[..., 3:4] <= 0
+            out[..., :3] = np.where(hidden, before[..., :3].astype(np.float32), out[..., :3])
             out[..., 3] = before[..., 3]
         layer.pixels[y0:y1, x0:x1] = cp.to_uint8_255(out)
         self._commit_patch(layer, box, before)

@@ -14,7 +14,7 @@ download or delete landing between two otherwise-identical frames (the
 form itself never changes) left a stale "No compatible installed recipe"
 answer until some unrelated field edit finally changed the memo key.
 
-create-brief-01: ``create_brief._row_widths`` measured the rail's "full"
+create-brief-01: the brief row's (since deleted) ``_row_widths`` measured the rail's "full"
 width with ``create_rail.stage_rail_width(items, current)`` -- no ``done`` at
 all -- so ``_rail_fit``'s ticks rung measured every stage as its plain label,
 identical to the labels rung, and the returned width never accounted for the
@@ -57,7 +57,6 @@ from realmspinner import generation
 from realmspinner.studio import icons, matte_preview, probe
 from realmspinner.studio.modes.create.engine import assets as create_assets
 from realmspinner.studio.modes.create.engine import recipe as create_recipe
-from realmspinner.studio.modes.create.ui import brief as create_brief
 from realmspinner.studio.modes.create.ui import rail as create_rail
 from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
 from realmspinner.studio.state import AppState, default_form_2d
@@ -149,20 +148,30 @@ def test_resolved_recipe_re_resolves_after_a_download_lands_with_the_form_unchan
 
 
 def test_the_reference_stage_rail_keeps_its_ticks_when_the_row_has_room(monkeypatch):
-    items = create_brief._rail_items_for_measurement()
+    # ``create_brief._rail_measurements`` (the row's old sizing step) is gone:
+    # no frame measured a rail row any more (2026-10-03 audit, finding
+    # create-33). What it guarded is the rail's own contract, so it is read
+    # at ``stage_rail_width`` directly.
+    from realmspinner.studio.modes.create.ui import stages as create_stages
+
+    items = [
+        (stage, create_stages.LABELS[stage], create_stages.ICONS[stage], None)
+        for stage in create_stages.STAGES
+    ]
     current = items[0][0]
     # A real done set: every other stage is actually finished. This is
     # exactly what ``App._stage_rail`` will pass as ``done`` when it actually
-    # draws the rail -- the thing ``create_brief._rail_measurements``'s own
-    # measurement must size for.
+    # draws the rail -- the thing the measurement must size for.
     real_done = frozenset(key for key, *_rest in items[1:])
 
     with imgui_context(monkeypatch) as imgui:
         imgui.new_frame()
         imgui.begin("test")
 
-        # The production function under test, not a reimplementation of it.
-        rail_full_w, _rail_floor_w = create_brief._rail_measurements(current)
+        # Sized for the worst case (every stage done), as the row's old
+        # measuring step did, so the ticks rung is never under-measured.
+        worst_case_done = frozenset(key for key, *_rest in items)
+        rail_full_w = create_rail.stage_rail_width(items, current, done=worst_case_done)
         # The real draw, later, with the *real* done set and this measured
         # width as its own budget.
         shown, _widths, _titles, _done = create_rail._rail_fit(

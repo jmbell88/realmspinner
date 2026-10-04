@@ -17,13 +17,15 @@ installs nothing.
 The suite is ~2 min for 20k+ tests, parallel by default -- a range rather than an
 exact count, because the 2026-09-06 audit's finding docs-11 found the count already
 13% stale (a hand-kept exact number drifts the way the rest of this section warns
-about). Three lanes are excluded from the default run and each is opt-in:
+about). Two lanes are excluded from the default run (`-m "not gpu and not perf"` in
+`pyproject.toml`'s `addopts`) and each is opt-in:
 
 | Lane | Command | When |
 |---|---|---|
 | GPU | `uv run pytest -m gpu -n 0` | Before changing model loading, VRAM accounting or conditioning. Serial is enforced -- N workers means N simultaneous 7 GB loads onto one card. |
 | Performance | `uv run pytest -m perf -n 0` | Wall-clock budgets; meaningless under contention. |
-| One test | `uv run pytest tests/x.py::y -n 0` | Quicker than paying for worker startup. |
+
+To run a single test, skip the worker startup: `uv run pytest tests/x.py::y -n 0`.
 
 **Never edit `src/` while the suite is running.** Several tests read module
 source, and you will get failures that have nothing to do with your change.

@@ -169,8 +169,18 @@ class Camera:
         self.near = radius / 1000.0
         self.far = radius * 100.0
         distance = radius / math.sin(math.radians(self.fov * 0.5)) * 1.25
-        self.set_position(m3.vec3(distance * 0.62, distance * 0.47, distance * 0.62))
-        self.set_target(m3.vec3(0.0, size[1] * 0.5, 0.0))
+        # Target first, then the eye *relative to it*. ``set_position`` turns
+        # an absolute position into an offset from the *current* target, so
+        # the old order (position, then target) made the framed view depend on
+        # whatever the camera had looked at before: the 2026-10-04 audit's
+        # create-19 -- F twice on one asset moved the view, and a 10 cm asset
+        # adopted after a 2 m one was framed from below the ground. Now the
+        # result is a function of the box alone.
+        target = m3.vec3(0.0, size[1] * 0.5, 0.0)
+        self.set_target(target)
+        self.set_position(
+            target + m3.vec3(distance * 0.62, distance * 0.47, distance * 0.62)
+        )
         self.min_distance = radius * 0.5
         self.max_distance = radius * 20.0
         return radius

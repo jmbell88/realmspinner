@@ -34,6 +34,7 @@ outline and has to know to redraw it.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -55,6 +56,12 @@ from .terrain import Rect, Terrain
 #: a place to park a document.
 MAX_PROPERTY_KEY = 120
 MAX_PROPERTY_VALUE = 1000
+
+#: The light and camera scalars :meth:`MasonDoc.set_props` refuses to store
+#: non-finite -- exactly the ones ``serialize._float_field`` refuses on read.
+_FINITE_SCALAR_FIELDS = frozenset(
+    {"intensity", "range", "inner_cone_angle", "outer_cone_angle", "yfov", "znear", "zfar"}
+)
 
 # "The parent you already have." ``None`` is a real parent -- the root list --
 # so a nullable default could not tell "move to the root" apart from "leave it
@@ -146,6 +153,8 @@ class MasonDoc:
         # siblings actually shifted, never the rest of the tree.
         self._index: dict[int, tuple[Node, int | None, int]] = {}
         self._node_count = 0
+        # ``id(template) -> (template, walk count)``; see :meth:`_template_nodes`.
+        self._template_counts: dict[int, tuple[Node, int]] = {}
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
@@ -346,13 +355,62 @@ class MasonDoc:
         *other* prefab's size, so the writer refuses at the same total the
         reader will.
         """
-        current = self._node_count if base is None else base
+        # The 2026-10-03 audit's mason-10: the default base was the scene tree
+        # alone, so ``add_node``/``add_nodes``/``unpack_instance`` could build a
+        # document past the reader's *combined* total (15 scene + 1 + 5
+        # template nodes against a ceiling of 20 was accepted, saved, and
+        # refused on reopen) -- the hole ``base=`` closed for ``define_prefab``
+        # alone. The default now includes every template, so all four doors
+        # refuse where the reader does.
+        current = self._node_count + self._template_nodes() if base is None else base
         if current + adding > sc.MAX_PLACED:
             raise ValueError(
                 f"adding {adding} node(s) would bring this document to "
                 f"{current + adding} nodes, past the {sc.MAX_PLACED} "
                 "MAX_PLACED ceiling; refusing rather than building past it"
             )
+
+    def terrain_world(self) -> np.ndarray | None:
+        """The world matrix of the scene's :class:`~.nodes.TerrainNode`, or
+        ``None`` when there is no height field or no node placing it.
+
+        The 2026-10-03 audit's mason-22: drop-to-ground sampled the height
+        field in the *world* frame, ignoring where the ground node had been
+        moved, scaled or turned. This is the one place that answers "where is
+        the ground", for ``ops.drop_to_ground(terrain_world=...)``, the same
+        matrix ``pick.ray_scene`` is handed.
+        """
+        if self.terrain is None:
+            return None
+        for node in self.all_nodes():
+            if isinstance(node, nd.TerrainNode):
+                found = sc.resolved_for(self, node.uid)
+                return None if found is None else found.world
+        return None
+
+    def _template_nodes(self, skip: str | None = None) -> int:
+        """The node count of every prefab template (except ``skip``), the half
+        of the reader's total :attr:`_node_count` does not hold.
+
+        Templates are never edited in place (:meth:`define_prefab` swaps in a
+        fresh copy, and ``read_rscn`` hands over whole trees), so each one's
+        walk count is cached against the template *object* -- the cache holds
+        the node itself, so an id cannot be reused while its entry lives -- and
+        a per-placement call stays O(templates) rather than re-walking them,
+        the cost the 2026-09-18 audit's mason-04 closed for the scene tree.
+        """
+        cache = self._template_counts
+        fresh: dict[int, tuple[Node, int]] = {}
+        total = 0
+        for name, template in self.prefabs.items():
+            hit = cache.get(id(template))
+            if hit is None or hit[0] is not template:
+                hit = (template, len(list(nd.walk([template]))))
+            fresh[id(template)] = hit
+            if name != skip:
+                total += hit[1]
+        self._template_counts = fresh
+        return total
 
     def _check_resolved_placed(self, nodes: Iterable[Node]) -> None:
         """Refuse an attach that would push the document's *resolved* size --
@@ -547,6 +605,14 @@ class MasonDoc:
             else (None if parent_uid is None else int(parent_uid))
         )
         if after_parent is not None:
+            if isinstance(node, nd.TerrainNode):
+                # The 2026-10-03 audit's mason-15: every terrain guard (the
+                # duplicate/array/prefab refusals, the delete-also-clears
+                # ``doc.terrain`` rule) reads a *top-level* TerrainNode, and a
+                # grouped one evaded all of them -- the ground exported twice
+                # or was orphaned. The ground is a document singleton, so it
+                # stays at the root; refused at the door like the cycle below.
+                raise ValueError("the ground stays at the top of the scene")
             if after_parent == uid:
                 raise ValueError("a node cannot be moved inside itself")
             if nd.contains(node, after_parent):
@@ -637,6 +703,30 @@ class MasonDoc:
         which applies here without qualification.
         """
         node = self._require(uid)
+        # The 2026-10-03 audit's mason-11: any value for any name was stored,
+        # so a light's intensity or a camera's yfov typed as ``1e999`` (the
+        # panes only clamp with ``max(0.0, x)``, which passes inf) saved as the
+        # literal ``Infinity`` that ``serialize._float_field`` refuses on read
+        # -- a scene that saved, journalled and could never be reopened.
+        # Refused here the way ``set_transform`` refuses a non-finite
+        # translation, before anything is recorded.
+        for key, value in props.items():
+            if not hasattr(node, key):
+                raise ValueError(f"a {type(node).__name__} has no field {key!r}.")
+            if key in _FINITE_SCALAR_FIELDS:
+                try:
+                    finite = math.isfinite(float(value))
+                except (TypeError, ValueError):
+                    finite = False
+                if not finite:
+                    raise ValueError(f"{key} must be a finite number.")
+            elif key == "color":
+                arr = np.asarray(value, dtype="f8") if value is not None else None
+                if arr is None or arr.shape != (3,) or not np.isfinite(arr).all():
+                    raise ValueError("color must be 3 finite numbers.")
+            elif key == "kind" and isinstance(node, nd.LightNode):
+                if value not in nd.LIGHT_KINDS:
+                    raise ValueError(f"a light's kind must be one of {nd.LIGHT_KINDS}.")
         source = {} if was is None else was
         before = {key: source.get(key, getattr(node, key)) for key in props}
         if before == props:
@@ -810,9 +900,7 @@ class MasonDoc:
         # ``name``'s own previous template, if any, is excluded: replacing a
         # prefab with a same-sized (or smaller) redefinition must never
         # refuse just because it is briefly counted twice.
-        other_prefabs = sum(
-            len(list(nd.walk([tmpl]))) for other, tmpl in self.prefabs.items() if other != name
-        )
+        other_prefabs = self._template_nodes(skip=name)
         self._check_max_placed(
             len(list(nd.walk([template]))), base=self._node_count + other_prefabs
         )
@@ -937,6 +1025,13 @@ class MasonDoc:
         # refuse.
         net_growth = len(list(nd.walk([template]))) - len(list(nd.walk([instance])))
         self._check_max_placed(net_growth)
+        # The 2026-10-03 audit's mason-09: this was the fourth door the
+        # 2026-09-26 audit's mason-engine-05 missed -- an instance at depth 31
+        # unpacking a 40-deep template attached a 71-deep tree, saved clean
+        # and never reopened. The copy lands exactly where the instance sits,
+        # and has the template's own shape, so the template is checked at the
+        # instance's parent before anything is detached.
+        self._check_max_depth(template, parent_uid)
         copy = nd.copy_subtree(template, fresh_uids=True)
         copy.name = instance.name
         copy.translation = np.array(instance.translation, dtype="f8", copy=True)
@@ -1367,11 +1462,16 @@ class MasonDoc:
         which still resolve fine, and refusing to open the whole scene over
         one dead job id would strand every other node in it for a reason the
         user cannot see or fix from outside the app. So the node opens as a
-        listed, repairable fact instead -- drawn as a missing-asset proxy by
-        the viewport, offered **Relink…** (one :class:`~.edits.RefEdit`) and
-        **Remove** by this list -- which is what "known and repairable" means
-        here where ".rblk's own build step is gone" means something has
-        already silently failed.
+        listed fact instead: counted in the viewport's "N missing" readout and
+        named in the Scene file pane and the node's own Properties. The
+        viewport draws **nothing** for an unresolved ref (``MasonView.sync``
+        skips it, so the node is invisible and unpickable), and no control yet
+        calls :meth:`set_ref` (the one :class:`~.edits.RefEdit` a relink would
+        be) -- a missing node is repaired by deleting it or re-adding the
+        asset. "Known" is the point here, where ".rblk's own build step is
+        gone" means something has already silently failed; the 2026-10-03
+        audit's mason-35 corrected this paragraph, which promised a
+        missing-asset proxy and a Relink... gesture that were never built.
         """
         return [
             (node, node.ref)

@@ -120,6 +120,20 @@ IMAGE_STAGES = ("reference", "blank")
 IMAGE_NAMES = ("reference.png", "input.png")
 
 
+def mesh_verdict_blocker(status: Any) -> str | None:
+    """Why a job in ``status`` cannot take a mesh verdict yet, or ``None``.
+
+    Pure, and the one owner of the sentence: ``record_verdict`` raises it and
+    Review greys its grade controls with it, because the 2026-10-03 audit
+    (finding shell-27) found the pane leaving the controls live for a queued or
+    errored unit and then toasting only "Could not record that verdict." -- the
+    refusal's own sentence existed and was thrown away.
+    """
+    if status == "done":
+        return None
+    return f"job is {status}; a verdict needs a finished asset"
+
+
 def record_verdict(
     svc: RealmspinnerService,
     job_id: str,
@@ -198,12 +212,24 @@ def record_verdict(
         # present and fail later at open() instead of this refusal.
         if not any((svc.job_dir(job_id) / name).is_file() for name in IMAGE_NAMES):
             raise Invalid("that job has no reference image to judge")
-    elif job["status"] != "done":
+    elif (blocker := mesh_verdict_blocker(job["status"])) is not None:
         # A verdict is a judgement about artifacts, and the vector snapshot is
         # permanent -- it outlives the job on purpose. Filing one against a
         # queued or failed unit poisons the corpus with accepts for meshes
         # that never existed.
-        raise Invalid(f"job is {job['status']}; a verdict needs a finished asset")
+        raise Invalid(blocker)
+    elif job.get("stage") != "model":
+        # The same reason, one question further: a finished *picture* (a
+        # reference-stage or tile-stage row) is done and has no mesh, so a graded
+        # verdict against it filed a +5 that ``findings.aggregate`` then counted
+        # as mesh evidence under vector stage "reference"/"tile" -- and the
+        # snapshot outlives the job. Only the inspector's own ``stage == "model"``
+        # check kept this unreachable (the 2026-10-03 audit, finding service-12);
+        # the door that owns the rule now enforces it.
+        raise Invalid(
+            f"that job is a {job.get('stage') or 'non-mesh'}-stage picture, not a mesh; "
+            "a mesh verdict needs a model"
+        )
     # The sweep context rides along denormalized, like the vector: a matched
     # pair (same sweep, same seed, one param differing) must still be pairable
     # after delete_sweep has taken the job rows.

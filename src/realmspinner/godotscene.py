@@ -150,6 +150,9 @@ _INVALID_NODE_NAME_CHARS = frozenset('.:@/"%')
 #: Godot itself already assumes exists.
 _RESERVED_STATE_NAMES = frozenset({"locomotion", "Start", "End"})
 
+#: The vocabulary a state name is written bare in (see ``_validate_clip_name``).
+_SAFE_STATE_NAME = re.compile(r"[\w-]+")
+
 
 def _validate_clip_name(name: str) -> None:
     if not name:
@@ -178,6 +181,22 @@ def _validate_clip_name(name: str) -> None:
         raise ValueError(
             f"clip name {name!r} contains {''.join(bad)!r}, which would break a "
             "Godot property-path segment (states/{name}/node)"
+        )
+    # The 2026-10-03 audit (poser-jobs-01): the two checks above only know the
+    # characters this module had already met. A name with "=", ";", "#", "[",
+    # "]", "," or whitespace passed them and was written bare into
+    # ``states/{name}/node``, where "=" splits the key from its value, ";"
+    # starts a comment and a space ends the key -- "Export for Godot" reported
+    # success and the AnimationTree was broken in the engine with no message
+    # in the app. ``export_frames`` already refuses everything outside a safe
+    # vocabulary for the same user-authored names; this is the same rule for
+    # the scene, widened to letters and digits in any script plus "_" and "-"
+    # so a localised clip name is not refused for being a word.
+    if not _SAFE_STATE_NAME.fullmatch(name):
+        odd = sorted({ch for ch in name if not _SAFE_STATE_NAME.fullmatch(ch)})
+        raise ValueError(
+            f"clip name {name!r} contains {''.join(odd)!r}, which Godot cannot read back "
+            "as a state name in a .tscn; use letters, digits, '_' and '-' only"
         )
 
 

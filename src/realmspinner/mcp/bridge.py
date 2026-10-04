@@ -302,8 +302,17 @@ class _Session:
             return False
         self.conn = conn
         self.call_timeout = float(header.get("call_timeout", 30.0))
-        self._maybe_refresh_catalogue(header.get("catalogue_hash", ""))
-        return True
+        # The 2026-10-03 audit's agents-36: a catalogue re-fetch that raised
+        # here left the half-dead connection assigned (the next call was sent
+        # into it and reported "may or may not have run" though nothing ever
+        # reached Studio), and one that timed out dropped the connection yet
+        # still answered True. Either way this reconnect did not happen.
+        try:
+            self._maybe_refresh_catalogue(header.get("catalogue_hash", ""))
+        except (EOFError, OSError, ValueError):
+            self._disconnect()
+            return False
+        return self.conn is not None
 
     def _disconnect(self) -> None:
         """Close and drop the connection to Realmspinner, if there is one. Leaves

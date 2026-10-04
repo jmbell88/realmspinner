@@ -164,45 +164,55 @@ def merge_into(
         return []
 
     mark = doc.history.mark()
-    base = len(doc.materials)
-    for material in incoming.materials:
-        doc.add_material(material)
+    # try/finally, the shape ``add_material_and_assign`` got in the 2026-09-26 audit
+    # (clay-document-06): ``mark()`` opens a gesture and only ``collapse_since``
+    # closes it, so a raise between the two (``doc.group`` refusing a locked
+    # incoming object, a failed add) left ``UndoStack._open_gestures`` above zero
+    # and undo eviction deferred for the rest of the session (the 2026-10-03
+    # audit's clay-106).
+    try:
+        base = len(doc.materials)
+        for material in incoming.materials:
+            doc.add_material(material)
 
-    taken = {o.name for o in doc.objects}
-    offset_arr = np.asarray(offset, dtype="f8")
-    built: list[Obj] = []
-    for obj in incoming.objects:
-        mesh = obj.mesh
-        shifted_mesh: bm.Mesh = dataclasses.replace(
-            mesh, material=np.asarray(mesh.material, dtype="i4") + base
-        )
-        name = obj.name
-        if name in taken:
-            name = mesh_ops.next_name(name, taken)
-        taken.add(name)
-        translation = obj.translation
-        if obj.parent is None:
-            translation = np.asarray(obj.translation, dtype="f8") + offset_arr
-        built.append(
-            dataclasses.replace(
-                obj,
-                mesh=shifted_mesh,
-                name=name,
-                material=int(obj.material) + base,
-                translation=translation,
+        # ``UsedNames`` so many arrivals of one name resume their probe rather than
+        # restarting from ``.001`` (the 2026-10-03 audit's naming follow-up).
+        taken = mesh_ops.UsedNames(o.name for o in doc.objects)
+        offset_arr = np.asarray(offset, dtype="f8")
+        built: list[Obj] = []
+        for obj in incoming.objects:
+            mesh = obj.mesh
+            shifted_mesh: bm.Mesh = dataclasses.replace(
+                mesh, material=np.asarray(mesh.material, dtype="i4") + base
             )
-        )
+            name = obj.name
+            if name in taken:
+                name = mesh_ops.next_name(name, taken)
+            taken.add(name)
+            translation = obj.translation
+            if obj.parent is None:
+                translation = np.asarray(obj.translation, dtype="f8") + offset_arr
+            built.append(
+                dataclasses.replace(
+                    obj,
+                    mesh=shifted_mesh,
+                    name=name,
+                    material=int(obj.material) + base,
+                    translation=translation,
+                )
+            )
 
-    added = doc.add_objects(built, label=label)
-    roots = [obj.uid for obj in added if obj.parent is None]
-    # clay-13 (the 2026-09-23 audit): this used to branch on ``len(added) > 1``
-    # -- the *total* objects added, not the number of roots -- so a
-    # one-root, multi-object hierarchy (a root plus its children) was wrapped
-    # in a synthesizing group exactly like this docstring says it would not
-    # be. Only more than one *root* actually needs a group to hold them.
-    if len(roots) > 1:
-        doc.group(roots, name=group_name)
-    doc.history.collapse_since(mark)
+        added = doc.add_objects(built, label=label)
+        roots = [obj.uid for obj in added if obj.parent is None]
+        # clay-13 (the 2026-09-23 audit): this used to branch on ``len(added) > 1``
+        # -- the *total* objects added, not the number of roots -- so a
+        # one-root, multi-object hierarchy (a root plus its children) was wrapped
+        # in a synthesizing group exactly like this docstring says it would not
+        # be. Only more than one *root* actually needs a group to hold them.
+        if len(roots) > 1:
+            doc.group(roots, name=group_name)
+    finally:
+        doc.history.collapse_since(mark)
     top = doc.history.top
     if top is not None:
         top.label = label

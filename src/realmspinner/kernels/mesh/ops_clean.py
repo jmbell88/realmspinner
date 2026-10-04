@@ -218,14 +218,25 @@ def _degenerate_mask(mesh: Mesh) -> np.ndarray:
 
 
 def _duplicate_mask(mesh: Mesh) -> np.ndarray:
-    """True for the *later* face of each vertex-set repeat, arity by arity.
+    """True for the *later* face of each same-winding repeat, arity by arity.
 
-    Same row-grouping `adjacency.check_manifold`'s own `duplicate_faces` uses
-    (sort each face's corners, then `np.unique` the fixed-width rows within one
-    arity), but that report names every member of a duplicate group; the
-    contract here is narrower -- "a face whose vertex set equals an *earlier*
-    face's", so only the later member(s) of each group count, matching the
-    face a `remove_duplicate_faces` pass would actually delete.
+    Same row-grouping idea `adjacency.check_manifold`'s own `duplicate_faces`
+    uses (`np.unique` over fixed-width rows within one arity), but that report
+    names every member of a duplicate group; the contract here is narrower --
+    "a face whose corner cycle equals an *earlier* face's", so only the later
+    member(s) of each group count, matching the face a `remove_duplicate_faces`
+    pass would actually delete.
+
+    **The key is the corner cycle, not the vertex set.** The 2026-10-03
+    audit's clay-48: two faces over the same vertices wound *oppositely* are a
+    deliberate double-sided card (each edge correctly twinned), and keying on
+    the sorted vertex set read the back face as a duplicate, so Clean -- and
+    the Game check's geometry row, which offers Clean as the fix -- deleted it
+    and the card vanished from behind under back-face culling. Each face's
+    cycle is rotated to start at its lowest vertex (direction kept), so a
+    repeat that merely starts on another corner still matches while the
+    reverse winding does not; opposite-wound pairs stay with the manifold
+    report, as `ops_topo.merge_vertices` already leaves them.
     """
     n_faces = face_count(mesh)
     out = np.zeros(n_faces, dtype=bool)
@@ -234,16 +245,18 @@ def _duplicate_mask(mesh: Mesh) -> np.ndarray:
     loops = mesh.loops.astype("i8")
     starts = mesh.starts.astype("i8")
     counts = np.diff(starts)
-    face_of = np.repeat(np.arange(n_faces, dtype="i8"), counts)
-    order = np.lexsort((loops, face_of))
-    sorted_loops = loops[order]
     offs = np.concatenate([[0], np.cumsum(counts)])[:-1]
     for arity in np.unique(counts).tolist():
         arity = int(arity)
         which = np.flatnonzero(counts == arity)
         if arity == 0 or len(which) < 2:
             continue
-        rows = sorted_loops[offs[which][:, None] + np.arange(arity, dtype="i8")[None, :]]
+        span = np.arange(arity, dtype="i8")[None, :]
+        raw = loops[offs[which][:, None] + span]
+        # Rotate each row to start at its lowest vertex; reading on from there
+        # keeps the winding.
+        first = raw.argmin(axis=1)[:, None]
+        rows = np.take_along_axis(raw, (first + span) % arity, axis=1)
         _, inv, _cnt = np.unique(rows, axis=0, return_inverse=True, return_counts=True)
         inv = inv.reshape(-1)
         # ``which`` is ascending by face index already, so a stable sort by
@@ -493,6 +506,12 @@ class FaceDefectMasks(NamedTuple):
     duplicate: np.ndarray
     flipped: np.ndarray
     inside_out: np.ndarray
+    #: How many *shells* ``inside_out`` marks -- the count :func:`survey` sums
+    #: and :mod:`.diagnose` labels its row with. Carried here so the diagnose
+    #: caller does not re-run the whole survey (shell walk, volume pass and the
+    #: coincident-vertex KD-tree) just to read it: the 2026-10-03 audit's
+    #: clay-105.
+    inside_out_shells: int = 0
 
 
 def _compute_face_defects(mesh: Mesh) -> tuple[FaceDefectMasks, np.ndarray]:
@@ -507,7 +526,7 @@ def _compute_face_defects(mesh: Mesh) -> tuple[FaceDefectMasks, np.ndarray]:
     duplicate = _duplicate_mask(mesh)
     if n_faces == 0:
         empty = np.zeros(0, dtype=bool)
-        return FaceDefectMasks(degenerate, duplicate, empty, empty), np.zeros(0, dtype=bool)
+        return FaceDefectMasks(degenerate, duplicate, empty, empty, 0), np.zeros(0, dtype=bool)
 
     a = adjacency(mesh)
     shell, flip, n_shells = _shell_and_flip(mesh, a)
@@ -517,7 +536,10 @@ def _compute_face_defects(mesh: Mesh) -> tuple[FaceDefectMasks, np.ndarray]:
     volume = _shell_volume(contrib, shell, flipped, n_shells)
     bad_shell = closed & (volume < 0.0)
     inside_out = bad_shell[shell] if n_shells else np.zeros(n_faces, dtype=bool)
-    return FaceDefectMasks(degenerate, duplicate, flipped, inside_out), bad_shell
+    return (
+        FaceDefectMasks(degenerate, duplicate, flipped, inside_out, int(bad_shell.sum())),
+        bad_shell,
+    )
 
 
 def face_defect_masks(mesh: Mesh) -> FaceDefectMasks:
@@ -614,8 +636,9 @@ def _remove_duplicate_faces(mesh: Mesh) -> tuple[Mesh, int]:
 
 
 def remove_duplicate_faces(mesh: Mesh) -> Mesh:
-    """Drop the later face of every pair (or run) of faces over the same
-    vertex set, then compact.
+    """Drop the later face of every pair (or run) of faces with the same
+    corner cycle -- same vertices, same winding -- then compact. An
+    opposite-wound pair is a double-sided card and is kept.
 
     UV **dropped** for the removed faces, **preserved** for the rest -- same
     rule as :func:`remove_degenerate`.

@@ -50,8 +50,9 @@ The tools are `Q` select, `W` move, `E` rotate, `R` scale. During a drag you can
 
 One undo step per drag, committed on release, not one per mouse-move.
 
-Two snapping switches, independent: snap to grid, and snap to vertex. Snap-to-vertex is what you
-want for making things actually touch.
+Four snapping switches, independent: snap to grid, to vertex, to edge and to face. Snap-to-vertex is
+what you want for making things actually touch; edge and face are the same idea at coarser grain.
+The details are in [Clay](30-clay.md), under *Snapping*.
 
 **Proportional editing** gives a selection a soft falloff, measured from the nearest selected vertex
 rather than from the centre of the selection — which is what makes it behave sensibly when you have

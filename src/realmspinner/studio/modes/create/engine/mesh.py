@@ -38,6 +38,14 @@ from .....service.validation import (
 from .... import problems
 from .plan import Plan
 
+#: What a form that carries no ``mesh_finishing`` is sent as. Restated nowhere
+#: else in this package: ``state.DEFAULT_FORM_3D``, ``generation.ModelSettings``
+#: and the service doors all default to ``"preserve_shape"``, and the 2026-10-03
+#: audit (finding create-35) found three sites here falling back to ``"repair"``
+#: instead, so a partial restore or a hand-built form (Clay's hand-off) silently
+#: asked for hole-closing repair. A test pins this against all three.
+DEFAULT_MESH_FINISHING = "preserve_shape"
+
 
 def findings_hint(ctx: Any, param: str, value: Any) -> str | None:
     """Same lookup as the 2D pane's -- see ``recipe.findings_hint``.
@@ -108,6 +116,35 @@ def validate(source: dict[str, Any] | None) -> list[problems.Problem]:
     return []
 
 
+def custom_budget_problem(
+    form: dict[str, Any], custom_min: int, custom_max: int
+) -> problems.Problem | None:
+    """A Budget of "Custom..." whose count the door will refuse, or None.
+
+    The 2026-10-04 audit (finding create-26) found Custom left
+    ``custom_triangles`` at 0, so ``problems`` and ``plan`` said ready, the
+    cutout check ran, and ``optimize.resolve`` refused only after Accept -- as
+    a toast with the panel closed. The range is passed in rather than imported
+    because this package's import pin (``test_create_engine_imports``) does not
+    admit ``pipelines.optimize``; the ui layer owns that import and hands
+    ``CUSTOM_MIN``/``CUSTOM_MAX`` here. A Game-ready rung forces ``profile`` to
+    "raw" (``settings_3d._apply_budget_choice``), so a stale count under one is
+    not a problem.
+    """
+    if form.get("profile") != "custom" or int(form.get("lowpoly_triangles") or 0) > 0:
+        return None
+    try:
+        count = int(form.get("custom_triangles") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if custom_min <= count <= custom_max:
+        return None
+    return problems.Problem(
+        f"Custom triangles must be {custom_min:,} to {custom_max:,}.",
+        field="custom_triangles",
+    )
+
+
 #: The two download rows the reconstruction engine needs: the exe and its
 #: CUDA libraries, and the weights. ``service.validation.check_weights`` leaves
 #: both out on purpose (a host missing them has a red banner at startup), so
@@ -145,10 +182,11 @@ def engine_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     with :func:`upload_kwargs` rather than duplicated into it: a form field
     honoured for a promoted reference and quietly ignored for a dropped file
     is exactly the bug ``upload_kwargs``'s docstring already names for every
-    other field here.
+    other field here. ``mesh_finishing`` is the one axis always sent (it has no
+    sentinel); a form without the key sends :data:`DEFAULT_MESH_FINISHING`.
     """
     out: dict[str, Any] = {}
-    out["mesh_finishing"] = form.get("mesh_finishing", "repair")
+    out["mesh_finishing"] = form.get("mesh_finishing", DEFAULT_MESH_FINISHING)
     if int(form["trellis_band"]) > 0:
         out["trellis_band"] = int(form["trellis_band"])
     if int(form["trellis_tex_res"]) > 0:
@@ -234,8 +272,13 @@ def clamp_atlas(value: int) -> int:
     return min(max(value, MIN_TRELLIS_ATLAS), MAX_TRELLIS_ATLAS)
 
 
-def promote_kwargs(form: dict[str, Any]) -> dict[str, Any]:
+def promote_kwargs(form: dict[str, Any], rig_available: bool = True) -> dict[str, Any]:
     """The overrides, with "unset" left out entirely.
+
+    ``rig_available`` is False on a host without Blender: the Rig checkbox then
+    draws unchecked and disabled, and the 2026-10-04 audit (finding create-36)
+    found a persisted ``form["rig"] = True`` was still sent. The default keeps
+    Clay's hand-off, which forces ``rig`` off itself, unchanged.
 
     Omitted means "keep what the reference recorded", and that is not the same
     as sending the reference's value back. ``promote_to_model`` drops the
@@ -269,8 +312,9 @@ def promote_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     # An explicit False, not an omission: it has to clear a rig request the
     # reference inherited, or a reference generated with rigging on would rig
     # every promotion of it whatever this pane says.
-    out["rig"] = bool(form["rig"])
-    if form["rig"] and form["rig_template"]:
+    wants_rig = bool(form["rig"]) and rig_available
+    out["rig"] = wants_rig
+    if wants_rig and form["rig_template"]:
         out["rig_template"] = form["rig_template"]
     # Explicit like rig, and for the same reason: an omission would let the
     # promotion inherit whatever the reference recorded, and this checkbox is
@@ -303,14 +347,17 @@ def matte_is_clean(preview: Any) -> bool:
     return preview.source == "birefnet" and not preview.reasons and not preview.warnings
 
 
-def upload_kwargs(form: dict[str, Any]) -> dict[str, Any]:
+def upload_kwargs(form: dict[str, Any], rig_available: bool = True) -> dict[str, Any]:
     """The 3D form as create_job keyword arguments.
+
+    ``rig_available`` is :func:`promote_kwargs`'s (the 2026-10-04 audit,
+    finding create-36).
 
     Shared by both upload paths so a form field cannot be honoured for a
     dropped file and quietly ignored for a rendered one.
     """
     kwargs: dict[str, Any] = {"kind": "image"}
-    kwargs["mesh_finishing"] = form.get("mesh_finishing", "repair")
+    kwargs["mesh_finishing"] = form.get("mesh_finishing", DEFAULT_MESH_FINISHING)
     if form["platform"]:
         kwargs["guidance_fields"] = {"platform": form["platform"]}
     if float(form["size_m"]) > 0:
@@ -333,7 +380,7 @@ def upload_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     if form.get("mesh_seed") is not None:
         kwargs["mesh_seed"] = int(form["mesh_seed"])
     kwargs["reference_prep"] = bool(form["reference_prep"])
-    if form["rig"]:
+    if form["rig"] and rig_available:
         kwargs["rig"] = True
         if form["rig_template"]:
             kwargs["rig_template"] = form["rig_template"]

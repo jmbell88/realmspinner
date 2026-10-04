@@ -221,10 +221,11 @@ def test_a_cited_document_exists_or_says_it_is_gone(source: Path, line: int, tar
 
 
 def _slug(heading: str) -> str:
-    """GitHub's anchor slug, which is also what the in-app manual generates."""
+    """GitHub's anchor slug (one hyphen per space), which is also what the in-app
+    manual generates."""
     text = heading.strip().lower()
     text = re.sub(r"[^\w\s-]", "", text)
-    return re.sub(r"[\s]+", "-", text)
+    return re.sub(r"\s", "-", text)
 
 
 def _anchors(path: Path) -> set[str]:

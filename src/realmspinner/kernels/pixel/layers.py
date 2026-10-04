@@ -110,7 +110,7 @@ class Layer:
     #: ORA writer stores.
     #:
     #: ``pixels`` stays ``(H, W, 4)`` and stays *valid* either way, which is the
-    #: decision the whole indexed design turns on: the compositor's nineteen
+    #: decision the whole indexed design turns on: the compositor's twenty
     #: blend modes, the frame-flatten cache, texture upload, GIF and sheet
     #: flatten, thumbnails and every native kernel read ``pixels`` and change by
     #: zero lines. The invariant above is demoted from "the record" to "the

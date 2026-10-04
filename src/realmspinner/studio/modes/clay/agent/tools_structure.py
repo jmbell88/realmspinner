@@ -1,5 +1,5 @@
-"""Clay's agent tool surface, the scene-structure handler family (tranche 3,
-``dev/CLAY-PLAN.md``): ``clay_parent``, ``clay_group``, ``clay_ungroup``,
+"""Clay's agent tool surface, the scene-structure handler family (Clay tranche 3):
+``clay_parent``, ``clay_group``, ``clay_ungroup``,
 ``clay_lock``, ``clay_tag``, ``clay_separate``, ``clay_set_origin``,
 ``clay_measure``, ``clay_checkpoint`` and ``clay_restore``.
 
@@ -71,7 +71,16 @@ from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
 from .....kernels.mesh import separate as clay_separate
 from .....kernels.mesh.elements import OpError
-from .schema import MEASURE_KINDS, ORIGIN_MODES, SEPARATE_MODES
+from .. import ops as clay_ops
+from .schema import (
+    MAX_CHECKPOINTS,
+    MAX_NAME_LENGTH,
+    MAX_TAG_LENGTH,
+    MAX_TAGS_PER_CALL,
+    MEASURE_KINDS,
+    ORIGIN_MODES,
+    SEPARATE_MODES,
+)
 from .validate import (
     Session,
     _json,
@@ -82,6 +91,7 @@ from .validate import (
     _round,
     _scene_row,
     _tab,
+    _validate_translation,
     _validate_vec3,
     fail,
 )
@@ -119,7 +129,7 @@ def _h_parent(ctx: Any, session: Session, args: dict) -> dict:
     if parent_arg is not None:
         try:
             parent_uid = int(parent_arg)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("parent must be an integer uid or null.", field="parent")
         try:
             doc.by_uid(parent_uid)
@@ -149,7 +159,7 @@ def _h_group(ctx: Any, session: Session, args: dict) -> dict:
     """Parent every named object onto a new, mesh-less empty at their
     combined world bounds centre, as one undo step -- ``ClayDoc.group``'s own
     agent door. See the module docstring's "a group is parenting to an empty
-    object" decision (``dev/CLAY-PLAN.md``): there is no second collection
+    object" decision (Clay tranche 3): there is no second collection
     concept, so ungrouping is :func:`_h_ungroup` below, not a paired delete.
 
     A ``name`` collision is disambiguated automatically by ``ClayDoc.group``
@@ -212,6 +222,7 @@ def _h_ungroup(ctx: Any, session: Session, args: dict) -> dict:
         doc.remove_object(obj.uid)
     except OpError as error:
         return fail(str(error), field="uid")
+    clay_ops._forget_manifold(ctx, [obj.uid])  # clay-101, as in _h_separate
     return _json({"ungrouped": obj.uid, "released": children})
 
 
@@ -296,6 +307,19 @@ def _h_tag(ctx: Any, session: Session, args: dict) -> dict:
     remove_list, failure = _string_list(remove_arg, "remove")
     if failure:
         return failure
+    # The 2026-10-03 audit's clay-99: nothing bounded a tag's length or a
+    # call's tag count but the 8 MiB request frame, and every tag rides in
+    # every later ``clay_scene`` row.
+    for field, tags in (("add", add_list), ("remove", remove_list)):
+        if len(tags or []) > MAX_TAGS_PER_CALL:
+            return fail(
+                f"{field} takes at most {MAX_TAGS_PER_CALL} tags per call.", field=field
+            )
+        if any(len(t) > MAX_TAG_LENGTH for t in tags or []):
+            return fail(
+                f"each tag in {field} must be at most {MAX_TAG_LENGTH} characters.",
+                field=field,
+            )
     add_set = _normalize_tag_list(add_list or [])
     remove_set = _normalize_tag_list(remove_list or [])
 
@@ -366,6 +390,11 @@ def _h_separate(ctx: Any, session: Session, args: dict) -> dict:
         new_objs = doc.separate(obj.uid, pieces)
     except OpError as error:
         return fail(str(error))
+    # The source left ``doc.objects``, so its "last mesh check" entry would pin
+    # the old Mesh for the life of the tab -- the leak clay-08 (2026-09-08)
+    # closed at every other door; the 2026-10-03 audit's clay-101 found this
+    # one and ``_h_ungroup`` still open.
+    clay_ops._forget_manifold(ctx, [obj.uid])
 
     payload: dict = {
         "uids": [o.uid for o in new_objs],
@@ -447,7 +476,7 @@ def _h_set_origin(ctx: Any, session: Session, args: dict) -> dict:
         return fail("give exactly one of mode or point.", field="mode")
 
     if point_arg is not None:
-        point, failure = _validate_vec3(point_arg, "point")
+        point, failure = _validate_translation(point_arg, "point")
         if failure:
             return failure
         point = np.asarray(point, dtype="f8")
@@ -498,7 +527,7 @@ def _resolve_point(doc: Any, value: Any, field: str) -> tuple[np.ndarray | None,
         if "vertex" in value:
             try:
                 vertex = int(value["vertex"])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return None, fail(f"{field}.vertex must be an integer.", field=field)
             n = len(obj.mesh.positions)
             if not (0 <= vertex < n):
@@ -575,15 +604,26 @@ def _h_measure(ctx: Any, session: Session, args: dict) -> dict:
     world = doc.world_matrix(obj.uid)
 
     if kind == "volume":
-        value = clay_measure.volume(obj.mesh, world=world)
-        return _json({"kind": kind, "uid": obj.uid, "value": _round(value)})
+        # The 2026-10-03 audit's clay-25: ``clay_analyze`` reports ``volume:
+        # null`` for an open mesh and this answered a number that moved with
+        # the object's position. Same rule, same shape: a null value and
+        # ``closed: false`` say why there is nothing to read.
+        value = clay_measure.volume_if_closed(obj.mesh, world=world)
+        return _json(
+            {
+                "kind": kind,
+                "uid": obj.uid,
+                "value": None if value is None else _round(value),
+                "closed": value is not None,
+            }
+        )
 
     # kind == "area"
     faces_arg = args.get("faces")
     if faces_arg is not None:
         try:
             faces = [int(f) for f in faces_arg]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("faces must be a list of integers.", field="faces")
         n_faces = bm.face_count(obj.mesh)
         bad = [f for f in faces if not (0 <= f < n_faces)]
@@ -622,6 +662,17 @@ def _h_checkpoint(ctx: Any, session: Session, args: dict) -> dict:
     name = args.get("name")
     if not isinstance(name, str) or not name.strip():
         return fail("name must not be empty.", field="name")
+    if len(name) > MAX_NAME_LENGTH:
+        return fail(f"name must be at most {MAX_NAME_LENGTH} characters.", field="name")
+    # Re-setting a name is free (it overwrites); only a *new* name past the cap
+    # is refused -- the 2026-10-03 audit's clay-99, checkpoints accrued
+    # without a bound for the life of the session.
+    if name not in doc.checkpoints and len(doc.checkpoints) >= MAX_CHECKPOINTS:
+        return fail(
+            f"this document already holds {MAX_CHECKPOINTS} checkpoints; "
+            "re-use an existing name instead.",
+            field="name",
+        )
     doc.set_checkpoint(name)
     return _json({"name": name})
 

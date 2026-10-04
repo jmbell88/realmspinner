@@ -132,11 +132,15 @@ def _wav(pcm: Any, rate: int, loop: tuple[int, int] | None = None) -> bytes:
     from ....kernels.audio import wavout
 
     data = np.asarray(pcm)
-    # ``wav_bytes`` takes floats and re-quantises. Divided by the same 32767
-    # ``to_int16`` multiplies by, which is ``read_wav``'s own argument for that
-    # constant: the pair is exact, so a take exported unchanged comes back
-    # sample for sample.
-    return wavout.wav_bytes(data.astype(np.float32) / 32767.0, rate, loop=loop)
+    # int16 goes to ``wav_bytes`` as int16, which writes it unchanged, so a
+    # take exported unchanged comes back sample for sample. The float round
+    # trip this used to make (``/ 32767`` into ``to_int16``'s clip and
+    # ``* 32767``) was exact for every value but ``-32768``, which it wrote as
+    # ``-32767`` (muse-14, 2026-10-03 audit). Anything else (a blended loop
+    # body is float) still takes the quantising path.
+    if data.dtype != np.int16:
+        data = data.astype(np.float32) / 32767.0
+    return wavout.wav_bytes(data, rate, loop=loop)
 
 
 def loop_cache_key(player: Any) -> tuple[int, int, int] | None:
@@ -159,12 +163,24 @@ def loop_cache_key(player: Any) -> tuple[int, int, int] | None:
     # here instead, at the one function every cache key and every blend goes
     # through.
     length = 0 if player.pcm is None else int(len(player.pcm))
-    start = max(0, int(player.loop_start * rate))
-    end = min(length, int(player.loop_end * rate))
+    start = max(0, _to_samples(player.loop_start, rate))
+    end = min(length, _to_samples(player.loop_end, rate))
     if end <= start:
         return None
     fade = int(player.xfade_ms * rate / 1000.0)
     return (start, end, fade)
+
+
+def _to_samples(seconds: float, rate: int) -> int:
+    """A time in seconds as the nearest sample. Rounded, never truncated.
+
+    muse-13 (2026-10-03 audit). ``choose_candidate`` hands the finder's sample
+    offsets over as ``samples / rate`` and ``int(seconds * rate)`` turned them
+    back one sample short on about 7% of positions (44128 came back as 44127),
+    so the audition and both exports cut a sample away from the correlation and
+    zero-crossing snap the finder had just spent its fourth stage on.
+    """
+    return int(round(seconds * rate))
 
 
 def _blend(player: Any, key: tuple[int, int, int]) -> Any:
@@ -409,8 +425,8 @@ def export_with_points(ctx: Any, player: Any) -> None:
         )
         return
     rate = int(player.rate)
-    start = int(player.loop_start * rate)
-    end = int(player.loop_end * rate)
+    start = _to_samples(player.loop_start, rate)
+    end = _to_samples(player.loop_end, rate)
     if end <= start:
         ctx.toast("That region is too short to export -- widen it.", "warn")
         return
@@ -423,8 +439,17 @@ def export_with_points(ctx: Any, player: Any) -> None:
         # picker opens" gate muse-01 added, not the write itself, and the
         # take's own rate cannot change what they are gating.
         pcm, native_rate = _export_source(ctx, player)
-        native_start = int(player.loop_start * native_rate)
-        native_end = int(player.loop_end * native_rate)
+        native_start = _to_samples(player.loop_start, native_rate)
+        native_end = _to_samples(player.loop_end, native_rate)
+        # muse-06 (2026-10-03 audit). ``loop_cache_key`` is bounded to the take
+        # but this was not: a stale remembered region against a shorter file
+        # wrote an ``smpl`` chunk whose loop ran past the end of the data, which
+        # a sampler or engine reads as a corrupt loop. Clamped to the frames
+        # that exist; nothing left is the same "wrote nothing" answer as a
+        # zero-width region.
+        frames = int(pcm.shape[0])
+        native_start = min(max(native_start, 0), frames)
+        native_end = min(max(native_end, 0), frames)
         if native_end <= native_start:
             return None
         return _wav(pcm, native_rate, loop=(native_start, native_end))

@@ -201,15 +201,24 @@ def clear_for_tier(ctx: Any, form: dict[str, Any]) -> list[str]:
     if form.get("control") and not caps["controlnet"]:
         form["control"] = ""
         cleared.append(
-            "The structure control was cleared: this recipe runs at guidance 0 "
-            "and cannot run a ControlNet."
+            "The structure control was cleared: this recipe runs at guidance 1.0 "
+            "or lower and cannot run a ControlNet."
         )
     if str(form.get("negative_prompt") or "").strip() and not caps["negative_prompt"]:
         form["negative_prompt"] = ""
         cleared.append(
-            "The Avoid text was cleared: this recipe runs at guidance 0, where "
-            "a negative prompt has no effect."
+            "The Avoid text was cleared: this recipe runs at guidance 1.0 or "
+            "lower, where a negative prompt has no effect."
         )
+    # The 2026-10-04 audit, finding create-24: this branch cleared only the two
+    # selections above, so Model -> Automatic left a style LoRA or a start image
+    # the *resolved* base cannot take -- marked "not fitted" with Generate
+    # refused -- while manual 22 says changing the model clears it with an
+    # explanation. The two gates ``clear_unusable`` owns are asked against the
+    # base the tier chose rather than against ``form["base_model"]``, which is
+    # stale under Automatic.
+    cleared.extend(_clear_lora(ctx, form, resolved.base_model))
+    cleared.extend(_clear_img2img(form, resolved.base_model))
     return cleared
 
 def clear_for_layout(form: dict[str, Any]) -> list[str]:
@@ -554,9 +563,25 @@ def sheet_rows(form: dict[str, Any]) -> tuple[str, ...]:
     # way), so a locked sheet loads the adapter with no file attached -- and a
     # gate that only looked at ``ref_path`` let that press reach the door and
     # be refused there for a download this note had said nothing about.
-    needs_adapter = bool(form.get("ref_path")) or bool(form.get("style_lock"))
+    needs_adapter = bool(form.get("ref_path")) or tile_style_lock(form)
     key = "mode_reference_rows_needed" if needs_adapter else "mode_rows_needed"
     return tuple(tile_options()[key][tile_mode_of(form)])
+
+def tile_style_lock(form: dict[str, Any]) -> bool:
+    """Whether the form's style lock will load the IP-Adapter.
+
+    **Only under Materials, and only with more than one cell.** The checkbox is
+    drawn under that layout alone, yet the persisted tick survived a switch to
+    Terrain set or Grid and went on engaging a lock (and demanding the adapter
+    download) over a control that was not on screen -- the 2026-10-03 audit,
+    finding plotter-19. And a one-cell lock never reaches the adapter at the
+    worker, so the weight note asks :func:`svc_tilesheets.effective_style_lock`
+    with the cells the request will name (lines x draws), finding plotter-23.
+    """
+    if tile_mode_of(form) != svc_tilesheets.MODE_MATERIALS:
+        return False
+    cells = len(material_lines(form)) * max(safe_int(form.get("variants"), 1), 1)
+    return svc_tilesheets.effective_style_lock(form.get("style_lock"), cells)
 
 def tile_mode_of(form: dict[str, Any]) -> str:
     """The tile layout this form is asking for, in the service's own spelling.
@@ -632,32 +657,6 @@ def view_of(form: dict[str, Any]) -> str:
     stored = str(form.get("projection") or svc_tilesheets.DEFAULT_VIEW)
     return svc_tilesheets.LEGACY_VIEWS.get(stored, stored)
 
-def seamless_subject(form: dict[str, Any]) -> str | None:
-    """The subject the *first* cell of a seamless layout will be generated from.
-
-    ``None`` when the request does not describe one yet, which is a real answer
-    rather than a failure: a materials sheet with no lines and a terrain set
-    with no inner surface have no first material, and the honest preview of a
-    request that names nothing is no preview at all.
-
-    Composed by ``pipelines.tileatlas`` rather than here -- the style clause both
-    layouts append and the context a terrain set shares between its two halves
-    are that module's, and a second copy of either would be a preview of a
-    sentence nothing sends.
-    """
-    mode = tile_mode_of(form)
-    try:
-        if mode == svc_tilesheets.MODE_TERRAIN:
-            return tileatlaslib.terrain_subjects(
-                str(form.get("inner_terrain") or ""),
-                str(form.get("outer_terrain") or ""),
-                str(form.get("boundary") or ""),
-            )[0]
-        lines = material_lines(form)
-        return tileatlaslib.material_subject(lines[0], index=0, total=len(lines))
-    except (IndexError, ValueError):
-        return None
-
 def verify_reference_path(ctx: Any, form: dict[str, Any]) -> None:
     """Clear a restored reference path that no longer names a file.
 
@@ -689,6 +688,13 @@ def verify_reference_path(ctx: Any, form: dict[str, Any]) -> None:
     if not path or Path(path).is_file():
         return
     form["ref_path"] = ""
+    # The 2026-10-04 audit, finding create-27: only the path used to go, so the
+    # pickers that hang off it (hidden now) stayed set, the header said "(2 on)"
+    # and Generate refused with "Conditioning needs a reference image" over
+    # controls nobody could see. The Clear button empties the same four fields.
+    form["ip_adapter"] = ""
+    form["control"] = ""
+    form["init_image"] = False
     ctx.toast(f"The reference image is missing and was cleared: {path}", "warn")
 
 def conditioning_tail(form: dict[str, Any]) -> str:
@@ -698,14 +704,15 @@ def conditioning_tail(form: dict[str, Any]) -> str:
     header says how many of its controls are live, so a reference image left
     attached from a previous run is visible without opening it.
     """
-    live = sum(
-        1
-        for key in ("ref_path", "ip_adapter", "control")
-        if str(form.get(key) or "")
-    )
-    live += 1 if form.get("init_image") else 0
-    if not live:
+    # The 2026-10-04 audit, finding create-27: the selections are counted only
+    # when a reference is there for them to act on. Without one the pickers are
+    # hidden and the submit refuses them, so a header reading "(2 on)" over a
+    # section with nothing visible in it was claiming a setting that does nothing.
+    if not str(form.get("ref_path") or ""):
         return ""
+    live = 1
+    live += sum(1 for key in ("ip_adapter", "control") if str(form.get(key) or ""))
+    live += 1 if form.get("init_image") else 0
     return f"  ({live} on)"
 
 def _base_labels(ctx: Any, keys: list[str]) -> str:
@@ -721,7 +728,7 @@ def _base_labels(ctx: Any, keys: list[str]) -> str:
 def negative_prompt_note(ctx: Any, form: dict[str, Any]) -> str | None:
     """Why the negative prompt is inert here, or None when it is live.
 
-    A distilled base runs at guidance 0, and text2image encodes the negative
+    A distilled base runs at guidance 1.0 or lower, and text2image encodes the negative
     branch only above 1.0 -- so on turbo the field accepted text, stored it in
     params and changed nothing about the image. That silence is the bug; this
     is the sentence that ends it.
@@ -758,7 +765,12 @@ def negative_prompt_note(ctx: Any, form: dict[str, Any]) -> str | None:
         return None
     bases = ctx.guidance.get("cfg_bases") or []
     return (
-        "This model runs at guidance 0, so the negative prompt has no effect. "
+        # The 2026-10-04 audit, finding create-54: "guidance 0" was true of the
+        # Turbo/Hyper/Lightning rows and false of LCM and FLUX.2 klein distilled,
+        # which run at 1.0. text2image encodes the negative branch only above
+        # 1.0, so "1.0 or lower" is the sentence true of every inert model (and
+        # the one manual 22 already uses).
+        "This model runs at guidance 1.0 or lower, so the negative prompt has no effect. "
         f"It does on: {_base_labels(ctx, bases)}."
     )
 
@@ -880,7 +892,7 @@ def recipe_structure_note(ctx: Any, form: dict[str, Any]) -> str | None:
     # advanced case -- pick a full-CFG checkpoint from that combo -- so this
     # says that instead of naming a control nobody can find.
     return (
-        f"{resolved.recipe.label} runs at guidance 0 and cannot run a "
+        f"{resolved.recipe.label} runs at guidance 1.0 or lower and cannot run a "
         "ControlNet. Pick a full-CFG model above to run one."
     )
 
@@ -898,6 +910,24 @@ def structure_note(ctx: Any, form: dict[str, Any]) -> str | None:
         "Structure control needs a full-CFG model -- pick one of "
         f"{_base_labels(ctx, bases)} above."
     )
+
+def structure_picker_note(ctx: Any, form: dict[str, Any]) -> str | None:
+    """Why the Structure picker is hidden, or None when it is drawn.
+
+    The 2026-10-04 audit, finding create-25: the pane asked
+    ``recipe_structure_note(...) or structure_note(...)``, and under Automatic
+    with a recipe that *can* run a ControlNet the first answers None -- so the
+    ``or`` fell through to the second, which reads the raw ``form["base_model"]``
+    a prior Advanced pick left behind. A stale distilled key replaced the picker
+    with "needs a full-CFG model" over a resolved full-CFG recipe. Under
+    Automatic with a resolved recipe the resolved recipe is the only witness;
+    ``structure_note`` answers for Advanced, and for a form with nothing
+    resolved (where the raw base is all there is).
+    """
+    automatic = str(form.get("model_mode") or "auto") != "advanced"
+    if automatic and resolved_recipe(ctx, form) is not None:
+        return recipe_structure_note(ctx, form)
+    return structure_note(ctx, form)
 
 def img2img_note(ctx: Any, form: dict[str, Any]) -> str | None:
     """Why "Start from this image" is inert here, or None when it is live.
@@ -946,24 +976,7 @@ def clear_unusable(ctx: Any, form: dict[str, Any]) -> list[str]:
     """
     cleared: list[str] = []
     base = form.get("base_model") or ""
-    # The *pair*, not the base. Asking "is this base in lora_bases()" was right
-    # only while one architecture had adapters and the others had none: with
-    # both families covered that test is never true, and the clear would
-    # silently stop happening. An unknown stored base resolves to [] and
-    # therefore clears, the pane's standing rule for a settings-file value.
-    fitting = (ctx.guidance.get("loras_by_base") or {}).get(base) or []
-    if form.get("style_lora") and form["style_lora"] not in fitting:
-        form["style_lora"] = ""
-        # The weight goes back to the default with it: it scales a selection
-        # that no longer exists, and a strength left at 0.2 would silently
-        # apply to whatever style is picked next.
-        form["lora_weight"] = modelslib.DEFAULT_LORA_WEIGHT
-        cleared.append(
-            "The style LoRA was cleared: it is not fitted to this model's "
-            "architecture."
-            if fitting
-            else "The style LoRA was cleared: this model cannot use one."
-        )
+    cleared.extend(_clear_lora(ctx, form, base))
     if form.get("control") and base not in (ctx.guidance.get("controlnet_bases") or []):
         # Only the selection, exactly as the Clear-reference button does: the
         # strengths are hidden with it and never submitted without it.
@@ -971,14 +984,46 @@ def clear_unusable(ctx: Any, form: dict[str, Any]) -> list[str]:
         cleared.append(
             "The structure control was cleared: this model cannot run a ControlNet."
         )
-    # The 2026-09-05 audit, finding create-04: the third gate ``validate``
-    # refuses, added beside the two above. Checked directly against the
-    # spec's family rather than a models.py bases list -- see
-    # ``generation._takes_img2img`` for why ``tile_bases()`` is the wrong
-    # reuse here even though it answers the same question today. Left
-    # disabled instead of cleared before this fix, "Start from this image"
-    # stayed ticked with no explanation across a base change that
-    # ``guidance.normalize`` would refuse outright.
+    cleared.extend(_clear_img2img(form, base))
+    return cleared
+
+def _clear_lora(ctx: Any, form: dict[str, Any], base: str) -> list[str]:
+    """Clear a style LoRA ``base`` cannot take. Shared by both routing modes.
+
+    The *pair*, not the base. Asking "is this base in lora_bases()" was right
+    only while one architecture had adapters and the others had none: with
+    both families covered that test is never true, and the clear would
+    silently stop happening. An unknown stored base resolves to [] and
+    therefore clears, the pane's standing rule for a settings-file value.
+    """
+    if not form.get("style_lora"):
+        return []
+    fitting = (ctx.guidance.get("loras_by_base") or {}).get(base) or []
+    if form["style_lora"] in fitting:
+        return []
+    form["style_lora"] = ""
+    # The weight goes back to the default with it: it scales a selection
+    # that no longer exists, and a strength left at 0.2 would silently
+    # apply to whatever style is picked next.
+    form["lora_weight"] = modelslib.DEFAULT_LORA_WEIGHT
+    return [
+        "The style LoRA was cleared: it is not fitted to this model's "
+        "architecture."
+        if fitting
+        else "The style LoRA was cleared: this model cannot use one."
+    ]
+
+def _clear_img2img(form: dict[str, Any], base: str) -> list[str]:
+    """Clear "Start from this image" on a base that cannot take one.
+
+    The 2026-09-05 audit, finding create-04: the third gate ``validate``
+    refuses. Checked directly against the spec's family rather than a
+    models.py bases list -- see ``generation._takes_img2img`` for why
+    ``tile_bases()`` is the wrong reuse here even though it answers the same
+    question today. Left disabled instead of cleared before that fix, "Start
+    from this image" stayed ticked with no explanation across a base change
+    that ``guidance.normalize`` would refuse outright.
+    """
     base_spec = modelslib.BASE_MODELS.get(base)
     if (
         form.get("init_image")
@@ -987,10 +1032,8 @@ def clear_unusable(ctx: Any, form: dict[str, Any]) -> list[str]:
     ):
         form["init_image"] = False
         form["init_strength"] = None
-        cleared.append(
-            "The start image was cleared: this model cannot start from an image."
-        )
-    return cleared
+        return ["The start image was cleared: this model cannot start from an image."]
+    return []
 
 def model_options(ctx: Any) -> list[tuple[str, str]]:
     """The Model combo's entries: Automatic, then every installed checkpoint.
@@ -1384,7 +1427,11 @@ def validate(form: dict[str, Any], ctx: Any = None) -> list[problem_types.Proble
             )
         if tileset:
             problems.extend(_layout_problems(form))
-        if tileset or form.get("sheet_type") == "sprite":
+        # The 2026-10-04 audit, finding create-22: the Sprite arm used to be
+        # validated here too, for a control whose value the door discards
+        # (``_check_sprite_sheet`` keeps no target). The control is not drawn on
+        # that arm now, so a stale value from the tile arm must not refuse it.
+        if tileset:
             raw_target = form.get("target_cell_px") or ""
             target = None if raw_target == "" else safe_int(raw_target, -1)
             for issue in generation.validate_target_cell(
@@ -1555,10 +1602,11 @@ def sprite_sheet_kwargs(form: dict[str, Any]) -> dict[str, Any]:
         "candidates": plan["candidates"],
         "logical_size": plan["logical_size"],
         "colors": svc_sprites.DEFAULT_SPRITE_COLORS,
-        "target_cell_px": (
-            None if form.get("target_cell_px") in (None, "")
-            else safe_int(form.get("target_cell_px"), 0)
-        ),
+        # No ``target_cell_px``: ``_check_sprite_sheet`` returns only
+        # ``sheet_type``, ``candidates`` and the pixel options, so the final
+        # reduction was validated, sent, thrown away at the door and never done
+        # (the 2026-10-04 audit, finding create-22). The tile arm honours it
+        # (``_q_tilesheet``); this arm does not offer it.
         # The three the form draws under Dimensions. Sent always rather than
         # only when set: the door's own defaults are these values, and a block
         # that omitted them would make "no palette" and "the form was never
@@ -1608,8 +1656,13 @@ def tile_sheet_kwargs(form: dict[str, Any]) -> dict[str, Any]:
         # ``service.jobs`` passes them to the worker and
         # ``tilesheets._check_weights`` already widens the weight gate on
         # ``style_lock`` -- so this line is the whole of what was missing.
-        "style_lock": bool(form.get("style_lock")),
-        "seam_erase": bool(form.get("seam_erase")),
+        #
+        # Materials only, because that is the one layout that draws them: the
+        # 2026-10-03 audit (plotter-19) found a tick left over from Materials
+        # still riding a Terrain set or Grid request, engaging a lock and a
+        # seam-erase pass per material the person could neither see nor untick.
+        "style_lock": mode == svc_tilesheets.MODE_MATERIALS and bool(form.get("style_lock")),
+        "seam_erase": mode == svc_tilesheets.MODE_MATERIALS and bool(form.get("seam_erase")),
         **create_assets.persisted_intent(form),
     }
     if mode == svc_tilesheets.MODE_MATERIALS:

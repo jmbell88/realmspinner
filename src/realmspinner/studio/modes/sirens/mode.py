@@ -207,9 +207,12 @@ def confirm_remove_pattern(ctx: Any, tab: SongTab, uid: int, used: int) -> None:
 
         if tab.doc.remove_pattern(uid):
             sirens_play.request_rerender(ctx, tab)
-            remaining = tab.doc.patterns
-            if remaining:
-                sirens_edit.set_caret(ctx, pattern=remaining[0].uid)
+            # A *song* pattern first (the 2026-10-03 audit, finding
+            # sirens-17): ``patterns[0]`` can be a sound effect's private one,
+            # and a caret sent there turns the grid into the effect editor.
+            remaining = sirens_edit.first_song_pattern(tab.doc)
+            if remaining is not None:
+                sirens_edit.set_caret(ctx, pattern=remaining)
 
     if not used:
         go()
@@ -445,7 +448,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
         return
 
     tab.saving = False
-    # P65 item 2 ("sirens-02"): the save that just landed is what set
+    # The 2026-09-23 audit's finding sirens-02: the save that just landed is what set
     # ``tab.doc.busy`` in the first place (``fileio.save_to``/``save_as``);
     # cleared here alongside ``tab.saving`` so ``set_song`` unlocks the
     # moment the door does.
@@ -518,7 +521,7 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     if tab is None:
         return
     tab.saving = False
-    # P65 item 2 ("sirens-02"): a failed save must not leave ``set_song``
+    # The 2026-09-23 audit's finding sirens-02: a failed save must not leave ``set_song``
     # locked out forever, the same reason ``tab.saving`` itself is cleared
     # here rather than left set.
     tab.doc.busy = False
@@ -641,6 +644,7 @@ _MOVED: dict[str, str] = {
     "cut_selection": "edit",
     "cycle_instrument": "edit",
     "end_envelope_drag": "edit",
+    "first_song_pattern": "edit",
     "follow_playhead": "play",
     "handle_key": "keys",
     "interpolate_selection": "edit",
@@ -660,6 +664,8 @@ _MOVED: dict[str, str] = {
     "remove_sample": "edit",
     "request_render": "play",
     "request_rerender": "play",
+    "set_loop_playback": "play",
+    "_start_at": "play",
     "set_caret": "edit",
     "set_sequence": "edit",
     "shift_rows": "edit",

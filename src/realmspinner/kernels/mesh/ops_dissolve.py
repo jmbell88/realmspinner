@@ -229,15 +229,20 @@ def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
             )
 
 
-def _ring_corners(mesh: Mesh, group: np.ndarray) -> np.ndarray:
+def _ring_corners(mesh: Mesh, group: np.ndarray, border: np.ndarray | None = None) -> np.ndarray:
     """The group's outline as an ordered array of corner indices.
 
     Ordered by chaining the border's directed edges head to tail, which is what
     makes the resulting n-gon wound consistently with everything still around
     it: each border corner reads ``a -> b`` because its own face does, and the
     merged face inherits exactly those traversals.
+
+    *border* is the group's border corners when the caller has already derived
+    them for every group in one pass (:func:`merge_groups` does, see its
+    comment); left out, they are derived here for this one group.
     """
-    border = topo.region_boundary_corners(mesh, group)
+    if border is None:
+        border = topo.region_boundary_corners(mesh, group)
     if len(border) == 0:
         raise OpError(
             "Those faces make up a closed surface on their own, so there is "
@@ -297,7 +302,13 @@ def merge_groups(mesh: Mesh, groups: list[np.ndarray]) -> tuple[Mesh, ElementSel
             "needs at least two of them touching."
         )
 
-    rings = [_ring_corners(mesh, g) for g in real]
+    # The 2026-10-03 audit's clay-50: each group used to ask
+    # `region_boundary_corners` for its own border, and every call does
+    # whole-mesh work, so G groups on a mesh of C corners cost G x C -- 2.9 s
+    # for 4,489 two-face groups on a 40k-vertex mesh, 49 s for 17,689 on 160k.
+    # The borders of every group now come from one vectorised pass.
+    borders = topo.region_boundary_corners_by_group(mesh, real)
+    rings = [_ring_corners(mesh, g, b) for g, b in zip(real, borders, strict=True)]
     _refuse_ring(rings)
     _refuse_concave_ring(mesh, [mesh.loops[r] for r in rings])
     consumed = np.concatenate(real)

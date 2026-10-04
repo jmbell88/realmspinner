@@ -102,6 +102,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from realmspinner.mcp import pipe, rpc
 from realmspinner.studio import agent_character, agent_host
 from realmspinner.studio import tasks as tasks_mod
@@ -865,6 +867,9 @@ def _bare_host_with_service() -> agent_host.AgentHost:
     return host
 
 
+# These replay tests drive ``clay_add_primitive``, an edit: the 2026-10-03 audit
+# (agents-14) made pure reads such as ``clay_scene`` re-run instead of replay, so
+# only a call that changes the document still shows the replay these pin.
 def test_a_retry_of_a_call_that_ran_but_never_answered_replays_instead_of_running_again(
     monkeypatch,
 ) -> None:
@@ -896,7 +901,7 @@ def test_a_retry_of_a_call_that_ran_but_never_answered_replays_instead_of_runnin
         outcome: dict[str, object] = {}
 
         def first_call() -> None:
-            outcome["first"] = host._call(session, calls, "clay_scene", {})
+            outcome["first"] = host._call(session, calls, "clay_add_primitive", {})
 
         first_thread = threading.Thread(target=first_call, daemon=True)
         first_thread.start()
@@ -920,7 +925,7 @@ def test_a_retry_of_a_call_that_ran_but_never_answered_replays_instead_of_runnin
         ):
             time.sleep(0.005)
 
-        second = host._call(session, calls, "clay_scene", {})
+        second = host._call(session, calls, "clay_add_primitive", {})
     finally:
         stop_pumping.set()
         pumper.join(timeout=WAIT)
@@ -951,7 +956,7 @@ def test_a_replayed_result_says_in_words_that_it_was_not_run_again(monkeypatch) 
     session = agent_clay.Session()
     try:
         first_thread = threading.Thread(
-            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+            target=lambda: host._call(session, calls, "clay_add_primitive", {}), daemon=True
         )
         first_thread.start()
         assert started.wait(WAIT), "the job never started running"
@@ -967,7 +972,7 @@ def test_a_replayed_result_says_in_words_that_it_was_not_run_again(monkeypatch) 
         ):
             time.sleep(0.005)
 
-        replay = host._call(session, calls, "clay_scene", {})
+        replay = host._call(session, calls, "clay_add_primitive", {})
     finally:
         stop_pumping.set()
         pumper.join(timeout=WAIT)
@@ -1018,7 +1023,7 @@ def test_a_replayed_result_keeps_the_tools_own_structured_payload_alongside_the_
     session = agent_clay.Session()
     try:
         first_thread = threading.Thread(
-            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+            target=lambda: host._call(session, calls, "clay_add_primitive", {}), daemon=True
         )
         first_thread.start()
         assert started.wait(WAIT), "the job never started running"
@@ -1034,7 +1039,7 @@ def test_a_replayed_result_keeps_the_tools_own_structured_payload_alongside_the_
         ):
             time.sleep(0.005)
 
-        replay = host._call(session, calls, "clay_scene", {})
+        replay = host._call(session, calls, "clay_add_primitive", {})
     finally:
         stop_pumping.set()
         pumper.join(timeout=WAIT)
@@ -1075,7 +1080,7 @@ def test_a_third_identical_call_runs_for_real_because_the_replay_was_delivered(
     session = agent_clay.Session()
     try:
         first_thread = threading.Thread(
-            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+            target=lambda: host._call(session, calls, "clay_add_primitive", {}), daemon=True
         )
         first_thread.start()
         assert started.wait(WAIT), "the job never started running"
@@ -1091,10 +1096,10 @@ def test_a_third_identical_call_runs_for_real_because_the_replay_was_delivered(
         ):
             time.sleep(0.005)
 
-        host._call(session, calls, "clay_scene", {})  # the replay
+        host._call(session, calls, "clay_add_primitive", {})  # the replay
         assert call_count["n"] == 1
 
-        host._call(session, calls, "clay_scene", {})  # the third, identical call
+        host._call(session, calls, "clay_add_primitive", {})  # the third, identical call
     finally:
         stop_pumping.set()
         pumper.join(timeout=WAIT)
@@ -2303,17 +2308,28 @@ def test_switching_off_fails_a_queued_service_lane_call(tmp_path, monkeypatch) -
     host.start()
     release = threading.Event()
 
+    # Registered is not running: a job enters ``_service_jobs`` before its
+    # thread reaches ``TaskRunner.poll``/``submit``, so waiting on the
+    # registry alone let an occupant still inside ``_submit_service`` hit the
+    # pacing patches installed below (the 2026-10-03 audit's agents-24, about
+    # 15% of runs). Each occupant's callable signals once a pool worker has
+    # actually started it, and the test waits on those.
+    occupying = threading.Semaphore(0)
+
     def occupy() -> None:
-        host._run_on_service_job(lambda: release.wait(WAIT), timeout=agent_host.CALL_TIMEOUT)
+        def hold() -> bool:
+            occupying.release()
+            return release.wait(WAIT)
+
+        host._run_on_service_job(hold, timeout=agent_host.CALL_TIMEOUT)
 
     occupants = [
         threading.Thread(target=occupy, daemon=True) for _ in range(agent_host.SERVICE_WORKERS)
     ]
     for t in occupants:
         t.start()
-    deadline = time.monotonic() + WAIT
-    while len(host._service_jobs) < agent_host.SERVICE_WORKERS and time.monotonic() < deadline:
-        time.sleep(0.005)
+    for _ in occupants:
+        assert occupying.acquire(timeout=WAIT), "the pool never saturated"
     assert len(host._service_jobs) == agent_host.SERVICE_WORKERS, "the pool never saturated"
 
     outcome: dict[str, object] = {}
@@ -2391,17 +2407,28 @@ def test_a_call_submitted_while_stopping_is_answered_not_orphaned(tmp_path, monk
     host.start()
     release = threading.Event()
 
+    # Registered is not running: a job enters ``_service_jobs`` before its
+    # thread reaches ``TaskRunner.poll``/``submit``, so waiting on the
+    # registry alone let an occupant still inside ``_submit_service`` hit the
+    # pacing patches installed below (the 2026-10-03 audit's agents-24, about
+    # 15% of runs). Each occupant's callable signals once a pool worker has
+    # actually started it, and the test waits on those.
+    occupying = threading.Semaphore(0)
+
     def occupy() -> None:
-        host._run_on_service_job(lambda: release.wait(WAIT), timeout=agent_host.CALL_TIMEOUT)
+        def hold() -> bool:
+            occupying.release()
+            return release.wait(WAIT)
+
+        host._run_on_service_job(hold, timeout=agent_host.CALL_TIMEOUT)
 
     occupants = [
         threading.Thread(target=occupy, daemon=True) for _ in range(agent_host.SERVICE_WORKERS)
     ]
     for t in occupants:
         t.start()
-    deadline = time.monotonic() + WAIT
-    while len(host._service_jobs) < agent_host.SERVICE_WORKERS and time.monotonic() < deadline:
-        time.sleep(0.005)
+    for _ in occupants:
+        assert occupying.acquire(timeout=WAIT), "the pool never saturated"
     assert len(host._service_jobs) == agent_host.SERVICE_WORKERS, "the pool never saturated"
 
     at_poll = threading.Event()
@@ -2516,17 +2543,28 @@ def test_a_call_racing_stop_is_either_refused_or_caught_by_the_first_sweep(
     host.start()
     release = threading.Event()
 
+    # Registered is not running: a job enters ``_service_jobs`` before its
+    # thread reaches ``TaskRunner.poll``/``submit``, so waiting on the
+    # registry alone let an occupant still inside ``_submit_service`` hit the
+    # pacing patches installed below (the 2026-10-03 audit's agents-24, about
+    # 15% of runs). Each occupant's callable signals once a pool worker has
+    # actually started it, and the test waits on those.
+    occupying = threading.Semaphore(0)
+
     def occupy() -> None:
-        host._run_on_service_job(lambda: release.wait(WAIT), timeout=agent_host.CALL_TIMEOUT)
+        def hold() -> bool:
+            occupying.release()
+            return release.wait(WAIT)
+
+        host._run_on_service_job(hold, timeout=agent_host.CALL_TIMEOUT)
 
     occupants = [
         threading.Thread(target=occupy, daemon=True) for _ in range(agent_host.SERVICE_WORKERS)
     ]
     for t in occupants:
         t.start()
-    deadline = time.monotonic() + WAIT
-    while len(host._service_jobs) < agent_host.SERVICE_WORKERS and time.monotonic() < deadline:
-        time.sleep(0.005)
+    for _ in occupants:
+        assert occupying.acquire(timeout=WAIT), "the pool never saturated"
     assert len(host._service_jobs) == agent_host.SERVICE_WORKERS, "the pool never saturated"
 
     at_poll = threading.Event()
@@ -2629,6 +2667,20 @@ def test_a_call_racing_stop_is_either_refused_or_caught_by_the_first_sweep(
         "first sweep -- run while this test's paced poll still has the "
         "racing call paused there -- is guaranteed to already see it."
     )
+
+
+def test_a_call_racing_stop_is_either_refused_or_caught_by_the_first_sweep_never_flakes(
+    tmp_path,
+) -> None:
+    """The 2026-10-03 audit's agents-24: the test above waited for the occupants
+    to be *registered*, not running, so one still inside ``_submit_service`` hit
+    the pacing patches and the interleaving it names never happened (about 15%
+    of single runs). Fifteen back-to-back runs make that gate show itself."""
+    for i in range(15):
+        run_dir = tmp_path / f"run{i}"
+        run_dir.mkdir()
+        with pytest.MonkeyPatch.context() as mp:
+            test_a_call_racing_stop_is_either_refused_or_caught_by_the_first_sweep(run_dir, mp)
 
 
 def test_stop_never_terminates_tracked_child_processes(tmp_path, monkeypatch) -> None:

@@ -60,6 +60,7 @@ from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as inker_mode
 from .. import colorwheel
+from . import colors as inker_colors
 
 #: The least this pane may be squeezed to, in design px.
 #:
@@ -164,6 +165,12 @@ def draw(ctx: Any) -> None:
         widgets.muted(f"Editing palette slot {slot + 1}")
 
     colour = read(state, tab, slot)
+    # Greyed while editing a palette *slot* on a busy tab (inker-62, see
+    # ``write``) and only then: a free colour touches no document. Grouped so
+    # the hover can say why, which a bare ``begin_disabled`` never does
+    # (inker-64) -- ``write`` is what actually refuses.
+    imgui.begin_group()
+    imgui.begin_disabled(slot is not None and tab.busy)
     _wheel(ctx, state, tab, slot, colour)
     _value(ctx, state, tab, slot, colour)
     _alpha(ctx, state, tab, slot, colour)
@@ -176,6 +183,10 @@ def draw(ctx: Any) -> None:
     _ROWS[space](ctx, state, tab, slot, colour)
 
     _hex(ctx, state, tab, slot, colour)
+    imgui.end_disabled()
+    imgui.end_group()
+    if slot is not None:
+        inker_colors.busy_reason(tab)
 
 
 def target_of(state: Any) -> str:
@@ -227,6 +238,17 @@ def write(ctx: Any, state: Any, tab: Any, slot: int | None, colour: Any) -> None
 
     value = tuple(clamp8(channel) for channel in tuple(colour)[:4])
     if slot is not None:
+        # The 2026-10-03 audit, finding inker-62: ``recolour_slot`` rebinds whole
+        # layer planes and pushes an undo step, and while a save is encoding the
+        # document (``ora.py`` walks the stack on the task thread) or playback is
+        # drawing frames from cache that is a palette swap written into a
+        # document being read. The Colour pane's own slot edits are greyed on
+        # ``tab.busy`` for exactly this; every picker control reaches the
+        # palette through here, so the door refuses as well as ``draw`` greying
+        # (``begin_disabled`` is not a promise a held drag keeps). A free colour
+        # is session state and still goes through below.
+        if getattr(tab, "busy", False):
+            return
         if tab.doc.recolour_slot(slot, value):
             state.palette_usage = None
             state.set_fg(value, slot)

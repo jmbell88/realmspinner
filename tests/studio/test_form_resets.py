@@ -32,6 +32,7 @@ class _Ctx:
             source_job="job-1",
             preview={"anything": 1},
             preview_dirty_at=0.0,
+            clear_field_errors=lambda: None,
         )
         self.confirms = dialogs.ConfirmQueue()
         self.toasts: list[str] = []
@@ -181,7 +182,9 @@ def test_both_resets_are_behind_a_confirm_dialog():
     """
     # One button now (the command bar's), for both stages: it asks, and only its
     # confirm clears -- the Mesh column draws no Reset at all.
-    source = _row_source(create_brief._reset)
+    # ``inputs`` is where the live Reset is drawn; the second copy that used to
+    # sit in ``create_brief._reset`` was dead code (2026-10-03 audit, create-33).
+    source = _row_source(create_brief.inputs)
     assert "dialogs.Confirm(" in source
     assert "on_confirm=" in source
     assert "settings_2d._reset(ctx)" in source

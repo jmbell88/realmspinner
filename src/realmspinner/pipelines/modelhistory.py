@@ -318,7 +318,12 @@ def crossed_geometry(entries: list[dict[str, Any]], n: int) -> bool:
     geometry, and a version from just before a re-texture can still cross
     geometry if a remesh landed after it.
     """
-    return any(e["geometry"] for e in entries if e["n"] >= n)
+    # ``entries_of`` keeps any dict with an int ``n``, so a hand-edited or
+    # older row can lack the flag. 2026-10-03 audit, create-22: a bare
+    # ``e["geometry"]`` made that row's Restore press raise KeyError on the
+    # frame thread. A missing flag reads as "geometry may have changed" --
+    # the warning errs toward telling the user the rig may be stale.
+    return any(e.get("geometry", True) for e in entries if e["n"] >= n)
 
 
 def _delete_version_files(job_dir: Path, n: int) -> None:

@@ -1,4 +1,5 @@
-"""Reworking a finished asset in place: retarget its mesh, restyle its skin.
+"""Reworking a finished asset in place: retarget its mesh, restyle its skin, remesh it,
+put an earlier mesh back, or split a music take into stems.
 
 Split out of ``service/jobs.py``, which had grown to 1,446 lines over five
 unrelated subjects; ``jobs.py`` stays as the facade every caller still imports
@@ -6,9 +7,9 @@ and calls by attribute.
 
 What separates these from a rerun is that **no new job row is minted for the
 mesh** -- the asset keeps its identity and its history, and what changes is
-one artifact of it. That is also what makes them the dangerous pair: they
-write onto files that are being served, so both refuse a job that is queued or
-running, both stage their writes, and both are followed by deleting the
+one artifact of it. That is also what makes them dangerous: they
+write onto files that are being served, so each refuses a job that is queued or
+running, each stages its writes, and the mesh ones are followed by deleting the
 derived exports that no longer describe the thing on disk. The two ``stale_*``
 helpers are that list, stated rather than globbed.
 
@@ -30,6 +31,7 @@ from ..kernels.rig import store
 from ._jobs_create import resolve_profile
 from .core import RealmspinnerService
 from .errors import Conflict, Failed, Invalid
+from .files import STEMS_DIR
 from .validation import (
     ARTIFACT_HEALTH,
     check_job_id,
@@ -100,18 +102,24 @@ def optimize_job(
     budget = resolve_profile(svc, resolved, profile, custom_triangles)
     profile = resolved["profile"]
 
-    # Read from the row rather than started empty: a step that failed on the
-    # *original* run is still true of this mesh unless this run fixes it, and
-    # the successful branch below is what clears it. Held out here because the
-    # ``changes``/``drop`` pair that consumes it is out here.
-    inherited = job["params"].get(ARTIFACT_HEALTH)
-    # ``note_degraded``'s guard, for its reason: the value on a hand-edited row
-    # (or one of the test fixtures that fills every ``DERIVED_PARAMS`` key with
-    # a marker string) is not a dict, and starting fresh beats raising over it.
-    health = {
-        ARTIFACT_HEALTH: dict(inherited) if isinstance(inherited, dict) else {}
-    }
     with svc.convert_lock(job_id, modelhistory.MODEL_LOCK):
+        # Re-read inside the lock, as ``revert_model`` does, not the ``job``
+        # fetched at the door: a retarget that waited on this lock would
+        # otherwise stage from the row as it was before the one ahead of it
+        # published, get the same ``n``, and overwrite that retarget's kept mesh
+        # (the 2026-10-03 audit, finding pipelines-36).
+        job = svc.require_job(job_id)
+        # Read from the row rather than started empty: a step that failed on the
+        # *original* run is still true of this mesh unless this run fixes it, and
+        # the successful branch below is what clears it. Held out here because the
+        # ``changes``/``drop`` pair that consumes it is out here.
+        inherited = job["params"].get(ARTIFACT_HEALTH)
+        # ``note_degraded``'s guard, for its reason: the value on a hand-edited row
+        # (or one of the test fixtures that fills every ``DERIVED_PARAMS`` key with
+        # a marker string) is not a dict, and starting fresh beats raising over it.
+        health = {
+            ARTIFACT_HEALTH: dict(inherited) if isinstance(inherited, dict) else {}
+        }
         # Staged *before* the run, not after: the old model.glb is only still
         # on disk here, and stage() has to snapshot it while it is still the
         # file optimize.run is about to overwrite. A budget label rather than
@@ -402,13 +410,13 @@ def retexture_job(
     status is required, ``source.glb`` is never touched, and the exports that
     describe the old skin go -- and its opposite in where the work runs. A
     retarget is a two-second gltfpack subprocess and belongs inline; a
-    re-texture is six SDXL passes around two Blender ops, so it takes the queue
-    for the reason every other GPU path does: it needs the resident pipe, and a
-    TaskRunner thread racing the worker for VRAM is the OOM that only
-    reproduces under load. Every refusal is still *here* rather than in the
-    worker, exactly as ``create_pixel_sheet`` states: a mesh with no atlas to
-    replace should cost the request, not a place in the queue and a minute of
-    GPU.
+    re-texture is ten SDXL passes (one per ``retexture.VIEWS`` entry) around
+    two Blender ops, so it takes the queue for the reason every other GPU path
+    does: it needs the resident pipe, and a TaskRunner thread racing the worker
+    for VRAM is the OOM that only reproduces under load. Every refusal is still
+    *here* rather than in the worker, exactly as ``create_pixel_sheet`` states:
+    a mesh with no atlas to replace should cost the request, not a place in the
+    queue and a minute of GPU.
 
     The ``Conflict`` is the same one and for the same reason: the worker's own
     ``_optimize``/``_apply_scale`` write ``model.glb`` without taking a lock, so
@@ -623,7 +631,8 @@ def separate_job(
     ``stems/{name}.wav``, with ``stems.json`` written last as the completion
     gate -- ``rig.json``'s rule and ``sheet.json``'s, stated identically. So
     this is a follow-up in ``asset_open``'s sense: it writes into another job's
-    directory and its own is never created.
+    directory (the worker still makes an empty directory of its own, for the
+    child's ``separate.json`` result, but no artifact ever lands in it).
 
     A note for the manual rather than for the code: **Sirens also exports into
     a folder called ``stems/``.** Same word, two unrelated places. They
@@ -643,6 +652,16 @@ def separate_job(
         # ``muse_mode.play``'s sentence and ``derive_music_job``'s, so all
         # three surfaces say the same thing about the same missing file.
         raise Invalid("that take has no audio on disk", field="source_job")
+    # muse-11 (2026-10-03 audit). Only the Stems button's ``enabled`` used to
+    # stop a re-split, but the child writes straight into ``stems/`` and
+    # ``_discard_artifacts`` unlinks that set on a cancel on the premise that it
+    # is the cancelled run's own half-written work -- so a cancelled re-split
+    # deleted the previous complete split before it had written a byte. Refused
+    # here, at the door every caller (the pane, a service call, an agent)
+    # passes through, so a ``separate`` row never exists for a take whose
+    # served stems it could destroy.
+    if (job_dir / STEMS_DIR / "stems.json").exists():
+        raise Conflict("that take has already been split into stems", field="source_job")
 
     key = str(separation_model or models.DEFAULT_SEPARATION)
     if key not in models.SEPARATION_MODELS:
@@ -678,11 +697,13 @@ def _require_no_dependents(
 ) -> None:
     """Refuse while another job is still writing into this one's directory.
 
-    Both doors here refuse on the *target row's* own status, which is the wrong
-    question by itself: a re-texture, a rig or a sheet is a **separate row**
-    whose artifacts land in the done job's directory, so the target reads `done`
-    the whole time one is in flight -- which is exactly why it could be queued
-    for it in the first place.
+    Every door that calls this -- optimize, revert, re-texture, remesh and
+    separate here, and the reroll in ``_jobs_resubmit`` -- refuses on the
+    *target row's* own status, which is the wrong question by itself: a
+    re-texture, a rig or a sheet is a **separate row** whose artifacts land in
+    the done job's directory, so the target reads `done` the whole time one is
+    in flight -- which is exactly why it could be queued for it in the first
+    place.
 
     The failure is silent and it inverts an explicit user choice. Queue a
     re-texture for done mesh J, then retarget J: the re-texture's ``os.replace``
@@ -697,7 +718,7 @@ def _require_no_dependents(
     already names it as the answer to this shape.
 
     ``noun`` names the thing being started from, not only meshes any more --
-    ``separate_stems`` calls this on a music take, and the hardcoded "mesh" in
+    ``separate_job`` calls this on a music take, and the hardcoded "mesh" in
     the message used to call a finished track's take a mesh (2026-09-23 audit,
     finding muse-01).
     """
@@ -715,12 +736,13 @@ def _require_no_dependents(
 def _check_retexture_family(base: models.BaseModel) -> None:
     """Refuse a non-SDXL checkpoint here, where refusing is still cheap.
 
-    A re-texture is six conditioned img2img passes, and ``Text2Image._conditioned``
-    refuses a non-SDXL family outright -- but it does so at *runtime*, which for
-    this kind means after the job has queued, rendered all six Blender views,
-    stopped trellis and loaded a ~16 GiB checkpoint into host commit. Minutes of
-    the serial worker plus a trellis restart, to arrive at a refusal the
-    registry could have given instantly (MDL-15).
+    A re-texture is ten conditioned img2img passes (``retexture.VIEWS``), and
+    ``Text2Image._conditioned`` refuses a non-SDXL family outright -- but it
+    does so at *runtime*, which for this kind means after the job has queued,
+    rendered all ten Blender views, stopped trellis and loaded a ~16 GiB
+    checkpoint into host commit. Minutes of the serial worker plus a trellis
+    restart, to arrive at a refusal the registry could have given instantly
+    (MDL-15).
 
     Reachable without anyone picking an exotic model, too: ``base_model`` is
     optional here and falls back to ``config.t2i_model``, so a host whose

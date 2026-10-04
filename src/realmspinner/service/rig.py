@@ -184,7 +184,17 @@ def adjust_joints(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     rig = store.read_rig(job_dir)
     if rig is None or not (job_dir / "model.glb").exists():
         raise Invalid("job is not rigged")
-    template = templates.get_template(str(rig.get("template") or svc.config.rig_template))
+    # The 2026-10-03 audit (poser-48): resolved outside the try below, a rig.json
+    # naming a template the registry no longer has (renamed, removed, hand-edited)
+    # escaped as a bare ValueError -- the generic failure on "Apply joint
+    # positions" -- instead of the field-addressed refusal every other rig.json
+    # read in this file gives.
+    try:
+        template = templates.get_template(str(rig.get("template") or svc.config.rig_template))
+    except ValueError as exc:
+        raise invalid_from(
+            exc, "This rig's skeleton template is no longer available", field="rig_template"
+        ) from exc
     is_custom = rig.get("skeleton") == "custom"
     try:
         if is_custom:
@@ -192,7 +202,13 @@ def adjust_joints(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
             structure = rig["bones"]
         else:
             structure = template
-        bones = skeleton.validate_joints(payload, structure)
+        # The rig's own bounds, when it has usable ones, so a head or tail a
+        # unit mistake away is named instead of reading as a zero-length bone
+        # (the 2026-10-03 audit, poser-35).
+        rig_bounds = rig.get("bounds")
+        if not (isinstance(rig_bounds, dict) and "min" in rig_bounds and "max" in rig_bounds):
+            rig_bounds = None
+        bones = skeleton.validate_joints(payload, structure, bounds=rig_bounds)
     except (ValueError, KeyError, TypeError) as exc:
         raise invalid_from(exc, "Those joint positions cannot be used") from exc
 
@@ -255,7 +271,13 @@ def edit_skeleton(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     rig = store.read_rig(job_dir)
     if rig is None or not (job_dir / "model.glb").exists():
         raise Invalid("job is not rigged")
-    base = templates.get_template(str(rig.get("template") or svc.config.rig_template))
+    # poser-48, as in ``adjust_joints``: a vanished template is a refusal, not a ValueError.
+    try:
+        base = templates.get_template(str(rig.get("template") or svc.config.rig_template))
+    except ValueError as exc:
+        raise invalid_from(
+            exc, "This rig's skeleton template is no longer available", field="rig_template"
+        ) from exc
     bounds = rig.get("bounds")
     try:
         if not isinstance(bounds, dict) or "min" not in bounds or "max" not in bounds:
@@ -559,8 +581,22 @@ def posed_model(svc: RealmspinnerService, job_id: str, pose_id: str) -> Path:
             spec = _pose_bake_spec(job_dir, pose_id, pose)
             tmp = path.with_name(f".{pose_id}.tmp.glb")
             spec["out_glb"] = str(tmp)
+            # The skeleton this bake runs against, read before Blender imports
+            # it. ``finalize_rig`` takes no lock, so a re-rig can land while the
+            # bake is in flight: the bake then publishes a pose of the *previous*
+            # skeleton onto a name whose whole freshness test is that it exists
+            # (the 2026-10-03 audit, finding service-09). ``animated.glb`` closed
+            # the same race with a stamped digest; a pose GLB has no room for
+            # one, so the digest is compared here, immediately before the rename.
+            from .derive import _rig_digest
+
+            rig_digest = _rig_digest(job_dir)
             try:
                 blender_run.run_worker(spec, timeout=svc.config.pose_timeout)
+                if _rig_digest(job_dir) != rig_digest:
+                    raise Conflict(
+                        "the rig changed while this pose was being baked; ask for it again"
+                    )
                 os.replace(tmp, path)
             except blender_run.BlenderError as exc:
                 log.error("posing %s/%s failed: %s", job_id, pose_id, exc)

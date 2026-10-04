@@ -45,9 +45,17 @@ class BoundsOps:
         change -- and this is asked every frame a gizmo is on screen.
         """
         from .....kernels.mesh import elements as el
+        from .....kernels.mesh.selection import _element_pickable
 
+        # The 2026-10-03 audit's clay-70: the drag skips a hidden object and a
+        # collider (``_begin_element_drag``), but this centre averaged every
+        # entry of ``doc.element_sel`` -- so hiding an object that still held an
+        # element selection left the gizmo, and the pivot a rotate or scale turns
+        # about, off the vertices that actually move. The same eligibility the
+        # drag and every other element door share, in the key as well so hiding
+        # or un-hiding misses the memo.
         key = (id(doc), tuple(
-            (uid, id(sel), *self._obj_key(doc, uid))
+            (uid, id(sel), self._pickable(doc, uid), *self._obj_key(doc, uid))
             for uid, sel in doc.element_sel.items()
         ))
         memo = self._centre_memo
@@ -68,6 +76,8 @@ class BoundsOps:
             except KeyError:
                 continue
             pins.append(obj.mesh)
+            if not _element_pickable(obj):
+                continue
             # Every ancestor's own transform triple too, matching the key
             # above -- an id in the key is only sound while the array it
             # names is alive, and nothing else holds an ancestor's arrays
@@ -86,6 +96,17 @@ class BoundsOps:
         centre = None if count == 0 else total / count
         self._centre_memo = (key, centre, tuple(pins))
         return centre
+
+    @staticmethod
+    def _pickable(doc: Any, uid: int) -> bool:
+        """Whether *uid*'s elements are the drag's to move -- ``selection``'s
+        one eligibility, visible and not a collider. A missing uid is not."""
+        from .....kernels.mesh.selection import _element_pickable
+
+        try:
+            return _element_pickable(doc.by_uid(uid))
+        except KeyError:
+            return False
 
     @staticmethod
     def _obj_key(doc: Any, uid: int) -> tuple:
@@ -116,9 +137,16 @@ class BoundsOps:
         move -- which now includes a modifier's own parameters changing, not
         only the base mesh, since ``doc.evaluated`` is what is boxed below.
         """
+        # ``obj.parent`` is in the key: ``_world`` composes the ancestor chain
+        # into every box, and a reparent that keeps the local arrays in place
+        # (``keep_world=False``, and its undo) changes no id below -- the 2026-10-03
+        # audit's clay-72 found the gizmo and ``F`` served the box measured under
+        # the old parent until some unrelated transform edit invalidated the memo.
+        # The parent's own entry carries its transform ids, and a grandparent's
+        # reparent shows up as the parent's ``parent`` changing.
         key = (id(doc), tuple(
             (
-                obj.uid, obj.visible, obj.uid in doc.selection,
+                obj.uid, obj.visible, obj.uid in doc.selection, obj.parent,
                 id(doc.evaluated(obj.uid)), id(obj.translation), id(obj.rotation), id(obj.scale),
             )
             for obj in doc.objects

@@ -251,8 +251,9 @@ def _required(mode: str, with_reference: bool) -> tuple[tuple[str, str, str], ..
 
 #: The grid mode's rows, under the two names the 2D pane has always read. Kept
 #: as module constants rather than folded into :func:`rows_needed` because
-#: ``studio.panes.settings_2d`` reads both by name and its Sheet output is the
-#: grid arm; a pane that grows a mode picker asks :func:`rows_needed` instead.
+#: ``tile_sheet_options`` publishes the grid arm under ``rows_needed`` and
+#: ``tests/test_sheet_form.py`` reads both by name; a pane that grows a mode
+#: picker asks :func:`rows_needed` instead.
 TILE_SHEET_ROWS: tuple[str, ...] = rows_needed(MODE_GRID)
 
 #: With a reference attached. A superset, in check order.
@@ -270,8 +271,8 @@ def tile_sheet_options() -> dict[str, Any]:
 
     **The installed palettes are deliberately not in here**; they are
     :func:`tile_sheet_palettes`. This function takes no ``svc`` and reads no
-    disk, and ``studio.panes.settings_2d`` caches its answer for the process
-    lifetime in a one-slot list on exactly that ground -- "there is nothing for
+    disk, and ``studio/modes/create/engine/recipe.py`` caches its answer for
+    the process lifetime in a one-slot list on exactly that ground -- "there is nothing for
     them to go stale against: neither reads config, disk or state". A palette is
     a *file the user dropped in a directory*, so folding the listing in here
     would make that comment false and cache a directory listing until the app
@@ -371,6 +372,21 @@ def tile_sheet_palettes(svc: RealmspinnerService) -> list[str]:
     from . import palettes
 
     return palettes.available(svc.config)
+
+
+def effective_style_lock(flag: object, cells: int) -> bool:
+    """Whether a style lock will actually reach the IP-Adapter.
+
+    The one reading every gate shares. The worker only hands the first material
+    to the adapter ``if style_lock and count > 1`` -- a one-cell sheet has
+    nothing after the first material to condition on -- so the door, the reroll
+    gate and the Create pane's weight note all ask this with the number of cells
+    the request names. The 2026-10-03 audit (plotter-23) found the door and
+    ``vram`` applying the count while the reroll gate and the pane ignored it,
+    so a one-material locked sheet that was admitted without the adapter was
+    refused on reroll for a download it never needed.
+    """
+    return bool(flag) and int(cells) > 1
 
 
 def _check_weights(
@@ -936,10 +952,9 @@ def create_tile_sheet(
     # gate) -- a one-cell sheet has nothing after the first material to
     # condition on, so requiring the encoder's weights for it refused a
     # request the worker would never actually load one for.
-    effective_style_lock = bool(style_lock) and len(materials) > 1
     _check_weights(
         svc, mode=mode_key, with_reference=reference is not None,
-        style_lock=effective_style_lock,
+        style_lock=effective_style_lock(style_lock, len(materials)),
     )
     check_vram(svc, "tile_sheet", "tilesheet", params)
 

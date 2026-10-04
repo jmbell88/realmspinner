@@ -150,11 +150,28 @@ def _measure_pixel_grid(ctx: Any, tab: Any) -> None:
     ``inker_resize:`` entry, keyed the same way.
     """
     key = f"inker_grid:{tab.uid}"
-    try:
-        found = transform.detect_pixel_grid(tab.doc.flatten(matte=False))
-    except ValueError:
-        found = {"scale": None}
-    ctx.state.preview[key] = found
+    # The previous answer goes now: it was for pixels that may have changed
+    # since, and the Descale row must not offer it while the new one is out.
+    ctx.state.preview.pop(key, None)
+    # **Off the frame thread.** The 2026-10-03 audit, finding inker-54: this was
+    # a synchronous ``detect_pixel_grid`` on the frame thread, measured at 0.38 s
+    # at 1024 square, 6.5 s at 4096 and 26 s at 8192 (the manual's ceiling) --
+    # the whole window frozen for as long as it ran. Flattened *here*, because
+    # the document is frame-thread state and the copy is the snapshot the task
+    # reads; the sweep over it is the part that scales. The Descale row appears
+    # when ``inker_mode.on_task_done`` lands the answer in the same
+    # ``inker_grid:`` entry the row already reads.
+    flat = tab.doc.flatten(matte=False)
+    rev = tab.doc.rev
+
+    def run() -> dict[str, Any]:
+        try:
+            found = transform.detect_pixel_grid(flat)
+        except ValueError:
+            found = {"scale": None}
+        return {"found": found, "rev": rev}
+
+    ctx.submit(f"inker-grid:{tab.uid}", run)
 
 
 def _descale_row(ctx: Any, tab: Any, *, refused: bool = False) -> bool:
@@ -181,11 +198,13 @@ def _descale_row(ctx: Any, tab: Any, *, refused: bool = False) -> bool:
         return False
     widgets.divider()
     widgets.muted(f"Detected a {scale} px pixel grid - true size {width} x {height}")
+    # Busy first (the 2026-10-03 audit, finding inker-64): the caller greys this
+    # row on ``tab.busy`` and the button itself said nothing about why.
     if widgets.disabled_button(
         "Descale",
-        not refused,
+        not refused and not tab.busy,
         (sp(180), 0),
-        reason=_NO_TILEMAP_SCALE,
+        reason=widgets.DOCUMENT_SAVING_WHY if tab.busy else _NO_TILEMAP_SCALE,
         tooltip=(
             "Undo an upscale: take one pixel per detected cell, rather than "
             "resampling to that size."
@@ -419,9 +438,15 @@ def _scale_dialog(ctx: Any, tab: Any, *, opening: bool = False) -> None:
     imgui.begin_disabled(tab.busy)
     if widgets.disabled_button(
         "Scale",
-        not tilemap and not unchanged,
+        not tilemap and not unchanged and not tab.busy,
         (sp(120), 0),
-        reason=_NO_TILEMAP_SCALE if tilemap else "That is already the size it is.",
+        reason=(
+            widgets.DOCUMENT_SAVING_WHY
+            if tab.busy
+            else _NO_TILEMAP_SCALE
+            if tilemap
+            else "That is already the size it is."
+        ),
         tooltip="Resample the picture to this size.",
     ):
         try:
@@ -507,9 +532,11 @@ def _canvas_dialog(ctx: Any, tab: Any, *, opening: bool = False) -> None:
     imgui.begin_disabled(tab.busy)
     if widgets.disabled_button(
         "Resize",
-        (width, height) != tuple(old),
+        (width, height) != tuple(old) and not tab.busy,
         (sp(120), 0),
-        reason="That is already the size it is.",
+        reason=(
+            widgets.DOCUMENT_SAVING_WHY if tab.busy else "That is already the size it is."
+        ),
         tooltip="Grow or crop the canvas, leaving the picture unresampled.",
     ):
         try:
@@ -672,8 +699,15 @@ def _inpaint_popup(ctx: Any, tab: Any) -> None:
         problems.append("The selection is gone.")
     for problem in problems:
         widgets.muted(problem)
+    # The reason is the button's own (the 2026-10-03 audit, finding inker-64):
+    # busy first, because a save is not "describe what should be there".
     imgui.begin_disabled(bool(problems) or tab.busy)
-    if controls.button("Generate", (sp(90), 0)):
+    if controls.button(
+        "Generate",
+        (sp(90), 0),
+        enabled=not problems and not tab.busy,
+        reason=widgets.DOCUMENT_SAVING_WHY if tab.busy else " ".join(problems),
+    ):
         submit_inpaint(ctx, tab, state.inpaint_prompt, float(state.inpaint_strength))
         imgui.close_current_popup()
     imgui.end_disabled()
@@ -700,7 +734,11 @@ def submit_inpaint(ctx: Any, tab: Any, prompt: str, strength: float) -> bool:
     if doc.write_locked():
         ctx.toast("The active layer is locked.", "warn")
         return False
-    crop_png, mask_png, box = inpaint.prepare(
+    # Only the cheap half here: the crop has to be the picture the user pressed
+    # Generate on, so it is copied now, but the LANCZOS resize and the two PNG
+    # encodes run inside ``run`` on the task thread (the 2026-10-03 audit,
+    # finding inker-97).
+    crop_rgb, crop_mask, box = inpaint.capture(
         doc.flatten(matte=False), doc.mask.mask, doc.mask.bounds
     )
     x0, y0, x1, y1 = box
@@ -717,6 +755,7 @@ def submit_inpaint(ctx: Any, tab: Any, prompt: str, strength: float) -> bool:
     def run() -> Any:
         from ......service import jobs as svc_jobs
 
+        crop_png, mask_png, _box = inpaint.encode(crop_rgb, crop_mask, box)
         return svc_jobs.create_job(
             ctx.svc,
             kind="text",
@@ -1030,7 +1069,12 @@ def _filter_popup(ctx: Any, tab: Any) -> None:
 
     imgui.dummy((0, sp(tokens.SP_1)))
     imgui.begin_disabled(tab.busy)
-    if controls.button("Apply", (sp(90), 0)):
+    if controls.button(
+        "Apply",
+        (sp(90), 0),
+        enabled=not tab.busy,
+        reason=widgets.DOCUMENT_SAVING_WHY,
+    ):
         tab.doc.commit_filter()
         state.filter_uid = ""
         imgui.close_current_popup()
@@ -1045,6 +1089,41 @@ def _filter_popup(ctx: Any, tab: Any) -> None:
         state.filter_uid = ""
         imgui.close_current_popup()
     imgui.end_popup()
+
+
+def _run_range_filter(
+    ctx: Any, state: Any, tab: Any, values: dict[str, Any], rect: Any
+) -> bool:
+    """Cancel the preview, run the filter over the range, and say if it refuses.
+
+    The 2026-10-03 audit, finding inker-63: this was three bare statements --
+    cancel the session, clear ``filter_uid``, call ``filter_range`` -- and
+    ``filter_range`` raises ``ValueError`` ("a filter of a tilemap layer is not
+    yet modeled") whenever the range holds a tilemap track, which
+    ``_open_filter`` allows because it only refuses a tilemap *active* layer.
+    The click threw out of the canvas pane's draw (the pane guard) after the
+    user's preview was already discarded, leaving the popup up with no session
+    behind it. Now the refusal is a toast, and the session is **reopened** over
+    the layer it was on -- ``cancel_filter`` has already put the pixels back, so
+    ``begin_filter`` snapshots exactly what the first one did and the popup
+    carries on, previewing, until the range op succeeds or the user cancels.
+
+    -> whether the range was filtered, i.e. whether the popup should close.
+    """
+    tab.doc.cancel_filter()
+    state.filter_uid = ""
+    try:
+        tab.doc.filter_range(state.filter_name, values, *rect)
+    except ValueError as exc:
+        ctx.toast(f"Not filtered: {exc}.", "warn")
+        try:
+            reopened = tab.doc.begin_filter() is not None
+        except ValueError:
+            reopened = False
+        if reopened:
+            state.filter_uid = tab.uid
+        return False
+    return True
 
 
 def _apply_to_range(ctx: Any, tab: Any) -> None:
@@ -1064,12 +1143,19 @@ def _apply_to_range(ctx: Any, tab: Any) -> None:
     state = inker_mode.ensure(ctx)
     rect = tab.range_sel
     imgui.begin_disabled(tab.busy or rect is None or tab.doc.anim is None)
-    if controls.button("Apply to range", (sp(120), 0)):
+    if controls.button(
+        "Apply to range",
+        (sp(120), 0),
+        enabled=not (tab.busy or rect is None or tab.doc.anim is None),
+        reason=(
+            widgets.DOCUMENT_SAVING_WHY
+            if tab.busy
+            else "Select a range of cels in the timeline first."
+        ),
+    ):
         values = dict(_filter_values(state, state.filter_name))
-        tab.doc.cancel_filter()
-        state.filter_uid = ""
-        tab.doc.filter_range(state.filter_name, values, *rect)
-        imgui.close_current_popup()
+        if _run_range_filter(ctx, state, tab, values, rect):
+            imgui.close_current_popup()
     imgui.end_disabled()
     if rect is None:
         widgets.help_marker(
@@ -1448,7 +1534,12 @@ def convert_popup(ctx: Any, tab: Any) -> None:
 
     imgui.dummy((0, sp(tokens.SP_1)))
     imgui.begin_disabled(tab.busy)
-    if controls.button("Apply##convert", (sp(90), 0)):
+    if controls.button(
+        "Apply##convert",
+        (sp(90), 0),
+        enabled=not tab.busy,
+        reason=widgets.DOCUMENT_SAVING_WHY,
+    ):
         apply_convert(ctx, tab)
         imgui.close_current_popup()
     imgui.end_disabled()

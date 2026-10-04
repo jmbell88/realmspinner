@@ -60,7 +60,8 @@ defaults to on (such as `REALMSPINNER_NATIVE`) means an unrecognised word leaves
 | `REALMSPINNER_POSE_TIMEOUT` | `300` | Seconds for one pose bake. Much tighter, because a bake runs inline rather than on the job queue. |
 | `REALMSPINNER_SHEET_TIMEOUT` | `1800` | Seconds for one sprite-sheet render. Generous because the cell count is yours to choose, but still bounded. |
 | `REALMSPINNER_SEPARATION_TIMEOUT` | `1800` | Seconds for one stem-separation subprocess. Generous because a full-length take on the CPU fallback is genuinely slow, but still bounded because this runs on the serial queue. |
-| `REALMSPINNER_LOG_LEVEL` | `INFO` | Logging level for the console and the rotating log file. |
+| `REALMSPINNER_LOG_LEVEL` | `INFO` | Logging level for the console and the rotating log file. Case-insensitive (`debug` works); a name that is not a level falls back to `INFO` and says so once in the log. |
+| `REALMSPINNER_ALLOW_UNSAFE_LOCK` | unset | Set to `1` for emergency recovery only. Realmspinner takes a lock on its home, job database and model directory before it opens anything, and refuses to start if it cannot open or take that lock (a read-only data directory, say). `1` lets it start anyway, without that protection, which can corrupt jobs or model files. It does not let a second copy start while another one holds the lock: that is always refused. |
 | `REALMSPINNER_POSE_FIT` | `on` | Whether a rig may measure its joint positions off the reference image rather than taking the template's. Off falls back to the template everywhere. A kill switch, not an opt-in: any doubt already refuses the whole fit. |
 | `REALMSPINNER_DEFORM_QA` | `on` | Whether a finished rig is rendered in a battery of test poses (`rig_qa.png` beside the rig). Nothing scores it — the point is a picture you look at. Off skips the render. |
 | `REALMSPINNER_NATIVE` | `1` | Whether the optional native kernels are used at all. `0` forces the numpy fallbacks, which is what the parity tests and an A/B timing run want. The fallbacks are never deleted, so this changes speed and nothing else. |
@@ -74,6 +75,11 @@ only, and an unset control there falls back to whatever the variable above is se
 API's own `trellis_*` job parameters already did. Neither changes the other — the environment variable
 is still what a headless run or an unattended batch sees.
 
+A numeric variable that is not a number, or is outside the range a job may ask for — a typo in
+`REALMSPINNER_MESH_PROFILE`, `REALMSPINNER_LOWPOLY_TRIANGLES` or one of the `REALMSPINNER_TRELLIS_*`
+numbers, say — is ignored: the default is used instead, and Doctor lists it with the range it
+expected, rather than every job being refused for a setting you never touched.
+
 ### Seeing which of these are actually set
 
 `realmspinner doctor` prints an **Effective configuration** block after its checks, and **Settings →
@@ -83,8 +89,9 @@ environment rather than from a default, which is the only part that diagnoses an
 whose behaviour disagrees with this table almost always disagrees because something in its
 environment says so.
 
-One variable is deliberately absent from that list, because it is not a setting the app holds —
-it is read once, where it is used, and nothing keeps it: `REALMSPINNER_LOG_LEVEL`. The other four are
+Two variables are deliberately absent from that list, because they are not settings the app holds —
+each is read once, where it is used, and nothing keeps it: `REALMSPINNER_LOG_LEVEL` and
+`REALMSPINNER_ALLOW_UNSAFE_LOCK`. The four env-only switches are
 reported: `effective()` appends `REALMSPINNER_NATIVE`, `REALMSPINNER_NATIVE_DLL`, and the two that only mean
 anything during the one-time move described under [Data locations](#data-locations),
 `REALMSPINNER_NO_MIGRATE` and `REALMSPINNER_MIGRATE_KEEP`, as a second, env-only table after the settings
@@ -134,19 +141,25 @@ never cloned the repository.
 
 ```text
 ~/.realmspinner/
-  assets/                  the library (REALMSPINNER_DATA_DIR)
+  assets/                  the library, and studio_settings.json (REALMSPINNER_DATA_DIR)
   bench/                   benchmark runs (REALMSPINNER_BENCH_DIR)
   evidence/                what a bulk delete kept (REALMSPINNER_EVIDENCE_DIR)
   palettes/                pixel-art palettes you supply (REALMSPINNER_PALETTE_DIR)
   models/                  every downloaded model weight (REALMSPINNER_T2I_ROOT)
+  engine/trellis/          the downloaded reconstruction engine (REALMSPINNER_TRELLIS_RUNTIME)
+  packs/                   the dependency-pack wheel cache (Settings -> Packs)
+  updates/                 an installer the update check downloaded (Settings -> Updates)
+  mcp.token                the agent bridge's key, written while the bridge is switched on
   MIGRATED.txt             written once, if anything was moved here
 ```
 
 `palettes/` and `models/` are created empty at startup, because both are directories you put files
 into by hand and an empty folder is a clearer instruction than a paragraph in this manual. The
-vendored binaries — `trellis-server.exe`, `gltfpack.exe`, `realmspinnerc.dll` — stay under the checkout's
-`vendor/`, which is git-ignored in full: the first two are one-time manual downloads and the third
-is built locally by `native\build.ps1`, so none of them arrives with a clone.
+vendored binaries — `gltfpack.exe`, `realmspinnerc.dll` — stay under the checkout's
+`vendor/`, which is git-ignored in full: the first is a one-time manual download and the second
+is built locally by `native\build.ps1`, so neither arrives with a clone. `trellis-server.exe` is no
+longer one of them: the engine is the download under `engine/trellis/` above, and `vendor/trellis/`
+is only a source checkout's fallback.
 
 ### The one-time move
 

@@ -2,7 +2,7 @@
 ``clay_modifier_add``, ``clay_modifier_set``, ``clay_modifier_remove``,
 ``clay_modifier_move`` and ``clay_modifier_apply``.
 
-Tranche 2 (``dev/CLAY-PLAN.md``): the modifier stack (:mod:`.modifiers`)
+Clay tranche 2: the modifier stack (:mod:`.modifiers`)
 landed in the kernel and in ``document.py`` first -- ``Obj.modifiers``, the
 document's ``set_modifiers``/``apply_modifiers``/``evaluated``/``evaluation``
 doors -- and this file is the agent surface over that stack, the same shape
@@ -161,7 +161,7 @@ def _h_modifier_add(ctx: Any, session: Session, args: dict) -> dict:
     else:
         try:
             index = int(index_arg)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("index must be an integer.", field="index")
         if not (0 <= index <= len(stack)):
             return fail(f"index must be between 0 and {len(stack)}.", field="index")
@@ -263,7 +263,7 @@ def _h_modifier_move(ctx: Any, session: Session, args: dict) -> dict:
         return fail("give a value for 'index'.", field="index")
     try:
         index = int(index_arg)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fail("index must be an integer.", field="index")
     stack = list(obj.modifiers)
     if not (0 <= index < len(stack)):

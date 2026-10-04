@@ -25,6 +25,8 @@ selection, and this is the layer beneath it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 
 from .adjacency import adjacency
@@ -257,3 +259,56 @@ def region_boundary_corners(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
     edges = a.corner_edge[mine]
     boundary = (per_edge[edges] < a.edge_uses[edges]) | (a.edge_uses[edges] == 1)
     return mine[boundary]
+
+
+def region_boundary_corners_by_group(
+    mesh: Mesh, groups: Sequence[np.ndarray]
+) -> list[np.ndarray]:
+    """:func:`region_boundary_corners` for every group of faces at once, in one
+    vectorised pass -- element *g* equals ``region_boundary_corners(mesh,
+    groups[g])``, ordered by corner index the same way.
+
+    The 2026-10-03 audit's clay-50: a dissolve of G small groups called the
+    single-region form once per group, and each call does whole-mesh work (a
+    face mask, a flatnonzero over every corner, a bincount over every edge), so
+    the cost was G x the mesh -- 2.9 s for 4,489 two-face groups on a 40k-vertex
+    mesh and 49 s for 17,689 on 160k, on the frame thread with nothing to
+    cancel. Here the work is proportional to the corners the groups hold: each
+    (group, edge) pair is counted once and compared against the edge's total
+    face count, which is exactly the rule the single form states. Groups may
+    overlap and a group may repeat a face; each is answered as if it were alone.
+    """
+    a = adjacency(mesh)
+    n_groups = len(groups)
+    if n_groups == 0:
+        return []
+    n_faces = len(mesh.starts) - 1
+    if len(mesh.loops) == 0 or n_faces == 0:
+        return [np.zeros(0, dtype="i8") for _ in groups]
+    sizes = np.array([len(g) for g in groups], dtype="i8")
+    gid = np.repeat(np.arange(n_groups, dtype="i8"), sizes)
+    faces = np.concatenate([np.asarray(g, dtype="i8").reshape(-1) for g in groups])
+    # One entry per (group, face): a repeated face counts once, as the mask in
+    # the single form does.
+    pair = np.unique(gid * n_faces + faces)
+    gid, faces = pair // n_faces, pair % n_faces
+
+    starts = mesh.starts.astype("i8")
+    per_face = starts[faces + 1] - starts[faces]
+    owner = np.repeat(np.arange(len(faces), dtype="i8"), per_face)
+    within = np.arange(int(per_face.sum()), dtype="i8") - np.repeat(
+        np.cumsum(per_face) - per_face, per_face
+    )
+    corner = starts[faces][owner] + within
+    cgid = gid[owner]
+    edge = a.corner_edge[corner].astype("i8")
+
+    key = cgid * a.n_edges + edge
+    _, inverse, counts = np.unique(key, return_inverse=True, return_counts=True)
+    boundary = (counts[inverse.reshape(-1)] < a.edge_uses[edge]) | (a.edge_uses[edge] == 1)
+
+    corner, cgid = corner[boundary], cgid[boundary]
+    order = np.lexsort((corner, cgid))
+    corner, cgid = corner[order], cgid[order]
+    cuts = np.searchsorted(cgid, np.arange(n_groups + 1, dtype="i8"))
+    return [corner[cuts[g] : cuts[g + 1]] for g in range(n_groups)]

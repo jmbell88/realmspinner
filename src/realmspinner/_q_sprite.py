@@ -222,21 +222,31 @@ class SpriteOps:
                             sheet=True,
                         )
                     )
-                    with Image.open(out_path) as generated:
-                        generated.load()
-                        # On the square the model returned, before the crop back
-                        # out: the phase is only meaningful against the frame the
-                        # lattice was drawn on, and the crop moves it.
-                        grids.append(
-                            {
-                                "band": band.index,
-                                **await asyncio.to_thread(pixel.lattice, generated),
-                            }
-                        )
-                        piece = pixelsheet.crop_back(generated, band)
-                top = band.first_row * band.frame
-                source_band = atlas.crop((0, top, band.width, top + band.height))
-                styled.paste(pixelsheet.remask(piece, source_band), (0, top))
+                    # The 2026-10-03 audit (service-27): this tail -- decode,
+                    # lattice, crop back, remask, paste -- ran inline on
+                    # ``realmspinner-loop`` once per band (up to eight), the
+                    # thread every job's progress and cancel is served from,
+                    # after the 2026-09-26 audit had moved the atlas and the
+                    # other kinds' decodes behind ``to_thread`` and missed
+                    # this one. One call, not five, and nothing else touches
+                    # ``styled`` while it runs.
+                    def _band_tail(
+                        out_path: Path = out_path, band: Any = band
+                    ) -> dict[str, Any]:
+                        with Image.open(out_path) as generated:
+                            generated.load()
+                            # On the square the model returned, before the crop
+                            # back out: the phase is only meaningful against
+                            # the frame the lattice was drawn on, and the crop
+                            # moves it.
+                            grid = pixel.lattice(generated)
+                            piece = pixelsheet.crop_back(generated, band)
+                        top = band.first_row * band.frame
+                        source_band = atlas.crop((0, top, band.width, top + band.height))
+                        styled.paste(pixelsheet.remask(piece, source_band), (0, top))
+                        return {"band": band.index, **grid}
+
+                    grids.append(await asyncio.to_thread(_band_tail))
         finally:
             await self._release_t2i(t2i, spec)
 
@@ -881,7 +891,7 @@ class SpriteOps:
             int(asked)
             if asked
             else (
-                await asyncio.to_thread(retexture.atlas_size, model_glb)
+                await asyncio.to_thread(retexture.match_the_mesh_size, model_glb)
                 or retexture.TEXTURE_PX
             )
         )

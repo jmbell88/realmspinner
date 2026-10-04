@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 from typing import Any
 
 from imgui_bundle import imgui
@@ -22,6 +23,14 @@ from . import stage_rig
 
 log = logging.getLogger(__name__)
 
+#: Said above "Save pose..." while a saved pose is loaded. ``_save`` sends the
+#: loaded pose's id whatever name is typed, so the sentence says that: the
+#: 2026-10-03 audit, finding create-17, found it promising that a *different*
+#: name made a variant, which lost the original pose and its baked GLB.
+SAVE_REPLACES_WARNING = (
+    "Saving replaces the loaded pose and its saved GLB, whatever name you type."
+)
+
 
 def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
     """The pose editor. ``hosted`` when this pane *is* the column.
@@ -33,6 +42,10 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
     away when there is nothing else in the column is a pane with a hide button
     and no reason for one.
     """
+    # First of all, before any early return: a parse that finished for an asset
+    # this pane is no longer drawing has to be dropped, not left holding
+    # ``viewer.pending`` until the user happens to come back to it.
+    land_enter(ctx, job)
     files = job.get("files") or []
     if "model.glb" not in files:
         return
@@ -43,9 +56,10 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
         return
     manual_render.help_button(ctx, "pose")
     if not rigged:
-        # Every other rig control hides itself when Blender is missing, so
-        # "rig this mesh first" was instructing the user to press a button that
-        # is not on screen and cannot be.
+        # Without Blender the rig controls are greyed with a reason (the rail
+        # and the Mesh stage's checkbox) rather than hidden, but this section
+        # has no control to grey: "rig this mesh first" would be instructing
+        # the user to press a button that cannot work, so it states the cause.
         if not ctx.rigging_available:
             widgets.muted("Posing needs Blender, which is not installed.")
             return
@@ -84,8 +98,17 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
     viewer = ctx.viewer
     editing = viewer is not None and viewer.pose_mode
     if not editing:
-        if controls.button("Edit pose", (-1, 0)):
+        # The simplest safe loading state (create-50, the 2026-10-04 audit): the
+        # button is greyed with its reason while the rig parses off the frame
+        # thread, and the saved list's Apply says the same, rather than either
+        # doing nothing on press.
+        loading = entering(viewer, job)
+        if controls.button(
+            "Edit pose", (-1, 0), enabled=not loading, reason="Loading the rig..."
+        ):
             _enter(ctx, job)
+        if loading:
+            widgets.muted("Loading the rig...")
         _saved_list(ctx, job)
         _poser_link(ctx, job)
         return
@@ -141,28 +164,130 @@ def _elsewhere(ctx: Any, viewer: Any) -> None:
         ctx.state.select(viewer.pose_job_id)
 
 
-def _enter(ctx: Any, job: Any) -> None:
-    """Load the rig into the viewer and bind the editor to it."""
+#: The task key one "Edit pose" / "Apply" press parses its rig under. Per job, so a
+#: second press for the same asset is refused rather than queued, and a press for
+#: another asset never waits behind this one. Under ``pose-`` on purpose: the
+#: shell's landing for that prefix only refreshes the side data, and this
+#: pane adopts the result itself (see :func:`land_enter`).
+ENTER_KEY_PREFIX = "pose-enter:"
+
+
+class _Entering:
+    """One press of "Edit pose" (or "Apply" with the editor closed) in flight.
+
+    Written by the task thread, read by the frame thread, and only ever
+    published through ``done`` -- the same hand-over ``viewer.parse_model`` /
+    ``adopt_model`` make, with the frame-thread half owned by this pane
+    because nothing in the shell's landing table is keyed on it.
+    """
+
+    def __init__(self, job_id: str, path: Any, then: Any) -> None:
+        self.job_id = job_id
+        self.path = path
+        #: What to do to the freshly bound viewer once it lands (Apply's pose).
+        self.then = then
+        self.parsed: Any = None
+        self.rig: Any = None
+        self.error: BaseException | None = None
+        self.done = threading.Event()
+
+
+def entering(viewer: Any, job: Any) -> bool:
+    """Whether the rig of ``job`` is being parsed for the pose editor right now.
+
+    What greys "Edit pose" and "Apply" and puts "Loading the rig..." on screen
+    in the meantime: a second press would only be refused by the task key, and a
+    button that does nothing on press reads as a dead one.
+    """
+    entry = getattr(viewer, "pose_loading", None)
+    # ``pending`` too: ``adopt_model``/``clear`` null it, and the landing that
+    # follows will be dropped, so the control is live again from that frame on
+    # rather than from whenever the abandoned parse finishes.
+    return (
+        entry is not None
+        and entry.job_id == (job or {}).get("id")
+        and getattr(viewer, "pending", None) == entry.path
+    )
+
+
+def _enter(ctx: Any, job: Any, then: Any = None) -> None:
+    """Parse the rig on a task; :func:`land_enter` binds the editor to it.
+
+    The 2026-10-04 audit, finding create-50: this called ``viewer.load_model``
+    -- the whole glTF accessor decode and a PNG decode per texture slot --
+    inline on the frame thread, on the press of a button, which is the stall
+    every other door in ``tests/test_frame_thread_doors.py`` was split to
+    avoid. ``rig.json`` is read on the task as well: it is a service call on
+    a disk file, and a frame is not where one belongs.
+    """
+    viewer = ctx.viewer
     job_id = job["id"]
     rig_path = ctx.job_dir(job_id) / "rig.glb"
     if not rig_path.exists():
         ctx.toast("This mesh has no rig yet.", "error")
         return
-    try:
-        ctx.viewer.load_model(rig_path)
-    except Exception:
+    if entering(viewer, job):
+        return
+    entry = _Entering(job_id, rig_path, then)
+
+    def run() -> None:
+        try:
+            entry.parsed = viewer.parse_model(rig_path)
+            # Posing still works by hand without rig.json; only the mirror button and
+            # the joint editor need what it carries, and both hide themselves without it.
+            with contextlib.suppress(Exception):
+                entry.rig = svc_rig.get_rig(ctx.svc, job_id)
+        except BaseException as exc:  # noqa: BLE001 - handed to the frame thread
+            entry.error = exc
+        finally:
+            entry.done.set()
+
+    # ``pending`` is the freshness check, the one ``App._adopt_model`` uses:
+    # ``adopt_model`` and ``clear`` null it, so anything that replaces the
+    # viewport while the parse is in flight cancels this landing.
+    viewer.pending = rig_path
+    viewer.pose_loading = entry
+    if not ctx.submit(f"{ENTER_KEY_PREFIX}{job_id}", run):
+        viewer.pending = None
+        viewer.pose_loading = None
+
+
+def land_enter(ctx: Any, job: Any) -> None:
+    """The frame-thread half of :func:`_enter`: adopt the parsed rig, bind the editor.
+
+    Called from :func:`draw` every frame the pane is on screen, which is where
+    the press that started it was. A landing is dropped, never adopted, once the
+    viewport no longer wants it: the selection moved to another asset, or
+    something else loaded or cleared the viewer meanwhile (``pending`` no longer
+    names this rig). Adopting a stale one would have put the previous asset's
+    rig on screen under the new selection.
+    """
+    viewer = getattr(ctx, "viewer", None)
+    entry = getattr(viewer, "pose_loading", None)
+    if entry is None or not entry.done.is_set():
+        return
+    viewer.pose_loading = None
+    if viewer.pending != entry.path or entry.job_id != (job or {}).get("id"):
+        if viewer.pending == entry.path:
+            viewer.pending = None
+        return
+    viewer.pending = None
+    job_id = entry.job_id
+    if entry.error is not None:
         # Logged as well as toasted: a rig GLB that will not open is a real
         # failure with a real traceback, and every comparable site in the app
         # writes one. Without it the only trace was a four-word toast.
+        log.error("could not open the rig for job %s", job_id, exc_info=entry.error)
+        ctx.toast("Could not open the rig.", "error")
+        return
+    try:
+        viewer.adopt_model(entry.parsed, entry.path)
+    except Exception:
         log.exception("could not open the rig for job %s", job_id)
         ctx.toast("Could not open the rig.", "error")
         return
-    rig = None
-    # Posing still works by hand without rig.json; only the mirror button and
-    # the joint editor need what it carries, and both hide themselves without it.
-    with contextlib.suppress(Exception):
-        rig = svc_rig.get_rig(ctx.svc, job_id)
-    if not ctx.viewer.enter_pose_mode(rig, job_id):
+    rig = entry.rig
+    if not viewer.enter_pose_mode(rig, job_id):
         ctx.toast("That GLB carries no skeleton.", "error")
         return
     # The preset library follows the rig's skeleton, so it is fetched here
@@ -172,6 +297,8 @@ def _enter(ctx: Any, job: Any) -> None:
     # viewer changes what it shows without the selection changing -- which is
     # what otherwise triggers a refresh.
     ctx.refresh_rig_data()
+    if entry.then is not None:
+        entry.then(viewer)
 
 
 def _poser_link(ctx: Any, job: Any) -> None:
@@ -302,9 +429,7 @@ def _pose(ctx: Any, job: Any, viewer: Any) -> None:
         # existing pose deletes its cached bake, because the GLB on disk depicts
         # the rotations that are about to be replaced. The service is right to
         # delete it and wrong to be the only thing that mentions it.
-        widgets.text_colored(
-            theme.WARN, "Saving under the same name replaces that pose and its saved GLB."
-        )
+        widgets.text_colored(theme.WARN, SAVE_REPLACES_WARNING)
     if controls.button("Save pose...", (-1, 0)):
         _save(ctx, job, viewer)
     if viewer.editor.fitted and controls.button("Adjust joints", (-1, 0)):
@@ -326,11 +451,30 @@ def _apply_saved_pose(ctx: Any, job: Any, pose: dict[str, Any], pose_id: str) ->
     saved pose is not itself an unsaved edit.
     """
     if not ctx.viewer.pose_mode:
-        _enter(ctx, job)
-    viewer = ctx.viewer
-    viewer.reset_all(dirty=False)
-    viewer.set_pose(pose.get("bones") or {}, pose_id=pose_id, dirty=False)
-    viewer.set_root_translation(pose.get("root_translation") or [0.0, 0.0, 0.0], dirty=False)
+        # The 2026-10-04 audit, finding create-50: entering parses the rig on a
+        # task now, so the pose this press was for cannot be applied here -- the
+        # editor is not bound until the parse lands. It rides the entry and is
+        # applied by ``land_enter``, still as one gesture.
+        _enter(ctx, job, then=lambda viewer: _load_pose(viewer, pose, pose_id))
+        return
+    _load_pose(ctx.viewer, pose, pose_id)
+
+
+def _load_pose(viewer: Any, pose: dict[str, Any], pose_id: str) -> None:
+    """The reset, the bones and the root offset, as the one undo step Apply is.
+
+    The 2026-10-04 audit, finding create-31: the three calls ran bare, so the
+    ``reset_all`` pushed a step of its own and the folded ``set_pose`` +
+    ``set_root_translation`` a second -- the first Ctrl+Z after Apply landed on
+    the rest pose, not the pose the user had. One outer ``record()`` makes every
+    inner one re-entrant, and ``begin_pose_load``/``end_pose_load`` inside it
+    fold nothing (there is nothing pushed to fold), so what is filed is a single
+    before/after of the whole gesture.
+    """
+    with viewer.editor.record():
+        viewer.reset_all(dirty=False)
+        viewer.set_pose(pose.get("bones") or {}, pose_id=pose_id, dirty=False)
+        viewer.set_root_translation(pose.get("root_translation") or [0.0, 0.0, 0.0], dirty=False)
 
 
 def _save(ctx: Any, job: Any, viewer: Any) -> None:
@@ -487,7 +631,14 @@ def _saved_list(ctx: Any, job: Any) -> None:
         # wants three controls, one of which reads "Save GLB...". A long name
         # pushed Delete past the content edge where imgui clips it.
         widgets.same_line_or_wrap(widgets.button_width("Apply"))
-        if controls.small_button("Apply") and ctx.viewer is not None:
+        if (
+            controls.small_button(
+                "Apply",
+                enabled=not entering(ctx.viewer, job),
+                reason="Loading the rig...",
+            )
+            and ctx.viewer is not None
+        ):
             # Overwrites the editor's rotations and clears dirty, so it is an
             # exit route like Done/Escape and takes the same confirm.
             def _apply(pose=pose, pose_id=pose_id, job=job):

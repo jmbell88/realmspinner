@@ -48,8 +48,8 @@ Each tag carries three things:
 A finite repeat does not run on past its own span. When it is done, it is done.
 
 Note where playback settings do and do not live. Loop, direction and repeat belong to **the tag**,
-which is a property of the document that travels with it. Playback *speed* and "play once" do not —
-they belong to the preview pane, below.
+which is a property of the document that travels with it. Playback *speed* and whether the
+whole clip or just one tag plays do not — they belong to the preview pane, below.
 
 ## Onion skinning
 

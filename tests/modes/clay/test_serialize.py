@@ -295,8 +295,11 @@ def test_a_document_with_more_objects_than_glbimports_ceiling_is_refused(monkeyp
     """
     from realmspinner.kernels.mesh import glbimport
 
-    monkeypatch.setattr(glbimport, "MAX_OBJECTS", 2)
+    # Written at the real ceiling and lowered after: the 2026-10-03 audit's
+    # clay-27 made the writer refuse what the reader would refuse, so a
+    # document over the lowered ceiling can no longer be *written* under it.
     data = ser.rblk_bytes(_doc())  # three objects
+    monkeypatch.setattr(glbimport, "MAX_OBJECTS", 2)
 
     with pytest.raises(ValueError, match="3 objects, past the 2"):
         ser.read_rblk(data)
@@ -327,8 +330,10 @@ def test_a_document_with_more_triangles_than_glbimports_ceiling_is_refused(monke
     decompressed first."""
     from realmspinner.kernels.mesh import glbimport
 
-    monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
+    # Written at the real ceiling and lowered after (clay-27, 2026-10-03: the
+    # writer now refuses what the reader would).
     data = ser.rblk_bytes(_doc())  # a 12-segment cylinder alone is well past 4
+    monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
 
     with pytest.raises(ValueError, match="more than 4.*triangles"):
         ser.read_rblk(data)
@@ -346,8 +351,6 @@ def test_read_rblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_
     it."""
     from realmspinner.kernels.mesh import glbimport
 
-    monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
-
     angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
     octagon = bm.Mesh(
         positions=[[np.cos(a), np.sin(a), 0.0] for a in angles],
@@ -360,6 +363,9 @@ def test_read_rblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Octagon", mesh=octagon))
 
     data = ser.rblk_bytes(doc)
+    # Lowered after the write (clay-27, 2026-10-03: the writer now refuses
+    # what the reader would).
+    monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
 
     with pytest.raises(ValueError, match="more than 4.*triangles"):
         ser.read_rblk(data)

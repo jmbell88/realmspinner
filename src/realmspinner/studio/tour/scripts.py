@@ -69,7 +69,14 @@ FIRST_HOUR = Tour(
         Step(
             id="open-create",
             title="Open Create",
-            body="Click it -- or Ctrl+K and type its name -- and I will carry on.",
+            # The 2026-10-03 audit, finding tour-03: this used to promise "and I
+            # will carry on", but nothing advances a tour when its condition is
+            # met -- the card only reads "Done." and Next stays the reader's to
+            # press (``panes/tour.py``). The copy now says what the card does.
+            body=(
+                "Click it -- or Ctrl+K and type its name. The card will say Done. "
+                "when you are there; press Next to go on."
+            ),
             anchor="rail/create",
             done=Condition("mode_is", "create"),
         ),
@@ -116,13 +123,14 @@ FIRST_HOUR = Tour(
             id="character-type",
             title="One type needs no card",
             body=(
-                "Set Generation type to Character and the column changes: no model, "
+                "Set \"What are you making?\" to Character and the column changes: no model, "
                 "no seed, no reference. Realmspinner builds the body itself from a registry "
                 "of species, rigs it and renders a sprite sheet, all on the CPU.\n\n"
                 "Try: fire ogre, 3/4 top down sprite sheet -- and watch the column "
                 "read your words back. If you would rather carry on here, Next."
             ),
             mode="create",
+            anchor="create/type",
             chapter=("22-generating-references", "characters"),
         ),
         Step(
@@ -213,13 +221,20 @@ INKER_BASICS = Tour(
             anchor="inker/tools",
             chapter=("05-drawing", "tools"),
         ),
+        # ``done`` is the default MANUAL: the 2026-10-03 audit, finding tour-02,
+        # found this waiting on ``tool_is brush`` -- but a fresh InkerState
+        # already holds the brush, so the card read "Done." on its first frame
+        # for a reader who had pressed nothing. There is no tool the reader must
+        # *change to* here, so it is a "try this, or Next" step.
         Step(
             id="brush",
             title="Take the brush",
-            body="Press B, or click it.",
+            body=(
+                "A new canvas opens with the brush already in hand. If you have "
+                "tried another tool, press B, or click it here, to come back."
+            ),
             mode="inker",
             anchor="inker/tools",
-            done=Condition("tool_is", "brush"),
         ),
         Step(
             id="draw",
@@ -273,7 +288,7 @@ INKER_BASICS = Tour(
             id="blend",
             title="Layers do more than stack",
             body=(
-                "Each one has an opacity and one of nineteen blend modes. Set this one "
+                "Each one has an opacity and one of twenty blend modes. Set this one "
                 "to Multiply at about 60% and paint shadow on it.\n\n"
                 "Undo here is addressed by layer identity rather than by position, so "
                 "reordering the stack never sends a later undo to the wrong layer."
@@ -285,11 +300,16 @@ INKER_BASICS = Tour(
             id="animate",
             title="Give it a timeline",
             body=(
-                "Press Animate this drawing. Your layers become the first column of a "
-                "grid, and nothing about them changes."
+                "Open the Frame menu in the strip along the top of the window and "
+                "choose Animate this drawing. Your layers become the first column of "
+                "a grid, and nothing about them changes."
             ),
             mode="inker",
-            anchor="inker/timeline",
+            # No ring, on purpose: the 2026-10-03 audit, finding tour-04, found
+            # this ringing ``inker/timeline`` -- a panel with no such button,
+            # and not even drawn on a still document. The op is a Frame-menu row
+            # and the menu strip carries no anchor, so the copy says where it is
+            # instead of pointing at something that is not it.
             done=Condition("animated"),
         ),
         Step(

@@ -36,18 +36,33 @@ def hint_line(ctx: Any) -> None:
     tab = mason_mode.active(ctx)
     if tab is None:
         return
-    line = _hint(state)
+    line = _hint(state, getattr(getattr(ctx, "cache", None), "jobs", ()))
     widgets.muted(line)
 
 
-def _hint(state: Any) -> str:
+def _armed_name(key: str, jobs: Any) -> str:
+    """What an arming key names in words -- ``light:point`` is "point light",
+    ``job:3f2a...`` the library row's own name. The 2026-10-03 audit's
+    mason-31: the hint used to print the raw key."""
+    if key.startswith("light:"):
+        return f"{key.split(':', 1)[1].replace('_', ' ')} light"
+    if key.startswith("job:"):
+        job_id = key.split(":", 1)[1]
+        for job in jobs or ():
+            if isinstance(job, dict) and job.get("id") == job_id:
+                return str(job.get("name") or "") or "the asset"
+        return "the asset"
+    return key.replace("_", " ")
+
+
+def _hint(state: Any, jobs: Any = ()) -> str:
     """Pure: no imgui, no document -- the same split ``clay_hints`` makes, so
     "does the hint change with the tool" is a headless assertion rather than
     one that needs a GL context."""
     if state.place_prefab:
         return f"Click in the viewport to place '{state.place_prefab}' -- Esc to cancel"
     if state.place_kind:
-        kind = state.place_kind.replace("_", " ")
+        kind = _armed_name(state.place_kind, jobs)
         return f"Click in the viewport to place {kind} -- Esc to cancel"
     label = {
         "select": "Click to select -- Shift extends, Ctrl toggles",

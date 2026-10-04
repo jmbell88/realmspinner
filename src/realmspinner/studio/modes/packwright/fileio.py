@@ -151,6 +151,54 @@ def _write(files: dict[Path, bytes]) -> None:
     atomic.staged_set(files)
 
 
+def _is_own_sidecar(path: Path) -> bool:
+    """Whether an existing ``.json`` is a TexturePacker sidecar this exporter
+    wrote -- ``meta.app`` is the one thing a user's own JSON will not say."""
+    import json
+
+    from .engine import texturepacker
+
+    try:
+        if path.stat().st_size > 64 * 1024 * 1024:
+            return False
+        meta = json.loads(path.read_text(encoding="utf-8")).get("meta")
+        return isinstance(meta, dict) and meta.get("app") == texturepacker.APP
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def _refuse_unconfirmed_overwrites(typed: Path, files: dict[Path, bytes]) -> None:
+    """Refuse to replace a file the picker never asked about.
+
+    The 2026-10-03 audit's packwright-08. The OS overwrite prompt covers only
+    the name the user *typed*, but both writers then derive other names from
+    it -- ``export_files`` rewrites the suffix to ``.png`` and writes
+    ``<stem>.json`` beside it, ``save_as`` rewrites it to ``.rpack`` -- so a
+    user's own ``hero.json`` (or typing ``atlas`` beside an existing
+    ``atlas.rpack``) was atomically replaced with no prompt and no copy.
+    ``typed`` is the confirmed name; any *other* target that already exists is
+    refused, by name, before anything is written.
+
+    **One exception, the sidecar this exporter wrote itself.** Re-exporting an
+    atlas under the same name must keep working, and a ``.json`` whose
+    ``meta.app`` is ours is exactly that file -- unlike the ``.tsx``, which
+    carries no mark (M12's reason) and is left to that refusal.
+    """
+    from ....service.errors import Invalid
+
+    for target in files:
+        if target == typed or target.suffix == ".tsx" or not target.exists():
+            continue
+        if target.suffix == ".json" and _is_own_sidecar(target):
+            continue
+        raise Invalid(
+            f"{target.name} already exists here and is not the name you picked -- "
+            "choose that name in the dialog to replace it, or save under a "
+            "different one",
+            field="path",
+        )
+
+
 # --- saving -------------------------------------------------------------------
 
 
@@ -193,7 +241,8 @@ def save_as(ctx: Any, tab: PackTab | None = None) -> None:
         )
         if path is None:
             return None
-        path = path.with_suffix(packwright_state.RPACK_SUFFIX)
+        typed, path = path, path.with_suffix(packwright_state.RPACK_SUFFIX)
+        _refuse_unconfirmed_overwrites(typed, {path: b""})
         _write({path: rpack.snapshot_bytes(snap)})
         return {"head": head, "path": str(path), "retitle": True}
 
@@ -273,7 +322,7 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
         path = dialogs.save_file("Export the atlas", f"{stem}.png", PNG_FILTER)
         if path is None:
             return None
-        path = path.with_suffix(".png")
+        typed, path = path, path.with_suffix(".png")
         tsx_path = path.with_suffix(".tsx")
         try:
             sidecar = texturepacker.tp_bytes(
@@ -311,6 +360,7 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
                 "different name",
                 field="path",
             )
+        _refuse_unconfirmed_overwrites(typed, files)
         _write(files)
         result: dict[str, Any] = {"exported": str(path), "files": len(files)}
         if tsx_skipped is not None:

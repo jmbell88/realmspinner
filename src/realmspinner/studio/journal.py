@@ -138,8 +138,14 @@ class Provider:
     uid_of: Callable[[Any], str]
     title_of: Callable[[Any], str]
     head_of: Callable[[Any], Any]
-    #: ``slot -> bytes``. **Frame thread.** See the module docstring.
-    encode: Callable[[Any], bytes]
+    #: ``slot -> bytes``, or ``slot -> (() -> bytes)``. **Frame thread.** See
+    #: the module docstring. The second spelling is for an encoder whose
+    #: expensive half can run off the frame thread once the live document has
+    #: been read: it returns a zero-argument callable that :func:`write`'s task
+    #: calls (the 2026-10-03 audit's packwright-04 -- Packwright's PNG encode
+    #: of every source froze the window on each tick for a dirty atlas). The
+    #: callable must close over a snapshot, never the live document.
+    encode: Callable[[Any], bytes | Callable[[], bytes]]
     #: ``(ctx, path, meta) -> bool``. Reopen one recovered payload; False means
     #: "could not, and has said so".
     adopt: Callable[[Any, Path, dict[str, Any]], bool]
@@ -443,7 +449,8 @@ def write(ctx: Any, provider: Provider, slot: Any, stamp: float | None = None) -
     """Take one copy now, ignoring the debounce. -> whether it was submitted.
 
     The encode happens **here**, on the frame thread, and only the write goes
-    to a task -- see the module docstring.
+    to a task -- see the module docstring. (An encoder may return a callable
+    to defer its expensive half to that task; see :attr:`Provider.encode`.)
 
     **The two halves of the mark move at two different moments**, and that
     split is the whole of what this function is careful about.
@@ -518,7 +525,9 @@ def write(ctx: Any, provider: Provider, slot: Any, stamp: float | None = None) -
                     # saved or closed, and writing now would resurrect the
                     # deleted pair.
                     return None
-            _write_pair(payload, data, meta)
+            # A deferred encode runs here, on the task, and only for a write
+            # that is going ahead -- a dropped slot never pays for it.
+            _write_pair(payload, data() if callable(data) else data, meta)
         # **The mark is handed back, not written here** (the review's theme
         # T3). This is a task thread and the three attributes are UI state on
         # a slot the frame loop reads sixty times a second, unlocked: a reader
@@ -778,7 +787,42 @@ def adopt(ctx: Any, found: list[Recovered]) -> int:
                 taken += 1
         except Exception:
             log.exception("journal: %s could not adopt %s", one.kind, one.path)
+            # The provider raised before it could say why, so this is the one
+            # place that can. Home used to add its own generic toast on every
+            # declined press, which doubled the pose provider's specific one
+            # (shell-06); a False return now means "has said so" and this is
+            # how a raise meets the same contract.
+            adopt_failed(ctx, provider.label)
     return taken
+
+
+#: How old a ``.<name>.tmp`` staging file must be before the sweep treats it as
+#: the leftovers of a killed write rather than another instance's write in
+#: flight. A staging file lives for the length of one ``write_bytes``.
+STALE_STAGING_S = 60.0
+
+
+def _sweep_staging(root: Path) -> None:
+    """Remove the staging dotfiles a hard-killed :func:`_write_pair` left behind.
+
+    The ``finally`` in ``_write_pair`` covers a write that *raises*; a power cut or
+    a process kill runs no ``finally``. Nothing swept those dotfiles afterwards --
+    ``recoverable`` is sidecar-driven and ignores them, and a later session's
+    names differ (``_free_name``, fresh uids) so the staging file is never
+    overwritten either -- and each can be a whole document copy kept for good
+    (the 2026-10-03 audit's shell-60). Never raises: it is housekeeping.
+    """
+    cutoff = time.time() - STALE_STAGING_S
+    try:
+        candidates = [p for p in root.glob(".*.tmp") if p.is_file()]
+    except OSError:
+        return
+    for path in candidates:
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            log.warning("journal: could not sweep staging file %s", path, exc_info=True)
 
 
 def snapshot(ctx: Any) -> list[Recovered]:
@@ -810,6 +854,8 @@ def snapshot(ctx: Any) -> list[Recovered]:
         # has registered would be listed and then found unadoptable, which
         # reads as a corrupt journal rather than as an unimported module.
         ensure_providers()
+        # Once, with the scan, and before this session writes anything of its own.
+        _sweep_staging(directory(ctx))
         ctx.state.recovery = recoverable(ctx)
     return ctx.state.recovery
 

@@ -61,6 +61,7 @@ from .schema import (
     _QUERY_OPTIONAL_ARGS,
     ELEMENT_PAGE_DEFAULT,
     ELEMENT_PAGE_MAX,
+    MAX_RENDER_VIEWS,
     RENDER_FRAME_RESERVE,
     RENDER_PIXEL_BUDGET,
     RENDER_SHADINGS,
@@ -244,6 +245,14 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
             pairs = [[int(a), int(b)] for a, b in edges_arg]
         except (TypeError, ValueError, OverflowError):
             return fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
+        # The 2026-10-03 audit's agents-15: an integer past int32 (a bare
+        # ``2**70`` or ``1e30``) is a valid Python int, so the cast above
+        # passed it, and ``np.asarray(..., dtype="i4")`` below then raised
+        # ``OverflowError`` into ``call()``'s field-blind backstop. A vertex
+        # outside the mesh is no edge of it, so it takes the same refusal.
+        out_of_mesh = next((p for p in pairs if not all(0 <= v < n_verts for v in p)), None)
+        if out_of_mesh is not None:
+            return fail(f"{out_of_mesh} is not an edge of this mesh.", field="edges")
         if pairs:
             # ``ElementSel`` accepts any vertex pair with no complaint -- it
             # is only an overlay index buffer once it reaches the viewport --
@@ -291,7 +300,7 @@ def _check_expect_stamp(
     a stale stamp before touching the mode or the selection."""
     try:
         expect_stamp = int(expect_stamp)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail("expect_stamp must be an integer.", field="expect_stamp")
     current = doc.mesh_stamp(uid)
     if expect_stamp != current:
@@ -438,7 +447,7 @@ def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
     offset = args.get("offset", 0)
     try:
         offset = int(offset)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fail("offset must be an integer.", field="offset")
     if offset < 0:
         return fail("offset must not be negative.", field="offset")
@@ -446,7 +455,7 @@ def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
     limit = args.get("limit", ELEMENT_PAGE_DEFAULT)
     try:
         limit = int(limit)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fail("limit must be an integer.", field="limit")
     if not (1 <= limit <= ELEMENT_PAGE_MAX):
         return fail(f"limit must be between 1 and {ELEMENT_PAGE_MAX}.", field="limit")
@@ -476,7 +485,19 @@ def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
             row["indices"] = arr[offset : offset + limit].tolist()
         rows.append(row)
 
-    return _json({"mode": doc.element_mode, "objects": rows})
+    payload = {"mode": doc.element_mode, "objects": rows}
+    # The 2026-10-03 audit's clay-23: with no ``uid`` this answers every object
+    # in the element selection at up to ``limit`` indices each, so the reply
+    # scales with objects x limit and was never checked against the frame (220
+    # UV spheres at limit 4096 made 9.48 MB; the call is read-only, so the
+    # agent just lost the answer). Refused here, by name, instead.
+    over_budget = _over_frame_budget(
+        payload,
+        hint="name one object with 'uid', or lower 'limit' and page with 'offset'",
+    )
+    if over_budget is not None:
+        return over_budget
+    return _json(payload)
 
 
 @dataclass
@@ -668,7 +689,7 @@ def _parse_view_entry(entry: Any, valid_views: set[str]) -> tuple[str, dict, dic
         try:
             yaw = float(entry["yaw"])
             pitch = float(entry["pitch"])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return "", {}, fail("yaw and pitch must be numbers.", field="views")
         if not math.isfinite(yaw) or not (-89.0 <= pitch <= 89.0):
             return "", {}, fail("pitch must be between -89 and 89 degrees.", field="views")
@@ -689,7 +710,7 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
     else:
         try:
             size = int(size_arg)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return fail("size must be an integer.", field="size")
         # Refused, not clamped: the schema declares ``minimum: 64, maximum:
         # 2048``, and silently rounding a caller's own number into range
@@ -707,6 +728,15 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
     if views_arg is not None:
         if not isinstance(views_arg, list) or not views_arg:
             return fail("views must be a non-empty list.", field="views")
+        # The 2026-10-03 audit's clay-99: ``RENDER_PIXEL_BUDGET`` bounds pixels,
+        # so 1,536 views at 64x64 fit it and each is a synchronous render on
+        # the frame thread. A dozen is what the budget's own comment assumes.
+        if len(views_arg) > MAX_RENDER_VIEWS:
+            return fail(
+                f"views takes at most {MAX_RENDER_VIEWS} entries per call; "
+                f"{len(views_arg)} were given -- split the request.",
+                field="views",
+            )
         entries = views_arg
     elif view is not None:
         # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06
@@ -780,7 +810,8 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             # coherent question. Refused rather than silently dropping the
             # 'ids' table a caller would otherwise expect.
             return fail("shading 'object_id' cannot be combined with compare.", field="shading")
-        reference = session.references.get(compare)
+        # isinstance first (clay-agent-tools-06): a list or object is unhashable.
+        reference = session.references.get(compare) if isinstance(compare, str) else None
         if reference is None:
             return fail(f"no reference named {compare!r}.", field="compare")
         if compare_mode not in ("beside", "overlay"):
@@ -1259,7 +1290,7 @@ def _h_export(ctx: Any, session: Session, args: dict) -> dict:
     own module docstring for the two departures from ``clay_mode.save_to``/
     ``export_asset`` this fold takes and why.
 
-    **``engine``, tranche 7 (``dev/CLAY-PLAN.md``), names the export profile
+    **``engine``, Clay tranche 7, names the export profile
     this row is written for** -- the collider naming an engine recognises,
     and the axis/scale convention an OBJ needs. It is checked against
     :data:`~.engines.ENGINES` so a bad value is refused by name rather than

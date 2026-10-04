@@ -16,7 +16,7 @@ key -- and none of them decides anything.
 **Nothing here imports imgui**, which is what keeps the registry testable: an
 ``Op``'s ``enabled`` predicate is a function of a document, so "Fill Hole is
 greyed out with a face selected" is a plain assertion rather than a screenshot.
-The pane layer (``studio/modes/clay/ui/menu.py``) is the only thing that knows a popup
+The pane layer (``studio/modes/clay/ui/panes/menu.py``) is the only thing that knows a popup
 exists.
 
 **An op that changes geometry freezes the object's generator.** A box whose
@@ -273,7 +273,7 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
     popup would have produced with the fields untouched.
 
     **Declared parameters are clamped here.** The popup clamps its live fields
-    too (``studio/modes/clay/ui/menu.py``), but that is a UX affordance on one surface --
+    too (``studio/modes/clay/ui/panes/menu.py``), but that is a UX affordance on one surface --
     the key path, the tools pane and every test call arrive with whatever the
     caller had remembered, and a subdivision at ``levels=99`` is not a refusal
     an op should have to write for itself. ``run`` is the choke point all three
@@ -296,6 +296,14 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
         toast(ctx, str(error))
         doc.history.collapse_since(mark)
         return False
+    except BaseException:
+        # The 2026-10-03 audit's clay-62: a bug (a MemoryError, a numpy or
+        # manifold error) deliberately propagates, but it used to leave the
+        # gesture ``mark()`` opened -- ``UndoStack._open_gestures`` stuck at 1
+        # disables undo eviction for the document for the rest of the session.
+        # Fold and release on the way out; the exception is still the caller's.
+        doc.history.collapse_since(mark)
+        raise
     # An op that refuses *per object* -- ``run_mesh_op`` toasts and carries on
     # to the next one -- says so by returning False rather than by raising, so
     # a caller still learns that nothing happened.
@@ -958,6 +966,75 @@ each near the ceiling already exceed it -- nothing here can stop that, only
 the count any *one* press may ask for.
 """
 
+MAX_ARRAY_COPIES = 2000
+"""The most copies one Array Linear/Array Radial press may make in total
+(selection size x ``count - 1``).
+
+The 2026-10-03 audit's clay-63: ``MAX_ARRAY_COUNT`` bounds the count alone, but
+the work is selection x count and each copy also scans the growing taken-name
+list, so Select All then Array Linear on a kit-sized scene ran unrefusable on
+the frame thread (probe: 50 objects x 199 = 9,950 copies took 2.4 s, 100
+objects x 199 took 7.6 s). The quadratic term is why the stall grows faster
+than the copy count; 2,000 copies measured 0.22-0.27 s however the selection
+and count are split (10x200, 20x100 and 50x40), and is still ten times the
+module's own "sixty fence posts" example.
+"""
+
+
+def _refuse_oversized_array(originals: list[int], n: int) -> None:
+    """Refuse, before one copy is made, an array whose selection x count is
+    past :data:`MAX_ARRAY_COPIES` (the 2026-10-03 audit's clay-63)."""
+    from ....kernels.mesh.elements import OpError
+
+    copies = len(originals) * (n - 1)
+    if copies > MAX_ARRAY_COPIES:
+        raise OpError(
+            f"That would make {copies} copies ({len(originals)} objects x {n - 1}); "
+            f"one array may make at most {MAX_ARRAY_COPIES}. Select fewer objects "
+            "or lower the count."
+        )
+
+
+def _copy_generation(
+    doc: Any,
+    originals: list[int],
+    taken: set[str],
+    place: Callable[[int, Any], Any],
+) -> list[Any]:
+    """One generation of copies of *originals*, ``place(uid, copy)`` positioning
+    each one that is not under another copied object.
+
+    The 2026-10-03 audit's clay-61: ``ops.duplicate`` copies ``parent``
+    verbatim, so with a parent and its child both selected every copied child
+    stayed parented to the ORIGINAL parent -- moving the original dragged every
+    copy of the child, and moving a copied parent left its copied children
+    behind. ``duplicate_selected`` remaps through an old-to-new uid map; this
+    builds the same map for the generation (the uids are minted up front, so a
+    child may come before its parent in *originals*). A child under a copied
+    parent keeps its own local TRS and rides the parent copy's step, which is
+    why ``place`` is not asked about it: placing it as well would apply the
+    step twice.
+
+    *taken* is one :class:`~.kernels.mesh.ops.UsedNames` for the whole press,
+    added to as each copy is named (the 2026-10-03 audit's naming follow-up: a
+    list appended to here was copied into a set and probed from ``.001`` per
+    copy, so naming N copies of one object was quadratic).
+    """
+    from ....kernels.mesh import document as bd
+    from ....kernels.mesh import ops as clay_ops_geom
+
+    fresh = {uid: bd.new_uid() for uid in originals}
+    out: list[Any] = []
+    for uid in originals:
+        source = doc.by_uid(uid)
+        copy = clay_ops_geom.duplicate(source, fresh[uid], taken=taken)
+        taken.add(copy.name)
+        if source.parent in fresh:
+            out.append(replace(copy, parent=fresh[source.parent]))
+        else:
+            out.append(place(uid, copy))
+    return out
+
 
 def _array_linear(
     ctx: Any, doc: Any, count: float = 3.0, x: float = 1.0, y: float = 0.0, z: float = 0.0, **_: Any
@@ -969,7 +1046,7 @@ def _array_linear(
     interleave three arrays into one mess instead of moving the group as one.
 
     Modelled closely on ``clay.selection.duplicate_selected``: the same
-    growing ``taken`` list, so many copies made in one press do not collide
+    growing ``taken`` names, so many copies made in one press do not collide
     names with each other, and the same one ``add_objects`` call rather than
     one ``add_object`` per copy, for the identical reason that function
     gives -- and it applies with more force here, since one array can make
@@ -979,21 +1056,20 @@ def _array_linear(
     GPU upload, not sixty.
     """
     from ....kernels.geom3d import math3d as m3
-    from ....kernels.mesh import document as bd
     from ....kernels.mesh import ops as clay_ops_geom
 
     del ctx
     n = int(count)
     if n <= 1:
         return False
-    originals = list(doc.selection)
-    taken = [obj.name for obj in doc.objects]
+    originals = sorted(doc.selection, key=doc.index_of)
+    _refuse_oversized_array(originals, n)
+    taken = clay_ops_geom.UsedNames(obj.name for obj in doc.objects)
     made: list[Any] = []
     for k in range(1, n):
         offset = (x * k, y * k, z * k)
-        for uid in originals:
-            copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
-            taken.append(copy.name)
+
+        def place(uid: int, copy: Any, offset: Any = offset) -> Any:
             # the 2026-09-26 audit, finding clay-ops-tail-03: this docstring
             # promises a *world*-space step, but ``translated`` steps
             # whatever ``translation`` it is handed -- correct only because a
@@ -1010,7 +1086,9 @@ def _array_linear(
             stepped = clay_ops_geom.translated(stand_in, offset)
             new_world = m3.compose(stepped.translation, stepped.rotation, stepped.scale)
             t, r, s = doc.local_from_world(uid, new_world)
-            made.append(replace(copy, translation=t, rotation=r, scale=s))
+            return replace(copy, translation=t, rotation=r, scale=s)
+
+        made.extend(_copy_generation(doc, originals, taken, place))
     doc.add_objects(made)
     # Originals and copies both, not just the newest generation: arraying an
     # array is a normal thing to want, and it only compounds if the group
@@ -1068,7 +1146,7 @@ def _array_radial(
       points between two fixed ends means. At ``count == 2`` that divisor is
       1, so the one copy lands at ``angle`` exactly.
 
-    Shares ``_array_linear``'s shape entirely otherwise -- the ``taken`` list,
+    Shares ``_array_linear``'s shape entirely otherwise -- the ``taken`` names,
     the one ``add_objects`` call, the whole selection left selected after.
     What is different is the per-copy step (``rotated_about_origin`` rather
     than ``translated``), and that is what keeps every copy a live parametric
@@ -1076,7 +1154,6 @@ def _array_radial(
     transform change, and the mesh is never touched.
     """
     from ....kernels.geom3d import math3d as m3
-    from ....kernels.mesh import document as bd
     from ....kernels.mesh import ops as clay_ops_geom
 
     del ctx
@@ -1085,14 +1162,14 @@ def _array_radial(
     if n <= 1:
         return False
     divisor = n if _closes_a_ring(angle) else n - 1
-    originals = list(doc.selection)
-    taken = [obj.name for obj in doc.objects]
+    originals = sorted(doc.selection, key=doc.index_of)
+    _refuse_oversized_array(originals, n)
+    taken = clay_ops_geom.UsedNames(obj.name for obj in doc.objects)
     made: list[Any] = []
     for k in range(1, n):
         degrees = k * angle / divisor
-        for uid in originals:
-            copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
-            taken.append(copy.name)
+
+        def place(uid: int, copy: Any, degrees: float = degrees) -> Any:
             # the 2026-09-26 audit, finding clay-ops-tail-03: same fix as
             # _array_linear above -- rotated_about_origin spins whatever
             # translation/rotation it is given about *its own* origin, which
@@ -1104,7 +1181,9 @@ def _array_radial(
             spun = clay_ops_geom.rotated_about_origin(stand_in, a, degrees)
             new_world = m3.compose(spun.translation, spun.rotation, spun.scale)
             t, r, s = doc.local_from_world(uid, new_world)
-            made.append(replace(copy, translation=t, rotation=r, scale=s))
+            return replace(copy, translation=t, rotation=r, scale=s)
+
+        made.extend(_copy_generation(doc, originals, taken, place))
     doc.add_objects(made)
     doc.select(originals + [obj.uid for obj in made])
     return bool(made)
@@ -1144,19 +1223,50 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     from ....kernels.mesh import ops as clay_ops_geom
 
     del ctx
-    taken = [obj.name for obj in doc.objects]
-    originals = list(doc.selection)
+    taken = clay_ops_geom.UsedNames(obj.name for obj in doc.objects)
+    # The 2026-10-03 audit's clay-61: a copied child must hang off its own
+    # copied parent (``_copy_generation``'s docstring has the incident), and
+    # unlike the arrays a mirrored child is *not* simply riding its parent's
+    # step -- the reflection is baked into each copy's own mesh -- so every
+    # copy's world is kept and a child's local TRS is taken relative to its
+    # parent copy's. Parents first, so that world is already known.
+    originals = sorted(doc.selection, key=lambda u: (len(doc.ancestors(u)), doc.index_of(u)))
+    fresh = {uid: bd.new_uid() for uid in originals}
+    copy_worlds: dict[int, Any] = {}
     made: list[Any] = []
     for uid in originals:
         source = doc.by_uid(uid)
-        copy = clay_ops_geom.duplicate(source, bd.new_uid(), taken=taken)
-        taken.append(copy.name)
+        copy = clay_ops_geom.duplicate(source, fresh[uid], taken=taken)
+        taken.add(copy.name)
         world = doc.world_matrix(uid)
         mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset, world=world)
         new_world = m3.compose(mirrored.translation, mirrored.rotation, mirrored.scale)
-        t, r, s = doc.local_from_world(uid, new_world)
+        parent = source.parent
+        if parent in fresh:
+            try:
+                inverse = np.linalg.inv(copy_worlds[parent])
+            except np.linalg.LinAlgError as error:
+                from ....kernels.mesh.elements import OpError
+
+                raise OpError(
+                    f"{doc.by_uid(parent).name!r} has a zero scale, so nothing can be "
+                    "placed relative to its copy."
+                ) from error
+            t, r, s = m3.decompose(inverse @ new_world)
+            parent = fresh[parent]
+        else:
+            t, r, s = doc.local_from_world(uid, new_world)
+        copy_worlds[uid] = new_world
         made.append(
-            replace(mirrored, generator=None, params={}, translation=t, rotation=r, scale=s)
+            replace(
+                mirrored,
+                generator=None,
+                params={},
+                translation=t,
+                rotation=r,
+                scale=s,
+                parent=parent,
+            )
         )
     doc.add_objects(made)
     # Originals *and* copies, exactly as both arrays leave them, and for the
@@ -1395,22 +1505,40 @@ def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
 
 
 def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
-    """Snap every selected object's translation onto a grid of *step* metres,
-    each axis independently -- ``ops.snap_translation``'s own rounding
+    """Snap every selected object's *world* position onto a grid of *step*
+    metres, each axis independently -- ``ops.snap_translation``'s own rounding
     (half away from zero, so the grid stays symmetric about the origin).
+
+    **World, like Align, Distribute and Drop to Ground** (the 2026-10-03
+    audit's clay-115): a parented object's own ``translation`` is local to its
+    parent, so snapping it landed the child on a grid offset by the parent's
+    position. A root's local frame *is* the world frame, so a root is still
+    snapped directly (bit-identical to what this always did); a parented
+    object is snapped in world space and converted back through
+    ``doc.local_from_world``, writing only the translation so its own
+    rotation and scale are not re-derived. Ancestors go first, so a child
+    snaps against the parent's final position rather than moving off the grid
+    again when its parent is snapped afterwards.
     """
     from ....kernels.mesh import ops as clay_ops_geom
 
     def one(doc: Any, obj: Any) -> None:
-        snapped = clay_ops_geom.snap_translation(obj.translation, step)
+        if obj.parent is None:
+            snapped = clay_ops_geom.snap_translation(obj.translation, step)
+        else:
+            world = np.array(doc.world_matrix(obj.uid), dtype="f8", copy=True)
+            world[:3, 3] = clay_ops_geom.snap_translation(world[:3, 3], step)
+            snapped = doc.local_from_world(obj.uid, world)[0]
         doc.set_transform(obj.uid, translation=snapped)
 
-    run_object_op(ctx, doc, one)
+    live = [uid for uid in doc.selection if any(o.uid == uid for o in doc.objects)]
+    order = sorted(live, key=lambda uid: len(doc.ancestors(uid)))
+    run_object_op(ctx, doc, one, uids=order)
 
 
 # --- tranche 3: scene structure -- parenting, groups, separate, origin, lock -
 #
-# ``dev/CLAY-PLAN.md`` tranche 3. The document-layer doors (``ClayDoc.group``/
+# Clay tranche 3. The document-layer doors (``ClayDoc.group``/
 # ``set_parent``/``remove_object``/``set_origin``/``separate``, and the pure
 # ``kernels.mesh.separate`` splitters) already carry the one-step contract and
 # the locking refusals -- see ``kernels/mesh/document.py``'s own module
@@ -1802,7 +1930,9 @@ def _clean_mesh(
         )
         if mesh is obj.mesh:
             return
-        doc.set_mesh(obj.uid, mesh)
+        # The 2026-10-03 audit's clay-60: a merge or a removal renumbers the
+        # vertices, so the marked seams would name different edges afterwards.
+        doc.set_mesh(obj.uid, mesh, drop_seams=True)
         changed = True
         for key in totals:
             totals[key] += getattr(report, key)
@@ -2259,8 +2389,10 @@ def _decimate_apply(ctx: Any, doc: Any, result: Any) -> None:
             # finding clay-03, the same leak shape as the 2026-09-19 audit's
             # clay-16). Skip this item by name and keep folding the rest of the
             # batch, matching ``run_mesh_op``'s own per-item refusal handling.
+            # The 2026-10-03 audit's clay-60: gltfpack's result has no vertex
+            # correspondence to the old mesh, so the seams go with it.
             try:
-                doc.set_mesh(uid, mesh)
+                doc.set_mesh(uid, mesh, drop_seams=True)
             except OpError:
                 locked.append(obj.name)
                 continue
@@ -2385,7 +2517,7 @@ def _decimate(
 
 # --- retopo / smart-unwrap / bake-detail: Clay's first Blender ops -----------
 #
-# ``dev/CLAY-PLAN.md`` tranche 4. Three more background ops in decimate's own
+# Clay tranche 4. Three more background ops in decimate's own
 # ``prepare``/``work``/``apply`` shape (the section above), with two real
 # differences from it:
 #
@@ -2513,6 +2645,12 @@ def _blender_multi_prepare(doc: Any, uids: Iterable[int]) -> tuple[bytes, list[d
                 "name": obj.name,
                 "node_name": node_name,
                 "stamp": doc.mesh_stamp(uid),
+                # The 2026-10-03 audit, finding clay-114: Blender is sent the
+                # *evaluated* mesh, so its result has this stack baked in. The
+                # mesh stamp cannot see a modifier added or edited during the
+                # (minutes-long) run, so the stack itself is stamped (Modifier
+                # is frozen and compares by value).
+                "modifiers": tuple(obj.modifiers),
                 "material": int(obj.material),
             }
         )
@@ -2616,8 +2754,29 @@ def _blender_bake_reason(doc: Any) -> str:
     return reason if reason else _has_two_visible_reason(doc)
 
 
+def _blender_result_stale(doc: Any, obj: Any, item: dict[str, Any]) -> bool:
+    """Whether a Blender result no longer describes *obj*: its base mesh was
+    replaced (:meth:`~.document.ClayDoc.mesh_stamp`) or its modifier stack was
+    edited since :func:`_blender_multi_prepare` sent the evaluated mesh off.
+
+    The 2026-10-03 audit, finding clay-114: only the mesh was stamp-checked, but
+    the apply clears the whole stack, so a modifier added during a
+    minutes-long run was discarded along with the baked ones. A meta entry
+    without a ``modifiers`` stamp (none is built without one today) is
+    judged on the mesh alone, as before.
+    """
+    if doc.mesh_stamp(item["uid"]) != item["stamp"]:
+        return True
+    return "modifiers" in item and tuple(obj.modifiers) != item["modifiers"]
+
+
 def _blender_op_report(
-    ctx: Any, verb: str, applied: list[str], skipped: list[str], locked: list[str] = ()
+    ctx: Any,
+    verb: str,
+    applied: list[str],
+    skipped: list[str],
+    locked: list[str] = (),
+    dropped: list[str] = (),
 ) -> None:
     """``locked`` (the 2026-09-23 audit's clay-09), separate from
     ``skipped``: ``_retopo_apply`` and ``_unwrap_apply`` used to lump a
@@ -2633,6 +2792,11 @@ def _blender_op_report(
         parts.append(f"Skipped {name}: it changed while running.")
     for name in locked:
         parts.append(f"Skipped {name}: it is locked.")
+    # The 2026-10-03 audit, finding clay-114: ``_blender_objects_from_glb``'s
+    # docstring promises the caller reports an object Blender legally dropped,
+    # but the apply loops skipped it without a word.
+    for name in dropped:
+        parts.append(f"Skipped {name}: Blender returned no geometry for it.")
     if not parts:
         parts.append("Nothing to do.")
     ctx.toast(" ".join(parts))
@@ -2716,8 +2880,8 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
     result is one multi-object GLB read back by node name
     (:func:`_blender_objects_from_glb`), not one GLB per object, and every
     applied object's generator freezes with no ``keep_generator`` --
-    retopology replaces the base mesh outright, exactly what the section of
-    ``dev/CLAY-PLAN.md`` this closes asks for.
+    retopology replaces the base mesh outright, exactly what Clay tranche 4's
+    retopology work asks for.
     """
     if not isinstance(result, dict):
         return
@@ -2736,6 +2900,7 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
     # See ``_blender_op_report``'s own docstring (the 2026-09-23 audit's
     # clay-09): a locked object's refusal is not "it changed while running".
     locked: list[str] = []
+    dropped: list[str] = []
     for item in meta:
         uid = item["uid"]
         try:
@@ -2746,17 +2911,20 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
         # Exactly ``_decimate_apply``'s own guard: a result computed against
         # geometry the user has since edited is discarded rather than
         # silently overwriting the edit.
-        if doc.mesh_stamp(uid) != item["stamp"]:
+        if _blender_result_stale(doc, obj, item):
             skipped.append(obj.name)
             continue
         mesh = meshes.get(uid)
         if mesh is None:
+            dropped.append(obj.name)
             continue
         # Same ``set_mesh`` refusal guard as ``_decimate_apply`` -- the
         # 2026-09-22 audit's clay-03: an uncaught refusal here escapes the
         # open ``history.mark()`` and wedges the undo stack's eviction shut.
+        # The 2026-10-03 audit's clay-60: retopology renumbers every vertex,
+        # so the marked seams are dropped in the same step.
         try:
-            doc.set_mesh(uid, mesh)
+            doc.set_mesh(uid, mesh, drop_seams=True)
         except OpError:
             locked.append(obj.name)
             continue
@@ -2778,7 +2946,7 @@ def _retopo_apply(ctx: Any, doc: Any, result: Any) -> None:
     top = doc.history.top
     if top is not None and doc.history.head != head:
         top.label = "Retopologize"
-    _blender_op_report(ctx, "Retopologized", applied, skipped, locked)
+    _blender_op_report(ctx, "Retopologized", applied, skipped, locked, dropped)
 
 
 def _carry_uvs(original: Any, unwrapped: Any) -> Any:
@@ -2881,6 +3049,7 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
     # See ``_blender_op_report``'s own docstring (the 2026-09-23 audit's
     # clay-09): a locked object's refusal is not "it changed while running".
     locked: list[str] = []
+    dropped: list[str] = []
     for item in meta:
         uid = item["uid"]
         try:
@@ -2888,23 +3057,29 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
         except KeyError:
             skipped.append(item["name"])
             continue
-        if doc.mesh_stamp(uid) != item["stamp"]:
+        if _blender_result_stale(doc, obj, item):
             skipped.append(obj.name)
             continue
         mesh = meshes.get(uid)
         if mesh is None:
+            dropped.append(obj.name)
             continue
         # clay-16: take only the UVs when the original's corners can be
         # matched (no modifier stack changed its topology); otherwise
         # Blender's own rebuilt mesh, as before.
+        # The 2026-10-03 audit's clay-60: only the carried mesh keeps the
+        # original's vertex numbering, so only it keeps the marked seams;
+        # Blender's rebuilt mesh renumbers and the seams would name other edges.
+        renumbered = True
         if not obj.modifiers:
             carried = _carry_uvs(obj.mesh, mesh)
             if carried is not None:
                 mesh = carried
+                renumbered = False
         # Same ``set_mesh`` refusal guard as ``_decimate_apply`` -- the
         # 2026-09-22 audit's clay-03.
         try:
-            doc.set_mesh(uid, mesh, keep_generator=True)
+            doc.set_mesh(uid, mesh, keep_generator=True, drop_seams=renumbered)
         except OpError:
             locked.append(obj.name)
             continue
@@ -2920,7 +3095,7 @@ def _unwrap_apply(ctx: Any, doc: Any, result: Any) -> None:
     top = doc.history.top
     if top is not None and doc.history.head != head:
         top.label = "Smart Unwrap"
-    _blender_op_report(ctx, "Unwrapped", applied, skipped, locked)
+    _blender_op_report(ctx, "Unwrapped", applied, skipped, locked, dropped)
 
 
 def _blender_bake_material(data: bytes | None) -> Any:
@@ -3048,7 +3223,8 @@ def _retopo(
 ) -> bool:
     """Send the selection's evaluated meshes to Blender for a quad
     retopology, replacing each object's base mesh (generator frozen, modifier
-    stack kept -- ``set_mesh``'s own default). Object mode, every selected
+    stack cleared -- the mesh sent was the evaluated one, so Blender's result
+    already carries the stack; see :func:`_retopo_apply`). Object mode, every selected
     object independently -- unlike bake-detail, retopo/unwrap have no notion
     of "the target": every selected object gets its own result back.
     """
@@ -3218,7 +3394,7 @@ def _bake_detail(
 
 # --- tranche 5: modelling breadth --------------------------------------------
 #
-# ``dev/CLAY-PLAN.md`` tranche 5. ``kernels.mesh.ops_model`` and
+# Clay tranche 5. ``kernels.mesh.ops_model`` and
 # ``kernels.mesh.ops_spin`` are the kernel half; what belongs here is the
 # registry wiring -- which selection each row reads, which of its numbers
 # becomes a ``Param``, and the handful (bisect, knife, spin, screw,
@@ -3546,7 +3722,7 @@ def _invert(ctx: Any, doc: Any, **_: Any) -> None:
     selection.invert(doc)
 
 
-def _selection_op(verb: Any) -> Any:
+def _selection_op(verb: Any, *, seed_when_empty: bool = False) -> Any:
     """Wrap a ``clay.select`` verb as an op that writes the element selection.
 
     One wrapper for five verbs, because every one of them is the same three
@@ -3557,6 +3733,13 @@ def _selection_op(verb: Any) -> Any:
     Per object, and **only the objects that already have a selection**: growing
     a selection on the object you are working on must not quietly select
     something on the one behind it.
+
+    ``seed_when_empty`` is for a verb that needs no seed (Select Boundary: the
+    open edges are a property of the mesh, not of what is picked). With nothing
+    selected it reads every visible, non-collider object, the way Select All
+    does. The 2026-10-03 audit's clay-65: without it the row was enabled in the
+    one state a user first reaches it in (edge or vertex mode, nothing picked)
+    and did nothing, silently.
     """
 
     def run(ctx: Any, doc: Any, **params: Any) -> bool:
@@ -3564,7 +3747,10 @@ def _selection_op(verb: Any) -> Any:
         del ctx
         mode = doc.element_mode
         ran = False
-        for uid in list(doc.element_sel):
+        uids = list(doc.element_sel)
+        if not uids and seed_when_empty:
+            uids = [o.uid for o in doc.objects if o.visible and o.role != "collider"]
+        for uid in uids:
             try:
                 obj = doc.by_uid(uid)
             except KeyError:
@@ -3637,7 +3823,7 @@ def _verb_boundary(mesh: Any, sel: Any, mode: str) -> Any:
 
 # --- tranche 6: UV (seams, unwrap-by-seams, pack, texel density) ------------
 #
-# ``dev/CLAY-PLAN.md`` tranche 6's integration half. ``kernels.mesh.uvtools``
+# Clay tranche 6's integration half. ``kernels.mesh.uvtools``
 # and ``kernels.mesh.uvunwrap`` are the kernel half; what belongs here is the
 # same wiring tranche 5's own section states -- which selection or object set
 # each row reads, which of its numbers becomes a ``Param``, and the refusal
@@ -3731,7 +3917,7 @@ def _texel_density(
 
 # --- tranche 7: colliders -----------------------------------------------------
 #
-# ``dev/CLAY-PLAN.md`` tranche 7's integration half. ``kernels.mesh.colliders``
+# Clay tranche 7's integration half. ``kernels.mesh.colliders``
 # is the kernel half; one row per ``COLLIDER_KINDS`` entry, built by looping
 # the registry rather than five hand-written ``register`` calls -- that
 # module's own docstring says a sixth kind should need nothing here, and the
@@ -4062,7 +4248,7 @@ def _register_defaults() -> None:
             # Vertex and edge only: a hole's border is a run of edges, and there
             # is no face on the open side of one to select.
             modes=("vertex", "edge"),
-            run=_selection_op(_verb_boundary),
+            run=_selection_op(_verb_boundary, seed_when_empty=True),
             key="",
             hint="Every open edge -- the border of every hole, which is what "
             "Fill Hole is about to close.",
@@ -4454,18 +4640,21 @@ def _register_defaults() -> None:
     # **No key chord.** Every other bound op in this file fires from the
     # keyboard through one of two paths: ``clay_mode._registry_key`` reads
     # ``Op.key`` generically, but only for the *element* modes (vertex/edge/
-    # face); every object-mode chord this registry owns today (Ctrl+M,
-    # Ctrl+Shift+M, Ctrl+J, Ctrl+=/-) is instead hand-dispatched, one ``elif``
-    # per letter, inside ``clay_mode._ctrl_key``. A ``key=`` string here would
-    # only ever be display text -- the menu row and the shortcuts sheet would
+    # face); every Ctrl chord this registry owns today (the object-mode
+    # Ctrl+M, Ctrl+Shift+M and Ctrl+J, and Select More/Less on Ctrl+=/Ctrl+-,
+    # which are element-mode ops reached through ``GROW_KEYS``) is instead
+    # hand-dispatched, one ``elif`` per letter, inside ``clay_mode._ctrl_key``.
+    # A ``key=`` string here would only ever be display text -- the menu row
+    # and the shortcuts sheet would
     # both claim a binding this file cannot make live, which is worse than
     # having none. Wiring a real chord needs an edit to ``_ctrl_key`` itself,
     # a file this registry's own ownership slice does not extend to; a menu
     # row and a tools-pane button already reach every registered op with no
-    # further wiring (``studio/modes/clay/ui/menu.py``'s ``_rows`` and
-    # ``studio/modes/clay/ui/tools.py``'s ``_actions`` both iterate ``clay_ops.menu``),
+    # further wiring (``studio/modes/clay/ui/panes/menu.py``'s ``_rows`` and
+    # ``studio/modes/clay/ui/panes/strip.py``'s ``_menu_rows`` both walk the
+    # menu tree built from ``clay_ops.menu``),
     # so that is the complete fix and the one taken here -- and it is why
-    # ``docs/manual/39-shortcuts.md``, gated bidirectionally against the
+    # ``docs/manual/38-shortcuts.md``, gated bidirectionally against the
     # keyboard table, needs no new line for either op.
     register(
         Op(
@@ -4985,7 +5174,7 @@ def _register_defaults() -> None:
         )
     )
 
-    # Tranche 5 (dev/CLAY-PLAN.md): modelling breadth. Selection-taking rows
+    # Clay tranche 5: modelling breadth. Selection-taking rows
     # with nothing else to supply go through ``_element`` exactly like the
     # face/edge rows above; the four with their own wrapper are documented in
     # that wrapper's own docstring, just above ``_shade``.
@@ -5181,7 +5370,13 @@ def _register_defaults() -> None:
             "other side -- ignores the element selection, like Smooth.",
             params=(
                 Param("axis", "axis", 1.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
-                Param("direction", "keep side", 1.0, 1.0, low=0.0, high=1.0, choices=("-", "+")),
+                # "delete side", not "keep side" (the 2026-10-03 audit's
+                # clay-64): the kernel's ``direction`` is the half it
+                # *deletes*, so "+" removes the positive half and mirrors the
+                # negative one over it. The old label promised the opposite
+                # and let a user (or an agent reading the derived tool schema)
+                # destroy the larger half.
+                Param("direction", "delete side", 1.0, 1.0, low=0.0, high=1.0, choices=("-", "+")),
             ),
         )
     )

@@ -151,44 +151,68 @@ def image_png(data: bytes) -> dict:
     return _protocol().image_png(data)
 
 
-def _over_frame_budget(payload: Any) -> dict | None:
+def _over_frame_budget(
+    payload: Any, *, changed: bool = False, hint: str | None = None
+) -> dict | None:
     """Refuse *payload* before ``_json`` encodes a reply ``send_bytes`` can
     never carry, rather than let it reach the wire and fail there past the
     point a refusal could explain itself -- the same shape
     ``agent_clay_tools_ops._h_render``'s own ``_over_frame_budget`` already
     checks for a render's base64 payload, against ``protocol.MAX_FRAME``.
 
-    Only two callers need this: ``_h_scene`` and whole-document
-    ``_h_diagnose``, whose reply size scales with the *document's* own size
-    (every object, every call) rather than with one call's own arguments --
-    every other JSON-replying tool already bounds its own reply through a
-    per-call ceiling (``clay_elements``' paging, ``clay_add_mesh``'s vertex
-    and face caps, ``clay_analyze``'s 64-object limit). The 2026-09-18 audit's
-    agents-03 found neither checked at all: a document of about 22,000
-    primitives encodes to roughly 9.1 MB, past ``protocol.MAX_FRAME`` (8 MiB),
-    with nothing in either handler that would refuse or page it.
+    Called by every JSON-replying tool whose reply size scales with something
+    other than one call's own bounded arguments: ``_h_scene`` and whole-document
+    ``_h_diagnose`` (the *document's* own size, the 2026-09-18 audit's
+    agents-03: about 22,000 primitives encode to roughly 9.1 MB), ``clay_batch``
+    and ``clay_program`` (the sum of whatever nested results they embed) and
+    ``clay_elements`` with no ``uid`` (objects x ``limit``, the 2026-10-03
+    audit's clay-23). ``_h_separate`` also calls it, but only as a probe: its
+    document has already changed, so a reply past the budget cannot be a
+    refusal and it drops the per-piece rows instead (clay-01). The batch and
+    program callers are where the estimate is least exact (clay-21).
 
-    **Budgeted at half of ``MAX_FRAME``, not the whole of it.** The 2026-09-26
-    audit, finding clay-agent-tools-01: this used to compare one
-    ``json.dumps`` of *payload* against the full budget, but every caller
-    hands its result straight to :func:`_json`, which puts the same payload
-    on the wire **twice** -- once as the text block's own JSON string, once
-    again as ``structuredContent`` -- so a payload measured at, say, 6 MB
-    passed this check and then built a wire frame of roughly 12 MB, past
-    ``MAX_FRAME`` (8 MiB), which ``send_bytes`` cannot carry at all.
-    Reproduced: 11,000 objects encoded to a 12.9 MB reply against one 8 MiB
-    copy passing this check. Halving the budget here is cheaper than encoding
-    *payload* twice just to measure it, and every caller's payload really
-    does travel through ``_json`` twice, not conditionally.
+    **The reply is measured as it will be framed.** The 2026-09-26 audit's
+    clay-agent-tools-01 found a single ``json.dumps`` of *payload* passed a
+    reply that then went on the wire twice (the text block and
+    ``structuredContent``), and halving the budget fixed that for a flat
+    payload. The 2026-10-03 audit's clay-21 found halving still under-counts a
+    batch or program reply: its nested results carry text blocks that are JSON
+    strings, and the outer text twin escapes every quote in them a second
+    time (measured 1.053 of the estimate; a 4,001-object ``[transform,
+    clay_scene]`` batch passed at an estimated 8.20 MB and was sent as 8.64
+    MB, past ``MAX_FRAME``, after its edit was committed). So this builds the
+    exact result ``_json`` would and counts its compact encoding -- the form
+    the host puts on the wire -- less ``RENDER_FRAME_RESERVE`` for the
+    envelope around it, the same headroom a render's picture already leaves.
+
+    *changed* says whether the document moved before this refusal (the
+    2026-10-03 audit's clay-20: a batch or program that already ran and kept
+    its edits refused with ``changed: false`` and "try again", so the retry
+    duplicated them) and, when true, the refusal says the edits were kept.
+    *hint* names what the refused tool can actually be narrowed by (the
+    2026-10-03 audit's clay-22: ``clay_scene`` was told to name "a single
+    uid", an argument it never had); the default is ``clay_diagnose``'s own.
     """
     import json
 
-    encoded_len = len(json.dumps(payload))
-    if encoded_len * 2 > _protocol().MAX_FRAME:
-        return fail(
-            "This reply is too large to send back in one frame; narrow the "
-            "request (fewer objects, or a single uid) and try again."
-        )
+    from .schema import RENDER_FRAME_RESERVE
+
+    encoded = json.dumps(payload)
+    structured = payload if isinstance(payload, dict) else None
+    framed = ok(text(encoded), structured=structured)
+    wire = len(json.dumps(framed, separators=(",", ":")))
+    if wire > _protocol().MAX_FRAME - RENDER_FRAME_RESERVE:
+        message = "This reply is too large to send back in one frame; "
+        if changed:
+            message += (
+                "its edits were already made and kept (changed: true), so do "
+                "not repeat the call -- read the document back in smaller "
+                "pieces instead. "
+            )
+        else:
+            message += (hint or "narrow the request (fewer objects, or a single uid)") + " "
+            message += "and try again."
+        return fail(message.rstrip(), changed=changed)
     return None
 
 
@@ -457,13 +481,44 @@ def _resolve_uids(
     return uids, None
 
 
-def _validate_vec3(value: Any, field: str) -> tuple[list[float] | None, dict | None]:
+TRANSLATION_MAX = 1e7
+"""The largest translation component (metres, ten thousand kilometres) an
+agent may place something at. The 2026-10-03 audit's clay-24: ``1e308`` passed
+the finiteness check, and every later ``clay_scene`` row carried a bare
+``Infinity`` (not strict JSON; a JavaScript MCP client's ``JSON.parse``
+rejects it). Not a corpus-keyed constant -- nothing stored depends on it -- and
+far past anything a game scene needs."""
+
+SCALE_MAX = 1e6
+"""The largest scale component an agent may set (see :data:`TRANSLATION_MAX`)."""
+
+SCALE_MIN = 1e-6
+"""The smallest *nonzero* scale component an agent may set. A denormal such
+as ``1e-320`` is finite and nonzero, so it passed every check, and a later
+``clay_parent`` keeping the world transform inverted it to ``inf`` and wrote
+``NaN`` translation, rotation and scale onto the child (the 2026-10-03 audit's
+clay-24). A scale of exactly zero on an axis is still allowed -- it flattens
+the object -- so only the band between zero and this is refused."""
+
+
+def _validate_vec3(
+    value: Any,
+    field: str,
+    *,
+    max_abs: float | None = None,
+    min_nonzero_abs: float | None = None,
+) -> tuple[list[float] | None, dict | None]:
     """Three finite numbers, or a refusal naming *field*.
 
     Shared by every optional TRS vector ``clay_add_primitive`` and
     ``clay_add_figure`` take, so a malformed one is caught before anything is
     placed -- see those tools' "validate everything before the first
     mutation" rule.
+
+    *max_abs* and *min_nonzero_abs* are the magnitude bounds the TRS callers
+    pass (:func:`_validate_translation`, :func:`_validate_scale`); a vector
+    with no bound of its own (a query direction, a world point to measure)
+    passes neither.
     """
     if not isinstance(value, list) or len(value) != 3:
         return None, fail(
@@ -471,7 +526,7 @@ def _validate_vec3(value: Any, field: str) -> tuple[list[float] | None, dict | N
         )
     try:
         out = [float(v) for v in value]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
         )
@@ -479,7 +534,31 @@ def _validate_vec3(value: Any, field: str) -> tuple[list[float] | None, dict | N
         return None, fail(
             f"{field} must be finite numbers.", field=field, recovery="fix_arguments"
         )
+    if max_abs is not None and any(abs(v) > max_abs for v in out):
+        return None, fail(
+            f"{field} components must be no larger than {max_abs:g} in magnitude.",
+            field=field,
+            recovery="fix_arguments",
+        )
+    if min_nonzero_abs is not None and any(0.0 < abs(v) < min_nonzero_abs for v in out):
+        return None, fail(
+            f"{field} components must be zero or at least {min_nonzero_abs:g} in magnitude.",
+            field=field,
+            recovery="fix_arguments",
+        )
     return out, None
+
+
+def _validate_translation(value: Any, field: str) -> tuple[list[float] | None, dict | None]:
+    """A translation (or world point): three finite numbers within
+    :data:`TRANSLATION_MAX` -- see that constant for the incident."""
+    return _validate_vec3(value, field, max_abs=TRANSLATION_MAX)
+
+
+def _validate_scale(value: Any, field: str) -> tuple[list[float] | None, dict | None]:
+    """A scale: three finite numbers, each zero or within
+    :data:`SCALE_MIN`..:data:`SCALE_MAX` in magnitude -- see those constants."""
+    return _validate_vec3(value, field, max_abs=SCALE_MAX, min_nonzero_abs=SCALE_MIN)
 
 
 def _validate_number(value: Any, field: str) -> tuple[float | None, dict | None]:
@@ -492,7 +571,7 @@ def _validate_number(value: Any, field: str) -> tuple[float | None, dict | None]
     """
     try:
         out = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail(f"{field} must be a number.", field=field, recovery="fix_arguments")
     if not math.isfinite(out):
         return None, fail(f"{field} must be finite.", field=field, recovery="fix_arguments")
@@ -512,7 +591,7 @@ def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
     """
     try:
         out = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a number, 0..1.", field=field, recovery="fix_arguments"
         )
@@ -535,7 +614,7 @@ def _validate_range(
     """
     try:
         out = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a number, {lo}..{hi}.", field=field, recovery="fix_arguments"
         )
@@ -583,7 +662,7 @@ def _validate_number_or_vec(
     if isinstance(value, list) and value and all(isinstance(row, list) for row in value):
         try:
             rows = [[float(v) for v in row] for row in value]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{field} must be a number, an array of numbers, or an "
                 "array of arrays of numbers.",
@@ -600,7 +679,7 @@ def _validate_number_or_vec(
     if isinstance(value, list):
         try:
             out = [float(v) for v in value]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{field} must be a number, an array of numbers, or an "
                 "array of arrays of numbers.",
@@ -614,7 +693,7 @@ def _validate_number_or_vec(
         return out, None
     try:
         out = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a number, an array of numbers, or an array "
             "of arrays of numbers.",
@@ -768,7 +847,7 @@ def _op_params_type_refusal(op: Any, params: dict, field: str = "params") -> dic
             continue
         try:
             value = float(params[key])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             messages.append(f"{field}.{key} must be a single number for op {op.name!r}.")
             continue
         if not math.isfinite(value):
@@ -801,7 +880,7 @@ def _modifier_params_type_refusal(
             continue
         try:
             value = float(params[key])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             messages.append(
                 f"{field}.{key} must be a single number for modifier {kind_def.name!r}."
             )
@@ -829,7 +908,7 @@ def _resolve_modifier(
         return None, fail(f"give a value for {key!r}.", field=key, recovery="fix_arguments")
     try:
         modifier_id = int(args[key])
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, fail(f"{key} must be an integer.", field=key, recovery="fix_arguments")
     if not any(m.id == modifier_id for m in obj.modifiers):
         return None, fail(
@@ -852,21 +931,21 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
             )
         try:
             return [int(v) for v in value], None
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{name} must be a [vertex, vertex] pair.", field=name, recovery="fix_arguments"
             )
     if name == "face":
         try:
             return int(value), None
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{name} must be an integer.", field=name, recovery="fix_arguments"
             )
     if name == "slot":
         try:
             slot = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{name} must be an integer.", field=name, recovery="fix_arguments"
             )
@@ -913,7 +992,7 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
         # two copies of the same three checks.
         #
         # **This was the gap tests/test_agent_schemas.py's discovery walk
-        # found (dev/CLAY-PLAN.md tranche 5's follow-up, 2026-09-19):**
+        # found (Clay tranche 5's follow-up, 2026-09-19):**
         # before this branch existed, any name this function did not
         # recognise fell through to the ``unknown query argument`` refusal
         # below -- which is *correct* for a name nothing declares, but
@@ -929,7 +1008,7 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
             )
         try:
             indices = [int(v) for v in value]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{name} must be a non-empty list of integers.",
                 field=name,
@@ -968,7 +1047,7 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
                 )
             try:
                 a, b = int(pair[0]), int(pair[1])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return None, fail(
                     f"{name} must be a list of [vertex, vertex] pairs.",
                     field=name,

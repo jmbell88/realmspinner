@@ -421,7 +421,10 @@ def test_an_infinite_whole_map_offset_slides_the_origin_and_loses_nothing() -> N
 
     assert doc.offset(-3, -2, wrap=False) is True
     assert np.array_equal(doc.tile_layers()[0].data, before), "no cell was lost"
-    assert (doc.origin_x, doc.origin_y) == (origin[0] + 3, origin[1] + 2)
+    # Content moved by (-3, -2) in true coordinates, and true = stored + origin,
+    # so the origin goes *down* (the 2026-10-03 audit, finding plotter-08: this
+    # pin had the sign backwards, and the code agreed with it).
+    assert (doc.origin_x, doc.origin_y) == (origin[0] - 3, origin[1] - 2)
 
 
 def test_an_infinite_offset_is_one_undo_step_that_puts_the_origin_back() -> None:

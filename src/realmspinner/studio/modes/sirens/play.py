@@ -88,7 +88,7 @@ def request_render(ctx: Any, tab: SongTab | None = None) -> None:
         from .engine import synth
 
         try:
-            doc = rsng.read_rsng(data)
+            doc = rsng.read_rsng(data, reserve=False)
             samples, loop, marks = (
                 synth.render_marked(doc) if whole else synth.render_only(doc, keep)
             )
@@ -176,7 +176,7 @@ def audition(ctx: Any, tab: SongTab | None, uid: int) -> bool:
         from .engine import synth
 
         try:
-            doc = rsng.read_rsng(data)
+            doc = rsng.read_rsng(data, reserve=False)
             samples = synth.render_oneshot(doc, effect)
         except ValueError as exc:
             raise invalid_from(exc, "That sound effect did not render") from exc
@@ -241,7 +241,7 @@ def preview_note(ctx: Any, note: int) -> bool:
         from .engine import synth
 
         try:
-            doc = rsng.read_rsng(data)
+            doc = rsng.read_rsng(data, reserve=False)
             samples = synth.render_note(
                 doc, uid, value, kind=kind, rows=PREVIEW_ROWS
             )
@@ -281,19 +281,80 @@ def play(ctx: Any, tab: SongTab | None = None) -> bool:
     tab = tab or active(ctx)
     if tab is None or not _playable(ctx, tab):
         return False
+    return _start_at(ctx, tab, 0)
+
+
+def _start_at(ctx: Any, tab: SongTab, offset: int) -> bool:
+    """Hand the render to the device from ``offset`` samples in. -> whether it started.
+
+    The one door :func:`play`, :func:`play_from_caret` and
+    :func:`set_loop_playback` all come through, so the three agree on how a
+    start position is turned into a buffer and a :class:`Sounding`.
+
+    **The whole song repeats, not the tail (S4, 2026-09-05).** Looping from a
+    start position used to hand the mixer ``pcm[offset:]`` with ``loops=-1``,
+    so "from the caret" with loop playback on repeated whatever was left of the
+    song from bar 40 onward and never came back to bar 1 -- M10's bug in Muse,
+    still live here. Rotating the full buffer means the repeat covers the song
+    exactly once per lap; ``Sounding.wrap`` unwinds the rotation when the
+    playhead asks where we are.
+    """
     state = ensure(ctx)
     state.play_request += 1
+    offset = int(offset)
     looping = bool(state.loop_playback)
-    if not sirens_audio.play(tab.pcm, tag=tab.uid, loops=-1 if looping else 0):
+    if not offset:
+        buffer = tab.pcm
+    elif looping:
+        import numpy as np
+
+        buffer = np.concatenate([tab.pcm[offset:], tab.pcm[:offset]])
+    else:
+        buffer = tab.pcm[offset:]
+    if len(buffer) == 0:
+        return False
+    if not sirens_audio.play(buffer, tag=tab.uid, loops=-1 if looping else 0):
         ctx.toast("That song could not be played; see the log for details.", "error")
         return False
     tab.sounding = Sounding(
         marks=tab.marks,
-        anchor=0,
+        anchor=offset,
         wrap=int(len(tab.pcm)) if looping else None,
         generation=tab.render_generation,
     )
     return True
+
+
+def set_loop_playback(ctx: Any, tab: SongTab | None, value: bool) -> None:
+    """Set *Loop playback*, applying it to the song that is sounding now.
+
+    **From where the song is, not from the top (the 2026-10-03 audit, finding
+    sirens-22).** The checkbox used to call :func:`play` while the song
+    sounded, which hands the mixer the whole buffer from sample 0 -- so ticking
+    Loop to hear a section repeat restarted the track at 0:00, and a
+    play-from-caret session lost its rotation. The position the mixer has
+    reached, in song time, is the :class:`Sounding`'s anchor plus how far the
+    buffer has played, which is :meth:`~.state.Sounding.mark_at`'s own
+    arithmetic; the new buffer starts there.
+    """
+    state = ensure(ctx)
+    state.loop_playback = bool(value)
+    tab = tab or state.active
+    if tab is None or sirens_audio.tag() != tab.uid:
+        return
+    if tab.pcm is None or tab.sounding is None:
+        # Nothing to restart from: leave it be, the next press of Play reads
+        # the flag.
+        return
+    sounding = tab.sounding
+    offset = int(sounding.anchor) + int(sirens_audio.position() * sirens_audio.RATE)
+    if sounding.wrap:
+        offset %= int(sounding.wrap)
+    if offset >= len(tab.pcm):
+        # Past the end of a one-shot play-through: only the instruments' tail
+        # is left, and there is no position to carry into a repeat.
+        offset = 0
+    _start_at(ctx, tab, offset)
 
 
 def play_from_caret(ctx: Any, tab: SongTab | None = None) -> bool:
@@ -315,40 +376,26 @@ def play_from_caret(ctx: Any, tab: SongTab | None = None) -> bool:
         return False
     offset = _caret_offset(tab, state)
     if offset is None:
+        effect = sirens_mode.oneshot_name_for_caret(ctx, tab)
+        if effect:
+            # **An effect's pattern is not the song's (the 2026-10-03 audit,
+            # finding sirens-26).** The order-list advice below is advice the
+            # order pane then refuses for an effect (``oneshot_name_for_caret``
+            # is what lets "+ To order" refuse it), while the effect's own play
+            # button in Sound effects is the thing that answers.
+            ctx.toast(
+                f"{effect} is a sound effect, so it is not part of the song -- "
+                "press its play button under Sound effects to hear it.",
+                "info",
+            )
+            return False
         ctx.toast(
             "The song never reaches this row -- add this pattern to the order "
             "list, or press Play to hear it from the top.",
             "info",
         )
         return False
-    state.play_request += 1
-    offset = int(offset)
-    looping = bool(state.loop_playback)
-    if looping:
-        # **The whole song repeats, not the tail (S4, 2026-09-05).** This used
-        # to hand the mixer ``pcm[offset:]`` with ``loops=-1``, so "from the
-        # caret" with loop playback on repeated whatever was left of the song
-        # from bar 40 onward and never came back to bar 1 -- M10's bug in Muse,
-        # still live here. Rotating the full buffer means the repeat covers the
-        # song exactly once per lap; ``Sounding.wrap`` unwinds the rotation when
-        # the playhead asks where we are.
-        import numpy as np
-
-        buffer = np.concatenate([tab.pcm[offset:], tab.pcm[:offset]]) if offset else tab.pcm
-    else:
-        buffer = tab.pcm[offset:]
-    if len(buffer) == 0:
-        return False
-    if not sirens_audio.play(buffer, tag=tab.uid, loops=-1 if looping else 0):
-        ctx.toast("That song could not be played; see the log for details.", "error")
-        return False
-    tab.sounding = Sounding(
-        marks=tab.marks,
-        anchor=offset,
-        wrap=int(len(tab.pcm)) if looping else None,
-        generation=tab.render_generation,
-    )
-    return True
+    return _start_at(ctx, tab, int(offset))
 
 
 def _caret_offset(tab: SongTab, state: Any) -> int | None:
@@ -409,7 +456,7 @@ def play_pattern(ctx: Any, tab: SongTab | None = None) -> bool:
         from .engine import synth
 
         try:
-            doc = rsng.read_rsng(data)
+            doc = rsng.read_rsng(data, reserve=False)
             samples = synth.render_pattern(doc, uid)
         except ValueError as exc:
             raise invalid_from(exc, "That pattern did not render") from exc
@@ -563,6 +610,18 @@ def follow_playhead(ctx: Any) -> bool:
     if mark is None:
         return False
     order_index, pattern, row = mark
+    # **Never onto a pattern the document no longer holds (the 2026-10-03
+    # audit, finding sirens-14).** The mark comes from the render the mixer is
+    # playing, which outlives an edit: a pattern deleted -- or an add undone --
+    # while the song sounds is still named by the row map, and following it
+    # left the caret on a uid ``doc.pattern`` answers ``None`` for. The next
+    # keystroke was refused ("that pattern is not in this song") and the grid
+    # read "This song has no patterns" on a song that has some, until the
+    # person clicked another one. Skipped rather than clamped: the caret keeps
+    # the place the person last put it.
+    tab = state.active
+    if tab is not None and tab.doc.pattern(pattern) is None:
+        return False
     # **The order index moves with the caret, not only the pattern and row
     # (the 2026-09-08 audit, finding sirens-02).** A pattern reused at two
     # order entries has the same pattern/row answer at both, so the early

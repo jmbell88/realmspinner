@@ -12,6 +12,7 @@ under ``t2i_model_root/loras``, however it got there.
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import uuid
@@ -23,7 +24,7 @@ from typing import Any
 from .. import config, generation, models
 from ..pipelines import lora_train
 from .core import RealmspinnerService
-from .errors import Invalid, TooLarge
+from .errors import Conflict, Failed, Invalid, TooLarge
 from .validation import MAX_IMAGE_PIXELS, check_base_model_weights, check_pack, check_vram
 
 log = logging.getLogger(__name__)
@@ -42,7 +43,8 @@ IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 #: measurement found and below only a lossless copy, so this only ever
 #: collapses the same reference reused across two jobs or a plain resave --
 #: never two merely similar renders, which is exactly what that document says
-#: this metric cannot rank.
+#: this metric cannot rank. Its dev/measurements document is gone with the
+#: backup (confirmed 2026-09-28): re-measure to change.
 DUPLICATE_SIMILARITY = 0.92
 
 #: A ceiling ``store.search_ids`` still wants, chosen so it is never the
@@ -59,6 +61,59 @@ def catalog(svc: RealmspinnerService) -> list[dict[str, Any]]:
 def imported(svc: RealmspinnerService) -> list[dict[str, Any]]:
     """Only the adapters the user added, newest last."""
     return [asdict(m) for m in generation.load_lora_manifests(svc.config)]
+
+
+# The safetensors reference implementation refuses a header over 100 MB; the same
+# ceiling here keeps a hostile 8-byte prefix from making the door read gigabytes.
+_SAFETENSORS_HEADER_MAX = 100_000_000
+
+
+def _check_safetensors_archive(path: Path) -> None:
+    """Refuse a file that is not a whole safetensors archive, on ``source``.
+
+    The suffix and ``is_file`` were the whole check, so a zero-byte or renamed
+    file was copied, hashed, registered, offered by the catalog and reported
+    present by ``fetch.present``; the first job that picked the style loaded a
+    multi-GB checkpoint and only then failed in ``_ensure_adapter`` with a
+    message about reinstalling it in Settings -> Models, which is not where an
+    imported style lives (the 2026-10-03 audit, finding service-10). The format
+    is a little-endian u64 header length, that many bytes of JSON, then the
+    tensor bytes: reading the length, the header and the furthest tensor offset
+    refuses an empty, foreign or truncated file without loading a tensor.
+    """
+    bad = Invalid(f"{path.name} is not a complete .safetensors file", field="source")
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            prefix = handle.read(8)
+            if len(prefix) < 8:
+                raise bad
+            length = int.from_bytes(prefix, "little")
+            if not 2 <= length <= min(_SAFETENSORS_HEADER_MAX, size - 8):
+                raise bad
+            header = json.loads(handle.read(length).decode("utf-8"))
+    except OSError as exc:
+        raise Invalid(f"{path.name} could not be read: {exc}", field="source") from exc
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise bad from exc
+    if not isinstance(header, dict):
+        raise bad
+    data_size = size - 8 - length
+    furthest = 0
+    for name, entry in header.items():
+        if name == "__metadata__":
+            continue
+        offsets = entry.get("data_offsets") if isinstance(entry, dict) else None
+        if (
+            not isinstance(offsets, list)
+            or len(offsets) != 2
+            or not all(isinstance(v, int) and not isinstance(v, bool) for v in offsets)
+            or not 0 <= offsets[0] <= offsets[1]
+        ):
+            raise bad
+        furthest = max(furthest, offsets[1])
+    if furthest > data_size:
+        raise bad
 
 
 def import_lora(
@@ -98,6 +153,7 @@ def import_lora(
         raise Invalid("a LoRA is a .safetensors file", field="source")
     if not path.is_file():
         raise Invalid(f"{path.name} is not a file", field="source")
+    _check_safetensors_archive(path)
     manifest = generation.import_lora(
         svc.config,
         path,
@@ -118,7 +174,27 @@ def remove_lora(svc: RealmspinnerService, key: str) -> dict[str, Any]:
     manifest = generation.imported_lora(svc.config, key)
     if manifest is None:
         raise Invalid("that style was not imported here, so it cannot be removed", field="key")
-    generation.remove_imported_lora(svc.config, key)
+    # The 2026-10-03 audit, finding service-17: a queued or running job that names
+    # the style would fail later, at load, with a message about a download.
+    # ``style_lora`` is the param every door writes (``jobs.create_generation_request``).
+    for row in svc.store.active_jobs():
+        if (row.get("params") or {}).get("style_lora") == key:
+            raise Conflict(
+                "A queued or running job uses that style; wait for it to finish "
+                "or cancel it before removing the style.",
+                field="key",
+            )
+    try:
+        generation.remove_imported_lora(svc.config, key)
+    except OSError as exc:
+        # The sibling doors wrap exactly this as ``Failed``; the registry and the
+        # manifest are both left as they were (``remove_imported_lora`` restores
+        # the row), so the style is still offered and the press can be retried.
+        raise Failed(
+            f"could not delete {manifest.filename}: {exc}. Another program may "
+            "have it open; the style was kept.",
+            field="key",
+        ) from exc
     return {"ok": True, "key": key}
 
 

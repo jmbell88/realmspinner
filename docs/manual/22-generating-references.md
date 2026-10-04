@@ -6,8 +6,9 @@ and the selected result and recent creations are on the right.
 
 ## The prompt
 
-The large text box under **Prompt** is where you describe the object. Write the subject and nothing
-else — "a weathered wooden crate bound with iron", "a compact energy rifle with panel seams". You do
+The large text box under **Your brief** (labelled **Describe the asset**, or **Shared style** on a
+Tileset) is where you describe the object. Write the subject and nothing else — "a weathered wooden
+crate bound with iron", "a compact energy rifle with panel seams". You do
 not need to ask for a plain background, a single object, or a studio render on a 3D Model: for
 that type (and for Seamless Material, Tileset and Sprite Sheet, each with its own template) the app
 wraps whatever you write in a fixed template that already asks for all of that, because those are
@@ -19,7 +20,8 @@ The prompt is capped at 1000 characters and a counter in the bottom-right corner
 how much you have used once you have typed anything. The counter turns amber inside the last hundred
 characters, because past the cap the box simply stops taking text.
 
-Further down the recipe column, under the seed row, a **Recent prompts…** button opens your last
+Further down the recipe column, below the model and style controls and above the collapsed
+**Advanced** header, a **Recent prompts…** button opens your last
 twenty prompts, most recent first and deduplicated — it appears once you have generated at least one
 reference, so there is history to show. Picking one replaces what is in the box. The history outlives
 the session (it is saved with your other Realmspinner preferences and is there again after a restart), and
@@ -31,7 +33,9 @@ Under **Advanced → Avoid**, further down the pane, is a second box listing wha
 contain. It is pre-filled with the things that most often ruin a reconstruction, and it is yours:
 delete the text and the job runs with no negative prompt at all, which is a different request from
 the default rather than a way back to it. **Reset settings…**, below the brief, brings the
-default text back along with the rest of the form.
+default text back along with the rest of the form. The box is hidden, not greyed, while the model
+in use ignores a negative prompt (the distilled fast models, which run at guidance 1.0 or lower);
+the text is left as it was and reappears when you pick a model that reads it.
 
 ```text
 blurry, low quality, multiple objects, cropped, cut off,
@@ -41,8 +45,9 @@ text, watermark, signature, busy background, human hands
 A second subject, or a subject cut off by the frame edge, is the single most common cause of a mesh
 that comes out as nonsense — which is why this is a filled-in default rather than an empty field
 you have to discover. You can edit it freely, or empty it deliberately. Note that a negative prompt
-only has an effect on a model that runs with real classifier-free guidance; the two four-step
-distilled defaults ignore it. See [Models and style LoRAs](#models-and-style-loras).
+only has an effect on a model that runs with real classifier-free guidance (guidance above 1.0);
+the five distilled entries (Turbo, Hyper-SD, Lightning, LCM and FLUX.2 klein distilled) ignore it.
+See [Models and style LoRAs](#models-and-style-loras).
 
 For the types that use a template, your text is composed into it before the image model sees it; an
 Image job's composed prompt is simply your text. The finished job records the result as
@@ -103,7 +108,7 @@ corpus overall. Two in five is a real chance, which is why this is a note and no
 for a closed form** appends a clause asking for filled-in gaps to your prompt; it appends rather than
 rewrites, so you can see exactly what changed and delete it.
 
-**Generation type** has six entries: *Image*, *3D Model*, *Seamless Material*, *Tileset*, *Sprite
+**What are you making?** has six entries: *Image*, *3D Model*, *Seamless Material*, *Tileset*, *Sprite
 Sheet* and *Character*. Three of them are described elsewhere in this chapter — see
 [Seamless tiles](#seamless-tiles), [Sheets](#sheets) and [Characters](#characters). *Character* is
 the odd one out and worth knowing about early: it is the only type on this screen that generates no
@@ -166,8 +171,9 @@ model's identity: a four-step distilled model run at 25 steps with guidance prod
 Hyper-SD and Lightning degrade silently without the right timestep spacing.
 
 Three consequences are worth knowing. A **negative prompt** is only encoded when guidance is above
-1.0, so it does nothing on the three four-step entries — pick one of the full-CFG models if you want
-it honoured. **Structure control** (see [Conditioning on an image](#conditioning-on-an-image)) is
+1.0, so it does nothing on any entry whose guidance is 1.0 or lower — SDXL-Turbo, Hyper-SD, Lightning,
+LCM and FLUX.2 klein distilled — so pick one of the full-CFG models if you want it honoured.
+**Structure control** (see [Conditioning on an image](#conditioning-on-an-image)) is
 only offered on the SDXL models that run with real guidance, because a ControlNet at guidance 0
 fights the hint instead of following it. And **conditioning, seamless tiles, and every style LoRA but
 one are SDXL-only**: they are all built against SDXL's internals, so on FLUX.2 the Style LoRA picker
@@ -206,7 +212,8 @@ switch for free, with no reload. Five ship:
 An adapter is fitted to one architecture, so the picker offers a model only the styles that fit it.
 Choosing a model no style fits disables the picker with a note; choosing one that some styles fit
 lists those and says so. A style you picked under a different model stays visible and marked rather
-than vanishing, and changing the model clears it with an explanation.
+than vanishing, and changing the model clears it with an explanation. That holds when the model is switched to
+**Automatic** too: a style LoRA or start image the resolved model cannot take is cleared, with a note.
 
 Choosing one reveals a **Strength** slider, from 0 to 1.5, defaulting to the LoRA's own tuned
 weight — 0.9 unless the entry says otherwise. The slider is hidden entirely when no LoRA is chosen.
@@ -216,7 +223,7 @@ noticeably stronger on the SDXL entries than on Turbo.
 ## Seeds and candidates
 
 Generation is deterministic in its seed: the same form and the same seed produce the same image
-every time. The **Seed** section is where you control that.
+every time. The **Seed** row, inside the collapsed **Advanced** header, is where you control that.
 
 The **Candidates** control below the brief picks how many candidates one submit queues: 1, 2, 4 or 8.
 Each is a real job holding
@@ -276,7 +283,7 @@ gallery falls back to submission order.
 
 ## Conditioning on an image
 
-Beyond the prompt, you can steer the image with a picture. In the **References** section, either
+Beyond the prompt, you can steer the image with a picture. In the **Conditioning** section, either
 **Choose an image...** or drop a file onto the window. Everything below the picker stays
 hidden until there is an image, because a control with nothing to act on is a control that cannot
 do anything.
@@ -378,7 +385,8 @@ Lospec's `.hex`, one `rrggbb` per line, GIMP's `.gpl`, Paint Shop Pro's `.pal` o
 art direction rather than a default. Colours are matched perceptually (in Oklab) rather than by raw
 RGB arithmetic, which is what stops a dark grey being mapped to black and a whole shadow being
 eaten. A palette file supersedes the **Colours** cap entirely: the cap is a median cut of the
-picture's own colours, and a palette is a decision about which colours exist.
+subject's own colours — the discarded background is not counted, so a subject of four flat colours at
+a cap of 4 keeps all four — and a palette is a decision about which colours exist.
 
 Editing a palette in place re-derives every export that used it — freshness is keyed on the file's
 *contents*, not its name, because editing one is the normal way to work on it.
@@ -631,9 +639,13 @@ CPU work, which is why the plan block says *no GPU needed* — on a machine that
 all, this type still works.
 
 Type a brief the way you would for anything else. The Character column reads it and fills itself in:
-the species, the look, the camera and the actions all move to what the words said. Everything the
+the species, the look, the camera and the actions all move to what the words said. A hyphenated or
+slashed spelling reads the same as a spaced one: `ogre-king` and `side-view` find the species and
+the camera exactly as `ogre king` and `side view` do. Everything the
 brief did not mention keeps its default, and anything it said that Realmspinner did not understand is
-listed under **Not interpreted** so you can see what was ignored rather than wonder.
+listed under **Not interpreted** so you can see what was ignored rather than wonder. That line also
+names an action Realmspinner understood but a character sheet does not draw: a sheet carries Idle,
+Walk and Attack, so "a running wolf" lists *run* there instead of silently losing it.
 
 Change a control and it becomes yours. From then on editing the prompt leaves that control alone —
 otherwise every keystroke would undo the species you just picked. **Reset to prompt** forgets those
@@ -662,7 +674,9 @@ there to answer it directly.
 
 **Species** is grouped by body plan, because the plan decides the skeleton, the clips and which
 appearance sliders this character has. **Look** offers only the palettes that species is painted in;
-*The species' own* means its first one. **Camera** is the same preset table Poser's own sheet form
+*The species' own* means its first one. A Look you picked is dropped when an edit to the brief moves
+the species to one that is not painted in it, and a Look the species cannot be painted in is refused
+on the Look control itself. **Camera** is the same preset table Poser's own sheet form
 uses, and its helper states the elevation in degrees and the direction count, which is what transfers
 when you are matching sprites to a map.
 
@@ -671,6 +685,12 @@ under them is the cell count the render will produce. **Sprite size** and **Colo
 two ladders every other pixel surface in Realmspinner offers. Below them is one slider per appearance
 channel the species' body plan declares — an ogre and a wolf do not have the same ones — and a
 **Name**, which is what the library will call it.
+
+The same **Seed** row as every other type closes the column, with its **Reroll** and **Lock seed**.
+Here the seed is the recipe's own: it is stored with the character, and it feeds what the render
+leaves to chance, such as the flame on a socket, so the same recipe and seed build the same sheet.
+**Reroll** replaces it with a fresh random number. Unlocked, every Generate draws a fresh seed; with
+**Lock seed** on, the seed is reused, so an unchanged recipe builds the same character again.
 
 **Preview character** builds the body on its own and shows it in the viewport. It makes no library
 row and never blocks Generate, so it is safe to press while you are still deciding.

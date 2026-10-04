@@ -21,6 +21,14 @@ status line, and then the whole rest of the screen for what you were working on.
 
 ![Home: the rail, the tour offer, the What's new card, New... and an empty Resume](img/21-home.png)
 
+## Unsaved work
+
+If the last session ended with documents still open, Home opens with an **Unsaved work** list at the top
+of its left column: one row per document, each with a **Recover** button, and **Discard all** under the
+rows. Recovering a document opens it untitled, and you choose where to save it. The list is not there
+when there is nothing to recover. How the copies are made, when they are kept and when they are cleared
+is [Autosave and recovery](28-inker.md#autosave-and-recovery).
+
 ## New here?
 
 Above everything else, on a fresh install, is an offer of a **guided tour** — a title, one line
@@ -36,20 +44,23 @@ Both Sirens tours add a second half of that rule — no step of either one waits
 so a machine with no sound device can finish them too.
 
 **The tour points and waits. It never clicks anything for you.** A step highlights one control,
-says what it is for, and either advances on **Next** or waits until you have actually done the
-thing it describes — clicked that mode, made that stroke. **Back** returns a step, **Read more**
+says what it is for, and either advances on **Next** or shows **Waiting for you.** until you have
+done the thing it describes — clicked that mode, made that stroke — and **Done.** once you have.
+**Next** is yours to press either way, so you can skip a step. **Back** returns a step, **Read more**
 opens the manual chapter the step is about, and `Esc` ends the tour wherever you are. Every tour is
 also in the command palette as **Take the tour: …**, so leaving one is never losing it.
 
 The offer is not a modal and never blocks the app. It stands down on its own once you have finished
-the tour it names, moves on to the next one, and **Not now** puts it away for good.
+the tour it names, and moves on to the next one. **Not now** puts that tour away for good, and
+only that tour: the next one is offered at once, so declining every tour takes one press each.
 
 ## What's new
 
-A card at the top names this build and gives you the first three lines of its release notes, with a
-**×** that dismisses it. Dismissing is remembered against the *version*, so the card stays gone until
-the next release brings it back — and **All release notes…** at the foot of the screen opens the full
-history at any time, this build's entry open and the older ones collapsed under it.
+A card names this build and gives you the first three bullets of its release notes, each cut to its
+opening sentence, with a **×** that dismisses it. Dismissing is remembered against the *version*, so
+the card stays gone until the next release brings it back — and **All release notes…** at the foot of
+the screen opens the full history at any time, this build's entry open and the older ones collapsed
+under it.
 
 It is read from a `CHANGELOG.md` shipped inside the app, hand-written rather than generated: most
 commits in this repository do name what changed and why, but a changelog derived from them would
@@ -57,8 +68,8 @@ still be commit-shaped — one entry per change, in developer language, with no 
 about what a player actually needs to know. If the file is missing or unreadable there is simply no
 card, and nothing else on the screen is affected.
 
-The version this build is running is printed beside the title, which is the only place in the UI it
-appears.
+The version this build is running is printed beside the title, and again under **Settings ▸ Updates**
+(Chapter 42), which says "You are running Realmspinner" and the version.
 
 ## Starting something
 
@@ -89,7 +100,7 @@ to go is clickable.
 | Line | What it says | Where it goes |
 |---|---|---|
 | Setup | "Generation is not set up yet — N downloads, about G GB", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](42-app-settings.md), opened on **Models**. |
-| Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | — |
+| Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | [Library](36-library-and-jobs.md), filtered to that job's status: `running` or `queued`. |
 | Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](37-review.md). |
 
 There used to be a **Library** line here too, counting assets and disk. It went when Resume became a
@@ -120,8 +131,10 @@ That list is genuinely one list. Inker, Clay, Plotter and Packwright each used t
 recent-files history, which meant "the six things you were working on" could not be answered at all:
 four separate lists carry an order within themselves and none between them. They are now one
 history with a timestamp per entry, and your generated assets are folded in beside them from the
-library — an asset row opens in the pane that made it, 2D for a reference or a tile and 3D for
-anything else.
+library — an asset row opens where its artifacts are: Create's Reference stage for a reference or
+a tile, its Mesh stage for anything else, and the stage or workspace that holds the product for a
+rig, a sheet, a character sheet or a track. Work made in a Create workspace appears here too, as it
+does in the Library.
 
 Up and Down move between the cells and Enter opens the highlighted one — the ring wraps at both ends,
 because a dozen tiles is a menu rather than a list. Hovering moves the highlight too, so the mouse

@@ -24,7 +24,7 @@ from imgui_bundle import imgui
 
 from ...... import guidance, vectors
 from ......bench import findings as findings_lib
-from ......pipelines import remesh
+from ......pipelines import optimize, remesh
 from ......service import findings as svc_findings
 from ......service import jobs as svc_jobs
 from ......service import sheets as svc_sheets
@@ -36,6 +36,7 @@ from .....manual import render as manual_render
 from .....panes import model_gate, remesh_panel, retarget_panel, stage_rig
 from .....tokens import sp
 from ...engine import mesh as create_mesh
+from .. import brief as create_brief
 from .. import stages as create_stages
 from .. import workspace
 
@@ -58,8 +59,8 @@ SKIP_CLEAN_MATTE_SETTING = "skip_clean_matte_preview"
 # there for the same reason.
 _LAST_AUTO_MATTE_SLOT = "mesh_last_auto_matte"
 
-# This pane's key in the focus ring; see ``settings_2d.FOCUS_PANE``.
-FOCUS_PANE = "3d"
+# The brief's ring, shared; see ``settings_2d.FOCUS_PANE``.
+FOCUS_PANE = create_brief.FOCUS_PANE
 
 # What each of ``pipelines/matting``'s three sources is called on screen. The
 # distinction matters to the user: the corner fill is a guess a plain
@@ -88,18 +89,16 @@ MATTE_SOURCES = {
 PROFILES = list(retarget_panel.TIERS)
 
 
-#: The pinned footer's height in design pixels, fed back frame-late the way
-#: ``settings_2d._submit_px`` is: what a refusal, a repair or the queue line add
-#: is not knowable before the footer has drawn.
-_footer_px = [96.0]
-
-
 def draw(ctx: Any) -> None:
-    """The Mesh column: settings only, with the plan footer pinned under it.
+    """The Mesh column: the brief's inputs, the settings, the plan footer
+    pinned under them and *Make 3D* under that.
 
-    **No press is drawn here.** *Make 3D*, Candidates and Reset live in the
-    command bar (``ui/brief.py``), one bar for both generating stages; this
-    column is *how*, the bar is *what* and *go*.
+    ``brief.inputs(ctx, mesh=True)`` draws the Source chip, Candidates and
+    Reset at the head of this column and ``brief.submit_control`` draws Make 3D
+    at its foot (``ui/brief.py``, shared with the Reference stage's column). The
+    column reserves a fixed ``-sp(220)`` for the plan, its refusals and the
+    press -- there is no frame-late height feedback; the audit's create-40
+    removed the unused ``_footer_px`` list that said there was.
     """
     state = ctx.state
     form = state.form_3d
@@ -107,8 +106,8 @@ def draw(ctx: Any) -> None:
     # Form.errors replaces field_error(ctx.state, "platform") and keeps the
     # service's field key attached to the shared control's ring and error copy.
     with forms.Form("create-3d", errors=ctx.state.field_errors) as form_ui:
-        # The keyboard ring (UX.md Phase 3), over this pane's own controls; the
-        # press is in the bar's ring now.
+        # The keyboard ring (UX.md Phase 3), over the whole column: the brief's
+        # controls and the press record into this same ring as they draw.
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
         if imgui.begin_child("3d-form", (0, -sp(220))):
@@ -286,6 +285,9 @@ def _reset(ctx: Any) -> None:
     from .....state import DEFAULT_FORM_3D
 
     ctx.state.form_3d = dict(DEFAULT_FORM_3D)
+    # Refusals recorded against the discarded form (finding create-24; see
+    # ``settings_2d._reset``).
+    ctx.state.clear_field_errors()
     ctx.toast(RESET_TOAST)
 
 
@@ -336,7 +338,15 @@ def _best_value_offer(ctx: Any, form: dict[str, Any], param: str, value: Any) ->
     widgets.muted(findings_lib.best_value_line(entry, scope))
     imgui.same_line()
     if controls.button(f"Use {value_str}##best-{param}"):
-        form[param] = coerce_form_value(form[param], value_str)
+        if param == "profile":
+            # The 2026-10-04 audit, finding create-20: this wrote ``form["profile"]``
+            # alone, so on the default form (Game-ready 5k) the Budget combo did not
+            # move and ``promote_kwargs`` kept sending ``lowpoly_triangles: 5000``,
+            # which the door honours over the profile. The combo's own change path
+            # writes both keys (and seeds Custom's count).
+            _apply_budget_choice(form, value_str)
+        else:
+            form[param] = coerce_form_value(form[param], value_str)
 
 
 # "Size (m)" as a drag rather than a slider (K96), and the *ceiling* is why: a
@@ -507,6 +517,15 @@ def _apply_budget_choice(form: dict[str, Any], choice: str) -> None:
         return
     form["lowpoly_triangles"] = 0
     form["profile"] = choice
+    if choice == "custom" and not (
+        optimize.CUSTOM_MIN <= int(form.get("custom_triangles") or 0) <= optimize.CUSTOM_MAX
+    ):
+        # The 2026-10-04 audit, finding create-26: the pick left the count at
+        # DEFAULT_FORM_3D's 0, which the door refuses -- after the cutout check.
+        # Seeded with the Standard tier's count (what ``retarget_panel`` seeds
+        # its own custom field with); a count the user already typed and that
+        # is in range survives a re-pick.
+        form["custom_triangles"] = optimize.PROFILES["standard"]
 
 
 def _budget(ctx: Any, form: dict[str, Any]) -> None:
@@ -554,7 +573,7 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
     if form.get("lowpoly_triangles"):
         form["mesh_finishing"] = widgets.labeled_combo(
             "Finishing",
-            form.get("mesh_finishing", "repair"),
+            form.get("mesh_finishing", create_mesh.DEFAULT_MESH_FINISHING),
             [("preserve_shape", "Preserve shape"), ("repair", "Repair and close holes")],
         )
         widgets.field_error(ctx.state, "mesh_finishing")
@@ -569,6 +588,7 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
         changed, value = controls.input_int("##Triangles", int(form["custom_triangles"]), 0, 0)
         if changed:
             form["custom_triangles"] = max(0, value)
+        widgets.field_error(ctx.state, "custom_triangles")
 
 
 def _source_param(ctx: Any, key: str) -> str | None:
@@ -900,18 +920,33 @@ def _turnaround(ctx: Any) -> None:
         )
 
 
-def problems(ctx: Any, source: dict[str, Any] | None) -> list[Any]:
-    """Everything that stops Make 3D right now: the reference, then the engine.
+def problems(
+    ctx: Any, source: dict[str, Any] | None, form: dict[str, Any] | None = None
+) -> list[Any]:
+    """Everything that stops Make 3D right now: the reference, then the engine,
+    then a Budget the door would refuse.
 
     One list for the bar's button, the footer and Ctrl+Enter, so a press the
     button refuses is refused the same way from the keyboard. The engine's
-    absence (``create_mesh.engine_problem``) comes last -- a person with no
-    reference has a nearer problem than a download.
+    absence (``create_mesh.engine_problem``) comes after the reference -- a
+    person with no reference has a nearer problem than a download.
+
+    ``form`` is the form the press will send; omitted, it is the live Mesh form
+    (``ctx.state.form_3d``), which is what the command bar's button (it passes
+    none) is judging. The Custom count's range check is the 2026-10-04 audit's
+    create-26: it lives here, not in the engine module, because ``optimize``
+    is not an import that package's pin admits.
     """
     out = list(create_mesh.validate(source))
     engine = create_mesh.engine_problem(getattr(ctx, "model_rows", None))
     if engine is not None:
         out.append(engine)
+    if form is None:
+        form = getattr(getattr(ctx, "state", None), "form_3d", None)
+    if form is not None:
+        budget = create_mesh.custom_budget_problem(form, optimize.CUSTOM_MIN, optimize.CUSTOM_MAX)
+        if budget is not None:
+            out.append(budget)
     return out
 
 
@@ -925,7 +960,7 @@ def _footer(ctx: Any, form: dict[str, Any], source: dict[str, Any] | None) -> No
     workspace.plan_footer(
         ctx,
         create_mesh.plan(form),
-        problems(ctx, source),
+        problems(ctx, source, form),
         lambda problem: _preflight_fix(ctx, problem),
     )
 
@@ -969,7 +1004,7 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
     correction ``_submit`` does.
     """
     source = _effective_source(ctx, source)
-    refused = problems(ctx, source)
+    refused = problems(ctx, source, form)
     if refused:
         # ``settings_2d.generate``'s reason exactly: Ctrl+Enter in 3D mode and
         # the palette's promote both land here, and this used to return in
@@ -988,7 +1023,12 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
         ctx,
         source["id"],
         {
-            **create_mesh.promote_kwargs(form),
+            # ``rig_available`` is the 2026-10-04 audit's create-36: ``_rig``
+            # draws the box unchecked without Blender, and the stored True was
+            # still sent.
+            **create_mesh.promote_kwargs(
+                form, rig_available=create_stages.blender_reason("rig", ctx) is None
+            ),
             "count": create_mesh.candidate_count(form),
             **_workspace_metadata(ctx),
         },

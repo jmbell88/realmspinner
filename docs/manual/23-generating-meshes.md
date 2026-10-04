@@ -155,12 +155,23 @@ stops the reconstruction engine while the image model runs.
 **Budget** picks how the finished mesh gets to a game-sized triangle count, and it offers up to four
 families of entry, each drawn only when this machine can actually run it:
 
-- **Game-ready — 2k, 5k, 10k or 20k** remeshes the surface itself inside the model job: a voxel
-  pass, a fresh unwrap, and the old colour, roughness and normals baked onto the new geometry. This
-  is what turns the engine's ~300k-face output into something an engine actually budgets for, and
-  **5k is the default** — Crash-Bandicoot-range fidelity on a whole-character reconstruction, per
-  `dev/measurements/2026-09-23-default-mesh-budget.md`. It needs Blender (the `rig` extra); without
-  it, this family does not appear.
+- **Game-ready — 2k, 5k, 10k or 20k** brings the surface down to that triangle count inside the
+  model job, in Blender, and what it does on the way depends on the **Finishing** choice just
+  below it. This is what turns the engine's ~300k-face output into something an engine actually
+  budgets for, and **5k is the default** — Crash-Bandicoot-range fidelity on a whole-character
+  reconstruction. That figure came from a measurement document that is now lost (the backup it
+  lived on is gone), so treat it as the shipped default rather than a number you can check. It
+  needs Blender (the `rig` extra); without it, this family does not appear.
+  **Finishing** is a combo drawn under Budget whenever a Game-ready rung is chosen, and it is not
+  drawn for Simplify, Raw or Custom. **Preserve shape**, the default, welds coincident vertices and
+  then collapses triangles, keeping the mesh's own UVs and its existing colour, roughness and
+  normal maps: no voxel pass, no new unwrap, no rebake, so it does not close holes. **Repair and
+  close holes** is the older path: a voxel pass that seals the gaps a reconstruction leaves, a
+  fresh unwrap, and the old colour, roughness and normals baked onto the new geometry, at the cost
+  of slightly rounding sharp edges. Repair refuses a mesh that mixes cutout (mask) and blended
+  materials, because one atlas cannot carry both; it says so before the bakes start rather than
+  after minutes of them, and an opaque mesh skips the opacity bake it would not use. A job saved
+  before the choice existed ran Repair, and keeps that reading.
 - **Simplify: Draft/Standard/Detailed** are the gltfpack tiers (20k/50k/100k) — a plain triangle
   reduction of the reconstruction's own surface, no rebake. They need `gltfpack`
   (a one-time manual drop into `vendor/gltfpack/`, or `REALMSPINNER_GLTFPACK` pointed at a copy you
@@ -170,10 +181,11 @@ families of entry, each drawn only when this machine can actually run it:
   in-Blender remesh.
 - **Raw** ships the reconstruction as the engine wrote it, ~300k faces. Always offered.
 - **Custom** takes a triangle count directly; it appears once `gltfpack` is present, alongside the
-  Simplify tiers.
+  Simplify tiers. Picking Custom starts the count at 50,000, and a count outside 5,000 to 250,000
+  is refused in the plan footer, naming the **Triangles** field, before the cutout check.
 
-With neither Blender nor `gltfpack` on this machine, the combo collapses to Raw alone and
-`realmspinner doctor` says why.
+With neither Blender nor `gltfpack` on this machine, the pane draws no **Budget** row at all, not
+a combo with one entry, and the mesh ships as Raw; `realmspinner doctor` says why.
 
 A saved Game-ready budget that is not one of the four rungs, say 7,500 from before the ladder
 last changed, is kept as it is. It shows as its own **Game-ready (7,500)** entry until you pick
@@ -227,7 +239,8 @@ sees it. It is off by default: the engine does its own cropping, and whether doi
 hurts has not been measured. Treat it as an experiment rather than an improvement.
 
 The **Rig** section holds **Rig when the mesh lands** and a skeleton picker. Without Blender it stays on
-screen, greyed, and its tooltip gives the same reason as the Rig segment in the stage rail.
+screen, greyed, and its tooltip gives the same reason as the Rig segment in the stage rail. Without
+Blender, Make 3D also never requests a rig, even if the setting was on when it was saved.
 See [Rigging and posing](25-rigging-and-posing.md).
 
 ## Engine (advanced)
@@ -277,7 +290,8 @@ offers the whole list, and Custom gains a triangle-count field with its own vali
 not, `realmspinner doctor` says so and every tier ships the engine's own output instead of failing.
 This is the gltfpack half of the same ladder **Budget**, described under
 [Mesh parameters](#mesh-parameters), offers on the generate form under "Simplify:" — Standard is
-this panel's default, and it is also what a new job falls back to when Blender is missing and no
+this panel's default when `gltfpack` is present (Raw when `gltfpack` is absent, the only tier it
+then offers), and it is also what a new job falls back to when Blender is missing and no
 Game-ready remesh can run. This panel is where you change your mind about a tier after the fact, on
 a mesh that already exists rather than on a job you are about to wait two minutes for — and where an
 old job that predates this default, or ran with gltfpack absent, gets a budget applied for the first
@@ -312,9 +326,9 @@ output into something an engine budgets for, and it is what every commercial gen
 
 **This is now the default, not an extra step.** Create's **Budget** combo (see
 [Mesh parameters](#mesh-parameters)) offers Game-ready 2k/5k/10k/20k, and 5k runs automatically on
-every new mesh whenever Blender (the `rig` extra) is installed — measured on a full reconstruction
-to keep silhouette, face markings and other small detail intact
-(`dev/measurements/2026-09-23-default-mesh-budget.md`). It runs inside the model job itself, between
+every new mesh whenever Blender (the `rig` extra) is installed — chosen on a full reconstruction
+to keep silhouette, face markings and other small detail intact (the measurement document behind
+that choice is lost; the figure is unmeasured here). It runs inside the model job itself, between
 the triangle-budget step and grounding, so a rig queued for the same mesh sees the final, remeshed
 geometry rather than the ~300k-triangle reconstruction. The panel below is for **reworking an
 existing mesh** — trying a different budget, or remeshing a mesh that predates this default.
@@ -351,8 +365,7 @@ a bug fixed on 2026-09-23, since which a refusal correctly falls through to the 
 silently shipping the untouched reconstruction under a "quadriflow" label. Measured on a real
 character: the voxel pass does make the surface manifold and single-shell, and quadriflow refuses it
 anyway ("the mesh needs face normals that point in a consistent direction"). Why it refuses a surface
-that measures manifold is unresolved — see `dev/TODO.md`. In practice, expect the decimate fallback
-to be what runs.
+that measures manifold is unresolved. In practice, expect the decimate fallback to be what runs.
 
 The last remesh's result is printed under the button: triangles, the method (`quadriflow` or
 `decimate`), and the bake size. A decimated mesh is not reported as a failure of a quad path it was
@@ -393,7 +406,8 @@ the button will name the download if it is missing. **Anchor strength** is how f
 is held; the default is the model's own.
 
 **Atlas size** is the resolution the new texture is written at. The default, **Match the mesh**,
-keeps the mesh's current atlas resolution; a fixed size is offered but changes nothing a view covers
+keeps the mesh's current atlas resolution, held to at most 2048 (a larger atlas is baked at 2048
+and the log says so); a fixed size is offered but changes nothing a view covers
 and shrinks everything no view does, which keeps its old colour.
 
 Three things the panel tells you rather than letting you find out.
@@ -459,6 +473,16 @@ open. When the report says a mesh is not watertight it names the boundary edges 
 found *after* welding; the raw unwelded counts are still recorded, because how badly a file is split
 is its own question for a rig or an exporter.
 
+A mesh that went through a Game-ready budget also gets **finishing lines** at the top of the block,
+before the report: `Finished mesh: N triangles; requested M.`, then `Silhouette coverage lost: x%;
+added: y%.` and `Source opening pixels filled: z%.`, then any UV or material change the
+check found. They compare the finished mesh with the one it replaced in shared-frame silhouettes.
+Where a measurement could not be made the line says *unknown* rather than passing it, and a
+finishing that failed or was cancelled says so and points at `source.glb`. These are advisory
+numbers, not a readiness grade: they cannot tell a lost handle from a lost shadow, and the
+Preserve shape default, which does not seal holes, is exactly the case where the opening figure is
+worth reading.
+
 The **mesh audit** answers a different question: *can you see through it*. It is a silhouette check
 — render the mesh from several angles and measure how much of the subject is holes — reported as
 "visible openings" and a percentage. That is what a player actually notices, and it is not the same
@@ -477,8 +501,10 @@ job still completes: the GLB is already on disk, and a missing verdict is better
 
 ## Exports
 
-The **Rig**, **Pose** and **Export** stages each open with the same **Take it somewhere** section
-Reference and Mesh do — Clay, Poser and Mason stay reachable for a rigged mesh however far through
+The **Rig**, **Pose** and **Export** stages each carry the same **Take it somewhere** section
+Reference and Mesh do. In Create it sits behind an **Open in...** header at the top of the
+inspector that starts closed and stays however you last left it, so open the header to see it.
+Clay, Poser and Mason stay reachable for a rigged mesh however far through
 the pipeline you have taken it, rather than only from the Mesh stage it started on, and Poser's own
 door renders a character sheet directly. See [The library and jobs](36-library-and-jobs.md) for what
 the list offers and how a destination one

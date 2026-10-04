@@ -44,8 +44,20 @@ def select_all(doc: Any) -> None:
         doc.select([obj.uid for obj in doc.objects if obj.visible])
         return
     for obj in doc.objects:
-        if obj.visible:
+        if _element_pickable(obj):
             doc.set_element_sel(obj.uid, el.select_all(obj.mesh, doc.element_mode))
+
+
+def _element_pickable(obj: Any) -> bool:
+    """The eligibility every element door shares: visible, and not a collider.
+
+    The 2026-10-03 audit's clay-42: ``select_all`` and ``invert`` filtered on
+    ``visible`` alone, so Ctrl+A reached the elements of a collider -- which the
+    pick, hover, snap and marquee doors skip on purpose, because it is not drawn
+    on screen to sweep over -- and a following Delete or gizmo drag then changed
+    geometry the user could not see selected.
+    """
+    return bool(obj.visible) and obj.role != "collider"
 
 
 def invert(doc: Any) -> None:
@@ -56,7 +68,7 @@ def invert(doc: Any) -> None:
         doc.select([o.uid for o in doc.objects if o.visible and o.uid not in doc.selection])
         return
     for obj in doc.objects:
-        if not obj.visible:
+        if not _element_pickable(obj):
             continue
         doc.set_element_sel(
             obj.uid,
@@ -128,6 +140,13 @@ def delete_selected(doc: Any) -> list[str]:
         removable = []
         for uid in doomed:
             obj = doc.by_uid(uid)
+            # The 2026-10-03 audit's clay-41: hiding an object leaves it
+            # selected, and Delete took it along with the visible ones --
+            # against the manual's "a hidden object stays hidden and untouched
+            # even when it is selected". Skipped silently, as Merge and Ctrl+A
+            # already do: nothing the user can see was refused.
+            if not obj.visible:
+                continue
             if obj.locked:
                 refusals.append(f"{obj.name!r} is locked.")
                 continue
@@ -157,6 +176,10 @@ def delete_selected(doc: Any) -> list[str]:
     mark = doc.history.mark()
     for uid in list(doc.element_sel):
         obj = doc.by_uid(uid)
+        # clay-41 (2026-10-03 audit): a hidden object can still hold an element
+        # selection, and its faces are not on screen to be deleted.
+        if not obj.visible:
+            continue
         # The 2026-09-22 audit, finding clay-02: this used to call
         # ``delete_faces``/``set_mesh`` unconditionally for every object with
         # something in ``doc.element_sel`` -- a locked object could be in
@@ -212,7 +235,7 @@ def duplicate_selected(doc: Any) -> list[int]:
     from . import document as bd
     from . import ops
 
-    taken = [obj.name for obj in doc.objects]
+    taken = ops.UsedNames(obj.name for obj in doc.objects)
     copies = []
     # The 2026-09-14 audit's clay-07: this used to iterate ``doc.selection``
     # directly, a plain ``set``, so a Ctrl+D on several objects produced
@@ -221,8 +244,13 @@ def duplicate_selected(doc: Any) -> list[int]:
     # sorting by ``doc.index_of`` restores the document's own order.
     old_to_new: dict[int, int] = {}
     for uid in sorted(doc.selection, key=doc.index_of):
+        # The 2026-10-03 audit's clay-41: a hidden object stays untouched even
+        # when it is selected, and a copy of it would appear (selected) in a
+        # scene the user cannot see the original in.
+        if not doc.by_uid(uid).visible:
+            continue
         copy = ops.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
-        taken.append(copy.name)
+        taken.add(copy.name)
         old_to_new[uid] = copy.uid
         copies.append(copy)
     # The 2026-09-26 audit (clay-mesh-core-06): ``ops.duplicate`` copies

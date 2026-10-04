@@ -129,8 +129,12 @@ def _pending(config: Config) -> list[tuple[Path, Path]]:
     """The (legacy, destination) pairs that still have to move."""
     out: list[tuple[Path, Path]] = []
     for name, field_name, env in _ROOTS:
-        if os.environ.get(env):
-            # The user has already said where this one goes.
+        if (os.environ.get(env) or "").strip():
+            # The user has already said where this one goes. Stripped, because
+            # ``config._env_path`` reads a blank value as unset and falls back to
+            # home: testing the raw variable here disagreed with Config about
+            # whether it was set, and skipped a root Config had put under home
+            # (the 2026-10-03 audit, finding service-20).
             continue
         legacy = PROJECT_ROOT / name
         dest = getattr(config, field_name)

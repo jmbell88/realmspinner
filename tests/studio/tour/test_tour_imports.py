@@ -1,7 +1,8 @@
 """What ``studio/tour/`` is allowed to reach for: nothing.
 
-The fourth instance of the pin ``studio/inker/``, ``clay/``, ``plotter/`` and
-``packwright/`` each carry, and the strictest of them -- a tour is *data*, so
+The fourth instance of the pin that ``kernels/pixel/``, ``kernels/mesh/``,
+``kernels/grid2d/`` and the mode engines under ``studio/modes/*/engine/`` each
+carry, and the strictest of them -- a tour is *data*, so
 this package has no outward imports at all, not even a shared engine.
 
 That is what makes the rules about a tour assertable headlessly: a test can walk
@@ -35,20 +36,41 @@ def _modules() -> list[Path]:
     return sorted(p for p in ENGINE.glob("*.py") if not p.name.startswith("_test"))
 
 
-def _imports(path: Path) -> set[str]:
-    """Every module this file names, absolute and relative alike."""
+def imports_of(tree: ast.AST, package: str) -> set[str]:
+    """Every module a parsed file names, as an absolute dotted name.
+
+    Relative imports are resolved against ``package`` (the dotted name of the
+    package the file lives in) rather than skipped. The 2026-10-03 audit's
+    tour-06: ``if node.level: continue`` assumed a relative import stays inside
+    the package, so ``from ..state import X``, ``from .. import tokens`` and
+    ``from ...service import jobs`` passed both pins -- exactly the imports a
+    drawing helper would add. One that climbs above the package now resolves
+    to its real name and is counted as outward.
+    """
 
     found: set[str] = set()
-    tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            if node.level:  # a relative import stays inside the package
+            if not node.level:
+                if node.module:
+                    found.add(node.module)
                 continue
+            base = package.split(".")
+            base = base[: len(base) - (node.level - 1)]
             if node.module:
-                found.add(node.module)
+                found.add(".".join([*base, node.module]))
+            else:
+                # ``from .. import tokens``: each name is a submodule.
+                found.update(".".join([*base, alias.name]) for alias in node.names)
     return found
+
+
+def _imports(path: Path) -> set[str]:
+    """Every module this file names, absolute and relative alike."""
+
+    return imports_of(ast.parse(path.read_text(encoding="utf-8")), PACKAGE)
 
 
 def test_the_sweep_finds_the_package():
@@ -72,7 +94,9 @@ def test_nothing_here_reaches_outside_the_package():
         (path.name, name)
         for path in _modules()
         for name in _imports(path)
-        if name.startswith("realmspinner") and not name.startswith(PACKAGE)
+        if name.startswith("realmspinner")
+        and name != PACKAGE
+        and not name.startswith(PACKAGE + ".")
     }
     assert found == OUTWARD_IMPORTS, (
         "studio/tour's outward imports changed. A tour is data: if a step now "
@@ -91,9 +115,19 @@ def test_the_package_imports_with_nothing_else_loaded():
     import sys
 
     result = subprocess.run(
-        [sys.executable, "-c", "import realmspinner.studio.tour as t; print(len(t.TOURS))"],
+        [
+            sys.executable,
+            "-c",
+            "import sys, realmspinner.studio.tour as t; print(len(t.TOURS)); "
+            "print(','.join(sorted(m for m in sys.modules if m.split('.')[0] in "
+            f"{sorted(BANNED_ROOTS)!r})))",
+        ],
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert int(result.stdout.strip()) >= 1
+    count, _, loaded = result.stdout.strip().partition("\n")
+    assert int(count) >= 1
+    # The 2026-10-03 audit's tour-06: the import succeeding says nothing about
+    # what it dragged in -- a renderer in ``sys.modules`` is the coupling itself.
+    assert loaded == "", f"importing studio.tour loaded a renderer: {loaded}"

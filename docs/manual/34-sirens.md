@@ -228,8 +228,10 @@ here".
 
 The left column's lower half is two lists, and they are deliberately two.
 
-**Patterns** is every pattern the document holds, with a row-count slider for the selected one (1 to
-256 rows). **Order** is the sequence they play in. Adding a pattern does not add it to the order, and
+**Patterns** is the song's own patterns, with a row-count slider for the selected one (1 to 256
+rows). It leaves out each sound effect's private pattern — an effect is edited from **Sound
+effects**, where selecting it points the grid at it — so the list is not every pattern in the file.
+**Order** is the sequence they play in. Adding a pattern does not add it to the order, and
 removing an entry from the order does not delete the pattern — the whole point of an order list is
 that a pattern can appear in it several times, or not at all.
 
@@ -305,7 +307,9 @@ An instrument of kind **sample** plays a recording instead of synthesising one, 
 you play it at: `C-4` is its recorded speed, an octave up is twice as fast. Import a `.wav` from the
 instrument panel, or drop one on the window while Sirens is in front. A song holds 64, and one
 sample runs to ten minutes — long enough for a whole track from Muse, and past that the import is
-refused rather than trimmed.
+refused rather than trimmed. A song's samples also share one ceiling of four times that in all, which
+only a hand-made or damaged `.rsng` can reach: opening one that decodes to more is refused by name
+rather than run out of memory.
 
 Two files with the same name are two samples rather than one overwriting the other. Removing a sample
 leaves the instruments that named it alone, and the instrument panel says, in as many words, that
@@ -383,6 +387,14 @@ filename, and writes:
 A folder rather than a filename because this is the one export in the app that writes a family of
 files under names it chooses: a typed filename would land on `song.wav` and be ignored by the twelve
 beside it.
+
+A song whose order list is empty has no mix to write, so only its `sfx/` files are exported — never a
+`song.wav` and a set of stems with nothing in them.
+
+Under the export button the panel has the other way out of Sirens, **Compose in Muse...**, which
+renders the song and hands it to the music model as a reference, with its loop points. The
+**Closeness** slider beside it sets how near the model stays to your arrangement; see
+[Composing from a song](35-muse.md#composing-from-a-song).
 
 **The `.rsng` is the composition and every WAV is derived from it.** Exporting a document nobody has
 touched twice writes byte-identical files both times — there is no timestamp, no writer string and no

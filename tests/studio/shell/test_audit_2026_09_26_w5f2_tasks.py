@@ -26,6 +26,12 @@ class _FailingViewer:
     def adopt_model(self, model, path):
         raise RuntimeError("not a real GLB")
 
+    def clear(self):
+        # The 2026-10-03 audit (create-18): a failed adoption now empties the
+        # viewer and pins the failed path, so the fake needs the real method.
+        self.path = None
+        self.pending = None
+
 
 class _RigDataCtx:
     """A minimal ``app_ctx`` that starts with a previous asset's rig side

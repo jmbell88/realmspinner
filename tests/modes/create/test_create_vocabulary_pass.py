@@ -42,8 +42,11 @@ def test_the_mesh_stage_image_picker_reads_choose_an_image():
 
 
 def test_focus_pane_is_defined_once_in_settings_2d():
+    # The brief's ring is the column's one ring (the 2026-10-03 audit, finding
+    # create-15), so this pane names it rather than keeping a "2d" of its own.
     src = inspect.getsource(inspect.getmodule(settings_2d))
-    assert src.count('FOCUS_PANE = "2d"') == 1
+    assert src.count("FOCUS_PANE = create_brief.FOCUS_PANE") == 1
+    assert 'FOCUS_PANE = "2d"' not in src
 
 
 # --- the 3D form's vocabulary ----------------------------------------------

@@ -139,10 +139,18 @@ def cost_note(text: str) -> None:
 # a fill *behind* geometry that is already in it. So a scope splits the current
 # window's draw list into two channels, puts everything the pane draws on the
 # upper one and the fills on the lower, and merges them on the way out. Every
-# ``begin_child`` gets its own draw list, which is what makes this safe to hang
-# off ``layout.pane``: two panes can never be splitting one list, and a child
+# ``begin_child`` gets its own draw list, which is what makes this safe at
+# pane granularity: two panes can never be splitting one list, and a child
 # opened *inside* a section draws onto its own list above the fill, which is
 # where it belongs anyway.
+#
+# **A pane opts in.** ``layout.pane`` opens no scope (the editor shell's panes
+# are flat, and a workspace canvas is a pane that wants no tint); a pane that
+# wants blocks calls ``section_blocks`` itself, and every other pane draws flat
+# headings. ``tests/test_section_blocks.py`` is where the opted-in panes are
+# pinned, so it is the list. ``section`` only trusts a scope whose draw list is
+# the current window's, which is how the child-window granularity is enforced
+# in code and not by convention.
 
 
 class _BlockScope:
@@ -199,6 +207,23 @@ class _BlockScope:
 _BLOCK_SCOPES: list[_BlockScope] = []
 
 
+def _scope_here() -> _BlockScope | None:
+    """The innermost open scope **if the current window is the one it split**.
+
+    A child or popup opened under a pane that has a scope open has its own draw
+    list, so a heading drawn in it must not close or open the pane's block --
+    that painted a fill with the child's cursor and width into the outer list
+    (shell-51, the 2026-10-03 audit). The ownership test is the one
+    :func:`section_blocks` already uses to tell a nested scope from the same one;
+    a child that wants blocks of its own opens its own scope.
+    """
+    if not _BLOCK_SCOPES:
+        return None
+    scope = _BLOCK_SCOPES[-1]
+    owner = getattr(imgui.get_window_draw_list(), "_owner_name", "")
+    return scope if owner == scope.owner else None
+
+
 def section_scope_depth() -> int:
     """How many section-block scopes are open. For tests and for asserts."""
     return len(_BLOCK_SCOPES)
@@ -219,8 +244,9 @@ def end_section() -> None:
     round. The content genuinely has no heading; inventing "Updates" over the
     release note would be labelling a thing to fix a rectangle.
     """
-    if _BLOCK_SCOPES:
-        _BLOCK_SCOPES[-1].close()
+    scope = _scope_here()
+    if scope is not None:
+        scope.close()
 
 
 def section_block_count() -> int:
@@ -278,7 +304,7 @@ def section(label: str) -> None:
     exactly the heading-and-a-gap it has always been, which is what a heading in
     a popup, a tooltip or the manual's own body still wants.
     """
-    scope = _BLOCK_SCOPES[-1] if _BLOCK_SCOPES else None
+    scope = _scope_here()
     # Closed *before* the gap and opened *after* it, which is the whole of the
     # ordering: the gap belongs between two blocks and to neither of them. Doing
     # both after it instead makes the outgoing block swallow the gap and the
@@ -743,7 +769,13 @@ def progress_bar(percent: float, width: float = -1.0, height: float = 0.0) -> No
         draw.add_rect_filled(pos, (end, pos.y + height), fill, radius)
     else:
         span = avail * 0.25
-        offset = (time.monotonic() * 0.6 % 1.0) * (avail + span) - span
+        # Held at mid-bar under reduce-motion, a segment that says "busy"
+        # without travelling. The 2026-10-03 audit (shell-39) found this and
+        # :func:`spinner` reading ``time.monotonic()`` directly, so every busy()
+        # and model-load indicator kept moving for a person who had switched
+        # motion off -- on the page that says every animation stops.
+        sweep = 0.5 if motion.REDUCED else time.monotonic() * 0.6 % 1.0
+        offset = sweep * (avail + span) - span
         draw.add_rect_filled(
             (pos.x + max(offset, 0.0), pos.y),
             (pos.x + min(offset + span, avail), pos.y + height),
@@ -760,7 +792,8 @@ def spinner(radius: float = 0.0, thickness: float = 0.0) -> None:
     pos = imgui.get_cursor_screen_pos()
     centre = (pos.x + radius, pos.y + radius)
     imgui.dummy((radius * 2, radius * 2))
-    start = time.monotonic() * 3.0
+    # A fixed arc under reduce-motion, for :func:`progress_bar`'s reason.
+    start = 0.0 if motion.REDUCED else time.monotonic() * 3.0
     draw.path_clear()
     for i in range(24):
         angle = start + i / 24.0 * math.pi * 1.5
@@ -961,7 +994,11 @@ def history_block(
         reason=DOCUMENT_SAVING_WHY if busy else _REDO_WHY,
     ):
         redo()
-    count = f"{len(doc.history)} step(s)"
+    # The popover's own count -- done *and* undone steps -- and not
+    # ``len(doc.history)``, which is the done half only: after an undo the button
+    # said "5 step(s)" over a list headed "8 step(s)" (shell-78, the 2026-10-03
+    # audit). ``total`` is cheap, which matters because this is a per-frame call.
+    count = f"{doc.history.total} step(s)"
     if step is None:
         muted(count)
         return
@@ -2446,10 +2483,20 @@ def fit_text(text: str, width: float) -> str:
     """
     if imgui.calc_text_size(text).x <= width:
         return text
-    trimmed = text
-    while trimmed and imgui.calc_text_size(trimmed + "-").x > width:
-        trimmed = trimmed[:-1]
-    return trimmed + "-"
+    # Bisected, not trimmed one character at a time (shell-50, the 2026-10-03
+    # audit): this runs every frame per library card and Home row on a job
+    # name or a raw prompt, and one native text measurement per trimmed
+    # character was O(length) a card -- about 32 ms a frame for 40 cards at
+    # 1000 characters. A prefix's width never shrinks as it grows, so the
+    # longest prefix that fits is found in log2(length) measurements.
+    low, high = 0, len(text)
+    while low < high:
+        mid = (low + high + 1) // 2
+        if imgui.calc_text_size(text[:mid] + "-").x <= width:
+            low = mid
+        else:
+            high = mid - 1
+    return text[:low] + "-"
 
 
 def hint_text(text: str) -> None:

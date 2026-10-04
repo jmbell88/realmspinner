@@ -105,6 +105,7 @@ speak.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -565,6 +566,25 @@ _PROFILE_CLAMPS: dict[str, Callable[[Any], list[list[float]]]] = {
 }
 
 
+def _is_non_finite(value: Any, depth: int = 0) -> bool:
+    """Whether *value* is, or holds at any depth, a number that is not finite.
+
+    Strings and anything else that is not a number are not this function's
+    question -- the generator or the caller's shape check owns those. An integer
+    too large for a float counts: it is the same "cannot be a coordinate".
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        try:
+            return not math.isfinite(float(value))
+        except OverflowError:
+            return True
+    if isinstance(value, (list, tuple, np.ndarray)) and depth < 4:
+        return any(_is_non_finite(v, depth + 1) for v in value)
+    return False
+
+
 def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     """The values ``GENERATORS[generator][1]`` will actually build from ``params``.
 
@@ -607,6 +627,16 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     respectively, the same generic tables ``lathe``'s ``profile`` and
     ``segments`` go through.
     """
+    # The 2026-10-03 audit's clay-28: a radius or height of ``inf`` (or a NaN
+    # size) built without raising, ``validate`` has no finiteness rule, and the
+    # panel's ``try: build(**edited)`` therefore never fired for a float field --
+    # an object with NaN/inf vertex positions was placed, recorded in ``params``
+    # and saved, and ``glbwrite`` refused it much later naming a bound rather
+    # than the field. Refused here, before any mesh exists, so every door that
+    # clamps first (the panel and the agent's add/set-params) fails by name.
+    for key, value in params.items():
+        if _is_non_finite(value):
+            raise ValueError(f"{generator} {key} must be finite numbers.")
     out = dict(params)
     for key, clamp in _KEY_CLAMPS.items():
         if key in out:

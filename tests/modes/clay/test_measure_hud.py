@@ -52,7 +52,9 @@ def test_three_selected_vertices_show_the_angle_at_the_middle_one():
     doc.set_element_mode("vertex")
     doc.set_element_sel(obj.uid, el.ElementSel(verts=[0, 1, 2]))
 
-    assert clay_hints.measure_line(doc) == "angle  90.00°"
+    # "at vertex 1" since the 2026-10-03 audit's clay-103: the selection is
+    # sorted, so the apex is the middle *number* and the readout must say so.
+    assert clay_hints.measure_line(doc) == "angle  90.00° at vertex 1"
 
 
 def test_a_face_selection_shows_area():

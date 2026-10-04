@@ -25,8 +25,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # minutes of the serial worker spent on something they will discard.
 #
 # It is also the distribution decision. One 7 GiB download of
-# stabilityai/stable-diffusion-xl-base-1.0 is shared by four recipes -- sdxl,
-# sdxl_cfg, pixel, lightning -- so shipping this one entry unlocks the speed
+# stabilityai/stable-diffusion-xl-base-1.0 is shared by five recipes -- sdxl,
+# sdxl_cfg, sdxl_cfg_pag, pixel, lightning -- so shipping this one entry unlocks the speed
 # recipes for a small LoRA each, and pixel sheets for 0.2 GB more. Recorded in
 # dev/measurements/2026-08-11-default-base-model.md.
 #
@@ -143,16 +143,57 @@ def _note_invalid(name: str, raw: str, expected: str) -> None:
         INVALID_ENV.append(entry)
 
 
-def _env_int(name: str, default: int) -> int:
-    """``int`` from the environment, or the default with a note. Never raises."""
+def _in_range(
+    name: str,
+    raw: str,
+    value: int,
+    lo: int | None,
+    hi: int | None,
+    allow: tuple[int, ...],
+) -> bool:
+    """Whether ``value`` is inside the bounds the per-job door enforces, noting if not.
+
+    The 2026-10-03 audit (service-11): these variables reached ``Config``
+    unchecked while ``service.validation`` range-checks the same quantities per
+    job, so one typo refused every default-profile submit with an error addressed
+    to a control the user never touched, and ``INVALID_ENV`` stayed empty. This
+    layer may not import ``service.validation``, so each caller passes its own copy
+    of the bound; ``tests/service/test_audit_2026_10_03_medium_service1.py`` pins
+    them equal to the doors'.
+    """
+    if value in allow or (
+        (lo is None or value >= lo) and (hi is None or value <= hi)
+    ):
+        return True
+    low = "" if lo is None else f"{lo:,}"
+    high = "" if hi is None else f"{hi:,}"
+    extra = "".join(f" (or {a})" for a in allow)
+    _note_invalid(name, raw, f"a whole number from {low or 'any'} to {high or 'any'}{extra}")
+    return False
+
+
+def _env_int(
+    name: str,
+    default: int,
+    *,
+    lo: int | None = None,
+    hi: int | None = None,
+    allow: tuple[int, ...] = (),
+) -> int:
+    """``int`` from the environment, or the default with a note. Never raises.
+
+    ``lo``/``hi`` (inclusive) bound it where the per-job door does; ``allow`` names
+    values accepted outside that range, such as 0 for "off".
+    """
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return default
     try:
-        return int(raw.strip())
+        value = int(raw.strip())
     except ValueError:
         _note_invalid(name, raw, "a whole number")
         return default
+    return value if _in_range(name, raw, value, lo, hi, allow) else default
 
 
 def _env_float(name: str, default: float) -> float:
@@ -179,11 +220,18 @@ def _env_float(name: str, default: float) -> float:
     return value
 
 
-def _env_opt_int(name: str, default: int | None) -> int | None:
+def _env_opt_int(
+    name: str,
+    default: int | None,
+    *,
+    lo: int | None = None,
+    hi: int | None = None,
+) -> int | None:
     """Like int(os.environ[name]) but with an explicit "leave it to the exe" value.
 
     Empty or "auto" means None, i.e. omit the flag entirely rather than passing
-    a number, so trellis-server.exe applies its own heuristic.
+    a number, so trellis-server.exe applies its own heuristic. ``lo``/``hi``
+    (inclusive) bound it where the per-job door does (see ``_in_range``).
     """
     raw = os.environ.get(name)
     if raw is None:
@@ -192,13 +240,50 @@ def _env_opt_int(name: str, default: int | None) -> int | None:
     if text in ("", "auto"):
         return None
     try:
-        return int(text)
+        value = int(text)
     except ValueError:
         # Recorded and defaulted, like every other numeric field. This used to
         # raise out of ``get_config()`` -- before any log handler, Doctor or
         # window existed -- over a typo in a texture resolution (RUN-03).
         _note_invalid(name, raw, "a whole number, or 'auto'")
         return default
+    return value if _in_range(name, raw, value, lo, hi, ()) else default
+
+
+# Copies of the bounds the per-job doors enforce (``service.validation``'s
+# ``MIN_/MAX_TRELLIS_*``, ``pipelines.optimize.PROFILES`` and
+# ``pipelines.remesh.TRIANGLES_MIN/MAX``), which this layer may not import.
+# ``tests/service/test_audit_2026_10_03_medium_service1.py`` fails if they drift.
+_ENV_MESH_PROFILES = ("draft", "standard", "detailed", "raw")
+_ENV_LOWPOLY_MIN, _ENV_LOWPOLY_MAX = 1_000, 200_000
+_ENV_BAND = (1, 64)
+_ENV_TEX_RES = (128, 4096)
+_ENV_MAX_TOKENS = 1 << 20
+_ENV_DECIM_MAX = 1 << 16
+_ENV_ATLAS = (256, 8192)
+
+
+def _env_choice(name: str, default: str, choices: tuple[str, ...]) -> str:
+    """One of ``choices`` (case-insensitive) from the environment, or the default
+    with a note. Never raises."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    text = raw.strip().lower()
+    if text in choices:
+        return text
+    _note_invalid(name, raw, "one of " + ", ".join(choices))
+    return default
+
+
+def _env_opt_positive_float(name: str) -> float | None:
+    """``_env_opt_float`` for a guidance strength: unset or malformed is None, and
+    so is zero or less -- ``service.validation`` refuses a non-positive one."""
+    value = _env_opt_float(name)
+    if value is not None and value <= 0:
+        _note_invalid(name, os.environ.get(name, ""), "a number > 0")
+        return None
+    return value
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -324,10 +409,12 @@ class Config:
             else None
         )
     )
-    # Vendored like trellis-server.exe: a pinned native binary, never downloaded
-    # at runtime. Missing it costs you the triangle budgets, not the app --
-    # jobs then ship the reconstruction as the engine returned it, which is
-    # what they did before.
+    # Vendored (``vendor/gltfpack``): a pinned native binary, never downloaded at
+    # runtime. Unlike trellis-server.exe, which since 2026-09-10 is a Settings ->
+    # Models download that ``resolve_trellis_exe`` prefers over the checkout (the
+    # 2026-10-03 audit's docs-17). Missing this one costs you the triangle
+    # budgets, not the app -- jobs then ship the reconstruction as the engine
+    # returned it, which is what they did before.
     gltfpack_exe: Path = field(
         default_factory=lambda: _env_path(
             "REALMSPINNER_GLTFPACK", PROJECT_ROOT / "vendor" / "gltfpack" / "gltfpack.exe"
@@ -352,8 +439,12 @@ class Config:
     # scores a mangled blade or a lost finger; the eye catches that, and
     # Retarget -> Raw rebuilds from source.glb, which is never touched. Set
     # REALMSPINNER_MESH_PROFILE=raw to go back to the old default.
+    # Its dev/measurements document (2026-09-23-default-mesh-budget.md) is gone with the
+    # backup (confirmed 2026-09-28): re-measure to change.
     mesh_profile: str = field(
-        default_factory=lambda: os.environ.get("REALMSPINNER_MESH_PROFILE", "standard")
+        default_factory=lambda: _env_choice(
+            "REALMSPINNER_MESH_PROFILE", "standard", _ENV_MESH_PROFILES
+        )
     )
     # The game-ready remesh's default triangle budget, when nothing asks for a
     # gltfpack tier by name and Blender is on this machine
@@ -362,9 +453,16 @@ class Config:
     # 5000 is the measured pick (4,996 triangles achieved on the raccoon, good
     # fidelity, ~6 s). 0 turns the remesh off -- a model job then falls back to
     # ``mesh_profile``'s gltfpack tier exactly as it did before this existed.
-    # Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
+    # Its dev/measurements document (2026-09-23-default-mesh-budget.md) is gone with the
+    # backup (confirmed 2026-09-28): re-measure to change.
     lowpoly_triangles: int = field(
-        default_factory=lambda: _env_int("REALMSPINNER_LOWPOLY_TRIANGLES", 5000)
+        default_factory=lambda: _env_int(
+            "REALMSPINNER_LOWPOLY_TRIANGLES",
+            5000,
+            lo=_ENV_LOWPOLY_MIN,
+            hi=_ENV_LOWPOLY_MAX,
+            allow=(0,),
+        )
     )
     # Whether a finished reference is scored against the run's conditioning
     # reference -- ref.png, which is the active profile's style anchor when one
@@ -426,6 +524,8 @@ class Config:
     # rather than a percentile, so it is the value furthest from either cluster
     # and the one least disturbed by a future sample shifting one of them; any
     # threshold inside the gap selects the identical fifteen meshes.
+    # Its dev/measurements document is gone with the backup (confirmed
+    # 2026-09-28): re-measure to change.
     mesh_hole_max: float = field(
         default_factory=lambda: _env_float("REALMSPINNER_MESH_HOLE_MAX", 0.07)
     )
@@ -492,12 +592,15 @@ class Config:
     # Pre-registry override, still honoured: points the *turbo* entry at an
     # arbitrary local diffusers dir so existing setups keep working. Other base
     # models always resolve under t2i_model_root.
+    #
+    # ``_env_opt_path``, not a truthiness test on the raw variable: a whitespace-
+    # only value is truthy but ``_env_path`` strips it and falls back to its
+    # default -- here the checkout -- so the turbo row's download destination,
+    # presence probe and journal root silently became the repository root (the
+    # 2026-10-03 audit, finding service-20; ``export_dir`` had the same shape and
+    # was fixed in 2026-09-26, service-gates-05). Blank means unset.
     t2i_turbo_dir: Path | None = field(
-        default_factory=lambda: (
-            _env_path("REALMSPINNER_T2I_DIR", PROJECT_ROOT)
-            if os.environ.get("REALMSPINNER_T2I_DIR")
-            else None
-        )
+        default_factory=lambda: _env_opt_path("REALMSPINNER_T2I_DIR")
     )
     # Base model used when a job doesn't name one. Sampler settings are not
     # configurable here on purpose -- they belong to the checkpoint (models.py).
@@ -517,7 +620,9 @@ class Config:
     # trellis-cli.exe: default auto is noise, explicit --tex-res 512 is clean).
     # Pin it to 512 until upstream fixes the auto heuristic.
     trellis_tex_res: int = field(
-        default_factory=lambda: _env_int("REALMSPINNER_TRELLIS_TEX_RES", 512)
+        default_factory=lambda: _env_int(
+            "REALMSPINNER_TRELLIS_TEX_RES", 512, lo=_ENV_TEX_RES[0], hi=_ENV_TEX_RES[1]
+        )
     )
     # Width of the narrow band the DC remesh runs over. The exe defaults it to
     # res/512 when the flag is absent, which is what None gives you.
@@ -548,7 +653,12 @@ class Config:
     # this exe at these settings. Re-measure before acting on that claim.
     # Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
     trellis_band: int | None = field(
-        default_factory=lambda: _env_opt_int("REALMSPINNER_TRELLIS_BAND", DEFAULT_TRELLIS_BAND)
+        default_factory=lambda: _env_opt_int(
+            "REALMSPINNER_TRELLIS_BAND",
+            DEFAULT_TRELLIS_BAND,
+            lo=_ENV_BAND[0],
+            hi=_ENV_BAND[1],
+        )
     )
     # The three launch flags the exe accepts that Realmspinner never passed until
     # 2026-09-02: --gss / --gsh (guidance strengths for the sparse-structure
@@ -560,13 +670,15 @@ class Config:
     # 2026-08-30-sdxl-cfg-props.md); a winning rung becomes a default here by
     # a measurement doc, not before.
     trellis_gss: float | None = field(
-        default_factory=lambda: _env_opt_float("REALMSPINNER_TRELLIS_GSS")
+        default_factory=lambda: _env_opt_positive_float("REALMSPINNER_TRELLIS_GSS")
     )
     trellis_gsh: float | None = field(
-        default_factory=lambda: _env_opt_float("REALMSPINNER_TRELLIS_GSH")
+        default_factory=lambda: _env_opt_positive_float("REALMSPINNER_TRELLIS_GSH")
     )
     trellis_max_tokens: int | None = field(
-        default_factory=lambda: _env_opt_int("REALMSPINNER_TRELLIS_MAX_TOKENS", None)
+        default_factory=lambda: _env_opt_int(
+            "REALMSPINNER_TRELLIS_MAX_TOKENS", None, lo=1, hi=_ENV_MAX_TOKENS
+        )
     )
     # Two more the exe accepts and Realmspinner never passed until 2026-09-03, and
     # the two that decide how much of the reconstruction survives into
@@ -580,10 +692,14 @@ class Config:
     # omits the flag. Both are sweep axes for dev/measurements/
     # 2026-09-03-trellis-detail-sweep.md; a default moves by that document.
     trellis_decim: int | None = field(
-        default_factory=lambda: _env_opt_int("REALMSPINNER_TRELLIS_DECIM", None)
+        default_factory=lambda: _env_opt_int(
+            "REALMSPINNER_TRELLIS_DECIM", None, lo=0, hi=_ENV_DECIM_MAX
+        )
     )
     trellis_atlas: int | None = field(
-        default_factory=lambda: _env_opt_int("REALMSPINNER_TRELLIS_ATLAS", None)
+        default_factory=lambda: _env_opt_int(
+            "REALMSPINNER_TRELLIS_ATLAS", None, lo=_ENV_ATLAS[0], hi=_ENV_ATLAS[1]
+        )
     )
     # Tri-state, and the None is the point. Unset means "decide from the card":
     # studio.runtime resolves it through vram.plan() at startup and writes a

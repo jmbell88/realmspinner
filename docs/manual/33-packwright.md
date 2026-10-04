@@ -35,7 +35,9 @@ this exactly as a hostile file can.
 Six ways in, counting a drop on the window as its own.
 
 **Add an image...** takes one file. Dropping images on the window adds them too — several at once,
-and one that is already in the atlas is skipped rather than refusing the whole batch.
+as one add with one toast and one undo step. A file already in the atlas is not refused: if its
+pixels are unchanged it is skipped, and if you have edited it, it replaces that source (the toast
+says "updated") — which is how an edited PNG is picked up, and it keeps the anchor you set.
 
 **Add a tile set...** takes a sheet that is already a tileset and slices it back into tiles. You
 give the tile size — 32×32 until you change it — and the popup answers with the grid it makes and
@@ -76,8 +78,9 @@ Each source keeps a stable identity derived from where it came from, not from wh
 renaming a sprite changes what the sidecar calls it and nothing else: two layers legitimately called
 "Layer 1" stay two sprites, and the pack order does not move under you when you rename something.
 
-Selecting a source highlights it in the atlas preview and in the placement list, and offers a rename
-box and a **Remove** button. `Delete` removes the selected source.
+Selecting a source highlights it in the atlas preview and in the placement list, and offers a
+**Remove** button (and the **Anchor** row below). To rename it, double-click its name or right-click
+it and choose **Rename**; the name becomes a text box. `Delete` removes the selected source.
 
 With a source selected, an **Anchor** checkbox sits above **Remove**. Off, the sprite has no pivot of
 its own and the sidecar records the documented centre. Ticked, it starts at the untrimmed picture's
@@ -85,11 +88,13 @@ own centre — which changes nothing until you move it — and two drag fields p
 own untrimmed pixels, measured from its top-left, before any trim. The preview draws a small cross
 wherever that puts it, on every sprite carrying one, so you aim by eye rather than by number. A pivot
 arrives already set only when it came from an Inker document that had one; a loose PNG or a sliced
-tile set has none until you tick the box.
+tile set has none until you tick the box. Adding an edited image again keeps the anchor you set on
+it, unless the new file carries its own.
 
 A rename that lands re-packs automatically, so the next export's sidecar carries the new name. One
 past 64 characters, or containing a path separator or control character, is refused — the name is
-written verbatim into the sidecar, where a consumer may treat it as a filename.
+written verbatim into the sidecar, where a consumer may treat it as a filename. A `.rpack` whose
+stored names break those rules is refused on open rather than carried into the sidecar.
 
 ## The two modes
 
@@ -132,7 +137,9 @@ extrude, because two neighbours extrude into one shared gutter; a combination th
 refused with the numbers rather than quietly clamped. Both are capped at 256 — past that a gutter
 is not padding, and the only thing the arithmetic could compute is a refusal.
 
-**Power-of-two** rounds the atlas up to the next power of two in each direction. It defaults to
+**Power-of-two** rounds the atlas up to the next power of two in each direction — and never past
+the **Max size**: if the sprites only fit at a size that is not a power of two (a 1500 px ceiling,
+say), a MaxRects pack refuses by name rather than writing a 1500 px atlas. It defaults to
 **off** for a grid pack and **on** for MaxRects. A grid's cells are a fixed size regardless of the
 atlas around them, so rounding one up buys nothing but dead space past the last column/row — and
 near a size boundary that dead space is the whole atlas again: measured over a range of sprite
@@ -187,6 +194,13 @@ A `.tsx` already at that path describing a different tileset than this export �
 under the same name, say, or an earlier grid export whose columns this one no longer matches —
 refuses the whole export by name rather than leaving it there describing an atlas that no longer
 exists; remove it, or export under a different name.
+
+Export and **Save As** also refuse to replace a file whose name you did not pick in the dialog. The
+name you type is the one the operating system asks about, but the export derives others from it —
+a `.json` beside the PNG, an `.rpack` for a saved document — and one of those that already
+exists is refused by name, with the instruction to choose that name in the dialog if you mean to
+replace it. The one exception is the sidecar Packwright wrote itself, so exporting an atlas again
+under the same name still works.
 
 The sidecar is engine-neutral: pixel rectangles and nothing else. Each frame records where it landed
 in the atlas, whether it was trimmed, where the trimmed rectangle sat inside the original image, and

@@ -205,7 +205,7 @@ def _verify_staged(staging: Path, spec: dict[str, Any]) -> None:
             bad.append(rel)
     if bad:
         listed = ", ".join(bad[:4]) + ("..." if len(bad) > 4 else "")
-        raise ValueError(
+        raise download.Refusal(
             f"{spec.get('repo_id')} downloaded {len(bad)} file(s) that do not "
             f"match the digests the hub recorded for them ({listed}). Nothing "
             f"was installed; try the download again."
@@ -229,12 +229,12 @@ def _fetch_url(staging: Path, spec: dict[str, Any]) -> None:
 
     digest = str(spec.get("sha256") or "").lower()
     if not digest:
-        raise ValueError(f"{spec.get('url')} has no sha256 to verify against")
+        raise download.Refusal(f"{spec.get('url')} has no sha256 to verify against")
     name = str(spec.get("filename") or "") or Path(str(spec["url"])).name
     if "/" in name or "\\" in name or name in ("", ".", ".."):
         # It becomes a path. A registry entry is not user input, but this is
         # one join away from the model root and the check costs a line.
-        raise ValueError(f"{name!r} is not a filename this fetch may write")
+        raise download.Refusal(f"{name!r} is not a filename this fetch may write")
 
     out = staging / name
     running = hashlib.sha256()
@@ -247,7 +247,7 @@ def _fetch_url(staging: Path, spec: dict[str, Any]) -> None:
         while chunk := response.read(1 << 20):
             got += len(chunk)
             if got > ceiling:
-                raise ValueError(
+                raise download.Refusal(
                     f"{spec.get('url')} sent more than "
                     f"{ceiling / float(1024**3):.1f} GB, past what this fetch "
                     "declared; aborting rather than filling the disk"
@@ -255,7 +255,7 @@ def _fetch_url(staging: Path, spec: dict[str, Any]) -> None:
             running.update(chunk)
             handle.write(chunk)
     if running.hexdigest() != digest:
-        raise ValueError(
+        raise download.Refusal(
             f"{name} downloaded with digest {running.hexdigest()}, "
             f"which is not the {digest} this build pins"
         )
@@ -264,10 +264,9 @@ def _fetch_url(staging: Path, spec: dict[str, Any]) -> None:
 def _member_dest(member: str, staging: Path, prefix: str) -> Path:
     """The path one archive member unpacks to under ``staging``, or refuse it.
 
-    Two refusals, both ``ValueError`` -- already in ``download.AUTHORED``,
-    imported below as ``_TERMINAL``, so both are terminal without a second
-    mechanism: not retried, and the staging tree they turned up in is dropped
-    rather than resumed into.
+    Two refusals, both ``download.Refusal`` -- the type ``_TERMINAL`` below is
+    built from, so both are terminal without a second mechanism: not retried,
+    and the staging tree they turned up in is dropped rather than resumed into.
 
     * **Zip-slip.** An absolute member (``/etc/passwd``), a drive-lettered one
       (``C:/Windows/...``) or a UNC one (``\\\\server\\share\\...``, which
@@ -287,14 +286,14 @@ def _member_dest(member: str, staging: Path, prefix: str) -> Path:
     """
     raw = member.replace("\\", "/")
     if raw.startswith("/") or (len(raw) >= 2 and raw[1] == ":"):
-        raise ValueError(f"{member!r} is an absolute path; refusing to extract it")
+        raise download.Refusal(f"{member!r} is an absolute path; refusing to extract it")
     parts = [p for p in raw.split("/") if p]
     if prefix == ".":
         rel_parts = parts
     else:
         want = [p for p in prefix.split("/") if p]
         if parts[: len(want)] != want:
-            raise ValueError(
+            raise download.Refusal(
                 f"{member!r} does not sit under the declared prefix {prefix!r} -- "
                 "either the asset changed under a digest that still matched, or "
                 "the registry entry naming that prefix is wrong"
@@ -302,7 +301,7 @@ def _member_dest(member: str, staging: Path, prefix: str) -> Path:
         rel_parts = parts[len(want):]
     dest = (staging / "/".join(rel_parts)).resolve()
     if not dest.is_relative_to(staging.resolve()):
-        raise ValueError(f"{member!r} would extract outside the staging directory")
+        raise download.Refusal(f"{member!r} would extract outside the staging directory")
     return dest
 
 
@@ -372,12 +371,14 @@ RETRY_BACKOFF_SECONDS = (2.0, 8.0, 20.0)
 #: keep re-verifying the same bad file for ever; a missing rename source and a
 #: registry entry with no digest are both faults in the request, identical on
 #: every attempt.
-#: ``download.AUTHORED`` is the same tuple seen from the other side -- the
-#: exceptions this module raises itself, every one already carrying a sentence
-#: written for a person, which is why they are both terminal here and passed
-#: through untranslated there. One definition, because a divergence would mean
-#: an exception that is retried *and* shown raw.
-_TERMINAL = download.AUTHORED
+#: Terminal means *raised by this module* -- ``download.Refusal`` -- and not
+#: "is a ``ValueError``" (the 2026-10-03 audit, pipelines-21): a transport's
+#: truncated-JSON ``JSONDecodeError`` is a ``ValueError`` and must be retried,
+#: not treated as a bad request that wipes the resumable tree.
+#: ``download.AUTHORED`` stays the broad tuple ``describe_failure`` passes
+#: through untranslated, because the update worker's own refusals reach it as
+#: plain ``ValueError``s.
+_TERMINAL = (download.Refusal,)
 
 
 def _resume_key(spec: dict[str, Any]) -> dict[str, Any]:
@@ -554,7 +555,7 @@ def fetch_one(spec: dict[str, Any]) -> dict[str, Any]:
             src, dst = rename
             staged = staging / src
             if not staged.exists():
-                raise FileNotFoundError(
+                raise download.MissingSource(
                     f"{spec['repo_id']} did not provide {src}, which this "
                     "download has to rename"
                 )

@@ -91,6 +91,12 @@ def _geometry_mesh(geom: object, material: int = 0) -> bm.Mesh | None:
     if len(geom.vertices) == 0 or faces is None or len(faces) == 0:
         return None
     positions = np.asarray(geom.vertices, dtype="f4").reshape(-1, 3)
+    # The 2026-10-03 audit, finding clay-37: checked after the f4 cast and the
+    # axis/scale transform, so a finite f8 that overflows float32 is caught too.
+    # ``objimport`` refuses a non-finite ``v`` line by name; STL and PLY
+    # imported the NaN and left the document unable to save or round-trip.
+    if not np.all(np.isfinite(positions)):
+        raise OpError("This mesh has a non-finite (NaN or infinite) vertex position.")
     tris = np.asarray(geom.faces, dtype="i4").reshape(-1, 3)
     loops = tris.reshape(-1)
     starts = topo.starts_from_counts(np.full(len(tris), 3, dtype="i8"))

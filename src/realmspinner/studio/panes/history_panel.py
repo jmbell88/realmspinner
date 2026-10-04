@@ -137,8 +137,9 @@ def _confirm_restore(ctx: Any, job: Any, entry: dict[str, Any]) -> None:
         dialogs.Confirm(
             title="Restore this mesh?",
             message=(
-                f"This replaces the current mesh with the one from "
-                f"{row_label(entry).lower()}. {message} The mesh you have now "
+                f"This replaces the current mesh with the mesh as it was "
+                f"before this step: {row_label(entry).lower()}. {message} "
+                f"The mesh you have now "
                 f"is kept here too, so this can be undone."
             ),
             confirm_label="Restore",

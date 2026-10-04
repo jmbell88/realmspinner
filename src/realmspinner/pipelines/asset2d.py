@@ -197,6 +197,39 @@ def sprite(
     )
 
 
+def _quantize_subject(small: PILImage, colors: int) -> PILImage:
+    """Median-cut ``small``'s RGB to ``colors`` entries, built from the subject.
+
+    The 2026-10-03 audit (pipelines-09) found the cap spent on every pixel,
+    including the discarded background inside the subject's bounding box: that
+    colour took palette entries from the subject, so a round subject of four
+    flat colours came back at ``colors=4`` with three, two of them merged into
+    a purple that was never in the art. The palette is therefore cut from the
+    pixels whose alpha is set and every pixel is then mapped onto it.
+
+    The alpha is carried around the quantize rather than through it, and put
+    back untouched: median cut only ever rewrites RGB, so the cutout the
+    resample produced survives the palette reduction exactly. A picture with no
+    transparent pixel (or none opaque) takes the original whole-image cut, so
+    the result there stays byte-identical to what every earlier export was.
+    """
+    import numpy as np
+    from PIL import Image
+
+    alpha = small.getchannel("A")
+    rgb = small.convert("RGB")
+    solid = np.asarray(alpha) > 0
+    if solid.all() or not solid.any():
+        flat = rgb.quantize(colors=colors, method=Image.Quantize.MEDIANCUT)
+    else:
+        strip = Image.fromarray(np.asarray(rgb)[solid].reshape(1, -1, 3), "RGB")
+        reference = strip.quantize(colors=colors, method=Image.Quantize.MEDIANCUT)
+        flat = rgb.quantize(palette=reference, dither=Image.Dither.NONE)
+    out = flat.convert("RGBA")
+    out.putalpha(alpha)
+    return out
+
+
 def _legacy_pixel(
     image: PILImage, mask: Any, size: int, colors: int
 ) -> tuple[PILImage, tuple[int, int, int, int], int | None]:
@@ -219,15 +252,7 @@ def _legacy_pixel(
     palette = None
     if colors and colors > 0:
         palette = int(colors)
-        alpha = small.getchannel("A")
-        flat = small.convert("RGB").quantize(
-            colors=palette, method=Image.Quantize.MEDIANCUT
-        )
-        # The alpha is carried around the quantize rather than through it, and
-        # put back untouched: median cut only ever rewrites RGB, so the cutout
-        # the resample produced survives the palette reduction exactly.
-        small = flat.convert("RGBA")
-        small.putalpha(alpha)
+        small = _quantize_subject(small, palette)
     return (small, box, palette)
 
 
@@ -339,15 +364,8 @@ def pixel(
     elif grid["scale"] and opts.colors:
         # The grid branch does its own quantize, since _legacy_pixel's is
         # entangled with the resample it did not run.
-        from PIL import Image
-
         palette_cap = int(opts.colors)
-        alpha = small.getchannel("A")
-        flat = small.convert("RGB").quantize(
-            colors=palette_cap, method=Image.Quantize.MEDIANCUT
-        )
-        small = flat.convert("RGBA")
-        small.putalpha(alpha)
+        small = _quantize_subject(small, palette_cap)
     cleaned = 0
     if opts.cleanup:
         small, cleaned = pixelmod.clean_orphans(small)

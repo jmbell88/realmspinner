@@ -182,7 +182,12 @@ class Settings:
             raw = json.loads(out.path.read_text("utf-8"))
         except FileNotFoundError:
             return out
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError, MemoryError):
+            # ``RecursionError`` and ``MemoryError`` are not ``ValueError``s: a file
+            # nested deeper than the parser allows raised straight out of ``load``,
+            # before there is a window, and nothing on that path rewrote the file --
+            # the one-hand-edited-byte boot loop (the 2026-10-03 audit's shell-49).
+            #
             # A corrupt file is not worth failing startup over, and the
             # defaults are all recoverable by using the app for a minute. But
             # it is worth *saying*, and worth not destroying: the original is

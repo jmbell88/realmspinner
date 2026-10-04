@@ -40,6 +40,10 @@ from ...engine import document as D
 from ...engine import instruments as inst
 from ...engine import notes, synth
 
+#: The sentence a greyed channel-menu field carries (the 2026-10-03 audit,
+#: finding sirens-23).
+_BUSY_WHY = "This song is being written; the field comes back when it lands."
+
 #: One row's height and one column-group's width, in design pixels. Both are
 #: measured from the monospace text they hold rather than chosen: a cell is
 #: ``"C-4 01 .. 000"`` and a group narrower than that clips the effect column,
@@ -146,15 +150,28 @@ def _headers(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int)
         return
     chan_w = sp(CHANNEL_W)
     hidden_left, hidden_right = left, max(0, len(channels) - (left + fits))
+    # The 2026-10-03 audit, finding sirens-panes-01: the header pair was
+    # ``chan_w + 10`` px wide (a literal 26 and 20 plus *two* item gaps) laid
+    # out by ``same_line`` against a grid whose column stride is ``chan_w``, so
+    # the row drifted right of the columns it names -- 4 px at channel 0 and 10
+    # more per channel, 44 px by channel 4 -- and a press aimed at one channel's
+    # header landed on its neighbour's. Each header is now *placed* at its
+    # column's x (``same_line``'s absolute offset, from where this row began),
+    # and the pair is sized from the live style gap so it ends inside the column.
+    gap = imgui.get_style().item_spacing.x
+    solo_w = sp(20)
+    name_w = chan_w - solo_w - 2.0 * gap
+    row_x = imgui.get_cursor_pos_x()
     # The gutter says how many channels are off to the left, because a grid
     # that starts at channel 3 and looks exactly like one that starts at 0 is
-    # a grid you can type into the wrong part of.
+    # a grid you can type into the wrong part of. Drawn *inside* the gutter, at
+    # the row's own start, so it cannot push the first header off its column.
     imgui.dummy((sp(GUTTER_W) - sp(4), 1))
     if hidden_left:
-        imgui.same_line()
+        imgui.same_line(row_x, 0.0)
         widgets.muted(f"<{hidden_left}")
     for index, channel in enumerate(channels[left : left + fits], start=left):
-        imgui.same_line()
+        imgui.same_line(row_x + sp(GUTTER_W) + (index - left) * chan_w, 0.0)
         muted, soloed, audible = sirens_mode.channel_state(ctx, channel.uid)
         name = channel.name or f"{channel.kind.capitalize()} {index + 1}"
         # Two buttons in one column's width: the name (mute) and an S (solo).
@@ -162,7 +179,7 @@ def _headers(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int)
         if widgets.disabled_button(
             f"{label}###sirens-mute-{channel.uid}",
             True,
-            (chan_w - sp(26), 0),
+            (name_w, 0),
             tooltip=(
                 f"{name} -- {channel.kind}. Click to "
                 f"{'unmute' if muted else 'mute'} it in the mix."
@@ -182,7 +199,7 @@ def _headers(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int)
         if widgets.disabled_button(
             f"{icons.CIRCLE if soloed else 'S'}###sirens-solo-{channel.uid}",
             True,
-            (sp(20), 0),
+            (solo_w, 0),
             tooltip=(
                 "Stop soloing this channel."
                 if soloed
@@ -217,7 +234,8 @@ def _channel_popup(ctx: Any, tab: Any, channel: Any, index: int) -> None:
         imgui.text(f"Channel {index + 1}")
         imgui.set_next_item_width(sp(140))
         changed, name = controls.input_text(
-            f"Name##{tag}", channel.name, enabled=not tab.busy, commit=True
+            f"Name##{tag}", channel.name, enabled=not tab.busy, reason=_BUSY_WHY,
+            commit=True,
         )
         if changed:
             sirens_mode.update_channel(ctx, channel.uid, name=str(name)[: inst.MAX_NAME_LEN])
@@ -230,6 +248,7 @@ def _channel_popup(ctx: Any, tab: Any, channel: Any, index: int) -> None:
             channel.kind,
             [(one, one.title()) for one in inst.KINDS],
             enabled=not tab.busy,
+            reason=_BUSY_WHY,
             tooltip="What this channel plays. The notes written on it stay"
             " where they are -- the voice is how they sound, not what they are.",
         )
@@ -238,6 +257,7 @@ def _channel_popup(ctx: Any, tab: Any, channel: Any, index: int) -> None:
         imgui.set_next_item_width(sp(140))
         changed, pan = controls.slider_float(
             f"Pan##{tag}", float(channel.pan), -1.0, 1.0, enabled=not tab.busy,
+            reason=_BUSY_WHY,
             tooltip="-1 is hard left, +1 hard right.",
         )
         # One gesture, one step: a drag reports on every frame the pointer
@@ -343,6 +363,23 @@ def _cell_text(cells: Any, row: int, channel: int) -> tuple[str, ...]:
         letter,
         _HEX[param] if param >= 0 else "..",
     )
+
+
+def cell_names_missing_instrument(
+    known: Any, cells: Any, row: int, channel: int
+) -> bool:
+    """Whether the cell at ``(row, channel)`` names an instrument that is gone.
+
+    The 2026-10-03 audit, finding sirens-24: ``SongDoc.remove_instrument``
+    leaves the cells that named the instrument alone (an undo can put it back)
+    and its docstring says "the grid draws an unknown one as unknown" -- but
+    the grid printed the id as plain hex, so deleting a used instrument turned
+    its notes silent with nothing to show which. ``known`` is the set of uids
+    the song holds; an empty instrument column names nothing. Pure, so a test
+    can ask it without a frame.
+    """
+    instrument = int(cells[row, channel, D.INSTRUMENT])
+    return instrument >= 0 and instrument not in known
 
 
 def _caret_span(column: int, digit: int, part: str) -> tuple[int, int]:
@@ -452,6 +489,8 @@ def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) ->
 
     text = imgui.get_color_u32(theme.rgba(theme.TEXT))
     muted = imgui.get_color_u32(theme.rgba(theme.MUTED))
+    missing = imgui.get_color_u32(theme.rgba(theme.ERR))
+    known = {one.uid for one in tab.doc.instruments}
     accent = imgui.get_color_u32(theme.rgba(theme.ACCENT, 0.35))
     beat = imgui.get_color_u32(theme.rgba(theme.ELEV_1))
     caret = imgui.get_color_u32(theme.rgba(theme.ACCENT))
@@ -493,9 +532,12 @@ def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) ->
                         (x, y), (x + chan_w, y + row_h), block
                     )
             parts = _cell_text(cells, row, channel)
+            lost = cell_names_missing_instrument(known, cells, row, channel)
             cx = x
             for column, part in enumerate(parts):
                 colour = text if part[0] not in "." else muted
+                if lost and column == D.INSTRUMENT:
+                    colour = missing
                 draw_list.add_text((cx, y), colour, part)
                 if row == state.row and channel == state.channel and column == state.column:
                     start, count = _caret_span(column, state.digit, part)

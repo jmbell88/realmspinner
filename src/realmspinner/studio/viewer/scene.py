@@ -58,6 +58,21 @@ class GpuMaterial:
         self.textures: dict[str, moderngl.Texture] = {}
         self._owned: list[moderngl.Texture] = []
         self.defines: list[str] = []
+        try:
+            self._upload(ctx, material, texture_cache)
+        except BaseException:
+            # create-10 (2026-10-03 audit): this object never reaches
+            # ``GpuModel.materials`` when its constructor raises, so the
+            # textures it already made would be released by nobody.
+            self.release()
+            raise
+
+    def _upload(
+        self,
+        ctx: moderngl.Context,
+        material: Material,
+        texture_cache: dict[int, moderngl.Texture] | None,
+    ) -> None:
         for slot, define, _uniform, _srgb in TEXTURE_SLOTS:
             data = getattr(material, slot)
             if data is None:
@@ -66,10 +81,12 @@ class GpuMaterial:
             texture = None if texture_cache is None else texture_cache.get(id(pixels))
             if texture is None:
                 texture = ctx.texture((width, height), 4, pixels)
+                # Owned before the setup calls below can raise, so a failure
+                # there still leaves the texture reachable for ``release``.
+                self._owned.append(texture)
                 texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
                 texture.build_mipmaps()
                 texture.anisotropy = min(8.0, ctx.max_anisotropy)
-                self._owned.append(texture)
                 if texture_cache is not None:
                     texture_cache[id(pixels)] = texture
             self.textures[slot] = texture
@@ -155,7 +172,13 @@ class GpuPrimitive:
             self._parts += [("4i", "a_joints", 16), ("4f", "a_weights", 16)]
 
         self.vbo = ctx.buffer(self._interleave(columns, count))
-        self.ibo = ctx.buffer(np.ascontiguousarray(primitive.indices, "u4").tobytes())
+        try:
+            self.ibo = ctx.buffer(np.ascontiguousarray(primitive.indices, "u4").tobytes())
+        except BaseException:
+            # create-10 (2026-10-03 audit): the vbo above is already live, and
+            # this constructor never returned, so nothing else can release it.
+            self.vbo.release()
+            raise
         # Sorted here, once, so ProgramCache.get can key on the tuple as-is
         # instead of canonicalising it per draw call (B16).
         self.defines = tuple(
@@ -273,6 +296,24 @@ class GpuModel:
         # recomputed only when a pose actually moves the node.
         self._normal_cache: dict[int, tuple[bytes, bytes]] = {}
         self.draws: list[tuple[Node, GpuPrimitive]] = []
+        # The uploads ``draws`` points into, one per (primitive, skinned): a
+        # primitive instanced by many nodes is one GpuPrimitive drawn many times.
+        self._primitives: dict[tuple[int, bool], GpuPrimitive] = {}
+        # Recomputed on every pose change, not per draw call.
+        self._palettes: dict[int, bytes] = {}
+        try:
+            self._build(model)
+        except BaseException:
+            # The 2026-10-03 audit, finding create-10: any raise after the first
+            # primitive's buffers exist (a driver error, a zero-vertex primitive)
+            # abandoned them unreachable, and this app sets no moderngl gc_mode,
+            # so they lived for the process -- once per attempt, and the shell
+            # retried a failed adopt every sync (create-18). ``release`` is
+            # safe on a half-built model: it walks only what was recorded.
+            self.release()
+            raise
+
+    def _build(self, model: Model) -> None:
         over_budget = False
         for node, primitives in model.mesh_instances():
             skinned = node.skin is not None
@@ -283,12 +324,23 @@ class GpuModel:
                 over_budget = True
                 skinned = False
             for primitive in primitives:
-                material = self._gpu_material(primitive.material)
-                self.draws.append((node, GpuPrimitive(ctx, primitive, material, skinned)))
+                # The 2026-10-04 audit, finding create-32: ``mesh_instances``
+                # hands every node that names a mesh the *same* Primitive
+                # objects, and the loader charged that mesh's bytes once
+                # against ``MAX_TOTAL_BYTES`` -- but this loop uploaded a
+                # fresh vbo and ibo per node, so one big mesh named from
+                # ``MAX_NODES`` nodes asked the frame thread for terabytes of
+                # GL buffer. One upload per (primitive, skinned) and a draw per
+                # node keeps the GPU cost equal to what the loader charged.
+                key = (id(primitive), skinned)
+                shared = self._primitives.get(key)
+                if shared is None:
+                    material = self._gpu_material(primitive.material)
+                    shared = GpuPrimitive(self.ctx, primitive, material, skinned)
+                    self._primitives[key] = shared
+                self.draws.append((node, shared))
         if over_budget:
             log.warning("a skin exceeds %d joints; drawing it at rest", MAX_JOINTS)
-        # Recomputed on every pose change, not per draw call.
-        self._palettes: dict[int, bytes] = {}
         self.refresh_palettes()
 
     def _gpu_material(self, material: Material) -> GpuMaterial:
@@ -344,8 +396,12 @@ class GpuModel:
         return self._palettes.get(id(node))
 
     def release(self) -> None:
-        for _node, primitive in self.draws:
+        # ``self._primitives`` owns the uploads, not ``draws``: a shared one
+        # appears in ``draws`` once per node and must be freed once. It is also
+        # the only record of a primitive built before a raise in ``_build``.
+        for primitive in self._primitives.values():
             primitive.release()
+        self._primitives.clear()
         for material in self.materials:
             material.release()
         self.draws.clear()

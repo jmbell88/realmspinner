@@ -124,6 +124,21 @@ def _label_alpha() -> float:
     return min(max((_WIDTH[0] - RAIL_W) / span, 0.0), 1.0) if span else 0.0
 
 
+def section_counts(groups: Any, labels: Any) -> tuple[int, int]:
+    """``(group gaps, caption rows)`` the column actually contains.
+
+    A gap is drawn only *between* groups and a caption only over a group with a
+    non-empty label, so both are fewer than ``len(groups)``. The budget used to
+    spend ``len(groups)`` of each -- a gap and a caption row nothing drew, so
+    captions and row spacing were given up a window-height earlier than needed
+    (the 2026-10-03 audit's shell-58). ``draw`` asks here for the budget and for
+    the gap it draws, so the two cannot disagree again.
+    """
+    gaps = max(len(groups) - 1, 0)
+    captions = sum(1 for index in range(len(groups)) if index < len(labels) and labels[index])
+    return gaps, captions
+
+
 def fitted_height(rows: int, gaps: float, avail: float) -> float:
     """How tall one item is drawn, given how many have to fit. Physical px.
 
@@ -371,17 +386,18 @@ def draw(app: Any, ctx: Any) -> None:
     # the labels toggle live in the global menus/status bar.
     rows = sum(len(g) for g in body_groups)
     avail_h = imgui.get_content_region_avail().y
-    # The gaps the column will actually contain: one between each pair of rows,
-    # one wider one between the body's two groups, and one more between the
-    # body and the footer.
+    # The gaps the column will actually contain: one between each pair of rows
+    # and one wider one between each pair of groups (the footer is a group now,
+    # so it is not a further gap beyond them).
     #
     # **The air goes before the items do.** A short window closes the
     # row-to-row spacing first and only then compresses the rows themselves,
-    # which is ``layout.fit``'s ladder one axis over: give up the thing that is
+    # which is ``layout.proportions``' ladder one axis over: give up the thing that is
     # only breathing room before giving up the thing that is the control. The
     # group gaps survive both, because they are what says the rail has
     # sections at all.
-    group_gaps = sp(GROUP_GAP) * len(body_groups)
+    n_group_gaps, n_captions = section_counts(body_groups, modes.RAIL_GROUP_LABELS)
+    group_gaps = sp(GROUP_GAP) * n_group_gaps
     gap = imgui.get_style().item_spacing.y
     # **The group captions are the ladder's new first rung.** They are the most
     # air of anything here -- a word over a gap that already exists -- so they
@@ -396,9 +412,9 @@ def draw(app: Any, ctx: Any) -> None:
     caption_step = caption_h + gap
     captions = _label_alpha() > 0.5
     body_h_wanted = rows * sp(ITEM_H) + (rows - 1) * gap + group_gaps
-    if captions and body_h_wanted + caption_step * len(body_groups) > avail_h:
+    if captions and body_h_wanted + caption_step * n_captions > avail_h:
         captions = False
-    caption_total = caption_step * len(body_groups) if captions else 0.0
+    caption_total = caption_step * n_captions if captions else 0.0
     if body_h_wanted > avail_h:
         gap = 0.0
     # **And then the section gaps go too, last of all.** The ladder above gives
@@ -423,7 +439,7 @@ def draw(app: Any, ctx: Any) -> None:
     # The drawn gap follows the budget, or the rows are laid out to one figure
     # and drawn against another -- which is the footer landing somewhere else
     # entirely, one rung down.
-    group_gap = group_gaps / len(body_groups) if body_groups else 0.0
+    group_gap = group_gaps / n_group_gaps if n_group_gaps else 0.0
     step = item_h + gap
     # Stated to imgui as well as used in the arithmetic, or the two disagree by
     # one spacing per row and the footer lands somewhere else entirely.

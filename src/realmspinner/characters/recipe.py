@@ -99,6 +99,11 @@ MAX_NAME = 64
 
 
 def _number(raw: Any, field_name: str, what: str) -> float:
+    # The 2026-10-03 audit, finding poser-24: ``float(True)`` is 1.0, so ``elevation:
+    # True`` and a ``True`` slider passed where ``_integer`` below has always
+    # refused a bool -- the same "it refuses; it never clamps" rule.
+    if isinstance(raw, bool):
+        raise CharacterError(f"{what} must be a number", field=field_name)
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -210,6 +215,10 @@ class Recipe:
         version = _integer(
             raw.get("family_version", fam.version), "family_version", "family version"
         )
+        if version < 1:
+            # The 2026-10-03 audit, finding poser-24: only "newer than shipped" was
+            # refused, so version 0 or -3 named a build that never existed.
+            raise CharacterError("family version must be 1 or more", field="family_version")
         if version > fam.version:
             # By name, not by falling back: a recipe written by a newer build
             # describes a mesh this one does not have, and quietly rebuilding it
@@ -288,7 +297,12 @@ class Recipe:
         if len(name) > MAX_NAME:
             raise CharacterError(f"a name is at most {MAX_NAME} characters", field="name")
 
-        pixel_art = bool(raw.get("pixel_art", True))
+        # The 2026-10-03 audit, finding poser-24: ``bool("false")`` is True, so a
+        # string-typed switch was read as on -- ``dither``'s pattern, below.
+        raw_pixel_art = raw.get("pixel_art", True)
+        if not isinstance(raw_pixel_art, bool):
+            raise CharacterError("pixel_art must be true or false", field="pixel_art")
+        pixel_art = raw_pixel_art
         # The 2026-09-26 audit, finding poser-characters-03: ``bool(raw)`` on a
         # non-bool answers "false" with ``True`` (``bool("false")`` is truthy),
         # which is exactly the clamp this module's docstring refuses to do.

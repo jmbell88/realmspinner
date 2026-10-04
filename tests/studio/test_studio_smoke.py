@@ -5727,8 +5727,20 @@ def test_the_resize_popup_shows_a_detected_pixel_grid(app_ctx):
     tab.doc.stack.active.pixels[:] = art
     tab.doc.invalidate_all()
 
+    def land(key: str) -> dict:
+        # The measurement is a task since the 2026-10-03 audit (inker-54): the
+        # answer arrives through ``on_task_done`` on a later frame.
+        import time
+
+        deadline = time.monotonic() + 30.0
+        while key not in app_ctx.state.preview and time.monotonic() < deadline:
+            for done in app_ctx.tasks.poll():
+                inker_mode.on_task_done(app_ctx, done)
+            time.sleep(0.01)
+        return app_ctx.state.preview[key]
+
     inker_bridge._measure_pixel_grid(app_ctx, tab)
-    found = app_ctx.state.preview[f"inker_grid:{tab.uid}"]
+    found = land(f"inker_grid:{tab.uid}")
     assert found["scale"] == 8, found
 
     # And an ordinary drawing measures nothing, so the popup is unchanged for it.
@@ -5738,7 +5750,7 @@ def test_the_resize_popup_shows_a_detected_pixel_grid(app_ctx):
     plain.doc.stack.active.pixels[..., 3] = 255
     plain.doc.invalidate_all()
     inker_bridge._measure_pixel_grid(app_ctx, plain)
-    assert app_ctx.state.preview[f"inker_grid:{plain.uid}"]["scale"] is None
+    assert land(f"inker_grid:{plain.uid}")["scale"] is None
 
 
 def test_the_seam_readout_and_wrap_button_appear_only_in_tiled_mode(app_ctx):

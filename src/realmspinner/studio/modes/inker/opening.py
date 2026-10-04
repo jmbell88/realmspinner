@@ -541,8 +541,17 @@ def _load_rendered_sheet(
         # pixels came from, so a re-render of the same character can be found
         # and merged later. Only on this branch: the fallback below has no
         # ``animation`` block and therefore no run vocabulary to re-render in.
+        #
+        # ``record_base=not pixel`` (the 2026-10-03 audit, inker-66): a pixel
+        # restyle is not the render, so recording the render's source against
+        # its pixelised cells let Merge re-render swap the cleaned art for the
+        # newest raw render. No base, and the merge door refuses by name.
         doc = sheetin.document_from_sheet(
-            atlas, cells, animation, source={"job": job_id, "sheet": sheet_id}
+            atlas,
+            cells,
+            animation,
+            source={"job": job_id, "sheet": sheet_id},
+            record_base=not pixel,
         )
     else:
         doc = sheetin.document_from_grid(atlas, cell, count=count)

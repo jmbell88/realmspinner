@@ -1,10 +1,13 @@
 """``Worker``'s Muse stage: a generated piece of music.
 
-One job kind, ``music``, and it is the shortest stage in the queue -- one model
-call that writes one file. There is no source/derived split and no follow-up:
-unlike ``source.glb``/``model.glb`` there is no second, differently-useful
-version of what the model produced, so ``track.wav`` is the whole artifact, for
-the same reason a reference job has only ``input.png``.
+Two job kinds live here. ``music`` is the shortest stage in the queue -- one
+model call that writes one file, with no source/derived split: unlike
+``source.glb``/``model.glb`` there is no second, differently-useful version of
+what the model produced, so ``track.wav`` is the whole artifact, for the same
+reason a reference job has only ``input.png``. ``separate`` is the one
+follow-up a take has: it splits a finished ``track.wav`` into stems written
+into the *take's* ``stems/`` directory (see ``_separate``), with ``stems.json``
+as its completion gate.
 
 **Why it is not a branch of ``_generate``'s text stage.** That stage is
 SDXL-and-trellis shaped end to end -- conditioning, the reroll budget, the
@@ -646,6 +649,21 @@ class MusicOps:
             raise RuntimeError(
                 f"unknown separation model: {params.get('separation_model')!r}"
             )
+
+        # muse-20 (2026-10-03 audit). ``host_peak_gib`` was declared and read by
+        # nothing: this child starts straight after a music child was killed on
+        # the same host, the window ``_require_commit_headroom_settled`` exists
+        # for (Windows does not credit a killed child's commit back at once), and
+        # ``_acquire_music``/``_acquire_t2i`` ask it of their own specs before
+        # their loads. Asked here, before anything is spawned, with the model's
+        # own declared peak.
+        from . import queue as queue_mod
+
+        await queue_mod._require_commit_headroom_settled(
+            f" before splitting with {spec_model.label}",
+            "Close other applications, then split the take again.",
+            need_gib=queue_mod._host_peak_gib(spec_model),
+        )
 
         source_dir = self.config.job_dir(source)
         # ``service.files.STEMS_DIR``, restated because **the queue may not

@@ -218,18 +218,23 @@ def test_a_prefab_instance_attached_via_add_node_directly_is_still_charged_at_it
     for _ in range(5):
         template.children.append(_box())
     doc.define_prefab("Cluster", template)  # 6 items resolved: group + 5 meshes
+    # A first instance already placed. The 2026-10-03 audit's mason-10 made the
+    # tree-side count include the template's nodes (as ``read_rscn`` does), so
+    # a *single* instance can no longer cross the resolved ceiling without
+    # crossing the tree one first; the second instance is what separates them.
+    doc.add_node(nd.PrefabNode(uid=nd.new_uid(), name="first", template="Cluster"))
 
-    monkeypatch.setattr(msc, "MAX_PLACED", 6)
+    monkeypatch.setattr(msc, "MAX_PLACED", 12)
     node = nd.PrefabNode(uid=nd.new_uid(), name="probe", template="Cluster")
 
-    # The tree-side check alone would pass this (one PrefabNode is one tree
-    # node, and 1 existing + 1 new = 2, comfortably under 6), so a failure
-    # here means only the resolved-size charge (1 existing + 6 resolved = 7)
-    # caught it.
+    # The tree-side check alone would pass this (1 box + 1 instance + 6
+    # template nodes + 1 new = 9, under 12), so a failure here means only the
+    # resolved-size charge (1 box + 6 + 6 new, on top of the first instance's
+    # 6 = 19) caught it.
     with pytest.raises(ValueError, match="resolved size"):
         doc.add_node(node)
 
-    assert len(doc.all_nodes()) == 1, "refused before the instance was attached"
+    assert len(doc.all_nodes()) == 2, "refused before the instance was attached"
 
 
 def test_add_nodes_also_charges_a_prefab_instance_at_its_resolved_size(
@@ -244,14 +249,15 @@ def test_add_nodes_also_charges_a_prefab_instance_at_its_resolved_size(
     for _ in range(5):
         template.children.append(_box())
     doc.define_prefab("Cluster", template)
+    doc.add_node(nd.PrefabNode(uid=nd.new_uid(), name="first", template="Cluster"))
 
-    monkeypatch.setattr(msc, "MAX_PLACED", 6)
+    monkeypatch.setattr(msc, "MAX_PLACED", 12)
     node = nd.PrefabNode(uid=nd.new_uid(), name="probe", template="Cluster")
 
     with pytest.raises(ValueError, match="resolved size"):
         doc.add_nodes([node])
 
-    assert len(doc.all_nodes()) == 1
+    assert len(doc.all_nodes()) == 2
 
 
 def test_place_prefab_still_toasts_a_friendly_message_rather_than_letting_add_nodes_own_refusal_escape(  # noqa: E501
