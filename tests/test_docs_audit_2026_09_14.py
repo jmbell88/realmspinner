@@ -39,30 +39,27 @@ def _normalize_ws(text: str) -> str:
 # (2026-09-16); the row this test looks for moved with it. -----------------
 
 
-def test_third_party_notices_names_llama_cpp_and_qwen_where_it_claims_to():
+def test_third_party_notices_names_llama_cpp_and_gemma_without_claiming_a_verdict():
     text = _read("THIRD-PARTY-NOTICES.md")
     marker = "all shown by\nhand in the tables above"
     idx = text.replace("\r\n", "\n").index(marker.replace("\r\n", "\n"))
     tables_above = text.replace("\r\n", "\n")[:idx]
+    rows = [line for line in tables_above.splitlines() if line.startswith("|")]
 
-    # A real table row (not just prose) for each, with the licence
-    # docs/MODELS.md records (MIT for the runtime, Apache-2.0 for the
-    # weights).
-    llama_rows = [
-        line
-        for line in tables_above.splitlines()
-        if line.startswith("|") and "llama.cpp" in line
-    ]
+    # A real table row (not just prose) for the runtime, with the licence
+    # docs/MODELS.md records (MIT).
+    llama_rows = [row for row in rows if "llama.cpp" in row]
     assert llama_rows, "no table row mentions llama.cpp above the claim"
     assert any("MIT" in row for row in llama_rows), llama_rows
 
-    qwen_rows = [
-        line
-        for line in tables_above.splitlines()
-        if line.startswith("|") and "Qwen" in line
-    ]
-    assert qwen_rows, "no table row mentions Qwen3-VL above the claim"
-    assert any("Apache-2.0" in row for row in qwen_rows), qwen_rows
+    # Familiar's weights are Gemma 4 12B, and its licence is an open human
+    # review (P53): the row must exist and must say so rather than carry a
+    # licence this project has not decided. Qwen3-VL-4B was the interim pin
+    # until 2026-10-06 and no longer ships, so it has no row to keep.
+    gemma_rows = [row for row in rows if row.startswith("| Gemma 4 12B")]
+    assert gemma_rows, "no table row mentions Gemma 4 12B above the claim"
+    assert all("Pending a human licence review" in row for row in gemma_rows), gemma_rows
+    assert not any("Qwen" in row for row in rows), "Qwen3-VL no longer ships as a pin"
 
 
 # --- docs-02: Manual 17 said an instance holds nothing of its own but a

@@ -368,9 +368,10 @@ async def test_requests_on_both_slots_are_accepted(server):
 
 @pytest.mark.asyncio(loop_scope="module")
 async def test_tokenize_plus_the_template_margin_covers_the_real_prompt_count(server):
-    """``llama_client.TEMPLATE_MARGIN_TOKENS`` is a stated ceiling on the
-    chat template's own overhead, never measured against a live server
-    (its own docstring: "not a measurement"). This is that measurement:
+    """``llama_client.template_margin`` is a stated ceiling on the chat
+    template's own overhead (a fixed part plus a per-message part, because
+    the overhead grows with the message count). This is the check against a
+    live server:
     a raw ``/tokenize`` count of the concatenated message text, exactly the
     way ``llama_client.chat``'s own ``SIZED_SKILLS`` branch counts it, against
     ``usage.prompt_tokens`` from a real ``max_tokens=1`` completion -- the
@@ -407,11 +408,9 @@ async def test_tokenize_plus_the_template_margin_covers_the_real_prompt_count(se
         real = completion_resp.json()["usage"]["prompt_tokens"]
     server.touch()
 
-    print(
-        f"FAMILIAR-GPU: template overhead real-raw={real - raw} "
-        f"margin={llama_client.TEMPLATE_MARGIN_TOKENS}"
-    )
-    assert raw + llama_client.TEMPLATE_MARGIN_TOKENS >= real
+    margin = llama_client.template_margin(messages)
+    print(f"FAMILIAR-GPU: template overhead real-raw={real - raw} margin={margin}")
+    assert raw + margin >= real
 
 
 class _RefusesBeforeAnyRequest:

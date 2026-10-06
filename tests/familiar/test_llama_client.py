@@ -132,7 +132,9 @@ async def test_a_clay_request_sizes_max_tokens_from_tokenize_and_output_budget(t
     # The raw-text count misses the chat template's own tokens, so the budget
     # must be taken against the count *plus* the margin -- sizing it off the
     # bare count over-sizes the reply and overruns the slot.
-    expected = contract.output_budget("clay", n_tokens + llama_client.TEMPLATE_MARGIN_TOKENS)
+    expected = contract.output_budget(
+        "clay", n_tokens + llama_client.template_margin(body["messages"])
+    )
     assert body["max_tokens"] == expected
     assert body["max_tokens"] < contract.output_budget("clay", n_tokens)
     assert expected != contract.SAMPLING["clay"]["max_tokens"]
@@ -345,7 +347,7 @@ async def test_a_clay_request_with_an_image_charges_image_token_cost(tmp_path):
     body = json.loads(completion.content)
     expected = contract.output_budget(
         "clay",
-        n_tokens + llama_client.TEMPLATE_MARGIN_TOKENS + llama_client.IMAGE_TOKEN_COST,
+        n_tokens + llama_client.template_margin(body["messages"]) + llama_client.IMAGE_TOKEN_COST,
     )
     assert body["max_tokens"] == expected
 
@@ -398,3 +400,17 @@ async def test_an_image_only_message_sends_the_content_parts_list_unchanged(tmp_
     completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
     body = json.loads(completion.content)
     assert body["messages"][0]["content"] == parts
+
+
+def test_the_template_margin_grows_with_the_message_count():
+    """Measured on Gemma 4 12B QAT (b11457, 2026-10-06), the chat template's
+    overhead over the raw text is 7 + 5 per message -- 17 tokens at two
+    messages, 47 at eight, 137 at twenty-six -- so a flat margin of 32 stopped
+    covering it from the sixth message on, and a Clay build that takes its two
+    repairs is already eight messages. The margin must stay a ceiling over
+    that line at every length, and must still come to 32 at two messages."""
+    measured = {2: 17, 4: 27, 6: 37, 8: 47, 10: 57, 14: 77, 18: 97, 26: 137}
+    for count, overhead in measured.items():
+        assert llama_client.template_margin([None] * count) >= overhead, count
+    assert llama_client.template_margin([None, None]) == 32
+    assert llama_client.template_margin([None] * 8) > llama_client.template_margin([None] * 2)

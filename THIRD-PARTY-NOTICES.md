@@ -147,9 +147,8 @@ their publishers, and two of them restrict commercial use of what you generate.
 | TRELLIS.2-4B | Microsoft | Hugging Face | MIT | Permitted |
 | BiRefNet weights | ZhengPeng7 | Hugging Face | MIT | Permitted |
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |
-| Gemma 4 12B QAT Q4_0 (Familiar's stock weights; pin lands in Phase 1b) | Google | Hugging Face | **Pending a human licence review** (`dev/TODO.md` P53) | Not yet decided |
-| EmbeddingGemma 2 (Familiar's optional retrieval model; pin lands in Phase 1b) | Google | Hugging Face | **Pending a human licence review** (`dev/TODO.md` P53) | Not yet decided |
-| Qwen3-VL-4B-Instruct GGUF (Qwen's own Q8_0, the interim pin the registry holds until Phase 1b) | Qwen, requantizing their own `Qwen/Qwen3-VL-4B-Instruct` | Hugging Face | Apache-2.0 | Permitted |
+| Gemma 4 12B QAT Q4_0 (Familiar's stock weights and vision projector, `google/gemma-4-12B-it-qat-q4_0-gguf`) | Google | Hugging Face | **Pending a human licence review** (`dev/TODO.md` P53) | Not yet decided |
+| EmbeddingGemma 2 (Familiar's optional retrieval model; its pin lands with the retrieval pass) | Google | Hugging Face | **Pending a human licence review** (`dev/TODO.md` P53) | Not yet decided |
 | `familiar_v1.0` (reserved for a future Clay-assistant fine-tune of Gemma 4 12B by this project's own training programme; not yet published) | Realmspinner (this project) | Realmspinner's own download row, not a third-party Hub repo | Not decided: depends on the verdict on its Gemma base | Not yet published |
 | Hybrid Demucs (`hdemucs_high_trained.pt`) | Meta / torchaudio | `download.pytorch.org`, **not** Hugging Face | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — Meta states the trained weights are for scientific purposes only; see [`docs/MODELS.md`](docs/MODELS.md) |
 

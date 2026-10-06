@@ -46,23 +46,22 @@ before every routing decision for no reason.
 verbatim -- the router's own request sends
 ``{"type": "json_schema", "json_schema": {"schema": router.ROUTE_SCHEMA}}``,
 which is llama.cpp's OpenAI-compatible ``response_format`` shape. Both
-``response_format`` and ``json_schema`` are present in the installed
-``b10948`` build's own ``llama-server-impl.dll`` (checked 2026-09-14,
-``grep -a -c``: 2 and 3 occurrences respectively; ``/apply-template`` is not,
-see below), so this build accepts it.
+``response_format`` and ``json_schema`` are accepted by the pinned
+``b11457`` build (a schema-constrained navigate reply was measured on it
+2026-10-06, and came back with no reasoning at all).
 
 **Why ``/tokenize`` on the concatenated message text, not ``/apply-template``
 then ``/tokenize``.** llama.cpp's server has carried ``/tokenize`` since the
-very first ``server`` example; ``/apply-template`` is newer and this
-programme has no vendored llama.cpp checkout in-tree to confirm it ships in
-the exact ``b10948`` build ``models.py`` pins (``docs/MODELS.md``). Rendering
-the chat template ourselves would risk disagreeing with whatever Jinja
-template the GGUF actually carries (``--jinja`` is passed at spawn, per
-``llama.py``'s own argv). Concatenating the raw message contents
-undercounts the template's own role/turn tokens by a small, roughly constant
-amount, and an undercount is the unsafe direction (it over-sizes the reply),
-so :data:`TEMPLATE_MARGIN_TOKENS` is added back before the budget is taken.
-The installed build was checked and has no ``/apply-template`` at all.
+very first ``server`` example. ``/apply-template`` does exist in the pinned
+``b11457`` build (the 2026-10-06 measurement used it), but it costs a second
+round trip before every sized request, and rendering the template is the
+server's job, not ours. Concatenating the raw message contents undercounts
+the template's own role/turn tokens, and an undercount is the unsafe
+direction (it over-sizes the reply), so :func:`template_margin` is added
+back before the budget is taken. **That undercount is not constant:** on
+Gemma 4 12B it grows by about five tokens per message (7 + 5 per message,
+measured at 2 to 26 messages), which a flat margin would stop covering past
+five messages -- a Clay build with two repairs is already eight.
 
 **Every request touches the server.** ``server.touch()`` is called both
 before and after the network round trip: before, so a slow tokenize/generate
@@ -98,19 +97,34 @@ CHAT_TIMEOUT = 180.0
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 #: Tokens added to ``/tokenize``'s count of the raw message text before
-#: :func:`contract.output_budget` sizes the reply. The chat template wraps
+#: :func:`contract.output_budget` sizes the reply, as a fixed part plus a
+#: per-message part (see :func:`template_margin`). The chat template wraps
 #: every turn in role and turn-boundary tokens that the raw text does not
-#: carry, and the installed ``b10948`` build has no ``/apply-template`` to
-#: count them (checked 2026-09-14: the string is absent from
-#: ``llama-server-impl.dll``). Uncorrected, the count comes out *low*, which
-#: is the unsafe direction -- a budget sized off it overruns the 8,192-token
-#: slot by exactly the template's overhead. 32 is a ceiling, not the
-#: measurement: on Qwen3-VL-4B's ChatML template the GPU lane measured the
-#: real overhead of a two-turn Clay request at 13 tokens
-#: (dev/measurements/2026-09-16-familiar-qwen-vram.md), and it sat inside
-#: 32 on the previous Gemma 4 E2B pin too. Shrinking it would buy 19 tokens
-#: of an 8,192-token slot and lose the room for a template that spends more.
-TEMPLATE_MARGIN_TOKENS = 32
+#: carry. Uncorrected, the count comes out *low*, which is the unsafe
+#: direction -- a budget sized off it overruns the 8,192-token slot by
+#: exactly the template's overhead.
+#:
+#: **Measured on Gemma 4 12B QAT, b11457, 2026-10-06**
+#: (dev/measurements/2026-10-06-familiar-gemma4-12b.md): the overhead of
+#: ``/apply-template`` + ``/tokenize`` over the raw text is 7 + 5 per message
+#: -- 17, 27, 37, 47, 57, 77, 97, 137 tokens at 2, 4, 6, 8, 10, 14, 18, 26
+#: messages. The constants below are ceilings over that line, rounded up
+#: rather than fitted: 16 over its 7, and 8 over its 5 per message, so two
+#: messages come to the same 32 this constant used to be (Qwen3-VL-4B measured
+#: 13 there). The previous flat 32 would have undercounted from the sixth
+#: message on.
+TEMPLATE_MARGIN_TOKENS = 16
+
+#: The per-message half of :func:`template_margin`; see
+#: :data:`TEMPLATE_MARGIN_TOKENS` for the measurement it is a ceiling over.
+TEMPLATE_MESSAGE_TOKENS = 8
+
+
+def template_margin(messages: Any) -> int:
+    """The tokens to add back to a raw ``/tokenize`` count of *messages* for
+    the chat template's own role/turn tokens: a fixed part plus a per-message
+    part, because the template's overhead grows with the message count."""
+    return TEMPLATE_MARGIN_TOKENS + TEMPLATE_MESSAGE_TOKENS * len(messages)
 
 #: A conservative per-image token charge for :func:`contract.output_budget`'s
 #: sizing, added once for every ``image_url`` content part in a request --
@@ -120,31 +134,27 @@ TEMPLATE_MARGIN_TOKENS = 32
 #: silently count as zero, which is the unsafe direction (INVARIANTS: a token
 #: count that feeds a budget must err high).
 #:
-#: **Measured against the real b10948 server** (2026-09-24,
-#: ``dev/measurements/2026-09-24-familiar-mmproj-vram.md``): a 512x512 PNG --
-#: the exact size Clay's own ghost render ships (``ClayView.render_png``'s
-#: ``three_quarter`` view) -- sent as one ``image_url`` part cost 258 prompt
-#: tokens above the same request's own text-only prompt (273 vs. 15, with the
-#: chat-template overhead in both). 300 is a ceiling over that reproducible
-#: 258, the same "round up, never estimate down" shape
-#: :data:`MIN_REPLY_TOKENS`'s own docstring already uses: Qwen3-VL's own
-#: dynamic tiling can spend more on a busier image than the flat red square
-#: this measurement used, and there is no cheap way to ask the server for the
-#: real count ahead of a request the way ``/tokenize`` answers for text.
+#: **Measured against the real b11457 server on Gemma 4 12B QAT** (2026-10-06,
+#: dev/measurements/2026-10-06-familiar-gemma4-12b.md): a 512x512 PNG -- the
+#: exact size Clay's own ghost render ships (``ClayView.render_png``'s
+#: ``three_quarter`` view) -- sent as one ``image_url`` part cost 123 prompt
+#: tokens above the same request's own text-only prompt, and a flat red
+#: square, uniform noise and a two-axis gradient all cost exactly 123, so the
+#: cost is a property of the image's size, not its content. 150 is a ceiling
+#: over that, the same "round up, never estimate down" shape
+#: :data:`MIN_REPLY_TOKENS`'s own docstring already uses. (Qwen3-VL-4B, the
+#: previous pin, tiled dynamically and measured 258, which is why this was 300.)
 #:
 #: **This constant is only a valid ceiling because every image is capped at
 #: 512px on its longer side before it ever reaches this module (the
-#: orchestrator's 2026-09-24 review, second finding).**
+#: orchestrator's 2026-09-24 review, second finding), and measured, the cap
+#: is load-bearing: an uncapped 1024x1024 noise image cost 443 tokens.**
 #: ``studio.assistant.ui.normalize_attachment_image``/``VISION_MAX_SIDE`` is
 #: the one door both a user-typed attach and Clay's own ghost render go
-#: through -- Qwen3-VL's own vision encoder tiles a larger image into
-#: roughly proportionally more tokens, so an un-normalized 2048px photo
-#: (16x the pixels of the 512px measurement) would cost on that order more
-#: than this flat number, silently overrunning the 8,192-token trained
-#: window exactly where INVARIANTS forbids it. This module has no way to
-#: enforce that cap itself (it is not where an image first arrives), so it
-#: is stated here as a precondition rather than checked here.
-IMAGE_TOKEN_COST = 300
+#: through. This module has no way to enforce that cap itself (it is not
+#: where an image first arrives), so it is stated here as a precondition
+#: rather than checked here.
+IMAGE_TOKEN_COST = 150
 
 
 def _headers(server: Any) -> dict[str, str]:
@@ -301,7 +311,7 @@ async def chat(
             # ``/tokenize``'s text-only count would otherwise silently charge
             # zero for an image actually sent.
             max_tokens = contract.output_budget(
-                skill, n_tokens + TEMPLATE_MARGIN_TOKENS + n_images * IMAGE_TOKEN_COST
+                skill, n_tokens + template_margin(messages) + n_images * IMAGE_TOKEN_COST
             )
 
         payload = {

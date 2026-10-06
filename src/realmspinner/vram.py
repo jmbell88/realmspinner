@@ -76,37 +76,35 @@ LORA_TRAIN_GIB = 18.0
 IP_ENCODER_GIB = 1.2
 """The CLIP-ViT-H image encoder an IP-Adapter needs (same place)."""
 
-FAMILIAR_GIB = 7.9
-"""llama-server.exe resident with the Qwen3-VL-4B-Instruct Q8_0 pin, ``-ngl 999``.
+FAMILIAR_GIB = 9.0
+"""llama-server.exe resident with the Gemma 4 12B QAT Q4_0 pin and its mmproj, ``-ngl 999``.
 
-Measured on the GPU lane (``dev/measurements/2026-09-16-familiar-qwen-vram.md``,
-RTX 5090): 6.81 GiB resident once healthy and 6.82 GiB peak with both slots
-generating, identical across three runs. That measurement carried +0.8 GiB
-for a different driver or CUDA context and for a same-architecture,
-same-quant fine-tune of that base, rounded up to the tenth (7.7).
+Measured on the GPU (``dev/measurements/2026-10-06-familiar-gemma4-12b.md``,
+RTX 5090, llama.cpp b11457, ``--ctx-size 16384 --parallel 2``, the production
+flags): card-wide used memory over an idle baseline of ~1.16 GiB (the desktop)
+rose by **8.28 GiB loaded and 8.50 GiB peak text-only**, and **8.62 GiB loaded
+and 8.75 GiB peak with ``--mmproj``**, where the peak is the maximum of a
+250 ms sampler across a plain chat, a schema-constrained reply, a 7,017-token
+prompt filling one slot and an image request. Repeated with the mmproj the
+loaded figure was 8.62 and 8.63 GiB, so the run-to-run spread is ~0.01 GiB
+and the baseline's own drift (+/-0.1 GiB) is the larger error. 9.0 is rounded
+up past the with-mmproj peak, not the point estimate, since a VRAM budget that
+reads too low is the unsafe direction.
 
-**Raised to 7.9 (2026-09-24, dev/measurements/2026-09-24-familiar-mmproj-vram.md
--- text-only base peak is unaffected, this covers the optional
-``familiar_mmproj`` row).** With the mmproj projector loaded (``--mmproj``,
-``pipelines/llama.py``) and one real image request answered on the real
-b10948 server, RTX 5090: card-wide used memory rose by 7.27-7.68 GiB over an
-un-pinned pre-server baseline that itself drifted +/-0.4 GiB across the
-measurement window (other processes sharing the card) -- rounded up past the
-noisy end of that range rather than the point estimate, since a VRAM budget
-that reads too low is the unsafe direction. Familiar is admitted at this one
-number regardless of whether a session ever attaches an image, because
-``ensure_started`` passes ``--mmproj`` whenever the row is downloaded, not
-only when a request is about to use it -- the projector's own weights are
-resident from spawn.
+Familiar is admitted at this one number regardless of whether a session ever
+attaches an image, because ``ensure_started`` passes ``--mmproj`` whenever the
+row is downloaded, not only when a request is about to use it -- the
+projector's own weights are resident from spawn. **The weights file is 6.50
+GiB, not the ~8.2 GiB first estimated** for a Q4_0 of a 12B: the rest of the
+figure is the 16,384-token KV cache and compute buffers.
 
-The previous pin, Gemma 4 E2B, measured 3.20 GiB peak and carried 4.0 here;
-it kept its per-layer embeddings off the card, where Qwen puts the whole
-3.99 GiB file on it -- which is why a smaller file costs twice the VRAM and
-why this figure could not be carried across a model switch. Familiar is
-always stopped before a GPU job runs (see ``Worker.before_gpu_job``), so
-this number never actually has to share the card with anything else -- it
-exists for ``familiar_admission`` alone, the door Familiar's own spawn
-stands at.
+The previous pins measured 3.20 GiB (Gemma 4 E2B, which kept its per-layer
+embeddings off the card) and 6.82 GiB (Qwen3-VL-4B Q8_0), so this figure could
+not be carried across a model switch. Familiar is always stopped before a GPU
+job runs (see ``Worker.before_gpu_job``): TRELLIS plus SDXL coexist at ~23 GiB
+of the 32 GiB card, so 9.0 more could never sit beside them, and this number
+never actually has to share the card with anything else -- it exists for
+``familiar_admission`` alone, the door Familiar's own spawn stands at.
 """
 
 TRELLIS_RES_MULT: dict[int, float] = {512: 0.85, 1024: 1.0, 1536: 1.5}

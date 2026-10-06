@@ -809,14 +809,21 @@ ENGINE_MODELS: dict[str, EngineModel] = _table(
 # "Reconstruction engine" heading -- both land in ``familiar_runtime_dir`` via
 # ``EngineModel``/``FamiliarModel.runtime``. Measured against a real download
 # of both zips, 2026-09-13; digests are GitHub's own asset ``digest`` field.
-FAMILIAR_RUNTIME_VERSION = "b10948"
-FAMILIAR_RUNTIME_MAIN_ASSET = "llama-b10948-bin-win-cuda-12.4-x64.zip"
+#
+# **b11457 (2026-10-06)** replaces b10948: ggml-org/llama.cpp PR #30054, which
+# adds EmbeddingGemma 2, merged 2026-10-06 and b11457 is five commits past it
+# (the GitHub compare API says ``ahead``), so one runtime serves both the chat
+# model and the embedder. The cudart zip is byte-identical to b10948's (same
+# sha256), and every file ``FAMILIAR_RUNTIME_FILES`` names is still in the new
+# server zip. Measured in dev/measurements/2026-10-06-familiar-gemma4-12b.md.
+FAMILIAR_RUNTIME_VERSION = "b11457"
+FAMILIAR_RUNTIME_MAIN_ASSET = "llama-b11457-bin-win-cuda-12.4-x64.zip"
 FAMILIAR_RUNTIME_MAIN_URL = (
     f"https://github.com/ggml-org/llama.cpp/releases/download/"
     f"{FAMILIAR_RUNTIME_VERSION}/{FAMILIAR_RUNTIME_MAIN_ASSET}"
 )
 FAMILIAR_RUNTIME_MAIN_SHA256 = (
-    "9839398baa5a74fcf2447168000b2a8c659e6ee0d944f7686bb72168a0bc1e35"
+    "c901dbb473c9472288e38ef06bf85e4e13d7de6bb24732b03dbe8aa05fcc483c"
 )
 FAMILIAR_RUNTIME_CUDART_ASSET = "cudart-llama-bin-win-cuda-12.4-x64.zip"
 FAMILIAR_RUNTIME_CUDART_URL = (
@@ -858,38 +865,38 @@ FAMILIAR_RUNTIME_FILES = (
     "mtmd.dll",
 )
 FAMILIAR_RUNTIME_DIGESTS: tuple[tuple[str, str], ...] = (
-    ("ggml-base.dll", "c620cc207d35b98132babef1d54bb0b40a0b4aaa57a88ae760a9d63b4f1b1e40"),
-    ("ggml-cpu-alderlake.dll", "43ee15ba5bc731344ad4cd17366bd8c339b66b7ed0e0a6d2bd0b49390e25a585"),
-    ("ggml-cpu-cannonlake.dll", "59bc038391f2359b5c918fea2ee559b8d3b928a1f86c8c1c7664ca8cb1534f0d"),
+    ("ggml-base.dll", "80bba81096a13fd8a67ed8c03a8daa660c5d8ed68a20969ae1ab47ab7faed137"),
+    ("ggml-cpu-alderlake.dll", "78ebb16fde99118aaa6c41283886cbb086aaa38b578576153d871d47a9b4b074"),
+    ("ggml-cpu-cannonlake.dll", "d2c7cc29f6320666160cd38ee5b5472f9aa8a2c60c6a3298f54176cff9842a76"),
     (
         "ggml-cpu-cascadelake.dll",
-        "609cc17bcd5a05bc2d657c31b21c11e34a28879e46815468200205fe0788caee",
+        "ef0755bc2704e04b99f062c417b64daa6296a4ca56442cf9722f5f9770d828e1",
     ),
-    ("ggml-cpu-cooperlake.dll", "4cab0f63e4edbe3a009e5ac5f395fc22b3ba133cdfa4b137089205dcac6fea7f"),
-    ("ggml-cpu-haswell.dll", "ab836ee5436b8bc170d3bec0de188e072fd42be51478e03fb7a282780a842520"),
-    ("ggml-cpu-icelake.dll", "f3603ee9e5f9c6936a38da868b80d9125354237c258b635f17250901727c52cb"),
-    ("ggml-cpu-ivybridge.dll", "0b0b6ca2952c57648ecaf32d0434a79daae98764887eaa2f15b921d57a9f1533"),
-    ("ggml-cpu-piledriver.dll", "bf9e2859be65c510d387ff537efd7e29d20faef6aea7b0ab11ec8de9cd21ddeb"),
+    ("ggml-cpu-cooperlake.dll", "97071ee051bf9ac08cf3e38f2534b77390200d23d61836df584de4c61a7d3e95"),
+    ("ggml-cpu-haswell.dll", "d686c1a8014fcfa8c6b2738d7451a831769e45d6a8fcc852d4651c3d917eb379"),
+    ("ggml-cpu-icelake.dll", "9b73a2faaaa385911d63d59070348c199c95721514c2eb86a0a37a9d2bd2d68e"),
+    ("ggml-cpu-ivybridge.dll", "b5df29b7db063c39df4544e22e1bec17a9b206db263328b21cbca7854429f138"),
+    ("ggml-cpu-piledriver.dll", "62db0ef30397e78bb5e0e0724d07c47039a8bdddbf0806207702471cdef9d837"),
     (
         "ggml-cpu-sandybridge.dll",
-        "b92920b3dd01e79e48992ed37555b1a1df04a0187d432a0d80c3c15fc95e4223",
+        "04045ac77ac476a22fa577ccc4557d47cbb7cc49189aab91934af1721b9e6258",
     ),
     (
         "ggml-cpu-sapphirerapids.dll",
-        "6fa65d6bd5ae04b8072dcf1f97417e34d5fa4c6294ae6e1878f90664c7549d48",
+        "a746e666e73e1cd96d51c3f165828698820b675d7ab37288944486c88fcf710d",
     ),
-    ("ggml-cpu-skylakex.dll", "74957f29e500d64bd4a196a49816e90d74bdec976da32216590ec8842ad3feba"),
-    ("ggml-cpu-sse42.dll", "b4b0c51e0daa5b9f299630f42cd32dd63afb87fe763a5b2f6f4c7a468ce315b5"),
-    ("ggml-cpu-x64.dll", "f9148af703464ce805db60799d2aecabebdcc7a61c9afe6af1b937157a44ad3a"),
-    ("ggml-cpu-zen4.dll", "afdd482813b92ec1ca13c0a6aec05c29ca62ccd003e7d0d7abaf9e10d0718402"),
-    ("ggml-cuda.dll", "bf684acacacdabd690f8ebe84b20f14bdf5d399f1bd254af1523fa9cea3af8e1"),
-    ("ggml.dll", "79dfe5c9fca26f6942c2b5044020aa003985e6d92bf8f6b0f3c80605d60a8f62"),
+    ("ggml-cpu-skylakex.dll", "09e8b138c0c7751dedf567c837fd3d98fd0482c7e7d9f9775fe3ed98110bd689"),
+    ("ggml-cpu-sse42.dll", "6c926733c9981b33981f4e485760f731342c1a94ab1b3207bc9a32fd47f7b89a"),
+    ("ggml-cpu-x64.dll", "8990105cf8af3a9f8362a7adb66d5ce587d865888259af146077bd8ca5ed86ae"),
+    ("ggml-cpu-zen4.dll", "a1684d0f3f49de254ccb1a40557bf6c5b8e5bc9eaff47d42c04c707ff56d82c8"),
+    ("ggml-cuda.dll", "bca39dd6bc4c553e046d1cdf27c526efa6f4504970d43119c2c0151861b47a8a"),
+    ("ggml.dll", "8666d1b98bb111b2a8524f707383c42ae7e352bdc94bfd9ff216b3d1ca7350d3"),
     ("libomp.dll", "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c"),
-    ("llama-common.dll", "495ad21cf1c0bffc2ebf76a68810bfd80390422bd721bed6ce8fa3f622a1c545"),
-    ("llama-server-impl.dll", "16e6567e6825572a896e91a7c0767c5095189bfa30adf0de26a6ebe630167a0f"),
-    ("llama-server.exe", "f0f897fe665bb59c55ecee74122d5a1e17be862a5d656e844d88769bc1797dc4"),
-    ("llama.dll", "fe2e2da05d76166ef7645f02eb4130d083a515a77039f826353b5fa7a00ca59d"),
-    ("mtmd.dll", "867ac24f65e036c4065943a374053c12318cfbdc5cd9dadb877f1bdb171d169d"),
+    ("llama-common.dll", "e1156b6c318da8936fcb6e7e419f7d188a58fdd97c07e5dc2bd0cd6029eecd23"),
+    ("llama-server-impl.dll", "ef4c2aca0b72eee5216a10d06d208f9063104740357fdf3a69b7b54caa1a102c"),
+    ("llama-server.exe", "c10548343e140c28ce63191a79f888e9d49640e3d19e7e4222344f29ea1ddae1"),
+    ("llama.dll", "b9c16857f1d6bab299b4d1547d1d0682fd7f638afba74e6b487c88074d614446"),
+    ("mtmd.dll", "e663207be88dfc656279d8b47b02b83422d8cd7354c26d2a9ee53fc901f25298"),
 )
 # The three CUDA 12.4 redistributable DLLs from the second zip.
 FAMILIAR_RUNTIME_CUDART_FILES = (
@@ -903,51 +910,44 @@ FAMILIAR_RUNTIME_CUDART_DIGESTS: tuple[tuple[str, str], ...] = (
     ("cudart64_12.dll", "d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc"),
 )
 
-# Familiar's weights: the base (non-fine-tuned) Qwen3-VL-4B-Instruct model,
-# quantised. **A testing pin, stated as one**: this is Qwen's own official
-# GGUF requantization of stock ``Qwen/Qwen3-VL-4B-Instruct``, picked so
-# Familiar has something real to run before a Qwen fine-tune
-# exists to become the shipped pin. Q8_0 for testing; a 4-bit shipped pin
-# waits on a measured BF16-to-Q4 delta, because Gemma's Q4_K_M lost 44-61 of
-# 232 Clay eval rows. Vision (2026-09-24): the ``familiar_mmproj`` row below
-# is the optional projector that turns image input on; text-only still works
-# with nothing but this row installed.
+# Familiar's weights: Google's own Gemma 4 12B instruct model, quantisation-
+# aware-trained and published as a Q4_0 GGUF (Google reports 88.8 % top-1
+# agreement with the bf16 model against 74.1 % for a naive Q4_0 of it).
+# **A testing pin, stated as one**: this is the stock model, picked so Familiar
+# has something real to run before Realmspinner's own fine-tune of it exists to
+# become the shipped pin (the programme in dev/training/familiar/). The Qwen
+# Q8_0 this replaces was 4.28 GB; this is 6.98 GB and 8.3 GiB of VRAM loaded
+# (measured 2026-10-06).
 #
 # Revision is the repository's commit at pin time; sha256 is the file's own
-# LFS oid, read from the Hub API without downloading the 4.28 GB file. Qwen
-# publishes this repository under Apache 2.0 (its own ``license`` tag),
-# matching the base model's.
-# TODO: re-pin to Gemma 4 12B (Phase 1b) -- the repo, revision, file names and
-# digests below (and the mmproj row's) are the pre-removal Qwen3-VL-4B pins.
-FAMILIAR_GGUF_REPO = "Qwen/Qwen3-VL-4B-Instruct-GGUF"
-FAMILIAR_GGUF_REVISION = "1cd86afb9a95c410a6038ab3b40d8b578c892266"
-FAMILIAR_GGUF_FILE = "Qwen3VL-4B-Instruct-Q8_0.gguf"
+# LFS oid, read from the Hub API and then re-hashed from a real download. The
+# repository's licence tag is Apache 2.0, and it links Google's Gemma 4 licence
+# page, which is the Apache text beside a Prohibited Use Policy: whether that
+# policy binds a redistributed fine-tune is the human review the TODO's P53
+# re-opened, and no verdict is claimed here.
+FAMILIAR_GGUF_REPO = "google/gemma-4-12B-it-qat-q4_0-gguf"
+FAMILIAR_GGUF_REVISION = "29d097773436b69ff9feafd636ab4cf873786537"
+FAMILIAR_GGUF_FILE = "gemma-4-12b-it-qat-q4_0.gguf"
 FAMILIAR_GGUF_SHA256 = (
-    "054721f478bc5fa6beffb7f38eae575d45298f88cbb8d2f83ef675a727863eb1"
+    "93567e57a8fe10b23569b9d9ec38cd005deedf71e29477c421a4b83f418a538b"
 )
 
-# Familiar's vision half: the mmproj projector Qwen3-VL-4B-Instruct's own
-# GGUF repository publishes beside the text weights, at the *same* revision
-# pin (``FAMILIAR_GGUF_REVISION``) -- both files are one Hub snapshot, so
-# there is only one revision to track, not two that could drift apart.
+# Familiar's vision half: the mmproj projector Google publishes in the same
+# repository, at the *same* revision pin (``FAMILIAR_GGUF_REVISION``) -- both
+# files are one Hub snapshot, so there is only one revision to track.
 # **Optional**: Familiar runs text-only with no mmproj row installed at all
 # (``pipelines/llama.py`` passes ``--mmproj`` only when the file is present),
-# so this is the one Familiar row a user may skip entirely.
-#
-# sha256/size read from a local copy of this exact file (the same Q8_0
-# quantisation as the text weights, for one download profile rather than
-# mixing precisions) rather than the Hub API's LFS oid, because the mmproj
-# file in this repository is *not* stored via Git LFS the way the text GGUFs
-# are -- confirmed 2026-09-24 against the working copy staged for the
-# fine-tuning programme.
-FAMILIAR_MMPROJ_FILE = "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
+# so this is the one Familiar row a user may skip entirely. A 512 px image
+# costs 123 prompt tokens whatever it shows (flat, noise and gradient all
+# measured 123); an uncapped 1024 px one cost 443.
+FAMILIAR_MMPROJ_FILE = "mmproj-gemma-4-12b-it-qat-q4_0.gguf"
 FAMILIAR_MMPROJ_SHA256 = (
-    "30ba2c7dd3127a4561b6cba9d13d0f711c91bdb38742e2f56d73c8cb596bd06d"
+    "cb018338a7538a9814d994bfe54644c71eb7ed54e31eae2f721e45fd3c260da7"
 )
 
-# The name a Realmspinner-trained Clay-assistant fine-tune of Qwen3-VL-4B-Instruct
-# should report once one is actually served (dev/training/clay-assistant/,
-# run-Q1 and successors). Reserved, not yet assigned to any served weights:
+# The name a Realmspinner-trained Clay-assistant fine-tune of Gemma 4 12B
+# should report once one is actually served (dev/training/familiar/). Reserved,
+# not yet assigned to any served weights:
 # the ``familiar_gguf`` row's ``served_name`` stays "" and ``card_shas`` stays
 # empty until that fine-tune ships, at which point this becomes its
 # ``served_name`` and its GGUF ``general.name`` is set to match.
@@ -1008,7 +1008,7 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
     ),
     FamiliarModel(
         "familiar_gguf",
-        "Familiar weights (Qwen3-VL-4B-Instruct)",
+        "Familiar weights (Gemma 4 12B)",
         (FAMILIAR_GGUF_FILE,),
         fetch=(
             Fetch(
@@ -1016,15 +1016,16 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
                 "familiar-gguf",
                 revision=FAMILIAR_GGUF_REVISION,
                 filenames=(FAMILIAR_GGUF_FILE,),
-                size_gib=3.99,
+                size_gib=6.50,
             ),
         ),
         digests=((FAMILIAR_GGUF_FILE, FAMILIAR_GGUF_SHA256),),
         description=(
-            "Familiar's own weights: a testing pin of the base "
-            "Qwen3-VL-4B-Instruct model.\n\n"
-            "Qwen's own Q8_0 GGUF -- no picker, no path override, this exact "
-            "file. Apache 2.0 licensed. Realmspinner's own Clay-assistant "
+            "Familiar's own weights: a testing pin of the stock Gemma 4 12B "
+            "instruct model.\n\n"
+            "Google's own quantisation-aware Q4_0 GGUF -- no picker, no path "
+            "override, this exact file. Tagged Apache 2.0; the licence "
+            "review is still open. Realmspinner's own Clay-assistant "
             "fine-tune of this base replaces this as the shipped pin once "
             "one is published."
         ),
@@ -1039,18 +1040,17 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
                 "familiar-mmproj",
                 revision=FAMILIAR_GGUF_REVISION,
                 filenames=(FAMILIAR_MMPROJ_FILE,),
-                size_gib=0.42,
+                size_gib=0.16,
             ),
         ),
         digests=((FAMILIAR_MMPROJ_FILE, FAMILIAR_MMPROJ_SHA256),),
         optional=True,
         description=(
-            "Image input for Familiar: the multimodal projector Qwen "
-            "publishes beside the text weights.\n\n"
+            "Image input for Familiar: Google's projector for the weights.\n\n"
             "Optional -- Familiar runs text-only without this row. With it "
             "installed, the dock can attach a PNG (a reference image, or "
-            "Clay's own ghost render) to a chat turn. Apache 2.0 licensed, "
-            "same repository and revision as 'Familiar weights' above."
+            "Clay's own ghost render) to a chat turn. Same repository and "
+            "revision as 'Familiar weights' above."
         ),
     ),
 )

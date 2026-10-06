@@ -76,7 +76,7 @@ nothing outlives the app however it exits, and a scan test refuses a spawn site 
 | The music worker | The ACE-Step music pipeline, resident across takes | Its host memory was never returned either; killing the child returns it |
 | The separation worker | One Demucs run, four stems out | A one-shot child, so cancelling it is a kill |
 | The LoRA trainer | One style-LoRA training run | A run charges about 20 GiB of host commit that nothing short of exit returns |
-| Familiar's server | A 12-billion-parameter language model, resident only while Familiar is in use | A native binary (`llama-server`) that holds about 10 GiB of the card; stopped before any GPU job so the two never coexist |
+| Familiar's server | A 12-billion-parameter language model, resident only while Familiar is in use | A native binary (`llama-server`) that holds about 9 GiB of the card; stopped before any GPU job so the two never coexist |
 | Familiar's retrieval server | A small embedding model, on the processor | A second instance of the same binary, kept off the card so the stop above never has to evict it |
 | The recipe worker | A small instruct model answering one Flourish request | Load, answer, exit: the load-probe trade, for a few prompts an hour |
 | The fetch worker | One model or engine download | One of three allowed online — see below |

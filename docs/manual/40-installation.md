@@ -148,17 +148,16 @@ and Lightning recipes are the same weights run differently, so each of them cost
 adapter on top. SDXL-Turbo is a separate checkpoint and is optional now — the models page has its
 command.
 
-Familiar, the in-app assistant, is optional and separate from both: its runtime is llama.cpp's own
-CUDA Windows release (`ggml-org/llama.cpp`, two zips upstream splits apart — the server binaries
-and the CUDA 12.4 redistributable), and its weights are Gemma 4 12B at QAT Q4_0, with two optional
-rows beside them: a vision projector, and EmbeddingGemma 2, a small CPU-only model that lets
-Familiar find a Manual section or a Library row by meaning and not only by keyword. All of them
-live in Settings → Models under the *Familiar* heading; `docs/MODELS.md` carries the full commands
-and says where each pin stands. The Gemma pins are still being set: until they land, the weights
-and vision rows still carry the earlier testing pin, `Qwen/Qwen3-VL-4B-Instruct-GGUF`, and there is
-no retrieval row, so Familiar answers from the keyword ranking alone. A machine without any of
-it loses nothing else: `realmspinner doctor` lists each missing Familiar row as `pending_install`
-with the command to fetch it, which is a note and not a fault, and `doctor` still exits 0.
+Familiar, the in-app assistant, is optional and separate from both: its runtime is llama.cpp's own CUDA
+Windows release (`ggml-org/llama.cpp`, two zips upstream splits apart — the server binaries and the CUDA
+12.4 redistributable), and its weights are Gemma 4 12B at QAT Q4_0, with two optional rows beside them: a
+vision projector, and EmbeddingGemma 2, a small CPU-only model that lets Familiar find a Manual section
+or a Library row by meaning and not only by keyword. All of them live in Settings → Models under the
+*Familiar* heading; `docs/MODELS.md` carries the full commands and says where each pin stands. The
+weights and vision rows are Google's own `google/gemma-4-12B-it-qat-q4_0-gguf`; the retrieval row is not
+in the registry yet, so Familiar answers from the keyword ranking alone. A machine without any of it
+loses nothing else: `realmspinner doctor` lists each missing Familiar row as `pending_install` with the
+command to fetch it, which is a note and not a fault, and `doctor` still exits 0.
 
 The GGUF download also brings `birefnet.gguf`, the background-matting model. It is optional: without
 it the engine falls back to a threshold cutout, which is worse on anything with a soft edge.
