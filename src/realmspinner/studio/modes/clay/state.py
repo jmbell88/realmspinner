@@ -348,6 +348,20 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     import_scale: float = 1.0
     import_up: str = "y"
 
+    # The Properties panel's transform block (``ui/panes/props._transform``).
+    # All three are display state, never document state -- storage stays in
+    # metres and quaternions -- and all three are app level rather than per
+    # tab, ``tool``'s reason: they are how the user is *looking*.
+    #
+    # ``euler_cache`` is what makes a typed rotation survive its own frame:
+    # see ``transform_edit``'s module docstring. Keyed by uid, like every
+    # address here, and tiny (one entry per object whose rotation was shown).
+    length_unit: str = "m"
+    size_lock_aspect: bool = False
+    euler_cache: dict[int, tuple[tuple[float, ...], tuple[float, float, float]]] = field(
+        default_factory=dict
+    )
+
     # The last manifold check, per object: the ``Mesh`` it measured and the rows
     # it produced. Held here rather than recomputed because ``check_manifold``
     # builds a whole adjacency -- O(corners), and not something to run sixty

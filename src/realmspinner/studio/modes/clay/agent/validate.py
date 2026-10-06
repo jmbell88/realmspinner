@@ -47,6 +47,10 @@ from typing import Any
 import numpy as np
 
 from .....kernels.geom3d import math3d as m3
+from .....kernels.geom3d.math3d import euler_xyz_from_quat as _euler_xyz_from_quat
+from .....kernels.geom3d.math3d import (
+    quat_from_euler_xyz as _quat_from_euler_xyz,  # noqa: F401 -- re-export
+)
 from .....kernels.mesh import elements as el
 from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
@@ -323,70 +327,11 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
 
 
 # --- Euler XYZ, for clay_transform and clay_scene ----------------------------
-
-
-def _quat_from_euler_xyz(degrees: Any) -> Any:
-    """Three degrees -- rotate-X, then Y, then Z -- as this document's XYZW quaternion.
-
-    ``viewer.math3d`` carries ``quat_from_axis_angle`` and ``quat_mul`` but no
-    Euler helper at all, and that is not an oversight to fix upstream: nothing
-    else in Clay needs one. A gizmo drag accumulates a single axis-angle
-    increment directly into the object's quaternion and never decomposes it
-    back into three numbers, so there has never been a second caller to share
-    this with. An agent describing an orientation has no such luxury -- "face
-    this way" arrives as three degrees -- so the composition lives here, once,
-    for the handlers that take them.
-
-    Intrinsic X, then Y, then Z, which is the order a person reaching for
-    "rotation" with no further qualification expects (it is Blender's default
-    Euler order). ``quat_mul(a, b)`` applies ``b`` first, so building the
-    result as ``qz * qy * qx`` puts X innermost -- applied first -- exactly
-    matching that order.
-    """
-    rx, ry, rz = (math.radians(float(v)) for v in degrees)
-    qx = m3.quat_from_axis_angle(m3.vec3(1.0, 0.0, 0.0), rx)
-    qy = m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), ry)
-    qz = m3.quat_from_axis_angle(m3.vec3(0.0, 0.0, 1.0), rz)
-    return m3.quat_mul(m3.quat_mul(qz, qy), qx)
-
-
-def _euler_xyz_from_quat(q: Any) -> tuple[float, float, float]:
-    """The exact inverse of :func:`_quat_from_euler_xyz`, in degrees.
-
-    A gizmo drag accumulates axis-angle increments straight into an object's
-    quaternion and never decomposes them back -- so until an agent needed to
-    *read back* what it placed, nothing in Clay ever needed this inverse.
-    ``clay_scene`` hands an agent three degrees rather than four quaternion
-    components precisely so the readout is something ``clay_transform`` can
-    be fed straight back into; a scene description an agent cannot act on is
-    not a description worth giving it.
-
-    Derived from ``m3.quat_to_mat4``, which is column-vector convention, so
-    with ``R = Rz.Ry.Rx`` (the same composition order ``_quat_from_euler_xyz``
-    builds): ``ry = asin(clamp(-R[2, 0], -1, 1))``; away from gimbal lock,
-    ``rx = atan2(R[2, 1], R[2, 2])`` and ``rz = atan2(R[1, 0], R[0, 0])``; at
-    gimbal lock (``|cos(ry)|`` tiny) ``rz`` is pinned to 0 and ``rx`` is read
-    off row 0 instead -- ``atan2(R[0, 1], R[0, 2])`` at ``ry`` ~= +90 deg,
-    ``atan2(-R[0, 1], -R[0, 2])`` at ``ry`` ~= -90 deg. The round-trip claim
-    this exists to satisfy is about the *rotation* the three angles describe,
-    not the three numbers themselves -- at gimbal lock a whole family of
-    ``(rx, rz)`` pairs describes the same orientation, and picking ``rz = 0``
-    is simply one member of it.
-    """
-    r = m3.quat_to_mat4(q)[:3, :3]
-    sin_ry = -float(r[2, 0])
-    ry = math.asin(max(-1.0, min(1.0, sin_ry)))
-    if abs(math.cos(ry)) > 1e-6:
-        rx = math.atan2(r[2, 1], r[2, 2])
-        rz = math.atan2(r[1, 0], r[0, 0])
-    else:
-        rz = 0.0
-        rx = (
-            math.atan2(r[0, 1], r[0, 2])
-            if sin_ry > 0
-            else math.atan2(-r[0, 1], -r[0, 2])
-        )
-    return (math.degrees(rx), math.degrees(ry), math.degrees(rz))
+#
+# The two helpers live in ``kernels/geom3d/math3d`` (they moved there with the
+# Properties panel's rotation row, which shows the same degrees); the
+# underscore names stay because every handler file and the tests reach them
+# through this module.
 
 
 # --- shared validation and mutation helpers -----------------------------------

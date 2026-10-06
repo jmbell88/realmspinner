@@ -18,6 +18,7 @@ way:
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -309,3 +310,65 @@ def gltf_delta_to_blender(d: Vec3) -> Vec3:
 def blender_delta_to_gltf(d: Vec3) -> Vec3:
     """The inverse: [x, y, z] -> [x, z, -y]."""
     return np.array([d[0], d[2], -d[1]], dtype="f8")
+
+
+# --- Euler XYZ ---------------------------------------------------------------
+
+
+def quat_from_euler_xyz(degrees: Sequence[float]) -> Quat:
+    """Three degrees -- rotate-X, then Y, then Z -- as an XYZW quaternion.
+
+    The app's one Euler order. A gizmo drag accumulates axis-angle increments
+    straight into an object's quaternion and never needs it, but two readers
+    speak degrees: the MCP surface (an agent describing "face this way") and
+    Clay's Properties panel, which shows the same three numbers so what an agent
+    set and what the panel reads are one thing.
+
+    Intrinsic X, then Y, then Z (Blender's default Euler order).
+    ``quat_mul(a, b)`` applies ``b`` first, so building the result as
+    ``qz * qy * qx`` puts X innermost -- applied first -- exactly matching that
+    order.
+    """
+    rx, ry, rz = (math.radians(float(v)) for v in degrees)
+    qx = quat_from_axis_angle(vec3(1.0, 0.0, 0.0), rx)
+    qy = quat_from_axis_angle(vec3(0.0, 1.0, 0.0), ry)
+    qz = quat_from_axis_angle(vec3(0.0, 0.0, 1.0), rz)
+    return quat_mul(quat_mul(qz, qy), qx)
+
+
+def euler_xyz_from_quat(q: Quat) -> tuple[float, float, float]:
+    """The exact inverse of :func:`quat_from_euler_xyz`, in degrees.
+
+    ``clay_scene`` hands an agent three degrees rather than four quaternion
+    components precisely so the readout is something ``clay_transform`` can
+    be fed straight back into, and the Properties panel's rotation row shows
+    the same three numbers. **The decomposition is not stable from frame to
+    frame** -- 190 degrees reads back as -170 -- so a field that is being
+    typed into must cache what it displays rather than re-derive it.
+
+    Derived from ``quat_to_mat4``, which is column-vector convention, so
+    with ``R = Rz.Ry.Rx`` (the same composition order ``quat_from_euler_xyz``
+    builds): ``ry = asin(clamp(-R[2, 0], -1, 1))``; away from gimbal lock,
+    ``rx = atan2(R[2, 1], R[2, 2])`` and ``rz = atan2(R[1, 0], R[0, 0])``; at
+    gimbal lock (``|cos(ry)|`` tiny) ``rz`` is pinned to 0 and ``rx`` is read
+    off row 0 instead -- ``atan2(R[0, 1], R[0, 2])`` at ``ry`` ~= +90 deg,
+    ``atan2(-R[0, 1], -R[0, 2])`` at ``ry`` ~= -90 deg. The round-trip claim
+    this exists to satisfy is about the *rotation* the three angles describe,
+    not the three numbers themselves -- at gimbal lock a whole family of
+    ``(rx, rz)`` pairs describes the same orientation, and picking ``rz = 0``
+    is simply one member of it.
+    """
+    r = quat_to_mat4(q)[:3, :3]
+    sin_ry = -float(r[2, 0])
+    ry = math.asin(max(-1.0, min(1.0, sin_ry)))
+    if abs(math.cos(ry)) > 1e-6:
+        rx = math.atan2(r[2, 1], r[2, 2])
+        rz = math.atan2(r[1, 0], r[0, 0])
+    else:
+        rz = 0.0
+        rx = (
+            math.atan2(r[0, 1], r[0, 2])
+            if sin_ry > 0
+            else math.atan2(-r[0, 1], -r[0, 2])
+        )
+    return (math.degrees(rx), math.degrees(ry), math.degrees(rz))

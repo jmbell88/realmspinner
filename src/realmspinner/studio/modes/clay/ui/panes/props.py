@@ -28,6 +28,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ......kernels.geom3d import math3d as m3
+from ......kernels.geom3d import units
 from ......kernels.mesh import colliders as cl
 from ......kernels.mesh import primitives as bp
 from ......kernels.mesh import regen
@@ -36,6 +38,8 @@ from .....manual import render as manual_render
 from .....tokens import sp
 from ... import matlib as clay_matlib
 from ... import mode as clay_mode
+from ... import transform_edit
+from ...state import ClayState
 from . import outliner as clay_outliner
 
 log = logging.getLogger(__name__)
@@ -138,7 +142,7 @@ def _body(ctx: Any) -> None:
         imgui.dummy((0, sp(tokens.SP_2)))
         _tags(doc, obj)
         imgui.dummy((0, sp(tokens.SP_2)))
-        _transform(doc, obj, ctx=ctx)
+        _transform(doc, obj, ctx=ctx, state=state)
         imgui.dummy((0, sp(tokens.SP_2)))
         _generator(doc, obj, ctx=ctx)
     elif current == "modifiers":
@@ -406,7 +410,48 @@ def _tags(doc: Any, obj: Any) -> None:
         doc.set_props(obj.uid, tags=tuple(obj.tags) + tuple(added.split(",")))
 
 
-def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
+#: What a bare ``_transform(doc, obj)`` -- no pane, no ``ClayState`` -- shows its
+#: display state in. Several tests drive the door with nothing but a document.
+_BARE_STATE: ClayState | None = None
+
+_UNIT_OPTIONS = [(key, key) for key, _ in units.LENGTH_UNITS]
+
+
+def _display_state(state: ClayState | None) -> ClayState:
+    global _BARE_STATE
+    if state is not None:
+        return state
+    if _BARE_STATE is None:
+        _BARE_STATE = ClayState()
+    return _BARE_STATE
+
+
+def _apply_transform(doc: Any, obj: Any, ctx: Any, **fields: Any) -> bool:
+    """``doc.set_transform`` with the panel's refusal handling. -> whether it landed.
+
+    The 2026-09-23 audit's clay-03: a locked object reaches ``set_transform``'s
+    own refusal (``OpError``, nothing pushed), uncaught, and the pane's guard
+    replaces Properties with "stopped drawing" for the rest of the frame. Same
+    shape as ``_set_parent`` and ``_set_modifier_stack`` in this file: catch it,
+    toast it, leave the field showing the value the user typed. ``ctx`` is
+    optional -- several tests in ``tests/modes/clay/`` drive this door straight
+    with a bare ``(doc, obj)``, no pane and no ``ctx`` to toast through, so
+    with none given the refusal is re-raised rather than swallowed.
+    """
+    from ......kernels.mesh.elements import OpError
+    from ... import ops as clay_ops
+
+    try:
+        doc.set_transform(obj.uid, **fields)
+    except OpError as error:
+        if ctx is None:
+            raise
+        clay_ops.toast(ctx, str(error))
+        return False
+    return True
+
+
+def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None = None) -> None:
     # Tranche 3: scene structure. TRS is local to the parent now, and a root's
     # local TRS *is* its world TRS (``document.py``'s module docstring) --
     # which is what keeps an unparented object's fields, and their labels,
@@ -423,8 +468,21 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     # (see that file's own clay_props.py entries).
     # Same id suffix (``##bt``/``##bs``/``##br``) either way, so reparenting
     # mid-edit does not reset the field's own imgui state.
+    ui = _display_state(state)
+    unit = ui.length_unit if ui.length_unit in dict(units.LENGTH_UNITS) else units.DEFAULT_UNIT
     parented = obj.parent is not None
     widgets.field_label("local transform" if parented else "transform")
+    # Position and size are *shown* in this unit and stored in metres; nothing
+    # about the document changes with it. Rotation and scale are unitless.
+    picked = widgets.combo(
+        "##clay-length-unit",
+        unit,
+        _UNIT_OPTIONS,
+        sp(72),
+        tooltip="The unit position and size are shown in. Storage stays in metres.",
+    )
+    if picked != unit:
+        ui.length_unit = unit = picked
     was = tuple(v.copy() for v in obj.trs())
     changed = False
     # The 2026-09-26 audit's clay-panes-07: these three fields stayed live and
@@ -440,14 +498,11 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     # child of a locked group still toasted once per keystroke. Ask the
     # document the question its door asks.
     imgui.begin_disabled(doc.lock_refusal(obj.uid, check_ancestors=True) is not None)
+    shown = units.vec_to_display(obj.translation, unit)
     if parented:
-        edited, translation = controls.input_vec(
-            "local position##bt", list(obj.translation), ("X", "Y", "Z")
-        )
+        edited, typed = controls.input_vec("local position##bt", list(shown), ("X", "Y", "Z"))
     else:
-        edited, translation = controls.input_vec(
-            "position##bt", list(obj.translation), ("X", "Y", "Z")
-        )
+        edited, typed = controls.input_vec("position##bt", list(shown), ("X", "Y", "Z"))
     # The 2026-09-07 audit's clay-01: these three fields fired ``set_transform``
     # -- an unconditional ``history.push`` -- on every keystroke, same as the
     # material sliders below already fold. ``InputFloat3``/``InputFloat4`` fire
@@ -455,6 +510,12 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     # into Position pushed one undo step per digit and a lone Ctrl+Z only took
     # the last character back rather than the whole edit.
     controls.fold_undo(doc.history)
+    # Only the axes that were typed into go back through the unit: converting
+    # an untouched axis out and back would let a unit's rounding drift it.
+    translation = [
+        float(obj.translation[i]) if typed[i] == shown[i] else units.from_display(typed[i], unit)
+        for i in range(3)
+    ]
     changed |= edited
     if parented:
         edited, scale = controls.input_vec(
@@ -464,97 +525,111 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None) -> None:
         edited, scale = controls.input_vec("scale##bs", list(obj.scale), ("X", "Y", "Z"))
     controls.fold_undo(doc.history)
     changed |= edited
-    # Rotation stays a quaternion (the 2026-09-12 consistency pass's call --
-    # the viewer gizmo and the pose files are both XYZW, and converting the
-    # field to Euler would need the panel to pick a rotation order the rest
-    # of the app doesn't have) -- so its fourth letter is W, not a repeated Z.
+    # Rotation is Euler degrees in the app's one rotation order (XYZ, the MCP
+    # surface's), which is what lets the panel and an agent's ``clay_transform``
+    # read the same three numbers. The object stores a quaternion and
+    # decomposing one is not stable frame to frame, so the angles shown are
+    # cached per object until something else moves the quaternion
+    # (``transform_edit``'s docstring).
+    euler = transform_edit.displayed_euler(ui.euler_cache, obj.uid, obj.rotation)
     if parented:
-        edited, rotation = controls.input_vec(
-            "local rotation##br", list(obj.rotation), ("X", "Y", "Z", "W")
+        edited, typed_euler = controls.input_vec(
+            "local rotation (deg)##br", list(euler), ("X", "Y", "Z")
         )
     else:
-        edited, rotation = controls.input_vec(
-            "rotation##br", list(obj.rotation), ("X", "Y", "Z", "W")
+        edited, typed_euler = controls.input_vec(
+            "rotation (deg)##br", list(euler), ("X", "Y", "Z")
         )
     controls.fold_undo(doc.history)
     widgets.help_marker(
-        "A quaternion, XYZW -- the same order the viewer and the pose files "
-        "use. Typing one is for a value you already have; the gizmo is the "
-        "way to set one by eye."
+        "Euler angles in degrees, turned X then Y then Z -- the same numbers "
+        "an agent's clay_transform takes. The object itself stores an XYZW "
+        "quaternion, which the viewer gizmo and the pose files share."
     )
+    rotation = m3.quat_from_euler_xyz(typed_euler) if edited else [float(v) for v in obj.rotation]
     changed |= edited
     imgui.end_disabled()
-    _dimensions(doc, obj)
     if changed:
         # ``was`` is the values the fields started from. imgui writes the new
         # ones into the widget's own state as they are typed, so reading
         # "before" off the object here would compare a value against itself and
         # record an empty step -- which is the trap ``set_transform``'s ``was``
         # argument exists for.
-        # The 2026-09-23 audit's clay-03: a locked object was never greyed
-        # here (only its own Locked toggle reads ``obj.locked``), so typing
-        # into a position/rotation/scale field of a locked object reached
-        # ``set_transform``'s own refusal (``OpError``, nothing pushed)
-        # uncaught -- the pane's guard replaces Properties with "stopped
-        # drawing" for the rest of the frame, and the edit silently does not
-        # apply. Same shape as ``_set_parent`` and ``_set_modifier_stack``
-        # in this file: catch it, toast it, leave the field showing the
-        # value the user typed. ``ctx`` is keyword-only and optional --
-        # several tests in ``tests/modes/clay/`` drive this door straight
-        # with a bare ``(doc, obj)``, no pane and no ``ctx`` to toast
-        # through, so with none given the refusal is re-raised rather than
-        # swallowed.
-        from ......kernels.mesh.elements import OpError
-        from ... import ops as clay_ops
-
-        try:
-            doc.set_transform(
-                obj.uid,
-                translation=translation,
-                rotation=rotation,
-                scale=scale,
-                was=was,
+        landed = _apply_transform(
+            doc, obj, ctx, translation=translation, rotation=rotation, scale=scale, was=was
+        )
+        if landed and edited:
+            transform_edit.remember_euler(
+                ui.euler_cache, obj.uid, doc.by_uid(obj.uid).rotation, typed_euler
             )
-        except OpError as error:
-            if ctx is None:
-                raise
-            clay_ops.toast(ctx, str(error))
+    _dimensions(doc, obj, ctx=ctx, state=ui)
 
 
-def _dimensions(doc: Any, obj: Any) -> None:
-    """How big the thing actually is, in metres of world space.
+def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None = None) -> None:
+    """How big the thing is -- editable -- and where its world box sits.
 
-    Read-only, and it is the number the panel was missing: a scale of 2 on a
-    generator whose radius is 0.35 says nothing about how large the object is,
-    in an app whose whole pipeline is denominated in ``size_m``. W x D x H
-    rather than X/Y/Z because that is how a physical object is quoted, and
-    ``ops.world_box``'s answer rather than a second measurement here, so the
-    row and the camera's framing cannot disagree about one object.
+    **Width / height / depth are the evaluated mesh's local extent times
+    ``|scale|``**, because that is the one number that maps back to a scale
+    without ambiguity: editing an axis sets ``scale[i] = new / extent[i]``
+    (``transform_edit.resized_scale``). A rotated object's world box is a
+    different quantity -- no scale reproduces it -- so it stays below as a
+    read-only line, ``world bounds``.
 
     **Measured off the evaluated mesh**, not the base -- a solidify or an
     array modifier changes what is actually on screen, and a size row that
     kept reporting the base's box would disagree with the object the camera
-    just framed. :func:`~.ops.world_box`'s own ``mesh`` override is what makes
-    this a one-line change rather than a second measurement path: an object
-    with no enabled modifiers evaluates to its own base mesh (``is``-identical,
-    :mod:`~.modifiers`'s own docstring), so nothing here changes for the
-    common case.
+    just framed. An object with no enabled modifiers evaluates to its own base
+    mesh (``is``-identical, :mod:`~.modifiers`'s own docstring), so nothing
+    changes for the common case. The world line is :func:`~.ops.world_box`'s
+    answer rather than a second measurement here, so it and the camera's
+    framing cannot disagree about one object, with
+    ``world=doc.world_matrix(obj.uid)`` (tranche 3: scene structure) so a
+    parented object reports where it sits rather than a root at its parent's
+    place.
 
-    ``world=doc.world_matrix(obj.uid)`` (tranche 3: scene structure): left at
-    ``world_box``'s own default, this composed only *obj*'s own TRS, which for
-    a parented object is local to its parent and not its world placement --
-    reporting the size of a *root sitting where this object's parent happens
-    to be*, not the size of the object where it actually sits. A root's world
-    matrix is exactly its own local TRS, so this changes nothing for a
-    document with no parenting.
+    An axis the mesh has no extent on (a plane's height) is read-only in effect:
+    an edit to it is ignored and the reason is printed under the row. One
+    greyed-out box inside a three-box field is not something imgui offers, and a
+    toast per keystroke is the failure ``_transform``'s own comment records.
     """
     from ......kernels.mesh import ops as bops
 
-    box = bops.world_box(obj, doc.evaluated(obj.uid), world=doc.world_matrix(obj.uid))
+    ui = _display_state(state)
+    unit = ui.length_unit if ui.length_unit in dict(units.LENGTH_UNITS) else units.DEFAULT_UNIT
+    mesh = doc.evaluated(obj.uid)
+    box = bops.world_box(obj, mesh, world=doc.world_matrix(obj.uid))
     if box is None:
         return
-    w, h, d = (float(v) for v in (box[1] - box[0]))
-    widgets.muted(f"size  {w:.3f} x {d:.3f} x {h:.3f} m  (W x D x H)")
+    extent = transform_edit.local_extent(mesh)
+    size = transform_edit.size_of(extent, obj.scale)
+    shown = units.vec_to_display(size, unit)
+    was = tuple(v.copy() for v in obj.trs())
+
+    widgets.field_label("size")
+    imgui.begin_disabled(doc.lock_refusal(obj.uid, check_ancestors=True) is not None)
+    edited, typed = controls.input_vec("size##bz", list(shown), ("W", "H", "D"))
+    controls.fold_undo(doc.history)
+    _, ui.size_lock_aspect = controls.checkbox("lock aspect##bzlock", ui.size_lock_aspect)
+    imgui.end_disabled()
+    if edited:
+        axis = next((i for i in range(3) if typed[i] != shown[i]), None)
+        if axis is not None:
+            new_scale = transform_edit.resized_scale(
+                extent,
+                obj.scale,
+                axis,
+                units.from_display(typed[axis], unit),
+                lock_aspect=ui.size_lock_aspect,
+            )
+            if new_scale is not None:
+                _apply_transform(doc, obj, ctx, scale=new_scale, was=was)
+    for axis in range(3):
+        reason = transform_edit.axis_refusal(extent, axis)
+        if reason is not None:
+            widgets.muted(reason)
+
+    w, h, d = (units.to_display(float(v), unit) for v in (box[1] - box[0]))
+    widgets.muted(f"world bounds  {w:.3f} x {h:.3f} x {d:.3f} {unit}  (W x H x D)")
     widgets.help_marker(
         "The object's world-space bounding box, after its transform. A rotated "
         "object reports the box around its rotated box, which is the same "

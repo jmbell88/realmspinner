@@ -49,8 +49,9 @@ def test_editing_a_transform_or_generator_field_by_keystroke_is_one_undo_step() 
     # f-string with a "local " prefix for a parented object
     # (``f"{prefix}position##bt"``), so the *literal* ``"position##bt"``
     # (quote included) no longer appears verbatim -- the id suffix still does.
-    for field in ('position##bt"', 'scale##bs"', 'rotation##br"'):
-        _fold_precedes(transform_src, field, "doc.set_transform(")
+    for field in ('position##bt"', 'scale##bs"', 'rotation (deg)##br"'):
+        # ``_apply_transform`` is the one door onto ``doc.set_transform``.
+        _fold_precedes(transform_src, field, "_apply_transform(")
 
     generator_src = inspect.getsource(clay_props._generator)
     _fold_precedes(generator_src, "_widget(key,", "doc.set_generator_params(")
@@ -71,7 +72,7 @@ def test_a_locked_objects_transform_fields_are_drawn_disabled_not_live_and_error
     disable_at = source.index("imgui.begin_disabled(doc.lock_refusal(")
     enable_at = source.index("imgui.end_disabled()")
     position_at = source.index('"position##bt"')
-    dimensions_at = source.index("_dimensions(doc, obj)")
+    dimensions_at = source.index("_dimensions(doc, obj")
     assert disable_at < position_at < enable_at < dimensions_at, (
         "the position field must be drawn between begin_disabled(...) and end_disabled()"
     )

@@ -24,6 +24,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ......kernels.geom3d import units
 from ..... import icons, theme, tokens, verbs, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -137,13 +138,7 @@ def _files(ctx: Any, tab: Any) -> None:
 #: Keys are ``f"{value:g}"`` of the multiplier itself -- what :func:`_import_mesh`
 #: formats ``state.import_scale`` as to look the option up, so the two can
 #: never drift into two different spellings of the same number.
-IMPORT_SCALE_OPTIONS = (
-    ("1", "m"),
-    ("0.01", "cm"),
-    ("0.001", "mm"),
-    ("0.0254", "in"),
-    ("0.3048", "ft"),
-)
+IMPORT_SCALE_OPTIONS = units.scale_options()
 IMPORT_UP_OPTIONS = (("y", "Y up"), ("z", "Z up"))
 
 

@@ -5,8 +5,10 @@ numbers with nothing over the boxes to say which was X, which was Y, and
 (for rotation) which was the quaternion's W -- a user had to already know the
 order to read it. The fix routes every vector field through
 ``controls.input_vec``, which draws one axis letter per box; the user's own
-call on rotation was to keep it a quaternion rather than switch to Euler, so
-its fourth letter is W, not a fourth XYZ triple or a dropped component.
+call on rotation was then to keep it a quaternion. **Reversed with the
+Blender-Lite plan's Phase A**: the app now has one rotation order, the MCP
+surface's Euler XYZ, so rotation is three degrees (``rotation (deg)``) and the
+panel shows what an agent's ``clay_transform`` takes.
 
 Driven through ``controls.input_vec`` itself (monkeypatched to record what it
 was called with) rather than a live frame's draw output, because it is the
@@ -42,10 +44,9 @@ def _spy_input_vec(monkeypatch):
     return calls
 
 
-def test_transform_labels_position_and_scale_xyz_and_rotation_xyzw(ui, monkeypatch) -> None:
-    """Fails against the pre-fix ``_transform``, which calls
-    ``controls.input_float3``/``input_float4`` directly -- ``controls.input_vec``
-    is never called at all, so ``calls`` comes back empty."""
+def test_transform_labels_position_scale_and_rotation_xyz_in_degrees(ui, monkeypatch) -> None:
+    """Fails against the quaternion row: ``rotation##br`` was XYZW and carried no
+    unit, so neither the label nor the three-letter axes below existed."""
     calls = _spy_input_vec(monkeypatch)
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -60,6 +61,7 @@ def test_transform_labels_position_and_scale_xyz_and_rotation_xyzw(ui, monkeypat
 
     assert calls["position##bt"] == ("X", "Y", "Z")
     assert calls["scale##bs"] == ("X", "Y", "Z")
-    # The load-bearing assertion: rotation keeps its fourth component, and it
-    # is named W (a quaternion), not Z-again or dropped to a triple.
-    assert calls["rotation##br"] == ("X", "Y", "Z", "W")
+    # The load-bearing assertion: rotation is three Euler degrees, not a
+    # quaternion with a fourth W.
+    assert calls["rotation (deg)##br"] == ("X", "Y", "Z")
+    assert "rotation##br" not in calls

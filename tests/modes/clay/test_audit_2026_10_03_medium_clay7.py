@@ -383,7 +383,7 @@ def _recording_stubs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bool]]:
             return False
 
     class _Widgets(_AnyStub):
-        def combo(self, label: str, current: str, options: Any) -> str:
+        def combo(self, label: str, current: str, options: Any, *a: Any, **k: Any) -> str:
             events.append((label, any(stack)))
             return current
 

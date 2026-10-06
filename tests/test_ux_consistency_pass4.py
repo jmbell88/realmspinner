@@ -91,7 +91,10 @@ _ALLOW: dict[str, set[str]] = {
         # box, but the field's own label is still this hidden id, same as its
         # siblings above -- the axis letters are the label this pass asked
         # for, drawn a different way because there is one line, not three.
-        "rotation##br",
+        "rotation (deg)##br",
+        # The size row (``input_vec`` with W/H/D letters, same reason as above).
+        "size##bz",
+        "lock aspect##bzlock",
         # Tranche 3 (scene structure): a parented object's TRS is local, and
         # ``_transform`` prefixes each field's own visible text with "local"
         # the same way the section heading above it already does -- two
@@ -100,7 +103,7 @@ _ALLOW: dict[str, set[str]] = {
         # than one an f-string would have made invisible to this scan.
         "local position##bt",
         "local scale##bs",
-        "local rotation##br",
+        "local rotation (deg)##br",
     },
     "clay_header.py": set(),
     "clay_menu.py": set(),

@@ -400,11 +400,26 @@ all. **Select** (`Q`) shows no gizmo in an element mode, which is what leaves th
 for the marquee.
 
 The **Move**, **Rotate** and **Scale** values are also typed directly in the properties panel, which
-is the better way to place something exactly. Rotation is shown as a quaternion in `XYZW` order,
-which is what every file this app writes uses. Position and scale boxes are labelled X, Y and Z;
-rotation is a quaternion labelled X, Y, Z and W. Under them is a read-only **size** row: the object's
-world-space width, depth and height in metres, after its transform — the number a scale of 2 on a
-generator whose radius is 0.35 does not tell you.
+is the better way to place something exactly. Position and scale boxes are labelled X, Y and Z.
+**Rotation is in degrees**, turned X, then Y, then Z -- the same three numbers an agent's
+`clay_transform` takes, so what an agent set and what the panel shows are one thing. (The object
+itself still stores an `XYZW` quaternion, which is what every file this app writes uses; until
+2026-10-05 the panel showed that quaternion raw.) A rotation can be written more than one way --
+190° is the same turn as −170° -- so while you are typing, the angles stay exactly as you typed them;
+they are read afresh from the object the moment anything else turns it, a gizmo drag or an undo.
+
+Under the transform is the object's **size**, width, height and depth, and it is editable. It is the
+mesh's own extent times the object's scale, so typing a new width sets that axis's scale to match
+and nothing else. **lock aspect** carries the other two axes along by the same ratio. An axis the
+mesh has no extent on -- the height of a plane -- has nothing to scale from, so the panel says so and
+ignores an edit to it. Below that, **world bounds** is the read-only box around the object *after* it
+is rotated and placed -- the number a scale of 2 on a generator whose radius is 0.35 does not tell
+you, and the same box the camera frames against.
+
+The small combo at the top of the transform picks the **unit** position and size are shown in --
+metres, centimetres, millimetres, inches or feet. It changes only what the fields display and
+accept; the document, and every file it writes, stays in metres. The import-scale choices in the
+Scene tab are the same table.
 
 ### Moving without a handle
 
