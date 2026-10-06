@@ -126,6 +126,15 @@ screen you are on rather than a place to go. It opens over the window (`F1`, or 
 button) instead of replacing it, so the control you were asking about is still there when you have
 the answer.
 
+The search box above the contents list matches chapter titles, headings and body text, and lists the sections that
+match. When the optional **Familiar retrieval (EmbeddingGemma 2)** row in Settings → Models is installed, a
+**Semantic** checkbox appears under the box, off by default and remembered while the app is open. With it on, what
+you typed is ranked by meaning as well as by matching words (the same ranking Familiar answers Manual questions
+with) and the best sections are listed in place of the chapters; click one to open it at that heading. The first time
+the Manual is searched this way its meaning index is built in the background, a few minutes of processor time that
+is done once and kept until the Manual changes. Until it is ready the box says so in one line and keeps showing the
+text matches, as it does while a query is being ranked. Without the row there is no checkbox at all.
+
 The **guided tour** is a second overlay, for the same reason: it points at the controls of whatever
 mode you are in, so taking that mode away to run it would leave nothing to point at. It never
 clicks anything for you. Home offers it on a fresh install and the palette carries it thereafter —
@@ -289,7 +298,9 @@ question, Familiar says so plainly rather than guessing. Finding those sections 
 the keyword ranking the Manual's own search uses and — when the optional **Familiar retrieval
 (EmbeddingGemma 2)** row in Settings → Models is installed — a ranking by meaning, so a question that never uses
 the Manual's own words still finds the section that answers it. That retrieval model runs on the processor, not
-the card, so it is never stopped to make room for a job. Without it nothing breaks: the same questions are
+the card, so it is never stopped to make room for a job. Its index of the Manual is built in the background the
+first time a question needs it, a few minutes once and then kept until the Manual changes, and the questions asked
+meanwhile are answered by the keyword ranking. Without it nothing breaks: the same questions are
 answered by the keyword ranking alone, a Library search stays a plain text match, and `realmspinner doctor` lists
 the row as `pending_install` (not on disk) rather than as a fault. Familiar can also take you somewhere — say
 "open Mason" or "take me to Settings" and

@@ -600,6 +600,12 @@ class Config:
     familiar_port: int = field(
         default_factory=lambda: _env_int("REALMSPINNER_FAMILIAR_PORT", 17972)
     )
+    # The retrieval child's own loopback port (EmbeddingGemma 2, a second
+    # ``llama-server`` beside Familiar's). Its own variable and its own key and
+    # port-owner files, so the two children can never reclaim each other.
+    familiar_embed_port: int = field(
+        default_factory=lambda: _env_int("REALMSPINNER_FAMILIAR_EMBED_PORT", 17973)
+    )
     # Seconds of inactivity before the Familiar child is stopped to free VRAM.
     familiar_idle_timeout: float = field(
         default_factory=lambda: _env_float("REALMSPINNER_FAMILIAR_IDLE", 300.0)
@@ -920,6 +926,7 @@ SETTINGS: tuple[tuple[str, str], ...] = (
     ("familiar_runtime_dir", "REALMSPINNER_FAMILIAR_RUNTIME"),
     ("familiar_models_dir", "REALMSPINNER_FAMILIAR_MODELS"),
     ("familiar_port", "REALMSPINNER_FAMILIAR_PORT"),
+    ("familiar_embed_port", "REALMSPINNER_FAMILIAR_EMBED_PORT"),
     ("familiar_idle_timeout", "REALMSPINNER_FAMILIAR_IDLE"),
     ("gltfpack_exe", "REALMSPINNER_GLTFPACK"),
     ("mesh_profile", "REALMSPINNER_MESH_PROFILE"),

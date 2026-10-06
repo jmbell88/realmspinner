@@ -37,7 +37,7 @@ import httpx
 from .. import models
 from ..familiar import character_plan, contract, doors, llama_client, retrieval, router
 from ..pipelines import llama
-from . import familiar_log
+from . import familiar_log, familiar_manual
 from .errors import ServiceError
 
 #: The fixed vocabulary a :class:`FamiliarRefusal` names itself with. Every
@@ -605,6 +605,20 @@ def _manual_index() -> retrieval.Index:
     return _index
 
 
+def manual_sections(svc: Any, query: str, limit: int = 12) -> familiar_manual.ManualHits:
+    """The Manual's sections for *query* under the fused ranking, for the Manual
+    pane's optional semantic search. Blocks (a query embedding) -- call it from a
+    ``TaskRunner`` task, never the frame thread. A cache miss starts the same
+    one-shot background build ``ask`` does and answers ``"building"``."""
+    return familiar_manual.sections_for(svc, _manual_index(), query, limit)
+
+
+def manual_semantic_available(svc: Any) -> bool:
+    """Whether the retrieval row is installed, i.e. whether the pane should offer
+    its Semantic toggle at all. A few ``stat`` calls: memoise it per frame loop."""
+    return familiar_manual.installed(svc)
+
+
 def _ask_manual(svc: Any, prompt: str) -> Answer:
     """A Manual question: retrieve, then either answer with citations or --
     with nothing retrieved -- say so with no model call at all.
@@ -615,7 +629,14 @@ def _ask_manual(svc: Any, prompt: str) -> Answer:
     never given the Manual), which is a worse answer than the honest "the
     Manual doesn't cover that" and costs a full round trip to produce.
     """
-    citations = _manual_index().search(prompt)
+    index = _manual_index()
+    # The fused (BM25 + meaning) ranking when the retrieval row is installed and
+    # the Manual's matrix is built; ``None`` -- the row is absent, the matrix is
+    # still being built in the background, the query could not be embedded --
+    # is the BM25 answer exactly as it was before the embedder existed. Either
+    # ranking goes through the same ``citations`` regrouping and word budget.
+    fused = familiar_manual.fused_chunks(svc, index, prompt)
+    citations = index.search(prompt) if fused is None else index.citations(fused)
     if not citations:
         return Answer(skill="manual", text="The Manual doesn't cover that.", citations=())
     messages = contract.build_manual_messages(prompt, citations)

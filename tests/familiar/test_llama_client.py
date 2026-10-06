@@ -414,3 +414,27 @@ def test_the_template_margin_grows_with_the_message_count():
         assert llama_client.template_margin([None] * count) >= overhead, count
     assert llama_client.template_margin([None, None]) == 32
     assert llama_client.template_margin([None] * 8) > llama_client.template_margin([None] * 2)
+
+
+def test_the_chat_client_ignores_proxy_environment_variables():
+    """Familiar's chat and tokenize requests go to a loopback server and carry
+    the user's prompts, so the client must not honour HTTP(S)_PROXY or the
+    Windows system proxy (the same defect the TRELLIS clients had, found by the
+    2026-10-03 audit): ``trust_env`` has to be an explicit False on every
+    ``AsyncClient`` this module builds."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(llama_client))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "AsyncClient"
+    ]
+    assert calls, "the scan found no AsyncClient to guard"
+    for call in calls:
+        kw = {k.arg: k.value for k in call.keywords}
+        assert "trust_env" in kw, f"line {call.lineno}: AsyncClient trusts the proxy environment"
+        assert isinstance(kw["trust_env"], ast.Constant) and kw["trust_env"].value is False

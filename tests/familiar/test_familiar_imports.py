@@ -46,7 +46,12 @@ BANNED = frozenset(
 #: HTTP call to Familiar's resident ``llama-server``. A network client that
 #: cannot import a network library is not a network client, so this is a
 #: named exception rather than a hole in the ban.
-HTTPX_ALLOWED = {"llama_client.py"}
+#:
+#: ``embed_client.py`` (Phase 2, 2026-10-06) is the second and for the same
+#: reason: it is the HTTP call to the embedder child, EmbeddingGemma 2. Its
+#: pure half, ``embed_index.py``, is *not* exempt and is held to a stricter pin
+#: of its own below.
+HTTPX_ALLOWED = {"llama_client.py", "embed_client.py"}
 
 #: Absolute dotted names banned regardless of which root they hang off.
 BANNED_MODULES = frozenset(
@@ -158,3 +163,41 @@ def test_familiar_no_longer_needs_pure_packages_to_prove_this():
     ``pure_packages()`` membership to do that, and now it is the only proof
     left."""
     assert "familiar" not in pp.pure_packages()
+
+
+#: What ``embed_index.py`` may import at module scope: numpy, the stdlib and the
+#: two ``core/safeio`` leaves it stages and reads its cache with. Nothing
+#: networked, nothing from ``retrieval`` (chunks are duck-typed), nothing above
+#: layer 0 -- it has to be importable, and testable, with no server and no
+#: Manual on disk.
+EMBED_INDEX_ALLOWED_ROOTS = frozenset({"numpy"})
+EMBED_INDEX_ALLOWED_MODULES = frozenset(
+    {"realmspinner.core.safeio.atomic", "realmspinner.core.safeio.npyguard"}
+)
+
+
+def test_embed_index_imports_only_numpy_the_stdlib_and_two_safeio_leaves():
+    import sys
+
+    tree = ast.parse((PACKAGE_DIR / "embed_index.py").read_text(encoding="utf-8"))
+    stdlib = set(sys.stdlib_module_names)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            assert not node.level, "embed_index has no sibling imports: chunks are duck-typed"
+            base = node.module or ""
+            names = [base] + [f"{base}.{alias.name}" for alias in node.names]
+            if base == "realmspinner.core.safeio":
+                names = [f"{base}.{alias.name}" for alias in node.names]
+        else:
+            continue
+        for name in names:
+            root = name.split(".")[0]
+            if (
+                root in stdlib
+                or root in EMBED_INDEX_ALLOWED_ROOTS
+                or name in EMBED_INDEX_ALLOWED_MODULES
+            ):
+                continue
+            raise AssertionError(f"embed_index.py imports {name!r}")

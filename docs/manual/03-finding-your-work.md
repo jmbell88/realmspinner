@@ -68,6 +68,14 @@ kind/status/favourites/usable controls beside it. When one of those is active an
 behind the window, the pane says so, and **Load older** is what widens it — the way back to the rest
 of your history for a filter that free text alone cannot reach into.
 
+If you have installed the optional **Familiar retrieval (EmbeddingGemma 2)** row (Settings → Models, a
+small download that runs on the processor), a plain word you type also finds jobs by what they were
+about: `blade` turns up the job whose prompt says "a rusty iron longsword". It records each job quietly
+in the background after it finishes, and the history you already have a few jobs at a time, so there
+is nothing to switch on and nothing to wait for. Without the row, nothing changes: the box matches
+words, as described above. [Library and jobs](36-library-and-jobs.md#selecting-and-filtering) has the
+details.
+
 **Sorting** offers date, name, kind, time taken, size on disk, score, and grade. Under *date* the
 list also grows date headings — Today, Yesterday, This week, then by month.
 

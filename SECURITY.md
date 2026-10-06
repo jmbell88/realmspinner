@@ -78,7 +78,8 @@ malicious peer. In scope:
   `llama-server.exe`, a loopback HTTP listener distinct from the named pipe above,
   bound to `127.0.0.1` only (`REALMSPINNER_FAMILIAR_PORT`, 17972 by default). A second
   instance of the same binary serves the optional retrieval model (EmbeddingGemma 2),
-  on the CPU, on its own loopback port. Both exist only while Familiar is in use —
+  on the CPU, on its own loopback port (`REALMSPINNER_FAMILIAR_EMBED_PORT`, 17973 by
+  default), with its own key file and its own port-owner claim. Both exist only while Familiar is in use —
   spawned on demand, not on startup (and the language-model one is stopped before any GPU job
   runs) — and both are started with `--offline`, so neither can fetch anything. Every spawn writes a
   fresh API key to a key file (`--api-key-file`, never on the command line, where

@@ -652,6 +652,12 @@ class FamiliarModel:
     #: ``pipelines/llama.py`` already treats a missing mmproj file as "don't
     #: pass --mmproj" rather than a refusal, for the same reason.
     optional: bool = False
+    #: For an ``optional`` row: the clause doctor's absent-row detail uses to
+    #: say what the user gives up without it. A field, not a string in doctor,
+    #: because the second optional row (``familiar_embed``, retrieval) loses a
+    #: different feature and "Familiar runs text-only without it" would be a
+    #: false sentence on it.
+    without: str = ""
 
     @property
     def download(self) -> str:
@@ -945,6 +951,29 @@ FAMILIAR_MMPROJ_SHA256 = (
     "cb018338a7538a9814d994bfe54644c71eb7ed54e31eae2f721e45fd3c260da7"
 )
 
+# Familiar's retrieval model: EmbeddingGemma 2, the text block, Q8_0, from
+# ggml-org's own GGUF repository. A *different* repository from the chat
+# weights, so it carries its own revision pin. Optional: without it Manual
+# search stays BM25 and Library search stays a text match.
+#
+# Served by a second ``LlamaServer`` child from the same runtime directory, on
+# the CPU (``--device none``; ``-ngl 0`` alone still took 1.4 GiB of the card),
+# so the GPU lease has nothing of it to evict. The runtime must be b11457 or
+# later: llama.cpp PR #30054, which added the architecture, merged 2026-10-06.
+# sha256 is the Hub's LFS oid, re-hashed from a real download; 309,855,456 B.
+# Measured in dev/measurements/2026-10-06-familiar-gemma4-12b.md. Licence:
+# same open question as the Gemma 4 rows (P53), no verdict is claimed here.
+FAMILIAR_EMBED_GGUF_REPO = "ggml-org/embeddinggemma-2-GGUF"
+FAMILIAR_EMBED_GGUF_REVISION = "bfcd298762cc34d0357ece5ebdd31791a3a374d8"
+FAMILIAR_EMBED_GGUF_FILE = "embeddinggemma-2-Q8_0.gguf"
+FAMILIAR_EMBED_GGUF_SHA256 = (
+    "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"
+)
+#: Width of the vectors it returns (L2-normalised, measured). Part of the
+#: retrieval cache key beside the model's sha256, so a different model or
+#: truncation can never be read back as this one's index.
+FAMILIAR_EMBED_DIM = 768
+
 # The name a Realmspinner-trained Clay-assistant fine-tune of Gemma 4 12B
 # should report once one is actually served (dev/training/familiar/). Reserved,
 # not yet assigned to any served weights:
@@ -1045,12 +1074,38 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
         ),
         digests=((FAMILIAR_MMPROJ_FILE, FAMILIAR_MMPROJ_SHA256),),
         optional=True,
+        without="Familiar runs text-only without it.",
         description=(
             "Image input for Familiar: Google's projector for the weights.\n\n"
             "Optional -- Familiar runs text-only without this row. With it "
             "installed, the dock can attach a PNG (a reference image, or "
             "Clay's own ghost render) to a chat turn. Same repository and "
             "revision as 'Familiar weights' above."
+        ),
+    ),
+    FamiliarModel(
+        "familiar_embed",
+        "Familiar retrieval (EmbeddingGemma 2)",
+        (FAMILIAR_EMBED_GGUF_FILE,),
+        fetch=(
+            Fetch(
+                FAMILIAR_EMBED_GGUF_REPO,
+                "familiar-embed",
+                revision=FAMILIAR_EMBED_GGUF_REVISION,
+                filenames=(FAMILIAR_EMBED_GGUF_FILE,),
+                size_gib=0.29,
+            ),
+        ),
+        digests=((FAMILIAR_EMBED_GGUF_FILE, FAMILIAR_EMBED_GGUF_SHA256),),
+        optional=True,
+        without="Manual search stays keyword-only and Library search a text match.",
+        description=(
+            "Finds Manual sections and Library rows by meaning, on the CPU.\n\n"
+            "Optional -- everything works without this row. With it, Familiar "
+            "ranks by meaning as well as by keyword. Runs as a second small "
+            "server beside Familiar's own and never uses the graphics card, "
+            "so a 3D or image job never has to stop it. The licence review "
+            "is still open."
         ),
     ),
 )

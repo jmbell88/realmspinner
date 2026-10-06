@@ -113,9 +113,11 @@ async def server(tmp_path_factory):
     has not fetched Familiar yet.
     """
     config = get_config()
-    for key, spec in models.FAMILIAR_MODELS.items():
-        if key == "familiar_mmproj":
-            # Optional (vision, 2026-09-24): this fixture's own ``_new_server``
+    for spec in models.FAMILIAR_MODELS.values():
+        if spec.optional:
+            # Optional (``familiar_mmproj``, vision, 2026-09-24; and
+            # ``familiar_embed``, retrieval, 2026-10-06 -- a different child,
+            # tested in ``test_embed_gpu.py``): this fixture's own ``_new_server``
             # never passes ``mmproj_path``, so this server is text-only
             # regardless of whether the row is downloaded -- requiring it here
             # would skip every test in this module on a machine that has

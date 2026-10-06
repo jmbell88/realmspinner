@@ -768,6 +768,12 @@ async def _release_if_idle(worker: Any, *, stop_engine: bool = False) -> bool:
     # state worth preserving across an uninstall the way there is for trellis.
     if worker.familiar.running:
         await asyncio.to_thread(worker.familiar.stop)
+    # The retrieval child runs from the *same* runtime directory (its exe and
+    # DLLs) and the same models directory (its GGUF sits beside the chat
+    # weights), so removing a runtime row or the retrieval row itself hits the
+    # same sharing violation if it is left running.
+    if worker.familiar_embed.running:
+        await asyncio.to_thread(worker.familiar_embed.stop)
     if stop_engine:
         # Every other caller of ``stop`` goes through ``to_thread`` for the
         # same reason: it blocks for up to ~25 s in the worst case (terminate,

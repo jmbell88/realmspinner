@@ -131,6 +131,9 @@ SILENT_TASK_KEYS = (
     "thumb:",
     "derive:",
     "wrap:",
+    # Library meaning-search indexing: background work with no result to deliver, and
+    # a failed batch backs off and retries on its own, so a toast would only be noise.
+    "library-embed:",
 )
 
 

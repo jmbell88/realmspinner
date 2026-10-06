@@ -91,7 +91,7 @@ never the trellis ones, because llama.cpp and trellis.cpp ship their own, differ
 | **Familiar runtime (CUDA)** | the CUDA 12.4 redistributable (`cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll`) the runtime above links against | ~0.39 GB down |
 | **Familiar weights (Gemma 4 12B QAT Q4_0)** | the model it serves, quantised; a 6.50 GiB file that takes about 8.3 GiB of the card once the context and cache are counted (8.75 GiB at peak with the vision projector) | ~7.0 GB down |
 | **Familiar vision (mmproj)** | the multimodal projector, optional -- Familiar runs text-only without it | ~0.18 GB down |
-| **Familiar retrieval (EmbeddingGemma 2)** | `familiar_embed`, optional -- a second, CPU-only `llama-server` child that ranks Manual sections and Library rows by meaning | not yet pinned (the retrieval pass) |
+| **Familiar retrieval (EmbeddingGemma 2)** | `familiar_embed`, optional -- a second, CPU-only `llama-server` child that ranks Manual sections and Library rows by meaning; the Q8_0 file, 0.29 GiB | ~0.31 GB down |
 
 **Two rows for the runtime, not one, and that is upstream's shape, not this app's.** llama.cpp
 publishes its CUDA Windows build as two separate release zips — the server binaries, and the CUDA
@@ -158,8 +158,21 @@ keyword (BM25) ranking it always has, so "how do I make the model watertight" fi
 says "manifold" and not only the one that repeats your words, and Library search can find a job by
 what it was about. Without it, nothing breaks: Manual search stays BM25 and Library search stays a
 plain text match, `realmspinner doctor` lists the row as `pending_install` (not an error, because
-nothing is wrong), and Familiar says nothing about it. Its row is not in the registry yet: it arrives with
-the retrieval pass, and this section gains its command then.
+nothing is wrong), and Familiar says nothing about it.
+
+The row is `ggml-org/embeddinggemma-2-GGUF`, pinned to one revision, and its SHA-256
+(`2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135`) is checked after the download. It lands
+beside the Gemma files, in `~/.realmspinner/models/familiar/`. The second child needs a runtime new enough to know
+the architecture (llama.cpp b11457 or later, which is what the runtime rows above pin), and it is started
+with `--device none`, which is what actually keeps it off the card: `-ngl 0` alone still took about 1.4 GiB
+of VRAM when measured, `--device none` took 17 MiB. Its port is `REALMSPINNER_FAMILIAR_EMBED_PORT`
+(17973 by default).
+
+```powershell
+# Familiar retrieval (~0.31 GB) -> ~/.realmspinner/models/familiar/
+uvx hf download ggml-org/embeddinggemma-2-GGUF --revision bfcd298762cc34d0357ece5ebdd31791a3a374d8 `
+  --include "embeddinggemma-2-Q8_0.gguf" --local-dir $HOME/.realmspinner/models/familiar
+```
 
 Licences: the runtime is MIT (llama.cpp and ggml) over NVIDIA's redistributable CUDA libraries, on
 the same "fetched from upstream, nothing redistributed" footing as the reconstruction engine. **The

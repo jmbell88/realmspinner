@@ -19,6 +19,18 @@ is trellis-specific. A full extraction of the shared port-claim machinery into
 ``pipelines/local_server.py`` (as the original brief for this tranche asked
 for) was left undone to keep this change from touching ``trellis.py`` and
 risking ``tests/pipelines/test_trellis.py`` -- see the tranche report.
+
+**Two roles, one class (2026-10-06).** Retrieval (EmbeddingGemma 2,
+``models.FAMILIAR_MODELS["familiar_embed"]``) is a second ``llama-server`` child
+from the same runtime directory, so it is the same machinery with a different
+:class:`ServerProfile` rather than a copy of it: every guard below (the
+kill-on-close job, the port reclaim, the backoff, the manifest check, idle
+eviction, the per-spawn key) applies to both. What the profile changes is only
+what *is* different: the argv, the weights it verifies, the key and port-owner
+file names, the log, and whether it is a GPU tenant. The embedder is not one
+-- it runs with ``--device none``, so it skips the VRAM check, and the GPU
+lease (``stop_for_gpu_job``/``release_lease``) is a no-op for it: a queued GPU
+job has nothing of it to evict.
 """
 
 from __future__ import annotations
@@ -34,6 +46,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -63,9 +76,123 @@ CTX_SIZE = 16384
 PARALLEL_SLOTS = 2
 GPU_LAYERS = 999
 
+#: The embedder's context, batch and micro-batch -- one number, because an
+#: embedding model is non-causal: the whole input must fit in one micro-batch,
+#: so the default ``-ub 512`` refuses a long chunk outright (measured
+#: 2026-10-06: the longest Manual chunk is 1,524 words). One slot: the index
+#: build is one request at a time and a second slot would only add memory.
+EMBED_CTX_SIZE = 8192
+EMBED_PARALLEL_SLOTS = 1
+
+# Thinking off, server-wide. Added for the previous pin, Gemma 4: its template
+# opened a reasoning channel, and the request-level chat_template_kwargs
+# enable_thinking=false did not hold -- on the 2026-09-14 real-card probe, base
+# Gemma still reasoned on "make a wooden barrel" and a character plan, spending
+# the whole max_tokens in reasoning_content and returning content=''. With
+# these two flags every probed request came back with no reasoning at all.
+# Re-measured on Gemma 4 12B 2026-10-06: still required (without them the
+# template injects <|think|> and content comes back empty).
+_CHAT_ARGS = (
+    "--jinja",
+    "--no-webui",
+    "-ngl", str(GPU_LAYERS),
+    "--parallel", str(PARALLEL_SLOTS),
+    "--ctx-size", str(CTX_SIZE),
+    "--reasoning", "off",
+    "--reasoning-budget", "0",
+)
+
+# **``--device none`` is the CPU switch; ``-ngl 0`` is not.** Measured
+# 2026-10-06 (dev/measurements/2026-10-06-familiar-gemma4-12b.md): with
+# ``-ngl 0`` alone llama.cpp still builds the CUDA context and runs the
+# large-batch compute on the card, +1,458 MiB the lease would have to evict;
+# with ``--device none`` it is +17 MiB. No ``-ngl`` here at all, and none of
+# the chat flags: ``--jinja`` and ``--reasoning*`` are about a chat template an
+# embedding model does not have, and ``--mmproj`` is vision.
+_EMBED_ARGS = (
+    "--embeddings",
+    "--pooling", "mean",
+    "--device", "none",
+    "--no-webui",
+    "-c", str(EMBED_CTX_SIZE),
+    "-b", str(EMBED_CTX_SIZE),
+    "-ub", str(EMBED_CTX_SIZE),
+    "--parallel", str(EMBED_PARALLEL_SLOTS),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ServerProfile:
+    """What differs between Familiar's two ``llama-server`` children.
+
+    Everything else -- the loopback bind, ``--offline``, the key file, the
+    kill-on-close job, the reclaim, the backoff, the manifest check, idle
+    eviction -- is the same code for both. A field here exists only where the
+    two children genuinely differ, and the name that must not collide on disk
+    (``key_stem``, which also names the port-owner claim) is its own field so
+    a future third role cannot inherit one by accident.
+    """
+
+    role: str
+    #: Everything after ``--offline`` on the command line.
+    args: tuple[str, ...]
+    #: Only the chat role takes ``--alias`` and ``--mmproj`` and a prompt card.
+    chat: bool
+    #: Whether this child holds the card: it is priced at the VRAM door, takes
+    #: the GPU lease and is stopped by it. The embedder holds none of it.
+    gpu_tenant: bool
+    #: ``<key_stem>-<port>.key`` and ``<key_stem>-<port>.owner``.
+    key_stem: str
+    log_name: str
+    #: How the child names itself in logs and errors, and in ``winjob.track``.
+    label: str
+    track_name: str
+    #: What the user loses when it will not start, for the give-up log line.
+    feature: str
+    weights_label: str
+    #: The Config setting that moves this child's port, named in the reclaim
+    #: refusals so the advice points at the right variable.
+    port_env: str
+    #: Verify only this child's own weights file out of the models directory,
+    #: not every file the directory's manifest names. The chat child and the
+    #: embedder share ``models/familiar/``; without this, starting the
+    #: embedder would re-hash the 6.5 GiB chat weights first.
+    own_weights_only: bool
+
+
+CHAT_PROFILE = ServerProfile(
+    role="chat",
+    args=_CHAT_ARGS,
+    chat=True,
+    gpu_tenant=True,
+    key_stem="familiar",
+    log_name="familiar.log",
+    label="llama-server",
+    track_name="llama-server",
+    feature="Familiar",
+    weights_label="Familiar weights",
+    port_env="REALMSPINNER_FAMILIAR_PORT",
+    own_weights_only=False,
+)
+
+EMBED_PROFILE = ServerProfile(
+    role="embed",
+    args=_EMBED_ARGS,
+    chat=False,
+    gpu_tenant=False,
+    key_stem="familiar-embed",
+    log_name="familiar-embed.log",
+    label="llama-server (retrieval)",
+    track_name="llama-server-embed",
+    feature="Familiar's retrieval",
+    weights_label="Familiar retrieval weights",
+    port_env="REALMSPINNER_FAMILIAR_EMBED_PORT",
+    own_weights_only=True,
+)
+
 
 class LlamaServer:
-    """Familiar's llama-server.exe child: start, watch, and never coexist with GPU work."""
+    """One of Familiar's llama-server.exe children: start, watch, and (chat) yield the card."""
 
     def __init__(
         self,
@@ -79,7 +206,9 @@ class LlamaServer:
         expected_card_shas: Callable[[], tuple[str, ...]] | None = None,
         served_name: str | Callable[[], str] = "",
         mmproj_path: Path | Callable[[], Path] | None = None,
+        profile: ServerProfile = CHAT_PROFILE,
     ) -> None:
+        self._profile = profile
         self._exe = exe
         self._weights_path = weights_path
         self._served_name = served_name
@@ -156,6 +285,10 @@ class LlamaServer:
         return self._lock_asyncio
 
     @property
+    def profile(self) -> ServerProfile:
+        return self._profile
+
+    @property
     def base_url(self) -> str:
         return f"http://127.0.0.1:{self._port}"
 
@@ -218,7 +351,7 @@ class LlamaServer:
         """
         self._key_dir.mkdir(parents=True, exist_ok=True)
         key = secrets.token_hex(32)
-        path = self._key_dir / f"familiar-{self._port}.key"
+        path = self._key_dir / f"{self._profile.key_stem}-{self._port}.key"
         path.write_text(key + "\n", encoding="utf-8")
         with contextlib.suppress(OSError):
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
@@ -243,24 +376,14 @@ class LlamaServer:
             "--port", str(self._port),
             "--api-key-file", str(key_path),
             "--offline",
-            "--jinja",
-            "--no-webui",
-            "-ngl", str(GPU_LAYERS),
-            "--parallel", str(PARALLEL_SLOTS),
-            "--ctx-size", str(CTX_SIZE),
-            # Thinking off, server-wide. Added for the previous pin, Gemma 4:
-            # its template opened a reasoning channel, and the request-level
-            # chat_template_kwargs enable_thinking=false did not hold -- on
-            # the 2026-09-14 real-card probe, base Gemma still reasoned on
-            # "make a wooden barrel" and a character plan, spending the whole
-            # max_tokens in reasoning_content and returning content=''. With
-            # these two flags every probed request came back with no
-            # reasoning at all. Kept as a guard on Qwen3-VL-4B-Instruct too:
-            # nothing Familiar sends wants a reasoning trace, and the flags
-            # are harmless on an Instruct model that doesn't open one.
-            "--reasoning", "off",
-            "--reasoning-budget", "0",
+            # The role's own flags: ``_CHAT_ARGS`` (with the reasoning-off
+            # incident behind it) or ``_EMBED_ARGS`` (``--device none``).
+            *self._profile.args,
         ]
+        if not self._profile.chat:
+            # No alias, no projector: both are chat-model concepts, and an
+            # embedding GGUF given ``--mmproj`` is a spawn-time refusal.
+            return argv
         # Only when the pinned row names itself: a served_name of "" (every
         # pin except T10's fine-tune) must leave llama-server to report
         # whatever general.name the GGUF carries, never our model's name.
@@ -286,8 +409,9 @@ class LlamaServer:
         remaining = self._backoff_until - time.monotonic()
         if remaining > 0:
             raise RuntimeError(
-                f"llama-server failed to start {self._start_failures} time(s); "
-                f"refusing to respawn for another {remaining:.0f} s -- see familiar.log"
+                f"{self._profile.label} failed to start {self._start_failures} time(s); "
+                f"refusing to respawn for another {remaining:.0f} s -- "
+                f"see {self._profile.log_name}"
             )
 
     def _note_start_failure(self) -> None:
@@ -296,21 +420,22 @@ class LlamaServer:
         self._backoff_until = time.monotonic() + delay
         if self._start_failures >= BACKOFF_GIVE_UP:
             log.critical(
-                "llama-server has failed to start %d times in a row; Familiar "
-                "will keep failing until it is fixed -- see familiar.log",
-                self._start_failures,
+                "%s has failed to start %d times in a row; %s "
+                "will keep failing until it is fixed -- see %s",
+                self._profile.label, self._start_failures, self._profile.feature,
+                self._profile.log_name,
             )
         else:
             log.warning(
-                "llama-server start failed (%d in a row); next attempt in %.0f s",
-                self._start_failures, delay,
+                "%s start failed (%d in a row); next attempt in %.0f s",
+                self._profile.label, self._start_failures, delay,
             )
 
     @property
     def _owner_path(self) -> Path | None:
         if self._log_path is None:
             return None
-        return self._log_path.parent / f"familiar-{self._port}.owner"
+        return self._log_path.parent / f"{self._profile.key_stem}-{self._port}.owner"
 
     def _claim_port(self, pid: int) -> None:
         path = self._owner_path
@@ -355,20 +480,20 @@ class LlamaServer:
             raise RuntimeError(
                 f"port {self._port} is held by pid {pid} ({path or 'unknown program'}), "
                 f"which is not this Realmspinner's llama-server ({ours}). Stop it or "
-                "change REALMSPINNER_FAMILIAR_PORT before retrying."
+                f"change {self._profile.port_env} before retrying."
             )
         owner = self._recorded_owner()
         if owner is None:
             raise RuntimeError(
                 f"port {self._port} is held by a llama-server (pid {pid}) that this "
-                f"Realmspinner did not start. Stop it, or change REALMSPINNER_FAMILIAR_PORT, "
+                f"Realmspinner did not start. Stop it, or change {self._profile.port_env}, "
                 f"before retrying."
             )
         if owner != os.getpid() and _pid_alive(owner):
             raise RuntimeError(
                 f"port {self._port} is held by a llama-server started by a Realmspinner "
                 f"that is still running (pid {owner}). Close it, or give this one "
-                f"its own REALMSPINNER_FAMILIAR_PORT, before retrying."
+                f"its own {self._profile.port_env}, before retrying."
             )
         log.warning(
             "port %d is held by an orphaned llama-server (pid %d) from a previous "
@@ -434,7 +559,9 @@ class LlamaServer:
         entries.sort()
         return tuple(entries)
 
-    def _verify_manifest_cached(self, dest: Path) -> fetch.Verification:
+    def _verify_manifest_cached(
+        self, dest: Path, only: tuple[str, ...] | None = None
+    ) -> fetch.Verification:
         """``fetch.verify_manifest`` re-hashes the whole directory -- for
         Familiar's ~4.9 GB runtime+weights pair that is the several-hundred-
         millisecond-to-second stall the 2026-09-18 audit (familiar-01)
@@ -447,7 +574,12 @@ class LlamaServer:
         cached = self._manifest_cache.get(dest)
         if cached is not None and fingerprint is not None and cached[0] == fingerprint:
             return cached[1]
-        verification = fetch.verify_manifest(dest)
+        # ``only`` is passed through only when set, so the chat child's call
+        # is the one-argument call it has always been.
+        verification = (
+            fetch.verify_manifest(dest) if only is None
+            else fetch.verify_manifest(dest, only=only)
+        )
         # The 2026-09-20 audit (familiar-04): a transient ``OSError`` (a file
         # briefly locked, a race with an in-progress copy) makes
         # ``_manifest_fingerprint`` return ``None`` for one call. Caching
@@ -478,12 +610,20 @@ class LlamaServer:
         fingerprint cache in :meth:`_verify_manifest_cached` keeps a repeat
         start from paying the hash cost again when nothing changed.
         """
-        for dest in (self._resolve_exe().parent, self._resolve_weights().parent):
-            verification = self._verify_manifest_cached(dest)
+        weights = self._resolve_weights()
+        targets: list[tuple[Path, tuple[str, ...] | None]] = [
+            (self._resolve_exe().parent, None),
+            (weights.parent, (weights.name,) if self._profile.own_weights_only else None),
+        ]
+        for dest, only in targets:
+            verification = (
+                self._verify_manifest_cached(dest) if only is None
+                else self._verify_manifest_cached(dest, only)
+            )
             if verification.status == fetch.VERIFY_BAD:
                 raise RuntimeError(
                     f"{dest} failed manifest verification ({verification.detail}); "
-                    "remove and reinstall before starting Familiar."
+                    f"remove and reinstall before starting {self._profile.feature}."
                 )
 
     def _check_vram(self) -> None:
@@ -533,8 +673,12 @@ class LlamaServer:
                 raise RuntimeError(f"llama-server not found at {exe}")
             weights = self._resolve_weights()
             if not weights.is_file():
-                raise RuntimeError(f"Familiar weights not found at {weights}")
-            self._check_vram()
+                raise RuntimeError(f"{self._profile.weights_label} not found at {weights}")
+            # Not a GPU tenant, not priced: the embedder runs ``--device none``
+            # (+17 MiB measured), and refusing it for want of headroom the card
+            # would never be asked for is a refusal with no cause.
+            if self._profile.gpu_tenant:
+                self._check_vram()
             if _port_in_use(self._port):
                 await self._reclaim_port()
             with self._spawn_lock:
@@ -553,7 +697,7 @@ class LlamaServer:
                         "Familiar cannot start while a GPU job holds the card -- "
                         "it will restart on your next message."
                     )
-                log.info("starting llama-server on port %d", self._port)
+                log.info("starting %s on port %d", self._profile.label, self._port)
                 self._open_log()
                 key_path = self._write_key_file()
                 self._proc = subprocess.Popen(
@@ -564,7 +708,7 @@ class LlamaServer:
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 winjob.assign(self._proc.pid)
-                winjob.track(self._proc.pid, "llama-server")
+                winjob.track(self._proc.pid, self._profile.track_name)
                 self._claim_port(self._proc.pid)
                 self._spawned_at = time.monotonic()
             # Stamped at spawn, not only once /health answers 200. ``running``
@@ -576,13 +720,15 @@ class LlamaServer:
             # first real run in the app, 2026-09-14: spawned 21:18:10.652,
             # evicted 21:18:13.399.
             self.last_used = self._spawned_at
-            log.info("llama-server spawned as pid %d", self._proc.pid)
+            log.info("%s spawned as pid %d", self._profile.label, self._proc.pid)
             self._reader = threading.Thread(
-                target=self._pump, name="llama-server-stdout", daemon=True
+                target=self._pump, name=f"{self._profile.track_name}-stdout", daemon=True
             )
             self._reader.start()
             deadline = time.monotonic() + STARTUP_TIMEOUT
-            async with httpx.AsyncClient() as client:
+            # trust_env=False: the health poll is loopback; a system proxy would be asked
+            # to reach 127.0.0.1 and the server would never read as healthy.
+            async with httpx.AsyncClient(trust_env=False) as client:
                 while time.monotonic() < deadline:
                     # The 2026-09-23 audit (familiar-02): ``last_used`` was
                     # only stamped at spawn (above) and on a healthy 200, so a
@@ -734,7 +880,14 @@ class LlamaServer:
         Waits up to ``GPU_YIELD_TIMEOUT`` for the driver to report the memory
         back, best-effort: a slow reclaim is not a reason to block the GPU job
         that asked for the card, which has its own admission check regardless.
+
+        A no-op for a child that is not a GPU tenant (the embedder): it holds
+        none of the card, so there is nothing to yield and no lease to set --
+        taking one would only make its next ``ensure_started`` refuse for a
+        reason that does not apply to it.
         """
+        if not self._profile.gpu_tenant:
+            return
         with self._spawn_lock:
             self._leased = True
             running = self.running
@@ -754,6 +907,8 @@ class LlamaServer:
 
     def release_lease(self) -> None:
         """Give the card back: the next chat message may start Familiar again."""
+        if not self._profile.gpu_tenant:
+            return
         self._leased = False
 
     def touch(self) -> None:

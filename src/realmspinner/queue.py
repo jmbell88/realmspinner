@@ -52,7 +52,7 @@ from .config import Config
 from .db import JobStore
 from .kernels.rig import blender_spec, templates
 from .pipelines import pose2d, reference
-from .pipelines.llama import LlamaServer
+from .pipelines.llama import EMBED_PROFILE, LlamaServer
 from .pipelines.trellis import TrellisServer, TrellisStopFailed
 from .progress import ProgressBus, TrellisProgressParser
 
@@ -1030,6 +1030,24 @@ class Worker(
             # the weights path above is.
             mmproj_path=lambda: config.familiar_models_dir / models.FAMILIAR_MMPROJ_FILE,
         )
+        # Familiar's retrieval child (EmbeddingGemma 2): the same runtime
+        # binary under its own profile -- ``--embeddings --device none``, its
+        # own port, key and owner files. **Not a GPU tenant**, so
+        # ``before_gpu_job``/``after_gpu_job`` below deliberately never touch
+        # it (its lease methods are no-ops regardless): it holds 17 MiB of the
+        # card, not 1.4 GiB, so a GPU job has nothing of it to evict. It is
+        # stopped by ``shutdown``, by the idle sweep, and before a Familiar
+        # row is removed (``service.downloads._release_if_idle``) -- the same
+        # reasons the chat child is, minus the lease.
+        self.familiar_embed = LlamaServer(
+            lambda: config.familiar_runtime_dir / "llama-server.exe",
+            lambda: config.familiar_models_dir / models.FAMILIAR_EMBED_GGUF_FILE,
+            config.familiar_embed_port,
+            key_dir=config.data_dir,
+            log_path=config.data_dir / EMBED_PROFILE.log_name,
+            idle_timeout=config.familiar_idle_timeout,
+            profile=EMBED_PROFILE,
+        )
 
     async def before_gpu_job(self, job: dict[str, Any]) -> None:
         """Yield the card to a real GPU job before it is admitted.
@@ -1209,6 +1227,9 @@ class Worker(
         # llama-server reclaim path even though nothing had crashed.
         with contextlib.suppress(RuntimeError):
             await asyncio.to_thread(self.familiar.stop)
+        # The retrieval child too: same reason, and its own key and owner files.
+        with contextlib.suppress(RuntimeError):
+            await asyncio.to_thread(self.familiar_embed.stop)
         # Shutdown used to stop trellis and leave SDXL loaded. Harmless when
         # the process exits immediately after -- but shutdown() is also reached
         # on paths that keep the interpreter alive, and the pipeline's several
@@ -1349,6 +1370,17 @@ class Worker(
             log.info("evicting idle llama-server (Familiar)")
             with contextlib.suppress(RuntimeError):
                 await asyncio.to_thread(self.familiar.stop)
+        # Same sweep, own clock: the retrieval child frees ~0.4 GiB of host
+        # memory rather than the card, but an index query once a minute is no
+        # reason to keep a process resident for the rest of the session.
+        if (
+            self.familiar_embed.running
+            and time.monotonic() - self.familiar_embed.last_used
+            > self.familiar_embed.idle_timeout
+        ):
+            log.info("evicting idle llama-server (Familiar retrieval)")
+            with contextlib.suppress(RuntimeError):
+                await asyncio.to_thread(self.familiar_embed.stop)
         # Inert in both modes since 2026-08-21: every t2i stage releases its
         # checkpoint in its own finally, coexist or exclusive, so ``loaded``
         # is never True by the time an idle tick runs. Kept as the backstop

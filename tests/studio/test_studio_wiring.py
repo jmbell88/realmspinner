@@ -667,3 +667,20 @@ def test_the_icon_module_says_it_is_a_catalogue():
     from realmspinner.studio import icons
 
     assert "catalogue" in (icons.__doc__ or "")
+
+
+def test_teardown_stops_the_library_indexer_and_the_manual_index_build(fake_pygame, monkeypatch):
+    """The Library's meaning-search backfill reschedules itself until nothing needs
+    indexing and the Manual's index build runs for minutes on its own thread; both
+    use the worker loop that ``runtime.shutdown`` stops last. Teardown must tell
+    them to stop first rather than leave each to notice the loop is gone."""
+    from realmspinner.service import familiar_manual
+
+    stopped: list[str] = []
+    monkeypatch.setattr(familiar_manual, "stop_builds", lambda: stopped.append("manual"))
+    ctx = _ctx(FakeSettings())
+    ctx.cache = SimpleNamespace(close=lambda: stopped.append("library"))
+
+    _teardown_app(ctx).teardown()
+
+    assert stopped == ["library", "manual"]

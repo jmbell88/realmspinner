@@ -116,6 +116,7 @@ def test_the_resident_image_model_is_unloaded_before_anything_is_deleted(svc):
     class FakeWorker:
         current_job_id = None
         familiar = FakeFamiliar()
+        familiar_embed = FakeFamiliar()
 
         async def unload_text2image(self) -> None:
             calls.append("unload")

@@ -891,8 +891,13 @@ class Verification:
         return "; ".join(parts)
 
 
-def verify_manifest(dest: Path) -> Verification:
+def verify_manifest(dest: Path, *, only: Sequence[str] | None = None) -> Verification:
     """Re-hash an installed directory against what its download recorded.
+
+    ``only`` narrows the check to the named files out of the manifest (a name
+    the manifest does not record is ignored, not reported). Familiar's two
+    children share ``models/familiar/``, and the retrieval child must not
+    re-hash the 6.5 GiB chat weights to answer "is *my* file intact".
 
     **On demand only, and never at startup.** The C29/C30 lesson: a check that
     runs on every launch is a check that has to be fast, and hashing 16 GB of
@@ -921,6 +926,9 @@ def verify_manifest(dest: Path) -> Verification:
         for name, entry in digests.items():
             if isinstance(entry, dict) and isinstance(entry.get("sha256"), str):
                 wanted[str(name)] = entry["sha256"]
+    if only is not None:
+        keep = set(only)
+        wanted = {name: digest for name, digest in wanted.items() if name in keep}
     if not wanted:
         return Verification(dest=dest, status=VERIFY_UNKNOWN)
 

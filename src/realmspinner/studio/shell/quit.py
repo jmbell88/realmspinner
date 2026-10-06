@@ -372,6 +372,20 @@ class QuitMixin:
         agent_host = getattr(self, "agent_host", None)
         if agent_host is not None:
             _step("stop agent host", agent_host.stop)
+        # Familiar's retrieval work, stopped before the worker loop it embeds
+        # through goes away: the Library indexer's backfill reschedules itself
+        # until nothing needs indexing, and the Manual's index build runs for
+        # minutes on its own thread. Both also stop on their own once the loop
+        # is no longer running; this just says so at the right moment instead
+        # of leaving each to notice. ``getattr``, for the same reason as above:
+        # a failed setup leaves no ctx or no cache, and teardown must reach
+        # ``runtime.shutdown`` regardless.
+        library_cache = getattr(ctx, "cache", None) if ctx is not None else None
+        if library_cache is not None:
+            _step("stop library indexer", library_cache.close)
+        from ...service import familiar_manual
+
+        _step("stop manual index build", familiar_manual.stop_builds)
         from ..modes.clay.agent import dispatch as agent_clay
 
         _step("release agent view", agent_clay.release)

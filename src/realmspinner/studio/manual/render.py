@@ -17,6 +17,7 @@ from ...kernels.manual import loader, parser
 from ...kernels.manual.targets import HELP_TARGETS, TROUBLESHOOTING
 from .. import controls, fonts, icons, theme, tokens, widgets
 from ..tokens import sp
+from . import semantic
 
 log = logging.getLogger(__name__)
 
@@ -251,7 +252,7 @@ def draw_body(ctx: Any) -> None:
     ms = ctx.state.manual
     _warm_blocks()
     if imgui.begin_child("manual-toc", (sp(240), 0), imgui.ChildFlags_.borders.value):
-        _draw_toc(ms)
+        _draw_toc(ctx, ms)
     imgui.end_child()
     imgui.same_line()
     # The TOC is bordered and so gets window padding for free; the page is not,
@@ -269,12 +270,32 @@ def draw_body(ctx: Any) -> None:
     imgui.end_child()
 
 
-def _draw_toc(ms: Any) -> None:
+def _draw_toc(ctx: Any, ms: Any) -> None:
     imgui.set_next_item_width(-1)
     changed, ms.search = controls.input_text_with_hint(
         "##manual-search", "Search the manual...", ms.search
     )
     needle = ms.search.strip().lower()
+    # The optional meaning-based search. Not drawn at all unless the retrieval
+    # row is installed (no greyed control to explain); ``semantic.view`` only
+    # ever submits a task -- the query embedding is never on this thread.
+    plan = semantic.view(ctx, ms, needle)
+    if plan.show_toggle:
+        ms.semantic = controls.checkbox(
+            "Semantic##manual-semantic",
+            ms.semantic,
+            tooltip="Rank sections by meaning as well as matching words.",
+        )[1]
+    if plan.note:
+        widgets.muted_wrapped(plan.note)
+    if plan.rows:
+        # The ranked sections stand in for the chapter list, drawn and followed
+        # exactly like a substring match's section rows.
+        for row in plan.rows:
+            active = ms.chapter == row.chapter and ms.anchor == row.anchor
+            if controls.selectable(f"{row.label}##sem-{row.chapter}-{row.anchor}", active)[0]:
+                ms.open_at(row.chapter, row.anchor)
+        return
     part = None
     found = 0
     for chapter in _toc():

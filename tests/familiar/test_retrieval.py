@@ -175,3 +175,41 @@ def test_one_section_is_cited_once_even_when_split(index: retrieval.Index) -> No
         key = (c.chapter, c.anchor)
         assert key not in seen, f"{c.title_path!r} cited twice"
         seen.add(key)
+
+
+@pytest.mark.parametrize("query", ["export a GLB", "tile map Tiled", "undo", "materials in Clay"])
+def test_search_is_the_bm25_rank_run_through_citations(index: retrieval.Index, query: str) -> None:
+    """The fusion with the embedder's ranking reuses ``citations`` on a different
+    order, so ``search`` must be exactly ``rank`` + ``citations`` or the two paths
+    would regroup and budget differently."""
+    ranked = [i for i, _ in index.rank(query)]
+    assert ranked, f"expected BM25 to rank something for {query!r}"
+    assert index.search(query) == index.citations(ranked)
+
+
+def test_rank_is_best_first_with_the_source_order_tie_break(index: retrieval.Index) -> None:
+    ranked = index.rank("undo")
+    scores = [s for _, s in ranked]
+    assert scores == sorted(scores, reverse=True)
+    for (i, s), (j, t) in zip(ranked, ranked[1:], strict=False):
+        assert s > t or i < j
+    assert index.rank("undo", 3) == ranked[:3]
+    assert index.rank("zxqvj wkpt") == []
+
+
+def test_citations_regroup_and_budget_whatever_ranking_they_are_given(
+    index: retrieval.Index,
+) -> None:
+    """A ranking that lists two chunks of one split section is one citation, and
+    the word budget still stops a long run -- for an order BM25 never produced."""
+    by_section: dict[tuple[str, str | None], list[int]] = {}
+    for i, chunk in enumerate(index.chunks):
+        by_section.setdefault((chunk.chapter, chunk.anchor), []).append(i)
+    split = next(ids for ids in by_section.values() if len(ids) > 1)
+    out = index.citations([split[1], split[0]])
+    assert len(out) == 1 and out[0].n == 1
+    assert out[0].text.startswith(index.chunks[split[0]].text), "joined in document order"
+
+    everything = list(range(len(index.chunks)))
+    budgeted = index.citations(everything, limit=50, budget_tokens=500)
+    assert len(budgeted) < 50

@@ -96,7 +96,20 @@ CREATE TABLE IF NOT EXISTS observations (
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_observations_job ON observations(job_id);
+
+CREATE TABLE IF NOT EXISTS job_embeddings (
+    job_id      TEXT PRIMARY KEY,               -- one row per job; replaced, never appended
+    model_sha   TEXT NOT NULL,                  -- the embedder's weights sha256
+    dim         INTEGER NOT NULL,               -- floats in vec
+    text_hash   TEXT NOT NULL,                  -- sha256 of what was embedded
+    vec         BLOB NOT NULL                   -- dim float32, unit length
+);
 """
+# No index on job_embeddings beyond its primary key: the one read of it
+# (``semantic_ranked``) scans every current-model row to take a dot product,
+# so an index on model_sha would be a B-tree for a predicate that is true of
+# every row but the stale ones.
+#
 # No index on observations(sweep_id), deliberately: the one read of this table
 # (latest_observations) has no WHERE at all -- it groups by job_id and the
 # sweep grouping happens in findings._comparisons, in Python, over the whole
@@ -375,6 +388,29 @@ MIGRATIONS: list[list[str]] = [
     [
         "CREATE INDEX IF NOT EXISTS idx_jobs_created_id ON jobs(created_at, id)",
     ],
+    # 12 -- the Library's meaning index: one 256-d vector per finished job,
+    # written by ``studio.embed_indexer`` when the optional retrieval row
+    # (EmbeddingGemma 2) is installed and never otherwise. A table of its own
+    # rather than a column on ``jobs`` because a vector is a kilobyte that every
+    # ``SELECT *`` of the list would otherwise drag through the frame loop's
+    # reads, and because it is a *derived* record: ``model_sha`` and ``dim``
+    # say what produced it, so a different embedder or width is a stale row
+    # that gets replaced rather than a wrong answer that gets ranked, and
+    # ``text_hash`` says what it was computed *from*, so a rename or a changed
+    # facet set is noticed without comparing floats. Also in _SCHEMA (executed
+    # on every open), exactly as ``sweeps`` was in migration 3: the statement
+    # is IF NOT EXISTS, so the replay is a no-op on a fresh database and the
+    # whole change on one at the previous version. No foreign key: this file
+    # never turns ``PRAGMA foreign_keys`` on, so ``delete`` and
+    # ``delete_if_not_running`` remove the row themselves, in the same commit.
+    [
+        "CREATE TABLE IF NOT EXISTS job_embeddings ("
+        " job_id TEXT PRIMARY KEY,"
+        " model_sha TEXT NOT NULL,"
+        " dim INTEGER NOT NULL,"
+        " text_hash TEXT NOT NULL,"
+        " vec BLOB NOT NULL)",
+    ],
 ]
 
 
@@ -422,6 +458,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(stmt)
         conn.execute(f"PRAGMA user_version = {i + 1}")
     conn.commit()
+
+
+def _like_escape(value: str) -> str:
+    """Escape LIKE's own wildcards (and the escape character) so a typed ``%``
+    or ``_`` is searched for rather than read as a pattern."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 #: Primary result codes (an extended code's low byte) that describe the
@@ -1105,6 +1147,9 @@ class JobStore:
     def delete(self, job_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            # Same commit, so a crash between the two statements cannot leave
+            # a vector that outlives its job and surfaces as a hit with no row.
+            self._conn.execute("DELETE FROM job_embeddings WHERE job_id = ?", (job_id,))
             self._commit()
 
     def set_deleted_if_not_running(self, job_id: str, when: float | None) -> bool:
@@ -1152,6 +1197,12 @@ class JobStore:
             cur = self._conn.execute(
                 "DELETE FROM jobs WHERE id = ? AND status != 'running'", (job_id,)
             )
+            if cur.rowcount > 0:
+                # Only when the row really went: a refused delete (the worker
+                # owns it) must leave the job's meaning in the index.
+                self._conn.execute(
+                    "DELETE FROM job_embeddings WHERE job_id = ?", (job_id,)
+                )
             self._commit()
             return cur.rowcount > 0
 
@@ -1199,7 +1250,12 @@ class JobStore:
         predicate in ``Filters.matches`` still decides the final match; this
         only widens the candidate set it is asked about** -- it must never
         grow more permissive than that predicate, or a row could appear here
-        that the workshop itself would refuse to show.
+        that the workshop itself would refuse to show. (Searching by meaning
+        is the one deliberate loosening of the *free-words clause* of that
+        predicate, and it is not done here: :meth:`semantic_ranked` ranks the
+        rows, ``service.library_index.search`` fuses them with this method's
+        ids, and ``Filters.matches`` lets exactly those ids past its free-words
+        clause and no other. This method is the text path, unchanged.)
 
         **Never ``params``** -- the same rule ``active_jobs`` states above:
         ``params`` is one JSON blob sqlite cannot index into, and a LIKE scan
@@ -1214,19 +1270,11 @@ class JobStore:
         "any characters" or "any one character".
         """
         text = text.strip()
-
-        def _escape(value: str) -> str:
-            return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-        conditions = ["deleted_at IS NOT NULL" if trash else "deleted_at IS NULL"]
-        args: list[Any] = []
-        if status is not None:
-            conditions.append("status = ?")
-            args.append(status)
-        if favorite:
-            conditions.append("favorite = 1")
+        conditions, args = self._scope_conditions(
+            tags=tags, names=names, status=status, favorite=favorite, trash=trash
+        )
         if text:
-            pattern = f"%{_escape(text)}%"
+            pattern = f"%{_like_escape(text)}%"
             # ``id`` too, because ``Filters.matches`` searches it (name, prompt,
             # tags *and* id) and a pasted job id is how a row is found from a
             # bug report or a log line: without this an id only ever matched a
@@ -1237,17 +1285,6 @@ class JobStore:
                 "(name LIKE ? ESCAPE '\\' OR prompt LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
             )
             args.extend([pattern, pattern, pattern])
-        for tag in tags:
-            # Tags are stored comma-separated (`` tags`` column docstring
-            # above): bracketing both the column and the pattern in commas
-            # makes the LIKE match a whole entry, the same rule
-            # ``state._field_matches`` applies in Python, so ``tag:wood``
-            # cannot find ``driftwood`` here either.
-            conditions.append("(',' || tags || ',') LIKE ? ESCAPE '\\'")
-            args.append(f"%,{_escape(tag)},%")
-        for name in names:
-            conditions.append("name LIKE ? ESCAPE '\\'")
-            args.append(f"%{_escape(name)}%")
         # Nothing to widen for: matching this to every non-deleted row (or
         # every trashed one) would not be a search, it would be "load
         # everything" wearing a search's name.
@@ -1261,6 +1298,324 @@ class JobStore:
         with self._lock:
             rows = self._conn.execute(query, args).fetchall()
         return [r[0] for r in rows]
+
+    @staticmethod
+    def _scope_conditions(
+        *,
+        tags: Sequence[str],
+        names: Sequence[str],
+        status: str | None,
+        favorite: bool | None,
+        trash: bool,
+    ) -> tuple[list[str], list[Any]]:
+        """The WHERE clauses every library search shares, and their arguments.
+
+        One spelling for :meth:`search_ids` (the LIKE path) and
+        :meth:`semantic_ranked` (the meaning path), because the two must scope
+        a result identically: the trash/workshop split, the status and
+        favourites combos and the ``tag:``/``name:`` field terms narrow a
+        search, and a second copy of any of them is how the meaning path would
+        come to return a row the LIKE path refuses. None of these touches
+        ``text`` -- that clause is the one the two paths differ on.
+        """
+        conditions = ["deleted_at IS NOT NULL" if trash else "deleted_at IS NULL"]
+        args: list[Any] = []
+        if status is not None:
+            conditions.append("status = ?")
+            args.append(status)
+        if favorite:
+            conditions.append("favorite = 1")
+        for tag in tags:
+            # Tags are stored comma-separated (`` tags`` column docstring
+            # above): bracketing both the column and the pattern in commas
+            # makes the LIKE match a whole entry, the same rule
+            # ``state._field_matches`` applies in Python, so ``tag:wood``
+            # cannot find ``driftwood`` here either.
+            conditions.append("(',' || tags || ',') LIKE ? ESCAPE '\\'")
+            args.append(f"%,{_like_escape(tag)},%")
+        for name in names:
+            conditions.append("name LIKE ? ESCAPE '\\'")
+            args.append(f"%{_like_escape(name)}%")
+        return conditions, args
+
+    # --- embeddings: the Library's meaning index -------------------------------
+    #
+    # Nothing here touches the network, the embedder or the worker: this class
+    # stores and ranks vectors it is handed (``service.library_index`` makes
+    # them). ``numpy`` is imported inside the methods that need it, so opening
+    # the store -- which every process does, headless ones included -- never
+    # pays for it.
+
+    def upsert_embeddings(
+        self,
+        model_sha: str,
+        dim: int,
+        rows: Sequence[tuple[str, str, Any]],
+    ) -> int:
+        """Write ``(job_id, text_hash, vector)`` rows, replacing each job's old
+        one. -> how many rows were written.
+
+        *vector* is ``dim`` float32 values, as an array or as their raw bytes;
+        any other length is a ``ValueError``, because a short blob stored under
+        a ``dim`` it does not have would be read back as a different shape than
+        it was written. A job that no longer exists is skipped rather than
+        written (``INSERT ... SELECT ... WHERE EXISTS``): the vector was
+        computed on a worker thread while the row could be deleted, and an
+        orphan would never be cleaned up by the delete that already ran.
+        """
+        params: list[tuple[Any, ...]] = []
+        for job_id, text_hash, vector in rows:
+            blob = vector if isinstance(vector, bytes | bytearray | memoryview) else None
+            if blob is None:
+                import numpy as np
+
+                blob = np.asarray(vector, dtype="<f4").tobytes()
+            blob = bytes(blob)
+            if len(blob) != dim * 4:
+                raise ValueError(
+                    f"an embedding for {job_id} is {len(blob)} bytes, not {dim} float32 values"
+                )
+            params.append((job_id, model_sha, dim, text_hash, blob, job_id))
+        if not params:
+            return 0
+        with self._lock:
+            cur = self._conn.executemany(
+                "INSERT OR REPLACE INTO job_embeddings (job_id, model_sha, dim, text_hash, vec)"
+                " SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM jobs WHERE id = ?)",
+                params,
+            )
+            self._commit()
+            return max(cur.rowcount, 0)
+
+    def embedding_stamps(
+        self, job_ids: Sequence[str] | None = None
+    ) -> dict[str, tuple[str, int, str]]:
+        """``{job_id: (model_sha, dim, text_hash)}`` for the stored vectors --
+        every one, or just *job_ids*. What a row was embedded *by* and *from*,
+        never the vector itself, so asking is cheap enough to do per batch."""
+        out: dict[str, tuple[str, int, str]] = {}
+        with self._lock:
+            if job_ids is None:
+                chunks: list[Sequence[str]] = [()]
+            else:
+                chunks = [job_ids[i : i + 500] for i in range(0, len(job_ids), 500)]
+            for chunk in chunks:
+                if job_ids is None:
+                    cursor = self._conn.execute(
+                        "SELECT job_id, model_sha, dim, text_hash FROM job_embeddings"
+                    )
+                else:
+                    marks = ",".join("?" * len(chunk))
+                    cursor = self._conn.execute(
+                        "SELECT job_id, model_sha, dim, text_hash FROM job_embeddings"
+                        f" WHERE job_id IN ({marks})",
+                        list(chunk),
+                    )
+                for r in cursor.fetchall():
+                    out[r[0]] = (r[1], int(r[2]), r[3])
+        return out
+
+    def pending_embeddings(
+        self,
+        model_sha: str,
+        dim: int,
+        text_of: Any,
+        limit: int,
+        *,
+        verify: bool = False,
+    ) -> list[tuple[str, str, str]]:
+        """Up to *limit* finished jobs whose vector is missing or out of date,
+        newest first. -> ``[(job_id, text, text_hash)]``.
+
+        A job needs a vector when it is finished, is not a sweep unit (dozens
+        of near-identical rows nobody searches by meaning, and the workshop
+        hides them) and has a name or a prompt to say something about. It is
+        *out of date* when it has no row, or the row's ``model_sha``/``dim``
+        is not the current embedder's. ``verify=True`` additionally compares
+        each current row's ``text_hash`` with the text as it reads now -- the
+        scan that catches a rename or an edited facet set, which cannot be a
+        SQL predicate because the text is built in Python from ``params``. It
+        reads every candidate row, so the caller runs it once per session, not
+        per batch.
+
+        *text_of* is ``row -> (text, text_hash) | None`` over a dict of
+        ``id, kind, stage, name, prompt, params`` (params parsed); ``None``
+        means "nothing to embed" and the job is skipped. The store hashes
+        nothing itself, so it cannot disagree with the text builder about what
+        a row's identity is.
+        """
+        where = (
+            "j.status = 'done' AND j.sweep_id IS NULL"
+            " AND (TRIM(j.name) != '' OR TRIM(COALESCE(j.prompt, '')) != '')"
+        )
+        args: list[Any] = []
+        if not verify:
+            where += " AND (e.job_id IS NULL OR e.model_sha != ? OR e.dim != ?)"
+            args += [model_sha, dim]
+        sql = (
+            "SELECT j.id, j.kind, j.stage, j.name, j.prompt, j.params,"
+            " e.model_sha, e.dim, e.text_hash"
+            " FROM jobs j LEFT JOIN job_embeddings e ON e.job_id = j.id"
+            f" WHERE {where} ORDER BY j.created_at DESC, j.id DESC LIMIT ? OFFSET ?"
+        )
+        page = max(limit * 2, 64)
+        out: list[tuple[str, str, str]] = []
+        offset = 0
+        # Paged rather than one LIMIT *limit*: a row ``text_of`` declines (a
+        # prompt that is only control characters passes the SQL's TRIM) would
+        # otherwise be returned first on every pass and starve the rest.
+        while len(out) < limit:
+            with self._lock:
+                rows = self._conn.execute(sql, [*args, page, offset]).fetchall()
+            if not rows:
+                break
+            offset += len(rows)
+            for r in rows:
+                try:
+                    params = json.loads(r["params"] or "{}")
+                except (TypeError, ValueError):
+                    params = {}
+                built = text_of(
+                    {
+                        "id": r["id"],
+                        "kind": r["kind"],
+                        "stage": r["stage"],
+                        "name": r["name"] or "",
+                        "prompt": r["prompt"] or "",
+                        "params": params if isinstance(params, dict) else {},
+                    }
+                )
+                if built is None:
+                    continue
+                text, text_hash = built
+                current = (
+                    r["model_sha"] == model_sha
+                    and r["dim"] == dim
+                    and r["text_hash"] == text_hash
+                )
+                if current:
+                    continue
+                out.append((r["id"], text, text_hash))
+                if len(out) >= limit:
+                    break
+            if len(rows) < page:
+                break
+        return out
+
+    def semantic_ranked(
+        self,
+        query_vec: Any,
+        *,
+        model_sha: str,
+        dim: int,
+        z_floor: float,
+        cap: int,
+        min_rows: int,
+        tags: Sequence[str] = (),
+        names: Sequence[str] = (),
+        status: str | None = None,
+        favorite: bool | None = None,
+        trash: bool = False,
+    ) -> list[tuple[str, float]]:
+        """The jobs whose stored vector is most similar to *query_vec*, best
+        first. -> ``[(job_id, cosine)]``, at most *cap* of them, each standing at
+        least *z_floor* robust standard deviations above the median of the
+        query's similarity to **every** current vector.
+
+        **The floor is relative to the library, not absolute, and that is
+        measured** (2026-10-06, EmbeddingGemma 2 Q8_0 at 256-d on 39 Library-
+        shaped rows, 28 queries a row answers and 18 that mean nothing here):
+        the cosine of a query to its right row ran 0.64-0.78 and the cosine of a
+        nonsense query to its *best* row ran 0.51-0.73 -- the ranges overlap,
+        because a query's whole score distribution shifts with the query (means
+        0.46-0.63). Against each query's own median and spread the right row
+        stood 2.4-9.7 sigma out (26 of 28 queries at 3.0 or more) and nonsense
+        mostly under 3 (3 of 15 produced a row at 3.0-4.5, never more than 4
+        rows, 0.7 on average), so a z-score separates them where a cosine
+        cannot. *Robust* -- median and 1.4826 x MAD rather than mean and standard
+        deviation -- because a query that matches a large cluster (every chest
+        in a library of chests) inflates a plain standard deviation until
+        nothing can clear it; the median and MAD ignore up to half the library
+        agreeing. A library of fewer than *min_rows* current vectors has no
+        baseline to stand out from and returns nothing: a list that short is
+        browsed, not searched.
+
+        **Reads only what the caller already embedded**: this never reaches the
+        embedder, which is what lets it run beside ``search_ids`` on the same
+        task thread without a network call in the store. Ranked rows are scoped
+        by exactly the clauses ``search_ids`` applies (``_scope_conditions``) --
+        the trash split, status, favourites, ``tag:``/``name:`` -- minus the
+        text one, and never a sweep unit; the baseline is taken over every
+        current row so a narrow scope does not move it. Only rows stamped with
+        *this* ``model_sha`` and ``dim`` (and a blob of that exact length) count:
+        a row from another model is a stale row, not a different kind of answer.
+
+        Ties break toward the newer job so the order is stable between runs.
+        """
+        import numpy as np
+
+        if cap <= 0:
+            return []
+        q = np.asarray(query_vec, dtype=np.float32).reshape(-1)
+        if q.shape[0] != dim:
+            return []
+        norm = float(np.linalg.norm(q))
+        if not np.isfinite(norm) or norm == 0.0:
+            return []
+        q = q / norm
+        scope, scope_args = self._scope_conditions(
+            tags=tags, names=names, status=status, favorite=favorite, trash=trash
+        )
+        # Every current vector is read (the baseline), and the scope rides along
+        # as a column, so one pass answers both "how does this query score the
+        # library" and "which of those rows may be shown".
+        sql = (
+            "SELECT jobs.id, e.vec, (" + " AND ".join(scope) + ")"
+            " FROM job_embeddings e JOIN jobs ON jobs.id = e.job_id"
+            " WHERE jobs.sweep_id IS NULL AND e.model_sha = ? AND e.dim = ?"
+            " AND length(e.vec) = ?"
+            " ORDER BY jobs.created_at DESC, jobs.id DESC"
+        )
+        with self._lock:
+            rows = self._conn.execute(sql, [*scope_args, model_sha, dim, dim * 4]).fetchall()
+        if len(rows) < max(min_rows, 2):
+            return []
+        ids = [r[0] for r in rows]
+        matrix = np.frombuffer(b"".join(bytes(r[1]) for r in rows), dtype="<f4").reshape(
+            len(rows), dim
+        )
+        scores = np.nan_to_num(matrix @ q, nan=-1.0, posinf=-1.0, neginf=-1.0)
+        median = float(np.median(scores))
+        spread = 1.4826 * float(np.median(np.abs(scores - median)))
+        if spread < 1e-6:
+            return []
+        threshold = median + z_floor * spread
+        in_scope = np.array([bool(r[2]) for r in rows])
+        # ``rows`` is newest-first, so the row index *is* the recency tie-break:
+        # lexsort's last key (the score, descending) wins, the index settles ties.
+        order = np.lexsort((np.arange(len(ids)), -scores))
+        out: list[tuple[str, float]] = []
+        for i in order:
+            if float(scores[i]) < threshold or len(out) >= cap:
+                break
+            if in_scope[i]:
+                out.append((ids[int(i)], float(scores[i])))
+        return out
+
+    def prune_embeddings(self) -> int:
+        """Delete every vector whose job is gone. -> how many.
+
+        ``delete`` and ``delete_if_not_running`` already do this per job; this
+        is the backstop for a row removed by a path that predates the table
+        (a restored backup, a hand-edited index), run once when an indexing
+        pass starts.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM job_embeddings WHERE job_id NOT IN (SELECT id FROM jobs)"
+            )
+            self._commit()
+            return max(cur.rowcount, 0)
 
     # --- sweeps ---------------------------------------------------------------
 

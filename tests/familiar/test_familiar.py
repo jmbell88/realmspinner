@@ -534,6 +534,10 @@ def test_deleting_familiar_rows_stops_the_child_first(tmp_path, monkeypatch):
     class FakeWorker:
         current_job_id = None
         familiar = FakeFamiliar()
+        # The retrieval child shares the runtime directory and the models
+        # directory, so removing a row stops it as well (see
+        # test_familiar_embed.py for the claim on its own).
+        familiar_embed = FakeFamiliar()
 
         async def unload_text2image(self):
             return None
@@ -676,7 +680,7 @@ def test_a_familiar_row_not_downloaded_is_pending_install_not_a_fault(tmp_path):
         familiar_models_dir=tmp_path / "models" / "familiar",
     )
     checks = doctor._familiar_checks(config)
-    assert len(checks) == len(models.FAMILIAR_MODELS) == 4
+    assert len(checks) == len(models.FAMILIAR_MODELS) == 5
     for check in checks:
         assert check.ok is False
         assert check.fatal is False

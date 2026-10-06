@@ -20,7 +20,9 @@ from typing import Any
 
 from .. import followups
 from ..service import jobs as svc_jobs
+from ..service import library_index
 from ..service.files import dir_size
+from .embed_indexer import LibraryIndexer
 
 log = logging.getLogger(__name__)
 
@@ -156,6 +158,30 @@ class JobsCache:
         # so :meth:`adopt` can tell a reading apart from a reset that has
         # since moved on and discard it instead of publishing it.
         self._window_generation = 0
+        # The Library's meaning index (``service.library_index``): written in
+        # the background while the optional retrieval row is installed, and
+        # inert -- :meth:`LibraryIndexer.pump` returns on its first line --
+        # without it.
+        self.indexer = LibraryIndexer(svc)
+        # {job id: name} for finished rows, so a rename is noticed and the row
+        # re-embedded (its name is the document's title).
+        self._names: dict[str, str] = {}
+        # The jobs a meaning search found for one query text, kept so
+        # ``Filters.matches`` can let exactly those past its free-words clause
+        # (the invariant on ``request_widen``). Published by
+        # :meth:`adopt_widen` on the frame thread; ``_semantic_generation`` is
+        # in the ``visible`` memo's key, so a set landing re-filters the list.
+        self._semantic: tuple[str, frozenset[str]] = ("", frozenset())
+        self._semantic_generation = 0
+        # The last query vector, ``(text, vector)``. Touched only by the one
+        # ``_search`` task that can be in flight (``SEARCH_KEY``), so a
+        # re-search on the next list generation does not embed the same words
+        # again.
+        self._qvec: tuple[str, Any] | None = None
+
+    def close(self) -> None:
+        """Stop background indexing. Safe to call twice, and from any thread."""
+        self.indexer.stop()
 
     def invalidate(self) -> None:
         """Refresh on the next tick. Called after anything the UI did that
@@ -343,6 +369,7 @@ class JobsCache:
         # Adaptive cadence (L102): fast only while a job is live -- that is the
         # only time a row can change without the UI having called invalidate.
         live = any(j.get("status") in ("queued", "running") for j in jobs)
+        self.indexer.set_live(live)
         self._next_refresh = now + (REFRESH_SECONDS if live else IDLE_REFRESH_SECONDS)
         # Whatever fell off the page cannot be asked for again without a
         # re-read, so its entry is dead weight.
@@ -371,12 +398,40 @@ class JobsCache:
                 previous = self._last_status.get(job["id"])
                 if previous is not None and previous != job["status"]:
                     on_transition(job, previous)
+        self._note_for_index(jobs)
         self._last_status = {j["id"]: j["status"] for j in jobs}
         # Last, after every figure above was taken from the window alone: the
         # widened rows are outside it, so they must not move ``total`` or the
         # transition diff (shell-19).
         self._merge_widened()
         return True
+
+    def _note_for_index(self, jobs: list[dict[str, Any]]) -> None:
+        """Tell the indexer which finished rows are new or renamed.
+
+        Reads ``_last_status`` as it was *before* this adoption, so this is the
+        same "was running, is done now" edge ``on_transition`` fires on -- but
+        independent of whether the caller passed a callback. Frame thread, one
+        pass over the window, and skipped entirely without the retrieval row
+        (``available`` is a memo): the names are not even collected.
+        """
+        if not self.indexer.available():
+            self._names = {}
+            return
+        names: dict[str, str] = {}
+        for job in jobs:
+            if job.get("status") != "done" or job.get("sweep_id"):
+                continue
+            job_id = job["id"]
+            name = job.get("name") or ""
+            names[job_id] = name
+            previous = self._last_status.get(job_id)
+            seen = self._names.get(job_id)
+            if (previous is not None and previous != "done") or (
+                seen is not None and seen != name
+            ):
+                self.indexer.note(job_id)
+        self._names = names
 
     def request(
         self,
@@ -396,6 +451,10 @@ class JobsCache:
         ``on_transition`` is not used here; the caller passes the same
         callback to :meth:`adopt` once the task's result comes back.
         """
+        # Before the due-check: indexing has its own schedule and must not wait
+        # for a list refresh to come due. A few attribute reads when idle, and
+        # nothing at all without the retrieval row.
+        self.indexer.pump(runner)
         if not self._due():
             return False
         # shell-documents-04 (2026-09-26 audit). ``_dirty`` used to be cleared
@@ -554,6 +613,10 @@ class JobsCache:
         can turn into a real column predicate) and merges their rows in;
         ``Filters.matches`` still decides whether any of them actually match
         -- this only widens what it is asked about, never more permissively.
+        The one clause it relaxes is the free-words one, and only for the ids a
+        *meaning* search returned for this very text (:meth:`semantic_ids`,
+        retrieval row installed, free words only, never a field term): those
+        skip the substring test and every other clause still applies.
 
         Called from both ``panes/library.py`` and ``panes/library_full.py``:
         the two views share one ``Filters`` and must never disagree about
@@ -594,12 +657,27 @@ class JobsCache:
         status = None if filters.status == "all" else filters.status
         favorite = filters.favorites_only or None
         active = bool(free_text or tags or names or status or favorite)
-        key = (self._generation, free_text, tags, names, status, favorite, filters.trash)
+        # The words a meaning search is run for -- **the free words only**. A
+        # ``tag:``/``name:``/``kind:`` term is a field constraint and is never
+        # embedded or widened by meaning: it narrows, exactly as it always did.
+        # Only with the retrieval row installed and at least two non-space
+        # characters; otherwise ``""`` and this method is what it always was.
+        semantic_words = " ".join(terms)
+        semantic = (
+            semantic_words
+            if library_index.eligible_query(semantic_words) and self.indexer.available()
+            else ""
+        )
+        key = (
+            self._generation, free_text, tags, names, status, favorite, filters.trash,
+            semantic,
+        )
         if not active:
             self._search_key = None
             # Nothing is being searched for any more, so the rows kept for it
             # go at the next refresh (shell-19).
             self._widened = {}
+            self._publish_semantic("", frozenset())
             return False
         if key == self._search_key:
             return False
@@ -612,9 +690,11 @@ class JobsCache:
         # question: whether anything is left outside the window at all.
         # ``total`` is 0 until the first read lands, which says nothing about
         # the store yet, so only a known total may skip the widen.
-        if self.total and len(self.jobs) >= self.total:
+        if self.total and len(self.jobs) >= self.total and not semantic:
             # The window already holds everything the store has -- there is
-            # nothing outside it left to widen with.
+            # nothing outside it left to widen with. (Not so for a meaning
+            # search: it also finds rows *inside* the window that the substring
+            # clause rejects, and only the store holds their vectors.)
             self._search_key = key
             return False
         submitted = bool(
@@ -631,6 +711,7 @@ class JobsCache:
                 # adopted window, with no widened rows in it), so the task
                 # fetches only rows the window does not already hold.
                 frozenset(self._last_status),
+                semantic,
             )
         )
         if submitted:
@@ -646,11 +727,24 @@ class JobsCache:
         favorite: bool | None,
         trash: bool,
         have: frozenset[str] = frozenset(),
+        semantic_text: str = "",
     ) -> dict[str, Any]:
         """The blocking half of :meth:`request_widen` -- one ``search_ids``
         call and the rows it names, off the frame thread. ->
         ``{"ids": [...], "rows": {id: row}}`` or ``{"error": str}`` for
         :meth:`adopt_widen` to publish.
+
+        **With a non-empty *semantic_text*** (the retrieval row is installed
+        and the free words are long enough) the query is embedded here -- this
+        is a ``TaskRunner`` task, so a request to the embedder child is as
+        allowed as the sqlite read beside it, and ``search_ids`` itself still
+        never touches the network -- and the substring ranking is fused with the
+        store's meaning ranking (``library_index.search``). The result then also
+        carries ``"semantic"`` (the ids that are there for their meaning) and
+        ``"semantic_text"``. If no vector can be had right now (the child is
+        cold, slow or refused), this is exactly the substring search it always
+        was and those keys are absent: meaning is an addition, never a
+        precondition.
 
         **The rows are fetched here, not in** :meth:`adopt_widen`. The
         2026-09-08 fix moved only the id query off the frame thread, and the
@@ -660,16 +754,32 @@ class JobsCache:
         ``have`` is the window's ids, so a match the window holds is not
         fetched twice.
         """
+        semantic_ids: frozenset[str] | None = None
         try:
-            ids = self.svc.store.search_ids(
-                free_text,
-                limit=SEARCH_LIMIT,
-                tags=tags,
-                names=names,
-                status=status,
-                favorite=favorite,
-                trash=trash,
-            )
+            query_vec = self._query_vector(semantic_text) if semantic_text else None
+            if query_vec is None:
+                ids = self.svc.store.search_ids(
+                    free_text,
+                    limit=SEARCH_LIMIT,
+                    tags=tags,
+                    names=names,
+                    status=status,
+                    favorite=favorite,
+                    trash=trash,
+                )
+            else:
+                hits = library_index.search(
+                    self.svc,
+                    free_text,
+                    limit=SEARCH_LIMIT,
+                    tags=tags,
+                    names=names,
+                    status=status,
+                    favorite=favorite,
+                    trash=trash,
+                    query_vec=query_vec,
+                )
+                ids, semantic_ids = hits.ids, hits.semantic
         except Exception as exc:
             log.exception("could not search the job list")
             return {"error": str(exc)}
@@ -681,7 +791,23 @@ class JobsCache:
                 rows[job_id] = svc_jobs.get_job(self.svc, job_id)
             except Exception:
                 log.exception("could not load search match %s", job_id)
-        return {"ids": ids, "rows": rows}
+        reading: dict[str, Any] = {"ids": ids, "rows": rows}
+        if semantic_ids is not None:
+            reading["semantic"] = sorted(semantic_ids)
+            reading["semantic_text"] = semantic_text
+        return reading
+
+    def _query_vector(self, text: str) -> Any:
+        """*text*'s query vector, or ``None`` when it cannot be had now. One
+        entry is remembered: the list refreshes every few seconds, each refresh
+        re-runs the search, and the same words are not worth embedding twice."""
+        memo = self._qvec
+        if memo is not None and memo[0] == text:
+            return memo[1]
+        vector = library_index.embed_query(self.svc, text)
+        if vector is not None:
+            self._qvec = (text, vector)
+        return vector
 
     def adopt_widen(self, reading: Any) -> None:
         """Frame-thread half of :meth:`request_widen` -- merge a
@@ -699,6 +825,9 @@ class JobsCache:
         # Kept for :meth:`adopt`, which rebuilds ``jobs`` from the window at
         # every refresh and would otherwise drop these until the next search.
         self._widened = dict(rows)
+        semantic = reading.get("semantic")
+        if isinstance(semantic, list):
+            self._publish_semantic(str(reading.get("semantic_text") or ""), frozenset(semantic))
         if self._merge_widened():
             # The shape of ``self.jobs`` changed under whatever ``visible``/
             # ``failures`` last memoized -- invalidate directly rather than
@@ -707,6 +836,29 @@ class JobsCache:
             # the search next frame.
             self._visible_memo = None
             self._failures_memo = None
+
+    def _publish_semantic(self, text: str, ids: frozenset[str]) -> None:
+        """Replace the meaning-search answer and, if it moved, make the next
+        :meth:`visible` re-filter. Frame thread."""
+        if (text, ids) == self._semantic:
+            return
+        self._semantic = (text, ids)
+        self._semantic_generation += 1
+        self._visible_memo = None
+        self._failures_memo = None
+
+    def semantic_ids(self, filters: Any) -> frozenset[str]:
+        """The jobs a meaning search found for *this filter's* free words, or
+        none when the box has since changed -- a set computed for one query is
+        never applied to another. ``Filters.matches`` lets exactly these past
+        its free-words clause and nothing else."""
+        text, ids = self._semantic
+        if not ids:
+            return frozenset()
+        from .state import parse_query
+
+        terms, _fields = parse_query((getattr(filters, "text", "") or "").strip())
+        return ids if " ".join(terms) == text else frozenset()
 
     def _merge_widened(self) -> bool:
         """Fold the kept search rows the window does not hold into ``jobs``.
@@ -734,6 +886,7 @@ class JobsCache:
         return (
             self._generation,
             self._sizes_generation,
+            self._semantic_generation,
             tuple(sorted(vars(filters).items())),
         )
 
@@ -744,9 +897,12 @@ class JobsCache:
         memo = self._visible_memo
         if memo is not None and memo[0] == key:
             return memo[1]
-        out = filters.order(
-            [j for j in self.jobs if filters.matches(j)], sizes=self._dir_sizes
-        )
+        semantic = self.semantic_ids(filters)
+        if semantic:
+            matched = [j for j in self.jobs if filters.matches(j, semantic)]
+        else:
+            matched = [j for j in self.jobs if filters.matches(j)]
+        out = filters.order(matched, sizes=self._dir_sizes)
         self._visible_memo = (key, out)
         return out
 
@@ -757,7 +913,8 @@ class JobsCache:
         memo = self._failures_memo
         if memo is not None and memo[0] == key:
             return memo[1]
-        count = filters.failures(self.jobs)
+        semantic = self.semantic_ids(filters)
+        count = filters.failures(self.jobs, semantic) if semantic else filters.failures(self.jobs)
         self._failures_memo = (key, count)
         return count
 

@@ -631,7 +631,19 @@ class Filters:
     # this is a one-shot destination, not a standing way to browse.
     job_ids: frozenset[str] | None = None
 
-    def matches(self, job: dict[str, Any]) -> bool:
+    def matches(self, job: dict[str, Any], semantic_ids: frozenset[str] | None = None) -> bool:
+        """Whether *job* belongs in the list this bar describes.
+
+        *semantic_ids* are the jobs a meaning search found for **this bar's own
+        free text** (``service.library_index``; ``JobsCache`` supplies them
+        while the retrieval row is installed). A job in the set skips exactly
+        one clause -- the free-words substring test at the very end, which a
+        row found for what it was *about* cannot be expected to pass -- and
+        nothing else: trash, sweep/candidate hiding, favourites, usable,
+        status, kind and every ``tag:``/``name:``/``id:`` field term still
+        decide first, so the set can never show a row the bar would refuse for
+        any other reason. Absent or empty, this is the plain predicate.
+        """
         # First, and above the sweep/candidate rules: a trashed job is out of
         # the workshop entirely, and the trash view is out of everything else.
         # Asked as one equality so the two views can never both show a row or
@@ -682,7 +694,7 @@ class Filters:
             for field, value in fields:
                 if not _field_matches(job, field, value):
                     return False
-            if terms:
+            if terms and not (semantic_ids and job.get("id") in semantic_ids):
                 haystack = " ".join(
                     str(job.get(k) or "") for k in ("name", "prompt", "tags", "id")
                 ).lower()
@@ -692,7 +704,9 @@ class Filters:
                     return False
         return True
 
-    def failures(self, jobs: list[dict[str, Any]]) -> int:
+    def failures(
+        self, jobs: list[dict[str, Any]], semantic_ids: frozenset[str] | None = None
+    ) -> int:
         """How many rows switching the status filter to "error" would reveal.
 
         Derived by re-running :meth:`matches` under that one substitution
@@ -704,6 +718,8 @@ class Filters:
         can see.
         """
         probe = replace(self, status="error")
+        if semantic_ids:
+            return sum(1 for job in jobs if probe.matches(job, semantic_ids))
         return sum(1 for job in jobs if probe.matches(job))
 
     def order(
@@ -1129,6 +1145,11 @@ class ManualState:
     # continuously.
     anchor: str | None = None
     search: str = ""
+    # The search box's optional meaning-based ranking (``manual/semantic.py``).
+    # Offered only while the retrieval row is installed, and off by default:
+    # the substring search stays what the box does until the reader opts in.
+    # Kept for the session like ``search`` is, not persisted.
+    semantic: bool = False
 
     def open_at(self, chapter: str, anchor: str | None = None) -> None:
         self.chapter = chapter

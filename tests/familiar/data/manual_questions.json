@@ -1,0 +1,402 @@
+[
+ {
+  "q": "How can I see a zoomed-in area and the full image at once?",
+  "chapter": "28-inker",
+  "section": "28 Inker › Turning the page"
+ },
+ {
+  "q": "How do I add and adjust lighting and cameras in the scene?",
+  "chapter": "17-dressing-a-scene",
+  "section": "17 Dressing a scene › Light, and somewhere to stand"
+ },
+ {
+  "q": "How do I export my animation as a sprite sheet?",
+  "chapter": "28-inker",
+  "section": "28 Inker › Saving"
+ },
+ {
+  "q": "Where are my project files and assets stored on my computer?",
+  "chapter": "36-library-and-jobs",
+  "section": "36 The library and jobs › Storage and pruning"
+ },
+ {
+  "q": "How do I set animation loops and playback behavior?",
+  "chapter": "06-animating",
+  "section": "06 Animating › Tags"
+ },
+ {
+  "q": "How do I fix arms that look stuck to the chest?",
+  "chapter": "08-rigging-and-posing",
+  "section": "08 Rigging and posing › Try it"
+ },
+ {
+  "q": "How do I add a new document mode to the manifest?",
+  "chapter": "46-extending",
+  "section": "46 Extending Realmspinner › Adding a mode"
+ },
+ {
+  "q": "How do I turn my sprite sheets into a playable game level?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter"
+ },
+ {
+  "q": "How do I use my own custom rigged 3D model?",
+  "chapter": "11-a-character-sprite-sheet",
+  "section": "11 A character sprite sheet › The other routes › A mesh you already have"
+ },
+ {
+  "q": "How do I see the blend mode and opacity of a layer?",
+  "chapter": "28-inker",
+  "section": "28 Inker › Layers"
+ },
+ {
+  "q": "How do I import sprites from Inker or Poser into an atlas?",
+  "chapter": "33-packwright",
+  "section": "33 Packwright › Sources"
+ },
+ {
+  "q": "What are the available 3D modeling commands?",
+  "chapter": "07-modelling",
+  "section": "07 Modelling › Editing the mesh"
+ },
+ {
+  "q": "How does the app save my scene and undo history?",
+  "chapter": "30-clay",
+  "section": "30 Clay › Saving"
+ },
+ {
+  "q": "How do I customize character appearances and animation frame counts?",
+  "chapter": "22-generating-references",
+  "section": "22 Generating references › Characters › The controls"
+ },
+ {
+  "q": "How do I navigate, zoom, and manage my workspace layout?",
+  "chapter": "05-drawing",
+  "section": "05 Drawing › Getting a canvas"
+ },
+ {
+  "q": "How do I export my atlas to the library?",
+  "chapter": "10-packing-an-atlas",
+  "section": "10 Packing an atlas › Getting things out"
+ },
+ {
+  "q": "What happens to my file data when it is incompatible?",
+  "chapter": "29-inker-animation",
+  "section": "29 Inker: animation › Importing frames › From an Aseprite file"
+ },
+ {
+  "q": "How do I make an animation play a specific number of times?",
+  "chapter": "29-inker-animation",
+  "section": "29 Inker: animation › Tags › Repeat counts"
+ },
+ {
+  "q": "How do I move the entire character body instead of just bending joints?",
+  "chapter": "08-rigging-and-posing",
+  "section": "08 Rigging and posing › Root offset"
+ },
+ {
+  "q": "How do I undo a mesh change or revert a previous version?",
+  "chapter": "23-generating-meshes",
+  "section": "23 Generating meshes › Earlier meshes"
+ },
+ {
+  "q": "How does the app handle requests for creatures it doesn't have?",
+  "chapter": "11-a-character-sprite-sheet",
+  "section": "11 A character sprite sheet › The route worth starting on › Why it works when reconstruction does not"
+ },
+ {
+  "q": "How do I select multiple tiles or use the wand tool?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Tools"
+ },
+ {
+  "q": "How do I update a sheet without losing my previous edits?",
+  "chapter": "29-inker-animation",
+  "section": "29 Inker: animation › Ranges › Merging a re-render"
+ },
+ {
+  "q": "How do I combine shapes without keeping internal faces?",
+  "chapter": "07-modelling",
+  "section": "07 Modelling › Merge versus Union"
+ },
+ {
+  "q": "How do I copy a layer without linking its painting data?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Layers"
+ },
+ {
+  "q": "How do I change the shape of a chiptune sound?",
+  "chapter": "14-making-a-soundtrack",
+  "section": "14 Making a soundtrack › An envelope"
+ },
+ {
+  "q": "How do I import my own image as a reference?",
+  "chapter": "23-generating-meshes",
+  "section": "23 Generating meshes › Starting from an upload"
+ },
+ {
+  "q": "Why is Muse considered a mode instead of a stage?",
+  "chapter": "35-muse",
+  "section": "35 Muse › Where a take lives"
+ },
+ {
+  "q": "Why is the loop point option disabled when using a crossfade?",
+  "chapter": "35-muse",
+  "section": "35 Muse › Looping a take › The two exports, and why you cannot have both"
+ },
+ {
+  "q": "How do I turn my blockout into a high-detail mesh?",
+  "chapter": "07-modelling",
+  "section": "07 Modelling › The two ways out"
+ },
+ {
+  "q": "How do I save a map as a reference asset?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Sending a map to the library"
+ },
+ {
+  "q": "How should I arrange my sprites for a game engine?",
+  "chapter": "33-packwright",
+  "section": "33 Packwright › The two modes"
+ },
+ {
+  "q": "How can I see a preview of my frame layout?",
+  "chapter": "28-inker",
+  "section": "28 Inker › Saving"
+ },
+ {
+  "q": "How do I see previous frames while drawing an animation?",
+  "chapter": "06-animating",
+  "section": "06 Animating › Onion skinning"
+ },
+ {
+  "q": "How do I change the number of candidates per generation?",
+  "chapter": "23-generating-meshes",
+  "section": "23 Generating meshes › Candidates"
+ },
+ {
+  "q": "How do I turn a still drawing into an animation?",
+  "chapter": "06-animating",
+  "section": "06 Animating › Turning a drawing into an animation"
+ },
+ {
+  "q": "How do I navigate to specific coordinates on the map?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › The minimap"
+ },
+ {
+  "q": "How do I turn a shape into a repeating texture?",
+  "chapter": "15-casting-a-spell",
+  "section": "15 Casting a spell › A texture of your own"
+ },
+ {
+  "q": "How do I prevent the app from processing a bad drawing?",
+  "chapter": "26-poser",
+  "section": "26 Poser › Rendering a character sheet › Starting a new character"
+ },
+ {
+  "q": "How do I flip or rotate a selection of cells?",
+  "chapter": "29-inker-animation",
+  "section": "29 Inker: animation › Ranges › Drawing on a whole range"
+ },
+ {
+  "q": "How do I start a new project and save it?",
+  "chapter": "17-dressing-a-scene",
+  "section": "17 Dressing a scene › Opening a scene"
+ },
+ {
+  "q": "How do I resize or move collision shapes in the editor?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Tilesets › What one tile carries"
+ },
+ {
+  "q": "How do I find more detailed guides or fix technical issues?",
+  "chapter": "13-putting-it-in-a-game",
+  "section": "13 Putting it in a game › What to read next"
+ },
+ {
+  "q": "How do I link a map object to a specific ID?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Objects › Object properties"
+ },
+ {
+  "q": "How do I set up the sprite sheet grid and directions?",
+  "chapter": "27-sprite-sheets",
+  "section": "27 Sprite sheets › The grid"
+ },
+ {
+  "q": "How do I paste a block of tiles into a new map?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Selection › The clipboard"
+ },
+ {
+  "q": "How do resources and prompts differ from tools in the MCP bridge?",
+  "chapter": "46-extending",
+  "section": "46 Extending Realmspinner › Driving Realmspinner from an AI agent › Resources and prompts"
+ },
+ {
+  "q": "How do I navigate and select objects in the viewport?",
+  "chapter": "38-shortcuts",
+  "section": "38 Keyboard shortcuts › Clay"
+ },
+ {
+  "q": "How do I write the description for my game assets?",
+  "chapter": "22-generating-references",
+  "section": "22 Generating references › The prompt"
+ },
+ {
+  "q": "How do I use a reference image to control style or shape?",
+  "chapter": "12-tuning-what-you-get",
+  "section": "12 Tuning what you get › Conditioning on an image"
+ },
+ {
+  "q": "How do I split an existing image into smaller grid squares?",
+  "chapter": "33-packwright",
+  "section": "33 Packwright › Sources"
+ },
+ {
+  "q": "Where does clicking \"Open\" on a follow-up row take me?",
+  "chapter": "36-library-and-jobs",
+  "section": "36 The library and jobs › The full window"
+ },
+ {
+  "q": "Which image generation models are available and what are their settings?",
+  "chapter": "22-generating-references",
+  "section": "22 Generating references › Models and style LoRAs › The model registry"
+ },
+ {
+  "q": "How do I resize an image while keeping the proportions?",
+  "chapter": "28-inker",
+  "section": "28 Inker › Resizing a drawing › Image size"
+ },
+ {
+  "q": "How do I update my character's animations and equipment?",
+  "chapter": "11-a-character-sprite-sheet",
+  "section": "11 A character sprite sheet › What is proven, and what is not"
+ },
+ {
+  "q": "Why can't I delete a tileset that is currently being used?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Tilesets"
+ },
+ {
+  "q": "How do I change the app's configuration settings?",
+  "chapter": "41-configuration",
+  "section": "41 Configuration"
+ },
+ {
+  "q": "How do I recover my original parameters and names from an exported mesh?",
+  "chapter": "07-modelling",
+  "section": "07 Modelling › Round trips"
+ },
+ {
+  "q": "How do I move or rotate a group of objects together?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Layers"
+ },
+ {
+  "q": "How do I find errors in my 3D model's geometry?",
+  "chapter": "07-modelling",
+  "section": "07 Modelling › Checking a mesh"
+ },
+ {
+  "q": "How do I generate music from a text description?",
+  "chapter": "35-muse",
+  "section": "35 Muse"
+ },
+ {
+  "q": "How do I create a repeating tile sheet from multiple surfaces?",
+  "chapter": "22-generating-references",
+  "section": "22 Generating references › Sheets › Tilesets"
+ },
+ {
+  "q": "How do I arrange and scale my 3D model's texture maps?",
+  "chapter": "30-clay",
+  "section": "30 Clay › Texture coordinates › The UV view"
+ },
+ {
+  "q": "How do I use keyboard shortcuts during a judging pass?",
+  "chapter": "38-shortcuts",
+  "section": "38 Keyboard shortcuts › Review — a judging pass"
+ },
+ {
+  "q": "What happens to my work if the app crashes before I save?",
+  "chapter": "31-mason",
+  "section": "31 Mason › Saving"
+ },
+ {
+  "q": "How do I select multiple non-adjacent layers or rows?",
+  "chapter": "29-inker-animation",
+  "section": "29 Inker: animation › Ranges › The layers panel is the other half of a range"
+ },
+ {
+  "q": "Will retargeting delete my animation rig?",
+  "chapter": "45-pipelines",
+  "section": "45 Pipelines › Derived artifacts"
+ },
+ {
+  "q": "How do I keep colors and shapes consistent across different angles?",
+  "chapter": "27-sprite-sheets",
+  "section": "27 Sprite sheets › Pixel art from the sheet"
+ },
+ {
+  "q": "How do I use keyboard shortcuts to adjust mesh geometry with the mouse?",
+  "chapter": "30-clay",
+  "section": "30 Clay › Element modes › Dragging an operation's number"
+ },
+ {
+  "q": "How do I place and undo complex character models?",
+  "chapter": "30-clay",
+  "section": "30 Clay › Adding a primitive › Figures"
+ },
+ {
+  "q": "How do I edit colors or reorder slots in the palette?",
+  "chapter": "28-inker",
+  "section": "28 Inker › Colour › Editing the table"
+ },
+ {
+  "q": "How do I keep my painted work while updating other animations?",
+  "chapter": "26-poser",
+  "section": "26 Poser › The sheet panel › Making another one"
+ },
+ {
+  "q": "Why does the viewport change when I select a reference image?",
+  "chapter": "24-the-3d-viewport",
+  "section": "24 The 3D viewport"
+ },
+ {
+  "q": "How do I map external animation bones to a Realmspinner skeleton?",
+  "chapter": "46-extending",
+  "section": "46 Extending Realmspinner › Adding a clip mapping table"
+ },
+ {
+  "q": "Where do I find the error message after I close the banner?",
+  "chapter": "21-home",
+  "section": "21 The Home screen › Failures"
+ },
+ {
+  "q": "How do I download the extra assets like music or rig?",
+  "chapter": "40-installation",
+  "section": "40 Installation › Python dependencies › If you installed rather than cloned"
+ },
+ {
+  "q": "Why does my bounding box look three times larger than it should?",
+  "chapter": "45-pipelines",
+  "section": "45 Pipelines › Blender out of process"
+ },
+ {
+  "q": "What does a low score mean for mesh reconstruction?",
+  "chapter": "23-generating-meshes",
+  "section": "23 Generating meshes › Mesh audit and mesh report"
+ },
+ {
+  "q": "How do I create a basic room with layers and triggers?",
+  "chapter": "09-building-a-map",
+  "section": "09 Building a map › Try it"
+ },
+ {
+  "q": "How do I save my map for use in Tiled?",
+  "chapter": "32-plotter",
+  "section": "32 Plotter › Working with Tiled"
+ }
+]

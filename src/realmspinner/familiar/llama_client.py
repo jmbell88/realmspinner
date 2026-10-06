@@ -296,8 +296,11 @@ async def chat(
     await server.ensure_started(expected_card_sha=expected_card_sha)
     server.touch()
     headers = _headers(server)
+    # trust_env=False: the server is always loopback and the prompts are private;
+    # httpx would otherwise honour HTTP(S)_PROXY and the Windows system proxy and hand
+    # a chat turn to the proxy (the TRELLIS clients had exactly this, 2026-10-03 audit).
     async with httpx.AsyncClient(
-        base_url=server.base_url, timeout=CHAT_TIMEOUT, transport=transport
+        base_url=server.base_url, timeout=CHAT_TIMEOUT, transport=transport, trust_env=False
     ) as client:
         max_tokens = sampling["max_tokens"]
         if skill is not None and skill in contract.SIZED_SKILLS:

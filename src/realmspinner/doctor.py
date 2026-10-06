@@ -653,9 +653,10 @@ def _familiar_checks(config: Config) -> list[Check]:
     is the one place it can ever be, so every row goes through the generic
     ``_registry_row`` rather than a hand-built check like ``_exe_check``.
 
-    **An absent optional row (``familiar_mmproj``, vision, 2026-09-24) says so
-    in its own detail, rather than reading like the same "you need this"
-    prompt the required rows print.** Still ``_registry_row``'s own
+    **An absent optional row (``familiar_mmproj``, vision, 2026-09-24;
+    ``familiar_embed``, retrieval, 2026-10-06) says so in its own detail,
+    rather than reading like the same "you need this" prompt the required rows
+    print.** Still ``_registry_row``'s own
     ``pending_install=True``/``fatal=False`` underneath -- the CLI's ``SETUP``
     label (never ``WARN``/``FATAL``) already treats "not downloaded yet" as
     the ordinary state of a fresh machine for every registry row -- this only
@@ -669,8 +670,10 @@ def _familiar_checks(config: Config) -> list[Check]:
         if ok:
             detail = str(base)
         elif spec.optional:
+            # What is lost is the row's own clause (``FamiliarModel.without``):
+            # "text-only" is true of vision and false of retrieval.
             detail = (
-                f"optional -- not installed; Familiar runs text-only without it. "
+                f"optional -- not installed; {spec.without or 'Familiar runs without it.'} "
                 f"To add it:\n  {fetch.download_text(config, 'familiar', spec)}"
             )
         else:

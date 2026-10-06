@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -276,7 +277,16 @@ class Index:
             score += idf * (f * (_K1 + 1)) / denom
         return score
 
-    def search(self, query: str, limit: int = 6, budget_tokens: int = 2500) -> list[Citation]:
+    def rank(self, query: str, k: int | None = None) -> list[tuple[int, float]]:
+        """The BM25 ranking as ``[(chunk_index, score)]``, best first, cut to *k*.
+
+        Only chunks that score above zero appear, so a query sharing no term
+        with the Manual ranks nothing. Exposed (rather than kept inside
+        :meth:`search`) so a second ranking -- the embedder's cosine order,
+        ``service/familiar_manual.py`` -- can be fused with this one by
+        reciprocal rank and the *same* :meth:`citations` regrouping and budget
+        then applied to whichever order won.
+        """
         query_terms = tokenize(query)
         if not query_terms or self._n == 0:
             return []
@@ -285,13 +295,28 @@ class Index:
             score = self._score(i, query_terms)
             if score > 0:
                 scored.append((score, i))
-        if not scored:
-            return []
         # Deterministic tie-break: score descending, then source order (the
         # chunk index), so equal scores never depend on sort stability across
         # runs or Python versions.
         scored.sort(key=lambda pair: (-pair[0], pair[1]))
+        if k is not None:
+            scored = scored[: max(k, 0)]
+        return [(idx, score) for score, idx in scored]
 
+    def search(self, query: str, limit: int = 6, budget_tokens: int = 2500) -> list[Citation]:
+        ranked = self.rank(query, max(limit, 1) * 4)
+        return self.citations([idx for idx, _score in ranked], limit, budget_tokens)
+
+    def citations(
+        self, indices: Sequence[int], limit: int = 6, budget_tokens: int = 2500
+    ) -> list[Citation]:
+        """Citations for chunk *indices*, best first -- from any ranking.
+
+        The regrouping, the per-citation cap and the word budget live here and
+        nowhere else, so BM25 alone and the BM25+embedding fusion are held to
+        exactly the same limits (and ``contract.cited``'s ``[n]`` checks, which
+        read these citations, see no difference between them).
+        """
         # A long section is split into several chunks by _split_long_section,
         # each of which can score high enough on its own to make the top-N
         # cut -- e.g. "13 Putting it in a game > 3D engines" split in two,
@@ -301,7 +326,7 @@ class Index:
         # from a real second source.
         groups: dict[tuple[str, str | None], list[int]] = {}
         order: list[tuple[str, str | None]] = []
-        for _score, idx in scored[: max(limit, 1) * 4]:
+        for idx in indices[: max(limit, 1) * 4]:
             chunk = self.chunks[idx]
             key = (chunk.chapter, chunk.anchor)
             if key not in groups:

@@ -154,8 +154,9 @@ Windows release (`ggml-org/llama.cpp`, two zips upstream splits apart — the se
 vision projector, and EmbeddingGemma 2, a small CPU-only model that lets Familiar find a Manual section
 or a Library row by meaning and not only by keyword. All of them live in Settings → Models under the
 *Familiar* heading; `docs/MODELS.md` carries the full commands and says where each pin stands. The
-weights and vision rows are Google's own `google/gemma-4-12B-it-qat-q4_0-gguf`; the retrieval row is not
-in the registry yet, so Familiar answers from the keyword ranking alone. A machine without any of it
+weights and vision rows are Google's own `google/gemma-4-12B-it-qat-q4_0-gguf`; the retrieval row is
+`ggml-org/embeddinggemma-2-GGUF`, about 0.3 GB, kept on the processor so it never takes room from a job.
+Without it Familiar answers from the keyword ranking alone. A machine without any of it
 loses nothing else: `realmspinner doctor` lists each missing Familiar row as `pending_install` with the
 command to fetch it, which is a note and not a fault, and `doctor` still exits 0.
 

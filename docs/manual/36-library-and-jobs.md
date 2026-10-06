@@ -134,6 +134,32 @@ These values are the rail's controls, plus a select-all above the grid.
   claiming everything would leave the older jobs out of the delete that usually follows. Pressing it
   again once everything shown is ticked clears them.
 
+**Searching by what a job was about.** With the optional **Familiar retrieval (EmbeddingGemma 2)** row
+installed (Settings → Models), the free words in the box also find jobs whose name or prompt never
+contained them: `blade` finds the job whose prompt says "a rusty iron longsword", and `something to
+store gold` finds the treasure chest. It works on the words only — a `tag:` or `name:` prefix still
+matches exactly as before and is never reinterpreted — and only once you have typed at least two
+characters. The other filters still decide what may be shown, so a job in the trash, one on the wrong
+side of **Status**, **Kind** or the favourites star, or one without the tag you asked for never turns
+up because of what it is about. At most twenty jobs are added by meaning, the closest first, and a
+job is added only when it stands clearly out from the rest of your library for what you typed, so a
+search that means nothing to any of them adds nothing rather than the nearest twenty. A job a word
+also matches literally is ranked above one that is only close in meaning. The order on screen is still
+the Sort you chose.
+
+Nothing is asked of you to make this work. When a job finishes, Realmspinner quietly records what it
+was about on the processor — never the graphics card, and never in the way of a job that is running —
+and the jobs you already had are recorded a few at a time in the background, on the order of thirty a
+second, while nothing is queued or running. A job that has not been recorded yet, a failed or
+cancelled one, a sweep unit and anything with neither a name nor a prompt is simply found by its words
+as always; renaming a job records it again. The meaning ranking is not used until at least twenty jobs
+have been recorded, because a shorter list is browsed rather than searched. The helper stops itself
+after five idle minutes, so the first search after a pause may show only the word matches for a few
+seconds before the meaning matches join them.
+
+Without the row installed none of this exists: no helper starts, nothing is recorded, and the box is
+exactly the word search described above.
+
 **Sorting.** The combo offers date, name, kind, time taken, size on disk, score and grade, and the
 caret beside it reverses whichever is chosen. Every sort puts the rows it *cannot* answer for at the
 end, in both directions — a job that never ran has no duration, an asset whose directory has not been
