@@ -59,6 +59,7 @@ NO_HELP_BUTTON = {
     "plotter_textures",  # a texture cache, drawn by nobody
     "packwright_preview",  # the atlas itself; its controls are packwright-settings
     "packwright_textures",  # a texture cache, drawn by nobody
+    "clay_adjust",  # a card over the viewport: the op dialog's own fields
     "clay_menu",  # a menu bar
     "clay_strip",  # the menu names above the header; a menu bar
     # The axis ball in the viewport's corner and the hint line under it. Chrome

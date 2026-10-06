@@ -171,6 +171,7 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Q / W / E / R | Select / move / rotate / scale |
 | 1 / 2 / 3 / 4 | Vertex / edge / face / object mode |
 | E | Extrude, in any element mode |
+| Shift+R | Repeat the last operation that had numbers (bevel, inset, loop cut…), at the same values, on what is selected now — element modes |
 | Alt+Z | Toggle X-ray, so an element behind the surface can be picked |
 | P | Separate Selection — splits the selected faces into a new object, in face mode |
 | V | Rip — splits every vertex the selected edges touch, in edge mode |

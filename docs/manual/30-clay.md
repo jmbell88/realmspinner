@@ -369,6 +369,24 @@ large rims it refuses as well, past about ten thousand vertices a ring: working 
 line up means comparing every way of turning one against the other, and at that size the window
 would sit frozen while it did.
 
+### Adjusting the last operation, and repeating it
+
+An operation that takes numbers — bevel, inset, loop cut, weld, and the rest of the ones that open a
+dialog — leaves a small **adjust card** in the viewport's bottom-left corner. It holds the same fields
+the dialog had, and changing one re-runs the operation from the state it started in: you see the new
+width on the mesh, and the whole thing is still **one** undo step, the same mesh you would have got by
+running the operation at that value in the first place. If the new value is one the operation refuses
+— a bevel wider than the edges it sits on — the previous result stays on screen and the card says why.
+
+The card is there only while the model is exactly as the operation left it. Any later edit, an undo, or
+a change to what is selected hides it, because from then on "change the width" would no longer mean
+"redo that operation".
+
+**Repeat Last** (`Shift`+`R`, and the first row of the **Mesh** menu) runs the last such operation again,
+at the same values, on whatever is selected now — bevel one edge, select another, press it. It remembers
+per document, so an agent's own document repeats only what the agent did; with nothing to repeat it says
+so.
+
 The first operation that changes an object's topology **freezes** it. A box that has been extruded is
 no longer describable as "box, size 1", so the properties panel switches from the generator's
 parameters to a vertex and face count.

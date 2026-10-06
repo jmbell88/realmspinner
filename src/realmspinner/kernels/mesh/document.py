@@ -386,6 +386,14 @@ class ClayDoc:
         # ``selection``, and never written to a file.
         self.element_mode: str = "object"
         self.element_sel: dict[int, el.ElementSel] = {}
+        # The last parameterised element op that ran (``studio/modes/clay/
+        # recent_op.RecentOp``), or None. Session state on the document for
+        # ``element_mode``'s reason -- an op's ``enabled(doc)`` is the only
+        # question the registry asks, so Repeat Last can only answer it from
+        # here, and an agent's own tab then repeats only its own ops. Typed
+        # ``Any`` because the record belongs to the layer above (a kernel may
+        # not import it); never written to a file and never undoable.
+        self.recent_op: Any = None
         self.history = UndoStack()
         # A change counter, for anything that caches off the document -- the
         # viewport's GPU upload, the outliner's row list. Deliberately *not*

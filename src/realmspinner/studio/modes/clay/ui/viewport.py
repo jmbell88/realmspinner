@@ -107,6 +107,7 @@ class ClayViewport:
         from ....main import TARGET_FPS
         from ....panes import overlay
         from .. import generate as clay_generate
+        from .panes import adjust as clay_adjust
         from .panes import header as clay_header
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
@@ -200,6 +201,11 @@ class ClayViewport:
         # Opposite corner from the widget: two readouts in one corner is one of
         # them unreadable.
         clay_hud.stats_overlay(ctx, rect)
+        # Bottom-left: the op just run, with its numbers still in reach. Clears
+        # ``_build_hovered`` for ``axis_widget``'s reason -- a press on the card
+        # must not also pick the mesh behind it.
+        if clay_adjust.draw(ctx, rect):
+            self._build_hovered = False
         clay_menu.draw(ctx, view)
         # Last, and under the image: read when you are stuck, and a line over
         # the model covers the thing you are stuck on.

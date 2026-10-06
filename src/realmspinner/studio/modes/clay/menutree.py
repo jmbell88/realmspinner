@@ -131,7 +131,7 @@ GROUPS: dict[str, Group] = {
     ),
     "mesh": Group(
         "Mesh",
-        ("extrude", "dissolve", "collapse", "bisect", "knife"),
+        ("repeat-last", "extrude", "dissolve", "collapse", "bisect", "knife"),
     ),
     "vertex": Group("Vertex", ("weld", "vertex-slide")),
     "edge": Group(

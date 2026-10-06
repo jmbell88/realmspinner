@@ -5330,3 +5330,33 @@ def test_diagnose_reports_a_copy_family_that_no_longer_agrees_on_its_material() 
     # A single named object is asked about itself only, so a finding about how
     # three objects relate has no business in that answer.
     assert "scene" not in _payload(agent_clay.call(ctx, session, "clay_diagnose", {"uid": uid}))
+
+
+def test_clay_op_repeat_last_refuses_with_nothing_then_repeats_the_agents_own_op() -> None:
+    """Repeat Last reaches the MCP surface through the derived ``clay_op`` enum,
+    and the record lives on the agent's own document: with no op of its own to
+    repeat it refuses by name, and after one it repeats that one."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert "repeat-last" in set(
+        {t.name: t for t in agent_clay.tools()}["clay_op"].schema["properties"]["name"]["enum"]
+    )
+
+    assert agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})["isError"] is False
+    agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [0]})
+    refused = agent_clay.call(ctx, session, "clay_op", {"name": "repeat-last"})
+    assert refused["isError"] is True
+    assert refused["content"][0]["text"] == "Nothing to repeat."
+
+    ran = agent_clay.call(
+        ctx, session, "clay_op", {"name": "inset", "params": {"thickness": 0.2}}
+    )
+    assert ran["isError"] is False, ran
+    assert tab.doc.recent_op is not None
+    agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [2]})
+    again = agent_clay.call(ctx, session, "clay_op", {"name": "repeat-last"})
+    assert again["isError"] is False, again
+    assert _payload(again)["ran"] is True
+    assert tab.doc.recent_op.params["thickness"] == 0.2

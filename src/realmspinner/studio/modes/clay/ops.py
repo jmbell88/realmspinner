@@ -46,6 +46,7 @@ from typing import Any
 import numpy as np
 
 from ....kernels.mesh import shading as _shading
+from . import recent_op as _recent
 
 __all__ = [
     "OPS",
@@ -289,6 +290,7 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
         value = min(max(float(values[param.name]), param.low), param.high)
         values[param.name] = int(value) if param.stores_int else value
     head = doc.history.head
+    before = _recent.snapshot(doc)
     mark = doc.history.mark()
     try:
         result = op.run(ctx, doc, **values)
@@ -311,6 +313,13 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
         doc.history.collapse_since(mark)
         return False
     _one_step(doc, op, mark, head)
+    # What the adjust card and Repeat Last read. Only a parameterised op that
+    # started in an element mode and actually pushed a step: a bare action has
+    # nothing to adjust, an object-level op is a different selection model, and
+    # an op that pushed nothing (a background decimate, a no-op) has no step
+    # for the card to be live against.
+    if op.params and before[0] != "object" and doc.history.head != head:
+        _recent.record(doc, op.name, values, before)
     return True
 
 
@@ -1859,6 +1868,28 @@ def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
         return
     for uid in uids:
         manifold.pop(uid, None)
+
+
+def _repeat_last_reason(doc: Any) -> str:
+    """Why Repeat Last cannot run, or ``""``. ``enabled`` is derived from it.
+
+    One predicate for both so the sentence cannot drift from the gate (the
+    clay-07 rule). Over MCP this is the refusal an agent reads, and because the
+    record lives on the document an agent can only ever repeat its own tab's
+    last op.
+    """
+    recent = doc.recent_op
+    if recent is None:
+        return "Nothing to repeat."
+    op = get(recent.op_name)
+    if doc.element_mode not in op.modes:
+        return f"{op.label.rstrip('.')} works in {' or '.join(op.modes)} mode."
+    return reason_for(op, doc) if not op.enabled(doc) else ""
+
+
+def _repeat_last(ctx: Any, doc: Any, **_: Any) -> bool:
+    recent = doc.recent_op
+    return run(ctx, doc, get(recent.op_name), **recent.params)
 
 
 def _delete(ctx: Any, doc: Any, **_: Any) -> None:
@@ -5419,6 +5450,19 @@ def _register_defaults() -> None:
                     warn="Each level multiplies the face count by four.",
                 ),
             ),
+        )
+    )
+    register(
+        Op(
+            name="repeat-last",
+            label="Repeat Last",
+            modes=ELEMENT_MODES,
+            run=_repeat_last,
+            enabled=lambda doc: not _repeat_last_reason(doc),
+            reason=_repeat_last_reason,
+            key="Shift+R",
+            hint="Runs the last parameterised element operation again, at the "
+            "same values, on what is selected now.",
         )
     )
     register(

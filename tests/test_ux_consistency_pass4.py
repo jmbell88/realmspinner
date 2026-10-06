@@ -343,15 +343,17 @@ def test_clay_header_popover_units_stay_in_the_label():
 
 
 def test_clay_menu_op_params_are_each_labelled():
-    """The generic op-param popup loop names each field above its box, one
-    ``field_label`` per iteration -- so a five-param op reads as five named
-    fields, not five bare boxes under the op's own title."""
+    """The generic op-param widget names each field above its box, one
+    ``field_label`` per param -- so a five-param op reads as five named
+    fields, not five bare boxes under the op's own title. ``param_widget`` is
+    the popup's loop body lifted out so the adjust card draws the same one."""
     from realmspinner.studio.modes.clay.ui.panes import menu as clay_menu
 
     source = Path(clay_menu.__file__).read_text(encoding="utf-8")
-    body = source[source.index("def params_popup") :]
+    body = source[source.index("def param_widget") : source.index("def params_popup")]
     assert "widgets.field_label(param.label)" in body
-    assert 'label = f"##{param.label}##{op.name}-{param.name}"' in body
+    assert 'label = f"##{param.label}##{op_name}-{param.name}"' in body
+    assert "param_widget(op.name, param," in source[source.index("def params_popup") :]
 
 
 def test_packwright_cell_pair_matches_inker_bridges_fixed_shape():

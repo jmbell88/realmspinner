@@ -101,6 +101,61 @@ def _row(ctx: Any, state: Any, tab: Any, doc: Any, op: Any) -> None:
         clay_ops.run(ctx, doc, op)
 
 
+def param_widget(op_name: str, param: Any, value: float) -> tuple[bool, float]:
+    """One parameter's label, field and warning. -> ``(changed, new value)``.
+
+    The popup's loop body, lifted out so the viewport's adjust card
+    (``ui/panes/adjust.py``) draws the *same* widget for the same ``Param`` --
+    two copies of "a boolean is a checkbox, a choice is a combo, an integer is
+    a spinner" are two places for a new kind of parameter to land in only one.
+    ``value`` is what the field shows; nothing is written anywhere here.
+    """
+    # Label above the field (2026-09-08 consistency pass); id kept stable,
+    # "Foo##op-name" -> "##Foo##op-name".
+    widgets.field_label(param.label)
+    label = f"##{param.label}##{op_name}-{param.name}"
+    result = (False, float(value))
+    if param.boolean:
+        # A checkbox rather than an int spinner clamped to 0/1 -- "fit to
+        # gap (0=off, 1=on)" was a label carrying the widget's job because
+        # ``Param`` had no boolean until 2026-09-10. Stored exactly as the
+        # int field it replaced did (0.0/1.0), so nothing downstream of
+        # this loop had to change.
+        changed, flag = controls.checkbox(label, bool(value))
+        if changed:
+            result = (True, 1.0 if flag else 0.0)
+    elif param.choices:
+        # A combo over named options rather than a spinner reading "axis
+        # (0=X, 1=Y, 2=Z)". The value stored is still the option's index
+        # -- the same int the field it replaced already wrote -- so
+        # ``run`` and the op function need not know the widget changed.
+        options = [(str(i), choice) for i, choice in enumerate(param.choices)]
+        changed, picked = controls.combo(label, str(int(value)), options)
+        if changed:
+            result = (True, float(int(picked)))
+    elif param.integer:
+        # Honoured rather than declared. Smooth's "levels" is the only
+        # integer parameter and it was drawn as a float field, so it
+        # accepted 1.5 and the op then truncated it -- a number the user
+        # typed, silently becoming a different one.
+        changed, typed = controls.input_int(label, int(value))
+        if changed:
+            result = (True, float(int(min(max(typed, param.low), param.high))))
+    else:
+        changed, typed = controls.input_float(
+            label,
+            float(value),
+            param.step,
+            0.0,
+            clay_ops.format_for(param),
+        )
+        if changed:
+            result = (True, min(max(float(typed), param.low), param.high))
+    if param.warn:
+        widgets.secondary(param.warn)
+    return result
+
+
 def params_popup(ctx: Any, state: Any, tab: Any) -> None:
     """The fields for a parameterised op, and its Apply button.
 
@@ -148,51 +203,9 @@ def params_popup(ctx: Any, state: Any, tab: Any) -> None:
         imgui.pop_text_wrap_pos()
         imgui.dummy((0, sp(tokens.SP_1)))
     for param in op.params:
-        # Label above the field (2026-09-08 consistency pass); id kept
-        # stable, "Foo##op-name" -> "##Foo##op-name".
-        widgets.field_label(param.label)
-        label = f"##{param.label}##{op.name}-{param.name}"
-        if param.boolean:
-            # A checkbox rather than an int spinner clamped to 0/1 -- "fit to
-            # gap (0=off, 1=on)" was a label carrying the widget's job because
-            # ``Param`` had no boolean until 2026-09-10. Stored exactly as the
-            # int field it replaced did (0.0/1.0), so nothing downstream of
-            # this loop had to change.
-            changed, flag = controls.checkbox(
-                label, bool(values.get(param.name, param.default))
-            )
-            if changed:
-                values[param.name] = 1.0 if flag else 0.0
-        elif param.choices:
-            # A combo over named options rather than a spinner reading "axis
-            # (0=X, 1=Y, 2=Z)". The value stored is still the option's index
-            # -- the same int the field it replaced already wrote -- so
-            # ``run`` and the op function need not know the widget changed.
-            options = [(str(i), choice) for i, choice in enumerate(param.choices)]
-            current = str(int(values.get(param.name, param.default)))
-            changed, picked = controls.combo(label, current, options)
-            if changed:
-                values[param.name] = float(int(picked))
-        elif param.integer:
-            # Honoured rather than declared. Smooth's "levels" is the only
-            # integer parameter and it was drawn as a float field, so it
-            # accepted 1.5 and the op then truncated it -- a number the user
-            # typed, silently becoming a different one.
-            changed, value = controls.input_int(label, int(values.get(param.name, param.default)))
-            if changed:
-                values[param.name] = int(min(max(value, param.low), param.high))
-        else:
-            changed, value = controls.input_float(
-                label,
-                float(values.get(param.name, param.default)),
-                param.step,
-                0.0,
-                clay_ops.format_for(param),
-            )
-            if changed:
-                values[param.name] = min(max(float(value), param.low), param.high)
-        if param.warn:
-            widgets.secondary(param.warn)
+        changed, value = param_widget(op.name, param, values.get(param.name, param.default))
+        if changed:
+            values[param.name] = value
     # Greyed rather than drawn live and ignored, which is what "and not
     # tab.saving" after the click amounted to.
     #

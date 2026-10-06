@@ -1571,12 +1571,12 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     why the pane will not call ``doc.step_history`` itself. ``plotter_mode``
     has the same three, for the same reason written out there.
 
-    ``ctx`` is taken and dropped: a jump used to also clear ``ClayState.
-    last_op``, the record an "adjust last operation" card would have re-run
-    from, but the 2026-09-07 audit's clay-10 removed that bookkeeping -- no
-    pane ever read it -- and the parameter stays so the sibling editors'
+    ``ctx`` is taken and dropped: the parameter stays so the sibling editors'
     ``step_history(ctx, tab, index)`` and this one's one caller
-    (``studio/modes/clay/ui/panes/bridge.py``) do not need a signature change over it.
+    (``studio/modes/clay/ui/panes/bridge.py``) share a signature. A jump needs
+    no bookkeeping for the recent op (``ClayDoc.recent_op``): the adjust card
+    is live only while the history head is the step the op pushed, so moving
+    the head hides it by itself.
     """
 
     del ctx
@@ -1698,6 +1698,13 @@ def handle_key(ctx: Any, event: Any) -> bool:
     if name in ELEMENT_KEYS and not shift:
         if not tab.saving:
             doc.set_element_mode(ELEMENT_KEYS[name])
+    elif shift and not alt and _registry_key(ctx, tab, doc, name, shift=True):
+        # Shift+letter registry bindings (Repeat Last is Shift+R). A separate
+        # branch because the bare-letter one below is ``not shift`` -- Shift+R
+        # must not also reach the Scale tool's letter -- and it fires through
+        # the same ``by_key`` the menu prints, so the binding shown and the
+        # binding that fires stay one value.
+        pass
     elif not shift and (
         # The registry first, and the ``or`` short-circuits, so a letter an
         # element mode has claimed still fires its op rather than starting a
@@ -1758,7 +1765,9 @@ def _keyboard_drag(ctx: Any, view: Any, tab: ClayTab, doc: Any, name: str) -> bo
     return bool(view.begin_keyboard_drag(doc, kind))
 
 
-def _registry_key(ctx: Any, tab: ClayTab, doc: Any, name: str) -> bool:
+def _registry_key(
+    ctx: Any, tab: ClayTab, doc: Any, name: str, *, shift: bool = False
+) -> bool:
     """Fire the registry op bound to a bare letter, if there is one.
 
     Checked *before* the tool keys so an element mode can claim a letter the
@@ -1770,7 +1779,7 @@ def _registry_key(ctx: Any, tab: ClayTab, doc: Any, name: str) -> bool:
 
     if tab.saving or doc.element_mode == "object":
         return False
-    op = clay_ops.by_key(doc.element_mode, name.upper())
+    op = clay_ops.by_key(doc.element_mode, ("Shift+" if shift else "") + name.upper())
     if op is None or not op.enabled(doc):
         return False
     return _fire_op(ctx, doc, op)
@@ -1977,8 +1986,8 @@ def _duplicate_selection(ctx: Any, state: ClayState, doc: Any) -> None:
     row (``studio/modes/clay/ui/panes/outliner.py``) call this by name. Before the 2026-09-07
     audit's clay-07 it called ``selection.duplicate_selected`` straight, so
     the edit landed in history under ``add_objects``'s generic "object add"
-    label instead of "Duplicate", and ``ClayState.last_op`` -- read by nothing
-    today, but written by every other op -- never learned Duplicate had run.
+    label instead of "Duplicate". (A bare action like Duplicate is not the
+    recent op -- only a parameterised element op is, see ``recent_op``.)
     Routing both callers through this one function is what lets fixing it
     here fix the outliner's row too without touching that pane.
 

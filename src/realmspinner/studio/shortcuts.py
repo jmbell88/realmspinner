@@ -142,6 +142,7 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ),
             ("1 / 2 / 3 / 4", "Vertex / edge / face / object mode"),
             ("E", "Extrude (with faces selected)"),
+            ("Shift+R", "Repeat the last operation (an element mode)"),
             # Added by the 2026-09-07 audit's clay-08: the X-ray button's own
             # tooltip has named this chord since it was added, and nothing
             # bound it -- including here, where the popup and the manual are

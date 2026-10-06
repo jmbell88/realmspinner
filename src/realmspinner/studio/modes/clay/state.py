@@ -50,11 +50,11 @@ RBLK_SUFFIX = ".rblk"
 
 
 # ``LastOp`` and ``ClayState.last_op`` lived here until the 2026-09-07 audit's
-# clay-10: written by every ``clay_ops.run`` call and read by no pane -- the
-# "adjust last operation" card and Repeat it was recorded for were never
-# built. Removed rather than kept on the chance a future card wants it; a
-# card that does can rebuild the record from the undo stack it would need
-# anyway.
+# clay-10: written by every ``clay_ops.run`` call and read by no pane. Removed
+# rather than kept on the chance a card wanted it. The card and Repeat Last now
+# exist, and so does a record -- ``recent_op.RecentOp`` on the *document*
+# (``ClayDoc.recent_op``), not here: ``Op.enabled`` only ever sees the document,
+# and an agent's own tab must repeat only its own ops.
 
 _uids = itertools.count(1)
 
@@ -357,6 +357,10 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # see ``transform_edit``'s module docstring. Keyed by uid, like every
     # address here, and tiny (one entry per object whose rotation was shown).
     length_unit: str = "m"
+    # Why the adjust card's last re-run was refused ("" when it was not), kept
+    # here so the card can print it on the frames after the refusal. Cleared
+    # by the card itself the moment the recent op stops being live.
+    adjust_message: str = ""
     size_lock_aspect: bool = False
     euler_cache: dict[int, tuple[tuple[float, ...], tuple[float, float, float]]] = field(
         default_factory=dict
