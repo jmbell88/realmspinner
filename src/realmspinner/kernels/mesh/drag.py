@@ -78,6 +78,10 @@ class DragInput:
 
     axis: str = ""
     typed: str = ""
+    #: The unit direction ``axis == "normal"`` locks a translation to. Set by the
+    #: viewport when an Extrude begins its drag on faces (the average face
+    #: normal, in world space); meaningless for any other axis value.
+    normal: np.ndarray | None = field(default=None, repr=False, compare=False)
     #: Set once a number has been typed *and* is parseable, so a caller can tell
     #: "the user is typing" from "the user has typed a value", which read the
     #: same on the string alone at the moment it holds only ``-``.
@@ -122,6 +126,11 @@ def constrain_translation(displacement: np.ndarray, drag: DragInput) -> np.ndarr
     """
     out = np.asarray(displacement, dtype="f8").reshape(3).copy()
     value = drag.value()
+    if drag.axis == "normal" and drag.normal is not None:
+        # An extrude pulls along the face's own normal: the mouse sets how far,
+        # the normal says which way, and a typed number is that distance.
+        direction = np.asarray(drag.normal, dtype="f8").reshape(3)
+        return direction * (value if value is not None else float(np.dot(out, direction)))
     index = _index(drag.axis)
     if value is not None:
         if index is not None:

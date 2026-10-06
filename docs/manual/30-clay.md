@@ -324,12 +324,13 @@ the open edges of every visible object.
 
 | Mode | Operation | What it does |
 | --- | --- | --- |
-| Any | Extrude (`E`) | Pulls the selection off the surface and walls in the gap. It moves nothing — drag what it hands back with `W`. |
-| Faces | Inset Faces | Shrinks each face in place and rings it with the rim it vacated. |
+| Any | Extrude (`E`) | Pulls the selection off the surface and walls in the gap, then starts dragging what it made — along the face normal in face mode, free in edge and vertex mode. |
+| Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
-| Edges | Bevel Edges | Replaces each edge with a flat quad, mitring the corners where several meet. |
-| Edges | Loop Cut | Rings a strip of quads with a new edge loop. |
+| Edges | Bevel Edges (`Ctrl`+`B`) | Replaces each edge with a flat quad, mitring the corners where several meet. The key starts a drag for the width. |
+| Edges | Loop Cut (`Ctrl`+`R`) | Rings a strip of quads with a new edge loop. The key starts a drag for where the loop sits. |
+| Edges | Edge Slide (`Ctrl`+`Shift`+`E`) | Slides the selected loop along its two rails, −1 to +1. The key starts a drag. |
 | Edges | Bridge Loops | Joins two selected boundary loops with a strip of quads. |
 | Edges | Fill Hole | Caps the boundary ring the selected edge belongs to. |
 | Edges, Faces | Collapse | Pulls the selection down to a single point. |
@@ -353,11 +354,40 @@ several disconnected blocks becomes one face *per block*, not one face overall �
 in it is not something this editor's meshes can hold, so there would be nothing to make. And a
 single face on its own is refused: there is no neighbour to merge it with.
 
+### Dragging an operation's number
+
+The operations above with a key — **Inset** (`I`), **Bevel** (`Ctrl`+`B`), **Loop Cut** (`Ctrl`+`R`) and
+**Edge Slide** (`Ctrl`+`Shift`+`E`) — do not open their dialog from the keyboard. They start a **drag**:
+move the pointer and the result is drawn live, with the operation, the number and its unit beside the
+cursor (`Inset thickness 0.050 m`). Distances start at nothing and grow with how far the pointer has
+travelled from where you pressed the key; a position (loop cut, edge slide) starts where the dialog
+would and slides across its range as the pointer crosses the viewport.
+
+Click or `Enter` commits, and it commits **once**: one undo step, the same mesh you would have got from
+the dialog at that value, and the adjust card appears afterwards so the number is still in reach.
+`Esc` or a right-click cancels, and since nothing is written until the commit the document is exactly as
+it was — not even a redraw's worth of change in the history. **Type a number** (`0.1`, then `Enter`) and
+the pointer stops mattering: the value is exactly what you typed. A value the operation refuses is
+named beside the cursor and the last good picture stays on screen.
+
+A click on the same row in a **menu** still opens the dialog, which is the way to give several numbers at
+once or to pick a value you would rather not find with the mouse.
+
+On a very large mesh the preview is redrawn at most about ten times a second once a single redraw
+takes more than about 50 ms, so the pointer stays responsive; the commit always runs the real operation
+at the pointer's final value.
+
 **Extrude** is one operation in all three modes, because it means the same thing in all three. In
 edge mode it grows a quad from each selected *boundary* edge — an edge with a face on each side has
 no open side to grow into, and it says so. In vertex mode it extrudes the border edges between the
 vertices you selected, which is the only reading available: a mesh here stores faces, not loose
 wires, so a vertex on its own has nothing to extrude and says that too.
+
+Pressed as `E`, Extrude also begins a move of what it made — in face mode **locked to the average
+face normal**, which is the direction an extrusion goes (`X`, `Y` or `Z` swaps that for a world
+axis, and `G`/`S` start a free transform). Click or `Enter` ends it as **one** undo step; `Esc` or a
+right-click undoes the extrude as well, so nothing is left behind. The menu's Extrude does not start
+a drag.
 
 **Bridge Loops** is the one to reach for when two things need joining: select the boundary edges of
 both openings and it skins a strip of quads between them, which is what makes two tubes one tube and
@@ -466,7 +496,7 @@ The keyboard joins a drag already under way. While a gizmo is held:
 | Key | What it does |
 | --- | --- |
 | `X` / `Y` / `Z` | Lock the drag to that axis. The same key again clears the lock. |
-| digits, `.`, `-` | Type the value outright — metres for a move, degrees for a rotation, a factor for a scale. |
+| digits, `.`, `-` | Type the value outright — metres for a move, degrees for a rotation, a factor for a scale, and the operation's own unit while dragging an inset, bevel, loop cut or edge slide. |
 | `Backspace` | Take back the last character. |
 | `Enter` | Commit and end the drag. |
 | `Esc` | Cancel it: everything goes back where it was and nothing is recorded. |

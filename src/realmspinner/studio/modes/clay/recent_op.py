@@ -78,7 +78,8 @@ def record(
     return recent
 
 
-def _restore(doc: Any, mode: str, selection: dict[int, Any]) -> None:
+def restore(doc: Any, mode: str, selection: dict[int, Any]) -> None:
+    """Put an element mode and per-object selection back (selection is not undoable)."""
     if doc.element_mode != mode:
         doc.set_element_mode(mode)
     doc.clear_element_sel()
@@ -133,14 +134,14 @@ def adjust(ctx: Any, doc: Any, **changes: float) -> AdjustResult:
     history = doc.history
     if not history.undo(doc):  # pragma: no cover - live() implies a step to undo
         return AdjustResult(False, "Nothing to adjust.")
-    _restore(doc, recent.element_mode, recent.selection)
+    restore(doc, recent.element_mode, recent.selection)
     quiet = _Quiet(ctx)
     ok = clay_ops.run(quiet, doc, op, **(recent.params | changes))
     if ok and doc.recent_op is not recent:
         return AdjustResult(True)
     # Refused, or ran and pushed nothing: either way the old result comes back.
     history.redo(doc)
-    _restore(doc, recent.result_mode, recent.result_selection)
+    restore(doc, recent.result_mode, recent.result_selection)
     doc.recent_op = recent
     reason = quiet.messages[-1] if quiet.messages else "That value changes nothing."
     return AdjustResult(False, reason)

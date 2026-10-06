@@ -216,8 +216,14 @@ class OverlayOps:
         hover = self.hover_element
         items: list[Any] = []
         live: set[int] = set()
+        previewing = self._op_drag.bases if self._grab == "opdrag" else ()
         for obj in doc.objects:
             if not obj.visible or len(obj.mesh.positions) == 0:
+                continue
+            if obj.uid in previewing:
+                # An op drag is drawing a different topology over this object; the
+                # overlay is built from the document's mesh and would sit on
+                # geometry that is not on screen. It comes back at the commit.
                 continue
             live.add(obj.uid)
             # Keyed on what the *document* holds, not on what the accessor

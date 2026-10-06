@@ -1782,18 +1782,30 @@ def _registry_key(
     op = clay_ops.by_key(doc.element_mode, ("Shift+" if shift else "") + name.upper())
     if op is None or not op.enabled(doc):
         return False
-    return _fire_op(ctx, doc, op)
+    return _fire_op(ctx, doc, op, interactive=True)
 
 
-def _fire_op(ctx: Any, doc: Any, op: Any) -> bool:
+def _fire_op(ctx: Any, doc: Any, op: Any, *, interactive: bool = False) -> bool:
     """Run a registry op from the event layer, popping its dialog if it has one.
 
     Shared by the bare-letter path and the Ctrl-shortcut path so a
     parameterised op bound to either kind of key behaves the same way.
+
+    ``interactive`` is the *keyboard's* door and nothing else's: an op with a
+    ``drag`` spec starts the viewport's live op drag instead of the dialog, and
+    Extrude hands straight over to a move along the face normal. The menu strip
+    reaches this function too (``fire_op``) and passes nothing, so a menu click
+    keeps the dialog -- the path for an exact value.
     """
     from . import ops as clay_ops
 
     state = ensure(ctx)
+    if interactive and op.name == "extrude":
+        return _extrude_and_drag(ctx, doc, op)
+    if interactive and op.drag is not None:
+        view = getattr(ctx, "clay_view", None)
+        if view is not None and view.begin_op_drag(doc, op, state.op_params.get(op.name)):
+            return True
     if op.params:
         state.pending_op = op.name
         state.op_params.setdefault(op.name, clay_ops.defaults_for(op))
@@ -1803,6 +1815,32 @@ def _fire_op(ctx: Any, doc: Any, op: Any) -> bool:
         state.open_op_popup = True
         return True
     return clay_ops.run(ctx, doc, op)
+
+
+def _extrude_and_drag(ctx: Any, doc: Any, op: Any) -> bool:
+    """``E``: extrude, then at once drag what it made, as one undo step.
+
+    The mark is taken **before** the extrude so commit can fold the two into
+    one step and Esc can undo both (``DragOps.begin_extrude_drag``). With no
+    viewport, or a grab already live, or nothing for the drag to move, it is
+    the plain extrude it always was -- the fold is closed on every path, since an
+    open gesture switches the undo budget off for the document.
+    """
+    from . import ops as clay_ops
+    from . import recent_op
+
+    view = getattr(ctx, "clay_view", None)
+    if view is None or view.grabbing:
+        return clay_ops.run(ctx, doc, op)
+    history = doc.history
+    before = recent_op.snapshot(doc)
+    mark = history.mark()
+    head = history.head
+    ran = clay_ops.run(ctx, doc, op)
+    if ran and history.head != head and view.begin_extrude_drag(doc, mark, before):
+        return True
+    history.collapse_since(mark)
+    return ran
 
 
 fire_op = _fire_op
@@ -1942,6 +1980,17 @@ def _ctrl_key(
             _fire_op(ctx, doc, op)
     elif name == "tab":
         state.cycle(-1 if shift else 1)
+    elif not tab.saving and not getattr(view, "dragging", False):
+        # A registry op bound to a Ctrl chord the cases above do not own (Bevel
+        # is Ctrl+B, Loop Cut Ctrl+R). Last, so an existing chord can never be
+        # taken by a later registration, and not under a live drag, which swallows
+        # the keys it does not know.
+        from . import ops as clay_ops
+
+        label = ("Ctrl+Shift+" if shift else "Ctrl+") + name.upper()
+        op = clay_ops.by_key(doc.element_mode, label)
+        if op is not None and op.enabled(doc):
+            _fire_op(ctx, doc, op, interactive=True)
     return True
 
 

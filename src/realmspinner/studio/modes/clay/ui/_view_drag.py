@@ -344,7 +344,7 @@ class DragOps:
         # A keyboard drag has no button held, so a press is how it *ends*: the
         # left button commits it and the right cancels, which is Blender's
         # arrangement and the one a modeller's hand already knows.
-        if self._grab == "keydrag":
+        if self._grab in ("keydrag", "opdrag"):
             if button == 1:
                 self._release_drag(doc, button=1)
             else:
@@ -542,6 +542,70 @@ class DragOps:
         self._key_anchor = anchor
         return True
 
+    def begin_extrude_drag(self: ClayView, doc: Any, mark: int, before: Any) -> bool:
+        """Start the drag an ``E`` extrude hands straight over to. -> whether one began.
+
+        ``mark`` is the history mark taken **before** the extrude ran and
+        ``before`` the element mode and selection it started from: commit folds
+        the extrude and the drag into the one step it reads as, and Esc undoes
+        the extrude too (the drag never wrote a step of its own to put back, so
+        what is left to cancel *is* the extrude). On faces the move is locked to
+        the average face normal -- the direction an extrusion is for -- and an
+        axis key or a mid-drag G/R/S releases it; edges and vertices have no
+        such direction and move freely.
+        """
+        if not self.begin_keyboard_drag(doc, "move"):
+            return False
+        self._extrude_gesture = (mark, before)
+        normal = self._selection_normal(doc) if doc.element_mode == "face" else None
+        if normal is not None:
+            self.drag_input.axis = "normal"
+            self.drag_input.normal = normal
+        return True
+
+    def _selection_normal(self: ClayView, doc: Any) -> np.ndarray | None:
+        """The unit average normal of the selected faces, in world space, or ``None``."""
+        from .....kernels.mesh import mesh as bm
+
+        total = np.zeros(3)
+        for uid, sel in doc.element_sel.items():
+            if not len(sel.faces):
+                continue
+            try:
+                obj = doc.by_uid(uid)
+            except KeyError:
+                continue
+            normals = bm.face_normals(obj.mesh)[sel.faces].sum(axis=0)
+            # A normal turns by the inverse transpose of the placement, which is
+            # not the placement itself under a non-uniform scale.
+            matrix = np.asarray(self._world(doc, obj), dtype="f8")[:3, :3]
+            try:
+                total += np.linalg.inv(matrix).T @ normals
+            except np.linalg.LinAlgError:
+                continue
+        length = float(np.linalg.norm(total))
+        return None if length < 1e-9 else total / length
+
+    def _fold_extrude(self: ClayView, doc: Any, *, commit: bool) -> None:
+        """End an extrude gesture: one step on commit, nothing at all on cancel."""
+        gesture, self._extrude_gesture = self._extrude_gesture, None
+        if gesture is None:
+            return
+        from .. import recent_op
+
+        mark, before = gesture
+        history = doc.history
+        history.collapse_since(mark)
+        if commit:
+            top = history.top
+            if top is not None:
+                top.label = "Extrude"
+            return
+        history.undo(doc, redoable=False)
+        # Selection is not undoable, so the undo leaves it on the extrusion's own
+        # faces -- indices that mean nothing on the mesh it just put back.
+        recent_op.restore(doc, *before)
+
     def _view_plane_point(
         self: ClayView, local: tuple[float, float], centre: Any
     ) -> Any:
@@ -664,6 +728,8 @@ class DragOps:
             return True
         if was in ("gizmo", "keydrag"):
             self._settle_drag_tail(doc, was)
+        elif was == "opdrag":
+            self._op_drag_commit(doc)
         elif was == "marquee":
             self._commit_marquee(doc)
         elif was == "knife":
@@ -686,6 +752,7 @@ class DragOps:
             self._commit_element_drag(doc)
         else:
             self._commit_drag(doc)
+        self._fold_extrude(doc, commit=True)
         self._clear_drag_input()
         self._end_keyboard_drag()
 
@@ -703,6 +770,11 @@ class DragOps:
         began on. ``ClayState.activate``'s ``settle_drag`` hook calls this
         against the tab being left, before ``active_uid`` moves.
         """
+        if self._grab == "opdrag":
+            # Leaving the tab mid op drag commits it, as it does a G/R/S drag.
+            self._grab = None
+            self._op_drag_commit(doc)
+            return True
         if self._grab not in ("gizmo", "keydrag"):
             return False
         was, self._grab = self._grab, None
@@ -839,7 +911,7 @@ class DragOps:
         cancels on its own release, which is the fallback for backing out
         before anything has been drawn.
         """
-        return self._grab in ("gizmo", "keydrag", "knife")
+        return self._grab in ("gizmo", "keydrag", "knife", "opdrag")
 
     def _clear_drag_input(self: ClayView) -> None:
         from .....kernels.mesh import drag as bdrag
@@ -878,6 +950,13 @@ class DragOps:
         # handle drag is holding a specific arrow, and switching under it would
         # leave the gizmo's own drag state describing a transform nobody is
         # doing any more.
+        if self._grab == "opdrag":
+            # Digits and the minus sign type the value outright; an axis letter
+            # is accepted by ``DragInput`` and means nothing to an op drag.
+            if not self.drag_input.key(name):
+                return False
+            self._op_drag_update(doc)
+            return True
         switch = {"g": "move", "r": "rotate", "s": "scale"}.get(name)
         if switch is not None and self._grab == "keydrag":
             self._restart_keyboard_drag(doc, switch)
@@ -973,6 +1052,9 @@ class DragOps:
             self._knife_from = self._knife_to = None
             self._release_knife_overlay()
             return True
+        if self._grab == "opdrag":
+            self._op_drag_cancel(doc)
+            return True
         if not self.dragging:
             return False
         self._grab = None
@@ -986,6 +1068,7 @@ class DragOps:
                 if entry is not None:
                     entry.gpu.release()
             self._restore_overlays(doc, drags)
+            self._fold_extrude(doc, commit=False)
         else:
             for uid, was in self._drag_start.items():
                 try:
@@ -1383,6 +1466,8 @@ class DragOps:
             self._drag_gizmo(doc, local)
         elif self._grab == "keydrag":
             self._drag_keyboard(doc, local)
+        elif self._grab == "opdrag":
+            self._op_drag_motion(doc)
         return True
 
     def _begin_element_drag(self: ClayView, doc: Any) -> None:

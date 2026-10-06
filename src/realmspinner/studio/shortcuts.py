@@ -141,8 +141,11 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
                 " / ".join(CLAY_KEYS.values()).capitalize(),
             ),
             ("1 / 2 / 3 / 4", "Vertex / edge / face / object mode"),
-            ("E", "Extrude (with faces selected)"),
+            ("E", "Extrude, then drag it out -- along the face normal in face mode"),
             ("Shift+R", "Repeat the last operation (an element mode)"),
+            ("I", "Inset faces -- drag, type a value, Enter (face mode)"),
+            ("Ctrl+B / Ctrl+R", "Bevel / loop cut -- drag, type a value, Enter (edge mode)"),
+            ("Ctrl+Shift+E", "Edge slide -- drag, type a value, Enter (edge mode)"),
             # Added by the 2026-09-07 audit's clay-08: the X-ray button's own
             # tooltip has named this chord since it was added, and nothing
             # bound it -- including here, where the popup and the manual are

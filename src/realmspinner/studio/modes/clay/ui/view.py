@@ -88,6 +88,7 @@ from ._view_drag import DragOps
 
 # ``__init__`` annotates the live-drag map with it.
 from ._view_drag import _ElementDrag as _ElementDrag
+from ._view_opdrag import OpDragOps
 from ._view_overlay import OverlayOps
 
 # ``__init__`` annotates the overlay cache with it.
@@ -215,7 +216,7 @@ class GizmoDragReadout:
     amount: str
 
 
-class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
+class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, FrameOps):
     """The Clay viewport, from the UI's point of view."""
 
     def __init__(self, ctx: Any, app_ctx: Any = None) -> None:
@@ -269,7 +270,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         self.rebuilds = 0
 
         self._rect = (0.0, 0.0, 1.0, 1.0)
-        self._grab: str | None = None  # orbit | pan | gizmo | marquee | keydrag | knife
+        self._grab: str | None = None  # orbit | pan | gizmo | marquee | keydrag | knife | opdrag
         self._last_mouse = (0.0, 0.0)
         self._drag_uids: list[int] = []
         self._drag_start: dict[int, tuple[Any, Any, Any]] = {}
@@ -326,6 +327,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         self._knife_vao: Any = None
         self._knife_ibo: Any = None
         self._element_drags: dict[int, _ElementDrag] = {}
+        # A live op drag (``_view_opdrag``) and an Extrude's drag gesture, each
+        # ``None`` between gestures.
+        self._op_drag: Any = None
+        self._extrude_gesture: Any = None
         self._overlays: dict[int, _SelOverlay] = {}
         # A collider's own translucent overlay (clay-09, 2026-09-19 audit) --
         # one small per-uid GL cache, the shape ``_overlays`` already uses,

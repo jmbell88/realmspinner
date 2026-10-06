@@ -141,6 +141,33 @@ class Param:
 
 
 @dataclass(frozen=True)
+class DragSpec:
+    """How the mouse drives one of an op's parameters, for the viewport's op drag.
+
+    **Metadata, not a second implementation.** ``kernel`` is the same dotted
+    ``kernels.mesh.ops_*`` name the op's own ``run`` wraps (``_element`` records
+    it on the callable it returns, and a test holds the two equal), so a live
+    preview and the committed run are the same function at the same values.
+
+    ``kind`` says what the pointer's travel means: ``"distance"`` is screen
+    pixels turned into world metres at the selection's depth (the value starts
+    at zero and grows with the distance from where the key was pressed);
+    ``"fraction"`` slides the value across the parameter's own ``low..high``
+    range as the pointer crosses the viewport. Either way the result is clamped
+    to the :class:`Param`'s range, so the drag cannot ask for what ``run`` would
+    clamp anyway. The agent schema and the dialog both ignore the field.
+    """
+
+    param: str
+    kind: str
+    kernel: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("distance", "fraction"):
+            raise ValueError(f"DragSpec kind {self.kind!r}: expected distance or fraction")
+
+
+@dataclass(frozen=True)
 class Op:
     """One invocable operation.
 
@@ -167,6 +194,11 @@ class Op:
     the parameterised ops can show it, because only they open a dialog, which
     is the right restriction: a bare action gives no moment to read anything.
     """
+    drag: DragSpec | None = None
+    """Set on the ops whose first number is best found with the mouse (inset,
+    bevel, loop cut, edge slide). The op's *key* then starts a live drag instead
+    of opening the dialog; a menu click keeps the dialog, which is the path for
+    an exact value. ``None`` for everything else."""
     reason: Callable[[Any], str] = lambda doc: ""
     """Why ``enabled(doc)`` is refused right now, or ``""`` when it is not.
 
@@ -266,6 +298,28 @@ def format_for(param: Param) -> str:
     return f"%.{decimals}f"
 
 
+def resolve_params(op: Op, params: dict[str, Any]) -> dict[str, Any]:
+    """*op*'s parameters as ``run`` will use them: defaults filled, ranges clamped.
+
+    ``run`` is the choke point every surface funnels through, and a live drag
+    previews through the kernel directly -- so the clamp is one function both
+    call, and a preview can never show a value the commit would change.
+    """
+    values = defaults_for(op) | params
+    for param in op.params:
+        value = min(max(float(values[param.name]), param.low), param.high)
+        values[param.name] = int(value) if param.stores_int else value
+    return values
+
+
+def kernel_func(dotted: str) -> Callable[..., Any]:
+    """The ``kernels.mesh.ops_*`` function a :class:`DragSpec` names."""
+    import importlib
+
+    module, func = dotted.rsplit(".", 1)
+    return getattr(importlib.import_module(f"realmspinner.kernels.mesh.{module}"), func)
+
+
 def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
     """Invoke an op, turning a refusal into a toast. -> whether it ran.
 
@@ -285,10 +339,7 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
 
     if not op.enabled(doc):
         return False
-    values = defaults_for(op) | params
-    for param in op.params:
-        value = min(max(float(values[param.name]), param.low), param.high)
-        values[param.name] = int(value) if param.stores_int else value
+    values = resolve_params(op, params)
     head = doc.history.head
     before = _recent.snapshot(doc)
     mark = doc.history.mark()
@@ -656,6 +707,9 @@ def _element(dotted: str) -> Callable[..., None]:
         target = getattr(importlib.import_module(f"realmspinner.kernels.mesh.{module}"), func)
         return run_mesh_op(ctx, doc, target, **params)
 
+    # What ``DragSpec.kernel`` is held equal to, so a drag preview and the
+    # committed run cannot name two different functions.
+    call.kernel = dotted  # type: ignore[attr-defined]
     return call
 
 
@@ -5066,6 +5120,8 @@ def _register_defaults() -> None:
             label="Inset Faces...",
             modes=("face",),
             run=_element("ops_topo.inset_faces"),
+            key="I",
+            drag=DragSpec("thickness", "distance", "ops_topo.inset_faces"),
             enabled=in_mode("face"),
             reason=_in_mode_reason("face"),
             # The 2026-09-11 audit's clay-08: ``ops_topo.inset_faces`` has
@@ -5106,6 +5162,8 @@ def _register_defaults() -> None:
             label="Bevel Edges...",
             modes=("edge",),
             run=_element("ops_bevel.bevel_edges"),
+            key="Ctrl+B",
+            drag=DragSpec("width", "distance", "ops_bevel.bevel_edges"),
             enabled=in_mode("edge"),
             reason=_in_mode_reason("edge"),
             params=(Param("width", "width (m)", 0.05, 0.01),),
@@ -5117,6 +5175,8 @@ def _register_defaults() -> None:
             label="Loop Cut...",
             modes=("edge",),
             run=_element("ops_bevel.loop_cut"),
+            key="Ctrl+R",
+            drag=DragSpec("t", "fraction", "ops_bevel.loop_cut"),
             enabled=in_mode("edge"),
             reason=_in_mode_reason("edge"),
             params=(Param("t", "position", 0.5, 0.05, low=0.0, high=1.0),),
@@ -5252,6 +5312,8 @@ def _register_defaults() -> None:
             label="Edge Slide...",
             modes=("edge",),
             run=_element("ops_model.edge_slide"),
+            key="Ctrl+Shift+E",
+            drag=DragSpec("t", "fraction", "ops_model.edge_slide"),
             enabled=in_mode("edge"),
             reason=_in_mode_reason("edge"),
             hint="Slides the selected edge loop along its own two rails, -1 "
