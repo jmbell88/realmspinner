@@ -571,8 +571,8 @@ def _validate_range(
 
 
 def _validate_number_or_vec(
-    value: Any, field: str
-) -> tuple[float | list[float] | list[list[float]] | None, dict | None]:
+    value: Any, field: str, *, allow_empty: bool = False
+) -> tuple[Any, dict | None]:
     """A number, an array of numbers, or an array of arrays of numbers, every
     one of them finite -- the ``number | array-of-numbers | array-of-arrays``
     shape ``clay_set_params``'s own schema declares for a param value (a
@@ -603,7 +603,40 @@ def _validate_number_or_vec(
     non-empty array of finite numbers, and the outer array must not be empty
     either -- the same two rules the flat case already holds a bare array
     to, one level up.
+
+    **The third level is the curve handles** (``profile_handles``, ``outline_handles``,
+    ``path_handles``): per anchor, an ``[in, out]`` pair of offsets, so an array of
+    arrays of arrays of numbers. ``allow_empty`` is for them alone -- an empty
+    list *is* a handle list (no handles, every anchor a corner), where an empty
+    ``size`` or ``profile`` is a mistake the shape check names.
     """
+    if allow_empty and value == []:
+        return [], None
+    if (
+        isinstance(value, list)
+        and value
+        and all(
+            isinstance(row, list) and row and all(isinstance(side, list) for side in row)
+            for row in value
+        )
+    ):
+        try:
+            cube = [[[float(v) for v in side] for side in row] for row in value]
+        except (TypeError, ValueError, OverflowError):
+            return None, fail(
+                f"{field} must be a number, an array of numbers, or nested arrays of numbers.",
+                field=field,
+                recovery="fix_arguments",
+            )
+        if not all(
+            side and all(math.isfinite(v) for v in side) for row in cube for side in row
+        ):
+            return None, fail(
+                f"{field} must be finite numbers, with no empty row.",
+                field=field,
+                recovery="fix_arguments",
+            )
+        return cube, None
     if isinstance(value, list) and value and all(isinstance(row, list) for row in value):
         try:
             rows = [[float(v) for v in row] for row in value]
@@ -679,7 +712,9 @@ def _validate_params_values(params: dict, field: str) -> dict | None:
     """
     messages = []
     for key in sorted(params):
-        _, failure = _validate_number_or_vec(params[key], f"{field}.{key}")
+        _, failure = _validate_number_or_vec(
+            params[key], f"{field}.{key}", allow_empty=key.endswith("_handles")
+        )
         if failure:
             messages.append(failure["content"][0]["text"])
     if not messages:
@@ -734,7 +769,21 @@ def _params_shape_refusal(params: dict, defaults: dict, field: str, subject: str
                 messages.append(f"{field}.{key} must be a single number for {subject}.")
             continue
         rows = [r for r in want if isinstance(r, list | tuple)]
-        if rows:
+        if not want:
+            # An empty default is a curve-handle list: any number of ``[in, out]``
+            # pairs, including none. The pair's width (2 for a profile or an
+            # outline, 3 for a path) is the builder's to check against its anchors.
+            ok = isinstance(value, list) and all(
+                isinstance(row, list)
+                and len(row) == 2
+                and all(isinstance(side, list) and side for side in row)
+                for row in value
+            )
+            if not ok:
+                messages.append(
+                    f"{field}.{key} must be an array of [in, out] handle pairs for {subject}."
+                )
+        elif rows:
             width = len(rows[0])
             ok = (
                 isinstance(value, list)

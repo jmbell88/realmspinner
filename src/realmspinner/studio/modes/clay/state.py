@@ -361,6 +361,10 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # here so the card can print it on the frames after the refusal. Cleared
     # by the card itself the moment the recent op stops being live.
     adjust_message: str = ""
+    # The curve editor's per-object view and gesture (``curve_edit.CurveUi``),
+    # keyed by uid. Display state: pan, zoom, which point is selected, and the
+    # drag in flight. Never written to a file.
+    curve_ui: dict[int, Any] = field(default_factory=dict)
     size_lock_aspect: bool = False
     euler_cache: dict[int, tuple[tuple[float, ...], tuple[float, float, float]]] = field(
         default_factory=dict

@@ -115,7 +115,9 @@ def test_both_generator_rebuild_doors_go_through_clay_regen() -> None:
     # a ``FunctionDef`` for it at all.
     doors = {
         agent_clay_tools_mod: "_h_set_params",
-        clay_props_mod: "_generator",
+        # The panel's rebuild tail is ``apply_generator_params`` (lifted out of
+        # ``_generator`` so the curve editor shares the one door).
+        clay_props_mod: "apply_generator_params",
     }
     for module, func_name in doors.items():
         path = Path(inspect.getfile(module))

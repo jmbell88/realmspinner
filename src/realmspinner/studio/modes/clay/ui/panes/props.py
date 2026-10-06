@@ -40,6 +40,7 @@ from ... import matlib as clay_matlib
 from ... import mode as clay_mode
 from ... import transform_edit
 from ...state import ClayState
+from . import curve_editor
 from . import outliner as clay_outliner
 
 log = logging.getLogger(__name__)
@@ -144,7 +145,7 @@ def _body(ctx: Any) -> None:
         imgui.dummy((0, sp(tokens.SP_2)))
         _transform(doc, obj, ctx=ctx, state=state)
         imgui.dummy((0, sp(tokens.SP_2)))
-        _generator(doc, obj, ctx=ctx)
+        _generator(doc, obj, ctx=ctx, state=state)
     elif current == "modifiers":
         _modifiers(ctx, doc, obj)
     elif current == "material":
@@ -637,7 +638,7 @@ def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None 
     )
 
 
-def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
+def _generator(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None = None) -> None:
     if obj.generator is None:
         # A frozen object: edited topology, or imported. The panel says what
         # the object is rather than pretending it still has parameters that
@@ -676,7 +677,17 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     # keystroke reached ``set_generator_params``'s own refusal (``OpError``)
     # and popped a fresh toast below, one per character typed.
     imgui.begin_disabled(obj.locked)
+    ui = _display_state(state)
     for key, default in defaults.items():
+        # The curve parameters are drawn by the curve editor, which owns the
+        # three of them and their handle lists: the generic widget for either
+        # was the read-only line below. The handle keys are skipped outright --
+        # the editor edits them *with* the points they belong to.
+        if key in curve_editor.HANDLE_KEYS:
+            continue
+        if key in curve_editor.CURVE_KEYS:
+            curve_editor.draw(doc, obj, key, ui, apply_generator_params, ctx=ctx)
+            continue
         # A name line per param (2026-09-08 consistency pass): the block
         # label above names the generator, not its individual fields, and
         # the old beside-the-box text was the only place a param's name
@@ -697,6 +708,26 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
     imgui.end_disabled()
     if not changed:
         return
+    apply_generator_params(doc, obj, edited, ctx=ctx)
+
+
+def apply_generator_params(
+    doc: Any, obj: Any, edited: dict[str, Any], *, ctx: Any = None
+) -> bool:
+    """Clamp, rebuild and record one edit of a generator's parameters. -> whether it landed.
+
+    The generic parameter loop's tail, lifted out so the curve editor
+    (``curve_editor``) sends its edits through the **same door**: one clamp, one
+    rebuild, one ``regen.carry_over``, one ``set_generator_params`` step, one
+    refusal handling. A second copy would be a second place for "store what the
+    mesh was built from" to rot.
+    """
+    entry = bp.GENERATORS.get(obj.generator)
+    if entry is None:
+        return False
+    defaults, build = entry
+    params = dict(defaults)
+    params.update({k: v for k, v in obj.params.items() if k in defaults})
     # Match what the generator will actually build *before* building it: the
     # 2026-09-06 audit's clay-05 finding was that a segment count of zero (or
     # a torus tube wider than its radius, clay-04) gets clamped inside the
@@ -729,7 +760,7 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
         # on the frame thread and per-keystroke, so it must not toast.
         log.debug("generator %r refused %r", getattr(build, "__name__", build), edited,
                   exc_info=True)
-        return
+        return False
     # ``regen.carry_over`` is what keeps a rebuild from silently discarding a
     # hand-picked Shade Smooth/Flat or a hand-painted per-face material the
     # moment any generator field is touched -- see that module's own
@@ -762,6 +793,8 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None) -> None:
         if ctx is None:
             raise
         clay_ops.toast(ctx, str(error))
+        return False
+    return True
 
 
 def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:

@@ -35,7 +35,10 @@ here with nobody having to remember to extend a list for it.
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
 ``exclusiveMinimum`` reproduces an independently measured count exactly:
-269/56/50/56/40/38/26/23/27/14/3/2 respectively (604 total) -- see
+277/62/50/56/40/38/26/23/27/14/3/2 respectively (618 total; the Blender-Lite plan's Phase D
+added the fourth ``params`` value branch -- nested arrays for curve handles -- to both
+``clay_add_primitive`` and ``clay_set_params``: four ``type`` and three ``items`` markers
+each) -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
 it covers is checked rather than asserted. Two of those twelve keywords,
@@ -1587,10 +1590,10 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 269,
+        "type": 277,
         "additionalProperties": 56,
         "properties": 50,
-        "items": 56,
+        "items": 62,
         "required": 40,
         "minItems": 38,
         "enum": 26,
@@ -1715,8 +1718,13 @@ def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> 
     (``type``, ``minimum: 0``) and ``limit`` (``type``, ``minimum: 1``) so a
     document too large for one reply can be read in pages. Two new properties,
     two walk cases each: 458 + 4 = 462.
+
+    The Blender-Lite plan's Phase D: the shared ``params`` value schema gained a
+    fourth ``anyOf`` branch (nested arrays, for curve handles), present on both
+    ``clay_add_primitive`` and ``clay_set_params``. Four ``type`` cases each:
+    462 + 8 = 470.
     """
-    assert len(_ALL_CASES) == 462
+    assert len(_ALL_CASES) == 470
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------

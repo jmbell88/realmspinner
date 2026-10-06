@@ -111,6 +111,7 @@ from typing import Any
 
 import numpy as np
 
+from . import curves as _curves
 from .mesh import Mesh
 from .mesh import from_faces as _mesh
 
@@ -524,6 +525,170 @@ def _clamp_path(value: Any) -> list[list[float]]:
     return deduped
 
 
+# --- curve handles (the Bézier editor) ---------------------------------------
+#
+# ``profile``, ``outline`` and ``path`` each have a ``*_handles`` sibling: per
+# anchor ``[in, out]`` offsets, flattened into the polyline at build time
+# (``kernels/mesh/curves``). The three ``_clamp_*_curve`` functions below are
+# ``_clamp_profile``/``_clamp_outline``/``_clamp_path`` **with the handles carried
+# alongside**: a handle row is dropped, reordered or mirrored in step with the
+# anchor it belongs to. They are used only when handles exist; with none the
+# plain clamp runs untouched, which is what keeps a document written before
+# handles existed building the same floats.
+#
+# One decision worth stating: the re-centring offset is measured on the
+# *flattened curve*, not on the anchors. A curve can bulge past its anchors, and
+# the editor draws the stored anchors -- if the mesh were centred on one box and
+# the stored points on another, what was drawn and what was built would sit a
+# fixed offset apart.
+
+
+def _flat_extent(
+    points: list[list[float]], rows: list, closed: bool, axis: int
+) -> tuple[float, float]:
+    flat = _curves.flatten(points, rows, closed=closed)
+    values = [p[axis] for p in flat]
+    return min(values), max(values)
+
+
+def _clamp_profile_curve(value: Any, rows: list) -> tuple[list[list[float]], list]:
+    """:func:`_clamp_profile` over anchors that carry handles. -> ``(stations, handles)``."""
+    try:
+        raw = [(float(r), float(y)) for r, y in value]
+    except (TypeError, ValueError):
+        raw = []
+    # ``rows`` was normalised against the raw count by the caller; a truncation
+    # below cuts both together, so the pairing survives it. A value whose rows
+    # would not unpack leaves ``raw`` shorter than that count: no pairing, no handles.
+    if len(rows) != len(raw):
+        rows = []
+    stations = [[abs(r), y] for r, y in raw]
+    if rows:
+        rows = [
+            [[-ix if r < 0 else ix, iy], [-ox if r < 0 else ox, oy]]
+            for ((ix, iy), (ox, oy)), (r, _y) in zip(rows, raw, strict=True)
+        ]
+    stations = stations[:MAX_PROFILE_STATIONS]
+    rows = rows[:MAX_PROFILE_STATIONS]
+    for i in range(1, len(stations)):
+        if stations[i][1] < stations[i - 1][1]:
+            stations[i][1] = stations[i - 1][1]
+    deduped: list[list[float]] = []
+    kept: list = []
+    for k, station in enumerate(stations):
+        if deduped and deduped[-1] == station:
+            continue
+        deduped.append(station)
+        if rows:
+            kept.append(rows[k])
+    if deduped:
+        lo, hi = _flat_extent(deduped, kept, False, 1)
+        mid = (lo + hi) / 2.0
+        for station in deduped:
+            station[1] -= mid
+    for i in range(1, len(deduped) - 1):
+        if deduped[i][0] <= 0.0:
+            deduped[i][0] = MIN_PROFILE_RADIUS
+    if len(deduped) < 2 or all(radius <= 0.0 for radius, _ in deduped):
+        return [list(station) for station in LATHE_DEFAULT_PROFILE], []
+    return deduped, kept if _curves.has_curves(kept) else []
+
+
+def _clamp_outline_curve(value: Any, rows: list) -> tuple[list[list[float]], list]:
+    """:func:`_clamp_outline` over corners that carry handles. -> ``(corners, handles)``.
+
+    Reversing a polygon's winding reverses the order of its anchors **and swaps
+    every anchor's in and out handle** -- the curve is walked the other way, so
+    what arrived is now what leaves.
+    """
+    try:
+        corners = [[float(x), float(y)] for x, y in value]
+    except (TypeError, ValueError):
+        corners = []
+    corners = corners[:MAX_OUTLINE_CORNERS]
+    rows = rows[:MAX_OUTLINE_CORNERS]
+    deduped: list[list[float]] = []
+    kept: list = []
+    for k, corner in enumerate(corners):
+        if deduped and deduped[-1] == corner:
+            continue
+        deduped.append(corner)
+        if rows:
+            kept.append(rows[k])
+    if len(deduped) > 1 and deduped[0] == deduped[-1]:
+        deduped.pop()
+        if kept:
+            kept.pop()
+    # The winding of the *curve*, not of the anchors: a bulged outline can be
+    # clockwise by its anchors and counter-clockwise by its flattened edge.
+    area = _signed_area(_curves.flatten(deduped, kept, closed=True))
+    if area < 0.0:
+        deduped.reverse()
+        kept = [[row[1], row[0]] for row in reversed(kept)]
+    if deduped:
+        x_lo, x_hi = _flat_extent(deduped, kept, True, 0)
+        y_lo, y_hi = _flat_extent(deduped, kept, True, 1)
+        cx, cy = (x_lo + x_hi) / 2.0, (y_lo + y_hi) / 2.0
+        for corner in deduped:
+            corner[0] -= cx
+            corner[1] -= cy
+    if len(deduped) < 3 or area == 0.0:
+        return [list(corner) for corner in SWEEP_DEFAULT_OUTLINE], []
+    return deduped, kept if _curves.has_curves(kept) else []
+
+
+def _clamp_path_curve(value: Any, rows: list) -> tuple[list[list[float]], list]:
+    """:func:`_clamp_path` over points that carry handles. -> ``(points, handles)``."""
+    try:
+        points = [[float(x), float(y), float(z)] for x, y, z in value]
+    except (TypeError, ValueError):
+        points = []
+    points = points[:MAX_PATH_POINTS]
+    rows = rows[:MAX_PATH_POINTS]
+    deduped: list[list[float]] = []
+    kept: list = []
+    for k, point in enumerate(points):
+        if deduped and deduped[-1] == point:
+            continue
+        deduped.append(point)
+        if rows:
+            kept.append(rows[k])
+    if deduped:
+        centre = []
+        for axis in range(3):
+            lo, hi = _flat_extent(deduped, kept, False, axis)
+            centre.append((lo + hi) / 2.0)
+        for point in deduped:
+            for axis in range(3):
+                point[axis] -= centre[axis]
+    if len(deduped) < 2:
+        return [list(point) for point in TUBE_DEFAULT_PATH], []
+    return deduped, kept if _curves.has_curves(kept) else []
+
+
+def _clamp_handles(value: Any) -> list:
+    """A ``*_handles`` value with no anchors beside it to be checked against.
+
+    Shape only -- numbers, nested lists, finite -- and ``[]`` for anything else.
+    Its length is checked against the anchors by :func:`clamp_params` when both
+    are present, and again by the builder, which trusts neither.
+    """
+    try:
+        rows = [[[float(v) for v in side] for side in row[:2]] for row in value]
+    except (TypeError, ValueError, IndexError):
+        return []
+    ok = all(len(row) == 2 and len(row[0]) == len(row[1]) for row in rows)
+    return rows if ok and not _is_non_finite(rows) else []
+
+
+#: ``anchor key -> (handle key, the joint clamp, the anchors' row width)``.
+_CURVE_KEYS: dict[str, tuple[str, Callable[[Any, list], tuple[list[list[float]], list]], int]] = {
+    "profile": ("profile_handles", _clamp_profile_curve, 2),
+    "outline": ("outline_handles", _clamp_outline_curve, 2),
+    "path": ("path_handles", _clamp_path_curve, 3),
+}
+
+
 # ``stairs``' own floor and ceiling on step count -- tranche 5's game
 # primitives (below). Six faces per step (a plain box), so a ceiling here is
 # a face-count ceiling once multiplied out: 64 steps is 384 faces, well
@@ -563,6 +728,9 @@ _PROFILE_CLAMPS: dict[str, Callable[[Any], list[list[float]]]] = {
     "profile": _clamp_profile,
     "outline": _clamp_outline,
     "path": _clamp_path,
+    "profile_handles": _clamp_handles,
+    "outline_handles": _clamp_handles,
+    "path_handles": _clamp_handles,
 }
 
 
@@ -642,7 +810,25 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
         if key in out:
             out[key] = clamp(out[key])
     for key, normalise in _PROFILE_CLAMPS.items():
-        if key in out:
+        if key not in out:
+            continue
+        if key in _CURVE_KEYS:
+            handle_key, joint, dim = _CURVE_KEYS[key]
+            try:
+                count = len(out[key])
+            except TypeError:
+                count = -1
+            rows = _curves.normalise_handles(out.get(handle_key), count, dim)
+            if rows:
+                # Handles present and matching: the anchors and the handles are
+                # clamped *together*, so a dropped or reordered anchor takes its
+                # handle row with it.
+                out[key], out[handle_key] = joint(out[key], rows)
+            else:
+                out[key] = normalise(out[key])
+                if handle_key in out:
+                    out[handle_key] = []
+        elif key.removesuffix("_handles") not in out:
             out[key] = normalise(out[key])
     if generator == "torus" and "tube" in out and "radius" in out:
         out["tube"] = min(abs(float(out["tube"])), abs(float(out["radius"])))
@@ -1853,8 +2039,29 @@ LATHE_DEFAULT_PROFILE: tuple[tuple[float, float], ...] = (
 )
 
 
+def _profile_stations(profile: Any, handles: Any) -> list[list[float]]:
+    """A lathe's stations: the clamped profile, with any curve flattened into it.
+
+    With no handles this is ``_clamp_profile(profile)`` and nothing else -- the
+    exact call a document from before handles existed made. With handles the
+    anchors are clamped *with* them, the curve is flattened, and the flattened
+    polyline goes through the plain clamp once more, so a bulge that doubles back
+    in ``y`` or dips to zero radius is held to the same rules a drawn profile is.
+    """
+    try:
+        rows = _curves.normalise_handles(handles, len(profile), 2)
+    except TypeError:
+        rows = []
+    if not rows:
+        return _clamp_profile(profile)
+    anchors, kept = _clamp_profile_curve(profile, rows)
+    return _clamp_profile(_curves.flatten(anchors, kept, closed=False))
+
+
 def lathe(
-    profile: Sequence[Sequence[float]] = LATHE_DEFAULT_PROFILE, segments: int = 16
+    profile: Sequence[Sequence[float]] = LATHE_DEFAULT_PROFILE,
+    segments: int = 16,
+    profile_handles: Any = (),
 ) -> Mesh:
     """The general case of :func:`column`: an arbitrary profile of
     ``[radius, y]`` stations, bottom to top, revolved about Y -- rather than
@@ -1896,7 +2103,7 @@ def lathe(
     rather than spread across the whole square.
     """
     n = _clamp_segments(segments)
-    stations = _clamp_profile(profile)
+    stations = _profile_stations(profile, profile_handles)
     positions, faces = _revolve(stations, n)
 
     bottom_pole = float(stations[0][0]) == 0.0
@@ -1982,6 +2189,7 @@ def sweep(
     taper: float = 1.0,
     twist: float = 0.0,
     sections: int = 1,
+    outline_handles: Any = (),
 ) -> Mesh:
     """A closed 2D ``outline`` extruded along Z -- the other family of shape a
     lathe cannot reach. Revolving a profile about an axis gives every
@@ -2059,7 +2267,15 @@ def sweep(
     the same "own quadrant" rule ``cylinder``'s two circular discs already
     follow.
     """
-    corners = _clamp_outline(outline)
+    try:
+        rows = _curves.normalise_handles(outline_handles, len(outline), 2)
+    except TypeError:
+        rows = []
+    if rows:
+        anchors, kept = _clamp_outline_curve(outline, rows)
+        corners = _clamp_outline(_curves.flatten(anchors, kept, closed=True))
+    else:
+        corners = _clamp_outline(outline)
     n = len(corners)
     m = _clamp_sections(sections)
     d = abs(float(depth))
@@ -2158,6 +2374,7 @@ def tube(
     path: Sequence[Sequence[float]] = TUBE_DEFAULT_PATH,
     radius: float = 0.1,
     sides: int = 8,
+    path_handles: Any = (),
 ) -> Mesh:
     """A circular cross-section of ``radius``, swept along ``path`` -- the
     shape a lathe's rotational symmetry and a sweep's straight axis cannot
@@ -2218,7 +2435,15 @@ def tube(
     into its own quadrant exactly as ``cylinder``'s two discs do, rather than
     :func:`_outline_uv`.
     """
-    points = np.array(_clamp_path(path), dtype="f8")
+    try:
+        rows = _curves.normalise_handles(path_handles, len(path), 3)
+    except TypeError:
+        rows = []
+    if rows:
+        anchors, kept = _clamp_path_curve(path, rows)
+        points = np.array(_clamp_path(_curves.flatten(anchors, kept, closed=False)), dtype="f8")
+    else:
+        points = np.array(_clamp_path(path), dtype="f8")
     n = len(points)
     k = _clamp_segments(sides)
     r = abs(float(radius))
@@ -2583,7 +2808,10 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
         {"radius": 0.35, "height": 2.0, "segments": 16, "base": 0.15, "capital": 0.15},
         column,
     ),
-    "lathe": ({"profile": LATHE_DEFAULT_PROFILE, "segments": 16}, lathe),
+    "lathe": (
+        {"profile": LATHE_DEFAULT_PROFILE, "segments": 16, "profile_handles": []},
+        lathe,
+    ),
     "sweep": (
         {
             "outline": SWEEP_DEFAULT_OUTLINE,
@@ -2591,10 +2819,14 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
             "taper": 1.0,
             "twist": 0.0,
             "sections": 1,
+            "outline_handles": [],
         },
         sweep,
     ),
-    "tube": ({"path": TUBE_DEFAULT_PATH, "radius": 0.1, "sides": 8}, tube),
+    "tube": (
+        {"path": TUBE_DEFAULT_PATH, "radius": 0.1, "sides": 8, "path_handles": []},
+        tube,
+    ),
     # Clay tranche 5: the game blockout set -- see the "game primitives"
     # section above for why ``stairs`` and ``doorway`` need a
     # CONCAVE_GENERATORS entry and the other four do not.

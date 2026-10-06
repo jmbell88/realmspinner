@@ -320,6 +320,15 @@ def _params_value_schema() -> dict:
             {"type": "number"},
             {"type": "array", "items": {"type": "number"}},
             {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+            # The fourth branch is the curve handles (``profile_handles`` and
+            # its two siblings): per anchor, an ``[in, out]`` pair of offsets.
+            {
+                "type": "array",
+                "items": {
+                    "type": "array",
+                    "items": {"type": "array", "items": {"type": "number"}},
+                },
+            },
         ]
     }
 

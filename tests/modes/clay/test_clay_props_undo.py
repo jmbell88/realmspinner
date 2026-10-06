@@ -54,7 +54,10 @@ def test_editing_a_transform_or_generator_field_by_keystroke_is_one_undo_step() 
         _fold_precedes(transform_src, field, "_apply_transform(")
 
     generator_src = inspect.getsource(clay_props._generator)
-    _fold_precedes(generator_src, "_widget(key,", "doc.set_generator_params(")
+    # The write moved out of the loop into ``apply_generator_params`` (the one
+    # door the curve editor shares); the loop must still fold before reaching it.
+    _fold_precedes(generator_src, "_widget(key,", "apply_generator_params(")
+    assert "doc.set_generator_params(" in inspect.getsource(clay_props.apply_generator_params)
 
 
 def test_a_locked_objects_transform_fields_are_drawn_disabled_not_live_and_erroring() -> None:

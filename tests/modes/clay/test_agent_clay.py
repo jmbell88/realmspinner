@@ -5198,11 +5198,19 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     reply could never be read again. Catalogue JSON 66,295 chars + instructions
     11,998 chars = 78,293 chars total, over the 78,100 ceiling above by 193.
     Raised to 78,350.
+
+    The Blender-Lite plan's Phase D: ``lathe``, ``sweep`` and ``tube`` gained
+    ``profile_handles``/``outline_handles``/``path_handles`` (Bézier handles
+    beside the points), and the shared ``params`` value schema gained its
+    fourth branch -- nested arrays, for an ``[in, out]`` pair per anchor. Both
+    arrive through the registries this test exists to notice. Catalogue JSON
+    66,525 chars + instructions 12,076 chars = 78,601 chars total, over the
+    78,350 ceiling above by 251. Raised to 78,650.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 78_350
+    CEILING = 78_650
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]
@@ -5360,3 +5368,50 @@ def test_clay_op_repeat_last_refuses_with_nothing_then_repeats_the_agents_own_op
     assert again["isError"] is False, again
     assert _payload(again)["ran"] is True
     assert tab.doc.recent_op.params["thickness"] == 0.2
+
+
+def test_clay_set_params_takes_curve_handles_and_the_mesh_smooths() -> None:
+    """Bézier handles ride the derived ``params`` surface: ``profile_handles``
+    arrives in ``GENERATORS``' defaults, so an agent sets it like any other key,
+    and the stored value is what the clamp kept (aligned with the anchors)."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "lathe")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before = len(tab.doc.by_uid(uid).mesh.positions)
+    anchors = tab.doc.by_uid(uid).params["profile"]
+    handles = [[[0.0, -0.02], [0.0, 0.02]] for _ in anchors]
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile_handles": handles}}
+    )
+    assert result["isError"] is False, result
+    obj = tab.doc.by_uid(uid)
+    assert len(obj.params["profile_handles"]) == len(anchors)
+    assert len(obj.mesh.positions) > before, "the curve flattened into extra stations"
+    shown = _payload(agent_clay.call(ctx, session, "clay_scene", {}))
+    assert shown is not None
+
+    cleared = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile_handles": []}}
+    )
+    assert cleared["isError"] is False, cleared
+    assert tab.doc.by_uid(uid).params["profile_handles"] == []
+    assert len(tab.doc.by_uid(uid).mesh.positions) == before
+
+
+def test_clay_set_params_refuses_curve_handles_that_are_not_in_out_pairs() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "lathe")
+    refused = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile_handles": [[1, 2]]}}
+    )
+    assert refused["isError"] is True
+    assert "handle pairs" in refused["content"][0]["text"]
+    assert agent_clay.call(
+        ctx,
+        session,
+        "clay_set_params",
+        {"uid": uid, "params": {"profile_handles": [[[0, 0], [float("nan"), 0]]]}},
+    )["isError"] is True

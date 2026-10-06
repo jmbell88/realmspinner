@@ -57,38 +57,64 @@ there to define. Shade Smooth and Shade Flat override any of this whenever you w
 
 The structures are the shapes that are tedious rather than hard — the ones you would otherwise
 assemble out of three or four primitives and then have to keep assembled. A **pyramid**'s base sits
-square to the axes, which is what separates it from a four-sided cone: a cone stands on a corner,
-45 degrees off the box you are putting it on top of, and its `base` is the flat-to-flat width. An
+square to the axes, which is what separates it from a four-sided cone: a cone stands on a corner, 45
+degrees off the box you are putting it on top of, and its `base` is the flat-to-flat width. An
 **arch** is a doorway — two legs and a semicircular head, swept through its `depth`, with
 `thickness` setting how heavy the wall is; the opening goes right through. A **column** is a lathe
 with a fixed shape: `base` and `capital` are the *heights* of the plinth and the block at the top,
 and setting both to zero leaves a plain shaft. A **lathe** is the general case of a column — a
 `profile` of `[radius, y]` stations, bottom to top, revolved into whatever silhouette they trace,
 which is what a bottle, a vase, a goblet, a handle or a turned finial needs and a column's two fixed
-numbers cannot reach. The `y` values are read as a shape, not a place — Realmspinner re-centres them for
-you, so a profile running 0 to 1 builds the same silhouette as one running -0.5 to 0.5 and the
+numbers cannot reach. The `y` values are read as a shape, not a place — Realmspinner re-centres them
+for you, so a profile running 0 to 1 builds the same silhouette as one running -0.5 to 0.5 and the
 object still sits wherever Properties says it does. A station of zero radius at either end comes to
 a point rather than a flat cap, which is how a lathe reaches a finial or a chess pawn's rounded top.
-There is no profile editor yet: Properties shows a placed lathe's numbers as a read-only line rather
-than fields you can drag, the same way any parameter shape nobody has built a widget for yet is
-shown. A **sweep** is the other family a lathe cannot reach — a closed 2D `outline` extruded along
-`depth` rather than revolved, for anything whose cross-section stays the same, scales or turns
+Properties draws a placed lathe's profile as a **curve editor** (described below) rather than a line
+of numbers. A **sweep** is the other family a lathe cannot reach — a closed 2D `outline` extruded
+along `depth` rather than revolved, for anything whose cross-section stays the same, scales or turns
 along one axis instead of around it: an L-bracket, a channel, an I-beam, a star, a gear blank, a
 picture-frame moulding, a keystone. `taper` narrows or widens the far end about its own centre, and
 `twist` turns that end about the extrusion axis; both are plain numbers rather than a second outline
 to loft into, on purpose — a frustum, a pedestal and a twisted column are what a loft would be for,
-and two sliders already reach all three. As with a lathe's `profile`, there is no outline editor
-yet either: Properties shows a placed sweep's corners as a read-only line, and — unlike every other
-shape here — a self-crossing outline (a figure-eight) is not caught, so a sweep is the one primitive
-where keeping the shape simple is on you rather than on Realmspinner. A **tube** is a circular
+and two sliders already reach all three. Its `outline` has the same editor, which draws any segment
+that crosses another in red: a self- crossing outline (a figure-eight) is still not caught — unlike
+every other shape here — so a sweep is the one primitive where keeping the shape simple is on you
+rather than on Realmspinner, though you can now see when you have not. A **tube** is a circular
 cross-section of one `radius`, swept along a `path` — a cable, a hose, a handle, a pipe run, a bent
 exhaust, anything that goes somewhere rather than sitting on one straight or rotational axis, which
 is what neither a lathe nor a sweep reaches on its own. The ring stays square to the path the whole
 way along rather than tipping into the turn, so a bend does not open a gap on its outside or pinch
-its inside. As with a lathe's `profile` and a sweep's `outline`, there is no path editor yet:
-Properties shows a placed tube's stations as a read-only line, and — the same admission a sweep's
-self-crossing outline already makes — a `radius` wider than the path's own tightest turn passes
-through itself uncaught, so a tube is the other primitive where keeping the shape simple is on you.
+its inside. Its `path` is edited the same way, in the plane you pick, and — the same admission a
+sweep's self- crossing outline already makes — a `radius` wider than the path's own tightest turn
+passes through itself uncaught, so a tube is the other primitive where keeping the shape simple is
+on you.
+
+### Editing a curve
+
+A lathe's `profile`, a sweep's `outline` and a tube's `path` are drawn as a small canvas in Properties,
+under the generator they belong to. A lathe shows its half-silhouette on the right of the revolve axis
+with the mirror ghosted on the left; a sweep shows the closed outline; a tube shows its path in the
+plane you choose (**XY**, **XZ** or **ZY**), with the third coordinate one number field away.
+
+| You do | What happens |
+| --- | --- |
+| Drag a point | Moves it; the model follows on every frame, and the whole drag is **one** undo step. |
+| `Alt`-drag a point | Pulls a smooth pair of **handles** out of it, which bends the line either side. |
+| Drag a handle dot | Reshapes just that side of the curve; `Shift` mirrors the other handle. |
+| Click the line | Adds a point exactly there — the shape does not change. |
+| `Delete`, or right-click a point | Removes it and its handles. A lathe and a tube keep two points, an outline three. |
+| Wheel, middle-drag | Zoom and pan the canvas; **Fit view** frames the whole curve. |
+
+Below the canvas the selected point and its two handles are number fields, for when a value should be
+exact. A handle of zero length is a corner, so a profile with no handles is exactly the straight-sided
+polyline it always was, and a document saved before handles existed builds the same model it did. The
+curve is cut into straight stations when the shape is built — close enough to read as smooth, never
+more than 512 of them — so nothing downstream, the exports included, knows the shape was ever a curve.
+
+A drag that moves a point past one the shape cannot allow — a lathe station dragged below the one before
+it, say — is corrected when you let go, and the canvas then shows the corrected shape rather than the
+one you were dragging. An agent reaches the same thing through `clay_set_params`, with
+`profile_handles`, `outline_handles` and `path_handles`: for each point, an `[in, out]` pair of offsets.
 
 The game shapes are the pieces a level is blocked out of, and they exist for the same reason the
 structures do: each one is a thing you would otherwise build from three boxes and a boolean and then
