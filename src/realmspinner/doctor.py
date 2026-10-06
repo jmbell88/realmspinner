@@ -153,6 +153,7 @@ def static_checks(config: Config, *, probe_slow: bool = True, force: bool = Fals
         _gltfpack_check(config),
         _realmspinnerc_check(),
         _cuda_check(probe=probe_slow),
+        *_familiar_checks(config),
         *_t2i_checks(config),
         text2image_deps_check(probe=probe_slow, force=force),
         *_matting_checks(config, probe_slow=probe_slow, force=force),
@@ -642,6 +643,43 @@ def _gguf_check(config: Config) -> Check:
     return Check(
         "TRELLIS GGUF weights", ok, detail, fatal=False, pending_install=not ok
     )
+
+
+def _familiar_checks(config: Config) -> list[Check]:
+    """Familiar's rows: never fatal, same as every downloadable weight.
+
+    Unlike ``trellis-server.exe``, Familiar has no vendor-checkout fallback
+    and no env-var override to probe -- ``fetch.present``/``fetch.familiar_dir``
+    is the one place it can ever be, so every row goes through the generic
+    ``_registry_row`` rather than a hand-built check like ``_exe_check``.
+
+    **An absent optional row (``familiar_mmproj``, vision, 2026-09-24) says so
+    in its own detail, rather than reading like the same "you need this"
+    prompt the required rows print.** Still ``_registry_row``'s own
+    ``pending_install=True``/``fatal=False`` underneath -- the CLI's ``SETUP``
+    label (never ``WARN``/``FATAL``) already treats "not downloaded yet" as
+    the ordinary state of a fresh machine for every registry row -- this only
+    changes the *wording* so a reader does not mistake "optional, skip it if
+    you don't want vision" for "required, go get it".
+    """
+    checks: list[Check] = []
+    for spec in models.FAMILIAR_MODELS.values():
+        ok = fetch.present(config, "familiar", spec)
+        base = fetch.familiar_dir(config, spec)
+        if ok:
+            detail = str(base)
+        elif spec.optional:
+            detail = (
+                f"optional -- not installed; Familiar runs text-only without it. "
+                f"To add it:\n  {fetch.download_text(config, 'familiar', spec)}"
+            )
+        else:
+            detail = (
+                f"not found at {base} -- download with:\n"
+                f"  {fetch.download_text(config, 'familiar', spec)}"
+            )
+        checks.append(_registry_row(config, "familiar", spec, ok, detail))
+    return checks
 
 
 def _birefnet_check(config: Config) -> Check:

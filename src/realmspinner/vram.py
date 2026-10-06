@@ -76,6 +76,39 @@ LORA_TRAIN_GIB = 18.0
 IP_ENCODER_GIB = 1.2
 """The CLIP-ViT-H image encoder an IP-Adapter needs (same place)."""
 
+FAMILIAR_GIB = 7.9
+"""llama-server.exe resident with the Qwen3-VL-4B-Instruct Q8_0 pin, ``-ngl 999``.
+
+Measured on the GPU lane (``dev/measurements/2026-09-16-familiar-qwen-vram.md``,
+RTX 5090): 6.81 GiB resident once healthy and 6.82 GiB peak with both slots
+generating, identical across three runs. That measurement carried +0.8 GiB
+for a different driver or CUDA context and for a same-architecture,
+same-quant fine-tune of that base, rounded up to the tenth (7.7).
+
+**Raised to 7.9 (2026-09-24, dev/measurements/2026-09-24-familiar-mmproj-vram.md
+-- text-only base peak is unaffected, this covers the optional
+``familiar_mmproj`` row).** With the mmproj projector loaded (``--mmproj``,
+``pipelines/llama.py``) and one real image request answered on the real
+b10948 server, RTX 5090: card-wide used memory rose by 7.27-7.68 GiB over an
+un-pinned pre-server baseline that itself drifted +/-0.4 GiB across the
+measurement window (other processes sharing the card) -- rounded up past the
+noisy end of that range rather than the point estimate, since a VRAM budget
+that reads too low is the unsafe direction. Familiar is admitted at this one
+number regardless of whether a session ever attaches an image, because
+``ensure_started`` passes ``--mmproj`` whenever the row is downloaded, not
+only when a request is about to use it -- the projector's own weights are
+resident from spawn.
+
+The previous pin, Gemma 4 E2B, measured 3.20 GiB peak and carried 4.0 here;
+it kept its per-layer embeddings off the card, where Qwen puts the whole
+3.99 GiB file on it -- which is why a smaller file costs twice the VRAM and
+why this figure could not be carried across a model switch. Familiar is
+always stopped before a GPU job runs (see ``Worker.before_gpu_job``), so
+this number never actually has to share the card with anything else -- it
+exists for ``familiar_admission`` alone, the door Familiar's own spawn
+stands at.
+"""
+
 TRELLIS_RES_MULT: dict[int, float] = {512: 0.85, 1024: 1.0, 1536: 1.5}
 """Reconstruction resolution scales the trellis footprint.
 
@@ -671,6 +704,23 @@ def live_memory() -> DeviceMemory | None:
         free_gib=info.free / _GIB,
         name=name,
     )
+
+
+def familiar_admission(device: DeviceMemory | None) -> bool:
+    """Whether there is room to start Familiar's child right now.
+
+    Called from ``pipelines/llama.py`` before ``ensure_started`` spawns
+    ``llama-server.exe`` -- the same door shape as ``service.validation``'s
+    admission checks, but standing over ``live_memory()`` rather than a job's
+    declared params, because Familiar is not a queued job with a params dict
+    to estimate: it starts off a chat message. ``device`` is the caller's
+    ``live_memory()`` reading (or None off NVIDIA, in which case there is
+    nothing to admit against and this refuses) so the check is easy to drive
+    from a test without a real card.
+    """
+    if device is None:
+        return False
+    return device.free_gib >= FAMILIAR_GIB + HEADROOM_GIB
 
 
 def _nvml() -> tuple[Any, Any, str] | None:

@@ -308,8 +308,8 @@ nothing to open. Every change is another take with a parent, which is how the re
 too: see [Making more of a take](#making-more-of-a-take). For editing that *is* document-shaped,
 take it into Sirens.
 
-**Write your lyrics.** You supply the words; nothing here composes them. That needs a language model
-and this build deliberately ships none.
+**Write your lyrics.** You supply the words; nothing here composes them. Familiar, the assistant in
+the dock, answers questions about the app and drafts briefs, but writing lyrics is not one of its skills.
 
 ## What to read next
 

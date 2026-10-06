@@ -42,9 +42,9 @@ permanently incremented, because nothing ever reached ``collapse_since``.
 leaked object (it never places one) but with the identical field-less
 generic backstop.
 
-agents-clay-01: ``schema.REFERENCE_TOOLS`` has no consumer anywhere in
-``src/`` or ``tests/`` after the Familiar removal (2026-09-26) -- only its
-own docstring and ``BATCH_EXCLUDED``'s point at it.
+agents-clay-01: ``schema.REFERENCE_TOOLS`` was deleted as consumer-less
+during the Familiar removal (2026-09-26); Familiar's restoration put it back,
+and ``studio/assistant/preview.py``'s ``PREVIEW_EXCLUDED`` is its consumer.
 """
 
 from __future__ import annotations
@@ -299,15 +299,33 @@ def test_clay_set_params_on_a_degenerate_generator_value_refuses_naming_field_pa
     assert obj.mesh is before_mesh
 
 
-# --- agents-clay-01: REFERENCE_TOOLS has no consumer ------------------------
+# --- agents-clay-01: REFERENCE_TOOLS has a consumer again -------------------
 
 
-def test_reference_tools_constant_is_gone_now_that_nothing_consumes_it() -> None:
-    """The 2026-09-26 audit: ``REFERENCE_TOOLS`` was only ever read by its own
-    docstring and ``BATCH_EXCLUDED``'s cross-reference to it -- no consumer
-    survived the Familiar removal (see ``BATCH_EXCLUDED`` immediately below
-    it in ``schema.py`` for where the same reasoning now lives directly)."""
-    assert not hasattr(agent_clay_schema, "REFERENCE_TOOLS")
+def test_reference_tools_constant_is_back_and_preview_excluded_reads_it() -> None:
+    """The 2026-09-26 audit deleted ``REFERENCE_TOOLS`` because the Familiar
+    removal left it no consumer; restoring Familiar restores the consumer
+    (``studio/assistant/preview.py``'s ``PREVIEW_EXCLUDED``), so the constant
+    is back -- derived-checked against the handler table rather than a second
+    hand list, so a fifth ``clay_reference_*`` tool cannot slip past a
+    preview, and re-exported by ``dispatch`` (the one module ``studio/
+    assistant/`` may reach)."""
+    from realmspinner.studio.assistant import preview as familiar_preview
+
+    derived = {n for n in agent_clay._HANDLERS if n.startswith("clay_reference_")}
+    assert derived == agent_clay_schema.REFERENCE_TOOLS
+    assert agent_clay.REFERENCE_TOOLS is agent_clay_schema.REFERENCE_TOOLS
+    assert agent_clay.REFERENCE_TOOLS <= familiar_preview.PREVIEW_EXCLUDED
+
+
+def test_reference_tools_are_not_folded_into_the_published_batch_exclusion() -> None:
+    """``BATCH_EXCLUDED`` is interpolated into ``clay_batch``'s published
+    description, so widening it would change the live catalogue for every MCP
+    client; only ``clay_reference_get`` is in it, and the preview door closes
+    the other three itself (``run_scratch`` walks a batch's nested names)."""
+    others = agent_clay_schema.REFERENCE_TOOLS - {"clay_reference_get"}
+    assert others
+    assert not (others & agent_clay_schema.BATCH_EXCLUDED)
 
 
 # --- clay_program: the same non-string enum crash, through the compiler ----

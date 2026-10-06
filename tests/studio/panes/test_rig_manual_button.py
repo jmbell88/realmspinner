@@ -7,8 +7,9 @@ the config default -- see ``rigging.py``'s ``blank.json`` and
 for why a real (if minimal) Blender pass is what backs it, rather than
 host-side coordinate math.
 
-Asserted on source rather than through a fake imgui context: these are
-template-string and gating edits, not behaviour worth exercising further
+Asserted on source, the same way ``tests/studio/panes/test_familiar_dock.py``'s own
+toast-offset test pins a one-line wiring claim: these are template-string and
+gating edits, not behaviour a fake imgui context usefully exercises further
 than the smoke tests those three panes already have.
 """
 

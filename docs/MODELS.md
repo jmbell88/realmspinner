@@ -76,6 +76,108 @@ Licences: the engine is MIT (trellis.cpp and ggml) over NVIDIA's redistributable
 and because you now fetch it from upstream rather than receiving it from us, Realmspinner redistributes
 none of it. The terms are in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) either way.
 
+## Familiar
+
+**Five rows, under their own *Familiar* heading in Settings → Models**, on the same shape as the
+reconstruction engine above: a runtime (split into two rows -- see below), the weights it loads,
+and two optional rows, a vision projector and a retrieval model. They live in their own directories
+(`~/.realmspinner/engine/llama/`, `~/.realmspinner/models/familiar/`) --
+never the trellis ones, because llama.cpp and trellis.cpp ship their own, differently built
+`ggml*.dll`.
+
+| Row | What it is | Size |
+|---|---|---|
+| **Familiar runtime** | `llama-server.exe` (llama.cpp b10948, CUDA 12.4 Windows build) and the DLLs it links, minus the CUDA redistributable | ~0.24 GB down |
+| **Familiar runtime (CUDA)** | the CUDA 12.4 redistributable (`cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll`) the runtime above links against | ~0.37 GB down |
+| **Familiar weights (Gemma 4 12B QAT Q4_0)** | the model it serves, quantised; about 8.2 GiB of weights, roughly 10-11 GiB resident once the context and cache are counted | pinned in Phase 1b |
+| **Familiar vision (mmproj)** | the multimodal projector, optional -- Familiar runs text-only without it | pinned in Phase 1b |
+| **Familiar retrieval (EmbeddingGemma 2)** | `familiar_embed`, optional -- a second, CPU-only `llama-server` child that ranks Manual sections and Library rows by meaning | pinned in Phase 1b |
+
+**Two rows for the runtime, not one, and that is upstream's shape, not this app's.** llama.cpp
+publishes its CUDA Windows build as two separate release zips — the server binaries, and the CUDA
+redistributable apart from them, so a machine running both a CUDA-12 and a CUDA-13 build does not
+fetch the same ~370 MB of cudart twice. Realmspinner's `Fetch` record has no way to give one registry
+row two independent URL/SHA-256 pins, so this is genuinely two rows rather than one row hiding two
+downloads — both land in the same directory, pinned by SHA-256 the same way the reconstruction
+engine's binaries are:
+
+```powershell
+curl -L -o $HOME/.realmspinner/engine/llama/llama-b10948-bin-win-cuda-12.4-x64.zip --create-dirs `
+  https://github.com/ggml-org/llama.cpp/releases/download/b10948/llama-b10948-bin-win-cuda-12.4-x64.zip
+# then check its sha256 is 9839398baa5a74fcf2447168000b2a8c659e6ee0d944f7686bb72168a0bc1e35
+curl -L -o $HOME/.realmspinner/engine/llama/cudart-llama-bin-win-cuda-12.4-x64.zip --create-dirs `
+  https://github.com/ggml-org/llama.cpp/releases/download/b10948/cudart-llama-bin-win-cuda-12.4-x64.zip
+# then check its sha256 is 8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6
+# then unpack both into $HOME/.realmspinner/engine/llama
+```
+
+**Familiar is a language model that runs on this machine, never one that calls out.** The runtime
+binds to `127.0.0.1` with `--offline`, behind a per-spawn key, and these rows are the only way its
+files arrive: the fetch worker downloads them when you press **Download**, exactly as it does for
+every other row on this page, so the network exceptions stay the three the manual names.
+
+**It shares the card with nothing.** Gemma 4 12B at Q4_0 is large enough that TRELLIS and SDXL together
+already fill most of a 32 GB card, so Familiar cannot sit beside a GPU job: the app stops the server
+before any 3D, image or music job starts, and your next message to Familiar starts it again (a few
+seconds of load, once). The retrieval model is the opposite -- it runs on the CPU, so the card never
+has to evict it.
+
+**The weights row is a stock pin, stated as one.** It is an unmodified quantisation of Gemma 4 12B
+(the QAT Q4_0 build), not `familiar_v1.0`, the name reserved for the Clay-assistant fine-tune of that
+base which this project's own training programme will produce and swap in as the shipped pin once
+one is published. There is no picker and no path override: this exact file, or nothing. Until the
+fine-tune ships, **Clay Build is off** and answers with a plain sentence saying so; everything else
+Familiar does (answering from the Manual, navigating, drafting a Create brief, planning a character)
+works on the stock model.
+
+**Phase 1b has not yet re-pinned the weights, the projector or the retrieval model.** Until it does,
+the registry still carries the earlier testing pin for the weights and projector -- Qwen's own
+Q8_0 GGUF of `Qwen/Qwen3-VL-4B-Instruct`, Apache 2.0 -- and no retrieval row at all, so Familiar
+answers from BM25 alone. These are the commands that pin matches; when the Gemma 4 12B pin lands
+they are replaced, with its repository, revision and file names, in this section.
+
+```powershell
+# Familiar weights (interim pin, ~4.28 GB) -> ~/.realmspinner/models/familiar/
+uvx hf download Qwen/Qwen3-VL-4B-Instruct-GGUF --revision 1cd86afb9a95c410a6038ab3b40d8b578c892266 `
+  --include "Qwen3VL-4B-Instruct-Q8_0.gguf" --local-dir $HOME/.realmspinner/models/familiar
+```
+
+**Vision is the first optional Familiar row.** `Familiar vision (mmproj)` is the multimodal projector
+published beside the text weights, same repository, same revision pin -- one Hub snapshot, not two
+that could drift apart. With it installed, the runtime is started with `--mmproj` and the dock can
+attach a PNG to a message (a reference image, or Clay's own ghost render on a revision); without it,
+Familiar runs text only.
+
+```powershell
+# Familiar vision (interim pin, ~0.42 GB) -> ~/.realmspinner/models/familiar/
+uvx hf download Qwen/Qwen3-VL-4B-Instruct-GGUF --revision 1cd86afb9a95c410a6038ab3b40d8b578c892266 `
+  --include "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf" --local-dir $HOME/.realmspinner/models/familiar
+```
+
+**Retrieval is the second.** `Familiar retrieval (EmbeddingGemma 2)` (registry key `familiar_embed`) is
+a 740M-parameter embedding model served by a second `llama-server` child on the CPU, from the same
+runtime rows above. With it installed, Familiar fuses the meaning-based ranking it gives with the
+keyword (BM25) ranking it always has, so "how do I make the model watertight" finds the section that
+says "manifold" and not only the one that repeats your words, and Library search can find a job by
+what it was about. Without it, nothing breaks: Manual search stays BM25 and Library search stays a
+plain text match, `realmspinner doctor` lists the row as `pending_install` (not an error, because
+nothing is wrong), and Familiar says nothing about it. Its repository, revision and size are pinned
+in Phase 1b and this section gains its command then.
+
+Licences: the runtime is MIT (llama.cpp and ggml) over NVIDIA's redistributable CUDA libraries, on
+the same "fetched from upstream, nothing redistributed" footing as the reconstruction engine. **The
+Gemma 4 12B and EmbeddingGemma 2 licences are pending a human review** (`dev/TODO.md`, P53): the
+sources this project has read disagree about whether Gemma 4 is published under Apache-2.0 or under
+Google's Gemma Terms of Use, and nothing on this page claims a verdict until someone has read the
+current licence text on both repositories. Until then the table below says "pending review", not a
+licence, and you should read each repository's own licence page before you rely on its output.
+The interim Qwen pin the weights row still holds is Apache 2.0, matching its base model.
+
+**`familiar_v1.0` is reserved, not yet published.** It names a future Clay-assistant fine-tune of
+Gemma 4 12B; no such fine-tune exists yet, so the row's `served_name` stays empty and Clay Build
+keeps refusing by name. What licence a fine-tune of Gemma ships under is the same open question
+P53 holds, so this page does not say, and the fine-tune is not published until it is answered.
+
 ## Licences, and what you may do with the output
 
 **Read this before you sell anything you generated.** These weights are not part
@@ -94,6 +196,11 @@ restricted ones; this table is the same information in full.
 | **DreamShaper XL** | OpenRAIL++-M | Yes, subject to the use restrictions |
 | **FLUX.2 klein / klein-base 4B** | Apache-2.0 | Yes |
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
+| **llama.cpp** (Familiar's runtime) | MIT | Yes |
+| **Familiar weights, Gemma 4 12B QAT Q4_0** (stock pin) | Pending a human licence review (P53) | Not yet decided -- read the repository's own licence page |
+| **Familiar retrieval, EmbeddingGemma 2** (optional) | Pending a human licence review (P53) | Not yet decided -- read the repository's own licence page |
+| **Familiar interim pin, Qwen3-VL-4B-Instruct and its vision projector** (until Phase 1b) | Apache-2.0 | Yes |
+| **`familiar_v1.0`** (the fine-tune, not yet published) | Depends on P53's verdict on its Gemma base | Not yet decided |
 | **BiRefNet** (matting) | MIT | Yes |
 | **ACE-Step v1 3.5B** (Muse) | Apache-2.0 | Yes |
 | **Hybrid Demucs** (stem separation) | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — see below |

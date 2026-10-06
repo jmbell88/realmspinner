@@ -122,25 +122,61 @@ SIDE_FIT: dict[str, float | None] = {"left": None, "right": None}
 # has never been drawn has taken nothing.
 RAIL_RESERVED: float = 0.0
 
+# What the Familiar dock has taken out of the window's right edge this frame,
+# in physical px. Module state set by ``familiar_dock.tick`` immediately before
+# :func:`tick`, mirroring :data:`RAIL_RESERVED` on the opposite edge: the dock
+# replaced the old bottom pane, which never had to be subtracted from the
+# horizontal room the columns fit against because it ran the window's full
+# width. A full-height right dock does, or the right sidebar is fitted
+# against room the dock has already taken, which is UX-01 one edge over.
+#
+# Zero by default, for the same reason ``RAIL_RESERVED`` is: a headless caller
+# that never ticked the dock has had nothing taken from it.
+DOCK_RESERVED: float = 0.0
+
+# How far open the Familiar dock is, this frame, eased 0 (closed) to 1 (fully
+# open). Module state set by ``familiar_dock.tick`` immediately before
+# ``rail.tick``/:func:`measure`, mirroring :data:`RAIL_RESERVED`/
+# :data:`DOCK_RESERVED`: the whole point of :func:`proportions` is that the
+# rail, the two sidebars, the centre and the dock are five numbers computed
+# together from *one* fact about how open the dock is -- so that fact has to
+# be settled before any of the five is read, the same ordering reason every
+# other module-state flag above it exists.
+FAMILIAR_OPEN_T: float = 0.0
+
 # --- the proportional shell (2026-09-23) -------------------------------------
 #
-# Fixed proportions replaced independently-fitted side widths: the sidebars
-# used to be computed by a separate pure function (``fit_widths``) against the
-# room, with nothing keeping the claim from exceeding it. ``proportions`` is
-# the one function that divides the room, so the four numbers it returns
-# (plus the three gaps between them) always add up to exactly what was handed
-# in.
+# Fixed proportions replaced independently-fitted side widths and dock width:
+# the two used to be computed by separate pure functions (``fit_widths`` and
+# ``familiar_dock.fit``) against the same room, with nothing keeping their
+# sums from exceeding it -- so the Familiar dock could overflow underneath the
+# columns. ``proportions`` is the one function that divides the room, so the
+# five numbers it returns (plus the four gaps between them) always add up to
+# exactly what was handed in.
 #
-# The rail is *not* a share (2026-09-24): as a 5% column it was two or three
-# times wider than the 44 dp icon it holds, width the canvas had more use
-# for. It is an icon strip again -- whatever ``rail.tick`` settled (44 dp, or
-# the labelled width) -- and the centre is whatever the other three leave.
+# The rail and the closed dock are *not* shares (2026-09-24): as 5% columns
+# each was two or three times wider than the 44 dp icon it holds, width the
+# canvas had more use for. Both are icon strips again -- the rail whatever
+# ``rail.tick`` settled (44 dp, or the labelled width), the closed dock
+# ``DOCK_FLOOR_CLOSED`` -- and the centre is whatever the other four leave.
 #
 # 15%, not the 25% it was set at: two quarter-window sidebars left the canvas
 # half the window, and Clay's viewer was the pane that visibly shrank (user
 # report, 2026-10-04). ``SIDEBAR_MIN`` still floors each column on a small
 # window, so a form never gets narrower than it did before.
 LEFT_SHARE_CLOSED = 0.15
+# Opening the dock takes three points back from each sidebar (it took five off
+# the 25% they were before the 2026-10-04 narrowing), and the dock claims 15%
+# of the room itself: the centre narrows by the difference, never the other way.
+LEFT_SHARE_OPEN = 0.12
+DOCK_SHARE_OPEN = 0.15
+# The dock's width and floor both interpolate by the same ``t``: closed, the
+# dock is a slim strip the same width as the collapsed rail (44 dp); open, a
+# transcript narrower than 260 dp is not worth having open at all.
+# Interpolating both with one ``t`` keeps them continuous with each other
+# across the whole open/close animation.
+DOCK_FLOOR_CLOSED = 44.0
+DOCK_FLOOR_OPEN = 260.0
 
 
 def _give(value: float, floor: float, need: float) -> tuple[float, float]:
@@ -157,68 +193,97 @@ def _give(value: float, floor: float, need: float) -> tuple[float, float]:
 
 def proportions(
     room: float,
+    familiar_open_t: float,
     spacing: float,
     *,
     rail: float | None = None,
     scale: float | None = None,
-) -> tuple[float, float, float, float]:
-    """Divide ``room`` into ``(rail, left, centre, right)``. Physical px, pure.
+) -> tuple[float, float, float, float, float]:
+    """Divide ``room`` into ``(rail, left, centre, right, dock)``. Physical px, pure.
 
-    **The whole point is that these four numbers plus the three gaps between
-    them always sum to exactly ``room``.** Before this, the rail and the two
-    sidebars were each fitted by a separate function against the same width,
-    with nothing adding their claims up. One function that hands out the
-    whole room, once, cannot overflow by construction.
+    **The whole point is that these five numbers plus the four gaps between
+    them always sum to exactly ``room``.** Before this, the rail, the two
+    sidebars and the dock were each fitted by a separate function against the
+    same width, with nothing adding their claims up -- so the Familiar dock
+    (2026-09-23) could overflow underneath the columns on an ordinary window.
+    One function that hands out the whole room, once, cannot overflow by
+    construction.
 
     ``rail`` is the rail's own physical width -- an icon column, not a share
     (``rail.tick`` settles it first; ``None`` reads :data:`RAIL_RESERVED`, and
-    44 dp when nothing has ticked it). The two sidebars are each
-    :data:`LEFT_SHARE_CLOSED` of the room. **The centre is the remainder**, so
-    it gets every pixel the icon strips do not need.
+    44 dp when nothing has ticked it). The two sidebars interpolate by
+    ``familiar_open_t`` (0..1, already eased by the caller) between
+    :data:`LEFT_SHARE_CLOSED` and :data:`LEFT_SHARE_OPEN` of the room each.
+    The dock interpolates between the closed 44 dp strip and
+    :data:`DOCK_SHARE_OPEN` of the room. **The centre is the remainder**, so
+    it gets every pixel the icon strips do not need; it narrows a little when
+    the dock opens, since the dock grows by more than the sidebars give.
 
     **The give-way ladder.** A floor is a claim, and UX-01's whole story is
     that a claim which cannot be met does not fail, it silently pushes
     something else off the window -- so every shortfall here is met by moving
     width between columns, never by overflowing:
 
-    1. Each sidebar's own floor (:data:`SIDEBAR_MIN`, times ``scale``) comes
-       out of the centre -- which is the remainder, so this is only
+    1. The dock's floor (interpolated between 44 dp closed and 260 dp open,
+       both times ``scale``) is met first, taken half from the left sidebar
+       and half from the right, each stopping at :data:`SIDEBAR_MIN`.
+    2. Whatever the sidebars could not give, and each sidebar's own floor,
+       come out of the centre -- which is the remainder, so this is only
        arithmetic.
-    2. If the centre would go negative -- a window narrower than this app can
-       actually be resized to -- the shortfall is taken off the two sidebars
-       evenly, then off the rail.
+    3. If the centre would go negative -- a window narrower than this app can
+       actually be resized to -- the shortfall is taken back off the dock
+       first (the column that exists only once the user asked for it), then
+       off the two sidebars evenly, then off the rail.
 
     ``scale``: ``None`` reads
     ``tokens.SCALE``, and a caller (a test) may pass one explicitly to check a
     scale never live in this process.
     """
     use_scale = tokens.SCALE if scale is None else max(float(scale), 0.01)
-    content = max(float(room) - 3.0 * max(float(spacing), 0.0), 0.0)
+    t = min(max(float(familiar_open_t), 0.0), 1.0)
+    content = max(float(room) - 4.0 * max(float(spacing), 0.0), 0.0)
 
     if rail is None:
         rail = RAIL_RESERVED or 44.0 * use_scale
     rail = min(max(float(rail), 0.0), content)
-    left = content * LEFT_SHARE_CLOSED
-    right = content * LEFT_SHARE_CLOSED
+    left_share = LEFT_SHARE_CLOSED + (LEFT_SHARE_OPEN - LEFT_SHARE_CLOSED) * t
+    left = content * left_share
+    right = content * left_share
+    closed = DOCK_FLOOR_CLOSED * use_scale
+    dock = closed + (content * DOCK_SHARE_OPEN - closed) * t
 
-    # Rung 1: each sidebar's own floor -- the centre pays, as the remainder.
     sidebar_floor = min(SIDEBAR_MIN * use_scale, content)
+    dock_floor = min(
+        (DOCK_FLOOR_CLOSED + (DOCK_FLOOR_OPEN - DOCK_FLOOR_CLOSED) * t) * use_scale, content
+    )
+
+    # Rung 1: the dock's own floor, taken half from each sidebar; whatever
+    # they could not give comes out of the centre below.
+    deficit = max(dock_floor - dock, 0.0)
+    if deficit > 0.0:
+        half = deficit / 2.0
+        left, _ = _give(left, sidebar_floor, half)
+        right, _ = _give(right, sidebar_floor, half)
+        dock = dock_floor
+
+    # Rung 2: each sidebar's own floor -- the centre pays, as the remainder.
     left = max(left, sidebar_floor)
     right = max(right, sidebar_floor)
 
-    # Rung 2: a room too narrow for even that takes the overdraw off the
-    # sidebars evenly, then the rail, so the sum stays exactly ``room``.
-    over = rail + left + right - content
+    # Rung 3: a room too narrow for even that takes the overdraw back off the
+    # dock, then the sidebars, then the rail, so the sum stays exactly ``room``.
+    over = rail + left + right + dock - content
     if over > 0.0:
+        dock, over = _give(dock, 0.0, over)
         both = left + right
-        if both > 0.0:
+        if over > 0.0 and both > 0.0:
             cut = min(over, both)
             left, right = left - cut * left / both, right - cut * right / both
             over -= cut
         if over > 0.0:
             rail, over = _give(rail, 0.0, over)
-    centre = max(content - rail - left - right, 0.0)
-    return rail, left, centre, right
+    centre = max(content - rail - left - right - dock, 0.0)
+    return rail, left, centre, right, dock
 
 
 def tick() -> None:
@@ -254,8 +319,8 @@ def measure(library: Any = None, workspace: str = "", *, fixed_left: float | Non
     global SIDEBAR_FIT
     style = imgui.get_style()
     room = imgui.get_main_viewport().work_size[0] - style.window_padding.x * 2
-    _rail, left_fit, _centre, right_fit = proportions(
-        room, style.item_spacing.x, rail=RAIL_RESERVED
+    _rail, left_fit, _centre, right_fit, _dock = proportions(
+        room, FAMILIAR_OPEN_T, style.item_spacing.x, rail=RAIL_RESERVED
     )
     SIDE_FIT["left"], SIDE_FIT["right"] = left_fit, right_fit
     # The left column, not the mean of the two. ``SIDE_FIT`` is what every

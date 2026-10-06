@@ -516,6 +516,7 @@ from .schema import (
     _params_value_schema,
     _vec3_schema,
 )
+from .schema import REFERENCE_TOOLS as REFERENCE_TOOLS
 from .tools import (
     _h_add_figure,
     _h_add_mesh,
@@ -581,15 +582,22 @@ from .validate import _tab as _tab
 
 log = logging.getLogger(__name__)
 
-# The three ``as``-aliased imports just above are re-exports, not uses: no
-# function in this file calls ``_tab``, ``_quat_from_euler_xyz`` or
-# ``_euler_xyz_from_quat`` itself (every caller lives in a handler file), but
-# ``agent_host`` calls ``agent_clay._tab`` by name, and
-# ``tests/modes/clay/test_agent_clay.py`` calls
-# ``agent_clay._quat_from_euler_xyz``/``_euler_xyz_from_quat`` by name -- both
-# reaching through *this* module because it is the one every external caller
-# and every test already imports. The self-aliasing (``import x as x``) is
-# what tells ruff the "unused" import is deliberate.
+# The four ``as``-aliased imports just above are re-exports, not uses: no
+# function in this file calls ``_tab``, ``_quat_from_euler_xyz``,
+# ``_euler_xyz_from_quat`` or ``REFERENCE_TOOLS`` itself (every caller lives
+# in a handler file, or -- for ``REFERENCE_TOOLS`` -- outside this fold
+# entirely, and reaches them through ``agent_clay_validate``/``agent_clay_schema``
+# directly), but ``agent_host`` calls ``agent_clay._tab`` by name,
+# ``tests/modes/clay/test_agent_clay.py`` calls ``agent_clay._quat_from_euler_xyz``/
+# ``_euler_xyz_from_quat`` by name, and ``studio/assistant/preview.py``'s own
+# ``PREVIEW_EXCLUDED`` reads ``agent_clay.REFERENCE_TOOLS`` rather than a second
+# copy of the same four tool names (the 2026-09-18 audit's familiar-04 found
+# the two lists had already drifted once) -- all reaching through *this*
+# module because it is the one every external caller and every test already
+# imports, and ``studio/assistant/`` may reach ``studio.modes.clay.agent.dispatch``
+# but not a second, unlisted module under it (``tests/test_layering.py``'s
+# ``_P5_PILOT_FOUR``, which "may shrink but never grow"). The self-aliasing
+# (``import x as x``) is what tells ruff the "unused" import is deliberate.
 
 # --- module constants, the dispatch half -------------------------------------
 #

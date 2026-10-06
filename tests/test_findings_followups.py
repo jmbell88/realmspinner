@@ -349,20 +349,19 @@ def test_promote_to_models_mismatched_cutout_refusal_carries_the_same_field_as_i
 # --- the 2026-09-20 audit, finding docs-04 -----------------------------------
 
 
-def test_third_party_notices_fieldless_arithmetic_matches_the_registry():
-    """THIRD-PARTY-NOTICES.md's fieldless-class arithmetic must track
-    ``realmspinner.models``' registry exactly: since Familiar's removal took
-    ``FamiliarModel`` out of the registry (2026-09-26), the fieldless set is
-    back to seven (``StyleLora``, ``IPAdapter``, ``ControlNet``,
-    ``EngineModel``, ``MetricModel``, ``PoseModel``, ``MattingModel``), with
-    two of those -- TRELLIS.2-4B (``EngineModel``) and BiRefNet
-    (``MattingModel``) -- hand-rowed in ``docs/MODELS.md`` and the other five
-    left to their own repository pages.
+def test_third_party_notices_fieldless_arithmetic_counts_familiarmodel():
+    """THIRD-PARTY-NOTICES.md names eight fieldless registry classes,
+    including ``FamiliarModel``, then said "Of those seven... two documented
+    by hand... the other five" -- dropping ``FamiliarModel`` from both
+    buckets even though ``docs/MODELS.md`` hand-rows llama.cpp and
+    Qwen3-VL-4B-Instruct (``FamiliarModel``'s runtime and weights) under it
+    exactly like the two classes the old sentence did count (TRELLIS.2-4B/
+    ``EngineModel`` and BiRefNet/``MattingModel``).
 
     ``tests/test_licence_claims.py`` already derives the fieldless-class set
     and the license-bearing set from ``realmspinner.models`` itself, so this
     test reuses that derivation rather than re-deriving it a second way, and
-    only checks the arithmetic sentence docs-04 was filed about.
+    only checks the arithmetic sentence docs-04 is about.
     """
     from test_licence_claims import (
         MODELS_DOC,
@@ -372,27 +371,31 @@ def test_third_party_notices_fieldless_arithmetic_matches_the_registry():
     )
 
     fieldless = set(_registry_dataclasses()) - _license_bearing_classes()
-    assert len(fieldless) == 7, f"expected seven fieldless registry classes, found {fieldless}"
-    assert "FamiliarModel" not in fieldless
+    assert len(fieldless) == 8, f"expected eight fieldless registry classes, found {fieldless}"
+    assert "FamiliarModel" in fieldless
 
     models_doc = MODELS_DOC.read_text(encoding="utf-8")
     licence_section = models_doc[
         models_doc.index("## Licences, and what you may do with the output") :
         models_doc.index("## Image models and style LoRAs")
     ]
-    hand_rowed_classes = sum(
-        f"**{name}**" in licence_section for name in ("TRELLIS.2-4B", "BiRefNet")
+    # llama.cpp and Qwen3-VL-4B-Instruct are both FamiliarModel's own rows --
+    # one hand-rowed *class*, not two -- alongside TRELLIS.2-4B and BiRefNet.
+    hand_rowed_classes = 2 + any(
+        f"**{name}**" in licence_section for name in ("llama.cpp", "Qwen3-VL-4B-Instruct")
     )
-    assert hand_rowed_classes == 2, (
-        "docs/MODELS.md no longer hand-rows TRELLIS.2-4B/BiRefNet -- "
+    assert hand_rowed_classes == 3, (
+        "docs/MODELS.md no longer hand-rows llama.cpp/Qwen3-VL-4B-Instruct -- "
         "re-check docs-04 against the current source"
     )
 
     notices = NOTICES.read_text(encoding="utf-8")
-    assert "Of those seven fieldless classes" in notices, (
-        "THIRD-PARTY-NOTICES.md's fieldless-class count no longer matches the registry (docs-04)"
+    assert "Of those eight fieldless classes" in notices, (
+        "THIRD-PARTY-NOTICES.md still undercounts the fieldless registry classes (docs-04)"
     )
     flat = re.sub(r"\s+", " ", notices)
-    assert "writes a row by hand for two" in flat, (
-        "THIRD-PARTY-NOTICES.md's hand-rowed count no longer matches docs/MODELS.md (docs-04)"
+    assert "writes a row by hand for three" in flat, (
+        "THIRD-PARTY-NOTICES.md still says only two fieldless classes get a "
+        "hand-written docs/MODELS.md row, but FamiliarModel (llama.cpp, "
+        "Qwen3-VL-4B-Instruct) is a third (docs-04)"
     )

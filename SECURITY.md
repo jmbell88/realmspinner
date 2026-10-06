@@ -13,9 +13,10 @@ person's project.
 ## What is in scope
 
 Realmspinner is an offline desktop application. It has no server and no account
-system, and no inbound listener beyond two local ones: the reconstruction
+system, and no inbound listener beyond three local kinds: the reconstruction
 engine's loopback port (`127.0.0.1:17971` by default, `REALMSPINNER_TRELLIS_PORT`),
-open only while `trellis-server.exe` is resident, and the named pipe (a local
+open only while `trellis-server.exe` is resident; Familiar's loopback ports, open only while
+its `llama-server.exe` children are running (below); and the named pipe (a local
 socket where there is no named pipe) the MCP bridge uses once you switch it on,
 guarded by a token. So the realistic threat is **a malicious file**, not a
 malicious peer. In scope:
@@ -55,8 +56,8 @@ malicious peer. In scope:
   (Unix socket elsewhere) and accepts JSON-RPC from another process running as
   the same user on the same machine, so an agent can drive Clay and, since the
   character pipeline landed, a second, narrower surface. It is **off
-  until switched on in Settings**, it is inbound only — no model, no inference,
-  no socket, `HF_HUB_OFFLINE` untouched. Scope is two-part: an agent gets its
+  until switched on in Settings**, it is inbound only — it carries no model of its own,
+  makes no outbound connection, and leaves `HF_HUB_OFFLINE` untouched. Scope is two-part: an agent gets its
   own Clay tab and can address no other; against the character pipeline it may
   read any Library row by job id, but write is additive only — new mesh, rig
   or charsheet rows minted through the same service doors a pane uses, derived
@@ -73,8 +74,20 @@ malicious peer. In scope:
   is anything reachable through either derived tool surface that escapes its
   own bound — Clay's one tab, or the character pipeline's read-any/write-
   additive-only rule.
+- **Familiar's local listeners.** `src/realmspinner/pipelines/llama.py` spawns
+  `llama-server.exe`, a loopback HTTP listener distinct from the named pipe above,
+  bound to `127.0.0.1` only (`REALMSPINNER_FAMILIAR_PORT`, 17972 by default). A second
+  instance of the same binary serves the optional retrieval model (EmbeddingGemma 2),
+  on the CPU, on its own loopback port. Both exist only while Familiar is in use —
+  spawned on demand, not on startup (and the language-model one is stopped before any GPU job
+  runs) — and both are started with `--offline`, so neither can fetch anything. Every spawn writes a
+  fresh API key to a key file (`--api-key-file`, never on the command line, where
+  any other process on the machine could read it) rather than reusing one across
+  restarts. Familiar is not an egress path: the weights come through the
+  `fetch_worker` above, and the three network exceptions stay three. In scope:
+  anything reachable through those HTTP surfaces, and the key files' own handling.
 - **Subprocess handling.** Heavy or privileged work is never done inline in the
-  main process: reconstruction (`trellis-server.exe`), the Blender worker,
+  main process: reconstruction (`trellis-server.exe`), Familiar's `llama-server.exe` children, the Blender worker,
   the matting worker, the music and stem-separation workers, LoRA training,
   `doctor`'s load probe, the fetch worker, the pack worker and the update
   worker all run as a child process inside the `winjob` kill-on-close job, so a

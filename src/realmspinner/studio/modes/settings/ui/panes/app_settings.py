@@ -779,9 +779,10 @@ def _agents(ctx: Any) -> None:
                 "Lets a program that speaks the Model Context Protocol -- "
                 "Claude Code, Codex, anything with an MCP client already "
                 "running on this machine -- build in Clay and make characters "
-                "for you. Realmspinner still makes no network egress; an agent "
-                "that is already running connects inward to Realmspinner "
-                "itself, never the other way round."
+                "for you. Realmspinner runs exactly one pinned model, Familiar, on "
+                "loopback, and still makes no network egress; an agent that "
+                "is already running connects inward to Realmspinner itself, never "
+                "to Familiar and never the other way round."
             ),
             helper="Takes effect at once -- no restart.",
         )

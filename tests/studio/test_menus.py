@@ -77,7 +77,7 @@ def test_specs_builds_the_command_list_once_per_call(monkeypatch):
     assert calls == [1], f"palette.commands(ctx) ran {len(calls)} times, want 1"
 
 
-# --- T0 (the since-removed Familiar programme): the menu bar's status group -
+# --- T0, the Familiar programme: the menu bar's status group ---------------
 
 
 def test_status_items_drop_lowest_priority_first_when_the_menus_need_the_room():
@@ -136,9 +136,10 @@ def test_health_is_never_dropped_from_the_menu_bar():
 
 def test_status_items_render_right_aligned_in_the_menu_bar(monkeypatch):
     """A real imgui frame: the status group's last item (``health``, since
-    it is never dropped) must land in the right half of a wide menu bar --
-    proving the group is placed after every menu root rather than
-    immediately following ``File``.
+    it is never dropped) must land in the right half of a wide menu bar, and
+    the ``Familiar`` menu must have been drawn -- proving the group is placed
+    after every root and the reserved Familiar entry rather than immediately
+    following ``File``.
     """
     from _ui_context import imgui_context
 

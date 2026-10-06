@@ -208,6 +208,31 @@ _KNOWN_STATUS_SHORT = {
     ("pixel", "ERR", "ELEV_2", "text"),
     ("pixel", "ERR", "ELEV_2", "wash"),
     ("pixel", "ACCENT", "ELEV_2", "wash"),
+    # Familiar's chat bubbles (restored 2026-10-06) sit at ELEV_1/ELEV_2's tonal level,
+    # so they inherit exactly the shortfalls those surfaces already record above.
+    # Same palette decision, same strict xfail: fixing the palette flips these too.
+    ("dark", "ERR", "BUBBLE_USER", "text"),
+    ("dark", "ERR", "BUBBLE_USER", "wash"),
+    ("dark", "ERR", "BUBBLE_ASSISTANT", "text"),
+    ("dark", "ERR", "BUBBLE_ASSISTANT", "wash"),
+    ("dark", "ACCENT", "BUBBLE_USER", "text"),
+    ("dark", "ACCENT", "BUBBLE_USER", "wash"),
+    ("dark", "ACCENT", "BUBBLE_ASSISTANT", "text"),
+    ("dark", "ACCENT", "BUBBLE_ASSISTANT", "wash"),
+    ("light", "OK", "BUBBLE_USER", "text"),
+    ("light", "OK", "BUBBLE_USER", "wash"),
+    ("light", "OK", "BUBBLE_ASSISTANT", "text"),
+    ("light", "OK", "BUBBLE_ASSISTANT", "wash"),
+    ("light", "ERR", "BUBBLE_USER", "wash"),
+    ("light", "ERR", "BUBBLE_ASSISTANT", "wash"),
+    ("light", "WARN", "BUBBLE_USER", "text"),
+    ("light", "WARN", "BUBBLE_USER", "wash"),
+    ("light", "WARN", "BUBBLE_ASSISTANT", "text"),
+    ("light", "WARN", "BUBBLE_ASSISTANT", "wash"),
+    ("light", "ACCENT", "BUBBLE_USER", "wash"),
+    ("pixel", "ERR", "BUBBLE_USER", "wash"),
+    ("pixel", "ERR", "BUBBLE_ASSISTANT", "wash"),
+    ("pixel", "ACCENT", "BUBBLE_USER", "wash"),
 }
 
 

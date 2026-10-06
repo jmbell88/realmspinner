@@ -233,13 +233,16 @@ def _build(mesh: Mesh) -> Adjacency:
 # audit's clay-04 gave it a lock -- that every caller runs on the frame
 # thread -- and that premise is just as false here. The character pipeline's
 # generators (``characters/*/generate.py``) run on the MCP service lane's own
-# ``TaskRunner`` (``studio/agent_host.py``'s ``SERVICE_WORKERS`` pool), off the
-# frame thread, and any of ``adjacency``/``cached_positions_f8``/
-# ``cached_triangulation`` reached from there races the frame thread reading
-# or filling the same ``WeakKeyDictionary`` entry for the same mesh. One lock
-# guards all three: they are never held across another lock and each critical
-# section is only a dict get/set, so contention costs an uncontended acquire,
-# same as ``_RAW_CACHE_LOCK`` there.
+# ``TaskRunner`` (``studio/agent_host.py``'s ``SERVICE_WORKERS`` pool), and so
+# does Familiar's scratch preview (``kernels/mesh/scratch.py``, on
+# ``Mesh`` objects shared with the live document, not copied by its
+# ``clone``) on ``realmspinner-task`` -- both off the frame thread, and any of
+# ``adjacency``/``cached_positions_f8``/``cached_triangulation`` reached from
+# there races the frame thread reading or filling the same
+# ``WeakKeyDictionary`` entry for the same mesh. One lock guards all three:
+# they are never held across another lock and each critical section is only a
+# dict get/set, so contention costs an uncontended acquire, same as
+# ``_RAW_CACHE_LOCK`` there.
 #
 # **The 2026-09-26 audit's clay-mesh-core-04: "only a dict get/set" was the
 # intent, not what shipped.** All three functions below held ``_CACHE_LOCK``

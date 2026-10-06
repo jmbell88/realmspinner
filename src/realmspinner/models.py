@@ -607,8 +607,59 @@ class EngineModel:
         return download_text(self.fetch)
 
 
+@dataclass(frozen=True, slots=True)
+class FamiliarModel:
+    """One half of Familiar: the llama.cpp runtime, or the weights it loads.
+
+    Same shape as :class:`EngineModel` and for the same reason -- to a user
+    both halves are one thing that happens to arrive in two downloads, grouped
+    under one "Familiar" heading. ``runtime`` decides where the payload lands
+    (``config.familiar_runtime_dir`` or ``config.familiar_models_dir``); it is
+    a flag on the record rather than a second table, same as the engine's.
+    """
+
+    key: str
+    label: str
+    probe: tuple[str, ...]
+    fetch: tuple[Fetch, ...] = ()
+    description: str = ""
+    #: True for the runtime's own binaries, False for the weights it loads.
+    runtime: bool = False
+    #: sha256 by filename, for provenance beyond the archive/commit pin --
+    #: same convention as ``EngineModel.digests``.
+    digests: tuple[tuple[str, str], ...] = ()
+    #: Frozen prompt-card hashes this weights pin was validated against.
+    #: Empty for the base (non-fine-tuned) pin: T3 (``studio/familiar/cards/``
+    #: plus ``contract.card_sha``) has landed and hashes the frozen card
+    #: files, but the testing pin still carries no cards of its own, so
+    #: ``contract.card_sha("clay")`` is never in this empty tuple and the
+    #: spawn path in ``pipelines/llama.py`` refuses it -- which is what keeps
+    #: the Clay skill off the base model.
+    card_shas: tuple[str, ...] = ()
+    #: The name llama-server reports for this weights file (its ``--alias``).
+    #: Empty means no alias is passed, so llama-server falls back to whatever
+    #: ``general.name`` the GGUF itself carries. A pin that is not ours must
+    #: never be served under our model's name, so only T10's row
+    #: (``FAMILIAR_V1_NAME``) sets this.
+    served_name: str = ""
+    #: True for a row Familiar runs fine without -- today, only
+    #: ``familiar_mmproj`` (vision, 2026-09-24). Every readiness gate that
+    #: asks "is Familiar installed" (``studio.panes.familiar_dock.
+    #: familiar_state``, the ✦ menu it feeds, ``doctor._familiar_checks``'s
+    #: own wording) must require only the *non*-optional rows -- an existing
+    #: install that never downloaded the vision row is not "not installed",
+    #: it is "installed, text-only", exactly the state before vision existed.
+    #: ``pipelines/llama.py`` already treats a missing mmproj file as "don't
+    #: pass --mmproj" rather than a refusal, for the same reason.
+    optional: bool = False
+
+    @property
+    def download(self) -> str:
+        return download_text(self.fetch)
+
+
 def _table(*items):
-    """The constructor behind all ten weights registries below.
+    """The constructor behind all eleven weights registries below.
 
     **service-02 (2026-09-20 audit).** ``{item.key: item for item in items}``
     let a copy-pasted key silently delete the earlier entry from the
@@ -734,6 +785,272 @@ ENGINE_MODELS: dict[str, EngineModel] = _table(
             "trellis-server.exe's own weights, quantised. This is the half of the "
             "app that makes geometry -- without it the Mesh stage has nothing to "
             "run, and every other model here is optional beside it."
+        ),
+    ),
+)
+
+
+# Familiar's runtime: llama-server.exe (CUDA build) plus the DLLs it needs.
+#
+# **Two registry rows, not one, and this is a fact about upstream rather than
+# a design choice.** llama.cpp publishes its CUDA Windows x64 build as *two*
+# separate GitHub release zips -- the server binaries, and a ``cudart-*`` zip
+# of the CUDA 12.4 redistributable DLLs, split apart (confirmed against every
+# release since at least 2025-07's b6000) so a machine that installs both a
+# CUDA-12 and a CUDA-13 build of llama.cpp does not fetch the same ~370 MB of
+# cudart twice. ``Fetch`` has no way to give one registry entry two
+# independent URL/sha256/filename triples -- ``fetch.plan``'s dedupe key is
+# ``(repo_id, destination)``, and two URL fetches sharing a destination (both
+# ``repo_id == ""`` by convention) collide into one ``Job`` whose ``_merge``
+# silently keeps only the first URL, which is exactly the class of bug
+# ``test_merging_two_records_keeps_the_pin`` exists to catch. So this is
+# genuinely two rows under one "Familiar" heading, exactly as the
+# reconstruction engine's runtime and weights are two rows under one
+# "Reconstruction engine" heading -- both land in ``familiar_runtime_dir`` via
+# ``EngineModel``/``FamiliarModel.runtime``. Measured against a real download
+# of both zips, 2026-09-13; digests are GitHub's own asset ``digest`` field.
+FAMILIAR_RUNTIME_VERSION = "b10948"
+FAMILIAR_RUNTIME_MAIN_ASSET = "llama-b10948-bin-win-cuda-12.4-x64.zip"
+FAMILIAR_RUNTIME_MAIN_URL = (
+    f"https://github.com/ggml-org/llama.cpp/releases/download/"
+    f"{FAMILIAR_RUNTIME_VERSION}/{FAMILIAR_RUNTIME_MAIN_ASSET}"
+)
+FAMILIAR_RUNTIME_MAIN_SHA256 = (
+    "9839398baa5a74fcf2447168000b2a8c659e6ee0d944f7686bb72168a0bc1e35"
+)
+FAMILIAR_RUNTIME_CUDART_ASSET = "cudart-llama-bin-win-cuda-12.4-x64.zip"
+FAMILIAR_RUNTIME_CUDART_URL = (
+    f"https://github.com/ggml-org/llama.cpp/releases/download/"
+    f"{FAMILIAR_RUNTIME_VERSION}/{FAMILIAR_RUNTIME_CUDART_ASSET}"
+)
+FAMILIAR_RUNTIME_CUDART_SHA256 = (
+    "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+)
+# The files the *server* zip needs for a headless ``llama-server.exe --ngl
+# 999``: the server and its impl DLL, the shared llama/ggml/mtmd DLLs, every
+# ``ggml-cpu-*`` microarchitecture variant (ggml dispatches to one of these at
+# load time and the zip ships all of them), and libomp. The other ~20 members
+# of this zip (llama-cli, llama-bench, llama-quantize, the vision CLIs,
+# imatrix, …) are not needed for a headless server and are not fetched.
+FAMILIAR_RUNTIME_FILES = (
+    "ggml-base.dll",
+    "ggml-cpu-alderlake.dll",
+    "ggml-cpu-cannonlake.dll",
+    "ggml-cpu-cascadelake.dll",
+    "ggml-cpu-cooperlake.dll",
+    "ggml-cpu-haswell.dll",
+    "ggml-cpu-icelake.dll",
+    "ggml-cpu-ivybridge.dll",
+    "ggml-cpu-piledriver.dll",
+    "ggml-cpu-sandybridge.dll",
+    "ggml-cpu-sapphirerapids.dll",
+    "ggml-cpu-skylakex.dll",
+    "ggml-cpu-sse42.dll",
+    "ggml-cpu-x64.dll",
+    "ggml-cpu-zen4.dll",
+    "ggml-cuda.dll",
+    "ggml.dll",
+    "libomp.dll",
+    "llama-common.dll",
+    "llama-server-impl.dll",
+    "llama-server.exe",
+    "llama.dll",
+    "mtmd.dll",
+)
+FAMILIAR_RUNTIME_DIGESTS: tuple[tuple[str, str], ...] = (
+    ("ggml-base.dll", "c620cc207d35b98132babef1d54bb0b40a0b4aaa57a88ae760a9d63b4f1b1e40"),
+    ("ggml-cpu-alderlake.dll", "43ee15ba5bc731344ad4cd17366bd8c339b66b7ed0e0a6d2bd0b49390e25a585"),
+    ("ggml-cpu-cannonlake.dll", "59bc038391f2359b5c918fea2ee559b8d3b928a1f86c8c1c7664ca8cb1534f0d"),
+    (
+        "ggml-cpu-cascadelake.dll",
+        "609cc17bcd5a05bc2d657c31b21c11e34a28879e46815468200205fe0788caee",
+    ),
+    ("ggml-cpu-cooperlake.dll", "4cab0f63e4edbe3a009e5ac5f395fc22b3ba133cdfa4b137089205dcac6fea7f"),
+    ("ggml-cpu-haswell.dll", "ab836ee5436b8bc170d3bec0de188e072fd42be51478e03fb7a282780a842520"),
+    ("ggml-cpu-icelake.dll", "f3603ee9e5f9c6936a38da868b80d9125354237c258b635f17250901727c52cb"),
+    ("ggml-cpu-ivybridge.dll", "0b0b6ca2952c57648ecaf32d0434a79daae98764887eaa2f15b921d57a9f1533"),
+    ("ggml-cpu-piledriver.dll", "bf9e2859be65c510d387ff537efd7e29d20faef6aea7b0ab11ec8de9cd21ddeb"),
+    (
+        "ggml-cpu-sandybridge.dll",
+        "b92920b3dd01e79e48992ed37555b1a1df04a0187d432a0d80c3c15fc95e4223",
+    ),
+    (
+        "ggml-cpu-sapphirerapids.dll",
+        "6fa65d6bd5ae04b8072dcf1f97417e34d5fa4c6294ae6e1878f90664c7549d48",
+    ),
+    ("ggml-cpu-skylakex.dll", "74957f29e500d64bd4a196a49816e90d74bdec976da32216590ec8842ad3feba"),
+    ("ggml-cpu-sse42.dll", "b4b0c51e0daa5b9f299630f42cd32dd63afb87fe763a5b2f6f4c7a468ce315b5"),
+    ("ggml-cpu-x64.dll", "f9148af703464ce805db60799d2aecabebdcc7a61c9afe6af1b937157a44ad3a"),
+    ("ggml-cpu-zen4.dll", "afdd482813b92ec1ca13c0a6aec05c29ca62ccd003e7d0d7abaf9e10d0718402"),
+    ("ggml-cuda.dll", "bf684acacacdabd690f8ebe84b20f14bdf5d399f1bd254af1523fa9cea3af8e1"),
+    ("ggml.dll", "79dfe5c9fca26f6942c2b5044020aa003985e6d92bf8f6b0f3c80605d60a8f62"),
+    ("libomp.dll", "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c"),
+    ("llama-common.dll", "495ad21cf1c0bffc2ebf76a68810bfd80390422bd721bed6ce8fa3f622a1c545"),
+    ("llama-server-impl.dll", "16e6567e6825572a896e91a7c0767c5095189bfa30adf0de26a6ebe630167a0f"),
+    ("llama-server.exe", "f0f897fe665bb59c55ecee74122d5a1e17be862a5d656e844d88769bc1797dc4"),
+    ("llama.dll", "fe2e2da05d76166ef7645f02eb4130d083a515a77039f826353b5fa7a00ca59d"),
+    ("mtmd.dll", "867ac24f65e036c4065943a374053c12318cfbdc5cd9dadb877f1bdb171d169d"),
+)
+# The three CUDA 12.4 redistributable DLLs from the second zip.
+FAMILIAR_RUNTIME_CUDART_FILES = (
+    "cublas64_12.dll",
+    "cublasLt64_12.dll",
+    "cudart64_12.dll",
+)
+FAMILIAR_RUNTIME_CUDART_DIGESTS: tuple[tuple[str, str], ...] = (
+    ("cublas64_12.dll", "e40202fe4223c1cd2d2dce7beec59e1ed61c7801bd827309183be9b50e358f4c"),
+    ("cublasLt64_12.dll", "2a896460bef60ed57ef32b0875812f355a6984e671d638bb632f5e8c1d7a831f"),
+    ("cudart64_12.dll", "d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc"),
+)
+
+# Familiar's weights: the base (non-fine-tuned) Qwen3-VL-4B-Instruct model,
+# quantised. **A testing pin, stated as one**: this is Qwen's own official
+# GGUF requantization of stock ``Qwen/Qwen3-VL-4B-Instruct``, picked so
+# Familiar has something real to run before a Qwen fine-tune
+# exists to become the shipped pin. Q8_0 for testing; a 4-bit shipped pin
+# waits on a measured BF16-to-Q4 delta, because Gemma's Q4_K_M lost 44-61 of
+# 232 Clay eval rows. Vision (2026-09-24): the ``familiar_mmproj`` row below
+# is the optional projector that turns image input on; text-only still works
+# with nothing but this row installed.
+#
+# Revision is the repository's commit at pin time; sha256 is the file's own
+# LFS oid, read from the Hub API without downloading the 4.28 GB file. Qwen
+# publishes this repository under Apache 2.0 (its own ``license`` tag),
+# matching the base model's.
+# TODO: re-pin to Gemma 4 12B (Phase 1b) -- the repo, revision, file names and
+# digests below (and the mmproj row's) are the pre-removal Qwen3-VL-4B pins.
+FAMILIAR_GGUF_REPO = "Qwen/Qwen3-VL-4B-Instruct-GGUF"
+FAMILIAR_GGUF_REVISION = "1cd86afb9a95c410a6038ab3b40d8b578c892266"
+FAMILIAR_GGUF_FILE = "Qwen3VL-4B-Instruct-Q8_0.gguf"
+FAMILIAR_GGUF_SHA256 = (
+    "054721f478bc5fa6beffb7f38eae575d45298f88cbb8d2f83ef675a727863eb1"
+)
+
+# Familiar's vision half: the mmproj projector Qwen3-VL-4B-Instruct's own
+# GGUF repository publishes beside the text weights, at the *same* revision
+# pin (``FAMILIAR_GGUF_REVISION``) -- both files are one Hub snapshot, so
+# there is only one revision to track, not two that could drift apart.
+# **Optional**: Familiar runs text-only with no mmproj row installed at all
+# (``pipelines/llama.py`` passes ``--mmproj`` only when the file is present),
+# so this is the one Familiar row a user may skip entirely.
+#
+# sha256/size read from a local copy of this exact file (the same Q8_0
+# quantisation as the text weights, for one download profile rather than
+# mixing precisions) rather than the Hub API's LFS oid, because the mmproj
+# file in this repository is *not* stored via Git LFS the way the text GGUFs
+# are -- confirmed 2026-09-24 against the working copy staged for the
+# fine-tuning programme.
+FAMILIAR_MMPROJ_FILE = "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
+FAMILIAR_MMPROJ_SHA256 = (
+    "30ba2c7dd3127a4561b6cba9d13d0f711c91bdb38742e2f56d73c8cb596bd06d"
+)
+
+# The name a Realmspinner-trained Clay-assistant fine-tune of Qwen3-VL-4B-Instruct
+# should report once one is actually served (dev/training/clay-assistant/,
+# run-Q1 and successors). Reserved, not yet assigned to any served weights:
+# the ``familiar_gguf`` row's ``served_name`` stays "" and ``card_shas`` stays
+# empty until that fine-tune ships, at which point this becomes its
+# ``served_name`` and its GGUF ``general.name`` is set to match.
+FAMILIAR_V1_NAME = "familiar_v1.0"
+
+FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
+    FamiliarModel(
+        "familiar_runtime",
+        "Familiar runtime",
+        FAMILIAR_RUNTIME_FILES,
+        fetch=(
+            Fetch(
+                "",
+                "familiar-runtime",
+                url=FAMILIAR_RUNTIME_MAIN_URL,
+                sha256=FAMILIAR_RUNTIME_MAIN_SHA256,
+                filename=FAMILIAR_RUNTIME_MAIN_ASSET,
+                extract=".",
+                size_gib=0.24,
+                unpack_gib=0.55,
+            ),
+        ),
+        runtime=True,
+        digests=FAMILIAR_RUNTIME_DIGESTS,
+        description=(
+            "llama-server.exe: the engine behind Familiar, Realmspinner's in-app "
+            "assistant.\n\n"
+            "One of two zips from one llama.cpp release -- this one is the "
+            "server binaries; 'Familiar runtime (CUDA)' beside it is the "
+            "separate CUDA 12.4 redistributable llama.cpp ships apart. Needs "
+            "an NVIDIA card; there is no CPU build fetched here."
+        ),
+    ),
+    FamiliarModel(
+        "familiar_runtime_cudart",
+        "Familiar runtime (CUDA)",
+        FAMILIAR_RUNTIME_CUDART_FILES,
+        fetch=(
+            Fetch(
+                "",
+                "familiar-runtime-cudart",
+                url=FAMILIAR_RUNTIME_CUDART_URL,
+                sha256=FAMILIAR_RUNTIME_CUDART_SHA256,
+                filename=FAMILIAR_RUNTIME_CUDART_ASSET,
+                extract=".",
+                size_gib=0.37,
+                unpack_gib=0.55,
+            ),
+        ),
+        runtime=True,
+        digests=FAMILIAR_RUNTIME_CUDART_DIGESTS,
+        description=(
+            "The CUDA libraries llama-server.exe links against.\n\n"
+            "llama.cpp publishes them as their own zip, shared across its "
+            "CUDA-12 builds, rather than folding them into the server zip "
+            "above."
+        ),
+    ),
+    FamiliarModel(
+        "familiar_gguf",
+        "Familiar weights (Qwen3-VL-4B-Instruct)",
+        (FAMILIAR_GGUF_FILE,),
+        fetch=(
+            Fetch(
+                FAMILIAR_GGUF_REPO,
+                "familiar-gguf",
+                revision=FAMILIAR_GGUF_REVISION,
+                filenames=(FAMILIAR_GGUF_FILE,),
+                size_gib=3.99,
+            ),
+        ),
+        digests=((FAMILIAR_GGUF_FILE, FAMILIAR_GGUF_SHA256),),
+        description=(
+            "Familiar's own weights: a testing pin of the base "
+            "Qwen3-VL-4B-Instruct model.\n\n"
+            "Qwen's own Q8_0 GGUF -- no picker, no path override, this exact "
+            "file. Apache 2.0 licensed. Realmspinner's own Clay-assistant "
+            "fine-tune of this base replaces this as the shipped pin once "
+            "one is published."
+        ),
+    ),
+    FamiliarModel(
+        "familiar_mmproj",
+        "Familiar vision (mmproj)",
+        (FAMILIAR_MMPROJ_FILE,),
+        fetch=(
+            Fetch(
+                FAMILIAR_GGUF_REPO,
+                "familiar-mmproj",
+                revision=FAMILIAR_GGUF_REVISION,
+                filenames=(FAMILIAR_MMPROJ_FILE,),
+                size_gib=0.42,
+            ),
+        ),
+        digests=((FAMILIAR_MMPROJ_FILE, FAMILIAR_MMPROJ_SHA256),),
+        optional=True,
+        description=(
+            "Image input for Familiar: the multimodal projector Qwen "
+            "publishes beside the text weights.\n\n"
+            "Optional -- Familiar runs text-only without this row. With it "
+            "installed, the dock can attach a PNG (a reference image, or "
+            "Clay's own ghost render) to a chat turn. Apache 2.0 licensed, "
+            "same repository and revision as 'Familiar weights' above."
         ),
     ),
 )

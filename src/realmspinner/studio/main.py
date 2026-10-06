@@ -234,11 +234,11 @@ def _desktop_size(pygame: Any) -> tuple[int, int] | None:
     Prefers :func:`dpi.work_area` -- the desktop minus the taskbar (and any
     docked toolbars) -- over ``get_desktop_sizes``'s whole-display size,
     because a client size clamped only to the whole display could still fit
-    a window whose bottom edge lands under the taskbar: a docked panel's
-    bottom row did exactly that (2026-09-16). ``get_desktop_sizes`` is the
-    fallback for whatever isn't Windows, or where the work-area query itself
-    fails -- a ceiling on what can be *asked for*, not a promise the window
-    won't sit under the taskbar, but better than nothing.
+    a window whose bottom edge lands under the taskbar: Familiar's Build/Send
+    row did exactly that (2026-09-16). ``get_desktop_sizes`` is the fallback
+    for whatever isn't Windows, or where the work-area query itself fails --
+    a ceiling on what can be *asked for*, not a promise the window won't sit
+    under the taskbar, but better than nothing.
 
     This is still only half the fix: it bounds the client area passed to
     ``set_mode``, not the outer frame (title bar included) the window ends

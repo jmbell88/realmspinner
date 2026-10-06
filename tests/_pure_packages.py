@@ -94,10 +94,11 @@ same rule wearing its new name). What remains directly under ``studio/`` is
 the mode-owned set with no kernel of its own yet: ``mason``, ``muse``,
 ``packwright``, ``plotter``, ``sirens``, ``tour``, ``troupe``. ``familiar``
 left both roots on the same day, straight to ``realmspinner/familiar/`` -- L3 in
-the layer table, not L1 -- so it stopped being a headless *engine* in this
-function's sense well before Familiar itself was removed outright
-(2026-09-26); either way it does not appear in :func:`pure_packages`'s
-answer.
+the layer table, not L1 -- so it is not a headless *engine* in this
+function's sense at all any more, and does not appear in
+:func:`pure_packages`'s answer; its own purity is pinned directly in
+``tests/familiar/test_familiar_imports.py`` instead, by AST, the way this
+function proves purity for everything else.
 """
 
 from __future__ import annotations

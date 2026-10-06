@@ -293,10 +293,22 @@ def roots(rows: list[MenuSpec]) -> list[str]:
     return [name for name in ordered if name in present or name in ROOTS]
 
 
+#: Reserved room for a "Familiar" entry, drawn as an ordinary menu right of
+#: the workspace roots (T0: one disabled row, "Not installed", no wiring
+#: behind it yet). Unlike the status group below, this is never dropped for
+#: space -- it is drawn before the status group's available width is
+#: measured, the same way any other root would be.
+#:
+#: The mark is the literal ✦ (U+2726 BLACK FOUR POINTED STAR), not
+#: ``icons.SPARKLES``: neither Inter nor Lucide carries that codepoint, so a
+#: one-glyph subset of Noto Sans Symbols 2 is merged into every face
+#: alongside Lucide (:mod:`.fonts`) to draw it.
+FAMILIAR_LABEL = "✦ Familiar"
+
 #: Status keys the right-aligned menu-bar group drops, lowest priority first,
-#: when the roots leave it no room. ``health`` (and the leading ``workspace``
-#: row) are deliberately absent from this tuple: they are never dropped,
-#: regardless of space.
+#: when the roots and the Familiar menu leave it no room. ``health`` (and the
+#: leading ``workspace`` row) are deliberately absent from this tuple: they
+#: are never dropped, regardless of space.
 STATUS_DROP_ORDER: tuple[str, ...] = ("resources", "zoom", "tool", "document", "queue")
 
 
@@ -340,10 +352,10 @@ def _draw_status_group(ctx: Any) -> None:
     """The right-aligned, non-clickable status readouts.
 
     Drawn last in the menu bar, so ``imgui.get_content_region_avail()`` at
-    the top of this function already reflects every root having been laid
-    out -- which is how "measure the menu labels' width first" is honoured
-    without a second, hand-rolled measurement of them: imgui's own
-    left-to-right menu-bar layout already did it.
+    the top of this function already reflects every root and the Familiar
+    menu having been laid out -- which is how "measure the menu labels'
+    width first" is honoured without a second, hand-rolled measurement of
+    them: imgui's own left-to-right menu-bar layout already did it.
     """
 
     from imgui_bundle import imgui
@@ -416,6 +428,7 @@ def draw(ctx: Any, layout: Any = None) -> None:
     from imgui_bundle import imgui
 
     from . import controls, tokens
+    from .panes import familiar_dock
 
     shape = specs(ctx, layout, evaluate=False)
     live: list[MenuSpec] | None = None
@@ -447,6 +460,32 @@ def draw(ctx: Any, layout: Any = None) -> None:
                     clicked = hit[0] if isinstance(hit, tuple) else hit
                     if clicked and row.enabled:
                         row.callback()
+        # Reserved, never dropped -- see ``FAMILIAR_LABEL``'s own docstring.
+        # T5 wired the one row that used to read "Installed -- not yet
+        # wired" into a real command; the dock move (2026-09-23) made it a
+        # checked toggle over ``ctx.state.familiar.expanded``, the same flag
+        # the dock's own strip/close controls flip -- one state, one toggle,
+        # never a second implementation of it.
+        with controls.menu(FAMILIAR_LABEL) as familiar_open:
+            if familiar_open:
+                if familiar_dock.familiar_state(ctx.svc.config) == "idle":
+                    from .assistant import ui as familiar_ui
+
+                    ui = familiar_ui.ensure(ctx)
+                    hit = controls.menu_item(
+                        "Show Familiar##menu/familiar-show", "", ui.expanded, True
+                    )
+                    clicked = hit[0] if isinstance(hit, tuple) else hit
+                    if clicked:
+                        ui.expanded = not ui.expanded
+                else:
+                    controls.menu_item(
+                        "Not installed##menu/familiar-not-installed",
+                        "",
+                        False,
+                        False,
+                        reason="Familiar isn't installed yet.",
+                    )
         _draw_status_group(ctx)
     finally:
         imgui.end_menu_bar()

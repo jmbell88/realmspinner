@@ -172,8 +172,10 @@ def test_no_new_settings_get_or_default_creeps_back():
 
     2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
     ``studio/`` on purpose. ``studio.settings`` is the App's own persisted
-    config object; nothing under ``core/`` or ``kernels/`` reads it (a kernel
-    is pure), so this is a claim about the shell, not the package.
+    config object; nothing under ``core/``, ``kernels/`` or ``familiar/``
+    reads it (a kernel is pure, and Familiar's headless half takes plain
+    dicts, never the ``Settings`` singleton), so this is a claim about the
+    shell, not the package.
     """
     files = sorted(STUDIO.rglob("*.py"))
     assert len(files) > 200, f"only {len(files)} files under {STUDIO} -- did the sweep root break?"

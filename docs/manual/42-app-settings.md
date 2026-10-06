@@ -75,7 +75,7 @@ and it still turns off spring motion along with everything else that moves.
 ## Models
 
 Every model the app knows about, under the same headings **Settings → Models** groups it by — the
-reconstruction engine, image models, style LoRAs, the conditioning adapters, the
+reconstruction engine, Familiar, image models, style LoRAs, the conditioning adapters, the
 measurement models (matting, pose and the mesh-quality metric), and the music models (generation and
 stem separation) — as a table of four columns: **Model**, **Size**, **Description** and **Actions**.
 A tick beside the name means the weights are on disk; a hollow mark
@@ -83,6 +83,15 @@ with a checkbox means they are not, and **Install** fetches them. It is the same
 startup diagnostics report, in a place you can look at without opening the log. Tick several rows
 and *Download selected* fetches them together; five of the image models share one set of SDXL 1.0
 weights, and picking all five downloads them once.
+
+The **Familiar** group is the in-app assistant's own rows: its runtime (llama.cpp, two rows because
+upstream ships it as two archives), its weights, and two optional extras — a vision projector, and a
+small retrieval model that lets Familiar's Manual and Library lookups find a section or a row
+by meaning. Familiar needs the runtime and the weights and nothing else; a missing optional row
+costs only the feature it names, and nothing about Familiar uses the network once those rows are on
+disk. The group does not show a licence line, so read the licence note for each of those models in
+`docs/MODELS.md` before you rely on its output; the Gemma and EmbeddingGemma terms there are still
+waiting on a review.
 
 The **Description** column is one sentence saying what the model is *for* — which is the question a
 list of thirty names cannot answer, and the reason picking one used to mean reading `docs/MODELS.md`
@@ -367,9 +376,9 @@ panes to rearrange yet.
 Protocol build in Clay for you, and take a character from a species name to a rigged, animated
 sprite sheet on its own. It is off on a fresh install and nothing listens until you switch it
 on. Doing so writes a key into `mcp.token` in your Realmspinner home and opens a local named pipe: there
-is no port, no firewall prompt, and nothing off your machine can reach it. Realmspinner ships no
-language model of its own and still connects to nothing — an agent
-already running on this computer connects inward to Realmspinner itself, and never the
+is no port, no firewall prompt, and nothing off your machine can reach it. Realmspinner runs exactly one
+language model of its own, Familiar, on this computer only, and still connects to nothing — an agent
+already running on this computer connects inward to Realmspinner itself, never to Familiar and never the
 other way round. While one is attached the menu bar's status group
 says so. What it may touch is a two-part
 rule: in Clay it works in a tab it opens for itself and cannot address any other document, so

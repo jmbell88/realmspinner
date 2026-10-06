@@ -72,8 +72,11 @@ def _walk(path: Path, package: str) -> None:
 
 def test_the_clay_agent_surface_cannot_import_the_generate_door():
     import realmspinner.studio.agent_resources as agent_resources_mod
+    import realmspinner.studio.assistant as assistant_pkg
     import realmspinner.studio.modes.clay.agent as clay_agent_pkg
 
     for path in sorted(Path(clay_agent_pkg.__file__).parent.glob("*.py")):
         _walk(path, "realmspinner.studio.modes.clay.agent")
+    for path in sorted(Path(assistant_pkg.__file__).parent.glob("*.py")):
+        _walk(path, "realmspinner.studio.assistant")
     _walk(Path(agent_resources_mod.__file__), "realmspinner.studio")

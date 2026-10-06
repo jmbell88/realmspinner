@@ -99,6 +99,11 @@ Three downloads are listed once you get to them:
 The first of those was part of the installer until 2026-09-10, where it was more than half of
 everything you downloaded whether or not you ever made a 3D model. It is a row like the others now.
 
+There is a fourth group you can ignore for now: **Familiar**, the in-app assistant on the window's
+right edge, has its own optional rows in the same place (a runtime, a language model of about 8 GB,
+and two small extras). Nothing in the first hour needs it, and until it is installed its ✦ button
+simply says so.
+
 Downloading these is one of three things in the app that go online — the other two are installing a
 dependency pack (Settings → Packs) and checking for a new release (Settings → Updates) — and the
 mechanism behind all three is deliberate rather than incidental. The app process sets

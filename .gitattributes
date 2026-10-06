@@ -4,3 +4,7 @@
 # definition of the format and a .hex is LF, and line-ending normalisation on
 # checkout would make a test's verdict depend on the platform it ran on.
 tests/inker/fixtures/palettes/* -text
+
+# A frozen Familiar prompt card is identified to the model by its sha256, so a CRLF
+# checkout would change the prompt it sees (and the card_shas gate with it).
+src/realmspinner/familiar/cards/* -text

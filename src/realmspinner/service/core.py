@@ -142,11 +142,12 @@ class RealmspinnerService:
         except TimeoutError:
             # The 2026-09-17 audit (familiar-05): a caller that gives up on
             # this wait must not leave the coroutine still running on the
-            # loop on their behalf -- a timed-out call left its resource held
-            # with nothing to reclaim it, and a retry queued behind a caller
-            # nobody was still waiting for -- but the fix belongs here, in
-            # the one place every caller of this primitive shares.
-            # ``fut.cancel()`` on the
+            # loop on their behalf. Familiar's own door (service/familiar.py
+            # `_call`) is where this was found -- a timed-out chat request
+            # kept its llama-server slot with nothing to reclaim it, and a
+            # retry queued behind a request nobody was still waiting for --
+            # but the fix belongs here, in the one place every caller of
+            # this primitive shares. ``fut.cancel()`` on the
             # ``concurrent.futures.Future`` a ``run_coroutine_threadsafe``
             # call returns propagates to the underlying task via asyncio's
             # own ``_chain_future`` wiring, so this reaches the coroutine

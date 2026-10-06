@@ -47,9 +47,9 @@ CHUNK = 1 << 20
 #: limit at all, so a compromised or misconfigured feed host answering either
 #: GET with an unbounded body would have this process buffer all of it before
 #: ``json.loads`` ever got a chance to reject it -- the same host-exhaustion
-#: shape ``trellis.py``'s ``MAX_GLB_BYTES``/``MAX_ERROR_BYTES`` already guards
-#: against. Both real documents are a few KB; 1 MB is generous headroom, not a
-#: measurement.
+#: shape ``trellis.py``'s ``MAX_GLB_BYTES``/``MAX_ERROR_BYTES`` and
+#: ``llama_client.py``'s ``MAX_RESPONSE_BYTES`` already guard against. Both
+#: real documents are a few KB; 1 MB is generous headroom, not a measurement.
 MAX_MANIFEST_BYTES = 1 << 20
 
 #: The asset a release has to carry for this app to offer it. Named here

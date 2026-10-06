@@ -76,6 +76,8 @@ nothing outlives the app however it exits, and a scan test refuses a spawn site 
 | The music worker | The ACE-Step music pipeline, resident across takes | Its host memory was never returned either; killing the child returns it |
 | The separation worker | One Demucs run, four stems out | A one-shot child, so cancelling it is a kill |
 | The LoRA trainer | One style-LoRA training run | A run charges about 20 GiB of host commit that nothing short of exit returns |
+| Familiar's server | A 12-billion-parameter language model, resident only while Familiar is in use | A native binary (`llama-server`) that holds about 10 GiB of the card; stopped before any GPU job so the two never coexist |
+| Familiar's retrieval server | A small embedding model, on the processor | A second instance of the same binary, kept off the card so the stop above never has to evict it |
 | The recipe worker | A small instruct model answering one Flourish request | Load, answer, exit: the load-probe trade, for a few prompts an hour |
 | The fetch worker | One model or engine download | One of three allowed online — see below |
 | The pack worker | One dependency-pack install | Same allowance, for `uv sync`'s equivalent |
@@ -175,6 +177,18 @@ online. The app process never sets `HF_HUB_OFFLINE` to anything but `1`, and not
 generation path can reach any of the three. A subprocess rather than a temporary flag flip precisely
 because `huggingface_hub` reads the variable at import time: in process, "is this offline" would
 become a question about import order instead of about one line.
+
+**Familiar is a language model, not a fourth exception.** Its two servers are the same `llama-server`
+binary, started by the app as children of the same kill-on-close job, bound to the loopback address
+only, started with `--offline` and a key written fresh for each spawn into a file only the app can
+read. Nothing in them can reach the network, and their weights arrive through the fetch worker like
+every other model's, so the count of children allowed online stays three. The one thing that makes
+them different from the other children is the card. Each of the others is either small or short-lived;
+Familiar's language model is a 12-billion-parameter model that would otherwise sit resident, and TRELLIS
+and SDXL already coexist at around 23 GiB of a 32 GiB card. So the queue stops the server before any
+GPU job dispatches (a lease, not a preference — there is no room to share), does not restart it when
+the job ends, and lets the next message do that. The retrieval server runs on the processor so the
+lease never has to evict it.
 
 ## The GL context
 

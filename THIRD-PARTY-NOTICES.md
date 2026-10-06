@@ -52,6 +52,25 @@ A source checkout is the one case where these files still arrive by hand, into
 directory is gitignored and the developer downloads the same archive from the
 same place.
 
+## Familiar's runtime, which is also downloaded and not redistributed
+
+Same shape as the reconstruction engine above, and added when Familiar was:
+`Settings → Models` fetches llama.cpp's own Windows CUDA build (split across
+two release zips — the server binaries, and the CUDA redistributable apart
+from them) from llama.cpp's GitHub release, verifies the SHA-256
+`src/realmspinner/models.py` pins, and unpacks both under
+`~/.realmspinner/engine/llama/`. `docs/MODELS.md` carries the exact build tag and
+the download commands. Realmspinner does not redistribute any of it. The
+server it runs is bound to the loopback address only and started with
+`--offline`; it never reaches a network, and its weights arrive through the
+same download worker as every other model.
+
+| Component | Files | Upstream | Licence |
+|---|---|---|---|
+| llama.cpp | `llama-server.exe` and the DLLs it links | <https://github.com/ggml-org/llama.cpp> | MIT |
+| ggml (llama.cpp's own build, distinct from trellis.cpp's) | `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-cuda.dll` | <https://github.com/ggml-org/ggml> | MIT |
+| NVIDIA CUDA runtime | `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` | NVIDIA CUDA Toolkit 12.4 redistributables | NVIDIA CUDA Toolkit EULA — redistribution permitted under the "Attachment A" redistributable list |
+
 ## Bundled Python runtime
 
 The installer packs a CPython 3.13 runtime from
@@ -66,6 +85,7 @@ inside the runtime tree the installer copies).
 |---|---|---|---|
 | Inter (PUA-stripped) | <https://github.com/rsms/inter> | SIL Open Font License 1.1 | `src/realmspinner/studio/resources/fonts/LICENSE-inter.txt` |
 | Lucide icons | <https://github.com/lucide-icons/lucide> | ISC | `src/realmspinner/studio/resources/fonts/LICENSE-lucide.txt` |
+| Familiar sigil (U+2726 subset of Noto Sans Symbols 2) | <https://github.com/notofonts/symbols> | SIL Open Font License 1.1 | `src/realmspinner/studio/resources/fonts/LICENSE-familiar-sigil.txt` |
 
 ## Vendored source
 
@@ -127,28 +147,48 @@ their publishers, and two of them restrict commercial use of what you generate.
 | TRELLIS.2-4B | Microsoft | Hugging Face | MIT | Permitted |
 | BiRefNet weights | ZhengPeng7 | Hugging Face | MIT | Permitted |
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |
+| Gemma 4 12B QAT Q4_0 (Familiar's stock weights; pin lands in Phase 1b) | Google | Hugging Face | **Pending a human licence review** (`dev/TODO.md` P53) | Not yet decided |
+| EmbeddingGemma 2 (Familiar's optional retrieval model; pin lands in Phase 1b) | Google | Hugging Face | **Pending a human licence review** (`dev/TODO.md` P53) | Not yet decided |
+| Qwen3-VL-4B-Instruct GGUF (Qwen's own Q8_0, the interim pin the registry holds until Phase 1b) | Qwen, requantizing their own `Qwen/Qwen3-VL-4B-Instruct` | Hugging Face | Apache-2.0 | Permitted |
+| `familiar_v1.0` (reserved for a future Clay-assistant fine-tune of Gemma 4 12B by this project's own training programme; not yet published) | Realmspinner (this project) | Realmspinner's own download row, not a third-party Hub repo | Not decided: depends on the verdict on its Gemma base | Not yet published |
 | Hybrid Demucs (`hdemucs_high_trained.pt`) | Meta / torchaudio | `download.pytorch.org`, **not** Hugging Face | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — Meta states the trained weights are for scientific purposes only; see [`docs/MODELS.md`](docs/MODELS.md) |
 
+**Nothing here claims a licence verdict for either Gemma model.** The sources
+this project has read disagree about whether Gemma 4 is published under Apache-2.0
+or under Google's Gemma Terms of Use, so both rows say "pending" until a human
+has read the current licence text on both repositories and decided the conditions
+that follow from it (the naming condition, whether Google's attribution file ships
+with the weights, and whether the Acceptable Use Policy binds a redistributed
+derivative). The same review decides the licence `familiar_v1.0` ships under;
+no fine-tune exists yet and none will be published before it. llama.cpp, which
+runs both, is MIT regardless.
+
 The application surfaces this per model where the registry carries it. Of the
-ten registry dataclasses in `realmspinner.models` (one per `_table()`-built
+eleven registry dataclasses in `realmspinner.models` (one per `_table()`-built
 registry — `BaseModel`, `StyleLora`, `IPAdapter`, `ControlNet`, `EngineModel`,
-`MetricModel`, `PoseModel`, `MusicModel`, `SeparationModel`, `MattingModel`),
-three declare a `license` field — `BaseModel`, `MusicModel`
+`MetricModel`, `PoseModel`, `MusicModel`, `SeparationModel`, `MattingModel`,
+`FamiliarModel`), three declare a `license` field — `BaseModel`, `MusicModel`
 and `SeparationModel` — and only for those does `service/downloads.py`'s
 `rows()` put a licence in the row, so only those show a licence line in the
 model picker and the download confirmation. `StyleLora`, `IPAdapter`,
-`ControlNet`, `EngineModel`, `MetricModel`, `PoseModel` and `MattingModel`
-carry no `license` field, so no licence line is shown for
-those entries in-app — including TRELLIS.2-4B (`EngineModel`) and BiRefNet
-(`MattingModel`), both shown by
+`ControlNet`, `EngineModel`, `MetricModel`, `PoseModel`, `MattingModel` and
+`FamiliarModel` carry no `license` field, so no licence line is shown for
+those entries in-app — including TRELLIS.2-4B (`EngineModel`), BiRefNet
+(`MattingModel`), llama.cpp, Gemma 4 12B and EmbeddingGemma 2 (`FamiliarModel`), all shown by
 hand in the tables above but not read from the registry.
-Of those seven fieldless classes, [`docs/MODELS.md`](docs/MODELS.md) writes a
-row by hand for two -- TRELLIS.2-4B (`EngineModel`) and BiRefNet
-(`MattingModel`), both MIT. For the other five -- `StyleLora`,
+Of those eight fieldless classes, [`docs/MODELS.md`](docs/MODELS.md) writes a
+row by hand for three -- TRELLIS.2-4B (`EngineModel`), BiRefNet
+(`MattingModel`), and llama.cpp, Gemma 4 12B and EmbeddingGemma 2 (`FamiliarModel`'s
+runtime and weights), MIT where a licence is stated and "pending review" for the two
+Gemma rows. For the other five -- `StyleLora`,
 `IPAdapter`, `ControlNet`, `MetricModel` (DINOv2) and `PoseModel` (ViTPose)
 -- it names no row at all and says instead that they carry their own terms
 on their own repository pages, not audited by this project (the 2026-09-06
 and 2026-09-08 audits, both finding docs-03, narrowed this paragraph twice
-already). If you intend to sell what you generate, read the row for the model
-you generated it with, or its own repository page directly if docs/MODELS.md
-has none.
+already; the 2026-09-20 audit, finding docs-04, then caught the paragraph
+still saying "seven... two... the other five" while listing `FamiliarModel`
+among the eight fieldless classes above and never mentioning it again --
+`docs/MODELS.md` documents Familiar's runtime and weights by hand, exactly like
+the two classes this sentence did count). If you intend to sell what you generate,
+read the row for the model you generated it with, or its own repository page
+directly if docs/MODELS.md has none.

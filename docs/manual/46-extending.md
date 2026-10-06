@@ -269,17 +269,17 @@ not have completed, never a guess either way. Reconnecting after that — whethe
 mid-call or was simply never open at start-up — opens a new tab in the app, not a resume of
 whatever tab or document the agent was using before.
 
-The arrow only ever points inwards. Realmspinner ships no language model of its own and reaches no
-endpoint; an agent that is already running connects inward to Realmspinner itself, and never the
-other way round. The transport is a local named pipe
-rather than a port, so there is nothing to open in a firewall and nothing off your machine can
-reach it. The pipe's key lives in `mcp.token` in your Realmspinner home and is written when you switch
-the setting on, so a program that cannot read your files cannot connect either. `realmspinner mcp` is
-the actual MCP server your agent's client dials over stdio; it speaks whichever protocol revision
-that client negotiates — both the classic, `initialize`-first family and a newer era that opens
-with `server/discover` instead — and translates every call into Realmspinner's own private RPC over the
-pipe, so Realmspinner itself only ever has to answer that one, versioned RPC rather than every MCP
-revision a client might bring.
+The arrow only ever points inwards. Realmspinner runs exactly one language model of its own, Familiar, on
+this computer only, and reaches no endpoint; an agent that is already running
+connects inward to Realmspinner itself, never to Familiar and never the other way round. The transport is
+a local named pipe rather than a port, so there is nothing to open in a firewall and nothing off your
+machine can reach it. The pipe's key lives in `mcp.token` in your Realmspinner home and is written when
+you switch the setting on, so a program that cannot read your files cannot connect either. `realmspinner
+mcp` is the actual MCP server your agent's client dials over stdio; it speaks whichever protocol revision
+that client negotiates — both the classic, `initialize`-first family and a newer era that opens with
+`server/discover` instead — and translates every call into Realmspinner's own private RPC over the pipe,
+so Realmspinner itself only ever has to answer that one, versioned RPC rather than every MCP revision a
+client might bring.
 
 **What an agent may touch is a two-part rule, not one.** In Clay it is unchanged: it gets a tab of
 its own when it connects, and every tool it has addresses that tab by name. A document you already

@@ -677,7 +677,7 @@ class FrameMixin:
         from ..main import _SINGLE_PANE_MODES
         from ..modes.home.ui.panes import landing
         from ..modes.settings.ui.panes import app_settings
-        from ..panes import inspector
+        from ..panes import familiar_dock, inspector
 
         ctx = self.app_ctx
         # The rail first of all, because the sidebars are fitted against what
@@ -685,6 +685,9 @@ class FrameMixin:
         # disagreeing with the window by exactly its own width for one frame
         # every time it was toggled.
         rail.tick(self.layout)
+        # And the Familiar dock, right after -- the other edge the columns
+        # must be fitted against, for the same reason and in the same order.
+        familiar_dock.tick(ctx)
         # Before any pane reads ``layout.SIDEBAR_W``: a width change eases, and
         # a half-eased width read by the left sidebar and the settled one read
         # by the right would be two columns disagreeing about the same frame.
@@ -848,7 +851,12 @@ class FrameMixin:
             draw_placeholder=False,
         )
         imgui.same_line()
-        imgui.begin_child("##content", (0, 0))
+        # The workspace's own column, sized to leave the Familiar dock (and
+        # its grip, once open) clear on the right -- the dock's counterpart
+        # to the rail's column on the left.
+        dock_reserve = familiar_dock.reserve()
+        spacing = imgui.get_style().item_spacing.x
+        imgui.begin_child("##content", (-(dock_reserve + spacing), 0))
         from ..panes import overlay
 
         mode = ctx.state.mode
@@ -949,6 +957,10 @@ class FrameMixin:
                         )
 
         imgui.end_child()
+        imgui.same_line()
+        # No grip: the dock's width is a fixed share of the room
+        # (``layout.proportions``, 2026-09-23), never a drag.
+        guard.run("shell/familiar", familiar_dock.draw, ctx, title="The Familiar dock")
         imgui.end()
         self._overlays(viewport)
 
@@ -1220,12 +1232,15 @@ class FrameMixin:
                 self.eta,
                 title="The progress card",
             )
+        from ..panes import familiar_dock
+
         over(
             "overlay/toasts",
             widgets.toasts,
             ctx.state,
             (viewport.work_size.x, viewport.work_size.y),
             on_action=self._toast_action,
+            right_offset=familiar_dock.reserve(),
             title="Notifications",
         )
         # The first-run question owns the screen before any workflow modal.

@@ -3650,6 +3650,8 @@ def toasts(
     state: Any,
     viewport_size: tuple[float, float],
     on_action: Any = None,
+    *,
+    right_offset: float = 0.0,
 ) -> None:
     """Stacked bottom-right, newest lowest; born sliding up, dying fading out.
 
@@ -3664,6 +3666,12 @@ def toasts(
     from ``born`` in four places, and a second field saying "but not that age"
     is how two of them come to disagree. Only a toast that takes input can be
     hovered at all, which is the same set that is worth pausing.
+
+    ``right_offset`` -- design pixels already scaled by the caller -- pulls
+    the whole stack clear of the Familiar dock (2026-09-23), which sits at
+    the same screen edge this stack anchors to (the stack used to clear
+    ``panes.bottom_pane`` on the *bottom* edge instead; the dock is a right
+    dock, so the offset moved from ``y`` to ``x``).
     """
     state.expire_toasts()
     if not state.toasts:
@@ -3671,7 +3679,7 @@ def toasts(
     now = time.monotonic()
     delta = imgui.get_io().delta_time
     margin = sp(16)
-    x_margin = margin
+    x_margin = margin + right_offset
     y = viewport_size[1] - margin
     dismissed: list[Any] = []
     hidden = max(0, len(state.toasts) - TOAST_VISIBLE)
@@ -3754,7 +3762,9 @@ def toasts(
         # notification history, and this line exists to say the stack is a window
         # onto something rather than the whole of it.
         imgui.set_next_window_bg_alpha(0.0)
-        imgui.set_next_window_pos((viewport_size[0] - margin, y), imgui.Cond_.always.value, (1, 1))
+        imgui.set_next_window_pos(
+            (viewport_size[0] - x_margin, y), imgui.Cond_.always.value, (1, 1)
+        )
         if imgui.begin(
             "##toast-more",
             None,

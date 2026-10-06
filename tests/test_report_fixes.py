@@ -278,8 +278,7 @@ def test_a_display_that_reports_nothing_falls_back_to_the_default():
 
 # --- the startup window sat under the taskbar -----------------------------------
 #
-# The reported instance (Familiar's bottom pane, since removed along with the
-# rest of Familiar) put its Build/Send row under the Windows taskbar:
+# Familiar's bottom pane put its Build/Send row under the Windows taskbar:
 # ``_desktop_size`` clamped the startup window to ``get_desktop_sizes()``, the
 # whole display, and even a client size that fit inside that whole-display
 # ceiling could still leave the window's outer frame (title bar included)
@@ -297,7 +296,7 @@ def test_a_display_that_reports_nothing_falls_back_to_the_default():
         # Too tall for the work area: shrunk to fit, then pulled back inside.
         ((0, 0, 1600, 1200), (0, 0, 1920, 1040), (0, 0, 1600, 1040)),
         # Bottom edge under a bottom taskbar: moved up, not shrunk -- this is
-        # the reported defect's actual shape (a window that already fit sideways).
+        # Familiar's actual defect shape (a window that already fit sideways).
         ((0, 900, 800, 600), (0, 0, 1920, 1040), (0, 440, 800, 600)),
         # Taskbar on the left: the work area's own x is > 0, and a window
         # sitting at x=0 has to move right, not just get clipped in place.
@@ -319,7 +318,7 @@ def test_fit_rect(outer, work, expected):
 def test_desktop_size_prefers_the_work_area(monkeypatch):
     """The old ``_desktop_size`` clamped only to the whole display, which a
     window can still slip under the taskbar within -- that is exactly how
-    the reported window's Build/Send row ended up hidden. This fails against that code:
+    Familiar's Build/Send row ended up hidden. This fails against that code:
     it never imported ``dpi`` or called ``work_area`` at all, so patching
     ``work_area`` changes nothing and the assertion below sees whatever
     ``get_desktop_sizes`` returned instead (here, an exception turned into

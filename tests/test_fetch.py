@@ -1427,6 +1427,37 @@ def test_nothing_outside_the_model_root_may_be_removed(tmp_path):
     assert any("model root" in reason for reason in removal.blocked)
 
 
+def test_the_familiar_runtime_rows_can_be_removed_from_their_own_directory(tmp_path):
+    """``familiar_runtime_dir`` (``engine/llama``) is outside the model root
+    and was not one of ``removal_plan``'s containment roots, so Remove on
+    either runtime row was refused as "outside the model root" -- the one
+    refusal a user cannot act on, since Realmspinner put the files there."""
+    cfg = _config(tmp_path)
+    cfg.familiar_runtime_dir = tmp_path / "engine" / "llama"
+    cfg.familiar_models_dir = tmp_path / "models" / "familiar"
+    # Both rows share the one directory, so it goes when both are chosen --
+    # either alone leaves the other's claim standing, as ``sdxl`` does.
+    removal = fetch.removal_plan(
+        cfg, _entries("familiar:familiar_runtime", "familiar:familiar_runtime_cudart")
+    )
+    assert removal.blocked == ()
+    assert removal.paths == (cfg.familiar_runtime_dir,)
+    alone = fetch.removal_plan(cfg, _entries("familiar:familiar_runtime"))
+    assert alone.blocked == ()
+
+
+def test_a_familiar_env_override_directory_is_never_deleted(tmp_path, monkeypatch):
+    """Same rule as the trellis pair (``pipelines-install-03``): a directory the
+    user pointed us at is not one we fetched."""
+    elsewhere = tmp_path / "elsewhere-llama"
+    monkeypatch.setenv("REALMSPINNER_FAMILIAR_RUNTIME", str(elsewhere))
+    cfg = Config()
+    assert cfg.familiar_runtime_dir == elsewhere
+    removal = fetch.removal_plan(cfg, _entries("familiar:familiar_runtime"))
+    assert removal.paths == ()
+    assert any("REALMSPINNER_FAMILIAR_RUNTIME" in reason for reason in removal.blocked)
+
+
 def test_planning_a_removal_writes_nothing(tmp_path):
     cfg = _config(tmp_path)
     before = sorted(p.name for p in tmp_path.iterdir())
@@ -1450,6 +1481,11 @@ def test_every_claim_is_something_present_would_have_looked_at(tmp_path):
                 # disk report, the sweeps and ``verify_all``, all of which
                 # reason about weights.
                 or path.is_relative_to(cfg.trellis_runtime_dir)
+                # Familiar's own two roots, never the trellis ones: llama.cpp
+                # and trellis.cpp ship their own, differently built
+                # ``ggml*.dll`` (see ``fetch.familiar_dir``'s docstring).
+                or path.is_relative_to(cfg.familiar_runtime_dir)
+                or path.is_relative_to(cfg.familiar_models_dir)
             ), entry.row_key
 
 

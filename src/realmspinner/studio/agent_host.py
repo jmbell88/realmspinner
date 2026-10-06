@@ -203,14 +203,15 @@ SERVICE_WORKERS = 2
 SETTING = "agent_server"
 
 #: The pipe server's own lane-ownership token (:meth:`AgentHost._acquire_
-#: lanes`/:meth:`_release_lanes`). Every job queued through this module is
-#: tagged with the owner that queued it, so :meth:`AgentHost.stop` fails and
-#: drops only the jobs an owner named ``PIPE_OWNER`` queued (see
-#: :meth:`_fail_pending`/:meth:`_drop_queued_service_jobs`), and the
-#: frame/service lanes themselves are torn down only once *no* owner still
-#: holds them (see :meth:`_release_lanes`) -- a caller other than the pipe
-#: (should one exist) mints its own token instead, so switching the agent
-#: server off never has to guess which owner's jobs it is allowed to touch.
+#: lanes`/:meth:`_release_lanes`). An in-app caller (Familiar, via
+#: :meth:`AgentHost.open_session`) mints its own token instead, so the two
+#: are never confused: :meth:`AgentHost.stop` fails and drops only the jobs
+#: an owner named ``PIPE_OWNER`` queued (see :meth:`_fail_pending`/
+#: :meth:`_drop_queued_service_jobs`), and the frame/service lanes
+#: themselves are torn down only once *no* owner -- pipe or in-app -- still
+#: holds them (see :meth:`_release_lanes`). Switching the agent server off
+#: must not stop an in-app session mid-flight, and closing an in-app session
+#: must not touch a call the pipe still has in flight.
 PIPE_OWNER = "pipe"
 
 STATUS_TOOL = "realmspinner_status"
@@ -388,12 +389,12 @@ class _Job:
     run) audit, finding agents-01, found the quit chain had no way to name
     an in-flight ``character_export`` because nothing on ``_Job`` recorded
     which tool it was running."""
-    """Which lane owner queued this job (:data:`PIPE_OWNER`, or another
-    caller's own token) -- read only by :meth:`AgentHost._fail_pending`/
-    :meth:`_drop_queued_service_jobs`, which scope a switch-off to their
-    caller's own jobs rather than every owner's. ``pump``/
-    :meth:`AgentHost._execute` never read it: a job runs the same way
-    regardless of who queued it, on whichever lane it was put on."""
+    """Which lane owner queued this job (:data:`PIPE_OWNER` or an in-app
+    session's own token from :meth:`AgentHost.open_session`) -- read only by
+    :meth:`AgentHost._fail_pending`/:meth:`_drop_queued_service_jobs`, which
+    scope a switch-off to their caller's own jobs rather than every owner's.
+    ``pump``/:meth:`AgentHost._execute` never read it: a job runs the same
+    way regardless of who queued it, on whichever lane it was put on."""
 
 
 @dataclass
@@ -765,10 +766,11 @@ class AgentHost:
         # this does not gate a job submission or a frame-thread wait: those
         # are gated by whether the frame/service lanes are still open
         # (``self._queue``/``self._service`` being non-``None``), which
-        # stays true for as long as any owner still holds them (see
-        # ``PIPE_OWNER``'s own docstring). A pipe-only host behaves simply:
-        # stopping it releases the pipe's own hold, which is the only one
-        # there is, so the lanes close immediately.
+        # stays true for as long as any owner -- the pipe or an
+        # ``InAppSession`` -- still holds them (see ``PIPE_OWNER``'s own
+        # docstring). A pipe-only host behaves simply: stopping it releases
+        # the pipe's own hold, which is the only one there is, so the lanes
+        # close immediately.
         self._stopped = threading.Event()
         self._connected = False
         # Why the last :meth:`start` could not open the pipe, or ``None`` if
@@ -827,12 +829,17 @@ class AgentHost:
         # resetting one per connection for no behavioural difference.
         self._service_seq = itertools.count(1)
         # Which owners currently hold the frame/service lanes open --
-        # :data:`PIPE_OWNER` while the pipe server is running, and any other
-        # caller's own token while it holds them too. Read and written only
-        # under ``_job_lock``, alongside the ``self._queue``/``self._service``
+        # :data:`PIPE_OWNER` while the pipe server is running, plus one
+        # token per open :class:`InAppSession`. Read and written only under
+        # ``_job_lock``, alongside the ``self._queue``/``self._service``
         # swap the set's emptiness gates -- see :meth:`_acquire_lanes`/
         # :meth:`_release_lanes`.
         self._lane_owners: set[str] = set()
+        # Mints a fresh in-app owner token per :meth:`open_session` call --
+        # a plain counter, not per pipe connection (there is only ever one
+        # pipe owner), so two concurrently open Familiar sessions each get
+        # their own token and releasing one never touches the other's jobs.
+        self._owner_seq = itertools.count(1)
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -882,9 +889,9 @@ class AgentHost:
         else already has, not a fresh one: the lanes are shared, ownership
         is just what decides when they may be torn down.
 
-        Called from :meth:`start` with :data:`PIPE_OWNER` -- the door onto
-        this host's job queue -- and available to any other caller with its
-        own token, independent of the pipe's own hold."""
+        Called from :meth:`start` (with :data:`PIPE_OWNER`) and
+        :meth:`open_session` (with a fresh in-app token) -- the two doors
+        onto this host's job queue, now independent of each other."""
         with self._job_lock:
             first = not self._lane_owners
             self._lane_owners.add(owner)
@@ -898,12 +905,13 @@ class AgentHost:
         so the caller can ``shutdown(wait=False)`` it *outside* this lock
         (never across a lock hold, the same rule every other lane-teardown
         step in this module already follows). ``None`` if another owner
-        still needs the lanes, or if *owner* was never registered (a second
-        :meth:`stop` on an idle host) -- both are a no-op, the same
-        idempotence :meth:`stop` already promises.
+        still needs the lanes, or if *owner* was never registered (an
+        already-closed :class:`InAppSession`, or a second :meth:`stop` on an
+        idle host) -- both are a no-op, the same idempotence :meth:`stop`
+        already promises.
 
-        Any other owner's jobs must keep running while the pipe server is
-        off, and turning the pipe server off must never drop them
+        Familiar must keep working while the pipe server is off, and turning
+        the pipe server off must never drop an in-app session's own jobs
         (``dev/INVARIANTS.md``'s agent-host paragraph): scoping teardown to
         "the last owner released" rather than "the pipe stopped" is what
         makes both true at once."""
@@ -980,9 +988,9 @@ class AgentHost:
         self._server = server
         self._stopped.clear()
         self._connected = False
-        # A fresh pair of lanes if no other owner is holding one open
-        # already -- :meth:`_acquire_lanes` is a no-op beyond registering
-        # this owner when one is. The previous pipe-owned pair (if any) was
+        # A fresh pair of lanes if no owner (an already-open InAppSession)
+        # is holding one open already -- :meth:`_acquire_lanes` is a no-op
+        # beyond registering this owner when one is. The previous pipe-owned pair (if any) was
         # already released by the matching stop(), and a
         # ``ThreadPoolExecutor`` has no restart of its own.
         self._acquire_lanes(PIPE_OWNER)
@@ -1036,14 +1044,15 @@ class AgentHost:
 
         Stopping the pipe server releases only *its own* hold on the frame/
         service lanes (:meth:`_release_lanes` with :data:`PIPE_OWNER`) --
-        any other owner keeps both lanes alive for as long as it holds its
-        own token, whether or not the pipe server is running, and
+        an :class:`InAppSession` opened for Familiar keeps both lanes alive
+        for as long as it holds its own token, whether or not the pipe
+        server is running, and
         ``self._service``/``self._queue`` are torn down here only when this
         call turns out to be the *last* owner releasing. ``_fail_pending``
         runs first regardless, but it is scoped to :data:`PIPE_OWNER`'s own
         jobs (its default) -- switching the pipe off must fail and drop only
-        the pipe's own pending work, never a job another owner queued on the
-        lanes it still owns.
+        the pipe's own pending work, never a job an in-app session queued on
+        the lanes it still owns.
         """
         if self._thread is None:
             return
@@ -1108,6 +1117,33 @@ class AgentHost:
         self._server = None
         self._connected = False
 
+    def open_session(self) -> InAppSession:
+        """Open an in-process caller of the agent tool surface -- Familiar's
+        own door, independent of the pipe. Acquires its own lane-ownership
+        token (:meth:`_acquire_lanes`) so the frame/service lanes stay open
+        for this session's whole life whether or not the pipe server is
+        running, or is ever switched on at all: the two owners are tracked
+        entirely separately (see :data:`PIPE_OWNER`'s own docstring), so
+        switching the agent server off (:meth:`stop`) neither closes this
+        session nor drops a job it is waiting on, and closing this session
+        (:meth:`InAppSession.close`) never touches the pipe.
+
+        Mints no tab -- unlike :meth:`_serve`'s pipe connection, which opens
+        one before a bridge can ask for one (see the module docstring's own
+        "tab a connecting agent gets" paragraph). A fresh
+        :class:`agent_clay.Session` starts with no tab pinned, exactly as a
+        pipe connection's session object does the instant before ``_serve``
+        queues that mint -- this method simply never queues it, so the
+        first tool call Familiar makes decides for itself whether to open
+        one (one of the three ``MINTS_A_DOCUMENT`` tools) or address one it
+        already knows about.
+        """
+        owner = f"familiar-{next(self._owner_seq)}"
+        self._acquire_lanes(owner)
+        session = agent_clay.Session()
+        calls = _Calls()
+        return InAppSession(self, session, calls, owner)
+
     def _fail_pending(self, owner: str = PIPE_OWNER) -> None:
         """Wake every call still sitting in the queue *and belonging to
         owner* with a failure, so a bridge blocked in :meth:`_call` is not
@@ -1116,8 +1152,8 @@ class AgentHost:
 
         Scoped to *owner* (default :data:`PIPE_OWNER`, the only caller
         :meth:`stop` ever passes) so that switching the pipe server off
-        fails and drops only the pipe's own jobs -- a job another owner
-        queued on the same shared frame queue is put straight back rather
+        fails and drops only the pipe's own jobs -- a job an
+        :class:`InAppSession` queued on the same shared frame queue is put straight back rather
         than dropped, because that owner's lane is still open and
         :meth:`pump` will still get to it.
 
@@ -1630,9 +1666,9 @@ class AgentHost:
 
         *owner* tags the queued job with whoever is making this call --
         :data:`PIPE_OWNER` for the bridge (the default, and every existing
-        caller), or another caller's own token -- so that :meth:`stop`
-        fails and drops only the pipe's own jobs, never one another owner
-        is waiting on.
+        caller), or an :class:`InAppSession`'s own token for Familiar
+        (:meth:`InAppSession.call`) -- so that :meth:`stop` fails and drops
+        only the pipe's own jobs, never one an in-app session is waiting on.
 
         Before any of that, *calls* may already hold an undelivered answer
         for this exact intent: a prior call that outran the timeout while it
@@ -1993,7 +2029,7 @@ class AgentHost:
 
         The "is the lane open" check is ``self._queue is None`` for *any*
         owner -- the frame lane stays open for as long as *any* owner
-        (:data:`PIPE_OWNER` or another caller's own token) still holds it
+        (:data:`PIPE_OWNER` or an :class:`InAppSession`'s own token) still holds it
         (:meth:`_acquire_lanes`/:meth:`_release_lanes`). But
         ``self._stopped`` still gates :data:`PIPE_OWNER` specifically: once
         ``stop()`` sets it, a pipe-owned call must be refused even while the
@@ -2332,11 +2368,11 @@ class AgentHost:
 
         *job.owner* is checked against ``self._stopped`` under this same
         lock, same reason as :meth:`_run_on_frame_job`'s own check: the
-        service lane can stay open past a pipe ``stop()`` (another owner
-        still holding it), and a pipe-owned job must still be refused rather
-        than accepted onto lanes it no longer owns, with nothing left to
-        ever fail it once accepted. Any other owner is never gated by this
-        flag -- see :meth:`_run_on_frame_job`'s own docstring for why.
+        service lane can stay open past a pipe ``stop()`` (an
+        ``InAppSession`` still holding it), and a pipe-owned job must still
+        be refused rather than accepted onto lanes it no longer owns, with
+        nothing left to ever fail it once accepted. An in-app owner is never
+        gated by this flag -- see :meth:`_run_on_frame_job`'s own docstring for why.
         """
         with self._job_lock:
             runner = self._service
@@ -2474,3 +2510,73 @@ class AgentHost:
             if self._execute(job):
                 ran_one = True
 
+
+class InAppSession:
+    """An in-process caller of Realmspinner's agent tool surface -- Familiar's
+    own door onto Clay and the character pipeline, with no pipe, no MCP
+    framing, no transcript recording and no ``realmspinner_status`` (there is no
+    concurrent connection here for that tool to answer about, and nothing
+    else in this class ever mints an operation for it to report on).
+
+    Built only by :meth:`AgentHost.open_session`, never directly -- the
+    lane-ownership token it holds is minted there. :meth:`call` reuses
+    :meth:`AgentHost._call`'s own routing (dedup, the frame/service lane
+    choice, timeout refusals) verbatim, tagged with this session's own
+    owner so :meth:`AgentHost.stop` can never fail or drop a job this
+    session is waiting on -- see :data:`PIPE_OWNER`'s docstring for the
+    scoping rule that makes that true.
+    """
+
+    def __init__(
+        self, host: AgentHost, session: agent_clay.Session, calls: _Calls, owner: str
+    ) -> None:
+        self._host = host
+        self._session = session
+        self._calls = calls
+        self._owner = owner
+        self._closed = False
+
+    def call(self, name: str, arguments: dict) -> dict:
+        """Run one tool call, blocking until it answers or ``CALL_TIMEOUT``
+        passes -- exactly :meth:`AgentHost._call`'s own contract, since this
+        is that method with a different owner tag.
+
+        **Raises** :class:`RuntimeError` if called on the frame thread,
+        rather than deadlocking. ``_call`` queues the real work and blocks
+        on a ``threading.Event`` that only :meth:`AgentHost.pump` -- called
+        once a frame from the frame thread itself -- ever sets; a caller
+        already *on* that thread would be blocking the one thread able to
+        unblock it, forever, until ``CALL_TIMEOUT`` finally gave up. Also
+        raises once :meth:`close` has run: a closed session holds no lane
+        of its own any more to queue work on.
+        """
+        if threading.current_thread() is threading.main_thread():
+            raise RuntimeError(
+                "InAppSession.call must not run on the frame thread -- it blocks on an Event "
+                "only AgentHost.pump (itself called from the frame thread) ever sets, so a "
+                "frame-thread caller would deadlock waiting on itself. Call it from another "
+                "thread instead."
+            )
+        if self._closed:
+            raise RuntimeError("this InAppSession is closed")
+        return self._host._call(self._session, self._calls, name, arguments, owner=self._owner)
+
+    def close(self) -> None:
+        """Release this session's own hold on the frame/service lanes.
+        Idempotent. Tears the lanes down only if this was the last owner
+        still holding them (see :meth:`AgentHost._release_lanes`) -- the
+        pipe server, if running, keeps them regardless.
+
+        Fails this session's own pending work first, the same order
+        :meth:`AgentHost.stop` follows -- ordinarily a no-op, since
+        :meth:`call` blocks until its job finishes, but a second thread
+        sharing this same session (which nothing here forbids) could still
+        have one queued when ``close()`` runs from another."""
+        if self._closed:
+            return
+        self._closed = True
+        self._host._fail_pending(self._owner)
+        runner = self._host._release_lanes(self._owner)
+        if runner is not None:
+            runner.shutdown(wait=False)
+            self._host._drop_queued_service_jobs(self._owner)

@@ -148,6 +148,18 @@ and Lightning recipes are the same weights run differently, so each of them cost
 adapter on top. SDXL-Turbo is a separate checkpoint and is optional now — the models page has its
 command.
 
+Familiar, the in-app assistant, is optional and separate from both: its runtime is llama.cpp's own
+CUDA Windows release (`ggml-org/llama.cpp`, two zips upstream splits apart — the server binaries
+and the CUDA 12.4 redistributable), and its weights are Gemma 4 12B at QAT Q4_0, with two optional
+rows beside them: a vision projector, and EmbeddingGemma 2, a small CPU-only model that lets
+Familiar find a Manual section or a Library row by meaning and not only by keyword. All of them
+live in Settings → Models under the *Familiar* heading; `docs/MODELS.md` carries the full commands
+and says where each pin stands. The Gemma pins are still being set: until they land, the weights
+and vision rows still carry the earlier testing pin, `Qwen/Qwen3-VL-4B-Instruct-GGUF`, and there is
+no retrieval row, so Familiar answers from the keyword ranking alone. A machine without any of
+it loses nothing else: `realmspinner doctor` lists each missing Familiar row as `pending_install`
+with the command to fetch it, which is a note and not a fault, and `doctor` still exits 0.
+
 The GGUF download also brings `birefnet.gguf`, the background-matting model. It is optional: without
 it the engine falls back to a threshold cutout, which is worse on anything with a soft edge.
 
@@ -410,7 +422,9 @@ Updates). Outside those three, the app itself never downloads anything: `HF_HUB_
 The consequence is worth stating plainly, because it is a design decision rather than an oversight:
 a missing set of weights produces a clear error and a `doctor` warning naming the exact command to
 fetch it, never a silent download. There is no provider API, no account, and nothing about your
-prompts or your images leaves the machine.
+prompts or your images leaves the machine — Familiar included: its server listens on the loopback
+address only and is started with its own offline switch, and its weights arrive through the same
+download button as every other model.
 
 Every optional model on this page can also be fetched from **Settings → Models**, and that does not
 weaken any of the above. The button spawns a separate process which is allowed online, fetches one

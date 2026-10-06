@@ -65,6 +65,7 @@ import weakref
 from dataclasses import dataclass
 from typing import Any
 
+import moderngl
 import numpy as np
 
 from .....kernels.geom3d import math3d as m3
@@ -72,7 +73,7 @@ from ...._view_frame import Composite, FrameOps
 from ....viewer import capture, glctx
 from ....viewer.camera import Camera, screen_ray
 from ....viewer.gizmo import RotateGizmo, ScaleGizmo, TranslateGizmo
-from ....viewer.render import Renderer
+from ....viewer.render import DrawItem, Renderer
 from ._view_bounds import BoundsOps
 from ._view_cache import CacheOps
 
@@ -112,6 +113,17 @@ GIZMO_FOR_TOOL = {"move": "translate", "rotate": "rotate", "scale": "scale"}
 #: and the shading, and little enough that an edge on the far side is pickable
 #: through it -- which is the whole point of the mode.
 XRAY_ALPHA = 0.33
+
+
+# The Familiar ghost preview's two colours -- reusing the element overlay's
+# translucent face-fill recipe (``_view_overlay.FILL_COLOR``) rather than
+# inventing a second one, per that module's own docstring on why the fill
+# exists at all. Green for what an agent would *add or change*, so it reads
+# as "coming" rather than "selected" (which is already red); a dim red tint
+# for what it would *remove*, since that is the one direction a fill colour
+# already carries the right connotation for.
+GHOST_ADD_COLOR = (0.35, 0.9, 0.4, 0.35)
+GHOST_REMOVE_COLOR = (0.9, 0.25, 0.25, 0.22)
 
 
 #: ``ClayView.render_png``'s ``shading`` -> the ``Renderer.draw`` keywords it
@@ -333,8 +345,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self._extrude_gesture: Any = None
         self._overlays: dict[int, _SelOverlay] = {}
         # A collider's own translucent overlay (clay-09, 2026-09-19 audit) --
-        # one small per-uid GL cache, the shape ``_overlays`` already uses,
-        # released in ``release()`` beside it.
+        # one small per-uid GL cache, the shape ``_overlays`` and
+        # ``_ghost_cache`` already use, released in ``release()`` beside them.
         self._collider_overlays: dict[int, _SelOverlay] = {}
         self._element_centre = np.zeros(3)
         # Redraw bookkeeping (B13), the shape Viewer.render uses (B12).
@@ -381,6 +393,15 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         # recomputed by the consumer because it is found from the *cursor*, and
         # the transform is applied a layer down where the cursor is gone.
         self._snap_point: np.ndarray | None = None
+
+        # The Familiar ghost preview: a scratch document (see
+        # ``clay.scratch``) and the diff it produced, or ``None`` between
+        # previews. ``_preview_rev`` joins ``draw``'s own skip key -- see
+        # ``set_preview``'s own docstring for why a plain field is not enough.
+        self._preview: Any = None
+        self._preview_scratch: Any = None
+        self._preview_rev = 0
+        self._ghost_cache: dict[int, _SelOverlay] = {}
 
     # -- drawing -----------------------------------------------------------
 
@@ -429,6 +450,13 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             bool(self.flat), bool(self.wire_overlay), bool(self.xray),
             id(doc), doc.rev, getattr(self.state, "tool", "select"),
             float(self.grid_size), bool(self.god_light),
+            # A Familiar preview change is not a document edit -- ``doc.rev``
+            # does not move for it, on purpose, since nothing has actually
+            # happened to the document yet. Without this the frame that
+            # brought up (or cleared) a ghost would be skipped as "nothing
+            # moved" and the preview would not appear until something else
+            # forced a redraw.
+            self._preview_rev,
         )
         if self._frame_unchanged(key):
             return self.viewport.texture
@@ -469,6 +497,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
                 self._element_overlays(doc)
                 + self._collider_draws(doc)
                 + self._gizmo_draws(doc, height)
+                + self._ghost_draws(doc)
                 + self._knife_draws()
             ),
         )
@@ -498,10 +527,12 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         parenting, exactly as it always has.
 
         **The dict slot is ``(id(doc), obj.uid)``, not ``obj.uid`` alone.**
-        The 2026-09-20 audit's clay-20: two documents can deliberately share
-        a uid namespace, and a single slot per uid meant each document's
-        entry evicted the other's every frame both were drawn, defeating the
-        pin that keeps the winning entry's transform arrays alive.
+        The 2026-09-20 audit's clay-20: ``_ghost_draws`` calls this against
+        two documents that deliberately share a uid namespace -- the live
+        document and its Familiar preview scratch clone -- and a single slot
+        per uid meant each document's entry evicted the other's every frame
+        both were drawn, defeating the pin that keeps the winning entry's
+        transform arrays alive.
 
         **The entry checks a weak reference to ``doc``, not a strong one.**
         ``_centre_memo``/``_bounds_memo`` (``_view_bounds.py``) pin their
@@ -550,9 +581,16 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         what keeps a move from rebuilding a buffer: it is a uniform written per
         frame, which is what ``world`` already is for a glTF node.
         """
+        removed = self._preview.removed if self._preview is not None else frozenset()
         draws = []
         uids = []
         for obj in doc.objects:
+            if obj.uid in removed:
+                # Drawn instead as a faint tint by ``_ghost_draws`` -- a
+                # Familiar preview that would delete this object should not
+                # also show it solid, or the ghost reads as decoration rather
+                # than as what would actually happen.
+                continue
             if obj.role == "collider":
                 # Drawn instead as a translucent fill and wireframe by
                 # ``_collider_draws`` (clay-09, 2026-09-19 audit) -- never
@@ -579,6 +617,113 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             return []
         gizmo.place(centre, m3.identity(), self.camera, height)
         return gizmo.draws()
+
+    # -- the Familiar ghost preview ------------------------------------------
+
+    def set_preview(self, diff: Any, scratch: Any) -> None:
+        """Show a Familiar preview: ``diff`` (a ``clay.scratch.PreviewDiff``)
+        against ``scratch``, the cloned document it was computed from.
+
+        Bumps ``_preview_rev`` so :meth:`draw`'s own skip key sees it -- a
+        preview is not a document edit, so ``doc.rev`` does not move for it,
+        and without a key change of some kind the frame that brings the ghost
+        up would be skipped as "nothing moved".
+        """
+        self._preview = diff
+        self._preview_scratch = scratch
+        self._preview_rev += 1
+
+    def clear_preview(self) -> None:
+        """Drop the ghost -- Discard, or Apply once it has landed for real."""
+        if self._preview is None:
+            return
+        self._preview = None
+        self._preview_scratch = None
+        self._release_ghost()
+        self._preview_rev += 1
+
+    def _release_ghost(self) -> None:
+        for overlay in self._ghost_cache.values():
+            overlay.release()
+        self._ghost_cache.clear()
+
+    def _ghost_draws(self, doc: Any) -> list[Any]:
+        """The Familiar preview's translucent overlay: green for what an
+        agent's scratch run added or changed, a faint red tint for what it
+        would remove. Reuses the element overlay's own fill recipe
+        (``_view_overlay._SelOverlay``, ``FILL_COLOR``'s translucent
+        ``TRIANGLES`` pass) rather than a second one, for that module's own
+        reason -- one recipe for "a translucent copy of this face/mesh drawn
+        slightly toward the eye."
+
+        The index buffer is built once per cache key and replayed
+        (``overlay.specs``, the shape ``_collider_draws`` uses), not minted
+        per frame: only the matrices are per-frame. The colour rides in the
+        key, so a uid that a refined preview moves from "added" to "removed"
+        cannot replay the other kind's buffer.
+        """
+        from .....kernels.mesh.adjacency import cached_triangulation
+
+        preview = self._preview
+        if preview is None:
+            return []
+        scratch = self._preview_scratch
+        program = self.renderer.programs.get("solid")
+        live: set[int] = set()
+        items: list[Any] = []
+
+        def _fill(source: Any, uid: int, color: tuple[float, float, float, float]) -> None:
+            obj = source.by_uid(uid)
+            live.add(uid)
+            # Evaluated -- this ghost is standing in for what would actually
+            # land on screen, the same reason the real cache (``_view_cache``)
+            # draws the evaluated mesh rather than the base.
+            mesh = source.evaluated(uid)
+            key = (id(mesh), color)
+            overlay = self._ghost_cache.get(uid)
+            if overlay is None or overlay.key != key:
+                if overlay is not None:
+                    overlay.release()
+                overlay = _SelOverlay(self.ctx, program, key, mesh.positions)
+                overlay.pins = mesh
+                self._ghost_cache[uid] = overlay
+            if overlay.specs is None:
+                add, specs = self._collect(overlay, hover=False)
+                tris, _tri_face = cached_triangulation(mesh)
+                if len(tris):
+                    add(tris, moderngl.TRIANGLES, color, depth=True, biased=True)
+                overlay.specs = specs
+            # ``source``, not ``doc``: an added/changed object is the scratch
+            # clone's own, and its ancestor chain (if any) lives there too --
+            # composing against ``doc`` would walk the wrong document's
+            # objects, or a uid this one does not have at all.
+            world = self._world(source, obj)
+            for vao, gl_mode, spec_color, depth, size, biased in overlay.specs:
+                items.append(
+                    DrawItem(
+                        vao=vao,
+                        color=spec_color,
+                        model=_toward_eye(self.camera.position) @ world if biased else world,
+                        mode=gl_mode,
+                        depth=depth,
+                        point_size=size,
+                    )
+                )
+
+        for uid in preview.added | preview.mesh_changed:
+            try:
+                _fill(scratch, uid, GHOST_ADD_COLOR)
+            except KeyError:
+                continue
+        for uid in preview.removed:
+            try:
+                _fill(doc, uid, GHOST_REMOVE_COLOR)
+            except KeyError:
+                continue
+
+        for uid in [u for u in self._ghost_cache if u not in live]:
+            self._ghost_cache.pop(uid).release()
+        return items
 
     # -- the gizmo, and the app state that chooses it -----------------------
 
@@ -930,6 +1075,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.clear()
         self._release_overlays()
         self._release_collider_overlays()
+        self._release_ghost()
         self._release_knife_overlay()
         self.translate_gizmo.release()
         self.rotate_gizmo.release()

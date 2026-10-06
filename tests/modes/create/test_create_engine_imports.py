@@ -3,7 +3,7 @@
 Create's engine is not like Mason's or Clay's: those ban ``realmspinner.service``
 outright, and this one is *built* to import it -- ``recipe.py``,
 ``mesh.py`` and ``character.py`` are layer 5 by ``dev/RESTRUCTURE.md``'s own
-table and exist precisely so Review and Troupe can read "what a
+table and exist precisely so Familiar, Review and Troupe can read "what a
 recipe means" without reaching into a drawing pane. What this pin still
 refuses, the same as every other headless package in this tree, is a window
 (imgui/imgui_bundle/moderngl/pygame/OpenGL/glfw) and a sibling mode's own

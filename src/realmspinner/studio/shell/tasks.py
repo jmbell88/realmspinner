@@ -634,6 +634,11 @@ class TasksMixin:
 
             journal.on_task_done(ctx, done)
             return
+        if key.startswith("familiar/"):
+            from ..assistant import ui as familiar_ui
+
+            familiar_ui.on_task_done(ctx, done)
+            return
         if key.startswith("clay-mattex:"):
             # Assigning a texture into a material slot from a file (tranche 6,
             # "UV and materials"): the picker and the PNG decode

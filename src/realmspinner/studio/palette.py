@@ -189,10 +189,10 @@ def _selected(ctx: Any) -> Any:
     Tolerant of a ``ctx`` with no ``cache`` at all -- ``commands()`` now
     calls this unconditionally while *building* the Reroll row's ``why``
     (finding shell-09's fix), and an enumerator that only wants the
-    navigation-shaped rows, which never even looks at Reroll's ``why``,
-    used to pay nothing for the library cache and should still pay nothing
-    for it. A ``ctx`` missing ``cache`` reads the same as one with an empty
-    cache: nothing selected.
+    navigation-shaped rows -- ``familiar_doors.destinations``, which never
+    even looks at Reroll's ``why`` -- used to pay nothing for the library
+    cache and should still pay nothing for it. A ``ctx`` missing ``cache``
+    reads the same as one with an empty cache: nothing selected.
     """
     cache = getattr(ctx, "cache", None)
     if cache is None:
