@@ -28,7 +28,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import controls, icons, tool_palette, widgets
+from ..... import anchors, controls, icons, tool_palette, widgets
 from .....tokens import sp
 from ... import mode as clay_mode
 from ... import state as clay_state
@@ -81,6 +81,9 @@ def draw(ctx: Any, height: float = 0.0) -> None:
 
 
 def _body(ctx: Any, state: Any, tab: Any) -> None:
+    # One ring for the column: the add buttons are drawn in a loop, and the
+    # tour's anchor test only sees literal keys.
+    anchors.mark_window("clay/rail")
     side = sp(BUTTON)
     for key, label, shortcut in clay_state.TOOLS:
         glyph = clay_tools.TOOL_ICONS.get(key) or label[:1]

@@ -52,9 +52,17 @@ class _Step:
     title = "Step"
     body = "Body."
     chapter = None
+    gate = False
 
     class done:
         name = "manual"
+
+
+class _GatedStep(_Step):
+    gate = True
+
+    class done:
+        name = "clay_saved"
 
 
 class _Tour:
@@ -70,18 +78,35 @@ class _State:
         self.satisfied = False
 
 
-def _run(monkeypatch: Any, pressed: str | None, *, focused: bool = True) -> list[int]:
-    """Runs ``_card_body`` and returns the deltas passed to ``advance``."""
+def _run(
+    monkeypatch: Any,
+    pressed: str | None,
+    *,
+    focused: bool = True,
+    step: Any = None,
+    satisfied: bool = False,
+    clicked: str = "",
+) -> list[int]:
+    """Runs ``_card_body`` and returns the deltas passed to ``advance``.
+
+    ``clicked`` names the ghost button (by label prefix) the reader "presses".
+    """
 
     calls: list[int] = []
+    state = _State()
+    state.satisfied = satisfied
     monkeypatch.setattr(tour_mod, "imgui", _FakeImgui(pressed))
     monkeypatch.setattr(tour_mod.widgets, "secondary", lambda *a, **k: None)
     monkeypatch.setattr(tour_mod.widgets, "pane_title", lambda *a, **k: None)
     monkeypatch.setattr(tour_mod.widgets, "icon_button", lambda *a, **k: False)
     monkeypatch.setattr(tour_mod.widgets, "primary_button", lambda *a, **k: False)
-    monkeypatch.setattr(tour_mod.controls, "button", lambda *a, **k: False)
+    monkeypatch.setattr(
+        tour_mod.controls,
+        "button",
+        lambda label, *a, **k: bool(clicked) and label.startswith(clicked),
+    )
     monkeypatch.setattr(tour_mod, "advance", lambda ctx, delta=1: calls.append(delta))
-    tour_mod._card_body(object(), _Tour(), _Step(), _State(), focused)
+    tour_mod._card_body(object(), _Tour(), step or _Step(), state, focused)
     return calls
 
 
@@ -95,3 +120,21 @@ def test_tour_card_advances_on_plain_enter_when_focused(monkeypatch: Any) -> Non
 
 def test_tour_card_ignores_keypad_enter_when_not_focused(monkeypatch: Any) -> None:
     assert _run(monkeypatch, "keypad_enter", focused=False) == []
+
+
+def test_a_gated_card_ignores_enter_until_its_condition_holds(monkeypatch: Any) -> None:
+    """The keyboard must not walk past the check the button is holding."""
+    assert _run(monkeypatch, "enter", step=_GatedStep(), satisfied=False) == []
+    assert _run(monkeypatch, "right_arrow", step=_GatedStep(), satisfied=False) == []
+    assert _run(monkeypatch, "enter", step=_GatedStep(), satisfied=True) == [1]
+
+
+def test_a_gated_card_offers_skip_step_so_an_unmeetable_check_never_traps(
+    monkeypatch: Any,
+) -> None:
+    assert _run(monkeypatch, None, step=_GatedStep(), clicked="Skip step") == [1]
+
+
+def test_a_satisfied_or_ungated_card_offers_no_skip_step(monkeypatch: Any) -> None:
+    assert _run(monkeypatch, None, step=_GatedStep(), satisfied=True, clicked="Skip step") == []
+    assert _run(monkeypatch, None, step=_Step(), clicked="Skip step") == []

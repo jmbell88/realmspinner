@@ -137,7 +137,8 @@ text matches, as it does while a query is being ranked. Without the row there is
 
 The **guided tour** is a second overlay, for the same reason: it points at the controls of whatever
 mode you are in, so taking that mode away to run it would leave nothing to point at. It never
-clicks anything for you. Home offers it on a fresh install and the palette carries it thereafter —
+clicks anything for you, and only the Clay torch tour holds **Next** until a step is done (with a
+**Skip step** beside it). Home offers it on a fresh install and the palette carries it thereafter —
 see [New here?](21-home.md#new-here).
 
 Each generation control belongs to exactly one stage. The one setting both Reference and Mesh need

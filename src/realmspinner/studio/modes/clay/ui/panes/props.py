@@ -44,7 +44,7 @@ from ......kernels.mesh import elements as el
 from ......kernels.mesh import measure, regen
 from ......kernels.mesh import primitives as bp
 from ......kernels.mesh import uv as uv_projection
-from ..... import controls, icons, tokens, verbs, widgets
+from ..... import anchors, controls, icons, tokens, verbs, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import doc_io, element_move, transform_edit
@@ -135,6 +135,7 @@ def _body(ctx: Any) -> None:
         tooltips={key: f"{label} -- {what}" for key, label, what in TABS},
         compact=True,
     )
+    anchors.mark("clay/props/tabs")
     if changed:
         state.props_tab = current = picked
     imgui.dummy((0, sp(tokens.SP_2)))
@@ -238,6 +239,9 @@ def _document(ctx: Any, tab: Any, doc: Any) -> None:
         save=lambda: clay_mode.save(ctx, tab),
         save_as=lambda: clay_mode.save_as(ctx, tab),
     )
+    # The header's last item is its path/status line, not the Save button, so
+    # the ring is the file block as a whole.
+    anchors.mark("clay/props/save")
     imgui.dummy((0, sp(tokens.SP_2)))
     widgets.field_label("counts")
     widgets.muted(doc_io.objects_line(doc))
@@ -315,6 +319,7 @@ def _outputs(ctx: Any, tab: Any) -> None:
         tooltip=doc_io.EXPORT_LIBRARY_TOOLTIP,
     ):
         clay_mode.export_asset(ctx, tab)
+    anchors.mark("clay/props/export")
 
     # Two labelled buttons rather than "Export File..." plus a bare "OBJ": the
     # first spelling wrote GLB without saying so, and a format is exactly the
@@ -760,6 +765,7 @@ def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None 
 
     widgets.field_label("size")
     edited, typed = controls.input_vec("size##bz", list(shown), ("W", "H", "D"))
+    anchors.mark("clay/props/size")
     controls.fold_undo(doc.history)
     _, ui.size_lock_aspect = controls.checkbox("lock aspect##bzlock", ui.size_lock_aspect)
     if edited:

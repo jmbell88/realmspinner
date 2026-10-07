@@ -343,7 +343,7 @@ def test_home_chapter_lists_tours_in_TOURS_offer_order():
     from realmspinner.studio.tour import scripts
 
     titles = [tour.title for tour in scripts.TOURS]
-    assert len(titles) == 5
+    assert len(titles) == 6
 
     text = _normalize_ws(_read("docs/manual/21-home.md"))
     positions = []

@@ -147,7 +147,7 @@ def test_home_chapter_names_every_tour_in_TOURS():
     from realmspinner.studio.tour.scripts import TOURS
 
     text = _flat(_section(_chapter("21-home.md"), "New here?"))
-    assert "five tours" in text
+    assert "six tours" in text
     for tour in TOURS:
         assert tour.title in text, f"tour {tour.title!r} not named in chapter 21"
 

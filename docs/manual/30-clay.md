@@ -36,6 +36,13 @@ Choosing **Clay** from the Home screen opens an empty document for you when ther
 already. When there is, it leaves your documents exactly as they were — the documents *are* the
 work, and entering the mode is not a reason to disturb them.
 
+If you would rather be walked through a first model, **Take the tour: Building a wall torch** (in
+the palette, and offered on Home) builds a low-poly torch from an empty document: a box for the
+plate, two cylinders for the shaft and collar, a low-segment cone for the flame, then colours,
+**Save** and **Export to library**. Its building steps keep **Next** greyed until the part they ask
+for is in the model, and each offers **Skip step**; the tour only reads the document, so ending it
+changes nothing in it.
+
 ## Adding a primitive
 
 A document with nothing in it says so in the viewport itself — "Add a shape", with "Pick one from

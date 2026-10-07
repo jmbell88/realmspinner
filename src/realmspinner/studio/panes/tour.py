@@ -146,7 +146,100 @@ def satisfied(ctx: Any, name: str, arg: str | None) -> bool:
     if name == "notes_at_least":
         threshold = _count(arg)
         return threshold is not None and _notes(ctx) >= threshold
+    if name.startswith("clay_"):
+        return _clay_satisfied(ctx, name, arg)
     return False
+
+
+def _clay_tab(ctx: Any) -> Any:
+    """The active Clay tab, or ``None`` -- through ``getattr`` so a session that
+    never opened Clay (``state.clay`` is ``None``) reads as "not yet"."""
+    clay = getattr(ctx.state, "clay", None)
+    return getattr(clay, "active", None) if clay is not None else None
+
+
+def _kind_count(arg: str | None) -> tuple[str, int] | None:
+    """``"cylinder:2"`` as ``("cylinder", 2)``, or ``None`` when it does not
+    parse. A bare kind means one. ``None`` rather than a default for the reason
+    :func:`_count` gives: a mistyped threshold must not satisfy its step."""
+    kind, _, number = str(arg or "").partition(":")
+    if not kind:
+        return None
+    count = _count(number) if number else 1
+    return None if count is None else (kind, count)
+
+
+def _untouched(obj: Any, defaults: dict[str, Any]) -> bool:
+    """Whether ``obj`` is exactly what the Add door placed: its generator's
+    defaults, unit scale, at the origin."""
+    import numpy as np
+
+    try:
+        if not np.allclose(obj.translation, 0.0) or not np.allclose(obj.scale, 1.0):
+            return False
+        params = obj.params or {}
+        if set(params) != set(defaults):
+            return False
+        return all(
+            np.array_equal(np.asarray(params[k]), np.asarray(v)) for k, v in defaults.items()
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _clay_satisfied(ctx: Any, name: str, arg: str | None) -> bool:
+    """The Clay conditions. Every read is tolerant of a document shaped
+    differently (a stub, a tab mid-teardown): a traceback in the frame loop is
+    worse than a card that waits."""
+    tab = _clay_tab(ctx)
+    doc = getattr(tab, "doc", None)
+    if doc is None:
+        return False
+    try:
+        if name == "clay_shapes_at_least":
+            parsed = _kind_count(arg)
+            if parsed is None:
+                return False
+            kind, need = parsed
+            return sum(1 for o in doc.objects if o.generator == kind) >= need
+        if name == "clay_shape_placed":
+            from ...kernels.mesh import primitives
+
+            entry = primitives.GENERATORS.get(str(arg))
+            if entry is None:
+                return False
+            defaults = entry[0]
+            return any(
+                o.generator == arg and not _untouched(o, defaults) for o in doc.objects
+            )
+        if name == "clay_empty_model":
+            return not doc.objects
+        if name == "clay_palette_at_least":
+            need = _count(arg)
+            return need is not None and len(doc.materials) >= need
+        if name == "clay_painted_at_least":
+            need = _count(arg)
+            if need is None:
+                return False
+            painted = sum(1 for o in doc.objects if bool((o.mesh.material != 0).any()))
+            return painted >= need
+        if name == "clay_saved":
+            return getattr(tab, "path", None) is not None and not tab.dirty
+        if name == "clay_exported":
+            return bool(getattr(tab, "job_id", None))
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return False
+
+
+def can_advance(step: Any, satisfied_now: bool) -> bool:
+    """Whether the card offers Next/Finish for ``step``.
+
+    Pure so the rule is assertable without a frame: an ungated step always
+    does (every tour but the Clay torch), a gated one only once its condition
+    holds. "Skip step" is the other way out of a gated card.
+    """
+    return not step.gate or bool(satisfied_now)
 
 
 def _count(arg: str | None) -> int | None:
@@ -274,6 +367,13 @@ HANDLED: frozenset[str] = frozenset(
         "animated",
         "sfx_at_least",
         "notes_at_least",
+        "clay_shapes_at_least",
+        "clay_shape_placed",
+        "clay_empty_model",
+        "clay_palette_at_least",
+        "clay_painted_at_least",
+        "clay_saved",
+        "clay_exported",
     }
 )
 
@@ -663,8 +763,10 @@ def _card_body(ctx: Any, tour: Any, step: Any, state: Any, focused: bool) -> Non
         imgui.text_wrapped(paragraph)
         imgui.dummy((0, sp(tokens.SP_1)))
 
+    open_exit = can_advance(step, state.satisfied)
     if step.done.name != "manual":
-        widgets.secondary("Waiting for you." if not state.satisfied else "Done.")
+        waiting = "Next unlocks when this is done." if step.gate else "Waiting for you."
+        widgets.secondary(waiting if not state.satisfied else "Done.")
 
     imgui.dummy((0, sp(tokens.SP_1)))
     # The card takes the keyboard for its own two verbs. Esc already ends the
@@ -691,6 +793,9 @@ def _card_body(ctx: Any, tour: Any, step: Any, state: Any, focused: bool) -> Non
         or imgui.is_key_pressed(imgui.Key.enter)
         or imgui.is_key_pressed(imgui.Key.keypad_enter)
     )
+    # A gated card keeps Enter/Right quiet too, or the keyboard would walk
+    # past the very check the button is holding.
+    forward = forward and open_exit
     if state.index > 0 and back:
         advance(ctx, -1)
         return
@@ -704,16 +809,30 @@ def _card_body(ctx: Any, tour: Any, step: Any, state: Any, focused: bool) -> Non
     # reader has just done the thing and the card would otherwise vanish
     # mid-sentence, which reads as the app having lost their place.
     #
-    # Deliberately not gated on state.satisfied: for a non-manual `done`,
-    # satisfied() only changes the "Waiting for you." / "Done." sentence
-    # above -- Next/Finish stays enabled either way, so a reader can click
-    # past a step without doing the named thing and land on a later card
-    # whose copy assumes it happened. That is the accepted cost of tours
-    # being conventionally skippable, not an oversight; making Next actually
-    # wait on satisfied() is a product decision, not a bug fix.
-    if widgets.primary_button(f"{label}##tour") or forward:
+    # Not gated on state.satisfied unless the step opts in with ``gate``: for
+    # a non-manual `done` on every older tour, satisfied() only changes the
+    # "Waiting for you." / "Done." sentence above -- Next/Finish stays enabled
+    # either way, so a reader can click past a step without doing the named
+    # thing and land on a later card whose copy assumes it happened. That is
+    # the accepted cost of tours being conventionally skippable, not an
+    # oversight; making Next wait on satisfied() everywhere is a product
+    # decision. The Clay torch is the one tour that made it, for the steps
+    # that build the prop, because each later step needs the part before it.
+    # ``can_advance`` is the rule; "Skip step" below is the way out when a
+    # check cannot be met, so a gated card never traps the reader.
+    pressed = widgets.primary_button(
+        f"{label}##tour",
+        enabled=open_exit,
+        reason="Finish the step above to unlock this.",
+    )
+    if (pressed and open_exit) or forward:
         advance(ctx)
         return
+    if not open_exit:
+        imgui.same_line()
+        if controls.button("Skip step##tour", role=controls.ButtonRole.GHOST):
+            advance(ctx)
+            return
     if step.chapter is not None:
         imgui.same_line()
         if controls.button("Read more##tour", role=controls.ButtonRole.GHOST):

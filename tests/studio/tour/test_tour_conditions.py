@@ -194,7 +194,13 @@ def test_notes_at_least_survives_a_document_shaped_differently():
 # The three conditions whose ``arg`` is a threshold rather than a key. Named
 # here rather than sniffed from the string, because "does it look numeric" is
 # the question that produced the bug: a typo *is* the case under test.
-COUNT_CONDITIONS = ("layers_at_least", "sfx_at_least", "notes_at_least")
+COUNT_CONDITIONS = (
+    "layers_at_least",
+    "sfx_at_least",
+    "notes_at_least",
+    "clay_palette_at_least",
+    "clay_painted_at_least",
+)
 
 
 def test_every_authored_count_is_a_number_the_evaluator_can_read():
@@ -212,6 +218,12 @@ def test_every_authored_count_is_a_number_the_evaluator_can_read():
     bad: list[str] = []
     for tour in scripts.TOURS:
         for step in tour.steps:
+            if step.done.name == "clay_shapes_at_least":
+                # ``"kind:n"``: the count is the half after the colon.
+                _, _, number = str(step.done.arg).partition(":")
+                if not number.isdigit():
+                    bad.append(f"{tour.key}/{step.id}: {step.done.arg!r} is not 'kind:n'")
+                continue
             if step.done.name not in COUNT_CONDITIONS:
                 continue
             arg = step.done.arg

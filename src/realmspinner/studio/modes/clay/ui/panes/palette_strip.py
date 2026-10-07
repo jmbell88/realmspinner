@@ -30,7 +30,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import controls, icons, widgets
+from ..... import anchors, controls, icons, widgets
 from .....tokens import sp
 from ... import mode as clay_mode
 from ... import ops as clay_ops
@@ -109,6 +109,7 @@ def draw(ctx: Any, width: float = 0.0) -> None:
 
 
 def _body(ctx: Any, tab: Any) -> None:
+    anchors.mark_window("clay/palette")
     doc = tab.doc
     saving = bool(tab.saving)
     side = sp(swatches.SWATCH)

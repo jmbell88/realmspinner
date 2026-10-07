@@ -133,6 +133,9 @@ of each node, which is the honest answer to "what were the objects in this file"
 
 ## Try it
 
+For a guided first build, **Take the tour: Building a wall torch** from the command palette walks
+you through a whole small prop. The exercise below is the free-form version.
+
 1. `Ctrl+N`, and place a box and a sphere so they overlap.
 2. Run **Merge Objects** with a small weld distance, orbit into the overlap, and find the interior
    wall.

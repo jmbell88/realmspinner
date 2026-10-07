@@ -257,8 +257,11 @@ class ClayViewport:
         and offered no way to.
         """
 
-        from .... import widgets
+        from .... import anchors, widgets
 
+        # The tour rings the whole empty pane: ``nothing_open`` draws its own
+        # buttons and recents, so the last item after it is not "New model".
+        anchors.mark_window("clay/empty")
         # This was written as a copy of ``inker_canvas._empty`` and the copy
         # dropped the ``sp()`` scaling, so at 150 % the raster editor's empty
         # state grew with the text while Clay's kept 240-*physical*-pixel

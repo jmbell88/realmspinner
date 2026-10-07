@@ -1,6 +1,6 @@
 """The tours themselves. Data, not code.
 
-Five of them, and each is chosen rather than convenient.
+Six of them, and each is chosen rather than convenient.
 
 ``first-hour`` orients someone who has just opened the app, and **every step of
 it runs on a machine with no GPU and no weights** -- the one step that could ask
@@ -27,6 +27,13 @@ says so at the door rather than after a click that would refuse. It earns its pl
 takes at the same tags is the fastest way to see what the download actually buys, and the last step
 hands the result to Sirens for free, because Muse's 44.1 kHz WAV and Sirens' sample instrument
 already agree on the format.
+
+``clay-torch`` is the one tour that builds something: a low-poly wall torch from an
+empty model, the way a first donut teaches Blender. It is also the one tour whose
+steps hold Next (``Step.gate``) until the part they ask for is in the document,
+because each part is built on the one before it -- and every gated card still
+offers "Skip step", so a check that cannot be met never traps the reader. It needs
+no GPU and no weights.
 
 Each tour ends by handing the reader to the chapter that goes deeper. The link
 runs one way -- a step names a chapter, a chapter never names a step -- which is
@@ -745,6 +752,221 @@ MUSE_BASICS = Tour(
     ),
 )
 
+CLAY_TORCH = Tour(
+    key="clay-torch",
+    title="Building a wall torch",
+    blurb="Fifteen minutes. A low-poly torch from an empty model, painted, saved and exported.",
+    steps=(
+        Step(
+            id="open-clay",
+            title="Open Clay",
+            body=(
+                "Clay is the low-poly modeller: shapes you place, size and colour, the way "
+                "picoCAD works. It needs no graphics card and no downloaded model.\n\n"
+                "Click Clay on the rail. This card reads Done once it is open, and Next "
+                "unlocks."
+            ),
+            anchor="rail/clay",
+            done=Condition("mode_is", "clay"),
+            gate=True,
+        ),
+        Step(
+            id="new-model",
+            title="Start an empty model",
+            body=(
+                "The torch is built from separate shapes, so start from nothing. With "
+                "nothing open, press New model in the middle of the window; with work "
+                "already open, press Ctrl+N so the torch gets a model of its own.\n\n"
+                "Next unlocks once the model in front of you is empty."
+            ),
+            mode="clay",
+            anchor="clay/empty",
+            done=Condition("clay_empty_model"),
+            gate=True,
+        ),
+        Step(
+            id="the-room",
+            title="The room you build in",
+            body=(
+                "The column of buttons on the left is the rail: four tools (Select, Move, "
+                "Rotate, Scale -- Q, G, R, S on the keyboard) and the shapes you add. "
+                "Everything you add appears in the Outliner on the right, and the "
+                "Properties pane under it holds the numbers.\n\n"
+                "Units are metres and Y is up, so a torch is about 0.7 tall."
+            ),
+            mode="clay",
+            anchor="clay/outliner",
+            chapter=("30-clay", "adding-a-primitive"),
+        ),
+        Step(
+            id="plate-add",
+            title="The wall plate: a box",
+            body=(
+                "A torch hangs from a plate. Click the Box button on the rail (the cube, "
+                "first below the divider) to add one.\n\n"
+                "Next unlocks once the model holds a box."
+            ),
+            mode="clay",
+            anchor="clay/rail",
+            done=Condition("clay_shapes_at_least", "box:1"),
+            gate=True,
+        ),
+        Step(
+            id="plate-shape",
+            title="Flatten it into a plate",
+            body=(
+                "An added shape lands at the origin at its default size. With the box "
+                "selected, type a flat, tall plate into Size in Properties -- W 0.2, H 0.4, "
+                "D 0.04.\n\n"
+                "Next unlocks once the box is no longer the untouched default."
+            ),
+            mode="clay",
+            anchor="clay/props/size",
+            done=Condition("clay_shape_placed", "box"),
+            gate=True,
+            chapter=("30-clay", "transforming"),
+        ),
+        Step(
+            id="shaft",
+            title="The shaft: a cylinder",
+            body=(
+                "Add a Cylinder from the rail, then make it a thin pole: Size W 0.08, "
+                "H 0.6, D 0.08. Move it with Position so it stands in front of the plate "
+                "rather than inside it.\n\n"
+                "Next unlocks once the cylinder has been shaped."
+            ),
+            mode="clay",
+            anchor="clay/rail",
+            done=Condition("clay_shape_placed", "cylinder"),
+            gate=True,
+        ),
+        Step(
+            id="collar",
+            title="The collar: a second cylinder",
+            body=(
+                "Torches have a ring where the flame cup sits. Add another Cylinder and "
+                "make it short and a little wider than the shaft, then lift it to the "
+                "top of the pole.\n\n"
+                "Next unlocks once the model holds two cylinders."
+            ),
+            mode="clay",
+            anchor="clay/rail",
+            done=Condition("clay_shapes_at_least", "cylinder:2"),
+            gate=True,
+        ),
+        Step(
+            id="flame-add",
+            title="The flame: a cone",
+            body=(
+                "Add a Cone from the rail. It is the flame.\n\n"
+                "Next unlocks once the model holds a cone."
+            ),
+            mode="clay",
+            anchor="clay/rail",
+            done=Condition("clay_shapes_at_least", "cone:1"),
+            gate=True,
+        ),
+        Step(
+            id="flame-shape",
+            title="Make it a flame",
+            body=(
+                "A smooth cone reads as a party hat. Bring its Segments down to 5 in the "
+                "shape's own parameters (under Position and Size in Properties) and the "
+                "flame turns faceted, which is the low-poly look. Then size it up to "
+                "about 0.12 wide and 0.22 tall and set it on top of the collar.\n\n"
+                "Next unlocks once the cone has been shaped."
+            ),
+            mode="clay",
+            anchor="clay/props/size",
+            done=Condition("clay_shape_placed", "cone"),
+            gate=True,
+        ),
+        Step(
+            id="palette-colours",
+            title="Add colours",
+            body=(
+                "The palette strip under the model holds the document's colours. A new "
+                "model has one grey slot. Press + on the strip twice to add two more, "
+                "then Ctrl+click a slot and set its colour in the Material tab: a brown "
+                "for the wood, an orange for the fire.\n\n"
+                "Next unlocks once the palette holds three slots."
+            ),
+            mode="clay",
+            anchor="clay/palette",
+            done=Condition("clay_palette_at_least", "3"),
+            gate=True,
+            chapter=("30-clay", "materials"),
+        ),
+        Step(
+            id="paint",
+            title="Paint the parts",
+            body=(
+                "Select an object in the Outliner and click a swatch on the strip to "
+                "repaint it. Do it for the flame and for the shaft, so the torch is not "
+                "all one colour.\n\n"
+                "Next unlocks once two objects are painted with something other than the "
+                "first slot."
+            ),
+            mode="clay",
+            anchor="clay/palette",
+            done=Condition("clay_painted_at_least", "2"),
+            gate=True,
+        ),
+        Step(
+            id="document-tab",
+            title="The Document tab",
+            body=(
+                "Saving and exporting live on the Document tab of Properties. Click it "
+                "now; the next two cards point at the controls inside."
+            ),
+            mode="clay",
+            anchor="clay/props/tabs",
+        ),
+        Step(
+            id="save",
+            title="Save the model",
+            body=(
+                "Press Save in the Model file section, or Ctrl+S, and give it a name. "
+                "The file is your editable copy: reopen it later and every shape is "
+                "still a shape.\n\n"
+                "Next unlocks once the model is saved with nothing changed since."
+            ),
+            mode="clay",
+            anchor="clay/props/save",
+            done=Condition("clay_saved"),
+            gate=True,
+            chapter=("30-clay", "saving"),
+        ),
+        Step(
+            id="export",
+            title="Send it to the Library",
+            body=(
+                "Export to library, under Take it somewhere, writes a GLB and files the "
+                "torch as an asset the rest of the app can rig, pose and render.\n\n"
+                "Next unlocks once the export has landed."
+            ),
+            mode="clay",
+            anchor="clay/props/export",
+            done=Condition("clay_exported"),
+            gate=True,
+            chapter=("30-clay", "the-two-ways-out"),
+        ),
+        Step(
+            id="where-next",
+            title="Your torch is in the Library",
+            body=(
+                "Open the Library to find it. Export GLB and Export OBJ, beside the "
+                "library button, write a plain file instead -- for a game engine that "
+                "reads files, not this app's Library. Neither counts as saving the "
+                "model; the .rblk you saved does.\n\n"
+                "From here the same moves build anything: add, size, colour, repeat."
+            ),
+            mode="clay",
+            chapter=("30-clay", "the-two-ways-out"),
+        ),
+    ),
+)
+
 #: Every tour, in offer order.
 TOURS: tuple[Tour, ...] = (
     FIRST_HOUR,
@@ -752,6 +974,7 @@ TOURS: tuple[Tour, ...] = (
     MUSE_BASICS,
     SIRENS_BASICS,
     SIRENS_SFX,
+    CLAY_TORCH,
 )
 
 
@@ -765,6 +988,7 @@ def find(key: str) -> Tour | None:
 
 
 __all__ = [
+    "CLAY_TORCH",
     "FIRST_HOUR",
     "INKER_BASICS",
     "MUSE_BASICS",

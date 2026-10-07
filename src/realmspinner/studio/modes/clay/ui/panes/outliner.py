@@ -53,7 +53,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import controls, icons, theme, widgets
+from ..... import anchors, controls, icons, theme, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as clay_mode
@@ -188,6 +188,7 @@ def _tree_rows(doc: Any) -> list[tuple[Any, int, bool]]:
 def _body(ctx: Any) -> None:
     state = clay_mode.ensure(ctx)
     tab = state.active
+    anchors.mark_window("clay/outliner")
     widgets.section("Outliner")
     manual_render.help_button(ctx, "clay-outliner")
     if tab is None:

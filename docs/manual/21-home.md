@@ -33,21 +33,26 @@ is [Autosave and recovery](28-inker.md#autosave-and-recovery).
 
 Above everything else, on a fresh install, is an offer of a **guided tour** — a title, one line
 saying how long it takes, a **Start** button carrying the tour's name, and **Not now**. There are
-five tours, offered in this order: *Around the app*, which walks the rail and the five stages of
+six tours, offered in this order: *Around the app*, which walks the rail and the five stages of
 Create; *Drawing in Inker*, which makes a canvas, a stroke, a layer and a frame; *Generating a
 track in Muse*, which needs the ACE-Step weights and ends with the track opened in Sirens; *Writing
-a tune in Sirens*, which goes from an empty song to an exported WAV; and *Making a sound effect*, a
-shorter Sirens tour for a blip rather than a tune. Every one of them needs no GPU and no downloaded
-weights except *Generating a track in Muse*, which is deliberate: a tour a fresh install cannot
-finish is worse than none, and Muse says so at the door rather than after a click that would refuse.
-Both Sirens tours add a second half of that rule — no step of either one waits on hearing anything,
-so a machine with no sound device can finish them too.
+a tune in Sirens*, which goes from an empty song to an exported WAV; *Making a sound effect*, a
+shorter Sirens tour for a blip rather than a tune; and *Building a wall torch*, which builds a
+low-poly torch in Clay from an empty model and ends with it saved and exported to the Library. Every
+one of them needs no GPU and no downloaded weights except *Generating a track in Muse*, which is
+deliberate: a tour a fresh install cannot finish is worse than none, and Muse says so at the door
+rather than after a click that would refuse. Both Sirens tours add a second half of that rule — no
+step of either one waits on hearing anything, so a machine with no sound device can finish them too.
 
 **The tour points and waits. It never clicks anything for you.** A step highlights one control,
 says what it is for, and either advances on **Next** or shows **Waiting for you.** until you have
 done the thing it describes — clicked that mode, made that stroke — and **Done.** once you have.
-**Next** is yours to press either way, so you can skip a step. **Back** returns a step, **Read more**
-opens the manual chapter the step is about, and `Esc` ends the tour wherever you are. Every tour is
+**Next** is yours to press either way, so you can skip a step. The one exception is *Building a wall
+torch*: each part of the torch stands on the one before it, so its building steps keep **Next**
+greyed ("Next unlocks when this is done.") until the document holds that part. A greyed step also
+offers **Skip step**, so a part you would rather not build never traps you. **Back** returns a
+step, **Read more** opens the manual chapter the step is about, and `Esc` ends the tour wherever you
+are. A tour only reads your document; ending or skipping it changes nothing in it. Every tour is
 also in the command palette as **Take the tour: …**, so leaving one is never losing it.
 
 The offer is not a modal and never blocks the app. It stands down on its own once you have finished
