@@ -52,7 +52,6 @@ from __future__ import annotations
 
 import threading
 import weakref
-from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, fields
 
@@ -64,7 +63,6 @@ __all__ = [
     "Adjacency",
     "ManifoldReport",
     "adjacency",
-    "boundary_loops",
     "boundary_ring_from",
     "cached_triangulation",
     "check_manifold",
@@ -360,75 +358,17 @@ def cached_triangulation(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
 # --- boundary rings ---------------------------------------------------------
 
 
-def boundary_loops(mesh: Mesh) -> tuple[list[np.ndarray], np.ndarray]:
-    """``(rings, pinched)`` -- the open borders, and the vertices that fork.
-
-    A ring is an ordered ``(n,)`` i4 array of vertices **wound in the hole
-    direction**: a face built by using the returned order as its corner loop
-    traverses each shared edge opposite to the face already on it, which is
-    exactly the consistency rule the whole mesh is held to. That is why the walk
-    follows the *reverse* of each boundary corner's own direction -- the corner
-    reads ``a -> b`` because its face does, so the hole reads ``b -> a``. Fill
-    hole therefore needs no winding decision of its own, and cannot get it
-    backwards.
-
-    ``pinched`` names the vertices where two boundary edges leave -- an
-    hourglass touching at a point, or a hole that pinches shut against itself.
-    There the ring is genuinely ambiguous: the walk picks a successor
-    deterministically (the lowest corner) so the result is stable, but a caller
-    that cares about correctness rather than display must refuse, which is what
-    fill-hole does.
-
-    Only ``edge_uses == 1`` counts as boundary. A non-manifold edge is not a
-    border even though it is not an ordinary interior edge either; three faces
-    meeting there means there is no hole to fill.
-    """
-    a = adjacency(mesh)
-    if len(mesh.loops) == 0:
-        return [], np.zeros(0, dtype="i4")
-    corners = np.flatnonzero(a.edge_uses[a.corner_edge] == 1)
-    if len(corners) == 0:
-        return [], np.zeros(0, dtype="i4")
-
-    src = mesh.loops[a.next_corner[corners]].astype("i8")
-    dst = mesh.loops[corners].astype("i8")
-    pinched = np.flatnonzero(np.bincount(src, minlength=len(mesh.positions)) > 1).astype("i4")
-
-    pool: dict[int, list[int]] = defaultdict(list)
-    for i, s in enumerate(src.tolist()):
-        pool[s].append(i)
-    seen = np.zeros(len(corners), dtype=bool)
-
-    rings: list[np.ndarray] = []
-    for start in range(len(corners)):
-        if seen[start]:
-            continue
-        ring: list[int] = []
-        i = start
-        while not seen[i]:
-            seen[i] = True
-            ring.append(int(src[i]))
-            nxt = [j for j in pool[int(dst[i])] if not seen[j]]
-            if not nxt:
-                break
-            i = nxt[0]
-        rings.append(np.array(ring, dtype="i4"))
-    return rings, pinched
-
-
 def _outgoing_boundary_corners(mesh: Mesh, a: Adjacency, vertex: int) -> list[int]:
     """Boundary corners whose ring-direction edge begins at *vertex*.
 
     Local to one vertex's own fan of corners -- O(its degree), not O(the
     mesh's whole boundary) -- which is what :func:`boundary_ring_from` is
-    built from instead of :func:`boundary_loops`'s ``pool`` dict, which
-    groups every boundary corner in the mesh up front.
+    built from.
 
     A corner ``j`` is such an edge exactly when the corner ``c`` that follows
-    it in *its own face* (``c = next_corner[j]``) sits at *vertex* -- that is
-    the same "reverse of the face's own direction" rule :func:`boundary_loops`
-    already documents, read one vertex at a time via ``vertex_corners``
-    instead of over every boundary corner in the mesh.
+    it in *its own face* (``c = next_corner[j]``) sits at *vertex* -- the
+    "reverse of the face's own direction" rule :func:`boundary_ring_from`
+    documents, read one vertex at a time via ``vertex_corners``.
     """
     out = []
     for c in a.vertex_corners(int(vertex)).tolist():
@@ -443,17 +383,23 @@ def boundary_ring_from(
 ) -> tuple[list[np.ndarray], np.ndarray]:
     """``(rings, pinched)`` for only the ring(s) that *seed_edges* touch.
 
-    Same contract as :func:`boundary_loops` -- a ring is wound in the hole
-    direction, ``pinched`` names vertices with two boundary edges leaving
-    them -- but walked outward from each seed edge's own corner instead of
-    scanning every boundary corner in the mesh first.
+    A ring is an ordered ``(n,)`` i4 array of vertices **wound in the hole
+    direction**: a face built by using the returned order as its corner loop
+    traverses each shared edge opposite to the face already on it, which is
+    exactly the consistency rule the whole mesh is held to -- the walk follows
+    the *reverse* of each boundary corner's own direction, so fill hole needs
+    no winding decision of its own. ``pinched`` names the vertices where two
+    boundary edges leave -- an hourglass touching at a point, or a hole that
+    pinches shut against itself; there the ring is genuinely ambiguous (the
+    walk picks the lowest corner so the result is stable) and a caller that
+    cares about correctness must refuse, which is what fill-hole does. Only
+    ``edge_uses == 1`` counts as boundary.
 
-    The 2026-09-11 audit's clay-05: :func:`~.ops_topo.fill_hole` called
-    ``boundary_loops(mesh)`` unconditionally, before its own
-    ``MAX_DISSOLVED_RING`` refusal, and that function walks every boundary
-    corner in the whole mesh to build every ring -- 878 ms at 200,000
-    disjoint boundary quads (800,000 total boundary corners) to fill a single
-    4-edge hole, even though the selected ring itself is 4 corners. A user
+    Walked outward from each seed edge's own corner rather than scanning every
+    boundary corner in the mesh first. The 2026-09-11 audit's clay-05: the
+    all-boundary walk cost 878 ms at 200,000 disjoint boundary quads (800,000
+    total boundary corners) to fill a single 4-edge hole, even though the
+    selected ring itself is 4 corners. A user
     filling one small hole in a large imported mesh that happens to have many
     other small unrelated holes elsewhere (this module's own docstring:
     "importing a real-world GLB routinely" produces exactly that) paid for
@@ -541,18 +487,11 @@ def check_manifold(mesh: Mesh) -> ManifoldReport:
     "is this closed", but an open sheet is a legitimate mesh -- ``clean`` is a
     strict reading, not a verdict on usability.
 
-    **No pane calls this per frame, and that is the whole constraint on where
-    it is surfaced.** It builds a full adjacency, which is O(corners) and not
-    frame-thread work on a real model -- so the properties panel runs it from a
-    button and holds the result against the ``Mesh`` it measured, which is sound
-    because a ``Mesh`` is immutable and every op replaces it. Drawing it
-    unconditionally would re-measure a 200k-corner mesh sixty times a second to
-    show a line that had not changed. The other callers need the answer *about a
-    mesh in hand*: the topology ops' own tests, and ``serialize.read_rblk``'s
-    validation, which validates rather than trusts because ``edges`` and
-    ``face_normals`` go quietly wrong on a short face instead of raising.
-    ``diagnose.rows_for`` is what turns the six arrays into something a panel
-    can draw and a click can select.
+    **Nothing calls this per frame.** It builds a full adjacency, which is
+    O(corners) and not frame-thread work on a real model; the answer is about a
+    mesh in hand (the character generators' solid check, ``volume_if_closed``,
+    the topology ops' own tests), and a ``Mesh`` is immutable so a held result
+    stays sound.
     """
     a = adjacency(mesh)
     loops = mesh.loops.astype("i8")

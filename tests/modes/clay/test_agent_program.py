@@ -255,7 +255,18 @@ class TestLimits:
         assert c.expanded == ap.PROGRAM_MAX_STEPS
 
     def test_program_max_calls(self):
-        steps = [{"figure": {"key": "humanoid", "id": f"h{i}"}} for i in range(20)]
+        # Five repeats of 60 adds each: every step is well inside
+        # PROGRAM_MAX_STEPS and PROGRAM_MAX_REPEAT, only the *expanded* total
+        # is over.
+        steps = [
+            {
+                "repeat": {
+                    "ranges": {"i": {"from": 0, "to": 59}},
+                    "steps": [{"add": {"generator": "box"}}],
+                }
+            }
+            for _ in range(5)
+        ]
         err = compile_err({"steps": steps})
         assert "PROGRAM_MAX_CALLS" in err.reason
 
@@ -280,15 +291,6 @@ class TestLimits:
         err = compile_err({"steps": deep})
         assert "PROGRAM_MAX_NESTING" in err.reason
 
-    def test_program_max_booleans(self):
-        steps = []
-        for i in range(ap.PROGRAM_MAX_BOOLEANS + 1):
-            steps.append({"add": {"generator": "box", "id": f"a{i}"}})
-            steps.append({"add": {"generator": "box", "id": f"b{i}"}})
-            steps.append({"boolean": {"kind": "union", "uids": [f"a{i}", f"b{i}"]}})
-        err = compile_err({"steps": steps})
-        assert "PROGRAM_MAX_BOOLEANS" in err.reason
-
     def test_program_max_variables_top_level(self):
         variables = {f"v{i}": i for i in range(ap.PROGRAM_MAX_VARIABLES + 1)}
         err = compile_err({"variables": variables, "steps": [{"add": {"generator": "box"}}]})
@@ -303,15 +305,6 @@ class TestLimits:
         err = compile_err({"steps": steps})
         assert "PROGRAM_MAX_VARIABLES" in err.reason
 
-    def test_boolean_requires_at_least_two_uids(self):
-        prog = {
-            "steps": [
-                {"add": {"generator": "box", "id": "a"}},
-                {"boolean": {"kind": "union", "uids": ["a"]}},
-            ]
-        }
-        err = compile_err(prog)
-        assert err.field == "steps"
 
 
 # --- repeat / array / mirror expansion --------------------------------------
@@ -601,30 +594,6 @@ class TestReferences:
         err = compile_err(prog)
         assert "consumed by a delete" in err.reason
 
-    def test_id_consumed_by_boolean_is_refused(self):
-        prog = {
-            "steps": [
-                {"add": {"generator": "box", "id": "a"}},
-                {"add": {"generator": "box", "id": "b"}},
-                {"boolean": {"kind": "union", "uids": ["a", "b"]}},
-                {"transform": {"uid": "b", "translation": [1, 0, 0]}},
-            ]
-        }
-        err = compile_err(prog)
-        assert "consumed by a boolean" in err.reason
-
-    def test_the_boolean_survivor_stays_addressable_when_every_input_is_the_programs(self):
-        prog = {
-            "steps": [
-                {"add": {"generator": "box", "id": "b"}},
-                {"add": {"generator": "box", "id": "a"}},
-                {"boolean": {"kind": "union", "uids": ["a", "b"]}},
-                {"transform": {"uid": "b", "translation": [1, 0, 0]}},
-            ]
-        }
-        compiled = compile_ok(prog)
-        assert compiled.calls[-1][0] == "clay_transform"
-
     def test_id_collision_within_program(self):
         prog = {
             "steps": [
@@ -884,13 +853,13 @@ class TestLiveKinds:
         prog = {
             "steps": [
                 {"add": {"generator": "box", "id": "a"}},
-                {"assert": {"uid": "a", "condition": "grounded(a)"}},
+                {"assert": {"uid": "a", "condition": "exists(a)"}},
             ]
         }
         c = compile_ok(prog)
         assert c.calls[1][:2] == ("live", "assert")
         args = c.calls[1][2]
-        assert args["condition"] == "grounded(a)"
+        assert args["condition"] == "exists(a)"
         assert args["scope"] == {}
         assert c.calls[1][3] == "steps[1].assert"
 
@@ -957,7 +926,7 @@ class TestAssertConditions:
         prog = {
             "steps": [
                 {"add": {"generator": "box", "id": "a"}},
-                {"assert": {"condition": "touches(a, ghost)"}},
+                {"assert": {"condition": "size(ghost, 1) > 0"}},
             ]
         }
         err = compile_err(prog)
@@ -979,7 +948,7 @@ class TestAssertConditions:
             "steps": [
                 {"add": {"generator": "box", "id": "a"}},
                 {"group": {"id": "g", "members": ["a"]}},
-                {"assert": {"condition": "grounded(g)"}},
+                {"assert": {"condition": "size(g, 1) > 0"}},
             ]
         }
         err = compile_err(prog)
@@ -1003,7 +972,7 @@ class TestAssertConditions:
         prog = {
             "steps": [
                 {"add": {"generator": "box", "id": "a"}},
-                {"assert": {"condition": "touches(a)"}},
+                {"assert": {"condition": "size(a)"}},
             ]
         }
         err = compile_err(prog)
@@ -1029,25 +998,6 @@ class TestAssertConditions:
             }
         )
         assert c.calls[-1][0] == "live"
-
-
-# --- figure part-count weighting ------------------------------------------
-
-
-class TestFigure:
-    def test_figure_is_one_call_weighted_by_part_count(self):
-        c = compile_ok({"steps": [{"figure": {"key": "humanoid", "id": "hero"}}]})
-        assert len(c.calls) == 1
-        assert c.calls[0][0] == "clay_add_figure"
-        assert c.expanded == len(ap.presets.build("humanoid"))
-
-    def test_unknown_figure_key(self):
-        err = compile_err({"steps": [{"figure": {"key": "not-a-key"}}]})
-        assert "unknown figure key" in err.reason
-
-    def test_figure_id_becomes_name_prefix(self):
-        c = compile_ok({"steps": [{"figure": {"key": "humanoid", "id": "hero"}}]})
-        assert c.calls[0][1]["name_prefix"] == "hero"
 
 
 # --- mesh -----------------------------------------------------------------
@@ -1184,6 +1134,40 @@ class TestStructuralRefusals:
         err = compile_err({"steps": [{"material": {"uids": [1]}}]})
         assert err.field == "steps"
 
+    def test_material_step_with_faces_compiles_to_clay_material_faces(self):
+        c = compile_ok(
+            {
+                "steps": [
+                    {"add": {"generator": "box", "id": "a"}},
+                    {"material": {"uids": ["a"], "faces": [0, 2], "color": [1, 0, 0]}},
+                ]
+            }
+        )
+        name, args = c.calls[-1][0], c.calls[-1][1]
+        assert name == "clay_material"
+        assert args["faces"] == [0, 2]
+        assert args["uids"] == [{"$ref": "a"}]
+
+    def test_material_step_with_index_needs_no_colour_and_refuses_one(self):
+        c = compile_ok({"steps": [{"material": {"uids": [1], "faces": [0], "index": 0}}]})
+        assert c.calls[-1][1]["index"] == 0
+        assert "color" not in c.calls[-1][1]
+        both = compile_err(
+            {"steps": [{"material": {"uids": [1], "index": 0, "color": [1, 0, 0]}}]}
+        )
+        assert "not both" in both.reason
+
+    def test_material_faces_need_exactly_one_object_and_real_integers(self):
+        two = compile_err(
+            {"steps": [{"material": {"uids": [1, 2], "faces": [0], "color": [1, 0, 0]}}]}
+        )
+        assert two.field == "steps" and "exactly one object" in two.reason
+        for bad in ([], "0", [True], [1.5]):
+            err = compile_err(
+                {"steps": [{"material": {"uids": [1], "faces": bad, "color": [1, 0, 0]}}]}
+            )
+            assert "non-empty list of integers" in err.reason, bad
+
 
 # --- grammar table -------------------------------------------------------
 
@@ -1198,7 +1182,7 @@ class TestGrammarTable:
             assert keys <= ap.STEP_KINDS[kind]
 
     def test_creator_kinds_have_no_uid_bearing_keys(self):
-        for kind in ("add", "figure", "mesh"):
+        for kind in ("add", "mesh"):
             assert kind not in ap.UID_BEARING_KEYS
 
     def test_every_step_kind_is_reachable_or_documented_live(self):
@@ -1209,8 +1193,8 @@ class TestGrammarTable:
         wrapper_or_control = {"repeat", "array", "mirror", "group", "let", "if"}
         for kind in ap.STEP_KINDS:
             assert kind in ap.LIVE_KINDS or kind in wrapper_or_control or kind in (
-                "add", "figure", "mesh", "transform", "params", "material",
-                "delete", "op", "boolean", "select",
+                "add", "mesh", "transform", "params", "material",
+                "delete", "op", "select",
             )
 
 
@@ -1242,7 +1226,6 @@ class TestAgainstRealToolSchemas:
             "steps": [
                 {"add": {"generator": "box", "id": "a", "translation": [0, 0, 0], "material": 0}},
                 {"add": {"generator": "box", "id": "b"}},
-                {"figure": {"key": "humanoid", "id": "hero"}},
                 {
                     "mesh": {
                         "positions": [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
@@ -1252,10 +1235,9 @@ class TestAgainstRealToolSchemas:
                 },
                 {"transform": {"uid": "a", "translation": [1, 0, 0]}},
                 {"params": {"uid": "a", "params": {"size": [1, 1, 1]}}},
-                {"material": {"uids": ["a", "b"], "color": [1, 0, 0], "metallic": 0.0}},
+                {"material": {"uids": ["a", "b"], "color": [1, 0, 0]}},
                 {"select": {"uids": ["a"]}},
                 {"op": {"name": "drop-to-ground", "uids": ["a"]}},
-                {"boolean": {"kind": "union", "uids": ["a", "b"]}},
             ]
         }
         c = compile_ok(prog)
@@ -1325,7 +1307,6 @@ class TestImportsStayPure:
         internal = {name for name in names if name.startswith("realmspinner")}
         assert internal == {
             "realmspinner.studio.modes.clay.ops",
-            "realmspinner.kernels.mesh.presets",
             "realmspinner.kernels.mesh.primitives",
         }
 

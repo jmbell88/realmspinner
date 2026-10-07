@@ -1,27 +1,28 @@
-"""Where every Clay op lives in a Blender-style menu, as data, with no imgui.
+"""Where every Clay op lives in a menu, as data, with no imgui.
 
 :data:`ops.OPS` says what Clay can *do* and in which element modes. It never
 said how those operations *group*: the only signal was ``Op.separator_before``,
 which is positional (a row sits under whichever row was registered before it, so
-Shade Smooth sat under Duplicate and Smart Unwrap seven rows from Box Unwrap),
+Shade Smooth sat under Duplicate),
 and which both surfaces that listed the registry -- the right-click menu and the
 tools pane's button grid -- drew as one flat run.
 
 This module is the grouping. Three tables, each answering one question:
 
 * :data:`GROUPS` -- *which ops belong together*, and in what order. One group
-  holds ops that a modeller thinks of as one family (Mirror, Array, Origin, UV),
+  holds ops that a modeller thinks of as one family (Mirror, Origin, UV),
   whatever mode each op is registered for. Every registered op is in exactly one
   group, and ``tests/modes/clay/test_clay_menutree.py`` checks that in both
   directions, so an op registered tomorrow cannot be left out of every menu.
-* :data:`BARS` -- *which groups a mode's menu strip shows*, per element mode, the
-  way Blender swaps Object for Mesh / Vertex / Edge / Face. A group's ops are
+* :data:`BARS` -- *which groups a mode's menu strip shows*, per element mode:
+  Select | Add | Object | UV in object mode, Select | Add | Mesh in the three
+  element modes (vertex, edge and face share the one Mesh menu). A group's ops are
   filtered by ``op.modes`` when a bar is resolved, so one group can serve the
   object bar (Origin to Bounds) and the element bars (Origin to Selection) at
   once, and a group with nothing for the mode simply is not drawn.
 * :data:`ADD_SOURCES` -- *what the Add menu draws that is not an op*: the
-  generator categories, the figures, the colliders' own group. Named here so the
-  header has one place to read them from rather than a list of its own.
+  generator categories and the import row. Named here so the header has one
+  place to read them from rather than a list of its own.
 
 It holds op *names*, not ``Op`` objects, so it imports nothing but :mod:`ops`
 and stays a plain table; :func:`resolve` is the only function, and it is what
@@ -68,21 +69,10 @@ class Group:
 GROUPS: dict[str, Group] = {
     "select": Group(
         "Select",
-        (
-            "select-all",
-            "select-none",
-            "select-invert",
-            "select-linked",
-            "select-more",
-            "select-less",
-            "select-boundary",
-        ),
+        ("select-all", "select-none", "select-invert", "select-linked"),
     ),
     "basic": Group("Object", ("duplicate",)),
-    "transform": Group(
-        "Transform",
-        ("bake", "align", "distribute", "place-between", "drop-to-ground", "snap-to-grid"),
-    ),
+    "transform": Group("Transform", ("drop-to-ground", "snap-to-grid")),
     "origin": Group(
         "Set Origin",
         (
@@ -92,71 +82,25 @@ GROUPS: dict[str, Group] = {
             "origin-to-selection",
         ),
     ),
-    "mirror": Group("Mirror", ("mirror-x", "mirror-y", "mirror-z", "mirror-copy", "symmetrize")),
-    "array": Group("Array", ("array-linear", "array-radial")),
+    "mirror": Group("Mirror", ("mirror-x", "mirror-y", "mirror-z", "mirror-copy")),
     "parent": Group("Parent", ("group", "ungroup", "parent-to-last", "clear-parent")),
-    "join": Group("Join & Boolean", ("join", "union", "difference", "intersection")),
-    "shading": Group("Shading", ("shade-smooth", "shade-flat", "shade-auto")),
-    "subdivide": Group("Subdivide", ("smooth", "subdivide")),
-    "cleanup": Group(
-        "Clean Up",
-        ("clean-mesh", "recalc-normals", "apply-modifiers", "decimate", "retopo"),
-    ),
-    "separate": Group(
-        "Separate", ("separate-loose", "separate-material", "separate-selection")
-    ),
-    "lock": Group("Lock", ("lock", "unlock")),
-    "collider": Group(
-        "Collider",
-        (
-            "collider-box",
-            "collider-sphere",
-            "collider-capsule",
-            "collider-convex",
-            "collider-compound",
-        ),
-    ),
-    "uv": Group(
-        "UV",
-        (
-            "unwrap",
-            "mark-seam",
-            "clear-seam",
-            "unwrap-seams",
-            "smart-unwrap",
-            "pack-uv",
-            "texel-density",
-            "bake-detail",
-        ),
-    ),
+    "join": Group("Join", ("join",)),
+    "shading": Group("Shading", ("shade-smooth", "shade-flat")),
+    "cleanup": Group("Clean Up", ("recalc-normals",)),
+    "separate": Group("Separate", ("separate-loose", "separate-selection")),
+    "uv": Group("UV", ("unwrap", "pack-uv")),
     "mesh": Group(
         "Mesh",
-        ("repeat-last", "extrude", "dissolve", "collapse", "bisect", "knife"),
-    ),
-    "vertex": Group("Vertex", ("weld", "vertex-slide")),
-    "edge": Group(
-        "Edge",
         (
-            "bridge",
-            "bevel",
-            "loop-cut",
-            "edge-slide",
-            "rip",
-            "fill-hole",
-            "grid-fill",
-            "spin",
-            "screw",
-        ),
-    ),
-    "face": Group(
-        "Face",
-        (
+            "repeat-last",
+            "extrude",
             "inset",
             "merge_faces",
+            "weld",
             "flip",
-            "poke",
+            "assign-material",
             "triangulate",
-            "tris-to-quads",
+            "subdivide",
         ),
     ),
     "delete": Group("Delete", ("delete",)),
@@ -198,17 +142,15 @@ class Menu:
 
 
 #: What the Add menu draws besides ops. The header reads these names; the
-#: generator categories and figures come from the kernel registries, not from a
-#: list here, so a new primitive or figure appears in Add on its own.
-ADD_SOURCES: tuple[str, ...] = ("primitives", "figures", "import")
+#: generator categories come from ``primitives.CLAY_GENERATORS``, not from a
+#: list here, so a new Clay primitive appears in Add on its own.
+ADD_SOURCES: tuple[str, ...] = ("primitives", "import")
 
 _SELECT = Menu("Select", (_inline("select"),))
 _ADD = Menu(
     "Add",
     (
         Entry("add", "primitives"),
-        Entry("add", "figures"),
-        _sub("collider"),
         Entry("add", "import"),
     ),
 )
@@ -216,18 +158,17 @@ _UV = Menu("UV", (_inline("uv"),))
 
 
 def _mesh_menu(*extra: Entry) -> Menu:
-    """The shared edit-mode Mesh menu, with the groups only one mode has.
+    """The one edit-mode Mesh menu, shared by vertex, edge and face mode.
 
-    Blender's Mesh menu holds what every element mode shares and its Vertex /
-    Edge / Face menus hold what one mode has; ``extra`` is how Face mode adds
-    Shading and Separate (both of which apply to selected faces) without the
-    vertex and edge menus carrying a submenu that would be empty for them.
+    ``extra`` is how Face mode adds Shading and Separate (both of which apply
+    to selected faces) without the vertex and edge menus carrying a submenu
+    that would be empty for them -- :func:`resolve` drops an empty group anyway,
+    but naming only what a mode can have keeps the table honest.
     """
     return Menu(
         "Mesh",
         (
             _inline("mesh"),
-            _sub("subdivide"),
             _sub("origin"),
             *extra,
             _inline("delete"),
@@ -246,33 +187,19 @@ BARS: dict[str, tuple[Menu, ...]] = {
                 _sub("transform"),
                 _sub("origin"),
                 _sub("mirror"),
-                _sub("array"),
                 _sub("parent"),
-                _sub("join"),
+                _inline("join"),
                 _sub("shading"),
-                _sub("subdivide"),
-                _sub("cleanup"),
+                _inline("cleanup"),
                 _sub("separate"),
-                _sub("lock"),
                 _inline("delete"),
             ),
         ),
         _UV,
     ),
-    "vertex": (_SELECT, _ADD, _mesh_menu(), Menu("Vertex", (_inline("vertex"),))),
-    "edge": (
-        _SELECT,
-        _ADD,
-        _mesh_menu(),
-        Menu("Edge", (_inline("edge"),)),
-        _UV,
-    ),
-    "face": (
-        _SELECT,
-        _ADD,
-        _mesh_menu(_sub("shading"), _sub("separate")),
-        Menu("Face", (_inline("face"),)),
-    ),
+    "vertex": (_SELECT, _ADD, _mesh_menu()),
+    "edge": (_SELECT, _ADD, _mesh_menu()),
+    "face": (_SELECT, _ADD, _mesh_menu(_sub("shading"), _sub("separate"))),
 }
 
 
@@ -312,8 +239,7 @@ def resolve(mode: str) -> tuple[ResolvedMenu, ...]:
 
     A menu whose groups hold nothing for this mode is omitted rather than drawn
     empty -- Blender's header does the same -- which is how the UV menu is
-    absent in vertex mode (the only UV ops that reach an element mode are the
-    edge-mode seams).
+    absent in the element modes (both UV ops are object-level).
     """
     menus: list[ResolvedMenu] = []
     for menu in BARS[mode]:

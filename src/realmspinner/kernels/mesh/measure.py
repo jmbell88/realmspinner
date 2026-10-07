@@ -3,13 +3,13 @@ passed in rather than composed here.
 
 The element HUD and the agent's ``clay_measure`` tool both read this module
 rather than each carrying its own arithmetic, the same "one function, several
-callers" shape :mod:`.readiness` states for :func:`~.readiness.validate`: a
-distance the HUD and an agent disagree about is worse than neither having one.
+callers" shape: a distance the HUD and an agent disagree about is worse than
+neither having one.
 
 **No document, no object -- every function takes exactly the numbers it
 needs.** :func:`distance` and :func:`angle` take bare points (already in
-world space, however a caller got them there); :func:`face_area`,
-:func:`volume` and :func:`edge_length` take a :class:`~.mesh.Mesh` plus an
+world space, however a caller got them there); :func:`face_area` and
+:func:`volume` take a :class:`~.mesh.Mesh` plus an
 optional *world* matrix, composed with the mesh's own local positions the
 same way every world-space function in :mod:`.ops` does (tranche 3: scene
 structure) -- ``world=None`` measures the mesh in its own local space, which
@@ -21,8 +21,7 @@ measurement never disagrees with what is on screen. :func:`volume` is the
 divergence-theorem volume over *every* triangle regardless of whether the
 mesh is actually closed -- a meaningful number for an open mesh is not
 this module's problem to solve; a caller that cares checks
-``adjacency.check_manifold`` first, the same way :mod:`.readiness` does
-before it ever calls this.
+``adjacency.check_manifold`` first (:func:`volume_if_closed` does).
 """
 
 from __future__ import annotations
@@ -37,7 +36,6 @@ from .adjacency import check_manifold
 __all__ = [
     "angle",
     "distance",
-    "edge_length",
     "face_area",
     "is_closed",
     "volume",
@@ -116,9 +114,9 @@ def volume(mesh: bm.Mesh, world: np.ndarray | None = None) -> float:
 
 
 def is_closed(mesh: bm.Mesh) -> bool:
-    """No hole and no non-manifold edge -- the reading ``clay_analyze`` and
-    ``clay_add_mesh``'s own ``closed`` use, so a volume gate here agrees with
-    theirs. An empty or single-face-less mesh is not closed."""
+    """No hole and no non-manifold edge -- the reading ``clay_add_mesh``'s own
+    ``closed`` uses, so a volume gate here agrees with it. An empty or
+    single-face-less mesh is not closed."""
     if len(mesh.starts) <= 1:
         return False
     report = check_manifold(mesh)
@@ -130,7 +128,7 @@ def volume_if_closed(mesh: bm.Mesh, world: np.ndarray | None = None) -> float | 
 
     The 2026-10-03 audit's clay-25: ``clay_measure kind=volume`` called
     :func:`volume` directly and answered ``0.6667`` for a five-faced open box
-    while ``clay_analyze`` said ``null`` for the same object -- the divergence
+    while ``clay_add_mesh`` said not closed for the same object -- the divergence
     sum over an open surface depends on where the object sits, so the number
     is meaningless and an agent used it as a real volume. :func:`volume`
     itself is unchanged (the element HUD reads it and a caller with no
@@ -140,19 +138,3 @@ def volume_if_closed(mesh: bm.Mesh, world: np.ndarray | None = None) -> float | 
     if not is_closed(mesh):
         return None
     return volume(mesh, world)
-
-
-def edge_length(
-    mesh: bm.Mesh, edges: Sequence[Sequence[int]] | np.ndarray, world: np.ndarray | None = None
-) -> float:
-    """The summed length of *edges* (vertex-index pairs, an edge-mode
-    selection's own shape), in world space when *world* is given."""
-    rows = (
-        np.asarray(edges, dtype="i8").reshape(-1, 2) if len(edges) else np.zeros((0, 2), dtype="i8")
-    )
-    if len(rows) == 0:
-        return 0.0
-    positions = _world_positions(mesh, world)
-    a = positions[rows[:, 0]]
-    b = positions[rows[:, 1]]
-    return float(np.linalg.norm(b - a, axis=1).sum())

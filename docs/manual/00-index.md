@@ -18,7 +18,7 @@ Part IV explains how it is built.
 - [Judging what you made](04-judging-what-you-made.md) — grades, tags, and what the measurements are worth.
 - [Drawing](05-drawing.md) — Inker: tools, inks, layers, colour and selections.
 - [Animating](06-animating.md) — the timeline: frames, copy versus link, tags and onion skin.
-- [Modelling](07-modelling.md) — Clay: primitives, element editing, and merge versus union.
+- [Modelling](07-modelling.md) — Clay: primitives, element editing, and merging objects.
 - [Rigging and posing](08-rigging-and-posing.md) — fitting a skeleton, the A-pose trap, the pose library and the four clip libraries.
 - [Building a map](09-building-a-map.md) — Plotter: tilesets, terrain, objects and Tiled.
 - [Packing an atlas](10-packing-an-atlas.md) — Packwright, and the power-of-two trap.
@@ -42,7 +42,7 @@ Part IV explains how it is built.
 - [Sprite sheets](27-sprite-sheets.md) — baking poses and directions into a 2D sheet, and every block of its JSON sidecar.
 - [Inker](28-inker.md) — the layered raster editor and the two directions it connects to the pipeline.
 - [Inker: animation](29-inker-animation.md) — the timeline: cels, links, tags, onion skin, ranges and clip exports.
-- [Clay](30-clay.md) — modelling from primitives, and the two ways a built document leaves the mode.
+- [Clay](30-clay.md) — a small low-poly modeller, and the ways a built document leaves the mode.
 - [Mason](31-mason.md) — the 3D scene editor: placing assets, grouping and instancing, terrain, lights and the three exports.
 - [Plotter](32-plotter.md) — tile maps: tilesets, layers, objects, and Tiled import and export.
 - [Packwright](33-packwright.md) — packing sprites into an atlas, and the sidecar that describes it.

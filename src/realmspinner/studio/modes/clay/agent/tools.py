@@ -1,8 +1,7 @@
 """Clay's agent tool surface, the scene/creation handler family: the tools
 that place, move, reshape, paint or remove a whole object -- ``clay_scene``,
-``clay_add_primitive``, ``clay_add_figure``, ``clay_add_mesh``,
-``clay_transform``, ``clay_set_params``, ``clay_material``, ``clay_boolean``,
-``clay_delete`` and ``clay_rename``.
+``clay_add_primitive``, ``clay_add_mesh``, ``clay_transform``,
+``clay_set_params``, ``clay_material``, ``clay_delete`` and ``clay_rename``.
 
 Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``dev/RESTRUCTURE.md``).
 The brief that started this split expected these handlers to sit under that
@@ -12,13 +11,13 @@ now ``studio/modes/clay/agent/schema.py``), while every handler -- this family i
 lived under the file's final "# --- dispatch" banner instead, alongside
 ``call`` itself. ``studio/modes/clay/agent/dispatch.py`` keeps ``call`` and the ``_HANDLERS`` table
 that dispatches into this module; this family is what runs once that table
-picks one of these ten names.
+picks one of these eight names.
 
 See ``studio/modes/clay/agent/validate.py``'s own module docstring for why every one of
 these handlers reaches ``fail``/``ok``/``_json``/``Session``/``_tab`` and the
 shared validators through that module rather than through ``studio/modes/clay/agent/dispatch.py``
 directly: this file has no import of ``studio/modes/clay/agent/dispatch.py`` at all, because none
-of these ten handlers ever needs anything that lives only there.
+of these eight handlers ever needs anything that lives only there.
 """
 
 from __future__ import annotations
@@ -29,22 +28,14 @@ from typing import Any
 
 import numpy as np
 
-from .....kernels.geom3d import gltf
-from .....kernels.geom3d import math3d as m3
-from .....kernels.mesh import diagnose as clay_diagnose
 from .....kernels.mesh import document as bd
 from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
-from .....kernels.mesh import ops_boolean, presets, regen, shading
 from .....kernels.mesh import primitives as bp
-from .....kernels.mesh.elements import OpError
-from .. import ops as clay_ops
+from .....kernels.mesh import regen, shading
 from ..ui.panes import tools as pane_clay_tools
 from .schema import MAX_MESH_FACES, MAX_MESH_VERTICES, MAX_NAME_LENGTH
 from .validate import (
-    _OBJECT_SELECTION_DERIVED_REFUSAL,
-    SCALE_MAX,
-    SCALE_MIN,
     Session,
     _json,
     _label_top,
@@ -97,14 +88,10 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
     page = doc.objects[offset:] if limit is None else doc.objects[offset : offset + limit]
     objects = [_scene_row(doc, obj) for obj in page]
 
-    # Evaluated, not the base -- a mirror or an array modifier changes what
-    # actually sits inside the document's own bounds, and a box computed
-    # from the base alone would disagree with what clay_render draws. See
-    # _scene_row's own per-object bbox for the identical rule.
     boxes = [
         box
         for box in (
-            clay_geom_ops.world_box(obj, doc.evaluated(obj.uid), world=doc.world_matrix(obj.uid))
+            clay_geom_ops.world_box(obj, obj.mesh, world=doc.world_matrix(obj.uid))
             for obj in doc.objects
             if obj.visible
         )
@@ -126,8 +113,6 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
             "index": i,
             "name": m.name,
             "color": _round(list(m.base_color_factor)),
-            "metallic": _round(m.metallic_factor),
-            "roughness": _round(m.roughness_factor),
         }
         for i, m in enumerate(doc.materials)
     ]
@@ -177,9 +162,9 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
     # raises a bare, unhashable ``TypeError`` that only ``call()``'s generic
     # "failed unexpectedly" backstop caught, instead of this refusal naming
     # ``field="generator"`` the way an unknown *string* already does.
-    if not isinstance(generator, str) or generator not in bp.GENERATORS:
+    if not isinstance(generator, str) or generator not in bp.CLAY_GENERATOR_NAMES:
         return fail(
-            f"generator must be one of {', '.join(sorted(bp.GENERATORS))}.",
+            f"generator must be one of {', '.join(sorted(bp.CLAY_GENERATOR_NAMES))}.",
             field="generator",
         )
 
@@ -211,18 +196,17 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
             return failure
         # ...and then each value against the *shape* that generator's own
         # default declares, which the wire schema cannot say -- see
-        # ``_params_shape_refusal`` for the pyramid that crashed on a list.
+        # ``_params_shape_refusal`` for the generator that crashed on a list.
         failure = _params_shape_refusal(params, defaults, "params", repr(generator))
         if failure:
             return failure
 
     # The 2026-09-26 audit's clay-document-02 (agent-door half; flooring the
-    # extents themselves inside ``arch``/``stairs``/``doorway`` is a
+    # extents themselves inside ``stairs``/``doorway`` is a
     # kernels/mesh fix, not this one): every check above is about a value's
     # *type* and *shape*, none of them about whether the generator can
-    # actually build it -- ``arch(width=0)`` divides by zero deep inside its
-    # own UV-island helper, and ``stairs``/``doorway`` degenerate to a face
-    # with fewer than 3 corners, neither of which ``clamp_params`` floors.
+    # actually build it -- ``stairs``/``doorway`` degenerate to a face with
+    # fewer than 3 corners, which ``clamp_params`` does not floor.
     # Built here, before the tab is resolved or the default object is
     # placed, so a generator's own refusal is exactly as clean as a shape
     # refusal above it: this used to run *after* ``mark()`` had opened the
@@ -317,131 +301,6 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
     doc.history.collapse_since(mark)
     _label_top(doc, mark, f"Add {obj.name}")
     return _json(_scene_row(doc, obj))
-
-
-def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
-    """Place a figure preset as one group, one undo step. See
-    ``agent_clay.tools``'s description for ``translation``/``yaw``/``scale``/
-    ``name_prefix``.
-
-    Per part, with ``T`` the translation, ``s`` the uniform scale and
-    ``q_y`` the yaw quaternion: ``t' = R_y(yaw) . (s . t) + T``,
-    ``q' = q_y (x) q`` and ``s' = s . s_part``. Yaw and scale are applied
-    to every part's *offset from the group origin*, not to each part in
-    its own local frame -- a yawed figure turns where its limbs sit, it
-    does not spin each limb about its own centre.
-    """
-    key = args.get("key")
-    # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
-    # see ``_h_add_primitive``'s identical comment on its own ``generator``
-    # check just above in this file.
-    if not isinstance(key, str) or key not in presets.ASSEMBLIES:
-        return fail(f"key must be one of {', '.join(sorted(presets.ASSEMBLIES))}.", field="key")
-
-    translation = None
-    if args.get("translation") is not None:
-        translation, failure = _validate_translation(args["translation"], "translation")
-        if failure:
-            return failure
-
-    yaw_deg = args.get("yaw")
-    if yaw_deg is not None:
-        try:
-            yaw_deg = float(yaw_deg)
-        except (TypeError, ValueError, OverflowError):
-            return fail("yaw must be a number.", field="yaw")
-        if not math.isfinite(yaw_deg):
-            return fail("yaw must be finite.", field="yaw")
-
-    scale = args.get("scale")
-    if scale is not None:
-        try:
-            scale = float(scale)
-        except (TypeError, ValueError, OverflowError):
-            return fail("scale must be a number.", field="scale")
-        if not (math.isfinite(scale) and scale > 0):
-            return fail("scale must be a positive, finite number.", field="scale")
-        # The 2026-10-03 audit's clay-24: the same magnitude band every other
-        # scale argument is held to, so ``1e308`` or ``1e-320`` cannot reach
-        # the parts' own composed transforms.
-        if not (SCALE_MIN <= scale <= SCALE_MAX):
-            return fail(
-                f"scale must be between {SCALE_MIN:g} and {SCALE_MAX:g}.", field="scale"
-            )
-
-    name_prefix = args.get("name_prefix")
-    # Same unchecked-type hole as ``clay_add_primitive``'s own ``name``, fixed
-    # the same way: the schema declares a string, so a non-string is refused
-    # rather than silently coerced.
-    if name_prefix is not None and not isinstance(name_prefix, str):
-        return fail("name_prefix must be a string.", field="name_prefix")
-
-    tab, failure = _tab(ctx, session, create=True)
-    if failure:
-        return failure
-    doc = tab.doc
-
-    mark = doc.history.mark()
-    objs = pane_clay_tools.add_assembly(ctx, doc, key)
-
-    if name_prefix:
-        # Checked *after* placement, against the names ``add_assembly`` chose
-        # (already run through ``pane_clay_tools._unique_name`` for whatever
-        # this document already held) rather than predicted beforehand
-        # against ``presets.build``'s raw part names -- re-deriving that
-        # de-duplication here to guess its answer would be a second copy of
-        # it, free to drift the day it changes. A collision is undone rather
-        # than left half-renamed, so a refused prefix still places nothing.
-        placed = {o.uid for o in objs}
-        existing = {o.name for o in doc.objects if o.uid not in placed}
-        prefixed = [f"{name_prefix}{o.name}" for o in objs]
-        if len(set(prefixed)) != len(prefixed) or existing & set(prefixed):
-            # A mutate-then-refuse path, audited rather than missed: the
-            # figure's parts were already placed by ``add_assembly`` above,
-            # so this refusal fires *after* a real mutation. ``doc.undo()``
-            # on the line below is what keeps ``changed`` honestly ``False``
-            # here (the wrapper's default, left unoverridden) rather than a
-            # gap in the audit -- it reverses the very compound step
-            # ``collapse_since`` just folded, so the object count, the undo
-            # history's own length and ``doc.dirty`` all read exactly as they
-            # did before this call started. See ``document.py``'s ``undo()``
-            # and ``UndoStack.undo()`` for why that revert is exact rather
-            # than approximate: the compound edit's own ``undo`` puts back
-            # the very objects it added, by uid.
-            doc.history.collapse_since(mark)
-            # The 2026-09-26 audit, finding clay-agent-tools-03: ``doc.undo()``
-            # takes no ``redoable`` argument and always reverses redoably (a
-            # human's Ctrl+Z), which is wrong for a mutate-then-refuse revert
-            # -- the whole point is that the figure this refusal is undoing
-            # should never have existed, but leaving it on the redo stack let
-            # a later ``clay_redo`` bring the refused figure's objects right
-            # back (19 objects, reproduced) with no ``clay_add_figure`` call
-            # of its own to explain them. ``doc.history.undo(doc,
-            # redoable=False)`` is the same call ``_fold_run``'s own rollback
-            # uses for exactly this "the attempt should never have existed"
-            # case -- see that function's docstring.
-            doc.history.undo(doc, redoable=False)
-            return fail(
-                f"{name_prefix!r} would collide with an existing object name.",
-                field="name_prefix",
-            )
-        for obj, new_name in zip(objs, prefixed, strict=True):
-            doc.set_props(obj.uid, name=new_name)
-
-    if translation is not None or yaw_deg is not None or scale is not None:
-        yaw_quat = m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), math.radians(yaw_deg or 0.0))
-        s = 1.0 if scale is None else scale
-        t = m3.vec3(*translation) if translation is not None else m3.vec3()
-        for obj in objs:
-            new_t = m3.quat_rotate(yaw_quat, obj.translation * s) + t
-            new_q = m3.quat_mul(yaw_quat, obj.rotation)
-            new_s = obj.scale * s
-            doc.set_transform(obj.uid, translation=new_t, rotation=new_q, scale=new_s)
-
-    doc.history.collapse_since(mark)
-    label, _builder = presets.ASSEMBLIES[key]
-    _label_top(doc, mark, f"Add {label}")
-    return _json({"uids": [o.uid for o in objs], "objects": [_scene_row(doc, o) for o in objs]})
 
 
 def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
@@ -647,44 +506,7 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
     doc.history.collapse_since(mark)
     _label_top(doc, mark, f"Add {obj.name}")
 
-    # ``clay_diagnose.findings`` measures a mesh, not a live object, so it is
-    # reused directly rather than routed back through ``_h_diagnose`` (which
-    # resolves a uid, a tab and an optional ``select`` this call has no use
-    # for). "Closed" is narrower than "clean": a flipped edge, a duplicate
-    # face or an unused vertex is a real defect ``findings`` still reports,
-    # but none of them is what stops ``clay_boolean`` -- only an open
-    # boundary or a non-manifold edge does (``ops_boolean``'s own "needs
-    # every selected object to be a closed solid" refusal), so those are the
-    # two kinds this boolean is read from.
-    # By this point ``doc.add_object`` has already committed -- the 2026-09-19
-    # audit's clay-39: past ``ops_clean.MAX_CLEAN_CORNERS`` (reachable here: a
-    # face's own corner count has no ceiling above 3, so ``MAX_MESH_FACES``
-    # faces at a handful of corners each clears 300,000 well inside
-    # ``MAX_MESH_VERTICES``), ``findings`` now raises ``OpError`` rather than
-    # stalling, and letting that reach ``call()``'s own generic catch would
-    # report this whole call a refusal even though the object is sitting in
-    # the document, which would fool an agent into re-adding it (or worse,
-    # retrying with the same name and hitting the "taken name" refusal for an
-    # object it does not know exists). Caught here instead and reported as a
-    # named skip, the same ``diagnose.too_large_finding`` row every other
-    # caller of ``findings`` now falls back to. ``closed`` stays declared
-    # ``boolean`` in this tool's own ``outputSchema`` (``_mesh_row_output_
-    # schema``), so the honest "unmeasured" answer is not representable
-    # there; ``False`` is the safe reading for a boolean gate ``clay_boolean``
-    # trusts to mean "known good" -- an unmeasured mesh must never read as
-    # closed by default.
-    try:
-        rows = clay_diagnose.findings(obj.mesh)
-        closed = not any(r.kind in ("hole", "nonmanifold") for r in rows)
-    except OpError as error:
-        rows = [clay_diagnose.too_large_finding(str(error))]
-        closed = False
-    row = _scene_row(doc, obj)
-    row["closed"] = closed
-    row["findings"] = [
-        {"kind": r.kind, "label": r.label, "count": r.count, "mode": r.mode} for r in rows
-    ]
-    return _json(row)
+    return _json(_scene_row(doc, obj))
 
 
 def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
@@ -709,7 +531,7 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
     # raises on the wrong length -- but let a NaN straight through
     # ``math.radians`` and out the other side as a poisoned quaternion; this
     # is the same "validate everything before the first mutation" rule
-    # ``_h_add_primitive`` and ``_h_add_figure`` already follow.
+    # ``_h_add_primitive`` already follows.
     if translation is not None:
         translation, failure = _validate_translation(translation, "translation")
         if failure:
@@ -722,20 +544,12 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
         scale, failure = _validate_scale(scale, "scale")
         if failure:
             return failure
-    # Tranche 3: locking. ``set_transform`` raises OpError -- checking the
-    # object *and* its ancestor chain -- and pushes nothing before it does;
-    # caught here rather than left to call()'s generic OpError handler so the
-    # refusal names ``field="uid"``, the same "refuse a locked object by
-    # name" contract clay_delete's own locked check below states.
-    try:
-        changed = doc.set_transform(
-            obj.uid,
-            translation=translation,
-            rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
-            scale=scale,
-        )
-    except OpError as error:
-        return fail(str(error), field="uid")
+    changed = doc.set_transform(
+        obj.uid,
+        translation=translation,
+        rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
+        scale=scale,
+    )
     return _json({"uid": obj.uid, "changed": changed})
 
 
@@ -807,24 +621,6 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # fix its ``uid`` would be told to fix an argument it never sent.
     uid_field = "uids" if uids_arg is not None else "uid"
 
-    # Tranche 3: locking, checked for *every* named uid before any of them is
-    # rebuilt -- the 2026-09-20 audit's clay-09: pass 1 below already refused
-    # a frozen (generator-less) object or an unknown params key per object,
-    # but never checked ``locked``, so a locked uid named *after* an eligible
-    # one in the list let pass 2 rebuild the eligible one for real before
-    # ``document.set_generator_params``'s own locked refusal ever fired on
-    # the second uid -- raising ``OpError`` past this handler into ``call``'s
-    # generic handler, whose ``fail()`` defaults ``changed`` to ``False``
-    # while the first uid's rebuild had already been pushed onto history.
-    # ``_h_delete`` (below, in this file) already resolves every named uid's
-    # lock state and refuses before any of them is touched, with this exact
-    # failure mode named in its own comment; this is that same pre-check.
-    locked = [obj for obj in objects if obj.locked]
-    if locked:
-        return fail(
-            f"{locked[0].name!r} is locked.", field=uid_field, uids=[o.uid for o in locked]
-        )
-
     # Pass 1: every object's own legality, checked in full before pass 2
     # rebuilds anything -- see the docstring's all-or-nothing paragraph.
     for obj in objects:
@@ -834,6 +630,16 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
                 "it is no longer a generated shape -- there are no "
                 "generator params left to set (see document.set_mesh's "
                 "freeze).",
+                field=uid_field,
+                uids=[obj.uid],
+            )
+        if obj.generator not in bp.CLAY_GENERATOR_NAMES:
+            # A document opened from an older file may still carry a shape
+            # Clay no longer offers (a pyramid, a lathe); it keeps drawing
+            # and exporting, but its recipe is not an agent door any more.
+            return fail(
+                f"uid {obj.uid}: {obj.generator!r} is not a shape Clay offers any "
+                "more, so its params cannot be set.",
                 field=uid_field,
                 uids=[obj.uid],
             )
@@ -874,9 +680,8 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # The 2026-09-26 audit's clay-document-02 (agent-door half; flooring the
     # extents themselves is a kernels/mesh fix owned elsewhere in this pass):
     # every check above is about a value's *type* and *shape*, none of them
-    # about whether the generator can actually build it -- ``arch(width=0)``
-    # divides by zero deep inside its own UV-island helper, which
-    # ``clamp_params`` does not floor. This used to be built inside pass 2
+    # about whether the generator can actually build it -- a generator can still
+    # divide by zero on numbers ``clamp_params`` does not floor. This used to be built inside pass 2
     # below, so a middle uid's generator raising left every *earlier* uid's
     # rebuild already pushed onto history with the multi-uid gesture never
     # collapsed, and the refusal itself reached ``call()``'s generic
@@ -976,186 +781,147 @@ def _h_material(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     if not uids:
         return fail("give at least one uid.", field="uids")
-    color = args.get("color")
-    if not isinstance(color, list) or len(color) not in (3, 4):
-        return fail("color must be an array of 3 or 4 numbers, 0..1.", field="color")
-    # Per component through ``_validate_unit`` rather than the old bare
-    # ``isinstance(c, int | float)`` -- that check let ``float("nan")``
-    # through (NaN *is* a float) straight into the palette, and
-    # ``metallic``/``roughness`` had no check at all beyond the bare
-    # ``float()`` conversion below. The same unvalidated-number hole
-    # ``clay_transform`` had for its translation, one tool over.
-    rgba = []
-    for c in color:
-        value, failure = _validate_unit(c, "color")
-        if failure:
-            return failure
-        rgba.append(value)
-    rgba = tuple(rgba)
-    if len(rgba) == 3:
-        rgba = (*rgba, 1.0)
-    metallic, failure = _validate_unit(args.get("metallic", 0.0), "metallic")
-    if failure:
-        return failure
-    roughness, failure = _validate_unit(args.get("roughness", 0.6), "roughness")
-    if failure:
-        return failure
-    name_arg = args.get("name")
-    # The schema declares ``name`` a string; a bare ``str(name_arg or "")``
-    # coercion used to accept anything stringifiable with no refusal at all
-    # -- the same hole ``clay_add_primitive``'s own ``name`` had, fixed the
-    # same way ``clay_rename`` already checks its identical field.
-    if name_arg is not None and not isinstance(name_arg, str):
-        return fail("name must be a string.", field="name")
-    material = gltf.Material(
-        name=name_arg or "",
-        base_color_factor=rgba,
-        metallic_factor=metallic,
-        roughness_factor=roughness,
-    )
 
-    # Tranche 3: locking, resolved for every named uid and refused before
-    # either mutation below -- the 2026-09-20 audit's clay-10: this used to
-    # run straight into ``add_material``/``_repaint`` for every uid in
-    # order, so a locked uid named *after* an eligible one left a material
-    # genuinely appended to the palette and the eligible uid genuinely
-    # repainted before ``_repaint``'s own ``set_mesh`` hit the locked
-    # refusal on the second uid -- raising ``OpError`` past this handler
-    # into ``call``'s generic handler, whose ``fail()`` defaults ``changed``
-    # to ``False`` while both of those mutations had already happened.
-    # ``_h_delete`` (below, in this file) already resolves every named
-    # uid's lock state and refuses before any of them is touched, with this
-    # exact failure mode named in its own comment; this is that same
-    # pre-check, run here before ``add_material``/``_repaint`` rather than
-    # before a delete.
-    locked = [obj for obj in (doc.by_uid(u) for u in uids) if obj.locked]
-    if locked:
-        return fail(
-            f"{locked[0].name!r} is locked.", field="uids", uids=[o.uid for o in locked]
-        )
+    # ``faces`` and ``index`` are checked for their own shape before anything
+    # that relates them to each other, so a malformed one names itself rather
+    # than whichever combination rule happens to trip first. A bool is refused
+    # as a number: JSON ``true`` is an ``int`` to Python and would paint face 1.
+    faces_arg = args.get("faces")
+    face_ids: list[int] | None = None
+    if faces_arg is not None:
+        if not isinstance(faces_arg, (list, tuple)) or not faces_arg:
+            return fail(
+                "faces must be a non-empty list of integers.",
+                field="faces",
+                recovery="fix_arguments",
+            )
+        try:
+            face_ids = list(
+                dict.fromkeys(_whole_number(f) for f in faces_arg)  # first-seen order
+            )
+        except (TypeError, ValueError, OverflowError):
+            return fail(
+                "faces must be a non-empty list of integers.",
+                field="faces",
+                recovery="fix_arguments",
+            )
+    slot = args.get("index")
+    if slot is not None:
+        try:
+            slot = _whole_number(slot)
+        except (TypeError, ValueError, OverflowError):
+            return fail(
+                "index must be a palette slot (a non-negative integer).",
+                field="index",
+                recovery="fix_arguments",
+            )
+        if slot < 0:
+            return fail(
+                "index must be a palette slot (a non-negative integer).",
+                field="index",
+                recovery="fix_arguments",
+            )
+        if slot >= len(doc.materials):
+            return fail(
+                f"there is no palette entry {slot}; the palette has "
+                f"{len(doc.materials)} (0 to {len(doc.materials) - 1}). Leave "
+                "index out and give a color to make a new one.",
+                field="index",
+                recovery="fix_arguments",
+            )
+    if face_ids is not None:
+        # Faces are numbered per object, so they can only mean one object's.
+        if len(uids) != 1:
+            return fail(
+                "faces needs exactly one uid in uids -- face numbers belong to "
+                f"one object's mesh, and {len(uids)} were given.",
+                field="faces",
+                recovery="fix_arguments",
+            )
+        count = bm.face_count(doc.by_uid(uids[0]).mesh)
+        bad = [f for f in face_ids if not 0 <= f < count]
+        if bad:
+            return fail(
+                f"face index {bad[0]} is out of range for this mesh (0..{count - 1}).",
+                field="faces",
+                recovery="fix_arguments",
+            )
+
+    if slot is not None:
+        # An existing slot: nothing to make, so a colour or a name beside it
+        # would be silently dropped -- refuse rather than guess which was meant.
+        if args.get("color") is not None or args.get("name") is not None:
+            return fail(
+                "give either index (use an existing palette entry) or color/name "
+                "(make a new one), not both.",
+                field="index",
+                recovery="fix_arguments",
+            )
+        rgba = tuple(doc.materials[slot].base_color_factor)
+        material = None
+    else:
+        color = args.get("color")
+        if not isinstance(color, list) or len(color) not in (3, 4):
+            return fail("color must be an array of 3 or 4 numbers, 0..1.", field="color")
+        # Per component through ``_validate_unit`` rather than the old bare
+        # ``isinstance(c, int | float)`` -- that check let ``float("nan")``
+        # through (NaN *is* a float) straight into the palette. The same
+        # unvalidated-number hole ``clay_transform`` had for its translation, one
+        # tool over.
+        rgba = []
+        for c in color:
+            value, failure = _validate_unit(c, "color")
+            if failure:
+                return failure
+            rgba.append(value)
+        rgba = tuple(rgba)
+        if len(rgba) == 3:
+            rgba = (*rgba, 1.0)
+        name_arg = args.get("name")
+        # The schema declares ``name`` a string; a bare ``str(name_arg or "")``
+        # coercion used to accept anything stringifiable with no refusal at all
+        # -- the same hole ``clay_add_primitive``'s own ``name`` had, fixed the
+        # same way ``clay_rename`` already checks its identical field.
+        if name_arg is not None and not isinstance(name_arg, str):
+            return fail("name must be a string.", field="name")
+        material = replace(bd.default_material(name_arg or ""), base_color_factor=rgba)
 
     # One material for the whole call -- never one per object -- folded into
     # one undo step the way ``add_material_and_assign`` folds its own pair,
     # so one tool call is one Ctrl+Z.
     mark = doc.history.mark()
-    index = doc.add_material(material)
-    _repaint(doc, uids, index)
-    doc.history.collapse_since(mark)
-    _label_top(doc, mark, "Set Material")
-    return _json(
-        {
-            "index": index,
-            "uids": uids,
-            "color": list(rgba),
-            "metallic": material.metallic_factor,
-            "roughness": material.roughness_factor,
-        }
-    )
-
-
-def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
-    tab, failure = _tab(ctx, session)
-    if failure:
-        return failure
-    doc = tab.doc
-    # This op writes object uids straight into ``doc.selection`` a few lines
-    # down -- harmless before this change, because an agent could never leave
-    # object mode at all. The moment element mode is reachable that write can
-    # manufacture "selected with nothing selected inside it", the state
-    # ``document.py``'s module docstring says the derived-selection invariant
-    # forbids in an element mode. Refused rather than auto-switched: silently
-    # changing the document's mode under a call that did not ask for it is
-    # the hidden state change this codebase refuses instead of guessing at.
-    if doc.element_mode != "object":
-        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL, recovery="switch_mode")
-    kind = args.get("kind")
-    if kind not in ops_boolean.KINDS:
-        return fail(f"kind must be one of {', '.join(ops_boolean.KINDS)}.", field="kind")
-    # The shared resolver, as every other multi-uid tool uses: it refuses a
-    # non-list (clay-02, 2026-10-03: a digit string iterates per character),
-    # a non-integer (clay-agent-tools-09's OverflowError) and -- the 2026-10-03
-    # audit's clay-98 -- a uid that names no object, which this handler used to
-    # drop silently by matching ``doc.objects`` against the set, so
-    # ``uids [1, 2, 999]`` ran on 1 and 2 and never said 999 was ignored.
-    wanted, failure = _resolve_uids(doc, args.get("uids"), field="uids")
-    if failure:
-        return failure
-    # ``_union``'s own shape, generalised over the three kinds: the targets
-    # are read in the document's own object order, so "first" means the
-    # target's place in that order -- never the order this list happened to
-    # name them in. See ``ops_boolean.KINDS``' own docstring for why that is
-    # the rule for a difference, where the order changes the answer.
-    #
-    # Derived by walking ``doc.objects`` against *wanted* rather than by
-    # writing ``doc.select(wanted)`` first and re-reading it: the write was
-    # only ever a way to get that ordering, and doing it here put a mutation
-    # ahead of the count check below -- so a boolean refused for naming too
-    # few visible objects left the person's own selection overwritten by a
-    # call that changed nothing else. Walking the list gives the identical
-    # answer (a uid naming no object simply never matches) with nothing
-    # written, which is what lets the refusal below be honest that the
-    # document did not move. The selection this op does mean to leave behind
-    # is set once, at the end, to the survivor.
-    keep = {int(u) for u in wanted}
-    hidden = [obj.uid for obj in doc.objects if obj.uid in keep and not obj.visible]
-    if hidden:
-        return fail(
-            f"Object(s) {hidden} are hidden; show them or leave them out of uids.",
-            field="uids",
-            uids=hidden,
-        )
-    targets = [obj.uid for obj in doc.objects if obj.uid in keep and obj.visible]
-    if len(targets) < 2:
-        return fail(
-            "Select at least two visible objects.",
-            field="uids",
-            uids=targets,
-        )
-    # The 2026-09-22 audit, finding clay-22: a locked target or absorbed
-    # object already refuses the merge with no partial mutation --
-    # ``join_objects`` (``document.py``) checks every uid before touching
-    # anything -- but the ``OpError`` it raises reached this handler
-    # uncaught and fell through to ``call()``'s generic backstop, which
-    # carries no ``field``/``uids``, unlike ``_h_delete``/``_h_material``/
-    # ``_h_set_params``. Pre-checked here instead, the same shape as the
-    # material-assign lock check just above, so the refusal names
-    # ``field="uids"`` like its siblings.
-    locked = [obj for obj in (doc.by_uid(u) for u in targets) if obj.locked]
-    if locked:
-        return fail(
-            f"{locked[0].name!r} is locked.", field="uids", uids=[o.uid for o in locked]
-        )
-    # Evaluated, not the base -- a boolean must consume what a mirror or an
-    # array modifier actually built, the same rule the interactive ops will
-    # follow (``document.join_objects``'s own "merging ops consume evaluated
-    # meshes" paragraph). ``join_objects`` below clears the target's own
-    # stack in the same step: its modifiers are now baked into what this
-    # absorbed, so leaving them in place would apply them a second time the
-    # next time the target was drawn.
-    # The 2026-09-23 audit, finding clay-17: ``ops_boolean.boolean`` raises
-    # ``OpError`` when a target is not a closed solid, and left uncaught that
-    # reached ``call()``'s generic backstop (``dispatch.py``'s
-    # ``except OpError as error: return fail(str(error))``), which carries no
-    # ``field``/``uids`` -- unlike this same handler's lock refusal just
-    # above (clay-22, 2026-09-22) and ``_h_delete``/``_h_material``/
-    # ``_h_set_params``. Caught here and re-raised the same shape, so an
-    # agent gets the same "which control" pointer every other boolean
-    # refusal already gives it.
     try:
-        mesh = ops_boolean.boolean(
-            [replace(doc.by_uid(u), mesh=doc.evaluated(u)) for u in targets],
-            kind,
-            world=[doc.world_matrix(u) for u in targets],
-        )
-    except OpError as error:
-        return fail(str(error), field="uids", uids=targets)
-    doc.join_objects(targets[0], mesh, targets[1:])
-    # clay-08 (2026-09-08 audit), the same pop ``clay_ops._join``/``_union``
-    # make: the objects a boolean absorbs must not leave their manifold-check
-    # cache entries pinned alive under a uid nothing owns any more.
-    clay_ops._forget_manifold(ctx, targets[1:])
-    doc.select([targets[0]])
-    return _json({"uid": targets[0], "kind": kind})
+        index = slot if material is None else doc.add_material(material)
+        if face_ids is not None:
+            # Only those faces; the object's default slot stays what it was.
+            doc.paint_faces(uids[0], face_ids, index)
+        else:
+            _repaint(doc, uids, index)
+    finally:
+        doc.history.collapse_since(mark)
+    _label_top(doc, mark, "Set Material")
+    payload: dict[str, Any] = {"index": index, "uids": uids}
+    if face_ids is not None:
+        payload["faces"] = len(face_ids)
+    payload["color"] = list(rgba)
+    return _json(payload)
+
+
+def _whole_number(value: Any) -> int:
+    """*value* as an int, refusing a bool and anything that is not whole.
+
+    ``int()`` alone takes ``True``, ``2.7`` and ``"3"``; an agent that wrote
+    one of those meant something else, and painting face 1 for ``true`` is a
+    silent wrong answer. Raises what ``int()`` raises so callers share one
+    ``except``.
+    """
+    if isinstance(value, bool):
+        raise TypeError("a bool is not a number here")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError("not a whole number")
+    if not isinstance(value, (int, float, np.integer)):
+        raise TypeError("not a number")
+    return int(value)
 
 
 def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
@@ -1170,12 +936,11 @@ def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
     document happens to be in, is what keeps "delete these objects" meaning
     that regardless.
 
-    **Deliberately not given the same element-mode refusal as ``clay_select``
-    and ``clay_boolean``.** Those two *write* object uids straight into
-    ``doc.selection``, which in an element mode can manufacture "selected
-    with nothing selected inside it" -- the state the derived-selection
-    invariant forbids. This handler never does: :meth:`~.document.ClayDoc.
-    remove_object` only ever *removes* a uid from ``selection`` (and from
+    **Deliberately not given the same element-mode refusal as ``clay_select``.**
+    That tool *writes* object uids straight into ``doc.selection``, which in
+    an element mode can manufacture "selected with nothing selected inside
+    it" -- the state the derived-selection invariant forbids. This handler never does:
+    :meth:`~.document.ClayDoc.remove_object` only ever *removes* a uid from ``selection`` (and from
     ``element_sel``, on the same line), and removing an entry from a set
     cannot put it into the forbidden state that only a write can create.
     Refusing here would be refusing a call that was never capable of the
@@ -1190,32 +955,11 @@ def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     if not uids:
         return fail("give at least one uid.", field="uids")
-    # Tranche 3: locking, checked for *every* named uid before any of them is
-    # removed -- "validate everything before the first mutation", the same
-    # rule every other multi-uid door in this fold follows. ``remove_object``
-    # itself refuses a locked uid too (OpError, nothing pushed for *that*
-    # call), but reaching it from inside this loop would leave whichever
-    # uids sorted earlier already deleted while ``fail()``'s own ``changed``
-    # default (False) claimed nothing had moved -- a real "the document
-    # changed but the refusal said otherwise" gap this loop would open the
-    # moment a locked object's uid was not first in the list.
-    locked = [obj for obj in (doc.by_uid(u) for u in uids) if obj.locked]
-    if locked:
-        return fail(
-            f"{locked[0].name!r} is locked.", field="uids", uids=[o.uid for o in locked]
-        )
-
     mark = doc.history.mark()
     for uid in uids:
         doc.remove_object(uid)
     doc.history.collapse_since(mark)
     _label_top(doc, mark, "Delete")
-    # clay-08 (2026-09-08 audit): an object that leaves ``doc.objects`` must
-    # not leave its manifold-check cache entry pinning a whole ``Mesh`` alive
-    # under a uid nobody owns -- the same pop ``clay_ops._join``/``_union``
-    # make when they absorb objects, here for the direct-delete path
-    # ``clay_op``'s own Delete row does not take.
-    clay_ops._forget_manifold(ctx, uids)
     return _json({"deleted": uids})
 
 

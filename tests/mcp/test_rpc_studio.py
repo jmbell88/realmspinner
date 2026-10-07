@@ -563,8 +563,9 @@ def test_generators_and_operations_resources_derive_from_the_live_registries(tmp
             conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/generators"))
             _header, body = rpc.split_reply(_recv(conn))
             generators = json.loads(body.decode("utf-8"))
-            assert set(generators) == set(bp.GENERATORS)
-            for name, (defaults, _fn) in bp.GENERATORS.items():
+            assert set(generators) == set(bp.CLAY_GENERATOR_NAMES)
+            for name in bp.CLAY_GENERATOR_NAMES:
+                defaults, _fn = bp.GENERATORS[name]
                 assert set(generators[name]["params"]) == set(defaults)
 
             conn.send_bytes(rpc.encode_request("read", uri="realmspinner://clay/operations"))
@@ -592,8 +593,6 @@ def test_prompts_op_lists_every_prompt_name(tmp_path) -> None:
             assert names == {
                 "model_from_description",
                 "model_from_reference",
-                "repair_mesh",
-                "prepare_for_export",
                 # The character surface's own prompt (agent_prompts.py,
                 # widened for tranche 3) -- prompts are listed unchanged by
                 # this module, but the registry it reads from now has one

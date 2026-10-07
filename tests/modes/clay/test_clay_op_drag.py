@@ -84,9 +84,9 @@ def _type(view, doc: bd.ClayDoc, text: str) -> None:
 # --- the op metadata ----------------------------------------------------------
 
 
-def test_the_four_drag_ops_name_a_real_param_and_the_kernel_their_run_wraps() -> None:
+def test_the_inset_drag_op_names_a_real_param_and_the_kernel_its_run_wraps() -> None:
     names = {op.name for op in clay_ops.OPS if op.drag is not None}
-    assert names == {"inset", "bevel", "loop-cut", "edge-slide"}
+    assert names == {"inset"}
     for op in clay_ops.OPS:
         if op.drag is None:
             continue
@@ -180,22 +180,6 @@ def test_the_hud_names_the_op_the_parameter_and_the_value(view, ctx) -> None:
     view.begin_op_drag(doc, clay_ops.get("inset"))
     _type(view, doc, "0.05")
     assert view.drag_hud.startswith("Inset thickness 0.050 m")
-
-
-def test_a_fraction_drag_slides_across_the_params_range(view, ctx) -> None:
-    doc, uid = _doc("edge")
-    sel = el.convert(doc.by_uid(uid).mesh, el.ElementSel(faces=[0]), "edge")
-    one_edge = el.ElementSel(edges=[tuple(sel.edges[0])])
-    doc.set_element_sel(uid, one_edge)
-    _ready(view, doc)
-
-    assert view.begin_op_drag(doc, clay_ops.get("loop-cut"))
-    assert view._op_drag.value == 0.5, "it starts where the dialog would"
-    view._motion(doc, (128.0, 48.0))
-    assert view._op_drag.value > 0.5
-    view._motion(doc, (0.0, 48.0))
-    assert view._op_drag.value < 0.5
-    assert 0.0 <= view._op_drag.value <= 1.0, "clamped to the Param's range"
 
 
 def test_a_refusal_at_the_value_keeps_the_last_picture_and_says_why(view, ctx, monkeypatch) -> None:

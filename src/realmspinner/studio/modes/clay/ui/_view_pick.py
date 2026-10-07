@@ -37,9 +37,7 @@ class PickOps:
 
     # -- picking -----------------------------------------------------------
 
-    def pick_face(
-        self: ClayView, doc: Any, local: tuple[float, float], *, evaluated: bool = False
-    ) -> Hit | None:
+    def pick_face(self: ClayView, doc: Any, local: tuple[float, float]) -> Hit | None:
         """What a click lands on: which object, how far, and which *face*.
 
         Object space per object, with the AABB prefilter, so the ray goes
@@ -52,43 +50,19 @@ class PickOps:
         cannot possibly have moved a triangle. That cache is finally what makes
         ``tri_face`` earn its place: it maps the triangle the ray hit back to
         the n-gon the user thinks they clicked.
-
-        ``evaluated`` picks the mesh a hit is tested against: ``True`` for
-        object-mode picking (:meth:`pick`), which chooses *what is on screen*
-        -- the base run through its modifier stack -- and ``False`` (the
-        default) for element-mode picking (:meth:`pick_element`), which
-        addresses indices into the base mesh that editing still reads. The
-        *face index* a hit reports is only meaningful against whichever mesh
-        it was cast against, which is exactly why this is a caller's choice
-        and not a guess made in here.
         """
         origin, direction = self._ray(local)
         best: Hit | None = None
         for obj in doc.objects:
-            # Tranche 3: scene structure -- "viewport clicks pass through it"
-            # is decision #6's own wording for a locked object, and it is
-            # unqualified: the outliner is the door that still reaches one
-            # (``document.py``'s locking paragraph), and a click is not the
-            # outliner. Only the object's own flag, not an ancestor's --
-            # unlike the transform door (``ClayDoc.set_transform``'s
-            # ``check_ancestors``), a click on a child of a locked group is
-            # still a legitimate way to *select* that child, even though
-            # dragging it is refused a layer up (see ``_drag_lock_error``).
-            # The 2026-09-23 audit, finding clay-06: a collider is drawn as a
-            # translucent overlay, never through the opaque path ``_composite``
-            # draws objects through (view.py's own skip, clay-09) -- but this
-            # loop still cast a ray at its geometry, so a click meant for the
-            # object it fits landed on the enclosing collider instead.
-            if not obj.visible or obj.locked or obj.role == "collider":
+            if not obj.visible:
                 continue
-            mesh = doc.evaluated(obj.uid) if evaluated else None
-            hit = self._pick_face_on(doc, obj, origin, direction, mesh=mesh)
+            hit = self._pick_face_on(doc, obj, origin, direction)
             if hit is not None and (best is None or hit.t < best.t):
                 best = hit
         return best
 
     def _pick_face_on(
-        self: ClayView, doc: Any, obj: Any, origin: Any, direction: Any, *, mesh: Any = None
+        self: ClayView, doc: Any, obj: Any, origin: Any, direction: Any
     ) -> Hit | None:
         """One object's own nearest face hit, ignoring every other object.
 
@@ -99,15 +73,10 @@ class PickOps:
         have this hole -- they already rank a *per-object* candidate by depth
         in :meth:`pick_element` and simply skip the depth filter under X-ray --
         so face mode needs the same per-object candidate this returns.
-
-        ``mesh`` overrides ``obj.mesh`` -- :meth:`pick_face` passes the
-        evaluated mesh for object-mode picking; every element-mode caller
-        (including its own X-ray branch in :meth:`pick_element`) leaves it
-        unset and gets the base, which is what an element index addresses.
         """
         from .....kernels.mesh.adjacency import cached_positions_f8, cached_triangulation
 
-        mesh = obj.mesh if mesh is None else mesh
+        mesh = obj.mesh
         tris, tri_face = cached_triangulation(mesh)
         positions = cached_positions_f8(mesh)
         hit = picking.ray_object(
@@ -132,13 +101,8 @@ class PickOps:
         Kept as the object-mode entry point, and kept returning a bare uid:
         that is what selection in object mode is, and widening it would make
         every caller unpack a record to ignore two thirds of it.
-
-        ``evaluated=True``: object-mode picking chooses *what is on screen* --
-        an object whose modifier stack extends its silhouette (an array, a
-        mirror) should be pickable across that whole extent, not only the
-        base mesh's own footprint.
         """
-        hit = self.pick_face(doc, local, evaluated=True)
+        hit = self.pick_face(doc, local)
         return None if hit is None else hit.uid
 
     def screen_of(self: ClayView, doc: Any, uid: int) -> Any:
@@ -227,17 +191,7 @@ class PickOps:
 
         best: tuple[float, int, int] | None = None
         for obj in doc.objects:
-            # The 2026-09-22 audit, finding clay-02: unlike ``pick_face``
-            # (above), this loop picked a locked object's elements straight
-            # into ``doc.element_sel``, and locking is a click-through door
-            # ("viewport clicks pass through it") only for the object pick,
-            # not this one -- an element belongs to one object, so leaving a
-            # locked object's elements pickable let Delete land a refusal
-            # that reads as "nothing happened" for the rest of the selection.
-            # clay-06 (2026-09-23 audit): same door as ``pick_face`` above --
-            # a collider's elements are not on screen either, so hovering or
-            # selecting through it should not be possible.
-            if not obj.visible or obj.locked or obj.role == "collider":
+            if not obj.visible:
                 continue
             screen = self.screen_of(doc, obj.uid)
             if mode == "vertex":

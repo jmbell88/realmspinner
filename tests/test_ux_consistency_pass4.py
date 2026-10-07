@@ -277,7 +277,7 @@ def test_clay_props_generator_params_are_each_named():
     source = Path(clay_props.__file__).read_text(encoding="utf-8")
     assert 'widgets.field_label(key.replace("_", " "))' in source
     assert 'label = f"##{key.replace(\'_\', \' \')}##gen{key}"' in source
-    for hidden in ("##base colour##bm", "##metallic##bm", "##roughness##bm"):
+    for hidden in ("##base colour##bm",):
         assert f'"{hidden}"' in source, hidden
 
 
@@ -299,7 +299,7 @@ def _clay_props_scratch_reverted() -> str:
         "label = f\"##{key.replace('_', ' ')}##gen{key}\"",
         "label = f\"{key.replace('_', ' ')}##gen{key}\"",
     )
-    for label in ("base colour", "metallic", "roughness"):
+    for label in ("base colour",):
         source = source.replace(f'widgets.field_label("{label}")\n', "")
         source = source.replace(f'"##{label}##bm"', f'"{label}##bm"')
     return source
@@ -311,7 +311,7 @@ def test_the_generator_param_regression_test_fails_against_the_unfixed_code():
     it flags exactly the params this pass fixed."""
     reverted = _clay_props_scratch_reverted()
     found = {m.group(2) for m in _RAW_LABELLED.finditer(reverted)}
-    assert {"base colour##bm", "metallic##bm", "roughness##bm"} <= found
+    assert {"base colour##bm"} <= found
 
 
 def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
@@ -329,14 +329,14 @@ def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
 
 
 def test_clay_header_popover_units_stay_in_the_label():
-    """"grid (m)"/"angle (deg)"/"radius (m)" keep their units, moved above."""
+    """"grid (m)"/"angle (deg)" keep their units, moved above. (The "radius (m)"
+    proportional-falloff field went with proportional editing.)"""
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
     source = Path(clay_header.__file__).read_text(encoding="utf-8")
     for label, hidden in (
         ("grid (m)", "##grid (m)##snapt"),
         ("angle (deg)", "##angle (deg)##snapr"),
-        ("radius (m)", "##radius (m)##propr"),
     ):
         assert f'widgets.field_label("{label}")' in source
         assert f'"{hidden}"' in source

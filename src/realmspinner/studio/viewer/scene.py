@@ -45,10 +45,10 @@ class GpuMaterial:
         self,
         ctx: moderngl.Context,
         material: Material,
-        texture_cache: dict[int, moderngl.Texture] | None = None,
+        texture_cache: dict[Any, moderngl.Texture] | None = None,
     ) -> None:
         """``texture_cache`` de-duplicates uploads by decoded buffer (D40):
-        keyed on ``id(pixels)``, which is sound because the loader decodes
+        keyed on ``(id(pixels), crisp)``, which is sound because the loader decodes
         each glTF image source once and shares the bytes object, and the
         Model keeps those bytes alive for as long as this material exists. A
         texture found in the cache is *borrowed* -- only the creator releases
@@ -71,24 +71,35 @@ class GpuMaterial:
         self,
         ctx: moderngl.Context,
         material: Material,
-        texture_cache: dict[int, moderngl.Texture] | None,
+        texture_cache: dict[Any, moderngl.Texture] | None,
     ) -> None:
         for slot, define, _uniform, _srgb in TEXTURE_SLOTS:
             data = getattr(material, slot)
             if data is None:
                 continue
             width, height, pixels = data
-            texture = None if texture_cache is None else texture_cache.get(id(pixels))
+            # Crisp sampling is the base-colour slot's alone (the definition of
+            # ``Material.nearest``), and it is part of the cache key: a texture
+            # carries its own filter state, so two materials over one pixels
+            # object that differ in ``nearest`` must not borrow each other's.
+            crisp = bool(slot == "base_color" and material.nearest)
+            key = (id(pixels), crisp)
+            texture = None if texture_cache is None else texture_cache.get(key)
             if texture is None:
                 texture = ctx.texture((width, height), 4, pixels)
                 # Owned before the setup calls below can raise, so a failure
                 # there still leaves the texture reachable for ``release``.
                 self._owned.append(texture)
-                texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
-                texture.build_mipmaps()
-                texture.anisotropy = min(8.0, ctx.max_anisotropy)
+                if crisp:
+                    # No mipmaps and no anisotropy: a mip chain would blur the
+                    # texels this flag exists to keep square.
+                    texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+                else:
+                    texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+                    texture.build_mipmaps()
+                    texture.anisotropy = min(8.0, ctx.max_anisotropy)
                 if texture_cache is not None:
-                    texture_cache[id(pixels)] = texture
+                    texture_cache[key] = texture
             self.textures[slot] = texture
             self.defines.append(define)
 
@@ -291,7 +302,7 @@ class GpuModel:
         self._by_material: dict[int, GpuMaterial] = {}
         # Shared across this model's materials so one decoded buffer is one
         # GPU texture (D40). Lives here so it dies with the model.
-        self._texture_cache: dict[int, moderngl.Texture] = {}
+        self._texture_cache: dict[Any, moderngl.Texture] = {}
         # Per-node normal matrices, keyed on the world matrix's bytes (B15):
         # recomputed only when a pose actually moves the node.
         self._normal_cache: dict[int, tuple[bytes, bytes]] = {}

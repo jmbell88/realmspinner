@@ -1,11 +1,10 @@
-"""Splitting one mesh into several -- by loose parts, by material, or by a
-selection -- pure functions over a :class:`~.mesh.Mesh`, with no document in
-the loop.
+"""Splitting one mesh into several -- by loose parts or by a selection --
+pure functions over a :class:`~.mesh.Mesh`, with no document in the loop.
 
 Each function here answers "how would this mesh split", never "make it so":
 :meth:`~.document.ClayDoc.separate` is the door that turns a ``list[Mesh]``
-into new objects, as one undo step, with the source's transform, parent and
-modifier stack carried onto every piece. That split mirrors every other
+into new objects, as one undo step, with the source's transform and parent
+carried onto every piece. That split mirrors every other
 kernel/document boundary in this package (:mod:`.ops_boolean` computes a
 mesh, ``ClayDoc.join_objects`` adopts it) -- the geometry and the bookkeeping
 are two different kinds of correctness, and mixing them would make each
@@ -29,8 +28,8 @@ recomputed" answer :func:`~.document._submesh` gives for the same fields.
 **Refuses -- :class:`~.elements.OpError`, and computes nothing past the
 check -- a split that would produce a single piece.** "Separate" whose result
 is the mesh it started with is not a separation; the message names why
-(everything is one connected piece / one material / the whole selection or
-none of it), which is more useful than a silent single-element list.
+(everything is one connected piece / the whole selection or none of it),
+which is more useful than a silent single-element list.
 """
 
 from __future__ import annotations
@@ -41,9 +40,9 @@ from . import elements as el
 from . import mesh as bm
 from .adjacency import adjacency as mesh_adjacency
 
-__all__ = ["by_loose_parts", "by_material", "by_selection"]
+__all__ = ["by_loose_parts", "by_selection"]
 
-#: The largest number of pieces one `by_loose_parts`/`by_material` call will
+#: The largest number of pieces one `by_loose_parts` call will
 #: build. The 2026-09-20 audit's clay-04 found neither had any ceiling, and
 #: that the closing comprehension re-scanned the *whole* face array once per
 #: distinct group (`flatnonzero(face_labels == comp)` inside a Python loop
@@ -191,21 +190,6 @@ def by_loose_parts(mesh: bm.Mesh) -> list[bm.Mesh]:
         raise el.OpError("Nothing to separate: this object is one connected piece.")
     _refuse_piece_count(len(distinct))
     return _grouped_pieces(mesh, face_labels)
-
-
-def by_material(mesh: bm.Mesh) -> list[bm.Mesh]:
-    """One piece per distinct material slot the mesh's faces use.
-
-    Refuses (:class:`~.elements.OpError`) a mesh whose faces all name one
-    slot: there is nothing to separate by.
-    """
-    if bm.face_count(mesh) == 0:
-        raise el.OpError("Nothing to separate: this object has no faces.")
-    materials = np.unique(mesh.material)
-    if len(materials) <= 1:
-        raise el.OpError("Nothing to separate: every face uses the same material.")
-    _refuse_piece_count(len(materials))
-    return _grouped_pieces(mesh, mesh.material)
 
 
 def by_selection(mesh: bm.Mesh, sel: el.ElementSel) -> list[bm.Mesh]:

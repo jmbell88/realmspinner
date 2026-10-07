@@ -54,6 +54,9 @@ class _AppState:
     def __init__(self) -> None:
         self.clay = None
         self.mode = "home"
+        # What ``docmodes.release_prefix`` sweeps: closing a tab releases the UV
+        # pane's texture, so the fake needs the real state's (empty) cache.
+        self.preview: dict[str, Any] = {}
 
 
 class _Settings:
@@ -187,107 +190,6 @@ def test_an_edit_during_a_save_leaves_the_tab_dirty(svc, tmp_path) -> None:
 
     assert tab.saving is False
     assert tab.dirty is True
-
-
-# --- readiness runs off the frame thread (2026-09-20 audit, clay-05) --------
-
-
-def test_check_readiness_submits_rather_than_blocking(svc) -> None:
-    """Before this fix, ``check_readiness`` called ``readiness.validate``
-    directly on the calling thread; the 2026-09-20 audit's clay-05 measured
-    that call at up to 15.1 s on an ordinary (if large) document. It must now
-    go through ``ctx.submit``, keyed like every other per-tab task in this
-    module (``clay-bg:<tab uid>``'s own shape)."""
-    ctx = FakeCtx(svc)
-    tab = _tab(ctx)
-
-    clay_mode.check_readiness(ctx, tab, "godot-desktop")
-
-    assert ctx.submitted == [f"clay-readiness:{tab.uid}"]
-
-
-def test_check_readiness_result_lands_on_the_tab_through_on_task_done(svc) -> None:
-    """``check_readiness`` no longer writes ``readiness_report``/
-    ``readiness_head`` itself -- applying a task's result is always
-    ``on_task_done``'s job in this module (see ``_save``'s own docstring)."""
-    ctx = FakeCtx(svc)
-    tab = _tab(ctx)
-    assert tab.readiness_report is None
-
-    clay_mode.check_readiness(ctx, tab, "godot-desktop")
-    clay_mode.on_task_done(ctx, _Done(f"clay-readiness:{tab.uid}", ctx.result, tag=ctx.tag))
-
-    assert tab.readiness_report is not None
-    assert tab.readiness_report.profile == "godot-desktop"
-    assert tab.readiness_head == tab.doc.history.head
-
-
-def test_check_readiness_head_is_captured_before_the_task_runs(svc) -> None:
-    """The head landed on the tab must be the one the document had when Check
-    was pressed, not whatever it is by the time the now-backgrounded result
-    comes back -- an edit landing in between is genuinely not part of what
-    was checked, the same reasoning ``test_an_edit_during_a_save_leaves_the_
-    tab_dirty`` already applies to saving."""
-    ctx = FakeCtx(svc)
-    tab = _tab(ctx)
-    head_before = tab.doc.history.head
-
-    clay_mode.check_readiness(ctx, tab, "godot-desktop")
-    # An edit lands after the (fake, inline) task already ran but before its
-    # result is applied -- exactly the ordering a real background thread
-    # allows.
-    tab.doc.add_object(bd.Obj(uid=bd.new_uid(), name="Late", mesh=bp.box()))
-    clay_mode.on_task_done(ctx, _Done(f"clay-readiness:{tab.uid}", ctx.result, tag=ctx.tag))
-
-    assert tab.readiness_head == head_before
-    assert tab.readiness_head != tab.doc.history.head
-
-
-def test_a_failed_readiness_check_does_not_touch_saving_or_bg_busy(svc) -> None:
-    """The 2026-09-26 audit, finding clay-mode-01: a failed ``clay-readiness``
-    task used to fall into ``on_task_failed``'s generic tail, which
-    unconditionally clears both ``saving`` and ``bg_busy`` on the tab -- flags
-    ``check_readiness`` never sets in the first place (it owns neither). A
-    refused readiness check (``readiness.MAX_VALIDATE_OBJECTS``) must not be
-    what makes a save genuinely still in flight on the same tab look
-    finished. (The branch also records ``readiness_error`` -- clay-panes-08,
-    the same audit -- which is not this finding's own concern; this only
-    pins that ``saving``/``bg_busy`` stay untouched either way.)"""
-    ctx = FakeCtx(svc)
-    tab = _tab(ctx)
-    tab.saving = True
-    tab.bg_busy = "Saving..."
-
-    clay_mode.on_task_failed(ctx, _Done(f"clay-readiness:{tab.uid}", message="too many objects"))
-
-    assert tab.saving is True, "a refused readiness check must not unlock a tab mid-save"
-    assert tab.bg_busy == "Saving...", "nor clear a background-busy hint it never set"
-
-
-def test_check_readiness_validates_a_snapshot_not_the_live_documents_cache(svc) -> None:
-    """clay-mesh-model-09 (the 2026-09-26 audit): ``readiness.validate``
-    reaches ``doc.evaluated`` for every visible object, which -- on a cache
-    miss -- writes ``doc._evaluated`` (``modifiers.py``'s own cache) as a side
-    effect. This task's closure runs on a pool thread while the frame thread
-    can be editing the very same document, so before this fix a readiness
-    check wrote into the *live* document's cache from off the frame thread --
-    a genuine data race, not merely a stale read. A mirror modifier is what
-    makes the write observable: a bare box's fast path (no enabled modifiers)
-    never touches the cache at all, live document or not."""
-    from realmspinner.kernels.mesh import modifiers as mod
-
-    ctx = FakeCtx(svc)
-    tab = _tab(ctx)
-    uid = tab.doc.objects[0].uid
-    tab.doc.set_modifiers(uid, (mod.make("mirror", {}, id=1),))
-    assert tab.doc._evaluated == {}, "not yet evaluated"
-
-    clay_mode.check_readiness(ctx, tab, "godot-desktop")
-
-    assert tab.doc._evaluated == {}, (
-        "a readiness check running on a pool thread must not write the live "
-        "document's own evaluation cache -- it has to validate a private copy"
-    )
 
 
 # --- keys --------------------------------------------------------------------
@@ -1135,165 +1037,6 @@ def test_select_all_still_takes_every_visible_object():
     assert doc.selection == {first, second}
 
 
-# --- the mesh check (Clay14) -------------------------------------------------
-#
-# ``check_manifold`` builds a whole adjacency and has never been drawable per
-# frame, which is the constraint that shapes the whole feature: the panel runs
-# it from a button and holds the answer against the ``Mesh`` it measured. Both
-# halves are tested here rather than through imgui -- the staleness rule is a
-# comparison and the click is three document calls.
-
-
-def _stray_vertex_box() -> Any:
-    """A box plus a vertex no face uses: one finding, in vertex mode."""
-    import numpy as np
-
-    from realmspinner.kernels.mesh import mesh as bm
-
-    box = bp.box()
-    return bm.Mesh(
-        positions=np.vstack([box.positions, np.array([[9.0, 9.0, 9.0]], dtype="f4")]),
-        loops=box.loops,
-        starts=box.starts,
-        material=box.material,
-        smooth=box.smooth,
-    )
-
-
-def test_a_stored_check_is_stale_the_moment_the_mesh_is_replaced() -> None:
-    from realmspinner.kernels.mesh import diagnose
-
-    doc = bd.ClayDoc()
-    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
-    state = clay_state.ClayState()
-    state.manifold[obj.uid] = (obj.mesh, diagnose.findings(obj.mesh))
-
-    measured, rows = state.manifold[obj.uid]
-    assert measured is doc.by_uid(obj.uid).mesh, "fresh while nothing has edited it"
-    assert [row.kind for row in rows] == ["unused"]
-
-    doc.set_mesh(obj.uid, bp.box())
-    measured, _ = state.manifold[obj.uid]
-    assert measured is not doc.by_uid(obj.uid).mesh, "an op replaces the mesh, so identity says so"
-
-
-def test_clicking_a_finding_selects_exactly_its_elements_in_its_own_mode() -> None:
-    from realmspinner.kernels.mesh import diagnose
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-
-    doc = bd.ClayDoc()
-    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
-    other = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_stray_vertex_box()))
-    doc.set_element_mode("face")
-    doc.set_element_sel(other.uid, el.select_all(other.mesh, "face"))
-
-    row = diagnose.findings(obj.mesh)[0]
-    clay_props._select_finding(doc, obj, row)
-
-    assert doc.element_mode == "vertex"
-    # The other object's stale face selection is gone, and the object selection
-    # is derived rather than set: ``set_element_sel`` is what puts the uid in it.
-    assert set(doc.element_sel) == {obj.uid}
-    assert doc.selection == {obj.uid}
-    assert doc.element_sel_of(obj.uid).verts.tolist() == row.sel.verts.tolist()
-
-
-def test_a_finding_click_pushes_no_undo_step() -> None:
-    """Selection is not undoable in Clay, and a diagnostic click is selection.
-
-    A step here would move ``history.head`` and make a document ask to be saved
-    because the user looked at a hole.
-    """
-    from realmspinner.kernels.mesh import diagnose
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-
-    doc = bd.ClayDoc()
-    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
-    head = doc.history.head
-    clay_props._select_finding(doc, obj, diagnose.findings(obj.mesh)[0])
-    assert doc.history.head == head
-
-
-def test_deleting_a_checked_object_drops_its_manifold_cache_entry() -> None:
-    """clay-08 (2026-09-08 audit): ``ClayState.manifold`` -- the per-object
-    "last mesh check" cache ``_diagnostics`` fills in -- was only ever pruned
-    for a uid when its *tab* closed (``close_tab``'s ``release``). Deleting an
-    object mid-session left its entry keyed on the now-orphaned uid, pinning
-    the whole ``Mesh`` (positions/loops/starts arrays) it measured alive,
-    unreachable, for the rest of the tab's life.
-    """
-    from realmspinner.kernels.mesh import diagnose
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
-    doc = bd.ClayDoc()
-    keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
-    doomed = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_stray_vertex_box()))
-    ctx = FakeCtx()
-    state = clay_mode.ensure(ctx)
-    state.manifold[keep.uid] = (keep.mesh, diagnose.findings(keep.mesh))
-    state.manifold[doomed.uid] = (doomed.mesh, diagnose.findings(doomed.mesh))
-
-    doc.select([doomed.uid])
-    assert clay_ops.run(ctx, doc, clay_ops.get("delete")) is True
-
-    assert doomed.uid not in state.manifold, "the removed object's cache entry must go with it"
-    assert keep.uid in state.manifold, "an object still open in the tab is untouched"
-
-
-def test_merging_an_absorbed_object_drops_its_manifold_cache_entry() -> None:
-    """clay-08's other two sites: ``join_objects`` also drops an object from
-    ``doc.objects`` (the ones a merge or a union absorbs), outside a tab
-    close, and the same cache leak applies."""
-    from realmspinner.kernels.mesh import diagnose
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
-    doc = bd.ClayDoc()
-    target = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
-    absorbed = doc.add_object(
-        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), translation=[2.0, 0.0, 0.0])
-    )
-    ctx = FakeCtx()
-    state = clay_mode.ensure(ctx)
-    state.manifold[absorbed.uid] = (absorbed.mesh, diagnose.findings(absorbed.mesh))
-
-    doc.select([target.uid, absorbed.uid])
-    assert clay_ops.run(ctx, doc, clay_ops.get("join")) is True
-
-    assert absorbed.uid not in state.manifold
-
-
-def test_outliner_trash_button_drops_the_deleted_objects_manifold_cache_entry() -> None:
-    """clay-03 (2026-09-09 audit): the outliner's per-row trash button and its
-    right-click "Delete" menu item both called ``doc.remove_object`` directly
-    instead of going through ``clay_ops.run(delete)``, so neither reached
-    ``clay_ops._forget_manifold`` -- the clay-08 fix that drops a removed
-    object's ``ClayState.manifold`` cache entry. That left the outliner as the
-    one very ordinary way to delete an object that still leaked its measured
-    ``Mesh`` for the rest of the tab's life.
-
-    ``_remove_object`` is the helper both the trash button and the context
-    menu's Delete item now call; this exercises it the way each of them does,
-    with one object rather than the whole selection.
-    """
-    from realmspinner.kernels.mesh import diagnose
-    from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
-
-    doc = bd.ClayDoc()
-    keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
-    doomed = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_stray_vertex_box()))
-    ctx = FakeCtx()
-    state = clay_mode.ensure(ctx)
-    state.manifold[keep.uid] = (keep.mesh, diagnose.findings(keep.mesh))
-    state.manifold[doomed.uid] = (doomed.mesh, diagnose.findings(doomed.mesh))
-
-    clay_outliner._remove_object(ctx, doc, doomed)
-
-    assert doomed not in doc.objects
-    assert doomed.uid not in state.manifold, "the removed object's cache entry must go with it"
-    assert keep.uid in state.manifold, "an object still open in the tab is untouched"
-
-
 # --- axis views and the orthographic toggle (Clay17) -------------------------
 #
 # Bound inside Clay's own handle_key, never in App._shortcut: a global binding
@@ -1462,13 +1205,12 @@ def test_ctrl_w_closes_the_active_document(svc) -> None:
     assert second.uid not in [tab.uid for tab in state.docs]
 
 
-# --- Ctrl+J and Ctrl+Shift+J -------------------------------------------------
+# --- Ctrl+M and Ctrl+J --------------------------------------------------------
 #
-# The two halves of "make these one object", one shift apart. Dispatched through
-# ``_ctrl_key``, which takes the shift state as an argument so it is directly
-# assertable. (``handle_key`` reads ``event.mod`` now -- the UX-12 rule -- so
-# these could also travel as events carrying ``mod``; the direct call stays
-# because it is the narrower statement.)
+# Merge and Duplicate. Dispatched through ``_ctrl_key``, which takes the shift
+# state as an argument so it is directly assertable. (``handle_key`` reads
+# ``event.mod`` now -- the UX-12 rule -- so these could also travel as events
+# carrying ``mod``; the direct call stays because it is the narrower statement.)
 
 
 def _merge_ready(svc):
@@ -1490,17 +1232,6 @@ def test_ctrl_m_opens_the_merge_dialog(svc) -> None:
     assert clay_mode._ctrl_key(ctx, state, tab, doc, "m", shift=False) is True
     assert state.pending_op == "join"
     assert len(doc.objects) == 2, "the dialog has not been answered yet"
-
-
-def test_ctrl_shift_m_unions_instead_of_welding(svc) -> None:
-    """Union takes no parameters, so it acts on the keystroke. Two boxes at the
-    same place become one object with one box's worth of surface -- a weld
-    would have kept both sets of walls."""
-    pytest.importorskip("manifold3d")
-    ctx, state, tab, doc = _merge_ready(svc)
-    assert clay_mode._ctrl_key(ctx, state, tab, doc, "m", shift=True) is True
-    assert not state.pending_op, "union has no dialog to stage"
-    assert len(doc.objects) == 1
 
 
 def test_ctrl_j_duplicates_and_ctrl_d_deselects(svc) -> None:
@@ -1706,64 +1437,3 @@ def test_framing_a_small_document_does_not_shrink_the_grid(gl) -> None:
         assert view.renderer.grid.divisions == 100
     finally:
         view.release()
-
-
-# --- clay-20 (2026-09-19 audit): collider node renaming stays aligned -------
-
-
-def test_rename_collider_nodes_stays_aligned_with_to_models_kept_filter_for_a_hidden_parent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``_rename_collider_nodes`` used to re-derive ``to_model``'s own "which
-    objects become nodes" filter by hand, because ``document.py`` was, at the
-    time, a file this tranche's brief put out of reach. Two hand-kept copies
-    of the same five-line filter is exactly what "One conversion out, three
-    consumers" exists to prevent: a future edit to one and not the other
-    would silently misalign ``zip(kept, model.nodes, strict=True)`` and
-    rename the wrong node.
-
-    Proven by monkeypatching ``document.kept_objects`` -- the shared helper
-    the fix factors out and calls -- to swap the order of two kept objects
-    while ``model.nodes`` (built by a real, unpatched ``to_model`` call)
-    keeps its true order. The unfixed code computes its own local "kept"
-    list and never looks at ``document.kept_objects`` at all, so the swap
-    has no effect on it and the collider keeps its own node's new name; the
-    fixed code delegates to the (now swapped) helper, so the rename lands on
-    the wrong node instead -- which is exactly the misalignment clay-20
-    warns about, reproduced on demand rather than left to a future edit to
-    trigger by accident.
-    """
-    from realmspinner.kernels.mesh import colliders as cl
-
-    doc = bd.ClayDoc()
-    root = bd.Obj(uid=bd.new_uid(), name="Root", mesh=bp.box())
-    doc.add_object(root)
-    # Hidden, but kept anyway because its collider child is visible -- the
-    # "hidden parent with a visible descendant" case ``to_model`` and
-    # ``kept_objects`` both promise to keep, per their own docstrings.
-    parent = bd.Obj(uid=bd.new_uid(), name="Parent", mesh=bp.box(), visible=False)
-    doc.add_object(parent)
-    collider = doc.add_collider(parent.uid, cl.fit_box(parent.mesh))
-
-    model = bd.to_model(doc)
-    real_kept = bd.kept_objects(doc)
-    assert [o.uid for o in real_kept] == [root.uid, parent.uid, collider.uid]
-
-    # Swap the last two -- the parent and its collider -- so the patched
-    # helper disagrees with the true node order ``model.nodes`` was built in.
-    swapped = [real_kept[0], real_kept[2], real_kept[1]]
-    monkeypatch.setattr(bd, "kept_objects", lambda _doc: swapped)
-
-    clay_mode._rename_collider_nodes(doc, model, "unreal")
-
-    # The collider's own node is index 2 (built from the real, unpatched
-    # to_model order). The fixed code, delegating to the (patched) helper,
-    # zips the collider against index 1 instead -- the parent's own node --
-    # and renames that one. The unfixed code ignores the patch, recomputes
-    # the true order itself, and would leave index 2 renamed and index 1
-    # untouched, which is what this assertion catches when it fails.
-    assert model.nodes[1].name == "UBX_Parent_00", (
-        "the (patched) shared filter was not consulted -- "
-        f"got node names {[n.name for n in model.nodes]}"
-    )
-    assert model.nodes[2].name == "Parent Box"

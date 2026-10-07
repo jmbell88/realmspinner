@@ -192,10 +192,9 @@ def test_usemtl_and_mtl_text_build_the_palette() -> None:
     blue = doc.materials[blue_idx]
     assert np.allclose(red.base_color_factor, (1.0, 0.0, 0.0, 1.0))
     assert np.allclose(blue.base_color_factor, (0.0, 0.0, 1.0, 0.5))
-    # Ns 0 -> roughness 1.0; Ns 250 -> a lower roughness. Exact via the module's
-    # own invertible formula, see objimport.roughness_from_ns.
-    assert red.roughness_factor == pytest.approx(objimport.roughness_from_ns(0.0))
-    assert blue.roughness_factor == pytest.approx(objimport.roughness_from_ns(250.0))
+    # Clay keeps no roughness: the .mtl's Ns is read, then reduced away with the
+    # rest of the non-subset fields, so both land on the fixed default.
+    assert red.roughness_factor == blue.roughness_factor == 0.6
 
 
 def test_comments_blank_lines_and_line_continuations_are_tolerated() -> None:

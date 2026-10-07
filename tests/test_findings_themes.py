@@ -53,7 +53,7 @@ def test_the_inker_tileset_doors_do_not_say_open_a_drawing_while_one_is_open():
 
 def test_clay_greys_a_refused_op_with_the_gate_that_refused_it():
     """clay-07 (2026-09-06 audit): the ``Op`` dataclass carried no reason at
-    all, so Merge Objects, Bridge Loops and every element op greyed out in
+    all, so Merge Objects, Inset and every element op greyed out in
     the context menu, the tools pane and the Delete button with nothing on
     screen saying why -- ``op.hint`` describes what an op does, not why it is
     currently refused. ``reason_for`` is asserted here with no imgui frame,
@@ -65,8 +65,8 @@ def test_clay_greys_a_refused_op_with_the_gate_that_refused_it():
     doc = bd.ClayDoc()
     join = clay_ops.get("join")
     assert clay_ops.reason_for(join, doc) == "Select two visible objects first."
-    bridge = clay_ops.get("bridge")
-    assert "Switch to edge mode" in clay_ops.reason_for(bridge, doc)
+    inset = clay_ops.get("inset")
+    assert "Switch to face mode" in clay_ops.reason_for(inset, doc)
     duplicate = clay_ops.get("duplicate")
     assert clay_ops.reason_for(duplicate, doc) == "Select an object first."
     # And it disappears the instant the predicate it is derived from passes.

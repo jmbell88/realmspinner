@@ -197,10 +197,6 @@ class Ctx:
     # Set by the App, which owns the task keys these results come back on.
     load_presets: Any = lambda _template: None
     refresh_rig_data: Any = lambda: None
-    # Clay's "send to 3D": an offscreen GL draw on the frame thread, which is
-    # the App's business rather than a pane's. None until the App attaches it,
-    # so a headless caller gets a clear refusal rather than a half-drawn frame.
-    clay_send_to_3d: Any = None
     # The quit chain, for the same reason: the palette's Quit must go through
     # the App's guard -- painted pixels, then geometry, then a pose -- and not
     # straight to the exit, which is the one way out that loses work. None

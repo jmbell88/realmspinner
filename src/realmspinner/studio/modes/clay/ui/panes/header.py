@@ -49,7 +49,6 @@ BAR = "clay-header"
 HEADER_H = 34.0
 
 SNAP_POPUP = "clay-snap"
-PROPORTIONAL_POPUP = "clay-proportional"
 OVERLAYS_POPUP = "clay-overlays"
 VIEW_POPUP = "clay-view"
 
@@ -88,21 +87,18 @@ def draw(ctx: Any, view: Any = None) -> None:
     )
     if hit == "snap":
         imgui.open_popup(SNAP_POPUP)
-    elif hit == "proportional":
-        imgui.open_popup(PROPORTIONAL_POPUP)
     _snap_popup(state)
-    _proportional_popup(state)
     widgets.divider()
 
 
 def _items(state: Any) -> list[Any]:
-    """The two popovers that hold a group of numbers each.
+    """The snap popover, which holds a switch and the numbers it governs.
 
-    Behind a button rather than on the bar because both are a switch *and* the
-    figures that switch governs -- a grid size, an angle, a radius -- and a 34 px
-    row is the wrong shape for a number field. ``selected`` on the button is
-    what keeps the state visible with the popover shut, which is the whole
-    reason a popover is allowed to hold a switch at all.
+    Behind a button rather than on the bar because it is a switch *and* the
+    figures that switch governs -- a grid size and an angle -- and a 34 px row
+    is the wrong shape for a number field. ``selected`` on the button is what
+    keeps the state visible with the popover shut, which is the whole reason a
+    popover is allowed to hold a switch at all.
     """
 
     return [
@@ -110,20 +106,8 @@ def _items(state: Any) -> list[Any]:
             "snap",
             "Snap",
             icons.MAGNET,
-            tooltip="Snap a drag to the grid, to an angle, or onto a vertex, "
-            "an edge or a face under the cursor",
-            selected=bool(
-                state.snap or state.snap_vertex or state.snap_edge or state.snap_face
-            ),
-        ),
-        toolbar.Item(
-            "proportional",
-            "Falloff",
-            icons.CIRCLE,
-            tooltip="Carry the geometry around the selection with the drag, "
-            "fading out over a radius",
-            selected=bool(state.proportional),
-            priority=1,
+            tooltip="Snap a drag to the grid or to an angle",
+            selected=bool(state.snap),
         ),
     ]
 
@@ -192,7 +176,7 @@ _SAVING = "This document is being written; the controls come back when it lands.
 
 
 def _snap_popup(state: Any) -> None:
-    """The grid, the angle and the vertex switch. Lifted whole from the pane.
+    """The grid and the angle switch. Lifted whole from the pane.
 
     Live while a save runs, on purpose: none of it touches the document.
     """
@@ -217,68 +201,11 @@ def _snap_popup(state: Any) -> None:
             "##angle (deg)##snapr", state.snap_rotate, 5.0, 0.0
         )
         imgui.end_disabled()
-        # Outside the disable, because it is a *separate* switch rather than a
-        # mode of the grid: the two answer different questions -- "put it on
-        # round numbers" and "put it exactly there" -- and a user aligning two
-        # parts wants the second without giving up the first everywhere else.
-        changed, value = widgets.toggle(
-            f"{icons.MAGNET} Snap to vertex", state.snap_vertex
-        )
-        if changed:
-            state.snap_vertex = value
-        widgets.help_marker(
-            "While moving, a drag lands on the vertex under the cursor rather "
-            "than on the grid. The vertices being moved are never candidates, "
-            "so a drag cannot snap onto itself. Typing a value or locking an "
-            "axis (X/Y/Z during a drag) overrides it."
-        )
-        # Tranche 3: scene structure. Two more targets, each its own switch
-        # for ``snap_vertex``'s own reason -- and tried in that order
-        # (finest first) when more than one is on, ``_narrow``'s own rule.
-        changed, value = widgets.toggle(f"{icons.MAGNET} Snap to edge", state.snap_edge)
-        if changed:
-            state.snap_edge = value
-        widgets.help_marker(
-            "Lands on the nearest point along the edge under the cursor, not "
-            "only its ends."
-        )
-        changed, value = widgets.toggle(f"{icons.MAGNET} Snap to face", state.snap_face)
-        if changed:
-            state.snap_face = value
-        widgets.help_marker(
-            "Lands on the surface under the cursor, wherever the ray meets it."
-        )
         # Clamped rather than validated: zero is the off switch every snap
         # function already treats as the identity, and a negative grid is
         # meaningless.
         state.snap_translate = max(0.0, float(state.snap_translate))
         state.snap_rotate = max(0.0, float(state.snap_rotate))
-
-
-def _proportional_popup(state: Any) -> None:
-    with controls.menu_popup(PROPORTIONAL_POPUP) as opened:
-        if not opened:
-            return
-        changed, value = widgets.toggle(
-            f"{icons.CIRCLE} Soft falloff", state.proportional
-        )
-        if changed:
-            state.proportional = value
-        widgets.help_marker(
-            "An element drag carries the geometry around the selection with it, "
-            "fading out over the radius, so the surface bends instead of "
-            "tearing. The radius is metres of world space, measured from the "
-            "nearest selected vertex."
-        )
-        imgui.begin_disabled(not state.proportional)
-        widgets.field_label("radius (m)")
-        _, state.proportional_radius = controls.input_float(
-            "##radius (m)##propr", state.proportional_radius, 0.05, 0.0, "%.3f"
-        )
-        imgui.end_disabled()
-        # Clamped rather than validated, the grid's rule: zero is the off switch
-        # the falloff already treats as a hard selection.
-        state.proportional_radius = max(0.0, float(state.proportional_radius))
 
 
 #: What the viewport draws over the model, as a table. One row per flag so the
@@ -338,16 +265,15 @@ def set_overlay(state: Any, key: str, value: bool) -> None:
 
 def _grid_size_field(ctx: Any, state: Any) -> None:
     """The grid's size, in metres -- Task A. Indented under the Grid row it
-    belongs to, the way the snap popup indents the vertex switch under Snap.
+    belongs to.
 
     ``commit=True``: this is a settings write on every keystroke otherwise,
     which is undo-stack spam's sibling for a preference rather than a
     document edit -- typing "37" would persist "3" first. Clamped and rounded
     to a whole metre on commit, the doctrine every clamped-not-validated field
-    in this popup already follows (``_snap_popup``'s grid step, ``_
-    proportional_popup``'s radius): a hand-typed 0 or a negative size is
-    meaningless for a ground plane, and a fractional one breaks the "1 m
-    cells" promise the field makes.
+    in this popup already follows (``_snap_popup``'s grid step): a hand-typed 0
+    or a negative size is meaningless for a ground plane, and a fractional one
+    breaks the "1 m cells" promise the field makes.
     """
 
     imgui.indent()

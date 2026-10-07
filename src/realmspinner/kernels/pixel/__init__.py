@@ -19,6 +19,7 @@ The modules, bottom up:
 ``animation``  the frames-by-tracks grid, and the sparse cel map in it
 ``anim_edits`` undo steps for that grid
 ``ora``        OpenRaster read and write
+``palettes``   named colour tables (PICO-8)
 ``document``   the one type that knows about all of the above
 
 ``Document`` is a dataclass in ``document.py``, which holds the fields, the
@@ -83,6 +84,7 @@ from .indexed import SORT_KEYS as PALETTE_SORT_KEYS
 from .indexed import shade_ramp
 from .layers import Layer, LayerStack
 from .ora import ora_bytes, read_ora, write_ora
+from .palettes import PICO8
 from .selection import COMBINE_OPS, Clipboard, FloatingBuffer, SelectionMask, magic_wand
 from .tiles import TilemapCel, TilesetSlot
 from .undo import UNDO_BYTES, UNDO_HARD_BYTES, UNDO_MAX_DEPTH, UNDO_MIN_DEPTH, UndoStack
@@ -112,6 +114,7 @@ __all__ = [
     "NIBS",
     "OPAQUE_WHITE",
     "PALETTE_SORT_KEYS",
+    "PICO8",
     "PIXEL_NIBS",
     "RGBA",
     "SHAPES",

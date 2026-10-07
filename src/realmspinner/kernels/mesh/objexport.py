@@ -32,68 +32,28 @@ exact string match against the ``mtl`` text it is given, so a stable,
 collision-free name is what makes a round trip through both modules land a
 face back on the material it started on.
 
-**Tranche 7 (export profiles), the OBJ half.** An OBJ export takes an
-optional ``engine`` -- one of :data:`~.engines.ENGINES`'s own keys -- that
-does two things purely in the *written text*, never to the document:
-
-1. Every collider object (``Obj.role == "collider"``) is written under its
-   *engine's* node name (:func:`collider_export_names`,
-   :func:`~.engines.collider_name`) instead of its own ``Obj.name`` --
-   ``UCX_Crate_00``, ``Crate_00-convcolonly``... -- numbered per source mesh
-   in document order. Colliders are written as ordinary ``o``/geometry
-   entries otherwise; nothing about this module's own loop skips them.
-2. Every object's baked world matrix is composed with
-   ``ENGINES[engine].obj_conversion`` **before** :func:`~.ops.bake_transform`
-   folds it into positions -- see :func:`claydoc_to_obj`'s own docstring for
-   why this, and only this, export path applies it.
-
-``engine=None`` (the default) reproduces this module's pre-tranche-7
-behaviour exactly: no renaming, no conversion -- what every caller before
-this tranche (this module's own tests included) already gets.
+**A base-colour texture is a PNG beside the OBJ**, the way picoCAD exports one:
+the ``.mtl`` says ``map_Kd <name>_<index>.png`` and :func:`claydoc_textures`
+hands back the PNG bytes for the caller to write next to it. The name is a bare
+file name on purpose -- :mod:`.objimport` follows only a bare name in the OBJ's
+own folder -- and carries the palette index so two materials never collide.
+Only the base colour travels: OBJ has no standard slot for the other four, and
+Clay strips them anyway.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
+import io
 from typing import Any
 
-from . import engines as engines_mod
+import numpy as np
+
 from . import mesh as bm
 from . import ops
 from .document import ClayDoc
-from .elements import OpError
 from .objimport import ns_from_roughness
 
-__all__ = ["claydoc_to_obj", "collider_export_names"]
-
-
-def collider_export_names(doc: ClayDoc, engine: str) -> dict[int, str]:
-    """*uid* -> the engine-convention name every collider object in *doc*
-    should be written under -- shared by this module's own OBJ writer and
-    ``clay_mode``'s GLB node-renaming step (:func:`~.engines.collider_name`
-    called from two file formats wants one numbering, not two).
-
-    Numbered **per source mesh, in ``doc.objects``' own order** -- not export
-    or visibility order -- so a collider's exported name does not shift
-    depending on which of its siblings happen to be hidden this time; a
-    collider added, then later hidden, keeps the same index a re-export gives
-    its still-visible neighbours. ``doc`` itself is never touched: this only
-    says what a *written file* should call each node, the export doors'
-    own rule that the document keeps authoring its own names regardless.
-    """
-    if engine not in engines_mod.ENGINES:
-        raise OpError(f"Unknown engine profile {engine!r}.")
-    names: dict[int, str] = {}
-    counters: dict[int | None, int] = {}
-    for obj in doc.objects:
-        if getattr(obj, "role", "mesh") != "collider":
-            continue
-        source = doc.by_uid(obj.parent) if obj.parent is not None else None
-        mesh_name = source.name if source is not None else obj.name
-        index = counters.get(obj.parent, 0)
-        counters[obj.parent] = index + 1
-        names[obj.uid] = engines_mod.collider_name(engine, obj.collider_kind, mesh_name, index)
-    return names
+__all__ = ["claydoc_textures", "claydoc_to_obj", "texture_name"]
 
 
 def _num(x: float) -> str:
@@ -127,7 +87,16 @@ def _slot_name(index: int) -> str:
     return f"Material_{index}"
 
 
-def _write_material(lines: list[str], index: int, material: Any) -> None:
+def texture_name(name: str, index: int) -> str:
+    """The PNG file name for palette entry *index*'s base colour: a bare name.
+
+    Passed through :func:`_line_text` so the name an ``.mtl`` line carries and
+    the file written under it are the same string whatever the title held.
+    """
+    return _line_text(f"{name}_{index}.png")
+
+
+def _write_material(lines: list[str], index: int, material: Any, name: str) -> None:
     r, g, b, a = material.base_color_factor
     lines.append(f"newmtl {_slot_name(index)}")
     if material.name:
@@ -135,7 +104,9 @@ def _write_material(lines: list[str], index: int, material: Any) -> None:
     lines.append(f"Kd {_num(r)} {_num(g)} {_num(b)}")
     lines.append(f"d {_num(a)}")
     lines.append(f"Ns {_num(ns_from_roughness(material.roughness_factor))}")
-    for slot in ("base_color", "metallic_roughness", "normal", "emissive", "occlusion"):
+    if material.base_color is not None:
+        lines.append(f"map_Kd {texture_name(name, index)}")
+    for slot in ("metallic_roughness", "normal", "emissive", "occlusion"):
         if getattr(material, slot, None) is not None:
             lines.append(
                 f"# {slot} carries a texture in the source material; "
@@ -144,7 +115,7 @@ def _write_material(lines: list[str], index: int, material: Any) -> None:
 
 
 def claydoc_to_obj(
-    doc: ClayDoc, *, name: str = "model", visible_only: bool = True, engine: str | None = None
+    doc: ClayDoc, *, name: str = "model", visible_only: bool = True
 ) -> tuple[str, str]:
     """*doc* as ``(obj_text, mtl_text)``.
 
@@ -153,26 +124,8 @@ def claydoc_to_obj(
     default here keeps that one meaning in one place. Passing ``False`` writes
     every object regardless, for a caller that means to archive the whole
     document rather than what it currently looks like.
-
-    ``engine`` (a key of :data:`~.engines.ENGINES`) is this module's own
-    tranche 7 half -- see the module docstring. ``None``, the default,
-    reproduces every behaviour this function had before that tranche: no
-    collider renaming, no axis/scale conversion. Refuses (:class:`~.elements.
-    OpError`) an *engine* naming nothing in :data:`~.engines.ENGINES`, the
-    same door :func:`collider_export_names` and
-    :func:`~.engines.collider_name` already refuse an unknown engine through.
     """
-    exported = [obj for obj in doc.objects if obj.visible or not visible_only]
-
-    collider_names = collider_export_names(doc, engine) if engine is not None else {}
-    # **OBJ only.** GLB stays in glTF's own convention -- Clay's geometry
-    # already *is* that convention, every target's glTF importer converts on
-    # the way in, and applying this matrix there too would be a *double*
-    # conversion, the classic "worked on one engine, looked wrong on every
-    # other" bug (see ``engines.py``'s own module docstring, in full). OBJ
-    # carries no axis metadata at all for an importer to correct with, so the
-    # conversion has to happen here, before a byte is written, or not at all.
-    conversion = engines_mod.ENGINES[engine].obj_conversion if engine is not None else None
+    exported = _exported(doc, visible_only)
 
     obj_lines = ["# Written by Realmspinner's Clay", f"mtllib {name}.mtl"]
     used_materials: set[int] = set()
@@ -180,44 +133,17 @@ def claydoc_to_obj(
     vt_offset = 0
 
     for obj in exported:
-        # Evaluated before baking -- the base run through the modifier stack,
-        # or ``obj.mesh`` itself when there is none (:mod:`.modifiers`' fast
-        # path) -- so an OBJ export writes what the viewport and the GLB
-        # exporter agree the document looks like, not the pre-modifier shape.
-        # Baked to **world** space, not the object's own local TRS (tranche
-        # 3: scene structure) -- OBJ carries no node hierarchy of its own, so
-        # a parented object's siblings need their real absolute positions,
-        # not positions relative to a parent this format cannot express.
-        #
-        # The engine conversion (when there is one) composes *after* the
-        # world matrix, in :func:`~.mesh.transformed`'s own ``M @ v`` column
-        # convention -- ``conversion @ world`` first places the object in
-        # Clay/glTF world space, exactly as every other export already does,
-        # then re-expresses that same world-space geometry in the target
-        # engine's own OBJ axes/scale. Composing the two into one matrix
-        # before baking (rather than baking to world and converting the
-        # result as a second step) keeps this a single :func:`~.mesh.
-        # transformed` call, the same one :func:`~.ops.bake_transform` was
-        # always going to make -- and gets a negative-determinant conversion
-        # the same loop reversal :func:`~.mesh.transformed` already applies to
-        # a mirrored object, for free. **Unity's does**: ``_unity_obj_
-        # conversion`` (``engines.py``) negates one axis to correct
-        # handedness, determinant -1, so a Unity export is exactly the
-        # "mirrored object" case this composition was written to cover, not
-        # a hypothetical one -- the 2026-09-23 audit's clay-18 found this
-        # comment claiming otherwise ("none of today's do"), which was false
-        # the day it was written; the behaviour itself was always correct.
-        world = doc.world_matrix(obj.uid)
-        baked = ops.bake_transform(
-            replace(obj, mesh=doc.evaluated(obj.uid)),
-            world=world if conversion is None else conversion @ world,
-        )
+        # Baked to **world** space, not the object's own local TRS: OBJ carries
+        # no node hierarchy of its own, so a parented object's siblings need
+        # their real absolute positions, not positions relative to a parent
+        # this format cannot express.
+        baked = ops.bake_transform(obj, world=doc.world_matrix(obj.uid))
         mesh = baked.mesh
         n_faces = bm.face_count(mesh)
         if n_faces == 0:
             continue
 
-        obj_lines.append(f"o {_line_text(collider_names.get(obj.uid, obj.name))}")
+        obj_lines.append(f"o {_line_text(obj.name)}")
         for x, y, z in mesh.positions.tolist():
             obj_lines.append(f"v {_num(x)} {_num(y)} {_num(z)}")
 
@@ -259,6 +185,37 @@ def claydoc_to_obj(
         material = doc.materials[index] if 0 <= index < len(doc.materials) else None
         if material is None:
             continue
-        _write_material(mtl_lines, index, material)
+        _write_material(mtl_lines, index, material, name)
 
     return "\n".join(obj_lines) + "\n", "\n".join(mtl_lines) + "\n"
+
+
+def _exported(doc: ClayDoc, visible_only: bool) -> list[Any]:
+    return [obj for obj in doc.objects if obj.visible or not visible_only]
+
+
+def claydoc_textures(doc: ClayDoc, *, visible_only: bool = True) -> dict[int, bytes]:
+    """``{palette index: PNG bytes}`` of every base-colour texture the OBJ uses.
+
+    The same set of materials :func:`claydoc_to_obj` writes ``map_Kd`` for: used
+    by a face of an exported object, and carrying a base-colour texture. A
+    document with no texture gives ``{}``, so the caller writes no PNG at all.
+    PNG-encoding is real work -- call this off the frame thread.
+    """
+    from PIL import Image
+
+    used: set[int] = set()
+    for obj in _exported(doc, visible_only):
+        if bm.face_count(obj.mesh):
+            used.update(int(i) for i in np.unique(obj.mesh.material))
+    out: dict[int, bytes] = {}
+    for index in sorted(used):
+        material = doc.materials[index] if 0 <= index < len(doc.materials) else None
+        image = None if material is None else material.base_color
+        if image is None:
+            continue
+        width, height, data = image
+        buffer = io.BytesIO()
+        Image.frombytes("RGBA", (int(width), int(height)), bytes(data)).save(buffer, "PNG")
+        out[index] = buffer.getvalue()
+    return out

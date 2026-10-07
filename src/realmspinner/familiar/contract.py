@@ -7,11 +7,11 @@ This is a T3 extraction, not a rewrite. Every function here used to live in
 ``dev/training/clay-assistant/gen/convert.py`` (built against the *live*
 ``agent_clay`` registry, so a new generator or op changed the dataset on the
 next ``build.py`` run) and ``dev/training/clay-assistant/eval/run_val.py`` (the
-reply grammar a trained model is scored against). The user chose to freeze
-run A's own card (``cards/clay-1.txt``, sha256 ``70697ece…8aab``, recorded as
-``settings.card_sha256`` in run A's own eval JSONs under
-``dev/measurements/data/clay-assistant/run-A/``) as what actually ships, so
-this module is where "the card a running Familiar loads" and "the card
+reply grammar a trained model is scored against). The shipped card is
+``cards/clay-2.txt``, :func:`derive_clay_card`'s output for the picoCAD-level
+Clay tool surface (run A's ``clay-1.txt``, sha256 ``70697ece…8aab``, described
+tools Clay no longer has and no fine-tune ever shipped against it; it is in the
+git history). This module is where "the card a running Familiar loads" and "the card
 training built its dataset's system prompt from" meet: :func:`load_card`
 reads the frozen text; :func:`derive_clay_card` still rebuilds the live
 equivalent, kept only so a training run (or a test) can prove the two have
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
     from . import retrieval
 
-CARDS: dict[str, str] = {"clay": "clay-1.txt", "router": "router-1.txt"}
+CARDS: dict[str, str] = {"clay": "clay-2.txt", "router": "router-1.txt"}
 """Skill name -> the frozen card file beside this module, under ``cards/``.
 Two entries: Clay's own trained card, and T6's router card. The router card
 is frozen for a different reason than Clay's -- not because a fine-tune was
@@ -299,21 +299,17 @@ KEEP_TOOLS: tuple[str, ...] = (
     "clay_batch",
     "clay_scene",
     "clay_add_primitive",
-    "clay_add_figure",
     "clay_transform",
     "clay_set_params",
     "clay_material",
-    "clay_boolean",
     "clay_select",
     "clay_op",
     "clay_delete",
     "clay_rename",
-    "clay_diagnose",
 )
-"""The compact tool card's membership, in the order it is printed. Thirteen,
-not the plan's original twelve: ``clay_add_figure`` was omitted from the
-first count and folded in once figures were counted, per the plan's own
-parenthetical."""
+"""The compact tool card's membership, in the order it is printed. Ten: the
+original thirteen less ``clay_add_figure``, ``clay_boolean`` and
+``clay_diagnose``, which Clay no longer offers."""
 
 BEHAVIOUR_PARAGRAPH = (
     "You are Realmspinner's Clay assistant. Answer a build request with exactly "
@@ -474,12 +470,12 @@ def allowed_calls(skill: str) -> frozenset[str]:
     off ``clay_batch``'s printed schema line instead. That enum is
     ``agent_clay``'s *live* ``clay_batch`` tool definition, dumped into the
     card verbatim by :func:`derive_clay_card` with no filtering against
-    ``KEEP_TOOLS`` -- twenty names, where the card only ever describes
-    thirteen (``KEEP_TOOLS``'s own count). A model trained on this frozen
-    card has read a summary and a schema for thirteen tools; it has never
-    seen one for the other seven (``clay_element_mode``, ``clay_elements``,
-    ``clay_reference_add``, ``clay_reference_list``, ``clay_reference_
-    remove``, ``clay_select_by``, ``clay_select_elements``), so
+    ``KEEP_TOOLS`` -- the card only ever describes the ten of
+    ``KEEP_TOOLS``. A model trained on this frozen card has read a summary
+    and a schema for those tools; it has never seen one for the others
+    (``clay_element_mode``, ``clay_elements``, ``clay_reference_add``,
+    ``clay_reference_list``, ``clay_reference_remove``, ``clay_select_by``,
+    ``clay_select_elements``), so
     ``allowed_calls`` accepting them let familiar-05's own guard
     (``service/familiar.py``) wave through a ``clay_batch`` entry naming a
     tool the card never taught. Parsing the description lines instead keys

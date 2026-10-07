@@ -175,8 +175,8 @@ def resolve_lowpoly(
 
     * Neither ``profile`` nor ``lowpoly_triangles`` named: defaults to
       ``svc.config.lowpoly_triangles`` (0 means off) *when Blender is
-      available* -- probed the way ``pipelines.clay_blender.available``
-      does, unprobed and cached, so an ordinary submit never blocks a
+      available* -- probed with ``doctor.blender_check(probe=False)``,
+      unprobed and cached, so an ordinary submit never blocks a
       request on a bpy subprocess. Without Blender, or with the config
       default at 0, no lowpoly runs and ``profile`` is left exactly as
       ``resolve_profile`` decided it (the gltfpack default).

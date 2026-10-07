@@ -13,16 +13,10 @@ The viewport itself is ``ClayView``'s; what is here is the *pane* around it --
 the layout skeleton, the invisible button that takes the mouse, the tab bar,
 the empty state and the two overlays drawn on top.
 
-The P4 restructure (``dev/RESTRUCTURE.md``) added five more methods on the
-same 2026-09-11 hazard's shape: ``_ensure_build_view``, ``_frame_clay_selection``,
-``_capture_clay_thumbnail``, ``_clay_send_to_3d`` and ``_render_clay_reference``
-were still sitting in ``studio/main.py`` when everything else Clay-shaped had
-already moved here, because the split plan flagged them as "measure before
-moving" rather than naming a home. All five are read only from this class's
-own methods (``_ensure_build_view`` from ``_clay_viewport`` and
-``_render_clay_reference``; the rest from nowhere but each other and
-``app_ctx.clay_send_to_3d``'s assignment in ``shell/app.py``), so they came
-here rather than to a shell module. ``_capture_thumbnail_from`` -- the general
+``_ensure_build_view``, ``_frame_clay_selection`` and
+``_capture_clay_thumbnail`` live here too: they are read only from this class's
+own methods, so they came here rather than to a shell module.
+``_capture_thumbnail_from`` -- the general
 framebuffer-read-and-queue -- did not follow them: ``shell/tasks.py``'s
 ``_on_task_done`` calls it directly for Mason's own export as well as for
 Clay's, so it stayed shared shell plumbing; see that module's own docstring.
@@ -106,18 +100,11 @@ class ClayViewport:
         from .... import icons, tokens
         from ....main import TARGET_FPS
         from ....panes import overlay
-        from .. import generate as clay_generate
+        from .. import texture_link
         from .panes import adjust as clay_adjust
         from .panes import header as clay_header
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
-
-        # "Generate into the current tab": cheap (a store lookup, at most,
-        # once every ``GEN_POLL_S``) and has to run every frame Clay is drawn
-        # regardless of which tab is active -- a pending request can be for a
-        # tab the user has since switched away from, and it still has to land
-        # there when it is ready.
-        clay_generate.poll(ctx)
 
         self._clay_tabs(ctx, clay_mode)
         tab = clay_mode.active(ctx)
@@ -147,6 +134,11 @@ class ClayViewport:
             # the only place that has the viewport to act on it (B6).
             state.frame_pending = False
             self._frame_clay_selection()
+        # Textures painted in Inker land here, before anything below reads the
+        # document: every tab with a link, not only the drawn one, and one undo
+        # step per return (``texture_link``'s docstring says why the trigger is
+        # a history head).
+        texture_link.pull_all(ctx)
         view = self._ensure_build_view()
         # One viewport, many tabs: the camera belongs to the *document*, so it
         # is snapshotted off the live one on the way out of a tab and put back
@@ -154,6 +146,7 @@ class ClayViewport:
         # this is the only place that has the viewport -- and it is keyed on
         # what is being drawn rather than on the switch, so a tab restored from
         # a ``.rblk`` or closed out from under the pointer lands correctly too.
+        clay_mode.sync_active_camera(ctx)
         if self._clay_camera_tab != tab.uid:
             clay_mode.remember_camera(ctx, state.get(self._clay_camera_tab))
             clay_mode.apply_camera(ctx, tab)
@@ -337,45 +330,3 @@ class ClayViewport:
         the one-argument convenience the Clay-only call sites use.
         """
         self._capture_thumbnail_from(job_id, self.clay_view)
-
-    def _clay_send_to_3d(self, tab: Any) -> None:
-        """Render the document flat and hand the picture to trellis.
-
-        The render is **synchronous on the frame thread** because it needs the
-        GL context -- one offscreen draw, exactly what ``capture_thumbnail``
-        already is. Only the service call goes to a task thread, which is the
-        shape ``inker_mode.send_to_3d`` already has.
-
-        Flat-shaded, on a plain background, with no grid, no gizmos and no
-        overlays: trellis is being given a *subject*, and a grid line in the
-        picture is a subject too.
-        """
-        from ...create.ui.panes import settings_3d
-
-        ctx = self.app_ctx
-        try:
-            png = self._render_clay_reference(tab)
-        except Exception:
-            log.exception("could not render the build reference")
-            # The remedy is in the log, so say so (E48): the causes are a lost
-            # GL context and a document the renderer choked on, and the message
-            # cannot tell the user which without reading it.
-            ctx.toast("That document could not be rendered.", "error", "log")
-            return
-        settings_3d.upload_bytes(ctx, png)
-
-    def _render_clay_reference(self, tab: Any, size: int = 1024) -> bytes:
-        """One offscreen square draw of the document, as PNG bytes.
-
-        ``frame=False`` because this is the build-to-trellis path: it has
-        always drawn through whatever camera the user was looking through
-        rather than reframing, so the picture trellis reconstructs from is
-        the angle the user chose, not one this call picks for them.
-        ``ClayView.render_png`` reframes by default for the opposite reason
-        -- an agent asking for a picture has no camera of its own -- and
-        letting that default leak into this call would silently change the
-        input to every future reconstruction, which invalidates comparisons
-        against the stored corpora reconstruction quality is measured
-        against (see its own docstring).
-        """
-        return self._ensure_build_view().render_png(tab.doc, size=size, frame=False)

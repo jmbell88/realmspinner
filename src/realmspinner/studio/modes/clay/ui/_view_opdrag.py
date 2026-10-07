@@ -1,15 +1,15 @@
 """The op drag: find an operation's number with the mouse, then commit it once.
 
 Press an op's key with an element selection and the pointer's travel sets its
-first parameter (``ops.DragSpec``) -- inset thickness, bevel width, the loop-cut
-position -- with the result drawn live. A menu click keeps the dialog, which is
+first parameter (``ops.DragSpec``) -- today only Inset's thickness -- with the
+result drawn live. A menu click keeps the dialog, which is
 the path for an exact value; a typed number here (``0.1`` then Enter) is exact
 too.
 
 **The document is never touched until the commit.** Every frame the op's kernel
 is run over the *snapshot taken at the press* -- not over the previous frame's
 output, which would compound -- and the result is drawn by swapping a fresh GPU
-model into the object's cache entry (``_preview_evaluated``'s pattern). The
+model into the object's cache entry. The
 entry keeps the key the document's own mesh has, so ``sync`` does not rebuild it
 mid-drag, and release, commit and cancel all evict it, which is what makes the
 document's next ``sync`` the one that rebuilds from truth. Consequently:
@@ -36,8 +36,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-
-from ._view_drag import _drag_lock_error, _evaluate_stack
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .view import ClayView
@@ -83,21 +81,17 @@ class OpDragOps:
         """Start driving ``op.drag.param`` with the pointer. -> whether one started.
 
         Refuses, quietly, whatever a keyboard drag refuses -- another grab owns
-        the mouse, nothing is selected in an element mode -- and, with a toast,
-        what is locked. The caller falls back to the dialog on ``False``.
+        the mouse, nothing is selected in an element mode. The caller falls back
+        to the dialog on ``False``.
         """
         from .....kernels.mesh import drag as bdrag
         from .....kernels.mesh.selection import _element_pickable
         from .. import ops as clay_ops
 
         spec = getattr(op, "drag", None)
-        if spec is None or self._grab is not None or self._knife_armed:
+        if spec is None or self._grab is not None:
             return False
         if doc.element_mode == "object" or not doc.element_sel:
-            return False
-        error = _drag_lock_error(doc, list(doc.element_sel), check_ancestors=False)
-        if error is not None:
-            self._toast(error)
             return False
         bases: dict[int, tuple[Any, Any]] = {}
         for uid, sel in doc.element_sel.items():
@@ -223,11 +217,8 @@ class OpDragOps:
     def _swap_preview(self: ClayView, doc: Any, uid: int, mesh: Any) -> None:
         """Put *mesh* on screen for *uid* without telling the document.
 
-        ``_preview_evaluated``'s way: the cache entry keeps its key (so ``sync``
-        does not see a changed document and rebuild it) and has its GPU model
-        replaced. The modifier stack is run over the previewed base, as the
-        drawn object would be; a boolean modifier cannot be rerun per frame, so
-        such an object previews its unmodified base.
+        The cache entry keeps its key (so ``sync`` does not see a changed
+        document and rebuild it) and has its GPU model replaced.
         """
         entry = self._cache.get(uid)
         if entry is None:
@@ -236,8 +227,7 @@ class OpDragOps:
             obj = doc.by_uid(uid)
         except KeyError:
             return
-        evaluated = _evaluate_stack(doc, obj, mesh)
-        fresh = self._build(obj, doc, entry.key, mesh if evaluated is None else evaluated)
+        fresh = self._build(obj, doc, entry.key, mesh)
         entry.gpu.release()
         entry.gpu, entry.model = fresh.gpu, fresh.model
 

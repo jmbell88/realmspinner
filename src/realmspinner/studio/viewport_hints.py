@@ -128,11 +128,9 @@ def axis_layout(view_matrix: Any, size: float) -> list[AxisBall]:
 # line now names those instead.
 _PICK = {
     "object": "LMB select . Shift extend . 1/2/3 edit",
-    "vertex": "LMB pick . drag marquee . L linked . Ctrl+/- grow/shrink . 4 object",
-    "edge": (
-        "LMB pick . Alt+click loop . Ctrl+Alt+click ring . L linked . 4 object"
-    ),
-    "face": "LMB pick . Alt+click loop . L linked . Ctrl+/- grow/shrink . 4 object",
+    "vertex": "LMB pick . drag marquee . L linked . 4 object",
+    "edge": "LMB pick . drag marquee . L linked . 4 object",
+    "face": "LMB pick . drag marquee . L linked . 4 object",
 }
 
 #: What the tool in hand adds. Keyed on the tool rather than folded into the
@@ -219,29 +217,11 @@ def drag_readout(kind: str, axis: str, space: str, amount: str) -> str:
     return " · ".join(parts)
 
 
-def resolve_hint(*, busy: str, measure: str, default: str) -> str:
-    """Which of the hint line's three non-drag candidates wins, in priority
-    order: a running background op, then a live measurement, then the
-    ordinary mode/tool legend.
-
-    The 2026-09-19 audit's clay-41, found during this same pass's own
-    reading debt: ``ClayTab.bg_busy`` is written by ``clay_ops``'s four
-    background ops (decimate, retopo, smart-unwrap, bake-detail) and, before
-    this, read by nothing -- a repo-wide grep found five writers and zero
-    readers, while the sibling ``tab.saving`` it names itself after is read
-    in six panes. Retopologise's and Bake Detail's own hint text warns they
-    can take "minutes for something dense", and for that whole window the
-    user had nothing on screen saying so. ``busy`` therefore outranks
-    ``measure`` -- a stale-looking measurement readout is a smaller cost than
-    total silence during a multi-minute Blender bake -- and both outrank
-    ``default``, exactly as ``measure`` already outranked ``default`` alone
-    before this. A live keyboard/gizmo drag is not one of the three: it is
-    decided separately, by ``hud.hint_line``, ahead of all three, because a
-    background op and an active drag are not expected to coincide and the
-    drag readout is the more urgent thing on screen on the rare frame they
-    might.
-    """
-    return busy or measure or default
+def resolve_hint(*, measure: str, default: str) -> str:
+    """Which of the hint line's two non-drag candidates wins: a live
+    measurement, then the ordinary mode/tool legend. A live keyboard/gizmo drag
+    is decided separately, by ``hud.hint_line``, ahead of both."""
+    return measure or default
 
 
 def keys_named(text: str) -> set[str]:
@@ -314,33 +294,12 @@ def stats(doc: Any) -> str:
     Pure, and derived per call rather than cached. It walks the meshes, which
     is O(objects) in numpy shape reads -- the arrays are not touched, only
     their lengths -- so there is nothing to invalidate and nothing to go stale.
-
-    **Counts the evaluated mesh when the document can produce one.** A
-    ``ClayDoc`` carries ``.evaluated(uid)`` (:mod:`~.kernels.mesh.modifiers`);
-    this module imports nothing outward *at module scope* (its own
-    docstring), so that is duck-typed with ``hasattr`` rather than named, and
-    a document with no such method -- everything else this overlay might one
-    day be asked to describe -- is still counted on its own ``obj.mesh``,
-    exactly as before.
     """
 
     objects = [obj for obj in doc.objects if getattr(obj, "visible", True)]
-    evaluate = getattr(doc, "evaluated", None)
     verts = edges = faces = tris = 0
-    collider_tris = 0
     for obj in objects:
-        # The 2026-09-19 audit (clay-33): this loop used to sum every visible
-        # object with no ``role`` filter, so a collider's geometry inflated
-        # the same triangle count ``readiness.validate`` deliberately leaves
-        # colliders out of (dev/INVARIANTS.md's own collider-rows paragraph)
-        # -- an engine never draws a collider, so it costs nothing at
-        # runtime and does not belong in a budget about render cost. It gets
-        # its own tally instead of vanishing outright: a modeller judging
-        # "game-ready" still wants to know a collider has gone needlessly
-        # heavy, just not mixed into the number that answers "is this too
-        # much to draw".
-        is_collider = getattr(obj, "role", "mesh") == "collider"
-        mesh = obj.mesh if evaluate is None else evaluate(obj.uid)
+        mesh = obj.mesh
         count = _faces_of(mesh)
         loops = getattr(mesh, "loops", None)
         # ``or ()`` is wrong on a numpy array -- truthiness of one with more
@@ -352,9 +311,6 @@ def stats(doc: Any) -> str:
         # every edge is shared by two faces, and reporting 24 would be a number
         # a reader can check against a cube and find wrong.
         mesh_tris = max(0, corners - 2 * count)
-        if is_collider:
-            collider_tris += mesh_tris
-            continue
         verts += int(len(mesh.positions))
         faces += count
         edges += _unique_edges(mesh)
@@ -366,8 +322,6 @@ def stats(doc: Any) -> str:
         f"{faces:,} faces",
         f"{tris:,} tris",
     ]
-    if collider_tris:
-        parts.append(f"{collider_tris:,} collider tris")
     picked = _selected(doc)
     if picked:
         parts.append(picked)
@@ -377,7 +331,7 @@ def stats(doc: Any) -> str:
 #: Unique-edge counts, keyed on the mesh object and pinning it -- weakly.
 #:
 #: Keyed on the ``Mesh`` itself rather than on an id or a revision, which is
-#: ``ClayState.manifold``'s rule and its reason: a ``Mesh`` is immutable and
+#: the rule for any cache about a mesh: a ``Mesh`` is immutable and
 #: every op replaces it, so "this count is still about what is on screen" is
 #: exactly ``mesh is measured``. An ``id()`` would be recycled by the allocator
 #: onto a different mesh and silently report the last edit's edges.
@@ -438,13 +392,13 @@ def _faces_of(mesh: Any) -> int:
 
 
 def _element_objects(doc: Any) -> list[Any]:
-    """The objects whose element selections a drag would move: visible and not
-    a collider, ``selection._element_pickable``'s one eligibility.
+    """The objects whose element selections a drag would move:
+    ``selection._element_pickable``'s one eligibility.
 
-    The 2026-10-03 audit's clay-70 follow-up: this readout and the selected
-    count read ``doc.element_sel`` for every object, so a hidden object that
-    still held a selection put its distance, area and "N selected" on the HUD
-    while the gizmo and the drag ignored it. Local import, for the reason
+    This readout and the selected count read ``doc.element_sel`` for every
+    object, so without it a hidden object that still held a selection would put
+    its distance, area and "N selected" on the HUD while the gizmo and the drag
+    ignored it. Local import, for the reason
     :func:`_compute_measure_line`'s is.
     """
     from ..kernels.mesh.selection import _element_pickable
@@ -463,10 +417,9 @@ def _selected_vertices(doc: Any) -> list[tuple[Any, int, np.ndarray]]:
     angle readout has to name which vertex that is (the 2026-10-03 audit's
     clay-103) or it reads as a wrong angle about an apex the user cannot see.
 
-    ``doc.world_matrix`` is duck-typed with ``getattr`` for the reason
-    :func:`stats`'s own ``evaluated`` lookup is: this module imports nothing
-    outward at module scope, so a document with no such method measures in
-    local space rather than raising.
+    ``doc.world_matrix`` is duck-typed with ``getattr``: this module imports
+    nothing outward at module scope, so a document with no such method
+    measures in local space rather than raising.
     """
     world_of = getattr(doc, "world_matrix", None)
     points: list[tuple[Any, int, np.ndarray]] = []
@@ -508,11 +461,7 @@ def measure_line(doc: Any) -> str:
 
     World-space throughout, through ``doc.world_matrix`` -- see
     :func:`_selected_vertex_points` for why that is a ``getattr`` rather than
-    a named import. Element indices are read against the *base* mesh
-    (``obj.mesh``), never the evaluated one: a selection is indices into the
-    base (``document.py``'s own module docstring), and measuring the
-    evaluated mesh at those same indices would be reading the wrong array
-    the moment an object carries a modifier.
+    a named import.
 
     Memoised on ``doc.rev`` (the 2026-09-26 audit's clay-panes-03/clay-
     view-04): ``hud.hint_line`` called this once a frame with no gate at all,
@@ -591,13 +540,6 @@ def _compute_measure_line(doc: Any) -> str:
         if not selection:
             return ""
         world_of = getattr(doc, "world_matrix", None)
-        # The 2026-09-22 audit (clay-07): this used to read ``obj.mesh``, the
-        # base mesh, so a box with three Array modifiers read "volume 1.0000
-        # m³" instead of the true 3.0 -- ``stats()`` above already evaluates
-        # the modifier stack the same duck-typed way; the HUD is "what is
-        # shown, exported and measured is ClayDoc.evaluated(uid)"
-        # (dev/INVARIANTS.md), and volume had been left reading the wrong one.
-        evaluate = getattr(doc, "evaluated", None)
         total = 0.0
         any_open = False
         for uid in selection:
@@ -605,7 +547,7 @@ def _compute_measure_line(doc: Any) -> str:
                 obj = doc.by_uid(uid)
             except (KeyError, AttributeError):
                 continue
-            mesh = obj.mesh if evaluate is None else evaluate(uid)
+            mesh = obj.mesh
             world = None if world_of is None else world_of(uid)
             # The 2026-10-03 audit's clay-25 follow-up: ``clay_measure volume``
             # answers ``null, closed: false`` for an open mesh because the

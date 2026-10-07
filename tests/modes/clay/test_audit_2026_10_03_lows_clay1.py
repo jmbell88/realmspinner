@@ -204,7 +204,7 @@ def test_a_declared_material_still_gets_its_own_slot_beside_the_shared_fallback(
 
 
 # ---------------------------------------------------------------------------
-# clay-93: bevel width 0 and loop-cut t at an endpoint
+# clay-93: bevel width 0
 # ---------------------------------------------------------------------------
 
 
@@ -222,26 +222,10 @@ def test_bevel_refuses_a_degenerate_width(width):
         ob.bevel_edges(box, el.ElementSel(edges=[edge]), width=width)
 
 
-@pytest.mark.parametrize("t", [0.0, 1.0, -0.2, 1.5, float("nan")])
-def test_loop_cut_refuses_a_degenerate_position(t):
+def test_bevel_still_takes_a_real_width():
     from realmspinner.kernels.mesh import elements as el
     from realmspinner.kernels.mesh import ops_bevel as ob
     from realmspinner.kernels.mesh import primitives as prim
-    from realmspinner.kernels.mesh import topo
-    from realmspinner.kernels.mesh.adjacency import adjacency
-
-    tube = topo.take_faces(prim.cylinder(segments=8), np.arange(8))
-    a = adjacency(tube)
-    rung = a.edge_verts[a.edge_uses == 2][0]
-    with pytest.raises(el.OpError, match="position"):
-        ob.loop_cut(tube, el.ElementSel(edges=[rung]), t=t)
-
-
-def test_bevel_and_loop_cut_refuse_a_degenerate_width_or_position_but_not_a_real_one():
-    from realmspinner.kernels.mesh import elements as el
-    from realmspinner.kernels.mesh import ops_bevel as ob
-    from realmspinner.kernels.mesh import primitives as prim
-    from realmspinner.kernels.mesh import topo
     from realmspinner.kernels.mesh.adjacency import adjacency
 
     box = prim.box()
@@ -250,14 +234,10 @@ def test_bevel_and_loop_cut_refuse_a_degenerate_width_or_position_but_not_a_real
         box, el.ElementSel(edges=[a.edge_verts[a.edge_uses == 2][0]]), width=0.01
     )
     assert len(out.positions) > len(box.positions)
-    tube = topo.take_faces(prim.cylinder(segments=8), np.arange(8))
-    a = adjacency(tube)
-    out, _ = ob.loop_cut(tube, el.ElementSel(edges=[a.edge_verts[a.edge_uses == 2][0]]), t=0.25)
-    assert len(out.positions) == len(tube.positions) + 8
 
 
 # ---------------------------------------------------------------------------
-# clay-96: a failed task clears only the flag its key owns
+# clay-96: a failed save unlocks the tab it was saving
 # ---------------------------------------------------------------------------
 
 
@@ -268,22 +248,8 @@ def _no_pygame_display(monkeypatch):
     monkeypatch.setattr(pygame.key, "get_mods", lambda: 0)
 
 
-def test_a_failed_background_op_does_not_unlock_a_tab_mid_save(svc, _no_pygame_display):
-    from realmspinner.studio.modes.clay import mode as clay_mode
-
-    from .test_clay_mode import FakeCtx, _Done, _tab
-
-    ctx = FakeCtx(svc)
-    tab = _tab(ctx)
-    tab.saving = True
-    tab.bg_busy = "Decimating..."
-    clay_mode.on_task_failed(ctx, _Done(f"clay-bg:{tab.uid}", message="boom"))
-    assert tab.saving is True, "the save is still encoding"
-    assert tab.bg_busy == "", "the failed background op's own hint is cleared"
-
-
 @pytest.mark.parametrize("name", ["clay-save", "clay-saveas", "clay-export", "clay-exportfile"])
-def test_a_failed_save_does_not_wipe_a_running_background_ops_hint(svc, _no_pygame_display, name):
+def test_a_failed_save_unlocks_the_tab(svc, _no_pygame_display, name):
     from realmspinner.studio.modes.clay import mode as clay_mode
 
     from .test_clay_mode import FakeCtx, _Done, _tab
@@ -291,10 +257,8 @@ def test_a_failed_save_does_not_wipe_a_running_background_ops_hint(svc, _no_pyga
     ctx = FakeCtx(svc)
     tab = _tab(ctx)
     tab.saving = True
-    tab.bg_busy = "Decimating..."
     clay_mode.on_task_failed(ctx, _Done(f"{name}:{tab.uid}", message="disk full"))
     assert tab.saving is False, "the failed save unlocks the tab"
-    assert tab.bg_busy == "Decimating...", "a background op still running keeps its hint"
 
 
 # ---------------------------------------------------------------------------
@@ -430,114 +394,10 @@ def test_export_keeps_a_dotted_stem_instead_of_replacing_it_with_the_extension(
         assert "barrel.v2.mtl" in names, names
 
 
-# ---------------------------------------------------------------------------
-# clay-113: the Blender gate carries the probe's own detail
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "detail",
-    ["no skeleton templates found in C:/x/templates", "bpy probe failed: timed out after 60s"],
-)
-def test_clay_blender_unavailable_reason_carries_the_probes_own_detail(monkeypatch, detail):
-    from realmspinner import doctor
-    from realmspinner.pipelines import clay_blender
-
-    monkeypatch.setattr(
-        doctor, "blender_check", lambda **_: doctor.Check("Blender (rigging)", False, detail, False)
-    )
-    ok, reason = clay_blender.available()
-    assert ok is False
-    assert detail in reason
-    assert "not installed" not in reason
-
-
-def test_clay_blender_unavailable_reason_still_says_install_when_the_pack_is_absent(monkeypatch):
-    from realmspinner import doctor
-    from realmspinner.pipelines import clay_blender
-
-    monkeypatch.setattr(
-        doctor,
-        "blender_check",
-        lambda **_: doctor.Check(
-            "Blender (rigging)", False, "No module named 'bpy'", False, pending_install=True
-        ),
-    )
-    ok, reason = clay_blender.available()
-    assert ok is False
-    assert reason == "Needs Blender, which is not installed (the rig extra)."
-
-
-# ---------------------------------------------------------------------------
-# clay-114: Blender apply guards the modifier stack and names a dropped object
-# ---------------------------------------------------------------------------
-
-
-def _blender_run(monkeypatch, op_name, fn_name, fake, run_kwargs, doc_factory):
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
-    from .test_clay_blender_ops import _InteractiveCtx, _patch_available, _tab_with
-
-    mod = _patch_available(monkeypatch, True)
-    monkeypatch.setattr(mod, fn_name, fake)
-    doc, *uids = doc_factory()
-    state, tab = _tab_with(doc)
-    ctx = _InteractiveCtx(state)
-    assert clay_ops.run(ctx, doc, clay_ops.get(op_name), **run_kwargs) is True
-    key, fn, args, kwargs = ctx.submitted[0]
-    return doc, uids, ctx, key, fn(*args, **kwargs)
-
-
 _BLENDER_CASES = [
     ("retopo", "retopo_bytes", "_fake_retopo_bytes", {"target_faces": 1000}),
     ("smart-unwrap", "unwrap_bytes", "_fake_unwrap_bytes", {}),
 ]
-
-
-@pytest.mark.parametrize(("op_name", "fn_name", "fake_name", "run_kwargs"), _BLENDER_CASES)
-def test_retopo_apply_keeps_a_modifier_added_after_the_job_started(
-    monkeypatch, _no_pygame_display, op_name, fn_name, fake_name, run_kwargs
-):
-    from realmspinner.kernels.mesh import modifiers as mod
-    from realmspinner.studio.modes.clay import mode as clay_mode
-
-    from . import test_clay_blender_ops as helpers
-
-    doc, (uid,), ctx, key, result = _blender_run(
-        monkeypatch, op_name, fn_name, getattr(helpers, fake_name), run_kwargs, helpers._box_doc
-    )
-    # The user adds a modifier while Blender runs. The base mesh is unchanged,
-    # so the mesh stamp alone cannot see it.
-    added = (mod.make("mirror", {}, id=1),)
-    doc.set_modifiers(uid, added)
-    mesh_before = doc.by_uid(uid).mesh
-
-    clay_mode.on_task_done(ctx, helpers._Done(key, result))
-
-    assert doc.by_uid(uid).modifiers == added, "the modifier the user added meanwhile survives"
-    assert doc.by_uid(uid).mesh is mesh_before, "and the stale result is not applied over it"
-    assert any("Box" in m and "changed" in m for m, _ in ctx.toasted), ctx.toasted
-
-
-@pytest.mark.parametrize(("op_name", "fn_name", "fake_name", "run_kwargs"), _BLENDER_CASES)
-def test_an_object_blender_returned_no_geometry_for_is_named_in_the_toast(
-    monkeypatch, _no_pygame_display, op_name, fn_name, fake_name, run_kwargs
-):
-    from realmspinner.studio.modes.clay import mode as clay_mode
-
-    from . import test_clay_blender_ops as helpers
-
-    doc, (box_uid, cone_uid), ctx, key, result = _blender_run(
-        monkeypatch, op_name, fn_name, getattr(helpers, fake_name), run_kwargs,
-        helpers._two_object_doc,
-    )
-    for item in result["meta"]:
-        if item["uid"] == cone_uid:
-            item["node_name"] = "dropped-by-blender"
-
-    clay_mode.on_task_done(ctx, helpers._Done(key, result))
-
-    assert any("Cone" in m for m, _ in ctx.toasted), ctx.toasted
 
 
 # ---------------------------------------------------------------------------
@@ -630,54 +490,6 @@ def test_clay_ops_docstrings_name_files_that_exist():
             if not (root / rel).is_file():
                 missing.append((module.__name__, rel))
     assert not missing, missing
-
-
-def test_retopo_docstring_says_the_modifier_stack_is_cleared_not_kept():
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
-    doc = " ".join(clay_ops._retopo.__doc__.split())
-    assert "modifier stack kept" not in doc
-    assert "modifier stack cleared" in doc
-
-
-def test_ops_chord_comment_does_not_call_select_more_less_object_mode_chords():
-    from pathlib import Path
-
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
-    source = " ".join(Path(clay_ops.__file__).read_text(encoding="utf-8").split())
-    stale = "object-mode chord this registry owns today (Ctrl+M, Ctrl+Shift+M, Ctrl+J, Ctrl+=/-)"
-    assert stale not in source
-    assert "GROW_KEYS" in source
-
-
-# ---------------------------------------------------------------------------
-# clay-120: Game check's Fix is greyed while the report is out of date
-# ---------------------------------------------------------------------------
-
-
-def test_game_check_fix_is_greyed_with_a_reason_while_the_report_is_out_of_date(
-    svc, _no_pygame_display
-):
-    from realmspinner.kernels.mesh import primitives as bp
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
-
-    from .test_clay_mode import FakeCtx, _tab
-
-    ctx = FakeCtx(svc)
-    tab = _tab(ctx)
-    tab.readiness_head = tab.doc.history.head
-    assert clay_bridge.fix_gate(tab) == "", "a fresh report's Fix is live"
-
-    from realmspinner.kernels.mesh import document as bd
-
-    tab.doc.add_object(bd.Obj(uid=bd.new_uid(), name="N", mesh=bp.box()))
-    assert tab.readiness_head != tab.doc.history.head
-    why = clay_bridge.fix_gate(tab)
-    assert "Check again" in why
-
-    tab.saving = True
-    assert clay_bridge.fix_gate(tab) == "Saving...", "the save gate keeps its own wording"
 
 
 # ---------------------------------------------------------------------------

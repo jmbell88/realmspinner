@@ -185,7 +185,7 @@ def test_a_zero_extent_axis_is_refused_with_a_reason() -> None:
 
 def test_editing_size_through_the_panel_is_one_undo_step_and_rescales(ui, monkeypatch) -> None:
     doc, obj = _doc(scale=np.array([2.0, 2.0, 2.0]))
-    extent = te.local_extent(doc.evaluated(obj.uid))
+    extent = te.local_extent(obj.mesh)
     state = ClayState(size_lock_aspect=True)
     steps = len(doc.history)
 
@@ -206,7 +206,7 @@ def test_editing_size_through_the_panel_is_one_undo_step_and_rescales(ui, monkey
 
 def test_editing_a_flat_axis_through_the_panel_changes_nothing(ui, monkeypatch) -> None:
     doc, obj = _doc(mesh=bp.plane())
-    extent = te.local_extent(doc.evaluated(obj.uid))
+    extent = te.local_extent(obj.mesh)
     axis = next(i for i in range(3) if extent[i] <= te.FLAT_EXTENT)
     state = ClayState()
     steps = len(doc.history)

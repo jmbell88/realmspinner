@@ -1,9 +1,10 @@
-"""The selected object: its transform, its generator's parameters, its material.
+"""The selected object -- its transform, its generator's parameters, its material -- and
+the document's own counts and import settings.
 
 **The parameter widgets are generated from the registry, not written by hand.**
 ``primitives.GENERATORS`` maps a name to ``(defaults, builder)`` and every
 default dictionary is a complete call, so the panel enumerates it and binds one
-widget per key. A seventh primitive therefore needs no edit here at all -- which
+widget per key. A sixteenth primitive therefore needs no edit here at all -- which
 is the entire reason that registry is data rather than a chain of ``if``s, and
 is asserted by a test that registers a fake generator and looks for its
 parameters.
@@ -23,24 +24,23 @@ from __future__ import annotations
 import logging
 import weakref
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 from imgui_bundle import imgui
 
 from ......kernels.geom3d import math3d as m3
 from ......kernels.geom3d import units
-from ......kernels.mesh import colliders as cl
+from ......kernels.mesh import document as clay_document
+from ......kernels.mesh import elements as el
 from ......kernels.mesh import primitives as bp
 from ......kernels.mesh import regen
-from ..... import controls, dialogs, icons, theme, tokens, widgets
+from ..... import controls, icons, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
-from ... import matlib as clay_matlib
 from ... import mode as clay_mode
+from ... import ops as clay_ops
 from ... import transform_edit
 from ...state import ClayState
-from . import curve_editor
 from . import outliner as clay_outliner
 
 log = logging.getLogger(__name__)
@@ -67,14 +67,12 @@ def draw(ctx: Any) -> None:
 
 #: The tabs of this pane, Blender's Properties editor reduced to what Clay has:
 #: ``(key, label, glyph, what it holds)``. Glyph-only on the strip (a 300 px
-#: sidebar has no room for five words) with the label and contents in the
+#: sidebar has no room for three words) with the label and contents in the
 #: tooltip, as the header's tool pill does.
 TABS: tuple[tuple[str, str, str, str], ...] = (
-    ("object", "Object", icons.BOX, "Name, parent, tags, transform and the shape's own numbers"),
-    ("modifiers", "Modifiers", icons.WRENCH, "The non-destructive stack on the selected object"),
-    ("material", "Material", icons.PALETTE, "The palette, textures and the material library"),
-    ("data", "Data", icons.ACTIVITY, "Counts and the mesh check for the selected object"),
-    ("scene", "Scene", icons.SETTINGS, "The export engine and the game check, document-wide"),
+    ("object", "Object", icons.BOX, "Name, parent, transform and the shape's own numbers"),
+    ("material", "Material", icons.PALETTE, "The palette and textures"),
+    ("document", "Document", icons.SETTINGS, "Counts and the import settings, document-wide"),
 )
 
 #: The tab a pane falls back to when ``ClayState.props_tab`` names one that no
@@ -108,11 +106,11 @@ def _body(ctx: Any) -> None:
     if changed:
         state.props_tab = current = picked
     imgui.dummy((0, sp(tokens.SP_2)))
-    if current == "scene":
+    if current == "document":
         # The only tab about the document rather than the selection, so it is
         # the one that needs no object.
         imgui.begin_disabled(tab.saving)
-        _scene(ctx, tab)
+        _document(ctx, doc)
         imgui.end_disabled()
         return
     _element_summary(doc)
@@ -121,8 +119,8 @@ def _body(ctx: Any) -> None:
         # Two sentences, because ``_selected`` returns None for two different
         # reasons and one of them used to lie: with sixteen objects lit up the
         # pane said "Nothing selected", which the viewport plainly contradicts
-        # -- and a click that drops a whole multi-object figure makes that the
-        # ordinary case rather than the odd one. The *refusal* is unchanged
+        # -- and a multi-object selection is an ordinary case rather than the
+        # odd one. The *refusal* is unchanged
         # (see ``_selected``); only the sentence the user reads is.
         count = len(doc.selection)
         if count > 1:
@@ -141,69 +139,36 @@ def _body(ctx: Any) -> None:
         imgui.dummy((0, sp(tokens.SP_2)))
         _relations(ctx, doc, obj)
         imgui.dummy((0, sp(tokens.SP_2)))
-        _tags(doc, obj)
-        imgui.dummy((0, sp(tokens.SP_2)))
         _transform(doc, obj, ctx=ctx, state=state)
         imgui.dummy((0, sp(tokens.SP_2)))
         _generator(doc, obj, ctx=ctx, state=state)
-    elif current == "modifiers":
-        _modifiers(ctx, doc, obj)
-    elif current == "material":
-        _material(ctx, tab, doc, obj)
     else:
-        _data(state, doc, obj)
+        _material(ctx, tab, doc, obj)
     imgui.end_disabled()
 
 
-def _data(state: Any, doc: Any, obj: Any) -> None:
-    """Counts for the selected object, then its mesh check.
+def _document(ctx: Any, doc: Any) -> None:
+    """The document as a whole: what is in it, and how the next import reads a file.
 
-    The counts are of the *evaluated* mesh -- what leaves the document, after
-    the modifier stack -- for the reason the Document pane's facts line gives:
-    a Mirror changes how many triangles you ship, and this line is a promise
-    about that.
+    The counts are of what leaves the document -- visible objects only, the same
+    set the exporters write -- so the triangle line is a promise about the
+    exported file.
     """
     from . import bridge as clay_bridge
 
-    mesh = doc.evaluated(obj.uid)
+    visible = [obj for obj in doc.objects if obj.visible]
     widgets.field_label("counts")
     widgets.muted(
-        f"{len(mesh.positions):,} vertices  -  {max(0, len(mesh.starts) - 1):,} faces  -  "
-        f"{clay_bridge._triangles(mesh):,} triangles"
+        f"{len(visible)} of {len(doc.objects)} objects visible  -  "
+        f"{len(doc.materials)} materials"
     )
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _diagnostics(state, doc, obj)
-
-
-def _scene(ctx: Any, tab: Any) -> None:
-    """The settings of the whole document: the engine it is going to, and
-    whether it is ready for it.
-
-    **The export engine finally has a control.** ``clay_mode.export_engine`` and
-    ``set_export_engine`` were built as "the door" for a Settings combo that
-    never arrived, so the only way to choose Godot, Unity, Unreal or WebGL was
-    the agent's ``clay_export``. It decides how colliders are renamed on the way
-    out and which axis convention an OBJ is converted to (a GLB is deliberately
-    left alone), so it belongs beside the check that measures the same asset.
-    """
-    from ......kernels.mesh import engines as engines_mod
-    from . import bridge as clay_bridge
-
-    widgets.field_label("export engine")
-    current = clay_mode.export_engine(ctx)
-    options = [(key, eng.label) for key, eng in engines_mod.ENGINES.items()]
-    picked = widgets.combo("##clay-export-engine", current, options, sp(170))
-    if picked != current:
-        clay_mode.set_export_engine(ctx, picked)
-    widgets.muted_wrapped(
-        "Renames colliders for that engine and converts an OBJ to its axes and "
-        "scale. A GLB is left alone: every engine's importer converts it itself."
+    widgets.muted(
+        f"{sum(len(o.mesh.positions) for o in visible):,} vertices  -  "
+        f"{sum(max(0, len(o.mesh.starts) - 1) for o in visible):,} faces  -  "
+        f"{sum(clay_bridge._triangles(o.mesh) for o in visible):,} triangles"
     )
     imgui.dummy((0, sp(tokens.SP_2)))
     clay_bridge.import_settings(ctx)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    widgets.field_label("game check")
-    clay_bridge.game_check(ctx, tab)
 
 
 def _element_summary(doc: Any) -> None:
@@ -226,9 +191,9 @@ def _element_summary(doc: Any) -> None:
 def element_summary_text(doc: Any) -> str | None:
     """:func:`_element_summary`'s line, or ``None`` in object mode.
 
-    The 2026-10-03 audit's clay-70 follow-up: the count summed every entry of
+    The count summed every entry of
     ``doc.element_sel``, but a drag, the gizmo centre and every element door
-    skip a hidden object and a collider (``selection._element_pickable``), so
+    skip a hidden object (``selection._element_pickable``), so
     hiding an object that still held a selection made "N selected" promise
     elements the next drag would not move. Only eligible objects are counted,
     and "across N objects" counts only those too.
@@ -271,28 +236,6 @@ def _selected(doc: Any) -> Any:
         return None
 
 
-def _role_line(obj: Any) -> str | None:
-    """The Identity section's own collider indicator, or ``None`` for an
-    ordinary mesh object.
-
-    clay-25 (2026-09-19 audit): no pane anywhere read ``Obj.role`` or
-    ``Obj.collider_kind`` -- the outliner drew an ordinary row with ordinary
-    icons and this panel's Identity/Relations/Generator sections showed
-    nothing distinguishing a collider from any other frozen mesh (the
-    ``_generator`` section prints the same "frozen -- N vertices, M faces"
-    line either way). The auto-generated name (``"<source> <kind label>"``,
-    ``document.add_collider``'s own naming) was the *only* signal anywhere
-    in the UI, and the rename field two lines below this one (``commit=True``,
-    no warning) could erase it with nothing else left to say what the object
-    was -- even though readiness and every exporter still treat it specially.
-    """
-    if obj.role != "collider":
-        return None
-    kind = cl.COLLIDER_KINDS.get(obj.collider_kind)
-    label = kind[0] if kind is not None else (obj.collider_kind or "unknown kind")
-    return f"{icons.SQUARE_DASHED} Collider -- {label}"
-
-
 def _identity(doc: Any, obj: Any) -> None:
     # commit=True: the 2026-09-06 audit's clay-02 found this field reporting a
     # change on every keystroke, so ``set_props`` -- an unconditional
@@ -304,21 +247,6 @@ def _identity(doc: Any, obj: Any) -> None:
     changed, value = widgets.toggle(f"{icons.EYE} Visible", obj.visible, tag=str(obj.uid))
     if changed:
         doc.set_props(obj.uid, visible=value)
-    # Tranche 3: scene structure. Not a locking door itself
-    # (``document.py``'s locking paragraph): toggling the lock is always
-    # allowed, the same as visibility, or a mistake made while locked could
-    # never be undone by anyone but the lock.
-    changed, value = widgets.toggle(f"{icons.LOCK} Locked", obj.locked, tag=f"lock{obj.uid}")
-    if changed:
-        doc.set_props(obj.uid, locked=value)
-    role_line = _role_line(obj)
-    if role_line is not None:
-        widgets.muted(role_line)
-        widgets.help_marker(
-            "A collider is fitted for a game engine's physics, not part of "
-            "what gets drawn -- readiness and every exporter treat it "
-            "specially, whatever it is renamed to below."
-        )
 
 
 def _set_parent(ctx: Any, doc: Any, uid: int, parent: int | None) -> None:
@@ -326,9 +254,8 @@ def _set_parent(ctx: Any, doc: Any, uid: int, parent: int | None) -> None:
 
     ``_relations``'s combo already excludes every uid that would make
     ``set_parent`` refuse a cycle, so this is defensive rather than the
-    expected path -- the same shape :func:`_set_modifier_stack` gives
-    ``set_modifiers``' own refusal, through the same :func:`~.clay.ops.toast`
-    door.
+    expected path -- a refusal goes through :func:`~.clay.ops.toast`, the door
+    every other refusal in this mode uses.
     """
     from ......kernels.mesh.elements import OpError
     from ... import ops as clay_ops
@@ -378,39 +305,6 @@ def _relations(ctx: Any, doc: Any, obj: Any) -> None:
         _set_parent(ctx, doc, obj.uid, None if picked == "0" else int(picked))
 
 
-def _tags(doc: Any, obj: Any) -> None:
-    """Free-form membership tags (tranche 3: scene structure).
-
-    The one membership concept a group or a collection would otherwise have
-    been (``document.py``'s module docstring): the outliner's tag filter and
-    ``clay_select_by``'s tag query both read ``Obj.tags``. Comma-separated
-    entry is deliberately the whole of "add" -- typing "prop, background" and
-    leaving the field is one edit, and ``ClayDoc.set_props``'s own
-    ``_normalize_tags`` sorts, dedupes and lower-cases whatever comes out of
-    it, so this widget does not have to.
-    """
-    widgets.field_label("tags")
-    if not obj.tags:
-        widgets.muted("no tags")
-    removed: str | None = None
-    for tag in obj.tags:
-        if controls.small_button(f"{tag}  {icons.X}##tag-{tag}", tooltip=f"Remove {tag!r}"):
-            removed = tag
-        imgui.same_line()
-    if obj.tags:
-        imgui.new_line()
-    if removed is not None:
-        doc.set_props(obj.uid, tags=tuple(t for t in obj.tags if t != removed))
-    # ``value=""`` every frame, the same sentinel ``_add_modifier_row``'s
-    # combo uses: this is an action ("add these tags"), not a persistent
-    # field, so the box reads as empty again the moment the add lands.
-    added = widgets.input_text(
-        "##tagadd", "", max_length=120, hint="add tags, comma-separated...", commit=True
-    )
-    if added.strip():
-        doc.set_props(obj.uid, tags=tuple(obj.tags) + tuple(added.split(",")))
-
-
 #: What a bare ``_transform(doc, obj)`` -- no pane, no ``ClayState`` -- shows its
 #: display state in. Several tests drive the door with nothing but a document.
 _BARE_STATE: ClayState | None = None
@@ -430,11 +324,10 @@ def _display_state(state: ClayState | None) -> ClayState:
 def _apply_transform(doc: Any, obj: Any, ctx: Any, **fields: Any) -> bool:
     """``doc.set_transform`` with the panel's refusal handling. -> whether it landed.
 
-    The 2026-09-23 audit's clay-03: a locked object reaches ``set_transform``'s
-    own refusal (``OpError``, nothing pushed), uncaught, and the pane's guard
-    replaces Properties with "stopped drawing" for the rest of the frame. Same
-    shape as ``_set_parent`` and ``_set_modifier_stack`` in this file: catch it,
-    toast it, leave the field showing the value the user typed. ``ctx`` is
+    ``set_transform`` refuses a transform the document cannot hold (an all-zero
+    scale) with an ``OpError``; uncaught, the pane's guard would replace
+    Properties with "stopped drawing" for the rest of the frame. Catch it, toast
+    it, leave the field showing the value the user typed. ``ctx`` is
     optional -- several tests in ``tests/modes/clay/`` drive this door straight
     with a bare ``(doc, obj)``, no pane and no ``ctx`` to toast through, so
     with none given the refusal is re-raised rather than swallowed.
@@ -486,19 +379,6 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
         ui.length_unit = unit = picked
     was = tuple(v.copy() for v in obj.trs())
     changed = False
-    # The 2026-09-26 audit's clay-panes-07: these three fields stayed live and
-    # editable on a locked object, so every keystroke reached
-    # ``set_transform``'s own refusal (``OpError``) and popped a fresh toast
-    # below -- typing "1.25" into Position on a locked object produced four
-    # toasts, one per character. Greyed out here instead, the same
-    # ``imgui.begin_disabled`` chrome already uses for "a save is in flight"
-    # one level up, so a locked object's numbers are still visible -- and
-    # still correct -- without inviting an edit the object is about to refuse.
-    # The 2026-10-03 audit's clay-67: ``obj.locked`` alone was the wrong
-    # predicate -- ``set_transform`` also refuses under a locked ancestor, so a
-    # child of a locked group still toasted once per keystroke. Ask the
-    # document the question its door asks.
-    imgui.begin_disabled(doc.lock_refusal(obj.uid, check_ancestors=True) is not None)
     shown = units.vec_to_display(obj.translation, unit)
     if parented:
         edited, typed = controls.input_vec("local position##bt", list(shown), ("X", "Y", "Z"))
@@ -549,7 +429,6 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
     )
     rotation = m3.quat_from_euler_xyz(typed_euler) if edited else [float(v) for v in obj.rotation]
     changed |= edited
-    imgui.end_disabled()
     if changed:
         # ``was`` is the values the fields started from. imgui writes the new
         # ones into the widget's own state as they are typed, so reading
@@ -569,21 +448,16 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
 def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None = None) -> None:
     """How big the thing is -- editable -- and where its world box sits.
 
-    **Width / height / depth are the evaluated mesh's local extent times
+    **Width / height / depth are the mesh's local extent times
     ``|scale|``**, because that is the one number that maps back to a scale
     without ambiguity: editing an axis sets ``scale[i] = new / extent[i]``
     (``transform_edit.resized_scale``). A rotated object's world box is a
     different quantity -- no scale reproduces it -- so it stays below as a
     read-only line, ``world bounds``.
 
-    **Measured off the evaluated mesh**, not the base -- a solidify or an
-    array modifier changes what is actually on screen, and a size row that
-    kept reporting the base's box would disagree with the object the camera
-    just framed. An object with no enabled modifiers evaluates to its own base
-    mesh (``is``-identical, :mod:`~.modifiers`'s own docstring), so nothing
-    changes for the common case. The world line is :func:`~.ops.world_box`'s
-    answer rather than a second measurement here, so it and the camera's
-    framing cannot disagree about one object, with
+    The world line is :func:`~.ops.world_box`'s answer rather than a second
+    measurement here, so it and the camera's framing cannot disagree about one
+    object, with
     ``world=doc.world_matrix(obj.uid)`` (tranche 3: scene structure) so a
     parented object reports where it sits rather than a root at its parent's
     place.
@@ -591,13 +465,13 @@ def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None 
     An axis the mesh has no extent on (a plane's height) is read-only in effect:
     an edit to it is ignored and the reason is printed under the row. One
     greyed-out box inside a three-box field is not something imgui offers, and a
-    toast per keystroke is the failure ``_transform``'s own comment records.
+    toast per keystroke is the failure a refusal would otherwise cause.
     """
     from ......kernels.mesh import ops as bops
 
     ui = _display_state(state)
     unit = ui.length_unit if ui.length_unit in dict(units.LENGTH_UNITS) else units.DEFAULT_UNIT
-    mesh = doc.evaluated(obj.uid)
+    mesh = obj.mesh
     box = bops.world_box(obj, mesh, world=doc.world_matrix(obj.uid))
     if box is None:
         return
@@ -607,11 +481,9 @@ def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None 
     was = tuple(v.copy() for v in obj.trs())
 
     widgets.field_label("size")
-    imgui.begin_disabled(doc.lock_refusal(obj.uid, check_ancestors=True) is not None)
     edited, typed = controls.input_vec("size##bz", list(shown), ("W", "H", "D"))
     controls.fold_undo(doc.history)
     _, ui.size_lock_aspect = controls.checkbox("lock aspect##bzlock", ui.size_lock_aspect)
-    imgui.end_disabled()
     if edited:
         axis = next((i for i in range(3) if typed[i] != shown[i]), None)
         if axis is not None:
@@ -648,17 +520,6 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
             f"frozen -- {len(obj.mesh.positions)} vertices, "
             f"{len(obj.mesh.starts) - 1} faces"
         )
-        if obj.modifiers:
-            # The base counts alone would describe geometry nobody on screen
-            # is looking at once a stack is on top of it -- the modifiers
-            # section below shows the stack itself, this line only adds the
-            # one number it does not: what the base becomes once it runs.
-            line += " (base)"
-            evaluated = doc.evaluated(obj.uid)
-            line += (
-                f"; evaluated -- {len(evaluated.positions)} vertices, "
-                f"{len(evaluated.starts) - 1} faces"
-            )
         widgets.muted(line)
         return
     entry = bp.GENERATORS.get(obj.generator)
@@ -672,22 +533,7 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
     params.update({k: v for k, v in obj.params.items() if k in defaults})
     edited = dict(params)
     changed = False
-    # The 2026-09-26 audit's clay-panes-07: same gap as ``_transform`` above --
-    # these fields stayed live and editable on a locked object, so every
-    # keystroke reached ``set_generator_params``'s own refusal (``OpError``)
-    # and popped a fresh toast below, one per character typed.
-    imgui.begin_disabled(obj.locked)
-    ui = _display_state(state)
     for key, default in defaults.items():
-        # The curve parameters are drawn by the curve editor, which owns the
-        # three of them and their handle lists: the generic widget for either
-        # was the read-only line below. The handle keys are skipped outright --
-        # the editor edits them *with* the points they belong to.
-        if key in curve_editor.HANDLE_KEYS:
-            continue
-        if key in curve_editor.CURVE_KEYS:
-            curve_editor.draw(doc, obj, key, ui, apply_generator_params, ctx=ctx)
-            continue
         # A name line per param (2026-09-08 consistency pass): the block
         # label above names the generator, not its individual fields, and
         # the old beside-the-box text was the only place a param's name
@@ -705,7 +551,6 @@ def _generator(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
         if changed_here:
             edited[key] = was
             changed = True
-    imgui.end_disabled()
     if not changed:
         return
     apply_generator_params(doc, obj, edited, ctx=ctx)
@@ -716,11 +561,10 @@ def apply_generator_params(
 ) -> bool:
     """Clamp, rebuild and record one edit of a generator's parameters. -> whether it landed.
 
-    The generic parameter loop's tail, lifted out so the curve editor
-    (``curve_editor``) sends its edits through the **same door**: one clamp, one
-    rebuild, one ``regen.carry_over``, one ``set_generator_params`` step, one
-    refusal handling. A second copy would be a second place for "store what the
-    mesh was built from" to rot.
+    The generic parameter loop's tail, public so a second caller sends its edits
+    through the **same door**: one clamp, one rebuild, one ``regen.carry_over``,
+    one ``set_generator_params`` step, one refusal handling. A second copy would
+    be a second place for "store what the mesh was built from" to rot.
     """
     entry = bp.GENERATORS.get(obj.generator)
     if entry is None:
@@ -777,13 +621,9 @@ def apply_generator_params(
     # ``set_generator_params`` also implies ``keep_generator``: this mesh is
     # precisely what the generator builds from the edited parameters, which is
     # the one case where the object's generator claim is still true.
-    # The 2026-09-23 audit's clay-03: same gap as ``_transform`` above --
-    # a locked object's generator fields were never greyed, so an edit here
-    # reached ``set_generator_params``'s own refusal uncaught and the pane
-    # fell over to "stopped drawing" instead of applying nothing and saying
-    # why. ``ctx`` is keyword-only and optional for the same reason
-    # ``_transform``'s own catch gives: several tests drive this door with a
-    # bare ``(doc, obj)`` and no ``ctx``.
+    # ``ctx`` is keyword-only and optional for the same reason
+    # ``_apply_transform``'s own catch gives: several tests drive this door
+    # with a bare ``(doc, obj)`` and no ``ctx``.
     from ......kernels.mesh.elements import OpError
     from ... import ops as clay_ops
 
@@ -849,299 +689,115 @@ def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
     return value, False
 
 
-def modifier_kind_options() -> list[tuple[str, str]]:
-    """``(kind, label)`` for every registered modifier, in registration order.
+#: A palette swatch's side, in design px -- the size Inker's own palette uses.
+SWATCH = 22.0
 
-    A small pure function rather than inline in :func:`_add_modifier_row`, so
-    the bidirectional registry gate -- every kind in
-    ``kernels.mesh.modifiers.MODIFIERS`` reaches this pane's "Add modifier"
-    combo, and nothing else does -- is an assertion against this list rather
-    than a screenshot (``tests/modes/clay/test_modifier_props.py``), the same
-    shape :func:`_palette_remove_reason` already gives its own gated test.
+
+def _swatch_colour(material: Any) -> tuple[float, float, float, float]:
+    """What a palette swatch is filled with.
+
+    A textured slot's colour factor is white (``add_texture`` moves the colour
+    into the picture), so the factor would draw every textured slot the same;
+    its first texel, already sRGB bytes, tells them apart.
     """
-    from ......kernels.mesh import modifiers as mods
+    image = material.base_color
+    if image is not None and len(image[2]) >= 4:
+        r, g, b = image[2][0], image[2][1], image[2][2]
+        return (r / 255.0, g / 255.0, b / 255.0, 1.0)
+    return tuple(float(c) for c in material.base_color_factor)  # type: ignore[return-value]
 
-    return [(kind, kind_def.label) for kind, kind_def in mods.MODIFIERS.items()]
 
+def _swatch(
+    label: str,
+    colour: tuple[float, float, float, float],
+    side: float,
+    *,
+    selected: bool,
+    textured: bool,
+    tooltip: str,
+) -> bool:
+    """One palette swatch button. -> whether it was clicked.
 
-def _set_modifier_stack(ctx: Any, doc: Any, obj: Any, stack: tuple[Any, ...]) -> None:
-    """``doc.set_modifiers``, refused as a toast rather than a crash.
-
-    ``set_modifiers`` raises :class:`~.elements.OpError` -- an unknown kind
-    (unreachable from this pane, but a hand-edited ``.rblk`` can still carry
-    one) or a boolean stack that would cycle back on itself -- and pushes
-    nothing when it does. That is exactly the "refusal, not fatal" contract
-    :mod:`.clay.ops` already gives every op in this mode through its own
-    :func:`~.ops.toast`, so this reaches for the same function rather than a
-    second copy of "catch OpError, show it".
+    The one place the row touches imgui's colour button, so a test can stand in
+    a press without a mouse. The slot the object defaults to is outlined in the
+    accent; a textured slot carries a corner notch so it reads as a picture and
+    not as a flat colour.
     """
-    from ......kernels.mesh.elements import OpError
-    from ... import ops as clay_ops
-
-    try:
-        doc.set_modifiers(obj.uid, stack)
-    except OpError as error:
-        clay_ops.toast(ctx, str(error))
-
-
-def _mod_param_widget(param: Any, value: Any, doc: Any, obj: Any) -> tuple[Any, bool]:
-    """One widget for one modifier parameter. -> (new value, changed).
-
-    Unlike the generator loop's :func:`_widget`, which infers a control from
-    a default's *Python* type, a kernel-side ``ModParam`` already states its
-    own kind -- ``target``/``choices``/``boolean``/``integer`` are read
-    straight off it, so there is nothing here to infer and nothing that falls
-    through to a read-only fallback the way an unrecognised generator default
-    shape does.
-
-    ``target`` draws a combo of every *other* object's name, keyed by uid,
-    with ``"0"`` standing for "(none)" -- the one param kind
-    :mod:`.modifiers` documents as an object reference (:class:`ModParam`'s
-    own docstring), so this is the one branch that reads ``doc.objects``
-    rather than only the value it was handed.
-    """
-    label = f"##{param.name}"
-    if param.target:
-        options = [("0", "(none)")] + [
-            (str(other.uid), other.name) for other in doc.objects if other.uid != obj.uid
-        ]
-        current = str(int(value))
-        picked = widgets.combo(label, current, options)
-        return int(picked), picked != current
-    if param.choices:
-        options = [(str(i), choice) for i, choice in enumerate(param.choices)]
-        current = str(int(value))
-        picked = widgets.combo(label, current, options)
-        return int(picked), picked != current
-    if param.boolean:
-        changed, out = controls.checkbox(label, bool(value))
-        return out, changed
-    if param.integer:
-        changed, out = controls.input_int(label, int(value), 1)
-        return out, changed
-    changed, out = controls.input_float(label, float(value), param.step)
-    return out, changed
-
-
-def _modifier_row(
-    ctx: Any, doc: Any, obj: Any, mod: Any, index: int, count: int, error: str | None
-) -> None:
-    """One stack entry: enabled, its label, reorder, apply, remove, its params.
-
-    ``index``/``count`` are the row's own position rather than something read
-    back off ``obj.modifiers`` inside this function, because every button
-    here can itself change that tuple's length or order -- reading it live
-    partway through the row would have Remove and the row below it disagree
-    about which modifier is at which index for the rest of the frame.
-    """
-    from dataclasses import replace
-
-    from ......kernels.mesh import modifiers as mods
-    from ......kernels.mesh.elements import OpError
-    from ... import ops as clay_ops
-
-    stack = obj.modifiers
-    kind_def = mods.MODIFIERS.get(mod.kind)
-    label = kind_def.label if kind_def is not None else f"{mod.kind} (unknown kind)"
-
-    imgui.push_id(f"mod{mod.id}")
-    changed, enabled = controls.checkbox("##enabled", mod.enabled)
-    if changed:
-        _set_modifier_stack(
-            ctx, doc, obj,
-            tuple(replace(m, enabled=enabled) if m.id == mod.id else m for m in stack),
-        )
-    imgui.same_line()
-    imgui.text(label)
-    imgui.same_line()
-    if controls.small_button(
-        f"{icons.ARROW_UP}##up", enabled=index > 0, reason="Already at the top."
-    ):
-        new_stack = list(stack)
-        new_stack[index - 1], new_stack[index] = new_stack[index], new_stack[index - 1]
-        _set_modifier_stack(ctx, doc, obj, tuple(new_stack))
-    imgui.same_line()
-    if controls.small_button(
-        f"{icons.ARROW_DOWN}##down", enabled=index < count - 1, reason="Already at the bottom."
-    ):
-        new_stack = list(stack)
-        new_stack[index + 1], new_stack[index] = new_stack[index], new_stack[index + 1]
-        _set_modifier_stack(ctx, doc, obj, tuple(new_stack))
-    imgui.same_line()
-    if controls.small_button(
-        "Apply##apply", tooltip="Bake this modifier and everything above it into the base mesh."
-    ):
-        try:
-            doc.apply_modifiers(obj.uid, through_id=mod.id)
-        except OpError as apply_error:
-            clay_ops.toast(ctx, str(apply_error))
-    imgui.same_line()
-    if controls.small_button(f"{icons.TRASH}##remove", tooltip="Remove this modifier."):
-        _set_modifier_stack(ctx, doc, obj, tuple(m for m in stack if m.id != mod.id))
-
-    if kind_def is not None:
-        updates: dict[str, Any] = {}
-        # The 2026-10-03 audit's clay-67: ``set_modifiers`` refuses a locked
-        # object, and these fields were never greyed for it, so typing a number
-        # into one toasted once per keystroke -- the symptom the 2026-09-26
-        # audit's clay-panes-07 closed for the transform and generator fields.
-        imgui.begin_disabled(obj.locked)
-        for p in kind_def.params:
-            widgets.field_label(p.label)
-            new_value, changed_here = _mod_param_widget(p, mod.get(p.name, p.default), doc, obj)
-            # The same fold ``_generator``'s own loop uses, for the same
-            # reason: a drag or a typed number reports a change on every
-            # frame it is live, and without this a multi-digit edit would
-            # push one ``set_modifiers`` step per digit.
-            controls.fold_undo(doc.history)
-            if changed_here:
-                updates[p.name] = new_value
-        imgui.end_disabled()
-        if updates:
-            new_mod = mods.with_params(mod, updates)
-            _set_modifier_stack(
-                ctx, doc, obj, tuple(new_mod if m.id == mod.id else m for m in stack)
+    if selected:
+        imgui.push_style_color(imgui.Col_.border.value, imgui.ImVec4(*theme.rgba(theme.ACCENT)))
+        imgui.push_style_var(imgui.StyleVar_.frame_border_size.value, sp(2.0))
+    clicked = imgui.color_button(label, imgui.ImVec4(*colour), 0, (side, side))
+    if selected:
+        imgui.pop_style_var()
+        imgui.pop_style_color()
+    if textured:
+        low = imgui.get_item_rect_max()
+        notch = max(sp(5.0), side * 0.3)
+        draw = imgui.get_window_draw_list()
+        # Dark under light, so the notch reads on a pale texel and a dark one.
+        for size, tint in ((notch, theme.BG), (notch * 0.6, theme.TEXT)):
+            draw.add_triangle_filled(
+                imgui.ImVec2(low.x, low.y),
+                imgui.ImVec2(low.x - size, low.y),
+                imgui.ImVec2(low.x, low.y - size),
+                imgui.get_color_u32(imgui.ImVec4(*theme.rgba(tint))),
             )
-
-    if error:
-        widgets.text_colored(theme.WARN, error)
-    imgui.pop_id()
-    widgets.divider()
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(tooltip)
+    return bool(clicked)
 
 
-def _add_modifier_row(ctx: Any, doc: Any, obj: Any) -> None:
-    """"Add modifier": a combo that always reads as its own placeholder.
+def _pick_slot(ctx: Any, doc: Any, obj: Any, index: int) -> None:
+    """What a click on palette swatch *index* does.
 
-    ``current`` is always the sentinel ``""``, never a value read back off
-    the object -- this is an action, not a persistent choice, so the moment a
-    kind is picked and the stack is written, the very next frame's call
-    passes ``""`` again and the combo shows "Add modifier..." once more with
-    no state of its own to reset.
+    Object mode keeps the old combo's behaviour exactly: the object's default
+    slot **and every face** go to the slot (the 2026-10-03 audit's clay-17).
+    In face mode with faces selected the click paints those faces through the
+    ``assign-material`` op and leaves the object's default slot alone; Ctrl
+    (or no faces selected) only makes it the slot the fields below edit, the
+    one way to reach another slot's colour and texture from a face selection.
     """
-    options = [("", "Add modifier...")] + modifier_kind_options()
-    picked = widgets.labeled_combo(
-        "add modifier",
-        "",
-        options,
-        help_text="Appended to the bottom of the stack, with its default parameters.",
-    )
-    if picked:
-        from ......kernels.mesh import modifiers as mods
-
-        new_mod = mods.make(picked, id=mods.next_id(obj.modifiers))
-        _set_modifier_stack(ctx, doc, obj, obj.modifiers + (new_mod,))
+    if doc.element_mode != "face":
+        doc.repaint_object(obj.uid, index)
+        return
+    op = clay_ops.get("assign-material")
+    if imgui.get_io().key_ctrl or not op.enabled(doc):
+        if index != obj.material:
+            doc.set_props(obj.uid, material=index)
+        return
+    clay_ops.run(ctx, doc, op, index=index)
 
 
-def _modifiers(ctx: Any, doc: Any, obj: Any) -> None:
-    """The modifier stack: base mesh run through each enabled entry, in order.
-
-    Reads :meth:`~.document.ClayDoc.evaluation` once per frame for the error
-    map alone (empty, and no evaluation at all, on the fast path of no
-    modifiers -- see :mod:`.modifiers`'s own docstring), never the mesh: this
-    section is about the *recipe*, not the result, and every other reader of
-    the result (the dimensions row, the viewport) asks for it on its own.
-    """
-    stack = obj.modifiers
-    widgets.field_label("modifiers")
-    errors: dict[int, str] = dict(doc.evaluation(obj.uid).errors) if stack else {}
-    if not stack:
-        widgets.muted("no modifiers")
-    for index, mod in enumerate(stack):
-        _modifier_row(ctx, doc, obj, mod, index, len(stack), errors.get(mod.id))
-    _add_modifier_row(ctx, doc, obj)
-
-
-def _measure(obj: Any) -> list[Any]:
-    """One "Check mesh" click's own work: measure ``obj.mesh``'s findings, or
-    report why it could not.
-
-    Split out of :func:`_diagnostics` so this catch is testable without a
-    real imgui frame -- clicking the button is only ever this call plus a
-    dict write. ``diagnose.findings`` past ``ops_clean.MAX_CLEAN_CORNERS``
-    raises :class:`~.elements.OpError` (the 2026-09-19 audit's clay-39: it
-    pays the identical BFS/adjacency/volume cost ``ops_clean.clean`` already
-    refuses past that ceiling); letting that reach the button's click handler
-    uncaught would take the whole panel down the moment someone pressed
-    "Check mesh" on an oversized import, which is a strictly worse answer
-    than the stall this ceiling exists to prevent. Reported as a named,
-    non-clickable row instead -- see ``diagnose.too_large_finding``.
-    """
-    from ......kernels.mesh import diagnose
-    from ......kernels.mesh.elements import OpError
-
-    try:
-        return diagnose.findings(obj.mesh)
-    except OpError as error:
-        return [diagnose.too_large_finding(str(error))]
-
-
-def _diagnostics(state: Any, doc: Any, obj: Any) -> None:
-    """What is wrong with this object's mesh, measured on request.
-
-    **On request, never per frame.** ``check_manifold`` builds a whole
-    adjacency, which is O(corners) and is exactly the sort of thing that turns
-    a properties panel into a stall on an imported mesh -- so the button is the
-    interface, and the answer is kept against the ``Mesh`` it was measured from.
-    That comparison is by identity and it is sound for the reason the whole
-    package rests on: a ``Mesh`` is immutable and every op replaces it, so a
-    result about ``obj.mesh`` is a result about what is on screen.
-
-    A row is a button because the useful thing to do with "3 non-manifold
-    edges" is to look at them. Clicking sets the element mode *and* the
-    selection together, since either one alone leaves the user staring at an
-    overlay of the wrong kind. The one exception is a
-    ``diagnose.TOO_LARGE_KIND`` row (see :func:`_measure`): there is nothing
-    to select, so it draws as plain text instead of a button.
-    """
-    from ......kernels.mesh import diagnose
-
-    # Measured against the *base* mesh, never the evaluated one -- a finding
-    # names element indices (``diagnose.findings`` selects vertices/edges/
-    # faces by position in the array), and those indices only mean anything
-    # against the mesh editing actually reads and writes. The label says so
-    # once a stack exists, so "3 non-manifold edges" cannot be misread as a
-    # statement about the shape on screen when a modifier has since changed
-    # how many edges there even are.
-    widgets.field_label("mesh check -- base mesh" if obj.modifiers else "mesh check")
-    measured, rows = state.manifold.get(obj.uid, (None, []))
-    if measured is not obj.mesh:
-        if measured is not None:
-            widgets.muted("edited since the last check")
-        if controls.button(f"{icons.ACTIVITY} Check mesh##claycheck"):
-            state.manifold[obj.uid] = (obj.mesh, _measure(obj))
-        widgets.help_marker(
-            "Looks for holes, non-manifold edges, inconsistently wound faces, "
-            "duplicate faces and unused vertices. An open sheet is a perfectly "
-            "good mesh, so these are measurements rather than a verdict -- but "
-            "a game engine will usually want a closed one."
+def _swatch_row(ctx: Any, doc: Any, obj: Any) -> None:
+    """One swatch per palette slot, wrapped to the pane."""
+    current = min(max(int(obj.material), 0), len(doc.materials) - 1)
+    side = sp(SWATCH)
+    gap = imgui.get_style().item_spacing.x
+    per_row = max(1, int((imgui.get_content_region_avail().x + gap) // (side + gap)))
+    clicked: int | None = None
+    for i, entry in enumerate(doc.materials):
+        if i % per_row:
+            imgui.same_line()
+        name = entry.name or f"slot {i}"
+        textured = entry.base_color is not None
+        tip = f"{i}: {name}" + (" (textured)" if textured else "")
+        if _swatch(
+            f"##matsw{i}",
+            _swatch_colour(entry),
+            side,
+            selected=i == current,
+            textured=textured,
+            tooltip=tip,
+        ):
+            clicked = i
+    if doc.element_mode == "face":
+        widgets.muted_wrapped(
+            "Click a swatch to paint the selected faces; Ctrl+click to edit that slot instead."
+            if clay_ops.get("assign-material").enabled(doc)
+            else "Select faces to paint them with a swatch."
         )
-        return
-
-    if not rows:
-        widgets.muted(f"{icons.CIRCLE_CHECK} closed, consistent, nothing unused")
-        return
-    if len(rows) == 1 and rows[0].kind == diagnose.TOO_LARGE_KIND:
-        widgets.muted(f"{icons.TRIANGLE_ALERT} {rows[0].label}")
-        return
-    for row in rows:
-        if controls.button(f"{icons.TRIANGLE_ALERT} {row.label}##claydiag{row.kind}"):
-            _select_finding(doc, obj, row)
-        if imgui.is_item_hovered():
-            imgui.set_tooltip("Select them")
-
-
-def _select_finding(doc: Any, obj: Any, row: Any) -> None:
-    """Show one finding's elements: the mode, then only those elements.
-
-    The object selection is not set here and must not be: in an element mode it
-    is *derived*, and ``set_element_sel`` adds the object itself. Setting it by
-    hand in between would be overwritten by the ``clear`` on the next line
-    anyway -- the clear is what stops a finding on one object arriving beside a
-    stale selection in another.
-    """
-    doc.set_element_mode(row.mode)
-    doc.clear_element_sel()
-    doc.set_element_sel(obj.uid, row.sel)
+    if clicked is not None:
+        _pick_slot(ctx, doc, obj, clicked)
 
 
 def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
@@ -1149,21 +805,8 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     if not doc.materials:
         widgets.muted("the palette is empty")
         return
+    _swatch_row(ctx, doc, obj)
     _palette_row(doc, obj)
-    options = [(str(i), m.name or f"slot {i}") for i, m in enumerate(doc.materials)]
-    picked = widgets.labeled_combo(
-        "slot",
-        str(obj.material),
-        options,
-        help_text=(
-            "Which palette entry this object renders and exports with. Editing an "
-            "entry writes a replacement, so every object using it follows."
-        ),
-    )
-    if picked != str(obj.material):
-        # Repaint the faces, not just the default slot -- what renders and
-        # exports is ``mesh.material`` (the 2026-10-03 audit's clay-17).
-        doc.repaint_object(obj.uid, int(picked))
 
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     material = doc.materials[index]
@@ -1176,70 +819,32 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     # One gesture, one step: a drag reports on every frame the pointer moves,
     # and ``set_material`` pushes a step per report without this.
     controls.fold_undo(doc.history)
-    widgets.field_label("metallic")
-    metal_changed, metallic = controls.slider_float(
-        "##metallic##bm", float(material.metallic_factor), 0.0, 1.0
+    # Clay keeps a palette entry to a colour, a base-colour texture,
+    # double-sided and cutout (``document.reduce_material``): metallic,
+    # roughness, emissive and the other texture maps are fixed at defaults, and
+    # a file that carried them is stripped on read, so offering them here would
+    # show a look the next reopen discards.
+    cutout_changed, cutout = controls.checkbox(
+        f"{icons.LAYERS} cutout##bm", material.alpha_mode == "MASK"
     )
-    controls.fold_undo(doc.history)
-    widgets.field_label("roughness")
-    rough_changed, roughness = controls.slider_float(
-        "##roughness##bm", float(material.roughness_factor), 0.0, 1.0
-    )
-    controls.fold_undo(doc.history)
-    # Tranche 6 ("UV and materials"): the rest of a pbrMetallicRoughness
-    # material -- emissive, alpha mode/cutoff, double-sided -- joining the
-    # three fields above rather than a second block, so one fold covers
-    # every slider in the material the same "one gesture, one step" way.
-    widgets.field_label("emissive")
-    emissive_changed, emissive = controls.color_edit3(
-        "##emissive##bm", list(material.emissive_factor)
-    )
-    controls.fold_undo(doc.history)
-    picked_alpha = widgets.labeled_combo(
-        "alpha mode",
-        material.alpha_mode,
-        [("OPAQUE", "Opaque"), ("MASK", "Mask"), ("BLEND", "Blend")],
-        help_text="Mask cuts by the cutoff below; blend composites by alpha.",
-    )
-    alpha_changed = picked_alpha != material.alpha_mode
-    cutoff = material.alpha_cutoff
-    cutoff_changed = False
-    if picked_alpha == "MASK":
-        widgets.field_label("alpha cutoff")
-        cutoff_changed, cutoff = controls.slider_float(
-            "##alphacutoff##bm", float(material.alpha_cutoff), 0.0, 1.0
-        )
-        controls.fold_undo(doc.history)
     ds_changed, double_sided = controls.checkbox(
         f"{icons.LAYERS} double-sided##bm", bool(material.double_sided)
     )
-    if (
-        changed or metal_changed or rough_changed or emissive_changed
-        or alpha_changed or cutoff_changed or ds_changed
-    ):
+    if changed or cutout_changed or ds_changed:
         # A *replacement*, never an in-place edit. Identity is what the GPU
         # cache, ``to_model`` and the writer all de-duplicate on, so editing
         # the object in place would leave every one of them showing the old
         # values with nothing in the data to say why.
-        #
-        # ``replace`` rather than a fresh ``Material``: the five texture slots
-        # are fields on it, and building a new one from the fields the panel
-        # shows would silently delete a baked map an import carried in.
         fresh = replace(
             material,
             base_color_factor=tuple(float(c) for c in colour),
-            metallic_factor=float(metallic),
-            roughness_factor=float(roughness),
-            emissive_factor=tuple(float(c) for c in emissive),
-            alpha_mode=str(picked_alpha),
-            alpha_cutoff=float(cutoff),
+            alpha_mode="MASK" if cutout else "OPAQUE",
             double_sided=bool(double_sided),
         )
         doc.set_material(index, fresh)
         material = fresh
 
     _texture_slots(ctx, tab, doc, index, material)
-    _material_library(ctx, tab, doc, obj)
 
 
 def _palette_remove_reason(material_count: int, users: int) -> str:
@@ -1336,10 +941,8 @@ def _palette_row(doc: Any, obj: Any) -> None:
         doc.set_material(index, replace(doc.materials[index], name=name))
 
 
-#: The five texture slots ``gltf.Material`` carries, in the order this panel
-#: (and ``matlib.py``'s own ``TEXTURE_SLOTS``, the same tuple by the same
-#: name) offers them.
-TEXTURE_SLOTS = ("base_color", "metallic_roughness", "normal", "emissive", "occlusion")
+#: The one texture slot a Clay material has: the base colour.
+TEXTURE_SLOTS = ("base_color",)
 
 #: This pane's own task-key prefix for "assign a texture from a file" --
 #: **not** ``clay-bg`` or a bare ``clay-`` key, because landing the result is
@@ -1390,69 +993,6 @@ def _assign_texture(ctx: Any, tab: Any, index: int, slot: str, material: Any) ->
         ctx.toast("A file dialog is already open.", "info")
 
 
-def _on_matlib_save_done(done: Any) -> None:
-    """Land a material shelf Save (:data:`MATLIB_SAVE_TASK_PREFIX`).
-
-    Nothing in the document changes -- the save only wrote files under
-    ``REALMSPINNER_HOME`` -- so the one thing to do here is invalidate the
-    listing cache the way the old inline call did, and only on success: a
-    failed write (an ``OSError``, say) already surfaces through the task
-    runner's own toast (``tasks.py``'s ``CARRIES_ITS_OWN_MESSAGE`` path), and
-    invalidating a cache that still matches what is on disk would only force
-    a pointless re-read.
-    """
-    if done.error is not None:
-        return
-    home = done.tag
-    if home is not None:
-        _invalidate_material_library(home)
-
-
-def _on_matlib_apply_done(ctx: Any, done: Any) -> None:
-    """Land a material shelf Apply (:data:`MATLIB_APPLY_TASK_PREFIX`).
-
-    Same staleness reading as the texture-assign branch below: the tab can
-    have closed, or the object removed, while ``load_material`` was decoding
-    PNGs off-thread, and either is a quiet no-op rather than a toast.
-    """
-    if done.error is not None:
-        return
-    rest = done.key[len(MATLIB_APPLY_TASK_PREFIX) + 1 :]
-    parts = rest.split(":", 2)
-    if len(parts) != 3:
-        return
-    tab_uid, uid_text, _entry_id = parts
-    state = clay_mode.ensure(ctx)
-    tab = state.get(tab_uid)
-    if tab is None:
-        return
-    try:
-        uid = int(uid_text)
-    except ValueError:
-        return
-    material = done.result
-    if material is None:
-        from ... import ops as clay_ops
-
-        # A local rather than the literal inline: ``clay_ops.toast`` takes no
-        # level (its own docstring -- it always raises through ``ctx.toast``
-        # at ``"error"``), but ``tests/test_ux_todo_fixes.py``'s toast-level
-        # sweep parses *any* ``.toast(x, <string literal>)`` call as if its
-        # second argument were a level name, so a literal message here reads
-        # as an unknown level. Every sibling ``clay_ops.toast`` call in this
-        # package already passes a non-literal (``str(error)`` or a local) for
-        # exactly this reason.
-        message = "That material could not be read."
-        clay_ops.toast(ctx, message)
-        return
-    doc = tab.doc
-    try:
-        doc.by_uid(uid)
-    except KeyError:
-        return
-    _apply_library_material(doc, [uid], material)
-
-
 def on_task_done(ctx: Any, done: Any) -> None:
     """Land a texture picked for a material slot -- ``clay-mattex:<tab uid>:
     <material index>:<slot>``, dispatched here by ``shell/tasks.py`` rather
@@ -1465,17 +1005,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
     for a file, or didn't pick one, and either way nothing here was promised
     to still exist by the time the answer comes back.
 
-    Checked first, since both are also ``clay-mattex:``-prefixed (see their
-    own docstrings): the material shelf's Save (:data:`MATLIB_SAVE_TASK_PREFIX`)
-    and Apply (:data:`MATLIB_APPLY_TASK_PREFIX`) buttons, the 2026-09-22
-    audit's clay-09.
     """
-    if done.key.startswith(f"{MATLIB_SAVE_TASK_PREFIX}:"):
-        _on_matlib_save_done(done)
-        return
-    if done.key.startswith(f"{MATLIB_APPLY_TASK_PREFIX}:"):
-        _on_matlib_apply_done(ctx, done)
-        return
     parts = done.key.split(":", 3)
     if len(parts) != 4:
         return
@@ -1511,25 +1041,59 @@ def on_task_done(ctx: Any, done: Any) -> None:
     doc.set_material(index, replace(material, **{slot: image}))
 
 
-def _texture_slots(ctx: Any, tab: Any, doc: Any, index: int, material: Any) -> None:
-    """Assign-from-file and Clear, one row per slot.
+#: The size "Add texture" makes, in texels a side. Pane state rather than
+#: document state on purpose: it is a default for the next click, not a fact
+#: about any palette entry, and it must not travel into a saved document or
+#: back through undo.
+_TEXTURE_SIZE = 64
 
-    Clay itself paints no textures (the box/planar/LSCM unwraps only ever
-    move *coordinates* around), so every one of these is a baked map an
-    import carried in or a look the user is hand-assigning -- never mutated
-    in place, always a fresh ``replace(material, ...)``, the same rule the
-    scalar PBR fields above already follow.
+_TEXTURE_SIZE_OPTIONS = tuple((str(n), f"{n} px") for n in clay_document.TEXTURE_SIZES)
+
+#: The popup listing open Inker documents for "Take texture back from Inker".
+_TAKE_BACK_POPUP = "##claytexback"
+
+
+def _texture_slots(ctx: Any, tab: Any, doc: Any, index: int, material: Any) -> None:
+    """The base-colour texture of palette entry *index*: make one, edit it in
+    Inker, bring it back, clear it, or assign one from a file.
+
+    Never mutated in place, always a fresh ``replace(material, ...)``, the same
+    rule the colour fields above follow -- and every button is one undo step.
     """
-    widgets.field_label("textures")
+    global _TEXTURE_SIZE
+    widgets.field_label("texture")
     for slot in TEXTURE_SLOTS:
         image = getattr(material, slot, None)
-        label = slot.replace("_", " ")
-        if image is not None:
-            width, height, _data = image
-            widgets.muted(f"{label}: {width} x {height}")
+        if image is None:
+            widgets.muted("none")
+            if controls.small_button(
+                f"{icons.PLUS} Add texture##texadd",
+                tooltip="A blank picture in this slot's colour, painted in Inker. "
+                "Faces without UVs get a box unwrap.",
+            ):
+                try:
+                    doc.add_texture(index, _TEXTURE_SIZE)
+                except el.OpError as error:
+                    ctx.toast(f"No texture was added: {error}", "error")
+            imgui.same_line()
+            imgui.set_next_item_width(sp(76))
+            changed, picked = controls.combo(
+                "##texsize", str(_TEXTURE_SIZE), _TEXTURE_SIZE_OPTIONS
+            )
+            if changed:
+                _TEXTURE_SIZE = int(picked)
         else:
-            widgets.muted(f"{label}: empty")
-        imgui.same_line()
+            width, height, _data = image
+            widgets.muted(f"{width} x {height}")
+            if controls.small_button(
+                f"{icons.PENCIL} Edit texture in Inker##texinker",
+                tooltip="Opens the picture in Inker with the 16 PICO-8 colours; "
+                "what you paint lands back here.",
+            ):
+                from ... import texture_link
+
+                texture_link.edit_in_inker(ctx, tab, index)
+            _take_back_row(ctx, tab, index)
         if ctx.busy(_texture_task_key(tab.uid, index, slot)):
             widgets.muted("...")
         else:
@@ -1542,159 +1106,40 @@ def _texture_slots(ctx: Any, tab: Any, doc: Any, index: int, material: Any) -> N
                 _assign_texture(ctx, tab, index, slot, material)
             imgui.same_line()
             if widgets.disabled_button(f"{icons.X}##texclear{slot}", image is not None):
-                doc.set_material(index, replace(material, **{slot: None}))
+                _clear_texture(tab, doc, index, material, slot)
 
 
-def _apply_library_material(doc: Any, uids: Any, material: Any) -> bool:
-    """Add *material* as a new palette entry and point every one of *uids*'
-    default slot at it, as **one** step.
+def _clear_texture(tab: Any, doc: Any, index: int, material: Any, slot: str) -> None:
+    """Drop the picture as **one** step, and the Inker link that was feeding it.
 
-    ``ClayDoc.add_material_and_assign``'s own shape, composed here from its
-    two public doors (``add_material``, ``set_props``) rather than a third
-    method on ``ClayDoc`` itself, and extended from one object to several:
-    applying a saved look to a multi-object selection should cost one
-    Ctrl+Z, not one per object, the same "one gesture, one step" rule
-    ``add_materials_and_assign``'s own docstring gives ``add_objects``.
+    ``nearest`` goes with the picture: it is a sampler choice for *that*
+    texture, and a flat colour left flagged would read as a stale setting. The
+    link goes because a later return from Inker would otherwise land a picture
+    on a slot the user just emptied.
     """
-    uids = list(uids)
-    if not uids:
-        return False
-    mark = doc.history.mark()
-    try:
-        index = doc.add_material(material)
-        for uid in uids:
-            doc.repaint_object(uid, index)
-    finally:
-        doc.history.collapse_since(mark)
-    return True
+    from ... import texture_link
+
+    doc.set_material(index, replace(material, **{slot: None, "nearest": False}))
+    texture_link.unlink(tab, index)
 
 
-#: The 2026-09-19 audit, finding clay-35: ``clay_matlib.list_materials`` is a
-#: ``Path.glob`` plus one JSON parse per entry, and :func:`_material_library`
-#: called it fresh every single frame the properties panel shows an object
-#: with any material -- nearly always -- with cost scaling in how many
-#: materials the user has ever saved, for a list that changes only on a save
-#: or a delete. Keyed on the home directory rather than on nothing, since a
-#: test (and, in principle, more than one configured home) must not share a
-#: stale entry across two different ``REALMSPINNER_HOME``s.
-#:
-#: Invalidated explicitly, below, on the two writes this module itself makes
-#: -- not memoised on the directory's mtime, which this audit's own finding
-#: warned is coarse enough on Windows to miss a save immediately followed by
-#: a read (the exact "save then list" shape this cache's own two callers
-#: are). ``matlib.py`` currently has no other caller that writes the shelf
-#: (an agent tool, say) without going through this module, so explicit
-#: invalidation here is complete, not partial; a future writer that is not
-#: this pane needs to call :func:`_invalidate_material_library` too.
-_matlib_cache: dict[Path, list[clay_matlib.MaterialEntry]] = {}
+def _take_back_row(ctx: Any, tab: Any, index: int) -> None:
+    """The manual fallback to the automatic pull: pick an open Inker document
+    and take its picture, Plotter's "Back onto" row for a material."""
+    from ... import texture_link
 
-
-def _cached_materials(home: Path) -> list[clay_matlib.MaterialEntry]:
-    entries = _matlib_cache.get(home)
-    if entries is None:
-        entries = clay_matlib.list_materials(home)
-        _matlib_cache[home] = entries
-    return entries
-
-
-def _invalidate_material_library(home: Path) -> None:
-    _matlib_cache.pop(home, None)
-
-
-#: This pane's task-key prefixes for the material shelf's Save and Apply
-#: buttons -- the 2026-09-22 audit's clay-09: ``matlib.save_material`` and
-#: ``load_material`` encode/decode PNGs (up to five slots, each potentially
-#: 4096^2) and were called inline from this function, on the frame thread,
-#: measured at 11.1 s for a save and 1.8 s for a load at that size. Off the
-#: frame thread the same way :data:`TEXTURE_TASK_PREFIX` already sends the
-#: texture-assign picker: submitted here, landed in :func:`on_task_done`.
-#: Both are still nested under ``TEXTURE_TASK_PREFIX`` itself (not a sibling
-#: prefix) so ``shell/tasks.py``'s existing ``key.startswith("clay-mattex:")``
-#: check keeps routing them here without that file needing a third branch.
-MATLIB_SAVE_TASK_PREFIX = f"{TEXTURE_TASK_PREFIX}:save"
-MATLIB_APPLY_TASK_PREFIX = f"{TEXTURE_TASK_PREFIX}:apply"
-
-
-def _matlib_save_key(tab_uid: str) -> str:
-    return f"{MATLIB_SAVE_TASK_PREFIX}:{tab_uid}"
-
-
-def _matlib_apply_key(tab_uid: str, uid: int, entry_id: str) -> str:
-    return f"{MATLIB_APPLY_TASK_PREFIX}:{tab_uid}:{uid}:{entry_id}"
-
-
-def _confirm_delete_material(ctx: Any, home: Path, entry: clay_matlib.MaterialEntry) -> None:
-    """Ask before a saved material (and up to five texture PNGs) is unlinked.
-
-    The 2026-10-03 audit's clay-117: the trash button sat two icons from the
-    Apply tick and deleted on one click, with no way back -- a saved look that
-    exists nowhere else, where the app's other destructive library deletes ask
-    first (``dialogs.ask_delete``). Nothing is touched until the answer is
-    yes; the cached shelf is invalidated only then.
-    """
-
-    def go() -> None:
-        clay_matlib.delete_material(home, entry.id)
-        _invalidate_material_library(home)
-
-    dialogs.ask_delete(
-        ctx,
-        title="Delete saved material?",
-        message=(
-            f"{entry.name!r} and its texture files will be deleted from the "
-            "material library. This cannot be undone."
-        ),
-        on_confirm=go,
-    )
-
-
-def _material_library(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
-    """Named materials saved under ``REALMSPINNER_HOME`` (``matlib.py``): save the
-    selected object's current material, list what is saved, apply one back,
-    delete one. Save and Apply both encode or decode texture PNGs, so both
-    are submitted off the frame thread and landed in :func:`on_task_done`
-    (the 2026-09-22 audit's clay-09) -- see :data:`MATLIB_SAVE_TASK_PREFIX`.
-    Delete only unlinks files it already knows the names of, no PNG decoded,
-    so it stays synchronous like every other button here.
-
-    The list itself is cached (see :data:`_matlib_cache`'s own comment) --
-    read through :func:`_cached_materials` and invalidated by hand after
-    every write this function makes, including the two now made off-thread.
-    """
-    widgets.field_label("material library")
-    home = ctx.svc.config.home
-    index = min(max(int(obj.material), 0), len(doc.materials) - 1)
-    # ``value=""`` every frame, the tag-add field's own sentinel
-    # (``_tags``, above): this is an action ("save this"), not a persistent
-    # field, so pressing Enter both saves and clears the box in one motion.
-    typed = widgets.input_text(
-        "##matlibsave", "", max_length=60, hint="save the current material as...", commit=True
-    )
-    if typed.strip():
-        key = _matlib_save_key(tab.uid)
-        # ``tag=home`` rather than reaching back through ``ctx.svc.config.home``
-        # in :func:`on_task_done`: that function's own texture-assign branch
-        # takes no ``ctx`` besides the one ``clay_mode.ensure`` needs, and a
-        # bare ``ctx=None`` (as the regression tests already call it) must
-        # still be able to invalidate the right home's cache entry.
-        if not ctx.submit(
-            key, clay_matlib.save_material, home, typed.strip(), doc.materials[index], tag=home
-        ):
-            ctx.toast("A material is already being saved.", "info")
-
-    entries = _cached_materials(home)
-    if not entries:
-        widgets.muted("nothing saved yet")
-        return
-    for entry in entries:
-        imgui.push_id(f"matlib{entry.id}")
-        widgets.muted(entry.name)
-        imgui.same_line()
-        if controls.small_button(f"{icons.CHECK}##matlibapply", tooltip=f"Apply {entry.name!r}"):
-            key = _matlib_apply_key(tab.uid, obj.uid, entry.id)
-            if not ctx.submit(key, clay_matlib.load_material, home, entry.id):
-                ctx.toast("A material is already being applied.", "info")
-        imgui.same_line()
-        if controls.small_button(f"{icons.TRASH}##matlibdel", tooltip=f"Delete {entry.name!r}"):
-            _confirm_delete_material(ctx, home, entry)
-        imgui.pop_id()
+    if controls.small_button(
+        f"{icons.IMAGE} Take texture back from Inker##texback",
+        tooltip="Pick an open Inker document to copy into this slot.",
+    ):
+        imgui.open_popup(_TAKE_BACK_POPUP)
+    with controls.menu_popup(_TAKE_BACK_POPUP) as opened:
+        if not opened:
+            return
+        entries = list(texture_link.open_inker_docs(ctx))
+        if not entries:
+            widgets.muted("No Inker documents are open.")
+        for entry in entries:
+            hit = controls.menu_item(f"{icons.IMAGE} {entry.title}##texback-{entry.uid}")
+            if bool(hit[0] if isinstance(hit, tuple) else hit):
+                texture_link.take_back(ctx, tab, index, entry)

@@ -8,7 +8,7 @@ Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``de
 glue", "# --- Euler XYZ" and "# --- shared validation and mutation helpers"
 sections, plus two members the brief's own section banners misfiled: the
 module docstring's ``_OBJECT_SELECTION_DERIVED_REFUSAL`` (banner-adjacent to
-the constants, but read as one of ``clay_select``/``clay_boolean``'s own
+the constants, but read as one of ``clay_select``'s own
 validation refusals, not dispatch state) and ``_validate_query_arg`` (living
 under the old file's "# --- output schemas" banner because it happened to be
 typed next to :data:`agent_clay_schema._QUERY_ARG_SCHEMAS`, when it is in
@@ -54,7 +54,6 @@ from .....kernels.geom3d.math3d import (
 from .....kernels.mesh import elements as el
 from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
-from .....kernels.mesh import ops_modifiers as clay_ops_modifiers
 from .....kernels.mesh import uvtools
 from .....kernels.mesh.elements import OpError
 from .. import mode as clay_mode
@@ -165,9 +164,8 @@ def _over_frame_budget(
     checks for a render's base64 payload, against ``protocol.MAX_FRAME``.
 
     Called by every JSON-replying tool whose reply size scales with something
-    other than one call's own bounded arguments: ``_h_scene`` and whole-document
-    ``_h_diagnose`` (the *document's* own size, the 2026-09-18 audit's
-    agents-03: about 22,000 primitives encode to roughly 9.1 MB), ``clay_batch``
+    other than one call's own bounded arguments: ``_h_scene`` (the *document's* own size, the
+    2026-09-18 audit's agents-03: about 22,000 primitives encode to roughly 9.1 MB), ``clay_batch``
     and ``clay_program`` (the sum of whatever nested results they embed) and
     ``clay_elements`` with no ``uid`` (objects x ``limit``, the 2026-10-03
     audit's clay-23). ``_h_separate`` also calls it, but only as a probe: its
@@ -195,7 +193,7 @@ def _over_frame_budget(
     duplicated them) and, when true, the refusal says the edits were kept.
     *hint* names what the refused tool can actually be narrowed by (the
     2026-10-03 audit's clay-22: ``clay_scene`` was told to name "a single
-    uid", an argument it never had); the default is ``clay_diagnose``'s own.
+    uid", an argument it never had).
     """
     import json
 
@@ -282,8 +280,8 @@ class Session:
 def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict | None]:
     """The session's own tab, or a failure result to return unchanged.
 
-    ``create`` is only ever passed by the three tools that can act on an
-    empty session -- adding the first primitive, figure or hand-built mesh --
+    ``create`` is only ever passed by the two tools that can act on an
+    empty session -- adding the first primitive or hand-built mesh --
     so every other tool refuses outright rather than silently starting a
     document nobody asked for. Resolved through ``ClayState`` on every call,
     never cached on the session, so a tab the user closed from the keyboard
@@ -297,8 +295,8 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
             return tab, None
         if not create:
             return None, fail(
-                "This session's document was closed. Call clay_add_primitive, "
-                "clay_add_figure or clay_add_mesh to start a new one.",
+                "This session's document was closed. Call clay_add_primitive "
+                "or clay_add_mesh to start a new one.",
                 recovery="start_document",
             )
         # The pin is released here rather than left standing, because leaving
@@ -317,8 +315,8 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
         session.tab_uid = ""
     if not create:
         return None, fail(
-            "This session has no document yet. Call clay_add_primitive, "
-            "clay_add_figure or clay_add_mesh first.",
+            "This session has no document yet. Call clay_add_primitive "
+            "or clay_add_mesh first.",
             recovery="start_document",
         )
     tab = clay_mode.new_document(ctx)
@@ -341,8 +339,8 @@ def _resolve_uid(doc: Any, args: dict, key: str = "uid") -> tuple[Any, dict | No
     """*doc*'s object named by ``args[key]``, or a refusal naming ``field=key``.
 
     The ``int(args[key])`` / ``doc.by_uid`` / refusal dance that
-    ``clay_transform``, ``clay_set_params`` and ``clay_diagnose`` each spelled
-    out separately -- three copies of one lookup, free to drift on the wording
+    ``clay_transform`` and ``clay_set_params`` each spelled
+    out separately -- copies of one lookup, free to drift on the wording
     or the field name the moment one of them was edited and the others were
     not.
 
@@ -389,15 +387,13 @@ def _resolve_uids(
     past this handler's own ``collapse_since`` -- leaving the object gone,
     an unfolded, unlabelled undo step, and a refusal claiming
     ``changed: false``. The same missing de-duplication is
-    clay-agent-tools-08: ``clay_analyze uids:[u, u]`` reported a self-pair
-    overlap, and ``clay_collider`` with a repeated uid fit and added two
-    colliders for what was really one target. Every caller of this shared
+    clay-agent-tools-08: a repeated uid was treated as two targets by the
+    multi-uid tools that measured or placed per uid. Every caller of this shared
     function gets the fix at once rather than each re-deriving its own
     dedup, the same "fixed once, not per handler" reasoning that put the
     cast-and-refuse dance here in the first place. ``dict.fromkeys`` rather
     than ``set()`` because the handlers above all read *first-seen order*
-    back out of this list (``clay_delete``'s own deletion order,
-    ``clay_analyze``'s ``pairs_among``).
+    back out of this list (``clay_delete``'s own deletion order).
     """
     # The 2026-10-03 audit's clay-02: a string of digits is iterable, so
     # ``"123"`` used to read as uids 1, 2 and 3. Only a real list is an array.
@@ -456,7 +452,7 @@ def _validate_vec3(
     """Three finite numbers, or a refusal naming *field*.
 
     Shared by every optional TRS vector ``clay_add_primitive`` and
-    ``clay_add_figure`` take, so a malformed one is caught before anything is
+    ``clay_add_mesh`` take, so a malformed one is caught before anything is
     placed -- see those tools' "validate everything before the first
     mutation" rule.
 
@@ -528,10 +524,8 @@ def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
 
     Added beside :func:`_validate_vec3` for the same reason: ``clay_material``
     used to check a colour component with a bare ``isinstance(c, int | float)``,
-    which ``float("nan")`` passes as readily as a real number is a float, and
-    checked ``metallic``/``roughness`` with nothing at all
-    (``float(args.get("metallic", 0.0))``) -- so a NaN in any of the three
-    landed straight in the palette and rode along into every export from
+    which ``float("nan")`` passes as readily as a real number is a float -- so
+    a NaN landed straight in the palette and rode along into every export from
     then on.
     """
     try:
@@ -553,9 +547,9 @@ def _validate_range(
     """One finite number in ``lo..hi``, or a refusal naming *field*.
 
     :func:`_validate_unit` fixed at 0..1 for a colour component; this is the
-    same check with the bound as an argument, for ``clay_analyze``'s three
-    tolerances, each declared with its own ``minimum``/``maximum`` in the
-    schema and none of them 0..1.
+    same check with the bound as an argument, for ``clay_uv``'s margin and
+    transform values, each declared with its own ``minimum``/``maximum`` in
+    the schema and none of them 0..1.
     """
     try:
         out = float(value)
@@ -570,15 +564,11 @@ def _validate_range(
     return out, None
 
 
-def _validate_number_or_vec(
-    value: Any, field: str, *, allow_empty: bool = False
-) -> tuple[Any, dict | None]:
-    """A number, an array of numbers, or an array of arrays of numbers, every
-    one of them finite -- the ``number | array-of-numbers | array-of-arrays``
-    shape ``clay_set_params``'s own schema declares for a param value (a
-    cylinder's ``radius`` is one number, a box's ``size`` is three, a
-    lathe's ``profile`` is an array of ``[radius, y]`` pairs) -- or a refusal
-    naming *field*.
+def _validate_number_or_vec(value: Any, field: str) -> tuple[Any, dict | None]:
+    """A number or an array of numbers, every one of them finite -- the
+    ``number | array-of-numbers`` shape ``clay_set_params``'s own schema
+    declares for a param value (a cylinder's ``radius`` is one number, a
+    box's ``size`` is three) -- or a refusal naming *field*.
 
     A schema declaring a shape does not enforce it on the wire:
     ``mcp/protocol.py``'s ``tools/call`` handling checks only that
@@ -591,76 +581,13 @@ def _validate_number_or_vec(
     ``size`` sailed past ``bp.clamp_params`` (which only clamps the keys it
     knows a floor for) and baked straight into the generator's vertex
     positions.
-
-    The array-of-arrays branch was added for ``lathe``'s ``profile``, the
-    first generator parameter whose own elements are arrays rather than
-    numbers: before it, this function's flat-array branch tried
-    ``float(v)`` on each *row* of a profile and raised ``TypeError``, which
-    came back as "params must be a number or an array of numbers" -- true of
-    the old schema and wrong about the new one, since an array of arrays is
-    exactly what a profile is and exactly what ``agent_clay_schema.
-    _params_value_schema`` now declares. Every row must itself be a
-    non-empty array of finite numbers, and the outer array must not be empty
-    either -- the same two rules the flat case already holds a bare array
-    to, one level up.
-
-    **The third level is the curve handles** (``profile_handles``, ``outline_handles``,
-    ``path_handles``): per anchor, an ``[in, out]`` pair of offsets, so an array of
-    arrays of arrays of numbers. ``allow_empty`` is for them alone -- an empty
-    list *is* a handle list (no handles, every anchor a corner), where an empty
-    ``size`` or ``profile`` is a mistake the shape check names.
     """
-    if allow_empty and value == []:
-        return [], None
-    if (
-        isinstance(value, list)
-        and value
-        and all(
-            isinstance(row, list) and row and all(isinstance(side, list) for side in row)
-            for row in value
-        )
-    ):
-        try:
-            cube = [[[float(v) for v in side] for side in row] for row in value]
-        except (TypeError, ValueError, OverflowError):
-            return None, fail(
-                f"{field} must be a number, an array of numbers, or nested arrays of numbers.",
-                field=field,
-                recovery="fix_arguments",
-            )
-        if not all(
-            side and all(math.isfinite(v) for v in side) for row in cube for side in row
-        ):
-            return None, fail(
-                f"{field} must be finite numbers, with no empty row.",
-                field=field,
-                recovery="fix_arguments",
-            )
-        return cube, None
-    if isinstance(value, list) and value and all(isinstance(row, list) for row in value):
-        try:
-            rows = [[float(v) for v in row] for row in value]
-        except (TypeError, ValueError, OverflowError):
-            return None, fail(
-                f"{field} must be a number, an array of numbers, or an "
-                "array of arrays of numbers.",
-                field=field,
-                recovery="fix_arguments",
-            )
-        if not all(row and all(math.isfinite(v) for v in row) for row in rows):
-            return None, fail(
-                f"{field} must be finite numbers, with no empty row.",
-                field=field,
-                recovery="fix_arguments",
-            )
-        return rows, None
     if isinstance(value, list):
         try:
             out = [float(v) for v in value]
         except (TypeError, ValueError, OverflowError):
             return None, fail(
-                f"{field} must be a number, an array of numbers, or an "
-                "array of arrays of numbers.",
+                f"{field} must be a number or an array of numbers.",
                 field=field,
                 recovery="fix_arguments",
             )
@@ -673,8 +600,7 @@ def _validate_number_or_vec(
         out = float(value)
     except (TypeError, ValueError, OverflowError):
         return None, fail(
-            f"{field} must be a number, an array of numbers, or an array "
-            "of arrays of numbers.",
+            f"{field} must be a number or an array of numbers.",
             field=field,
             recovery="fix_arguments",
         )
@@ -689,7 +615,7 @@ def _validate_params_values(params: dict, field: str) -> dict | None:
     refusal rather than only the first -- the shared body behind the
     identical loops ``_h_add_primitive`` and ``_h_set_params`` used to run,
     each passing the literal string ``"params"`` in as *field* for every
-    value, so a lathe's bad ``profile`` beside a good ``segments`` came back
+    value, so a bad ``size`` beside a good ``segments`` came back
     as "params must be finite numbers." with nothing to say which of the
     two was wrong -- the same class of defect ``agent_clay._unknown_argument_
     refusal`` closed for a misspelled argument name.
@@ -712,9 +638,7 @@ def _validate_params_values(params: dict, field: str) -> dict | None:
     """
     messages = []
     for key in sorted(params):
-        _, failure = _validate_number_or_vec(
-            params[key], f"{field}.{key}", allow_empty=key.endswith("_handles")
-        )
+        _, failure = _validate_number_or_vec(params[key], f"{field}.{key}")
         if failure:
             messages.append(failure["content"][0]["text"])
     if not messages:
@@ -728,13 +652,12 @@ def _params_shape_refusal(params: dict, defaults: dict, field: str, subject: str
 
     :func:`_validate_params_values` checks a value is made of finite numbers
     and stops there, because that is all the wire schema declares: a param
-    value is ``number | array-of-numbers | array-of-arrays``, one shape for
-    every key of every generator. Which of the three a *particular* key
-    wants is not in that schema, and nothing downstream asked either -- so
-    ``clay_add_primitive("pyramid", params={"base": [1, 1, 1]})`` walked
-    straight into ``primitives.pyramid``'s ``float(base)`` and came back as
-    "failed unexpectedly; see the log" with a ``TypeError`` traceback in it,
-    the generic backstop catching what should have been a field-named
+    value is ``number | array-of-numbers``, one shape for every key of every
+    generator. Which of the two a *particular* key wants is not in that
+    schema, and nothing downstream asked either -- so a list handed to a
+    scalar param walked straight into the generator's ``float(...)`` and came
+    back as "failed unexpectedly; see the log" with a ``TypeError`` traceback
+    in it, the generic backstop catching what should have been a field-named
     refusal (found by the furniture author, 2026-09-12). The same hole ran
     the other way: ``box`` with ``size=1.0`` raised ``TypeError`` on the
     unpack, and ``size=[1, 1]`` a ``ValueError`` about three values, both
@@ -743,18 +666,12 @@ def _params_shape_refusal(params: dict, defaults: dict, field: str, subject: str
     The rule is **derived from ``GENERATORS``' defaults, never listed**, for
     the reason ``agent_clay.tools`` is: every default dictionary is a
     complete call (``primitives.GENERATORS``' own docstring), so the default
-    *is* the shape, and a sixteenth generator enrols itself. A scalar
-    default wants a scalar; a flat sequence default wants a flat array of
-    exactly that many numbers; a sequence-of-rows default (``lathe``'s
-    ``profile``, ``tube``'s ``path``, ``sweep``'s ``outline``) wants an
-    array of rows of exactly that row's width. The outer length of a row
-    array is free -- that is how many points the profile has, which is the
-    caller's to choose -- but the row width is not, and a three-number row
-    handed to ``lathe`` silently dropped its third column rather than saying
-    so.
+    *is* the shape, and a new generator enrols itself. A scalar default wants
+    a scalar; a flat sequence default wants a flat array of exactly that many
+    numbers.
 
-    *subject* is what the message calls the generator (``'pyramid'`` for
-    ``clay_add_primitive``, ``"'pyramid' (uid 4)"`` for ``clay_set_params``,
+    *subject* is what the message calls the generator (``'box'`` for
+    ``clay_add_primitive``, ``"'box' (uid 4)"`` for ``clay_set_params``,
     which addresses many objects and must say which one). ``field`` on the
     refusal stays exactly *field*, for the reason
     :func:`_validate_params_values` gives: only the message may name a key.
@@ -767,34 +684,6 @@ def _params_shape_refusal(params: dict, defaults: dict, field: str, subject: str
         if not isinstance(want, list | tuple):
             if isinstance(value, list):
                 messages.append(f"{field}.{key} must be a single number for {subject}.")
-            continue
-        rows = [r for r in want if isinstance(r, list | tuple)]
-        if not want:
-            # An empty default is a curve-handle list: any number of ``[in, out]``
-            # pairs, including none. The pair's width (2 for a profile or an
-            # outline, 3 for a path) is the builder's to check against its anchors.
-            ok = isinstance(value, list) and all(
-                isinstance(row, list)
-                and len(row) == 2
-                and all(isinstance(side, list) and side for side in row)
-                for row in value
-            )
-            if not ok:
-                messages.append(
-                    f"{field}.{key} must be an array of [in, out] handle pairs for {subject}."
-                )
-        elif rows:
-            width = len(rows[0])
-            ok = (
-                isinstance(value, list)
-                and bool(value)
-                and all(isinstance(row, list) and len(row) == width for row in value)
-            )
-            if not ok:
-                messages.append(
-                    f"{field}.{key} must be a non-empty array of "
-                    f"{width}-number arrays for {subject}."
-                )
         elif not (isinstance(value, list) and len(value) == len(want)):
             messages.append(
                 f"{field}.{key} must be an array of {len(want)} numbers for {subject}."
@@ -851,66 +740,6 @@ def _op_params_type_refusal(op: Any, params: dict, field: str = "params") -> dic
     return fail(" ".join(messages), field=field, recovery="fix_arguments")
 
 
-def _modifier_params_type_refusal(
-    kind_def: Any, params: dict, field: str = "params"
-) -> dict | None:
-    """Every value of a modifier's own ``params`` held to what that
-    modifier's kind actually declares -- the identical shape
-    :func:`_op_params_type_refusal` already checks for ``clay_op``'s own
-    ``params`` (a name in the kind's declared parameter list, and a single
-    finite number, the only shape any ``modifiers.ModParam`` ever stores),
-    so a bad value here is refused by name before it ever reaches
-    ``modifiers.make``/``with_params`` -- which trusts its ``params`` dict
-    to already be coerced and clamped (:mod:`.ops_modifiers`'s own module
-    docstring) and would otherwise let a non-numeric string reach a bare
-    ``float()`` call and raise there, uncaught, exactly the crash class
-    :func:`_op_params_type_refusal`'s own docstring names for ``clay_op``.
-    """
-    declared = {p.name: p for p in kind_def.params}
-    messages = []
-    for key in sorted(params):
-        if key not in declared:
-            messages.append(f"{field}.{key} is not a parameter of modifier {kind_def.name!r}.")
-            continue
-        try:
-            value = float(params[key])
-        except (TypeError, ValueError, OverflowError):
-            messages.append(
-                f"{field}.{key} must be a single number for modifier {kind_def.name!r}."
-            )
-            continue
-        if not math.isfinite(value):
-            messages.append(f"{field}.{key} must be finite for modifier {kind_def.name!r}.")
-    if not messages:
-        return None
-    return fail(" ".join(messages), field=field, recovery="fix_arguments")
-
-
-def _resolve_modifier(
-    obj: Any, args: dict, key: str = "modifier"
-) -> tuple[int | None, dict | None]:
-    """*obj*'s modifier named by ``args[key]``, or a refusal naming
-    ``field=key`` -- the modifier-stack counterpart of :func:`_resolve_uid`,
-    shared by every ``clay_modifier_*`` handler but ``clay_modifier_add``
-    (which mints a new one rather than looking an existing one up). An
-    absent id and an unknown one are two different refusals for the same
-    reason :func:`_resolve_uid`'s own docstring gives: a caller that never
-    passed one has nothing to fix by re-reading the document, while a
-    caller naming a stale id does.
-    """
-    if args.get(key) is None:
-        return None, fail(f"give a value for {key!r}.", field=key, recovery="fix_arguments")
-    try:
-        modifier_id = int(args[key])
-    except (TypeError, ValueError, OverflowError):
-        return None, fail(f"{key} must be an integer.", field=key, recovery="fix_arguments")
-    if not any(m.id == modifier_id for m in obj.modifiers):
-        return None, fail(
-            f"This object has no modifier {modifier_id}.", field=key, recovery="read_scene"
-        )
-    return modifier_id, None
-
-
 def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
     """One ``clay_select_by`` argument, validated against the fixed
     vocabulary ``agent_clay_schema._QUERY_ARG_SCHEMAS`` describes -- the one
@@ -918,24 +747,6 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
     ``clay.select`` function that has no JSON-schema knowledge of its own to
     check it with.
     """
-    if name == "edge":
-        if not isinstance(value, list) or len(value) != 2:
-            return None, fail(
-                f"{name} must be a [vertex, vertex] pair.", field=name, recovery="fix_arguments"
-            )
-        try:
-            return [int(v) for v in value], None
-        except (TypeError, ValueError, OverflowError):
-            return None, fail(
-                f"{name} must be a [vertex, vertex] pair.", field=name, recovery="fix_arguments"
-            )
-    if name == "face":
-        try:
-            return int(value), None
-        except (TypeError, ValueError, OverflowError):
-            return None, fail(
-                f"{name} must be an integer.", field=name, recovery="fix_arguments"
-            )
     if name == "slot":
         try:
             slot = int(value)
@@ -975,102 +786,6 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
                 "space must be 'world' or 'local'.", field="space", recovery="fix_arguments"
             )
         return value, None
-    if name in ("faces", "verts"):
-        # Tranche 5's "similar" queries' own seed set (``similar_area``,
-        # ``similar_normal``, ``similar_material``, ``similar_sides`` for
-        # ``faces``; ``similar_valence`` for ``verts``).
-        # ``_QUERY_ARG_SCHEMAS[name]`` declares an array of non-negative
-        # integers with ``minItems: 1`` -- identical for both names, which is
-        # why they share this branch the same way ``direction``/``min``/
-        # ``max`` already share :func:`_validate_vec3` above, rather than
-        # two copies of the same three checks.
-        #
-        # **This was the gap tests/test_agent_schemas.py's discovery walk
-        # found (Clay tranche 5's follow-up, 2026-09-19):**
-        # before this branch existed, any name this function did not
-        # recognise fell through to the ``unknown query argument`` refusal
-        # below -- which is *correct* for a name nothing declares, but
-        # ``faces``/``edges``/``verts``/``tolerance`` are declared, in
-        # ``_QUERY_ARG_SCHEMAS``, and simply had no case here yet. Every
-        # constraint the schema promised for the four of them -- minItems,
-        # item type, item minimum -- was a promise the handler never checked.
-        if not isinstance(value, list) or not value:
-            return None, fail(
-                f"{name} must be a non-empty list of integers.",
-                field=name,
-                recovery="fix_arguments",
-            )
-        try:
-            indices = [int(v) for v in value]
-        except (TypeError, ValueError, OverflowError):
-            return None, fail(
-                f"{name} must be a non-empty list of integers.",
-                field=name,
-                recovery="fix_arguments",
-            )
-        if any(i < 0 for i in indices):
-            return None, fail(
-                f"{name} must be non-negative integers.", field=name, recovery="fix_arguments"
-            )
-        return indices, None
-    if name == "edges":
-        # ``similar_length``'s own seed set: ``_QUERY_ARG_SCHEMAS["edges"]``
-        # declares a non-empty array of ``[vertex, vertex]`` pairs, each a
-        # non-negative integer -- the same pair shape ``clay_select_elements``'s
-        # own ``edges`` argument already checks in ``_h_select_elements``,
-        # minus that handler's further check that the pair is a real edge of
-        # *this* mesh (``adjacency(obj.mesh).edge_ids``): a query argument
-        # here only owns the JSON-shape half of that contract, the way
-        # ``edge``'s own branch above does not check the loop seed is a real
-        # edge either -- ``select.edge_loop``/``similar_length`` both answer
-        # empty for a seed that is not, rather than needing this function to
-        # refuse it first.
-        if not isinstance(value, list) or not value:
-            return None, fail(
-                f"{name} must be a non-empty list of [vertex, vertex] pairs.",
-                field=name,
-                recovery="fix_arguments",
-            )
-        pairs: list[list[int]] = []
-        for pair in value:
-            if not isinstance(pair, list) or len(pair) != 2:
-                return None, fail(
-                    f"{name} must be a list of [vertex, vertex] pairs.",
-                    field=name,
-                    recovery="fix_arguments",
-                )
-            try:
-                a, b = int(pair[0]), int(pair[1])
-            except (TypeError, ValueError, OverflowError):
-                return None, fail(
-                    f"{name} must be a list of [vertex, vertex] pairs.",
-                    field=name,
-                    recovery="fix_arguments",
-                )
-            if a < 0 or b < 0:
-                return None, fail(
-                    f"{name} must be non-negative vertex indices.",
-                    field=name,
-                    recovery="fix_arguments",
-                )
-            pairs.append([a, b])
-        return pairs, None
-    if name == "tolerance":
-        # Every "similar" query's own band, shared vocabulary the way
-        # ``max_angle`` is shared by ``normal`` alone -- ``_QUERY_ARG_
-        # SCHEMAS["tolerance"]`` declares ``minimum: 0.0`` (no maximum: a
-        # fraction for area/length, degrees for a normal, an integer step
-        # for sides/valence -- there is no one honest ceiling across all
-        # four units), so this checks only the floor ``_validate_number``
-        # alone does not.
-        out, failure = _validate_number(value, name)
-        if failure:
-            return None, failure
-        if out < 0.0:
-            return None, fail(
-                f"{name} must be non-negative.", field=name, recovery="fix_arguments"
-            )
-        return out, None
     return None, fail(
         f"unknown query argument {name!r}.", field=name, recovery="fix_arguments"
     )  # pragma: no cover
@@ -1128,34 +843,11 @@ def _sel_counts(sel: el.ElementSel) -> dict:
     return {"verts": len(sel.verts), "edges": len(sel.edges), "faces": len(sel.faces)}
 
 
-def _modifier_row(m: Any, evaluation: Any) -> dict:
-    """One :class:`~.modifiers.Modifier` as JSON -- the shape ``clay_scene``'s
-    own ``modifiers`` list and every ``clay_modifier_*`` tool's own reply
-    share, so a stack an agent just edited never needs a second call to see
-    what changed. ``error`` is present only for a modifier
-    :meth:`~.document.ClayDoc.evaluation` skipped -- see :mod:`.modifiers`'s
-    own "skipped, not fatal" rule; a modifier disabled outright carries no
-    error at all, since :func:`~.modifiers.evaluate` never even tries it.
-    """
-    row: dict[str, Any] = {
-        "id": m.id, "kind": m.kind, "enabled": m.enabled, "params": m.as_dict(),
-    }
-    error = next((msg for mid, msg in evaluation.errors if mid == m.id), None)
-    if error is not None:
-        row["error"] = error
-    return row
-
-
 def _uv_facts(mesh: Any) -> dict | None:
-    """The four uv measurements :data:`~.schema._object_row_output_schema`'s
+    """The two uv measurements :data:`~.schema._object_row_output_schema`'s
     own ``uv`` block declares, off *mesh*'s own already-assigned uv -- or
     ``None`` when it has none (:mod:`.uvtools`' own ``Mesh.uv is None`` gate,
     ``_require_uv``'s reason every function here would otherwise raise for).
-
-    Read off the **base** mesh, never the evaluated one -- see
-    :func:`_scene_row`'s own docstring's tranche 6 paragraph for why: a seam
-    and an unwrap are both authoring concepts about the geometry an edit
-    would actually touch.
 
     ``overlapping_faces`` is the one measurement that can refuse
     (:class:`~.elements.OpError`, past :data:`~.uvtools.MAX_OVERLAP_TRIANGLES`/
@@ -1163,58 +855,30 @@ def _uv_facts(mesh: Any) -> dict | None:
     rather than left to blow up the whole ``clay_scene`` reply. ``clay_scene``
     reads *every* visible object's row on every call it answers, so a single
     dense, uv'd mesh must not turn a read into a refusal for the rest of the
-    document; a caller that wants the real answer for that one object can
-    still ask ``clay_uv`` directly, whose own refusal names it.
+    document.
     """
     if mesh.uv is None:
         return None
     ids = uvtools.islands(mesh)
     n_islands = int(ids.max()) + 1 if len(ids) else 0
-    stretch_vals = uvtools.stretch(mesh)
-    mean_stretch = float(stretch_vals.mean()) if len(stretch_vals) else 0.0
     try:
         overlapping = int(uvtools.overlap_faces(mesh).sum())
     except OpError:
         overlapping = None
-    return {
-        "islands": n_islands,
-        "overlapping_faces": overlapping,
-        "mean_stretch": _round(mean_stretch),
-        "texel_density": _round(uvtools.texel_density(mesh)),
-    }
+    return {"islands": n_islands, "overlapping_faces": overlapping}
 
 
 def _scene_row(doc: Any, obj: Any) -> dict:
     """Everything ``clay_scene`` says about one object -- and everything
-    ``clay_add_primitive``/``clay_add_figure`` hand back too, so an agent that
+    ``clay_add_primitive``/``clay_add_mesh`` hand back too, so an agent that
     just placed something never needs a second call to learn where it landed.
 
-    ``bbox``/``size``/``center`` are measured off *this object's evaluated
-    mesh* (``doc.evaluation(uid)``, cheap -- an object with no enabled
-    modifiers evaluates to its own base mesh, ``is``-identical, see
-    :mod:`.modifiers`'s own module docstring), never the base alone: a
-    mirror or an array modifier changes what is actually on screen, and a
-    box measured only around half of it would contradict what
-    ``clay_render`` draws. ``faces``/``verts`` stay the *base* mesh's own
-    counts on purpose -- an element edit (and every element-only ``clay_op``
-    row) acts on the base, so those two numbers describe what editing this
-    object would actually change, not what a modifier stack turns it into.
-    ``modifiers``/``evaluated`` are added only once the stack is non-empty --
-    see :func:`~.schema._object_row_output_schema`'s own docstring for the
-    exact shape.
-
-    **Tranche 6/7: ``role``/``collider_kind`` and ``uv``.** ``role``/
-    ``collider_kind`` are :class:`~.document.Obj`'s own two fields, always
-    present. ``uv`` is added only when the *base* mesh carries texture
-    coordinates -- the base, not ``evaluation.mesh``, because a seam and an
-    unwrap are both authoring concepts about the geometry an element edit
-    would touch, the identical reasoning ``faces``/``verts`` already follow;
-    see :func:`_uv_facts` for the four measurements and why one of them can
-    read ``null``.
+    ``uv`` is added only when the mesh carries texture coordinates; see
+    :func:`_uv_facts` for the measurements and why one of them can read
+    ``null``.
     """
     world = doc.world_matrix(obj.uid)
-    evaluation = doc.evaluation(obj.uid)
-    box = clay_geom_ops.world_box(obj, evaluation.mesh, world=world)
+    box = clay_geom_ops.world_box(obj, obj.mesh, world=world)
     # Tranche 3: scene structure. A root's own world matrix *is* its local
     # TRS (document.py's own invariant), so reading the object's own fields
     # directly here -- rather than decomposing `world` back apart -- is not a
@@ -1238,8 +902,6 @@ def _scene_row(doc: Any, obj: Any) -> dict:
         "name": obj.name,
         "visible": obj.visible,
         "parent": obj.parent,
-        "locked": obj.locked,
-        "tags": list(obj.tags),
         "generator": obj.generator,
         "params": obj.params,
         "faces": bm.face_count(obj.mesh),
@@ -1256,8 +918,6 @@ def _scene_row(doc: Any, obj: Any) -> dict:
         # need a second call to learn what came across on this object.
         "stamp": doc.mesh_stamp(obj.uid),
         "selected": _sel_counts(doc.element_sel_of(obj.uid)),
-        "role": obj.role,
-        "collider_kind": obj.collider_kind,
     }
     uv_facts = _uv_facts(obj.mesh)
     if uv_facts is not None:
@@ -1269,13 +929,6 @@ def _scene_row(doc: Any, obj: Any) -> dict:
             "rotation": _round([lrx, lry, lrz]),
             "scale": _round(obj.scale),
         }
-    if obj.modifiers:
-        row["modifiers"] = [_modifier_row(m, evaluation) for m in obj.modifiers]
-        row["evaluated"] = {
-            "vertices": len(evaluation.mesh.positions),
-            "faces": bm.face_count(evaluation.mesh),
-            "triangles": clay_ops_modifiers._triangle_count(evaluation.mesh),
-        }
     return row
 
 
@@ -1283,7 +936,7 @@ _OBJECT_SELECTION_DERIVED_REFUSAL = (
     "The object selection is derived from the element selection in "
     "vertex/edge/face mode. Call clay_element_mode with mode='object' first."
 )
-"""What ``clay_select`` and ``clay_boolean`` say in an element mode, verbatim
-in both -- see each handler's own comment for why they refuse rather than
-guess, and ``agent_clay_tools._h_delete``'s docstring for why it is
-deliberately not a third."""
+"""What ``clay_select`` says in an element mode -- see its handler's own
+docstring for why it refuses rather than guesses, and
+``agent_clay_tools._h_delete``'s docstring for why that tool is deliberately
+not a second."""

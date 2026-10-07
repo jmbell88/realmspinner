@@ -1,13 +1,12 @@
 """Insertion decides shading: the 2026-09-06 audit's organic-shapes decision.
 
-The user's call that day: organic shapes -- the eight figure assemblies and
-the curved primitives -- insert smooth-shaded; structural shapes keep hard
-edges. The mechanism is not new: it is ``clay_ops._shade_auto``'s existing
-angle rule (a face is smooth only when *every* one of its edges is under the
-threshold), extracted here as :func:`clay.shading.auto_smooth` so the two
-insertion doors -- ``modes/clay/ui/panes/tools.add_primitive`` for a shape off the grid
-and ``modes/clay/ui/panes/tools.add_assembly`` for a figure's parts -- and the manual
-"Shade Auto..." op all read one rule rather than three copies of it.
+The user's call that day: organic shapes (the curved primitives; the figure
+assemblies it also named are gone from Clay) insert smooth-shaded; structural
+shapes keep hard edges. The mechanism is the angle rule (a face is smooth only
+when *every* one of its edges is under the threshold), kept as
+:func:`shading.auto_smooth` so the insertion door
+(``modes/clay/ui/panes/tools.add_primitive``, for a shape off the grid) reads
+one rule rather than a private copy.
 
 Consequence, stated by the rule itself and pinned here rather than assumed:
 **a cylinder and a cone stay flat**, because every side face meets a cap at a
@@ -195,62 +194,12 @@ def test_a_cylinder_placed_from_the_grid_arrives_flat() -> None:
     assert not obj.mesh.smooth.any()
 
 
-# --- a figure's parts -------------------------------------------------------
-
-
-def test_a_figures_box_and_sphere_parts_come_out_flat_and_smooth() -> None:
+def test_a_capsule_placed_from_the_grid_arrives_smooth() -> None:
+    """A capsule has no caps, so by :func:`shading.auto_smooth`'s rule nothing on
+    one is inherently sharp and it comes back fully smooth."""
     doc = bd.ClayDoc()
-    objs = clay_tools.add_assembly(None, doc, "humanoid")
-    by_name = {obj.name: obj for obj in objs}
-
-    hand = by_name["Hand.L"]
-    assert hand.generator == "box"
-    assert not hand.mesh.smooth.any()
-
-    head = by_name["Head"]
-    assert head.generator == "uv_sphere"
-    assert head.mesh.smooth.all()
-
-
-def test_a_figures_capsule_limbs_come_out_smooth_rather_than_beaded() -> None:
-    """The outcome the 2026-09-06 decision was actually for.
-
-    A capsule has no caps, so by :func:`shading.auto_smooth`'s rule nothing on
-    one is inherently sharp, and a capsule at the grid's own defaults comes
-    back fully smooth. A figure's limbs did not, and the arithmetic is the
-    whole story: a hemisphere divides 90 degrees by its ring count, so
-    ``presets.LIMB_RINGS = 3`` stepped by exactly 30 -- precisely
-    :data:`shading.DEFAULT_ANGLE`. Landing *on* the threshold is not a margin;
-    quad-normal blending tipped enough bands past it that a humanoid's upper
-    arm measured 33% smooth and the figure went on reading as a string of
-    beads, which is the complaint the decision existed to answer.
-
-    ``LIMB_RINGS`` is 4 since 2026-09-06: the step is 22.5 degrees, the same
-    limb measures ~93%, and the silhouette is untouched because ring count is
-    tessellation density rather than proportion. This test asserts the *wanted*
-    number rather than the measured-today one -- it is the claim, not a pin on
-    an accident.
-    """
-    doc = bd.ClayDoc()
-    objs = clay_tools.add_assembly(None, doc, "humanoid")
-    by_name = {obj.name: obj for obj in objs}
-
-    limb = by_name["Upper arm.L"]
-    assert limb.generator == "capsule"
-    limb_fraction = float(limb.mesh.smooth.mean())
-
-    standalone = shading.auto_smooth(bp.capsule())
-    assert standalone.smooth.all(), "a capsule at its own defaults is fully smooth"
-
-    assert limb_fraction > 0.85, (
-        f"Upper arm.L is {limb_fraction:.0%} smooth; limbs must read as round, "
-        "and a drop back towards a third means a ring count has landed on "
-        "shading.DEFAULT_ANGLE again"
-    )
-
-    # A figure's boxy parts keep their hard edges under the same rule -- the
-    # half of the decision that says structural geometry is left alone.
-    assert not by_name["Hand.L"].mesh.smooth.any(), "a box part stays flat"
+    obj = clay_tools.add_primitive(None, doc, "capsule")
+    assert obj.mesh.smooth.all()
 
 
 # --- surviving a properties-panel rebuild -----------------------------------

@@ -83,22 +83,20 @@ def test_overlay_scales_a_small_reference_up_to_fill_the_cell_like_the_render() 
         assert img.convert("RGB").getpixel((5, 5)) == (255, 0, 0)
 
 
-def test_remap_rewrites_the_parent_focus_and_modifier_target_uids_a_replay_would_otherwise_leave_stale() -> None:  # noqa: E501
+def test_remap_rewrites_the_parent_and_focus_uids_a_replay_would_otherwise_leave_stale() -> None:
     m = {1: 11, 2: 22, 3: 33}
     assert agent_transcript.remap({"uid": 1, "parent": 2}, m, "t", 1)["parent"] == 22
     assert agent_transcript.remap({"parent": None, "uid": 1}, m, "t", 1)["parent"] is None
     assert agent_transcript.remap({"focus": [1, 3]}, m, "t", 1)["focus"] == [11, 33]
-    mod = {"uid": 1, "kind": "boolean", "params": {"target": 3}}
-    out = agent_transcript.remap(mod, m, "t", 1, tool="clay_modifier_add")
-    assert out["params"]["target"] == 33
     # a numeric target of another tool (clay_uv texel density) is not a uid
     assert agent_transcript.remap({"uid": 1, "target": 1024}, m, "t", 1, tool="clay_uv") == {
         "uid": 11,
         "target": 1024,
     }
-    entry = {"tool": "clay_modifier_set", "arguments": {"uid": 1, "params": {"target": 2}}}
+    entry = {"tool": "clay_uv", "arguments": {"uid": 1, "parent": 2}}
     out = agent_transcript.remap({"calls": [entry]}, m, "t", 1)
-    assert out["calls"][0]["arguments"]["params"]["target"] == 22
+    assert out["calls"][0]["arguments"]["uid"] == 11
+    assert out["calls"][0]["arguments"]["parent"] == 22
     live = {"steps": [{"move": {"uid": {"uid": 2}, "by": [0, 1, 0]}}]}
     assert agent_transcript.remap(live, m, "t", 1)["steps"][0]["move"]["uid"] == {"uid": 22}
 

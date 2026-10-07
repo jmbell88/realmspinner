@@ -1,0 +1,170 @@
+{
+  "mirrored": {
+    "uid": 1,
+    "modifiers": [
+      [
+        "mirror",
+        true
+      ],
+      [
+        "bevel",
+        true
+      ]
+    ],
+    "errors": [],
+    "role": "mesh",
+    "generator": "box",
+    "parent": null,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "target": {
+    "uid": 2,
+    "modifiers": [],
+    "errors": [],
+    "role": "mesh",
+    "generator": "box",
+    "parent": null,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "booled": {
+    "uid": 3,
+    "modifiers": [
+      [
+        "array",
+        true
+      ],
+      [
+        "boolean",
+        true
+      ]
+    ],
+    "errors": [],
+    "role": "mesh",
+    "generator": "box",
+    "parent": null,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "lathe": {
+    "uid": 4,
+    "modifiers": [
+      [
+        "mirror",
+        true
+      ]
+    ],
+    "errors": [],
+    "role": "mesh",
+    "generator": "lathe",
+    "parent": null,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "seamed": {
+    "uid": 5,
+    "modifiers": [],
+    "errors": [],
+    "role": "mesh",
+    "generator": "box",
+    "parent": null,
+    "locked": true,
+    "tags": [
+      "crate",
+      "prop"
+    ],
+    "seams": [
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        3
+      ]
+    ]
+  },
+  "disabled": {
+    "uid": 6,
+    "modifiers": [
+      [
+        "weld",
+        false
+      ]
+    ],
+    "errors": [],
+    "role": "mesh",
+    "generator": "box",
+    "parent": null,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "broken": {
+    "uid": 7,
+    "modifiers": [
+      [
+        "weld",
+        true
+      ],
+      [
+        "boolean",
+        true
+      ]
+    ],
+    "errors": [
+      [
+        2,
+        "Choose a target object."
+      ]
+    ],
+    "role": "mesh",
+    "generator": "box",
+    "parent": null,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "child": {
+    "uid": 8,
+    "modifiers": [],
+    "errors": [],
+    "role": "mesh",
+    "generator": "box",
+    "parent": 1,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "mirrored Box": {
+    "uid": 9,
+    "modifiers": [],
+    "errors": [],
+    "role": "collider",
+    "generator": null,
+    "parent": 1,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  },
+  "under_collider": {
+    "uid": 10,
+    "modifiers": [],
+    "errors": [],
+    "role": "mesh",
+    "generator": "box",
+    "parent": 9,
+    "locked": false,
+    "tags": [],
+    "seams": []
+  }
+}

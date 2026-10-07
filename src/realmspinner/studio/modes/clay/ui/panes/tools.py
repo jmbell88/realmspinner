@@ -1,23 +1,14 @@
-"""Clay's Add palette: every shape and figure you can place, and what the next click makes.
+"""Clay's Add palette: every shape you can place, and what the next click makes.
 
 The same shape the raster editor's tool panel takes -- an icon grid, then the
 options for whatever is selected rather than every option at once -- for the
 same reason: a panel that shows all of them is unreadable, and a rotation snap
 means nothing while the select tool is active.
 
-**One grid, one selection, one options block (the 2026-09-08 panel-grammar
-pass).** This file used to draw three different affordances for "pick a
-thing": primitives as an unlabelled icon grid with the name only in a
-tooltip, figures as one full-width text button per row, and the ops as a
-ragged two-column grid whose gaps were uneven because every button auto-sized
-to its own label. Every add-tool -- primitive or figure -- now writes
-``state.generator``, the same field regardless of which row placed it, and
-the options block right below the grid reads that one field. Figures still
-draw as labelled rows rather than icons; see :func:`_figures` for why that
-half of the old inconsistency stays rather than being papered over with a
-misleading glyph. ``tool_palette.icon_grid`` is the reusable half of the new
-grammar -- the plain "equal buttons, tooltip-named, one selected" shape -- and
-it is a new module rather than code grown in this file again, because Inker's
+**One grid, one selection, one options block.** Every add-tool writes
+``state.generator``, and the options block right below the grid reads that one
+field. ``tool_palette.icon_grid`` is the reusable half of the grammar -- the
+plain "equal buttons, tooltip-named, one selected" shape -- because Inker's
 toolbox and Plotter's tool rail are two more callers for the same idea.
 
 **Every control that changes the document is disabled while a save is in
@@ -44,7 +35,7 @@ from imgui_bundle import imgui
 from ......kernels.mesh import document as bd
 from ......kernels.mesh import ops
 from ......kernels.mesh import primitives as bp
-from ..... import controls, icons, tokens, tool_palette, widgets
+from ..... import icons, tokens, tool_palette, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as clay_mode
@@ -89,7 +80,7 @@ def _body(ctx: Any) -> None:
     """What you can *add*, and what that add-tool will place -- and nothing else.
 
     Most of what this pane held has gone to the viewport header: the tool grid,
-    the mode row, snapping, proportional editing and the view aids are settings
+    the mode row, snapping and the view aids are settings
     changed between clicks in the viewport, and the operations are menus there.
     What is left is what a sidebar is right for -- lists that want the height
     and are read down rather than flicked between, plus the one block under
@@ -111,14 +102,12 @@ def _body(ctx: Any) -> None:
 
 
 def _add(ctx: Any, state: Any, doc: Any) -> None:
-    """Every tool that places something, in one grid plus one row-list.
+    """Every tool that places something, one grid per section.
 
-    Enumerated rather than listed, so a seventh primitive is a new entry in
-    ``primitives.GENERATORS`` and no edit here at all -- which is the whole
-    reason that registry is data. Each button sets ``state.generator`` to the
-    key it placed, exactly as :func:`_figures`'s rows do below, so the two
-    groups share one idea of "the tool in hand" even though only one of them
-    can show it as a selected icon.
+    Enumerated rather than listed, so a sixteenth shape is a new entry in
+    ``primitives.CLAY_GENERATORS`` and no edit here at all -- which is the
+    whole reason that registry is data. Each button sets ``state.generator`` to
+    the key it placed, so the options block below always names the tool in hand.
     """
     for label, names in sections():
         widgets.field_label(label)
@@ -130,65 +119,15 @@ def _add(ctx: Any, state: Any, doc: Any) -> None:
         if clicked:
             add_primitive(ctx, doc, clicked)
             state.generator = clicked
-    _figures(ctx, state, doc)
 
 
 def sections() -> list[tuple[str, tuple[str, ...]]]:
-    """``primitives.CATEGORIES``, plus anything the table forgot.
+    """``primitives.CLAY_GENERATORS``: the shapes Clay offers, by section.
 
-    The table is asserted to be a partition of ``GENERATORS``, so the trailing
-    section is empty in every shipped build and the test that says so is an
-    exact equality. It is drawn anyway for ``tool_palette.PRIMITIVE_ICONS.get``'s reason: a
-    thirteenth generator added and not filed still gets a button on the day it
-    is written rather than on the day someone remembers this file, which is the
-    property that makes ``_add`` generated from data rather than a third list
-    of what Clay can build.
+    The table is Clay's own subset of ``GENERATORS`` (which stays whole for
+    Mason's saved scenes), so this is not asserted to be a partition of it.
     """
-    out = [(label, tuple(names)) for label, names in bp.CATEGORIES]
-    filed = {name for _, names in bp.CATEGORIES for name in names}
-    rest = tuple(sorted(set(bp.GENERATORS) - filed))
-    if rest:
-        out.append(("other", rest))
-    return out
-
-
-def _figures(ctx: Any, state: Any, doc: Any) -> None:
-    """The assembly presets, as labelled full-width rows -- deliberately not
-    icons, even though the grid above is now the house shape for "pick a
-    thing to add".
-
-    Only one of the eight templates has a defensible glyph in the pinned
-    lucide subset (``icons.py`` transcribes lucide-static 0.525.0 and its own
-    docstring forbids guessing a codepoint): ``humanoid`` could honestly wear
-    ``PERSON_STANDING``, and at a stretch so could ``biped_tail`` -- the same
-    silhouette, plus a tail nothing in the set draws. The other six --
-    quadruped, bird, serpent, insect, fish, blob -- have nothing that reads as
-    them rather than as something else; the manual already said as much
-    ("a humanoid and a blob look the same at sixteen pixels"). Icon-ing two of
-    eight and leaving six as text would recreate the exact inconsistency this
-    pass exists to remove, one level down, so the group stays uniform. The
-    labels are also doing real work a tooltip could not: "Serpent (limbless
-    chain)" is most of what a user needs to know before clicking it, and a
-    16px glyph has no room for the parenthetical.
-
-    Still one *selection* with the grid above, if not one affordance: a press
-    here calls :func:`add_assembly` and sets ``state.generator`` exactly as a
-    primitive button does, so the options block below always names whichever
-    was placed last, from either row.
-    """
-    from ......kernels.mesh import presets
-
-    if not presets.ASSEMBLIES:
-        return
-    widgets.field_label("figures")
-    width = widgets.grid_width(1)
-    for key, (label, _build) in presets.ASSEMBLIES.items():
-        if controls.button(
-            f"{label}##figure{key}", (width, sp(28)), selected=state.generator == key
-        ):
-            add_assembly(ctx, doc, key)
-            state.generator = key
-    imgui.new_line()
+    return [(label, tuple(names)) for label, names in bp.CLAY_GENERATORS]
 
 
 def _options(ctx: Any, state: Any, doc: Any) -> None:
@@ -232,40 +171,24 @@ _PRIMITIVE_NOTE = (
     "in Properties, once it exists."
 )
 
-#: Shown under a figure's entry. Figures have no per-field defaults of their
-#: own to preview -- ``presets.build`` computes a whole rig template's worth
-#: of parts -- so this says what a figure *is* instead.
-_FIGURE_NOTE = (
-    "A preset arrangement of primitives, placed as one undo step. Each part "
-    "opens in Properties like any other object once it is down."
-)
-
-
 def _options_for(name: str) -> tuple[str, tuple[tuple[str, str], ...], str] | None:
     """``(heading, rows, note)`` for one add-tool's options, or ``None`` for a
-    name that names neither a generator nor a figure -- a document opened from
-    an older save whose remembered tool was since removed from the registry,
-    say.
+    name that is not one of Clay's shapes -- a remembered tool since removed
+    from the palette, say.
 
     Pure: no imgui, no document. That is what makes "the options shown belong
     to the selected tool and change when the selection changes" a claim a test
     can prove without a GL context, the same way ``clay_header``'s own tables
     are checked.
     """
-    entry = bp.GENERATORS.get(name)
-    if entry is not None:
-        defaults, _build = entry
-        rows = tuple(
-            (key.replace("_", " "), _format_default(value)) for key, value in defaults.items()
-        )
-        return name.replace("_", " ").title(), rows, _PRIMITIVE_NOTE
-    from ......kernels.mesh import presets
-
-    figure = presets.ASSEMBLIES.get(name)
-    if figure is not None:
-        label, _build = figure
-        return label, (), _FIGURE_NOTE
-    return None
+    entry = bp.GENERATORS.get(name) if name in bp.CLAY_GENERATOR_NAMES else None
+    if entry is None:
+        return None
+    defaults, _build = entry
+    rows = tuple(
+        (key.replace("_", " "), _format_default(value)) for key, value in defaults.items()
+    )
+    return name.replace("_", " ").title(), rows, _PRIMITIVE_NOTE
 
 
 def _format_default(value: Any) -> str:
@@ -288,9 +211,8 @@ def add_primitive(ctx: Any, doc: Any, name: str) -> Any:
     point ``clay_ops`` clears the field and the panel switches to counts.
 
     **Shading is decided here, not by the generator.** ``primitives.py`` always
-    hands back a flat mesh (see its own module docstring); this is one of the
-    two doors an object is placed through, and the 2026-09-06 audit's
-    organic-shapes decision was that placing one is what smooths it.
+    hands back a flat mesh (see its own module docstring); this is the door an
+    object is placed through, and placing one is what smooths it.
     ``shading.auto_smooth`` runs unconditionally on every shape rather than
     against a membership list of "the organic ones" -- box, plane, pyramid and
     every other faceted primitive already come back flat under the angle rule
@@ -318,75 +240,9 @@ def add_primitive(ctx: Any, doc: Any, name: str) -> Any:
     return obj
 
 
-def add_assembly(ctx: Any, doc: Any, key: str) -> list[Any]:
-    """Place every part of a figure preset, as one undo step.
-
-    Each part is an ordinary generated object -- same generator name, same
-    recorded params -- so the properties panel offers a leg's radius the way it
-    offers a lone cylinder's, and nothing about a figure is a special kind of
-    document. What the preset adds is where the parts sit and what they are
-    called; the parts themselves are the primitives that were already there.
-
-    Through :func:`_unique_name` for the reason ``add_primitive`` is: two
-    humanoids in one document must not have two objects called ``Head``, and
-    the count is taken against the document *as it grows*, which is why the
-    objects are appended to a list here and handed over in one call rather
-    than named up front.
-
-    Goes through ``presets.build`` rather than calling ``ASSEMBLIES[key][1]``
-    itself, so the grounding rule from the 2026-09-06 audit's clay-08 finding
-    (terrestrial figures sit on the ground, the two swimmers keep their
-    authored placement) applies here without this pane knowing which key is
-    which.
-
-    **The other insertion door.** Every part gets ``shading.auto_smooth`` the
-    same way ``add_primitive``'s lone shape does -- unconditionally, by the
-    same rule, rather than a per-generator or per-part list of which parts are
-    "organic": every figure part is a capsule, a sphere, an icosphere or a box
-    (see ``presets.py``), so the rule alone gives a humanoid's boxy hands and
-    feet hard edges with nothing here needing to know which parts those are.
-    A capsule limb's *own* result is coarser than that: ``presets.py``'s
-    ``LIMB_SEGMENTS``/``LIMB_RINGS`` put a limb's mesh right at the angle
-    rule's threshold, so a limb comes back mostly rather than fully smooth --
-    measured in ``tests/modes/clay/test_shading.py``, and a figure-proportions
-    question this change is scoped out of touching.
-    """
-    from ......kernels.mesh import presets, shading
-
-    label, _builder = presets.ASSEMBLIES[key]
-    objs: list[Any] = []
-    taken: set[str] = set()
-    for part in presets.build(key):
-        defaults, make = bp.GENERATORS[part.generator]
-        params = {**defaults, **part.params}
-        name = _unique_name(doc, part.name, taken)
-        taken.add(name)
-        objs.append(
-            bd.Obj(
-                uid=bd.new_uid(),
-                name=name,
-                mesh=shading.auto_smooth(make(**params)),
-                generator=part.generator,
-                params=dict(params),
-                translation=list(part.translation),
-                rotation=list(part.rotation),
-                scale=list(part.scale),
-            )
-        )
-    doc.add_objects(objs, label)
-    del ctx
-    return objs
-
-
-def _unique_name(doc: Any, base: str, also: set[str] | None = None) -> str:
-    """A name no object in *doc* wears.
-
-    ``also`` is for the several objects an assembly places in one call: they
-    are not in ``doc.objects`` yet, so counting against the document alone
-    would hand every leg of a second humanoid the name the first leg already
-    has. The caller adds each name it takes.
-    """
-    taken = {obj.name for obj in doc.objects} | (also or set())
+def _unique_name(doc: Any, base: str) -> str:
+    """A name no object in *doc* wears."""
+    taken = {obj.name for obj in doc.objects}
     if base not in taken:
         return base
     # The same counting-up rule ``ops.duplicate`` uses, so two objects never

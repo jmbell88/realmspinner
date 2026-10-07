@@ -108,9 +108,6 @@ def test_a_timed_out_read_is_re_run_not_replayed_after_the_document_changed(monk
     [
         "clay_scene",
         "clay_measure",
-        "clay_analyze",
-        "clay_diagnose",
-        "clay_validate",
         "clay_elements",
     ],
 )

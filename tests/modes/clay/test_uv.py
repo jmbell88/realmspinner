@@ -199,14 +199,6 @@ def test_opposite_faces_are_mirrored_rather_than_projected_alike():
     assert u_at(back, -0.5) == pytest.approx(1.0)
 
 
-def test_a_planar_unwrap_flattens_everything_down_one_axis():
-    mesh = uv_mod.planar_unwrap(_bare(prim.box()), axis=1)
-    # Every corner's u comes from X and its v from Z, so the two -Y/+Y faces
-    # and the four sides all project into the same square.
-    assert mesh.uv.shape == (len(mesh.loops), 2)
-    assert float(mesh.uv.max()) == pytest.approx(1.0)
-
-
 def test_unwrapping_changes_no_geometry_at_all():
     """UVs are not geometry: the positions, the topology, the materials and the
     shading flags all have to come back untouched, which is what lets the op
@@ -281,11 +273,15 @@ def test_the_unwrap_op_is_one_undo_step_per_object():
 def test_box_unwrap_gives_every_face_of_a_box_positive_uv_winding():
     """clay-11: X and Y faces came out mirrored (negative signed uv area seen
     from outside) while only the Z pair read the right way round."""
-    from realmspinner.kernels.mesh import uvtools
-
     box = prim.box((1.0, 2.0, 3.0))
     out = uv_mod.box_unwrap(box)
-    assert not uvtools.flipped_uv_faces(out).any()
+    for face in range(len(out.starts) - 1):
+        corners = np.arange(int(out.starts[face]), int(out.starts[face + 1]))
+        u, v = out.uv[corners, 0].astype("f8"), out.uv[corners, 1].astype("f8")
+        # Shoelace: a positive signed area is the counter-clockwise winding every
+        # unwrap in this package produces.
+        area = 0.5 * float(np.sum(u * np.roll(v, -1) - np.roll(u, -1) * v))
+        assert area > 0.0, f"face {face} reads mirrored"
 
 
 def test_every_primitive_the_manual_says_has_no_overlapping_uv_has_none():

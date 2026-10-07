@@ -34,16 +34,15 @@ def _variety_doc() -> bd.ClayDoc:
     cyl = replace(cyl, material=np.ones(bm.face_count(cyl), dtype="i4"))
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Cyl", mesh=cyl, material=1))
 
-    planar = uv_mod.planar_unwrap(bp.plane(), axis=1)
+    planar = uv_mod.box_unwrap(bp.plane())
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Plane", mesh=planar, material=0))
     return doc
 
 
 def _material_key(material) -> tuple:
-    return (
-        tuple(round(c, 4) for c in material.base_color_factor),
-        round(material.roughness_factor, 4),
-    )
+    # Colour only: roughness is fixed at Clay's default on the way in
+    # (``document.reduce_material``), so a hand-set one is not a round trip.
+    return (tuple(round(c, 4) for c in material.base_color_factor),)
 
 
 def test_round_trip_preserves_face_counts_ngons_material_assignment_and_uv() -> None:
@@ -157,16 +156,79 @@ def test_a_kilometre_scale_position_keeps_sub_millimetre_precision() -> None:
     )
 
 
-def test_a_material_with_a_texture_gets_a_comment_not_a_silent_drop() -> None:
+def test_a_material_with_a_texture_names_it_with_map_kd_not_a_silent_drop() -> None:
     from realmspinner.kernels.geom3d import gltf
 
     doc = bd.ClayDoc(materials=[gltf.Material(name="Tex", base_color=(2, 2, b"\x00" * 16))])
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box(), material=0))
     obj_text, mtl_text = objexport.claydoc_to_obj(doc)
-    assert "texture" in mtl_text
+    assert "map_Kd model_0.png" in mtl_text.splitlines()
 
 
 def test_ns_and_roughness_are_exact_inverses_over_the_unit_interval() -> None:
     for r in (0.0, 0.1, 0.25, 0.5, 0.75, 1.0):
         ns = objimport.ns_from_roughness(r)
         assert objimport.roughness_from_ns(ns) == pytest.approx(r, abs=1e-9)
+
+
+# --- textures: map_Kd and the PNG sidecar -------------------------------------
+
+
+def _textured_doc() -> bd.ClayDoc:
+    doc = bd.ClayDoc(materials=[bd.default_material("Plain"), bd.default_material("Painted")])
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
+    doc.paint_faces(doc.objects[0].uid, [0, 1], 1)
+    pixels = bytes([10, 20, 30, 255, 200, 100, 50, 255, 0, 0, 0, 255, 255, 255, 255, 128])
+    doc.materials[1] = replace(doc.materials[1], base_color=(2, 2, pixels), nearest=True)
+    return doc
+
+
+def test_a_textured_material_names_its_png_in_the_mtl_and_an_untextured_one_does_not() -> None:
+    _, mtl_text = objexport.claydoc_to_obj(_textured_doc(), name="chair")
+
+    blocks = {b.splitlines()[0]: b for b in mtl_text.split("newmtl ")[1:]}
+    assert "map_Kd chair_1.png" in blocks["Material_1"].splitlines()
+    assert "map_Kd" not in blocks["Material_0"]
+
+
+def test_the_png_sidecar_carries_the_textures_pixels() -> None:
+    import io
+
+    from PIL import Image
+
+    doc = _textured_doc()
+
+    pngs = objexport.claydoc_textures(doc)
+
+    assert list(pngs) == [1]
+    image = Image.open(io.BytesIO(pngs[1]))
+    assert image.size == (2, 2)
+    assert image.convert("RGBA").tobytes() == doc.materials[1].base_color[2]
+
+
+def test_a_document_with_no_texture_writes_no_png_and_no_map_kd() -> None:
+    doc, _ = bd.ClayDoc(), None
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
+
+    _, mtl_text = objexport.claydoc_to_obj(doc)
+
+    assert objexport.claydoc_textures(doc) == {}
+    assert "map_Kd" not in mtl_text
+
+
+def test_a_texture_no_visible_face_uses_is_not_written() -> None:
+    doc = _textured_doc()
+    doc.paint_faces(doc.objects[0].uid, [0, 1], 0)  # nothing is on the textured slot now
+
+    _, mtl_text = objexport.claydoc_to_obj(doc)
+
+    assert objexport.claydoc_textures(doc) == {}
+    assert "map_Kd" not in mtl_text
+
+
+def test_the_mtl_texture_name_is_a_bare_file_name() -> None:
+    _, mtl_text = objexport.claydoc_to_obj(_textured_doc(), name="a\nb")
+
+    names = [ln.split(" ", 1)[1] for ln in mtl_text.splitlines() if ln.startswith("map_Kd")]
+    assert names == [objexport.texture_name("a\nb", 1)]
+    assert "\n" not in names[0] and "/" not in names[0]

@@ -28,11 +28,6 @@ _ALLOWED: dict[str, str] = {
     "CHANGELOG.md": "entries below 0.0.52 describe releases published under that name",
     "tests/kernels/geom3d/test_glbwrite.py": "records why the pinned glTF bytes moved",
     "tests/modes/inker/test_cel_z.py": "records why the pinned .ora bytes moved",
-    "src/realmspinner/familiar/cards/clay-1.txt": (
-        "a frozen prompt card, identified to a model by its sha256, so renaming the word "
-        "changes the card; it is retired when Familiar's Clay card is regenerated from the "
-        "live tool surface (the fine-tune programme's first step) and this entry goes then"
-    ),
     "tests/test_old_name_gone.py": "this file",
 }
 

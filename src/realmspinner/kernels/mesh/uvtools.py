@@ -1,26 +1,18 @@
-"""Islands, packing, density and distortion over an already-assigned uv.
+"""Islands, packing and overlap over an already-assigned uv.
 
-Clay tranche 6 ("UV and materials"). Everything a UV
-editor pane needs once a mesh has ``uv`` set -- by :mod:`.uv`'s box/planar
-projection, or by :mod:`.uvunwrap`'s LSCM solve -- lives here: which faces
-form one connected patch, moving a patch around in uv space, packing several
-into the unit square, and the three measurements (texel density, overlap,
-stretch) a validator or a pane's overlay reads. :mod:`.uvunwrap` is the other
-half, split out because the LSCM solve is a different kind of code (a sparse
-linear system) from the array plumbing here, and because it is the one
-function in the tranche heavy enough to earn its own ceiling.
+Everything a UV editor pane needs once a mesh has ``uv`` set -- by :mod:`.uv`'s
+box projection: which faces form one connected patch, moving a patch around in
+uv space, packing several into the unit square, and the overlap check a pane's
+overlay reads.
 
 **A seam is not stored.** ``Mesh.uv`` already carries it implicitly -- two
-corners at one vertex with different uvs -- so a seam set here is always
-*derived* (:func:`seams_from_uv`) or *supplied by the caller as a plan*
-(:func:`islands_by_seams`, read by :func:`~.uvunwrap.unwrap_lscm` before any
-uv exists to derive one from). Nothing here adds a field to :class:`~.mesh.Mesh`.
+corners at one vertex with different uvs -- so an island is always *derived*
+(:func:`islands`). Nothing here adds a field to :class:`~.mesh.Mesh`.
 
-Everything is pure numpy over :mod:`.mesh` and :mod:`.adjacency`; the one
-lazy exception is ``scipy.sparse``/``scipy.sparse.csgraph`` for connected
-components, imported inside the two functions that need it -- the package's
-own ``LAZY_ONLY`` rule (see ``tests/modes/clay/test_clay_imports.py``), which
-already covers scipy for :mod:`.analyze`'s own ``cKDTree`` use.
+Everything is pure numpy over :mod:`.mesh` and :mod:`.adjacency`; the one lazy
+exception is ``scipy.sparse``/``scipy.sparse.csgraph`` for connected
+components, imported inside the function that needs it -- the package's own
+``LAZY_ONLY`` rule (see ``tests/modes/clay/test_clay_imports.py``).
 """
 
 from __future__ import annotations
@@ -43,18 +35,10 @@ __all__ = [
     "MAX_OVERLAP_REGISTRATIONS",
     "MAX_OVERLAP_PAIRS",
     "MAX_UV_ISLANDS",
-    "edge_key",
-    "edge_keys",
-    "seams_from_uv",
     "islands",
-    "islands_by_seams",
     "transform_islands",
     "pack_islands",
-    "texel_density",
-    "normalize_density",
     "overlap_faces",
-    "stretch",
-    "flipped_uv_faces",
 ]
 
 #: Grid-bucketed :func:`overlap_faces` refuses a mesh with more uv triangles
@@ -69,11 +53,9 @@ MAX_OVERLAP_BUCKET = 512
 
 #: A ceiling on the *total* number of triangle-into-cell registrations one
 #: :func:`overlap_faces` call may perform, summed across every triangle --
-#: the other half of the two-ceiling shape :func:`~.analyze._grid_candidates`
-#: already uses (its own ``_MAX_CELLS_PER_TRIANGLE_AXIS``,
-#: ``_MAX_GRID_REGISTRATIONS``): :data:`MAX_OVERLAP_BUCKET` alone only bounds
-#: one over-full cell, not the aggregate cost of *many* triangles that each
-#: individually stay under it. The 2026-09-19 audit's clay-12 found this grid
+#: :data:`MAX_OVERLAP_BUCKET` alone only bounds one over-full cell, not the
+#: aggregate cost of *many* triangles that each individually stay under it.
+#: The 2026-09-19 audit's clay-12 found this grid
 #: has no per-triangle span cap at all, so a layout of many uniformly-narrow
 #: islands -- each one's own triangles keeping the *same* wide extent along
 #: one uv axis regardless of how many islands there are -- makes the grid's
@@ -106,60 +88,15 @@ MAX_OVERLAP_REGISTRATIONS = 500_000
 #: keeps.
 MAX_OVERLAP_PAIRS = 8_000
 
-#: Past this many uv islands, :func:`pack_islands`, :func:`normalize_density`
-#: and :func:`transform_islands` refuse rather than pay their own per-island
+#: Past this many uv islands, :func:`pack_islands` and
+#: :func:`transform_islands` refuse rather than pay their own per-island
 #: numpy scan (an O(total corners) mask build, once per island) -- an
-#: O(islands * corners) cost that accelerates as island count grows, with no
-#: ceiling of its own before the 2026-09-19 audit's clay-11. Measured on this
-#: module's own many-small-islands fixture: :func:`pack_islands` at
-#: 0.041s/0.144s/0.539s/2.074s for 500/2,000/4,000/8,000 islands;
-#: :func:`normalize_density`, after hoisting :func:`islands` out of its own
-#: loop (below) so it no longer also recomputes the whole adjacency-plus-
-#: connected-components pass on every iteration, at 0.112s/0.322s/1.620s/
-#: 6.815s/20.157s for 500/1,000/2,000/4,000/8,000. Any hard-surface prop
-#: unwrapped per-part reaches this.
+#: O(islands * corners) cost that accelerates as island count grows (the
+#: 2026-09-19 audit's clay-11). Measured on this module's own
+#: many-small-islands fixture: :func:`pack_islands` at
+#: 0.041s/0.144s/0.539s/2.074s for 500/2,000/4,000/8,000 islands. Any
+#: hard-surface prop unwrapped per-part reaches this.
 MAX_UV_ISLANDS = 2_000
-
-
-# --- seam/edge vocabulary -----------------------------------------------
-
-
-def edge_key(a: int, b: int) -> tuple[int, int]:
-    """Canonical ``(low, high)`` form of one vertex pair."""
-    a, b = int(a), int(b)
-    return (a, b) if a <= b else (b, a)
-
-
-def edge_keys(pairs: np.ndarray | Sequence[Sequence[int]] | None) -> np.ndarray:
-    """Vectorised :func:`edge_key`: ``(n, 2)`` -> sorted-unique, low first.
-
-    The same canonical form :mod:`.elements`' ``ElementSel.edges`` uses, so a
-    seam set and an edge selection are interchangeable without a conversion.
-    """
-    if pairs is None:
-        return np.zeros((0, 2), dtype="i4")
-    rows = np.asarray(pairs, dtype="i4").reshape(-1, 2)
-    if len(rows) == 0:
-        return np.zeros((0, 2), dtype="i4")
-    lo = np.minimum(rows[:, 0], rows[:, 1])
-    hi = np.maximum(rows[:, 0], rows[:, 1])
-    return np.unique(np.stack([lo, hi], axis=1), axis=0).astype("i4")
-
-
-def _isin_pairs(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Boolean mask: which rows of ``a`` (low, high) also appear in ``b``.
-
-    :func:`.elements._rows_minus`'s trick: pack each canonical pair into one
-    int64 key and let ``np.isin`` do the set membership, rather than a dense
-    ``(len(a), len(b))`` broadcast -- the same reasoning, for the same
-    reason: a seam set can be most of a large import's edges.
-    """
-    if len(a) == 0 or len(b) == 0:
-        return np.zeros(len(a), dtype=bool)
-    scale = int(max(a.max(), b.max())) + 1
-    a_keys = a[:, 0].astype(np.int64) * scale + a[:, 1].astype(np.int64)
-    b_keys = b[:, 0].astype(np.int64) * scale + b[:, 1].astype(np.int64)
-    return np.isin(a_keys, b_keys)
 
 
 def _require_uv(mesh: Mesh, op: str) -> np.ndarray:
@@ -185,36 +122,6 @@ def _two_sided_corners(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
 
 
 # --- seams and islands ----------------------------------------------------
-
-
-def seams_from_uv(mesh: Mesh, *, atol: float = 1e-6) -> np.ndarray:
-    """Interior edges whose two sides disagree in uv, as sorted ``(K, 2)``
-    vertex pairs.
-
-    Only a two-sided edge can "disagree" at all -- a boundary, a non-manifold
-    edge or a flipped pair has only one usable side and is not a seam by this
-    definition, it is already a cut. :func:`islands` and
-    :func:`islands_by_seams` both stop at those on their own, without needing
-    them listed here too.
-
-    The comparison reads each side's corner **at the same vertex**, not the
-    two corners of one directed edge: for edge ``(u, v)``, corner ``c`` on one
-    face runs ``u -> v`` and its twin ``d`` runs the *other* direction,
-    ``v -> u`` (see :mod:`.adjacency`'s half-edge docstring), so the corner at
-    vertex ``u`` on face ``d``'s side is ``next_corner[d]``, not ``d`` itself.
-    """
-    uv = _require_uv(mesh, "seams_from_uv")
-    a = adjacency(mesh)
-    c, d = _two_sided_corners(mesh)
-    if len(c) == 0:
-        return np.zeros((0, 2), dtype="i4")
-    nc, nd = a.next_corner[c], a.next_corner[d]
-    u_agree = np.all(np.abs(uv[c] - uv[nd]) <= atol, axis=1)
-    v_agree = np.all(np.abs(uv[nc] - uv[d]) <= atol, axis=1)
-    disagree = ~(u_agree & v_agree)
-    if not disagree.any():
-        return np.zeros((0, 2), dtype="i4")
-    return edge_keys(a.edge_verts[a.corner_edge[c[disagree]]])
 
 
 def _face_components(n_faces: int, fc: np.ndarray, fd: np.ndarray) -> np.ndarray:
@@ -254,8 +161,7 @@ def islands(mesh: Mesh) -> np.ndarray:
 
     This reads whatever uv the mesh already carries -- it is the "what is
     one draggable patch right now" question a UV editor's click-to-select
-    asks. :func:`islands_by_seams` is the other question, "what *would* the
-    patches be if I cut along these seams", asked before any uv exists.
+    asks.
 
     Deterministic numbering: island 0 is the component containing the
     lowest-index face, island 1 the next lowest, and so on -- so a reload of
@@ -275,32 +181,6 @@ def islands(mesh: Mesh) -> np.ndarray:
     connect = u_agree & v_agree
     fc = a.corner_face[c[connect]].astype("i8")
     fd = a.corner_face[d[connect]].astype("i8")
-    labels = _face_components(n_faces, fc, fd)
-    return _renumber_by_lowest_face(labels, n_faces)
-
-
-def islands_by_seams(mesh: Mesh, seams: np.ndarray | None) -> np.ndarray:
-    """``(F,)`` island id: face components that cross no *seams* edge and no
-    boundary -- independent of whatever uv the mesh currently has, or lacks.
-
-    This is what :func:`~.uvunwrap.unwrap_lscm` cuts along: a seam plan the
-    caller supplies (typically :func:`seams_from_uv` read back from a
-    previous unwrap, or a fresh selection converted to edges), evaluated
-    against topology alone.
-    """
-    n_faces = face_count(mesh)
-    if n_faces == 0:
-        return np.zeros(0, dtype="i4")
-    a = adjacency(mesh)
-    c, d = _two_sided_corners(mesh)
-    if len(c) == 0:
-        return _renumber_by_lowest_face(np.arange(n_faces, dtype="i8"), n_faces)
-    seam_set = edge_keys(seams)
-    ev = a.edge_verts[a.corner_edge[c]]
-    is_seam = _isin_pairs(ev, seam_set) if len(seam_set) else np.zeros(len(c), dtype=bool)
-    keep = ~is_seam
-    fc = a.corner_face[c[keep]].astype("i8")
-    fd = a.corner_face[d[keep]].astype("i8")
     labels = _face_components(n_faces, fc, fd)
     return _renumber_by_lowest_face(labels, n_faces)
 
@@ -341,14 +221,10 @@ def transform_islands(
     subtract has for an element that is not selected.
 
     *ids* lets a caller that already has :func:`islands`' own per-face array
-    -- a loop over every island, like :func:`normalize_density`'s -- pass it
-    straight through instead of paying this function's own adjacency-plus-
-    connected-components pass again on every iteration. Omitted (the
-    default), this computes its own the way it always has: a one-shot caller
-    (the toolbar's typed field, a live drag) has no array of its own to hand
-    in. The 2026-09-19 audit's clay-11 found :func:`normalize_density` paying
-    for that recompute *and* nothing bounding either loop -- see
-    :data:`MAX_UV_ISLANDS`.
+    pass it straight through instead of paying this function's own adjacency-
+    plus-connected-components pass again. Omitted (the default), this computes
+    its own: a one-shot caller (the toolbar's typed field, a live drag) has no
+    array of its own to hand in. See :data:`MAX_UV_ISLANDS` for the ceiling.
     """
     uv = _require_uv(mesh, "transform_islands")
     if ids is None:
@@ -402,10 +278,10 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
 
     **The whole layout is then scaled uniformly** to fit ``[0, 1] x [0, 1]``
     -- one factor for every island, so a small island stays small relative to
-    a large one exactly as :func:`texel_density` would read it before
-    packing. Scaling each island to fill its own shelf slot independently was
-    the obvious alternative and is the one :mod:`.uv`'s own ``box_unwrap``
-    docstring already rejects for the same reason: texel density would then
+    a large one exactly as it was before packing. Scaling each island to fill
+    its own shelf slot independently was the obvious alternative and is the
+    one :mod:`.uv`'s own ``box_unwrap`` docstring already rejects for the same
+    reason: texel density would then
     depend on how the packer happened to arrange the page, not on the
     geometry.
 
@@ -485,143 +361,6 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     return replace(mesh, uv=new_uv.astype("f4"))
 
 
-# --- density and distortion ------------------------------------------------
-
-
-def _signed_polygon_areas(mesh: Mesh, values: np.ndarray) -> np.ndarray:
-    """Per-face signed shoelace area over an ``(L, 2)`` array shaped like
-    ``uv`` -- positive for the winding every unwrap in this package produces,
-    negative for a mirrored (flipped) one. :func:`~.mesh._next_corner`'s own
-    wrap-per-face trick, inlined: nothing here needs a :class:`Mesh` method,
-    only ``starts``.
-    """
-    n_faces = face_count(mesh)
-    if n_faces == 0 or len(mesh.loops) == 0:
-        return np.zeros(n_faces, dtype="f8")
-    starts = mesh.starts.astype("i8")
-    nxt = np.arange(1, len(mesh.loops) + 1, dtype="i8")
-    nxt[starts[1:] - 1] = starts[:-1]
-    x, y = values[:, 0].astype("f8"), values[:, 1].astype("f8")
-    cross = x * y[nxt] - x[nxt] * y
-    face_of = _face_of_corner(mesh)
-    return 0.5 * np.bincount(face_of, weights=cross, minlength=n_faces)
-
-
-def _face_world_areas(mesh: Mesh) -> np.ndarray:
-    """Per-face 3D area -- half the Newell normal's own magnitude, which
-    :func:`~.mesh.face_normals` already leaves unnormalised for exactly this."""
-    return 0.5 * np.linalg.norm(face_normals(mesh), axis=1)
-
-
-def texel_density(
-    mesh: Mesh, face_ids: np.ndarray | Sequence[int] | None = None, *, texture_px: int = 1024
-) -> float:
-    """Pixels per metre a *texture_px*-square texture achieves over
-    *face_ids* (every face, if omitted).
-
-    ``sqrt(uv_area * texture_px**2 / world_area)``: ``uv_area`` is in the
-    ``0..1`` uv unit, ``texture_px`` squared turns that into actual pixels,
-    ``world_area`` is in square metres, and the square root turns the area
-    ratio back into a linear px/m rate -- the number a "2K on a 3 m wall"
-    conversation is actually about. A 1 m square mapped onto the whole unit
-    square at 1024 px is exactly 1024 px/m by this formula, which is the
-    sanity check the test module runs against it.
-    """
-    _require_uv(mesh, "texel_density")
-    n_faces = face_count(mesh)
-    faces = np.arange(n_faces, dtype="i8") if face_ids is None else np.asarray(face_ids, dtype="i8")
-    if len(faces) == 0:
-        return 0.0
-    uv_area = float(np.abs(_signed_polygon_areas(mesh, mesh.uv))[faces].sum())
-    world_area = float(_face_world_areas(mesh)[faces].sum())
-    if world_area <= 0.0:
-        return 0.0
-    return float(math.sqrt(uv_area * float(texture_px) ** 2 / world_area))
-
-
-def normalize_density(mesh: Mesh, target: float, *, texture_px: int = 1024) -> Mesh:
-    """Scale every island about its own centre so each one measures *target*
-    px/m under :func:`texel_density`.
-
-    One division per island, no iteration: :func:`texel_density` takes a
-    square root of area, so a uniform uv scale of *k* multiplies the reading
-    by exactly *k*, and the per-island factor is ``target / current``.
-
-    ``ids`` is computed once, here, and handed to every :func:`transform_islands`
-    call below rather than letting each one recompute it -- the 2026-09-19
-    audit's clay-11 found the opposite: this loop already had its own
-    ``islands(mesh)`` at the top, but never passed it on, so each iteration
-    paid a *second*, identical adjacency-plus-connected-components pass
-    inside :func:`transform_islands`. A rigid per-island transform never
-    merges or splits islands, so the grouping this computes up front stays
-    correct for every later iteration.
-    """
-    _require_uv(mesh, "normalize_density")
-    ids = islands(mesh)
-    labels = np.unique(ids).tolist()
-    if len(labels) > MAX_UV_ISLANDS:
-        raise OpError(
-            f"This mesh has {len(labels)} uv islands, past the {MAX_UV_ISLANDS} "
-            f"normalize_density reads -- check a smaller selection instead of "
-            f"the whole mesh."
-        )
-    result = mesh
-    for label in labels:
-        faces = np.flatnonzero(ids == label)
-        current = texel_density(result, faces, texture_px=texture_px)
-        if current <= 0.0:
-            continue
-        result = transform_islands(result, [label], scale=float(target) / current, ids=ids)
-    return result
-
-
-def stretch(mesh: Mesh) -> np.ndarray:
-    """``(F,)`` float: how far each face's *share* of the total uv area is
-    from its share of the total 3D area, as ``log2`` of the ratio.
-
-    Zero is a perfect (isometric up to one global scale) map: a mapping
-    where every face uses the same fraction of the texture that it uses of
-    the mesh's surface has ``uv_share == world_share`` for every face
-    regardless of what that global scale is, which is what makes this a
-    *share* comparison rather than a raw area comparison -- an isometric map
-    at any zoom reads as flat zero. Positive means a face is stretched larger
-    in uv than its geometry warrants (soft, blurry when textured); negative
-    means it is squeezed smaller (aliased, noisy when textured).
-    """
-    _require_uv(mesh, "stretch")
-    n_faces = face_count(mesh)
-    if n_faces == 0:
-        return np.zeros(0, dtype="f8")
-    uv_area = np.abs(_signed_polygon_areas(mesh, mesh.uv))
-    world_area = _face_world_areas(mesh)
-    uv_total, world_total = float(uv_area.sum()), float(world_area.sum())
-    if uv_total <= 0.0 or world_total <= 0.0:
-        return np.zeros(n_faces, dtype="f8")
-    uv_share = uv_area / uv_total
-    world_share = world_area / world_total
-    out = np.zeros(n_faces, dtype="f8")
-    valid = (uv_share > 0.0) & (world_share > 0.0)
-    out[valid] = np.log2(uv_share[valid] / world_share[valid])
-    return out
-
-
-def flipped_uv_faces(mesh: Mesh, *, eps: float = 1e-9) -> np.ndarray:
-    """``(F,)`` bool: faces whose uv winding runs the opposite way from every
-    unwrap in this package -- a mirrored texture, the telltale of a
-    hand-edited or badly-imported uv.
-
-    A face is flipped when its own uv polygon's signed area
-    (:func:`_signed_polygon_areas`) is negative; a degenerate, near-zero-area
-    face is reported clean rather than flipped, since there is no winding
-    left to be wrong about.
-    """
-    _require_uv(mesh, "flipped_uv_faces")
-    n_faces = face_count(mesh)
-    if n_faces == 0:
-        return np.zeros(0, dtype=bool)
-    return _signed_polygon_areas(mesh, mesh.uv) < -abs(eps)
-
-
 # --- overlap -----------------------------------------------------------
 
 
@@ -651,8 +390,7 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     which throws away exactly the per-corner distinction a seam needs.
     Bucketed into a grid over the uv bounding box, sized to roughly one
     triangle per cell, so a pair is only tested when their cells overlap
-    rather than every pair in the mesh -- the same "grid, not a full
-    pairwise sweep" shape :func:`~.analyze._components` uses for a weld.
+    rather than every pair in the mesh.
 
     Refuses past :data:`MAX_OVERLAP_TRIANGLES`, and also if any one grid
     bucket collects more than :data:`MAX_OVERLAP_BUCKET` triangles: the grid
@@ -704,8 +442,7 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     # See MAX_OVERLAP_REGISTRATIONS: estimate what the bucket-building loop
     # below will cost -- one cell-span product per triangle, summed over the
     # whole mesh -- vectorised, before a single Python iteration runs. The
-    # same "refuse before the allocation" shape
-    # analyze._grid_candidates uses for the equivalent 3D count.
+    # "refuse before the allocation" shape.
     span_cells = (hi_cell - lo_cell + 1).astype(np.int64)
     total_registrations = int((span_cells[:, 0] * span_cells[:, 1]).sum())
     if total_registrations > MAX_OVERLAP_REGISTRATIONS:

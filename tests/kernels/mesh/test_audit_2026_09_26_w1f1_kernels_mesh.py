@@ -1,6 +1,10 @@
 """Regressions for the 2026-09-26 audit's kernels/mesh findings (fixer w1f1).
 
-Seven findings, each closed in the module its own record names:
+Four findings still live, each closed in the module its own record names
+(the other three -- a boolean modifier's cached error, ``analyze``'s coplanar
+SAT and ``uvunwrap``'s seam-aware closedness -- went with the modifier stack,
+the game check and the LSCM unwrap when Clay was cut to a picoCAD-level
+modeller):
 
 clay-mesh-core-01: ``selection.delete_selected``'s object-mode branch popped
 straight out of ``doc.objects`` instead of going through ``remove_object``,
@@ -19,19 +23,6 @@ shape it used to sit on.
 clay-mesh-core-03: ``select.grow`` computed its two adjacency passes off the
 same mutating array, so a vertex adjacent to one of this call's own
 additions grew a second ring.
-
-clay-mesh-model-01: a boolean modifier's cached "target no longer exists"
-error recorded no dependency at all, so undoing the delete that caused it
-never invalidated the cache.
-
-clay-mesh-model-02: the 11-axis SAT in ``analyze._tri_tri_intersect`` has no
-axis that lies inside a shared plane, so two disjoint coplanar triangles
-read as intersecting.
-
-clay-mesh-uv-01: ``uvunwrap._island_is_closed`` decided closedness from raw
-edge-uses-per-island counts alone, ignoring the seam set, so a sphere cut
-along one meridian (structurally still "every edge used twice", the seam
-being pure authoring metadata) read as an uncut closed surface.
 """
 
 from __future__ import annotations
@@ -41,10 +32,8 @@ import pytest
 
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import glbimport, meshimport, select, selection
-from realmspinner.kernels.mesh import modifiers as mod
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh import serialize as ser
-from realmspinner.kernels.mesh import uvunwrap as lscm
 from realmspinner.kernels.mesh.mesh import validate
 
 
@@ -74,7 +63,6 @@ def test_deleting_a_parent_object_reparents_its_children_and_the_document_still_
     # carries at all.
     assert child.parent is None, "the child must be re-parented, not left dangling"
     assert parent.uid not in doc._mesh_stamps
-    assert parent.uid not in doc._evaluated
 
     # A dangling parent reference is exactly what serialize.read_rblk refuses
     # to reload -- round-tripping the document proves the fix rather than
@@ -176,89 +164,3 @@ def test_grow_from_an_interior_vertex_takes_exactly_its_edge_neighbours() -> Non
     # returned [7, 8, 11, 12, 13, 16, 17] -- two rings, because the second
     # adjacency pass read the first pass's own in-place writes.
     assert sorted(grown.tolist()) == [7, 11, 12, 13, 17]
-
-
-# --- clay-mesh-model-01 -------------------------------------------------------
-
-
-def test_undoing_a_target_delete_revives_the_boolean_modifier_result() -> None:
-    pytest.importorskip("manifold3d")
-    doc = bd.ClayDoc()
-    a = doc.add_object(_obj("A"))
-    # Disjoint (no overlap at all): a union just concatenates both meshes, so
-    # the "good" result has exactly 16 verts against A's own 8 -- the same
-    # 16 -> 8 shape the audit's own reproduction names.
-    b = doc.add_object(_obj("B", translation=(3.0, 0.0, 0.0)))
-    doc.set_modifiers(a.uid, (mod.make("boolean", {"target": b.uid, "operation": "union"}, id=1),))
-
-    good = doc.evaluation(a.uid)
-    assert good.errors == (), good.errors
-    good_verts = len(good.mesh.positions)
-    assert good_verts == 16, "sanity: a union of two disjoint boxes must keep both"
-
-    doc.remove_object(b.uid)
-    errored = doc.evaluation(a.uid)
-    assert errored.errors, "the target is gone -- this must record an error"
-    assert len(errored.mesh.positions) == len(a.mesh.positions), (
-        "with the target missing, the modifier falls back to the base mesh"
-    )
-
-    assert doc.undo() is True  # brings B back, same uid
-    # The 2026-09-26 audit, finding clay-mesh-model-01: the unfixed code
-    # recorded no dependency at all for a missing target, so this second
-    # evaluation kept serving the cached error (8 verts) instead of noticing
-    # B had come back and recomputing (16 verts, reproduced).
-    revived = doc.evaluation(a.uid)
-    assert revived.errors == (), revived.errors
-    assert len(revived.mesh.positions) == good_verts
-
-
-# --- clay-mesh-model-02 -------------------------------------------------------
-
-
-def test_two_boxes_with_a_gap_and_coplanar_faces_do_not_intersect() -> None:
-    from realmspinner.kernels.mesh import analyze
-
-    a = _obj("A")
-    # A's +X face sits at world x = 0.5 (a unit box centred on the origin).
-    # B's -X face is coplanar with it (also at world x = 0.5, up to the gap)
-    # but offset 0.04 m further out, so the two boxes never actually touch --
-    # axis-aligned level-kit pieces set near, not against, each other.
-    b = _obj("B", translation=(1.04, 0.0, 0.0))
-
-    result = analyze.analyze([a, b])
-    assert len(result.pairs) == 1
-    pair = result.pairs[0]
-
-    # The 2026-09-26 audit, finding clay-mesh-model-02: the unfixed 11-axis
-    # SAT found no separating axis for this coplanar-disjoint pair and
-    # reported ``intersects=True, distance=0.0`` (reproduced).
-    assert pair.intersects is False, pair
-    assert pair.distance is not None and pair.distance > 0.0, pair
-
-
-# --- clay-mesh-uv-01 ----------------------------------------------------------
-
-
-def test_unwrap_lscm_accepts_a_closed_sphere_cut_along_a_meridian_seam() -> None:
-    n, m = 16, 8
-    sphere = bp.uv_sphere(0.5, n, m)
-    top, bottom = 0, 1 + (m - 1) * n
-
-    def row(j: int) -> int:
-        return 1 + (j - 1) * n
-
-    seam_pairs = [(top, row(1))]
-    seam_pairs.extend((row(j), row(j + 1)) for j in range(1, m - 1))
-    seam_pairs.append((row(m - 1), bottom))
-    seams = np.array(seam_pairs, dtype="i4")
-
-    # The 2026-09-26 audit, finding clay-mesh-uv-01: the unfixed
-    # ``_island_is_closed`` ignored the seam set entirely and refused this
-    # with "A closed surface cannot be flattened with no seam", even though
-    # one is plainly marked.
-    result = lscm.unwrap_lscm(sphere, seams)
-
-    assert result.uv is not None
-    assert result.uv.shape == (len(result.loops), 2)
-    assert np.isfinite(result.uv).all()

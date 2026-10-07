@@ -6985,30 +6985,28 @@ def test_the_clay_menu_strip_adds_a_box_when_pressed(app_ctx, imgui_ctx, monkeyp
 def test_the_clay_menu_strip_runs_an_op_and_asks_for_a_parameter_dialog(
     app_ctx, imgui_ctx, monkeypatch
 ):
-    """An op row inside a submenu runs it; a parameterised one asks for its
-    dialog by state, because a popup opened from inside a submenu is named in
-    the submenu's id stack and the viewport's ``params_popup`` would never find
-    it."""
+    """An op row in a menu runs it; a parameterised one asks for its dialog by
+    state, because a popup opened from inside a menu is named in the menu's id
+    stack and the viewport's ``params_popup`` would never find it."""
     from realmspinner.studio import probe
     from realmspinner.studio.modes.clay import mode as clay_mode
     from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
 
     monkeypatch.setattr(probe, "ENABLED", True)
-    tab = _clay_tab(app_ctx, objects=1)
+    tab = _clay_tab(app_ctx, objects=2)
     state = clay_mode.ensure(app_ctx)
     tab.doc.set_element_mode("object")
-    tab.doc.select([tab.doc.objects[0].uid])
+    tab.doc.select([obj.uid for obj in tab.doc.objects])
 
     def build():
         clay_strip.draw(app_ctx, state, tab)
 
     pointer = _Pointer()
     _press(imgui_ctx, build, probe, pointer, "Object")
-    _press(imgui_ctx, build, probe, pointer, "Array")
-    _press(imgui_ctx, build, probe, pointer, "Array Linear...")
-    assert state.pending_op == "array-linear"
+    _press(imgui_ctx, build, probe, pointer, "Merge Objects...")
+    assert state.pending_op == "join"
     assert state.open_op_popup is True
-    assert len(tab.doc.objects) == 1, "the dialog's Apply runs it, not the row"
+    assert len(tab.doc.objects) == 2, "the dialog's Apply runs it, not the row"
 
 
 def _press_tab(imgui_ctx, build, probe, key):
@@ -7031,8 +7029,8 @@ def test_the_clay_properties_tabs_show_their_own_sections_when_pressed(
     app_ctx, imgui_ctx, monkeypatch
 ):
     """**Pressed, not called.** Each tab draws its own sections and only those:
-    the Scene tab holds the export engine and the game check (and works with
-    nothing selected), Modifiers holds the modifier stack, and Object holds the
+    the Document tab holds the counts and the import settings (and works with
+    nothing selected), Material holds the palette, and Object holds the
     identity block -- through the real pane, with the real tab strip."""
     from realmspinner.studio import probe
     from realmspinner.studio.modes.clay import mode as clay_mode
@@ -7050,35 +7048,33 @@ def test_the_clay_properties_tabs_show_their_own_sections_when_pressed(
     def drawn():
         probe.begin_frame()
         _frame(imgui_ctx, build)
-        return {one.text for one in probe.census()}
+        return " ".join(f"{one.text} {one.label}" for one in probe.census())
+
+    def shows_counts(text):
+        # The Document tab's own controls: the import settings under the counts.
+        return "clay-import-scale" in text
 
     assert state.props_tab == "object"
-    on_object = drawn()
-    assert "Check" not in on_object and "Add modifier" not in " ".join(on_object)
+    assert not shows_counts(drawn())
 
-    _press_tab(imgui_ctx, build, probe, "scene")
-    assert state.props_tab == "scene"
-    on_scene = drawn()
-    assert "Check" in on_scene, "the game check moved into the Scene tab"
+    _press_tab(imgui_ctx, build, probe, "document")
+    assert state.props_tab == "document"
+    assert shows_counts(drawn()), "the import settings live in the Document tab"
 
-    # Nothing selected: the Scene tab is about the document, so it still draws.
+    # Nothing selected: the Document tab is about the document, so it still draws.
     tab.doc.select([])
-    assert "Check" in drawn()
+    assert shows_counts(drawn())
 
-    _press_tab(imgui_ctx, build, probe, "modifiers")
-    assert state.props_tab == "modifiers"
-    assert "Check" not in drawn()
+    _press_tab(imgui_ctx, build, probe, "material")
+    assert state.props_tab == "material"
+    assert not shows_counts(drawn())
 
 
-def test_the_clay_add_menu_imports_and_opens_the_generate_popup_when_pressed(
-    app_ctx, imgui_ctx, monkeypatch
-):
-    """The two rows that moved out of the Document pane: Import Mesh... runs the
-    picker, and Generate... asks for its popup by state, which the strip -- its
-    host -- consumes and opens in the same window that draws it."""
+def test_the_clay_add_menu_imports_a_mesh_when_pressed(app_ctx, imgui_ctx, monkeypatch):
+    """The row that moved out of the Document pane: Import Mesh... runs the
+    picker from the Add menu."""
     from realmspinner.studio import probe
     from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
     from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
 
     monkeypatch.setattr(probe, "ENABLED", True)
@@ -7094,14 +7090,3 @@ def test_the_clay_add_menu_imports_and_opens_the_generate_popup_when_pressed(
     _press(imgui_ctx, build, probe, pointer, "Add")
     _press(imgui_ctx, build, probe, pointer, "Import Mesh...")
     assert asked == [True]
-
-    pointer = _Pointer()
-    _press(imgui_ctx, build, probe, pointer, "Add")
-    _press(imgui_ctx, build, probe, pointer, "Generate...")
-    assert state.generate_open_pending is False, "the strip consumed the request"
-    probe.begin_frame()
-    _hover(imgui_ctx, build, (-100.0, -100.0), frames=2)
-    assert any(one.text == "Generate" for one in probe.census()), (
-        "the popup, hosted by the strip, is open with its prompt body"
-    )
-    assert clay_bridge.GENERATE_POPUP == "clay-generate"

@@ -22,14 +22,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
-    """The card this module ships (``cards/clay-1.txt``) must hash to the sha
+    """The card this module ships (``cards/clay-2.txt``) must hash to the sha
     run A froze it at. The cross-check against run A's own on-disk card and
     its eval JSONs' recorded ``settings.card_sha256`` -- proof this is not
     just copied once and trusted -- lives in
     ``dev/tests/familiar/test_contract.py``, since it reaches into
     ``dev/measurements/data/clay-assistant/run-A``.
     """
-    expected = "70697ece5bec5781b1f04703745bed2b2f2c56a9a664a04eef831c7aa9838aab"
+    expected = "4f53e4b7a5f492dadcbbb48f4544eb216ab612a8bd5ebfb26ff718e2af1d6c73"
     assert contract.card_sha("clay") == expected
 
 

@@ -320,7 +320,7 @@ def test_a_build_that_addresses_its_own_objects_by_ref_previews_as_one_batch():
     ``clay_batch``. The preview ran each call on its own, so the first call
     carrying a ``$ref`` was refused: "Build the Eiffel Tower" in the real app
     (2026-09-16, run Q1) came back as "uids must be a list of integers."
-    from ``clay_boolean``, although the same reply is what the eval accepts.
+    from ``clay_group``, although the same reply is what the eval accepts.
 
     Fails against the unfixed code with:
         AssertionError: assert 'uids must be a list of integers.' is None
@@ -334,8 +334,8 @@ def test_a_build_that_addresses_its_own_objects_by_ref_previews_as_one_batch():
             "arguments": {"generator": "box", "name": "top", "translation": [0.2, 0.5, 0.0]},
         },
         {
-            "name": "clay_boolean",
-            "arguments": {"kind": "union", "uids": [{"$ref": "base"}, {"$ref": "top"}]},
+            "name": "clay_group",
+            "arguments": {"uids": [{"$ref": "base"}, {"$ref": "top"}]},
         },
     ]
     done = Done(

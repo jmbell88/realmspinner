@@ -811,35 +811,13 @@ def test_filling_a_small_hole_does_not_pay_for_every_other_holes_boundary_walk(
     one 4-edge hole. ``fill_hole`` now walks only the ring(s) reachable from
     the selected edges (``adjacency.boundary_ring_from``).
 
-    Two checks, because either alone is gameable. A bounded-work count on
-    ``_outgoing_boundary_corners`` alone would still read "under 50" if
-    ``fill_hole`` fell all the way back to ``boundary_loops`` (that helper is
-    never called by it, so the count would read *zero*, still "bounded") --
-    so this also spies on ``boundary_loops`` itself, patched both on
-    :mod:`.adjacency` and, if the caller still imports it by name, on
-    :mod:`.ops_topo`, and asserts it is never reached at all. Proven
-    structurally rather than by wall clock (flaky under load): pad the mesh
-    with many disjoint triangles the selection never touches, each an
-    unrelated boundary hole of its own.
+    Proven structurally rather than by wall clock (flaky under load): pad the
+    mesh with many disjoint triangles the selection never touches, each an
+    unrelated boundary hole of its own, and count the boundary-corner visits.
     """
     m = _open_tube(6)
     boundary = adj.check_manifold(m).boundary_edges
     padded = _padded_with_disjoint_triangles(m, n_extra=20_000)
-
-    boundary_loops_calls = 0
-    original_boundary_loops = adj.boundary_loops
-
-    def spy_boundary_loops(mesh: bm.Mesh):
-        nonlocal boundary_loops_calls
-        boundary_loops_calls += 1
-        return original_boundary_loops(mesh)
-
-    monkeypatch.setattr(adj, "boundary_loops", spy_boundary_loops)
-    # A caller that still imports the name directly (``from .adjacency import
-    # boundary_loops``) binds its own reference to the pre-patch function at
-    # import time, so patching the origin module alone would not see it --
-    # this catches that shape of revert too.
-    monkeypatch.setattr(ops, "boundary_loops", spy_boundary_loops, raising=False)
 
     outgoing_calls = 0
     original_outgoing = adj._outgoing_boundary_corners
@@ -855,10 +833,6 @@ def test_filling_a_small_hole_does_not_pay_for_every_other_holes_boundary_walk(
     bm.validate(out)
     assert len(sel.faces) == 1
     assert bm.face_count(out) == bm.face_count(padded) + 1, "only the one hole was capped"
-    assert boundary_loops_calls == 0, (
-        f"boundary_loops was called {boundary_loops_calls} times -- fill_hole fell back "
-        "to the whole-mesh scan"
-    )
     assert outgoing_calls < 50, (
         f"filling one hole visited {outgoing_calls} vertices on a mesh with 20,000 unrelated holes"
     )
@@ -1132,3 +1106,46 @@ def test_region_offsets_on_a_large_mesh_finishes_well_under_the_old_time() -> No
 
     assert displacement.shape == (len(used), 3)
     assert elapsed < 0.5, f"took {elapsed:.3f}s -- still the old union-find/whole-mesh normals?"
+
+
+
+# --- triangulate_faces --------------------------------------------------
+
+
+def test_triangulate_faces_with_no_selection_does_the_whole_object() -> None:
+    box = prim.box()
+    out, sel = ops.triangulate_faces(box, el.empty())
+    bm.validate(out)
+    assert bm.face_count(out) == 12
+    assert len(sel.faces) == 12
+    assert_closed(out)
+    assert_consistently_oriented(out)
+
+
+def test_triangulate_faces_on_an_already_triangular_face_is_idempotent() -> None:
+    box = prim.box()
+    once, _ = ops.triangulate_faces(box, el.empty())
+    twice, _ = ops.triangulate_faces(once, el.empty())
+    bm.validate(twice)
+    assert bm.face_count(twice) == bm.face_count(once)
+
+
+def test_triangulate_faces_preserves_uv_from_the_real_source_corners() -> None:
+    box = _uvd(prim.box())
+    out, _ = ops.triangulate_faces(box, el.empty())
+    # Every uv row in the output must be one that already existed on the input.
+    input_rows = {tuple(row) for row in box.uv.tolist()}
+    for row in out.uv.tolist():
+        assert tuple(row) in input_rows
+
+
+def test_triangulate_faces_on_an_empty_mesh_refuses() -> None:
+    empty_mesh = bm.Mesh(
+        positions=np.zeros((0, 3), dtype="f4"),
+        loops=np.zeros(0, dtype="i4"),
+        starts=np.zeros(1, dtype="i4"),
+        material=np.zeros(0, dtype="i4"),
+        smooth=np.zeros(0, dtype=bool),
+    )
+    with pytest.raises(el.OpError, match="no faces"):
+        ops.triangulate_faces(empty_mesh, el.empty())

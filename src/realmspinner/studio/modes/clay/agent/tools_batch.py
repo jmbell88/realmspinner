@@ -26,9 +26,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .....kernels.geom3d import math3d as m3
-from .....kernels.mesh import analyze as clay_analyze
+from .....kernels.mesh import measure as clay_measure
 from .....kernels.mesh import ops as clay_geom_ops
-from .....kernels.mesh.elements import OpError
 from .....service import files as svc_files
 from .....service import validation as svc_validation
 from .....service.errors import NotFound
@@ -59,13 +58,11 @@ from .validate import (
 
 # The 2026-09-22 audit, finding clay-14: unlike clay_program's
 # PROGRAM_DEADLINE_S, clay_batch had no wall-clock budget at all, so up to
-# BATCH_MAX synchronous, subprocess-backed clay_op calls ("decimate",
-# "retopo", "smart-unwrap", "bake-detail" -- see _OpCtx.inline's own
-# docstring for why those run inline rather than on a task thread) could be
-# folded into one call and block the frame thread for minutes. Kept local to
-# this handler, not in ``schema.py``, so it changes no published tool
-# description or schema byte -- a plain handler-side deadline, exactly
-# ``clay_program``'s own shape, checked between entries the same way.
+# BATCH_MAX synchronous calls could be folded into one and block the frame
+# thread for minutes. Kept local to this handler, not in ``schema.py``, so it
+# changes no published tool description or schema byte -- a plain
+# handler-side deadline, exactly ``clay_program``'s own shape, checked
+# between entries the same way.
 BATCH_DEADLINE_S = 30.0
 
 
@@ -174,7 +171,7 @@ def _resolve_batch_ref(doc: Any, value: Any, field: str) -> tuple[Any, dict | No
                 return None, fail(f"no object named {name!r}.", field=field, recovery="read_scene")
             if len(matches) > 1:
                 # Names are unique at this door's own creation tools
-                # (clay_add_primitive/clay_add_figure/clay_add_mesh each
+                # (clay_add_primitive/clay_add_mesh each
                 # refuse a collision) but not globally -- clay_rename's own
                 # lower-level door, document.set_props, carries no such
                 # check, so a document reached by other means (the human
@@ -331,13 +328,13 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
 
     The whole list's shape is validated before anything runs, so a malformed
     batch runs nothing. If the session owns no tab yet, this refuses unless
-    the *first* call is ``clay_add_primitive``, ``clay_add_figure`` or
+    the *first* call is ``clay_add_primitive`` or
     ``clay_add_mesh``, in which case it mints one through
     ``_tab(..., create=True)`` itself -- ``_h_batch`` needs a document in
     hand before the loop starts (to open the ``history.mark()`` the whole
     run folds into), so the mint has to happen here rather than be left to
-    the first sub-call, but it is still one of the three creator tools that
-    is about to run, which is what keeps "only those three mint a document"
+    the first sub-call, but it is still one of the two creator tools that
+    is about to run, which is what keeps "only those two mint a document"
     true.
 
     ``$ref``: a value of the exact form ``{"$ref": "<object name>"}``
@@ -428,8 +425,8 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     elif not session.tab_uid:
         return fail(
             "This session has no document yet. The first call in a "
-            "batch that starts one must be clay_add_primitive, "
-            "clay_add_figure or clay_add_mesh.",
+            "batch that starts one must be clay_add_primitive "
+            "or clay_add_mesh.",
             recovery="start_document",
         )
 
@@ -445,10 +442,9 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # Deadline checked between entries, exactly ``clay_program``'s own
     # ``_make_entry`` shape (the 2026-09-22 audit, finding clay-14): the
     # first entry always runs regardless of how close the budget already is,
-    # and a call already running is never cut off, so a chain of several
-    # subprocess-backed ``clay_op`` calls (decimate/retopo/smart-unwrap/
-    # bake-detail) refuses partway through rather than blocking the frame
-    # thread for the whole batch with no ceiling at all.
+    # and a call already running is never cut off, so a long chain refuses
+    # partway through rather than blocking the frame thread for the whole
+    # batch with no ceiling at all.
     deadline = time.monotonic() + BATCH_DEADLINE_S
 
     def _make_entry(index: int, name: str, arguments: dict) -> Any:
@@ -463,15 +459,12 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
             started = time.monotonic()
             result = _resolve_and_call(ctx, session, doc, name, arguments)
             # clay-16 (the 2026-09-23 audit, second run): mirrors
-            # ``_h_program``'s own push-out (finding agents-02, fixed the same
-            # day) -- BATCH_DEADLINE_S is meant to bound the *idle* gap
-            # between entries, not an entry's own run time, but a
-            # subprocess-backed entry (decimate/retopo/smart-unwrap/
-            # bake-detail) can by itself take seconds to minutes. Left
-            # unpushed, the very next entry would find the deadline already
-            # gone and, with ``rollback_on_error``, discard the work that
-            # entry had just finished along with the rest of the run even
-            # though nothing was idle.
+            # ``_h_program``'s own push-out -- BATCH_DEADLINE_S is meant to
+            # bound the *idle* gap between entries, not an entry's own run
+            # time. Left unpushed, the very next entry would find the
+            # deadline already gone and, with ``rollback_on_error``, discard
+            # the work that entry had just finished along with the rest of
+            # the run even though nothing was idle.
             deadline += time.monotonic() - started
             return result
 
@@ -517,7 +510,7 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     #
     # The 2026-09-26 audit, finding clay-agent-tools-02: this embeds every
     # nested call's own whole result in ``results`` with no ceiling of its
-    # own -- unlike ``clay_scene``/``clay_diagnose``, whose replies scale with
+    # own -- unlike ``clay_scene``, whose reply scales with
     # the document and are checked through ``_over_frame_budget`` (see that
     # function's own docstring, including the "measured against the wire's
     # own doubled copy" fix beside it), a batch of scene reads reaches
@@ -585,8 +578,8 @@ class _ConditionAccess:
 
     Every method here either resolves a name against *doc* the same way
     :func:`_resolve_batch_ref` already does for a real tool call's own
-    ``$ref``, or reads a fact off :mod:`.clay.analyze`/``clay_geom_ops`` the
-    same way ``clay_scene`` and ``clay_diagnose`` already do -- nothing here
+    ``$ref``, or reads a fact off :mod:`.measure`/``clay_geom_ops`` the
+    same way ``clay_scene`` already does -- nothing here
     is a new way to look at the document, only a new door into the old one.
     """
 
@@ -612,43 +605,17 @@ class _ConditionAccess:
 
     def bounds(self, uid: int) -> tuple[Any, Any]:
         obj = self._by_uid(uid)
-        # Evaluated, not the base -- a program's own assert reads the same
-        # box clay_scene/clay_render would show a person, not half of it
-        # from an object that carries a mirror or an array modifier.
-        # world=: tranche 3 -- a parented object's own TRS is local to its
-        # parent, not its world placement, so an assert against a parented
-        # object needs the ancestor-composed matrix the same way clay_scene's
-        # own bbox does.
-        box = clay_geom_ops.world_box(
-            obj, self.doc.evaluated(uid), world=self.doc.world_matrix(uid)
-        )
+        # world=: a parented object's own TRS is local to its parent, not its
+        # world placement, so an assert against a parented object needs the
+        # ancestor-composed matrix the same way clay_scene's own bbox does.
+        box = clay_geom_ops.world_box(obj, obj.mesh, world=self.doc.world_matrix(uid))
         if box is None:
             raise agent_program.ConditionError(f"{obj.name!r} has no geometry to measure.")
         return box
 
-    def touches(self, uid_a: int, uid_b: int) -> bool:
-        obj_a, obj_b = self._by_uid(uid_a), self._by_uid(uid_b)
-        analysis = self._analyze([obj_a, obj_b], pairs_among=[uid_a, uid_b])
-        return bool(analysis.pairs) and analysis.pairs[0].contact
-
-    def grounded(self, uid: int) -> bool:
-        obj = self._by_uid(uid)
-        analysis = self._analyze([obj], pairs_among=[uid])
-        row = analysis.objects[0]
-        return bool(row.ground and row.ground.contact)
-
-    def floating(self, uid: int) -> bool:
-        # The one fact that genuinely needs the whole document, not just the
-        # object(s) named in the condition -- see clay_analyze.analyze's own
-        # docstring on why ``pairs_among=None`` is what turns "floating" on
-        # at all.
-        analysis = self._analyze(list(self.doc.objects), pairs_among=None)
-        return uid in (analysis.floating or ())
-
     def volume(self, uid: int) -> float:
         obj = self._by_uid(uid)
-        analysis = self._analyze([obj], pairs_among=[uid])
-        vol = analysis.objects[0].volume
+        vol = clay_measure.volume_if_closed(obj.mesh, world=self.doc.world_matrix(uid))
         return float(vol) if vol is not None else 0.0
 
     def _by_uid(self, uid: int) -> Any:
@@ -656,17 +623,6 @@ class _ConditionAccess:
             return self.doc.by_uid(uid)
         except KeyError:
             raise agent_program.ConditionError(f"no object with uid {uid}.") from None
-
-    def _analyze(self, objects: list[Any], *, pairs_among: list[int] | None) -> Any:
-        # doc=self.doc: touches/grounded/floating/volume are all questions
-        # about what an object actually occupies, which a modifier stack (a
-        # solidify's own thickness, a mirror's own second half) changes as
-        # much as a transform does -- analyze.analyze's own ``doc`` kwarg
-        # swaps every object's mesh for its evaluated one before measuring.
-        try:
-            return clay_analyze.analyze(objects, doc=self.doc, pairs_among=pairs_among)
-        except OpError as error:
-            raise agent_program.ConditionError(str(error)) from None
 
 
 def _run_live_transform(ctx: Any, session: Session, doc: Any, kind: str, arguments: dict) -> dict:
@@ -877,18 +833,15 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
                 result = _resolve_and_call(ctx, session, doc, name, arguments)
             # The 2026-09-23 audit, finding agents-02: PROGRAM_DEADLINE_S is a
             # 4s budget meant to bound how long an *idle* agent leaves the
-            # frame thread waiting between round trips, but a subprocess-
-            # backed clay_op row (retopo/smart-unwrap/bake-detail, each a
-            # synchronous Blender spawn -- seconds for a simple prop, minutes
-            # for something dense) can by itself blow straight through it.
-            # Because clay_program always rolls back, the very next entry
-            # then found the deadline already passed and discarded the
-            # Blender step that had just finished along with everything
-            # else, even though nothing was idle -- the whole 4s went to a
-            # call actually running. Pushing the deadline out by exactly what
-            # this entry took keeps the budget measuring the thing it was
-            # meant to measure (time between calls) without giving a program
-            # of many cheap calls a longer leash than before.
+            # frame thread waiting between round trips, but one slow step can
+            # by itself blow straight through it. Because clay_program always
+            # rolls back, the very next entry then found the deadline already
+            # passed and discarded the step that had just finished along
+            # with everything else, even though nothing was idle. Pushing the
+            # deadline out by exactly what this entry took keeps the budget
+            # measuring the thing it was meant to measure (time between
+            # calls) without giving a program of many cheap calls a longer
+            # leash than before.
             deadline += time.monotonic() - started
             return result
 
@@ -900,7 +853,7 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
     )
 
     # Read off *doc* right now, before any dry-run undo below -- a program
-    # id that was deleted or consumed by a boolean along the way genuinely
+    # id that was deleted or consumed by a join along the way genuinely
     # has no object to report, exactly as the document itself would say.
     by_name = {obj.name: obj for obj in doc.objects}
     objects_out: list[dict[str, Any]] = []

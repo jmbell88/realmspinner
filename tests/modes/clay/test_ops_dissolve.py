@@ -14,7 +14,7 @@ from realmspinner.kernels.mesh import ops_dissolve as dis
 from realmspinner.kernels.mesh import primitives as prim
 from realmspinner.kernels.mesh import topo
 
-from .topo_asserts import assert_closed, assert_consistently_oriented
+from .topo_asserts import assert_consistently_oriented
 
 
 def _grid(nx: int = 3, nz: int = 3) -> bm.Mesh:
@@ -58,15 +58,12 @@ def _uvd(mesh: bm.Mesh) -> bm.Mesh:
     )
 
 
-# --- dissolve_edges ---------------------------------------------------------
+# --- one pair of faces -------------------------------------------------------
 
 
-def test_dissolving_an_edge_merges_the_two_faces_across_it() -> None:
+def test_dissolving_two_faces_merges_them_into_one_across_their_shared_edge() -> None:
     m = _grid(2, 1)  # two quads side by side
-    shared = np.array([[1, 3]])  # x = 1 column
-    a = adj.adjacency(m)
-    shared = a.edge_verts[a.edge_uses == 2]
-    out, sel = dis.dissolve_edges(m, el.ElementSel(edges=shared))
+    out, sel = dis.dissolve_faces(m, el.ElementSel(faces=[0, 1]))
     bm.validate(out)
     assert bm.face_count(out) == 1
     assert np.diff(out.starts)[0] == 6, "a hexagon: the two ends stay as corners"
@@ -76,53 +73,11 @@ def test_dissolving_an_edge_merges_the_two_faces_across_it() -> None:
 
 def test_a_dissolved_quad_pair_keeps_its_outline_and_drops_nothing_else() -> None:
     m = _grid(2, 1)
-    a = adj.adjacency(m)
-    out, _ = dis.dissolve_edges(m, el.ElementSel(edges=a.edge_verts[a.edge_uses == 2]))
+    out, _ = dis.dissolve_faces(m, el.ElementSel(faces=[0, 1]))
     assert len(out.positions) == 6, "every vertex is still on the outline"
     lo, hi = bm.bounds(out)
     assert lo.tolist() == bm.bounds(m)[0].tolist()
     assert hi.tolist() == bm.bounds(m)[1].tolist()
-
-
-def test_dissolving_two_box_edges_in_a_row_merges_three_faces() -> None:
-    m = prim.box()
-    a = adj.adjacency(m)
-    # Two edges of the -Y face, each shared with a different side.
-    quad = m.loops[m.starts[0] : m.starts[1]]
-    edges = np.array([[quad[0], quad[1]], [quad[1], quad[2]]])
-    out, sel = dis.dissolve_edges(m, el.ElementSel(edges=edges))
-    bm.validate(out)
-    assert bm.face_count(out) == 4, "three faces became one"
-    assert len(sel.faces) == 1
-    assert_closed(out)
-    assert_consistently_oriented(out)
-    assert len(a.edge_verts) == 12
-
-
-def test_dissolve_edges_refuses_a_boundary_edge() -> None:
-    m = prim.plane()
-    with pytest.raises(el.OpError, match="on a boundary"):
-        dis.dissolve_edges(m, el.ElementSel(edges=[[0, 1]]))
-
-
-def test_dissolve_edges_refuses_a_non_manifold_edge() -> None:
-    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [0, -1, -1]], dtype="f4")
-    m = bm.Mesh(
-        positions=positions,
-        loops=np.array([0, 1, 2, 0, 1, 3, 0, 1, 4], dtype="i4"),
-        starts=np.array([0, 3, 6, 9], dtype="i4"),
-        material=np.zeros(3, dtype="i4"),
-        smooth=np.zeros(3, dtype=bool),
-    )
-    with pytest.raises(el.OpError, match="non-manifold"):
-        dis.dissolve_edges(m, el.ElementSel(edges=[[0, 1]]))
-
-
-def test_dissolve_edges_refuses_an_empty_or_foreign_selection() -> None:
-    with pytest.raises(el.OpError, match="Select an edge"):
-        dis.dissolve_edges(prim.box(), el.empty())
-    with pytest.raises(el.OpError, match="not part of this mesh"):
-        dis.dissolve_edges(prim.box(), el.ElementSel(edges=[[0, 6]]))
 
 
 # --- dissolve_faces ---------------------------------------------------------
@@ -178,90 +133,12 @@ def test_a_lone_selected_face_has_nothing_to_dissolve() -> None:
         dis.dissolve_faces(_grid(3, 3), el.ElementSel(faces=[0]))
 
 
-# --- dissolve_verts ---------------------------------------------------------
-
-
-def test_dissolving_an_interior_vertex_merges_its_fan() -> None:
-    m = _grid(2, 2)
-    centre = int(np.flatnonzero((m.positions == [1.0, 0.0, 1.0]).all(axis=1))[0])
-    out, sel = dis.dissolve_verts(m, el.ElementSel(verts=[centre]))
-    bm.validate(out)
-    assert bm.face_count(out) == 1
-    assert np.diff(out.starts)[0] == 8
-    assert len(out.positions) == 8, "the dissolved vertex is gone"
-    assert len(sel.faces) == 1
-    assert_consistently_oriented(out)
-
-
-def test_dissolving_a_box_corner_merges_its_three_faces() -> None:
-    m = prim.box()
-    out, sel = dis.dissolve_verts(m, el.ElementSel(verts=[0]))
-    bm.validate(out)
-    assert bm.face_count(out) == 4
-    assert len(out.positions) == 7
-    assert len(sel.faces) == 1
-    assert_closed(out)
-    assert_consistently_oriented(out)
-
-
-def test_dissolve_verts_refuses_a_boundary_vertex() -> None:
-    with pytest.raises(el.OpError, match="on a boundary"):
-        dis.dissolve_verts(_grid(2, 2), el.ElementSel(verts=[0]))
-
-
-def test_dissolve_verts_refuses_a_non_manifold_vertex() -> None:
-    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [0, -1, -1]], dtype="f4")
-    m = bm.Mesh(
-        positions=positions,
-        loops=np.array([0, 1, 2, 0, 1, 3, 0, 1, 4], dtype="i4"),
-        starts=np.array([0, 3, 6, 9], dtype="i4"),
-        material=np.zeros(3, dtype="i4"),
-        smooth=np.zeros(3, dtype=bool),
-    )
-    with pytest.raises(el.OpError, match="boundary|non-manifold"):
-        dis.dissolve_verts(m, el.ElementSel(verts=[0]))
-
-
-def test_dissolve_verts_refuses_an_empty_or_foreign_selection() -> None:
-    with pytest.raises(el.OpError, match="Select a vertex"):
-        dis.dissolve_verts(prim.box(), el.empty())
-    with pytest.raises(el.OpError, match="not part of this mesh"):
-        dis.dissolve_verts(prim.box(), el.ElementSel(verts=[99]))
-
-
-def test_dissolve_verts_refuses_or_stays_fast_past_a_selection_size_ceiling_on_a_large_interior_selection(  # noqa: E501
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 2026-09-22 audit's clay-11: unlike every other walking op in this
-    package, ``dissolve_verts`` had no ceiling at all on the size of the
-    *selection* itself -- ``MAX_DISSOLVED_RING`` bounds only the merged
-    n-gon's own outline, which stays small for a large *interior* selection
-    (a k-vertex-square block's boundary has only ~4k corners, not k^2), so it
-    cannot see this shape of cost. Reproduced (audit's own probe): 2.6s at
-    249,000 vertices, linear; re-measured at merge on a contiguous interior
-    block, the shape that keeps the output ring small: 0.65s at 40,000
-    vertices, 3.9s at 250,000.
-
-    Driven here with the ceiling lowered, on a selection that never reaches
-    ``adjacency()`` at all (the refusal is the very first thing the function
-    does past the empty check), rather than building a mesh anywhere near
-    the real ceiling.
-    """
-    # The ceiling itself must not have crept down onto ordinary use.
-    assert dis.MAX_DISSOLVED_VERTS >= 20_000
-    m = prim.box()
-    monkeypatch.setattr(dis, "MAX_DISSOLVED_VERTS", 4)
-    with pytest.raises(el.OpError, match=r"5.*past the.*4"):
-        dis.dissolve_verts(m, el.ElementSel(verts=np.arange(5, dtype="i8")))
-
-
 # --- shared behaviour -------------------------------------------------------
 
 
 def test_a_dissolve_keeps_each_border_corners_own_uv() -> None:
     m = _uvd(_grid(2, 1))
-    a = adj.adjacency(m)
-    out, _ = dis.dissolve_edges(m, el.ElementSel(edges=a.edge_verts[a.edge_uses == 2]))
+    out, _ = dis.dissolve_faces(m, el.ElementSel(faces=[0, 1]))
     assert out.uv is not None and len(out.uv) == len(out.loops)
     assert all(row.tolist() in m.uv.tolist() for row in out.uv)
 
@@ -299,8 +176,7 @@ def test_the_merged_face_inherits_material_and_smoothing() -> None:
         material=np.array([7, 7], dtype="i4"),
         smooth=np.array([True, True]),
     )
-    a = adj.adjacency(marked)
-    out, sel = dis.dissolve_edges(marked, el.ElementSel(edges=a.edge_verts[a.edge_uses == 2]))
+    out, sel = dis.dissolve_faces(marked, el.ElementSel(faces=[0, 1]))
     assert out.material[sel.faces[0]] == 7
     assert bool(out.smooth[sel.faces[0]])
 
@@ -434,7 +310,7 @@ def _padded(m: bm.Mesh, n_extra: int) -> bm.Mesh:
     )
 
 
-def test_dissolving_one_edge_does_not_walk_the_whole_meshs_face_count() -> None:
+def test_dissolving_one_pair_of_faces_does_not_walk_the_whole_meshs_face_count() -> None:
     """The 2026-09-08 audit's second run (clay-08) found ``_Union.groups()`` built with
     ``for i in range(len(self.parent))`` in all three dissolve ops -- every
     face in the whole mesh, not the selection -- so one edge dissolved
@@ -461,13 +337,13 @@ def test_dissolving_one_edge_does_not_walk_the_whole_meshs_face_count() -> None:
 
     def _time_dissolve(m: bm.Mesh) -> float:
         a = adj.adjacency(m)
-        shared = a.edge_verts[a.edge_uses == 2]
-        assert len(shared) == 1, "only the grid's shared edge, none of the padding"
+        shared = int((a.edge_uses == 2).sum())
+        assert shared == 1, "only the grid's shared edge, none of the padding"
         # Warm the adjacency cache before timing: it is built once per mesh and
         # cached (adjacency.py's own ``_CACHE``), so a real drag never pays for
         # it twice, and this test should not either.
         start = time.perf_counter()
-        out, _ = dis.dissolve_edges(m, el.ElementSel(edges=shared))
+        out, _ = dis.dissolve_faces(m, el.ElementSel(faces=[0, 1]))
         elapsed = time.perf_counter() - start
         bm.validate(out)
         assert bm.face_count(out) == len(m.starts) - 2, "the two grid faces merged, padding intact"
@@ -520,26 +396,6 @@ class _OldUnion:
         return list(out.values())
 
 
-def _old_dissolve_edges(mesh: bm.Mesh, sel: el.ElementSel) -> tuple[bm.Mesh, el.ElementSel]:
-    if len(sel.edges) == 0:
-        raise el.OpError("Select an edge to dissolve.")
-    ids = dis._check_edges(mesh, sel.edges)
-    a = adj.adjacency(mesh)
-    union = _OldUnion(bm.face_count(mesh))
-    order = np.argsort(a.corner_edge, kind="stable")
-    by_edge = a.corner_edge[order]
-    faces_by_edge = a.corner_face[order]
-    lo = np.searchsorted(by_edge, ids, side="left")
-    hi = np.searchsorted(by_edge, ids, side="right")
-    touched: list[int] = []
-    for start, stop in zip(lo.tolist(), hi.tolist(), strict=True):
-        pair = faces_by_edge[start:stop]
-        union.union(int(pair[0]), int(pair[-1]))
-        touched.extend(pair.tolist())
-    subset = np.unique(np.asarray(touched, dtype="i8")) if touched else np.empty(0, dtype="i8")
-    return dis.merge_groups(mesh, [np.array(g) for g in union.groups(subset)])
-
-
 def _old_dissolve_faces(mesh: bm.Mesh, sel: el.ElementSel) -> tuple[bm.Mesh, el.ElementSel]:
     if len(sel.faces) == 0:
         raise el.OpError("Select the faces to dissolve into one.")
@@ -553,39 +409,6 @@ def _old_dissolve_faces(mesh: bm.Mesh, sel: el.ElementSel) -> tuple[bm.Mesh, el.
         if chosen[other]:
             union.union(int(a.corner_face[corner]), other)
     groups = [np.array(g) for g in union.groups(np.flatnonzero(chosen))]
-    return dis.merge_groups(mesh, groups)
-
-
-def _old_dissolve_verts(mesh: bm.Mesh, sel: el.ElementSel) -> tuple[bm.Mesh, el.ElementSel]:
-    if len(sel.verts) == 0:
-        raise el.OpError("Select a vertex to dissolve.")
-    a = adj.adjacency(mesh)
-    union = _OldUnion(bm.face_count(mesh))
-    for v in sel.verts.astype("i8").tolist():
-        if v >= len(mesh.positions):
-            raise el.OpError(f"Vertex {v} is not part of this mesh.")
-        corners = a.vertex_corners(v)
-        if len(corners) == 0:
-            raise el.OpError(f"Vertex {v} belongs to no face.")
-        uses = a.edge_uses[a.corner_edge[corners]]
-        incoming = a.edge_uses[a.corner_edge[a.prev_corner[corners]]]
-        touch = np.concatenate([uses, incoming])
-        if (touch == 1).any():
-            raise el.OpError(
-                f"Vertex {v} is on a boundary, so the faces around it do not "
-                "close into a ring. Fill the hole first, or delete the vertex."
-            )
-        if (touch >= 3).any():
-            raise el.OpError(
-                f"Vertex {v} sits on a non-manifold edge, so the faces around it "
-                "have no single order. Fix that edge first."
-            )
-        faces = a.corner_face[corners].astype("i8")
-        for f in faces[1:].tolist():
-            union.union(int(faces[0]), f)
-    touched = np.zeros(bm.face_count(mesh), dtype=bool)
-    touched[a.corner_face[np.concatenate([a.vertex_corners(int(v)) for v in sel.verts])]] = True
-    groups = [np.array(g) for g in union.groups(np.flatnonzero(touched))]
     return dis.merge_groups(mesh, groups)
 
 
@@ -635,34 +458,6 @@ def test_dissolve_faces_matches_the_old_union_find_when_nothing_touches() -> Non
         dis.dissolve_faces(m, sel)
     with pytest.raises(el.OpError, match="Nothing there to dissolve"):
         _old_dissolve_faces(m, sel)
-
-
-def test_dissolve_edges_matches_the_old_union_find_on_several_disjoint_pairs() -> None:
-    m = _grid(6, 6)
-    a = adj.adjacency(m)
-    interior = a.edge_verts[a.edge_uses == 2]
-    # A handful of scattered interior edges, none adjacent to another --
-    # several independent one-edge dissolves folded into one call.
-    sel = el.ElementSel(edges=interior[[0, 5, 11, 17]])
-    _assert_same_mesh_and_sel(dis.dissolve_edges(m, sel), _old_dissolve_edges(m, sel))
-
-
-def test_dissolve_edges_matches_the_old_union_find_on_a_chain() -> None:
-    """A run of collinear edges that all merge into one long strip."""
-    m = _grid(6, 1)
-    a = adj.adjacency(m)
-    interior = a.edge_verts[a.edge_uses == 2]
-    sel = el.ElementSel(edges=interior)
-    _assert_same_mesh_and_sel(dis.dissolve_edges(m, sel), _old_dissolve_edges(m, sel))
-
-
-def test_dissolve_verts_matches_the_old_union_find_on_several_disjoint_vertices() -> None:
-    m = _grid(6, 6)
-    interior_verts = [
-        i * 7 + j for i in range(1, 6) for j in range(1, 6)
-    ]  # every interior vertex of a 7x7 vertex grid
-    sel = el.ElementSel(verts=np.array([interior_verts[0], interior_verts[10], interior_verts[20]]))
-    _assert_same_mesh_and_sel(dis.dissolve_verts(m, sel), _old_dissolve_verts(m, sel))
 
 
 def test_group_by_label_matches_old_union_groups_on_random_partitions() -> None:

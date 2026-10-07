@@ -5,13 +5,12 @@
 2. A save past the object/triangle ceilings surfaced as "Something went wrong;
    see the log", because ``snapshot_bytes`` raises a plain ``ValueError`` that
    the task runner does not treat as a message for a person.
-3. Four callers still named N copies through a list they appended to, paying
-   the copy and the probe that ``mesh_ops.UsedNames`` removes.
+3. Callers still named N copies through a list they appended to, paying the
+   copy and the probe that ``mesh_ops.UsedNames`` removes.
 """
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 import numpy as np
@@ -19,7 +18,7 @@ import pytest
 from _ui_context import imgui_context
 
 from realmspinner.kernels.mesh import document as bd
-from realmspinner.kernels.mesh import glbimport, merge, selection
+from realmspinner.kernels.mesh import glbimport, selection
 from realmspinner.kernels.mesh import ops as mesh_ops
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.service.errors import TooLarge
@@ -191,24 +190,6 @@ def _kit() -> tuple[bd.ClayDoc, list[bd.Obj]]:
     return doc, objs
 
 
-def test_array_linear_names_its_copies_through_one_used_names_and_keeps_the_names(spy) -> None:
-    doc, objs = _kit()
-    doc.select([objs[0].uid, objs[3].uid])  # Post, Rail
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("array-linear"), count=5, x=1.0) is True
-    made = [o.name for o in doc.objects[len(_EXISTING):]]
-    assert made == _old_names(_EXISTING, ["Post", "Rail"] * 4)
-    assert spy and all(t is mesh_ops.UsedNames for t in spy), set(spy)
-
-
-def test_array_radial_names_its_copies_through_one_used_names_and_keeps_the_names(spy) -> None:
-    doc, objs = _kit()
-    doc.select([objs[0].uid, objs[3].uid])
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("array-radial"), count=4) is True
-    made = [o.name for o in doc.objects[len(_EXISTING):]]
-    assert made == _old_names(_EXISTING, ["Post", "Rail"] * 3)
-    assert spy and all(t is mesh_ops.UsedNames for t in spy), set(spy)
-
-
 def test_mirror_copy_names_its_copies_through_one_used_names_and_keeps_the_names(spy) -> None:
     doc, objs = _kit()
     doc.select([objs[0].uid, objs[1].uid, objs[3].uid])  # Post, Post.001, Rail
@@ -238,50 +219,3 @@ def test_separate_names_its_pieces_through_one_used_names_and_keeps_the_names(sp
     expected = _old_names(_EXISTING + ["Rail"], ["Rail"] * 5)
     assert [o.name for o in new] == expected
     assert spy and all(t is mesh_ops.UsedNames for t in spy), set(spy)
-
-
-def test_merge_into_names_arrivals_through_one_used_names_and_keeps_the_names(spy) -> None:
-    target = bd.ClayDoc()
-    for name in ["Rock", "Rock.002", "Tree"]:
-        _add(target, name)
-    incoming = bd.ClayDoc()
-    arriving = ["Rock", "Rock", "Fern", "Tree", "Rock", "Rock.002"]
-    for name in arriving:
-        _add(incoming, name)
-
-    added = merge.merge_into(target, incoming, offset=np.zeros(3, dtype="f8"))
-
-    taken = {"Rock", "Rock.002", "Tree"}
-    expected = []
-    for name in arriving:
-        if name in taken:
-            name = _REAL_NEXT_NAME(name, taken)
-        taken.add(name)
-        expected.append(name)
-    assert [o.name for o in added] == expected
-    assert spy and all(t is mesh_ops.UsedNames for t in spy), set(spy)
-
-
-def _array_seconds(copies: int, monkeypatch) -> float:
-    monkeypatch.setattr(clay_ops, "MAX_ARRAY_COPIES", 10**6)
-    best = float("inf")
-    for _ in range(2):
-        doc = bd.ClayDoc()
-        post = _add(doc, "Post")
-        doc.select([post.uid])
-        started = time.perf_counter()
-        # The op body directly: ``run`` would clamp ``count`` to the catalogue's
-        # own ``MAX_ARRAY_COUNT`` before it got here.
-        assert clay_ops._array_linear(None, doc, count=copies + 1, x=0.1)
-        best = min(best, time.perf_counter() - started)
-        assert len({o.name for o in doc.objects}) == copies + 1
-    return best
-
-
-def test_naming_an_arrays_copies_does_not_grow_quadratically(monkeypatch) -> None:
-    # ``MAX_ARRAY_COPIES`` is lifted here only so the cost can be measured over
-    # a span where a quadratic term shows; one real press stays under 2,000.
-    small, large = 1500, 6000
-    ratio = _array_seconds(large, monkeypatch) / max(_array_seconds(small, monkeypatch), 1e-6)
-    # 4x the copies: linear is ~4x, a list copied and probed per copy is ~16x.
-    assert ratio < 9.0, f"an array of {large} copies cost {ratio:.1f}x one of {small}"

@@ -126,65 +126,6 @@ def test_repair_ignores_a_blend_or_mask_material_no_primitive_uses(monkeypatch, 
     assert "alpha" in bakes[0]
 
 
-# --- pipelines-20: op_clay_bake's default maps are the three Clay maps -------
-
-
-def _drive_clay_bake(monkeypatch, tmp_path, maps):
-    from realmspinner.pipelines import blender_worker as bw
-
-    high, low = tmp_path / "high.glb", tmp_path / "low.glb"
-    high.write_bytes(b"x")
-    low.write_bytes(b"x")
-    baked: list[list[str]] = []
-    constants: list[float] = []
-    fake_low = SimpleNamespace(name="Low", data=SimpleNamespace(uv_layers=[object()]))
-
-    monkeypatch.setattr(bw, "_reset_scene", lambda _b: None)
-    monkeypatch.setattr(bw, "_import_glb_objects", lambda _b, _p: [fake_low])
-    monkeypatch.setattr(bw, "_metallic_constant", lambda _h: 0.25)
-    monkeypatch.setattr(bw, "_local_bounds", lambda _o: ([0, 0, 0], [1, 1, 1]))
-    def record_bake(*_a, maps, **_k):
-        baked.append(list(maps))
-        return mock.MagicMock(), {}
-
-    monkeypatch.setattr(bw, "_bake_maps", record_bake)
-    monkeypatch.setattr(bw, "_set_metallic_constant", lambda _m, value: constants.append(value))
-    monkeypatch.setattr(bw, "_export", lambda *_a, **_k: None)
-    monkeypatch.setattr(bw, "progress", lambda *_a, **_k: None)
-    spec = {
-        "high_glb": str(high),
-        "low_glb": str(low),
-        "out_glb": str(tmp_path / "out.glb"),
-        "texture_size": 64,
-    }
-    if maps is not None:
-        spec["maps"] = maps
-    bpy = mock.MagicMock()
-    result = bw.op_clay_bake(bpy, spec)
-    return baked, constants, result
-
-
-def test_clay_bake_without_maps_bakes_only_the_clay_default_maps(monkeypatch, tmp_path):
-    from realmspinner.kernels.rig import blender_spec
-
-    baked, constants, result = _drive_clay_bake(monkeypatch, tmp_path, None)
-    assert baked == [list(blender_spec.CLAY_BAKE_MAPS)]
-    assert result["maps"] == list(blender_spec.CLAY_BAKE_MAPS)
-    assert constants == [0.25]
-    assert result["metallic"] == pytest.approx(0.25)
-
-
-def test_clay_bake_does_not_stamp_the_metallic_constant_over_a_baked_metallic_map(
-    monkeypatch, tmp_path
-):
-    baked, constants, result = _drive_clay_bake(
-        monkeypatch, tmp_path, ["base_color", "metallic"]
-    )
-    assert baked == [["base_color", "metallic"]]
-    assert constants == []
-    assert result["metallic"] == "baked"
-
-
 # --- pipelines-21: a transport ValueError is retried and keeps the tree ------
 
 

@@ -1,11 +1,4 @@
-"""Regression tests for the 2026-09-23 audit's clay-06 and create-03.
-
-clay-06: the pick, hover, marquee and snap loops in ``_view_pick.py`` and
-``_view_drag.py`` skipped invisible and locked objects but not
-``role == "collider"``, so a collider fit around a source object -- which
-``view.py``'s own ``_composite`` never draws through the opaque path -- still
-won every ray cast at the surface it was fit to. A click on the modelled
-object landed on its own collider instead.
+"""Regression test for the 2026-09-23 audit's create-03.
 
 create-03: ``Camera.look_angles`` (so ``look_along``, so the Ctrl+1/3/7 axis
 keys) and the ``orthographic`` toggle (Ctrl+5) both *snap* rather than ease,
@@ -20,88 +13,8 @@ remember to set ``_render_dirty`` by hand.
 
 from __future__ import annotations
 
-from realmspinner.kernels.geom3d import math3d as m3
-from realmspinner.kernels.mesh import colliders as cl
-from realmspinner.kernels.mesh import document as bd
-from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio import _view_frame
-from realmspinner.studio.modes.clay.ui import view as clay_view
 from realmspinner.studio.viewer.camera import Camera
-
-RECT = (0.0, 0.0, 128.0, 96.0)
-
-
-class _State:
-    def __init__(self) -> None:
-        self.tool = "select"
-        self.snap = False
-        self.snap_translate = 0.125
-        self.snap_rotate = 15.0
-        self.snap_vertex = False
-
-
-class _Ctx:
-    def __init__(self) -> None:
-        self.state = type("S", (), {"clay": _State()})()
-
-
-# --- clay-06: colliders never win a pick, hover, marquee or snap -------------
-
-
-def test_clicking_an_object_with_a_fitted_collider_still_selects_the_object_not_the_collider(
-    gl,
-) -> None:
-    """The documented collider workflow (Clay chapter): fit a collider, then
-    keep working with the object it protects. A sphere fit around a cone
-    (``kernels.mesh.colliders.fit_sphere``) sits strictly outside the cone's
-    own surface -- the same shape the audit's probe (clay-view-01.py) used --
-    so any ray aimed at the cone hits the sphere first unless the pick loop
-    skips ``role == "collider"``."""
-    view = clay_view.ClayView(gl, _Ctx())
-    try:
-        doc = bd.ClayDoc()
-        source = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Prop", mesh=bp.cone()))
-        collider = doc.add_collider(source.uid, cl.fit_sphere(source.mesh))
-
-        view._rect = RECT
-        view.camera.set_target(m3.vec3())
-        view.camera.set_position(m3.vec3(0.0, 0.0, 8.0))
-        view.camera.aspect = RECT[2] / RECT[3]
-
-        hit = view.pick(doc, (RECT[2] * 0.5, RECT[3] * 0.5))
-        assert hit == source.uid, (
-            f"pick_face returned {hit!r} -- the enclosing collider "
-            f"({collider.uid}) won the ray instead of its source"
-        )
-    finally:
-        view.release()
-
-
-def test_hovering_over_a_fitted_collider_reports_the_source_face_not_the_colliders(
-    gl,
-) -> None:
-    """``pick_element`` (used by hover as well as element-mode clicks) has its
-    own object loop -- the 2026-09-22 audit's clay-02 already taught it to
-    skip a locked object; a collider was still missing from that skip."""
-    view = clay_view.ClayView(gl, _Ctx())
-    try:
-        doc = bd.ClayDoc()
-        source = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Prop", mesh=bp.cone()))
-        doc.add_collider(source.uid, cl.fit_sphere(source.mesh))
-        doc.element_mode = "face"
-
-        view._rect = RECT
-        view.camera.set_target(m3.vec3())
-        view.camera.set_position(m3.vec3(0.0, 0.0, 8.0))
-        view.camera.aspect = RECT[2] / RECT[3]
-
-        picked = view.pick_element(doc, (RECT[2] * 0.5, RECT[3] * 0.5))
-        assert picked is not None, "the ray should hit the source's own face"
-        uid, _index = picked
-        assert uid == source.uid, f"pick_element reported the collider ({uid}), not the source"
-    finally:
-        view.release()
-
 
 # --- create-03: an axis-view snap (Ctrl+1/3/7) and the ortho toggle ----------
 # (Ctrl+5) both mark the frame dirty via Camera.revision -----------------------

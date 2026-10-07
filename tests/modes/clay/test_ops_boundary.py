@@ -65,14 +65,19 @@ def _caps_only_large(segments: int) -> bm.Mesh:
     return bm.from_faces(positions, faces)
 
 
+def _rings(mesh: bm.Mesh) -> list[np.ndarray]:
+    """Every open border of *mesh*, each wound in the hole direction."""
+    return adj.boundary_ring_from(mesh, adj.check_manifold(mesh).boundary_edges)[0]
+
+
 def _ring_edges(mesh: bm.Mesh, which: int = 0) -> np.ndarray:
-    rings, _ = adj.boundary_loops(mesh)
+    rings = _rings(mesh)
     ring = rings[which]
     return np.stack([ring, np.roll(ring, -1)], axis=1)
 
 
 def _all_boundary_edges(mesh: bm.Mesh) -> np.ndarray:
-    rings, _ = adj.boundary_loops(mesh)
+    rings = _rings(mesh)
     return np.concatenate([np.stack([r, np.roll(r, -1)], axis=1) for r in rings])
 
 
@@ -144,7 +149,7 @@ def test_a_vertex_selection_extrudes_the_border_between_its_vertices() -> None:
     """A mesh stores no wire edges, so what a run of border vertices means is
     the border between them."""
     mesh = _open_tube()
-    ring = adj.boundary_loops(mesh)[0][0]
+    ring = _rings(mesh)[0]
     out, _ = ops.extrude_verts(mesh, el.ElementSel(verts=ring))
     bm.validate(out)
     assert bm.face_count(out) == bm.face_count(mesh) + 8
@@ -262,9 +267,3 @@ def test_extrude_is_one_row_and_one_key_across_all_three_modes() -> None:
     assert op.modes == clay_ops.ELEMENT_MODES
     for mode in clay_ops.ELEMENT_MODES:
         assert clay_ops.by_key(mode, "E") is op
-
-
-def test_bridge_is_offered_in_edge_mode_only() -> None:
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
-    assert clay_ops.get("bridge").modes == ("edge",)

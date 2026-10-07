@@ -1,4 +1,6 @@
-"""Union Objects: the one op in Clay that removes geometry it did not select.
+"""The boolean kernel (characters still build with it; Clay no longer exposes the ops).
+
+Union: the one op that removes geometry it did not select.
 
 The properties asserted here are the ones that separate a union from the weld
 beside it. A weld of two overlapping cubes keeps both sets of interior walls, so
@@ -21,7 +23,6 @@ from realmspinner.kernels.mesh import mesh as bm
 from realmspinner.kernels.mesh import ops_boolean
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh.elements import OpError
-from realmspinner.studio.modes.clay import ops as clay_ops
 
 from .topo_asserts import assert_closed
 
@@ -150,86 +151,6 @@ def test_an_open_surface_is_refused_by_name():
     )
     with pytest.raises(OpError, match="closed solid"):
         ops_boolean.union([_obj("A", mesh=open_box), _obj("B", translation=[0.5, 0.5, 0.5])])
-
-
-def test_a_refusal_reaches_the_user_as_a_toast_and_changes_nothing():
-    """Through the registry, which is where every other refusal is caught."""
-
-    class _Ctx:
-        def __init__(self) -> None:
-            self.errors: list[str] = []
-
-        def toast(self, message: str, level: str = "info") -> None:
-            if level == "error":
-                self.errors.append(message)
-
-    box = bp.box()
-    open_box = bm.Mesh(
-        positions=box.positions,
-        loops=box.loops[: box.starts[5]],
-        starts=box.starts[:6],
-        material=box.material[:5],
-        smooth=box.smooth[:5],
-    )
-    doc = bd.ClayDoc()
-    first = doc.add_object(_obj("A", mesh=open_box))
-    second = doc.add_object(_obj("B", translation=[0.5, 0.5, 0.5]))
-    doc.select([first.uid, second.uid])
-    ctx = _Ctx()
-
-    assert clay_ops.run(ctx, doc, clay_ops.get("union")) is False
-    assert ctx.errors and "closed solid" in ctx.errors[0]
-    assert len(doc.objects) == 2, "nothing was absorbed"
-
-
-# --- through the registry ---------------------------------------------------
-
-
-def _two_boxes() -> tuple[bd.ClayDoc, int, int]:
-    doc = bd.ClayDoc()
-    first = doc.add_object(_obj("A", generator="box", params={"size": (1.0, 1.0, 1.0)}))
-    second = doc.add_object(_obj("B", translation=[0.5, 0.5, 0.5]))
-    doc.select([first.uid, second.uid])
-    return doc, first.uid, second.uid
-
-
-class _Ctx:
-    def toast(self, message: str, level: str = "info") -> None:
-        raise AssertionError(f"unexpected toast: {message}")
-
-
-def test_the_op_keeps_the_topmost_object_and_absorbs_the_rest():
-    doc, first, _second = _two_boxes()
-
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("union")) is True
-
-    assert [obj.uid for obj in doc.objects] == [first]
-    assert doc.selection == {first}
-
-
-def test_the_op_is_disabled_below_two_visible_objects():
-    doc, first, second = _two_boxes()
-    union = clay_ops.get("union")
-    assert union.enabled(doc)
-
-    doc.set_visibility({second: False})
-    assert not union.enabled(doc)
-
-
-def test_the_op_freezes_the_generator_and_undoes_in_one_press():
-    """The whole edit is one ``CompoundEdit``: a Ctrl+Z that put the absorbed
-    object back while the target still carried the union would show a state
-    that never happened."""
-    doc, first, second = _two_boxes()
-    before = bm.face_count(doc.by_uid(first).mesh)
-    clay_ops.run(_Ctx(), doc, clay_ops.get("union"))
-    assert doc.by_uid(first).generator is None
-
-    doc.undo()
-
-    assert [obj.uid for obj in doc.objects] == [first, second]
-    assert bm.face_count(doc.by_uid(first).mesh) == before
-    assert doc.by_uid(first).generator == "box"
 
 
 # --- difference and intersection (Clay W5 groundwork) -------------------------

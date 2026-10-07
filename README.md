@@ -50,11 +50,14 @@ are looking at.
    skip empties, trim, padding, extrude, and per-tag or per-layer splits).
    Autosaves every two minutes with crash recovery, and bridges the pipeline in
    both directions.
-5. **Clay** — modelling from primitives: vertex/edge/face element modes,
-   extrude/bevel/subdivide/dissolve, UVs, a material palette, GLB import, and a
+5. **Clay** — a small low-poly modeller, picoCAD-style: fifteen primitives,
+   vertex/edge/face element modes, extrude/inset/weld/subdivide, box-projected
+   UVs, a colour-and-texture material palette (paint faces from the swatch
+   row, make a texture and paint it in Inker on the 16 PICO-8 colours, crisp in
+   the viewport and the GLB), GLB/OBJ/STL/PLY import, and a
    diffable `.rblk` native format. Two ways out: export to the library as an
    ordinary asset (rigging, posing, sheets and every mesh export then work on it
-   unchanged), or render it flat and send it to Create. An external AI agent can
+   unchanged), or write a plain GLB or OBJ. An external AI agent can
    drive this same workspace over MCP — off by default, switched on in Settings,
    in a Clay tab of its own (see Development below).
 6. **Mason** — a 3D scene editor: place library assets and primitives into a

@@ -1,15 +1,8 @@
-"""Loops, rings, linked, grow, shrink, boundary and mirror pairs.
-
-Every one of these is a thing a modeller does dozens of times an hour and none
-of them existed: Clay could select an element and add another with Shift, and
-that was the whole vocabulary. So selecting the ring of edges round a cylinder
-meant clicking each of them, and selecting one of two shapes welded into one
-mesh was not possible at all.
+"""Linked, grow, material and the selection queries.
 
 The counts are checked against solids whose answers are arithmetic rather than
-remembered. A 4x4 grid has 25 vertices, 40 edges and 16 faces; a row of it is
-four edges and the ring across that row is five, because a ring of n quads has
-n+1 edges. Those are the numbers a wrong walk gets wrong.
+remembered: a 4x4 grid has 25 vertices, 40 edges and 16 faces, and those are
+the numbers a wrong walk gets wrong.
 """
 
 from __future__ import annotations
@@ -40,74 +33,6 @@ def _interior_edge(mesh):
         if valence[pair[0]] == 4 and valence[pair[1]] == 4:
             return tuple(int(v) for v in pair)
     raise AssertionError("the grid has no interior edge")
-
-
-# --- loops and rings ----------------------------------------------------------
-
-
-def test_a_loop_runs_the_width_of_the_grid():
-    mesh = _grid()
-    assert len(select.edge_loop(mesh, _interior_edge(mesh))) == 4
-
-
-def test_a_ring_crosses_the_quads_and_is_one_longer():
-    """A ring of n quads has n+1 edges, which is the arithmetic that catches a
-    walk that stops one short or wraps one too far."""
-    mesh = _grid()
-    assert len(select.edge_ring(mesh, _interior_edge(mesh))) == 5
-
-
-def test_a_loop_stops_at_a_pole():
-    """A cube's vertices have three edges, not four, so there is no edge
-    opposite the one arrived on -- and a loop that ran through one would wander
-    off round the mesh. The seed alone is the honest answer."""
-    mesh = bp.box()
-    a = adj.adjacency(mesh)
-    seed = tuple(int(v) for v in a.edge_verts[0])
-
-    assert len(select.edge_loop(mesh, seed)) == 1
-
-
-def test_a_ring_still_works_where_a_loop_does_not():
-    """The two are different traversals, and the cube is the case that shows
-    it: no loop, and a four-edge band round the cube."""
-    mesh = bp.box()
-    a = adj.adjacency(mesh)
-    seed = tuple(int(v) for v in a.edge_verts[0])
-
-    assert len(select.edge_ring(mesh, seed)) == 4
-
-
-def test_a_loop_and_a_ring_both_contain_their_seed():
-    mesh = _grid()
-    seed = _interior_edge(mesh)
-    for pairs in (select.edge_loop(mesh, seed), select.edge_ring(mesh, seed)):
-        rows = {tuple(sorted(int(v) for v in row)) for row in pairs}
-        assert tuple(sorted(seed)) in rows
-
-
-def test_an_edge_that_is_not_on_the_mesh_selects_nothing():
-    """Reached by a keystroke during a selection, so a refusal is empty rather
-    than an exception -- a key that raises is a key that takes the window down."""
-    mesh = _grid()
-    assert len(select.edge_loop(mesh, (999, 998))) == 0
-    assert len(select.edge_ring(mesh, (999, 998))) == 0
-
-
-def test_a_face_loop_takes_both_strips_through_the_face():
-    """A quad sits on two loops at right angles, and picking one arbitrarily
-    would make the result depend on corner order rather than on anything the
-    user can see."""
-    mesh = _grid()
-    # A corner face: 4 along one strip and 4 along the other, sharing itself.
-    assert len(select.face_loop(mesh, 0)) == 7
-
-
-def test_a_face_loop_refuses_a_face_that_is_not_a_quad():
-    mesh = bp.cylinder()
-    arity = np.diff(np.asarray(mesh.starts, dtype="i8"))
-    ngon = int(np.flatnonzero(arity != 4)[0])
-    assert len(select.face_loop(mesh, ngon)) == 0
 
 
 # --- linked -------------------------------------------------------------------
@@ -251,7 +176,7 @@ def test_linked_matches_label_propagation_on_several_seeded_islands():
         assert np.array_equal(np.sort(fast), np.sort(reference))
 
 
-# --- more and less ------------------------------------------------------------
+# --- grow ---------------------------------------------------------------------
 
 
 def test_grow_takes_one_ring_outward():
@@ -260,40 +185,7 @@ def test_grow_takes_one_ring_outward():
     assert len(corner) == 3, "a corner vertex and its two neighbours"
 
 
-def test_shrink_peels_the_border_off():
-    """The definition that matters: shrinking leaves "the middle of what I
-    have", which is what a user reaching for it wants."""
-    mesh = _grid()
-    everything = np.arange(len(mesh.positions))
-
-    inner = select.shrink(mesh, everything)
-
-    assert len(inner) == 9, "the 3x3 interior of a 5x5 lattice"
-    assert len(inner) < len(everything)
-
-
-def test_shrinking_a_selection_with_no_interior_leaves_nothing():
-    mesh = _grid()
-    assert len(select.shrink(mesh, [0])) == 0
-
-
-def test_grow_then_shrink_returns_the_interior_rather_than_the_original():
-    """They are inverses only on an infinite lattice, and saying so is the
-    point: a selection touching the border loses that border to the shrink."""
-    mesh = _grid()
-    seed = select.linked(mesh, [0])
-    assert len(select.shrink(mesh, select.grow(mesh, seed))) <= len(seed)
-
-
-# --- boundary and material ----------------------------------------------------
-
-
-def test_the_boundary_of_a_grid_is_its_border():
-    assert len(select.boundary(_grid())) == 16
-
-
-def test_a_closed_solid_has_no_boundary():
-    assert len(select.boundary(bp.box())) == 0
+# --- material -----------------------------------------------------------------
 
 
 def test_by_material_finds_the_faces_using_a_slot():
@@ -414,22 +306,11 @@ def test_faces_in_bounds_reads_the_positions_it_is_given_rather_than_the_meshs_o
 
 
 def test_every_query_names_modes_it_can_actually_answer_in():
-    grid = _grid()
     box = bp.box()
-    edge = _interior_edge(grid)
     field_to_mode = {"verts": "vertex", "edges": "edge", "faces": "face"}
     fixtures = {
-        "loop": (grid, {"edge": edge}),
-        "ring": (grid, {"edge": edge}),
-        "face_loop": (grid, {"face": 0}),
         "material": (box, {"slot": 0}),
         "normal": (box, {"direction": (0.0, 1.0, 0.0)}),
-        "similar_area": (box, {"faces": [0], "tolerance": 0.1}),
-        "similar_normal": (box, {"faces": [0], "tolerance": 5.0}),
-        "similar_material": (box, {"faces": [0]}),
-        "similar_sides": (box, {"faces": [0], "tolerance": 0}),
-        "similar_length": (grid, {"edges": [edge], "tolerance": 0.5}),
-        "similar_valence": (grid, {"verts": [edge[0]], "tolerance": 0}),
     }
     for name, query in select.QUERIES.items():
         if name == "bounds":
@@ -444,104 +325,20 @@ def test_every_query_names_modes_it_can_actually_answer_in():
 
 
 def test_the_query_registry_does_not_duplicate_a_verb_that_is_already_an_op():
-    """The anti-drift gate. ``all``, ``none``, ``invert``, ``linked``, ``more``,
-    ``less`` and ``boundary`` are already ``select-*`` rows in ``clay_ops.OPS``
+    """The anti-drift gate. ``all``, ``none``, ``invert`` and ``linked`` are
+    already ``select-*`` rows in ``clay_ops.OPS``
     and already in the agent's derived ``clay_op`` enum -- dead only because no
     element mode can be set from an agent yet, not a hole for ``QUERIES`` to
     fill a second time."""
     from realmspinner.studio.modes.clay import ops as clay_ops
 
-    banned = {"all", "none", "invert", "linked", "more", "less", "boundary"}
+    banned = {"all", "none", "invert", "linked"}
     op_verbs = {
         op.name.removeprefix("select-") for op in clay_ops.OPS if op.name.startswith("select-")
     }
-    assert op_verbs == banned, "this pin's own idea of the seven must match the real registry"
+    assert op_verbs == banned, "this pin's own idea of the four must match the real registry"
     assert set(select.QUERIES) & banned == set()
     assert set(select.QUERIES).isdisjoint(op_verbs)
-
-
-# --- mirror pairs -------------------------------------------------------------
-
-
-def test_a_symmetric_mesh_pairs_every_vertex():
-    pairs = select.mirror_pairs(bp.box(), 0)
-    assert len(pairs) == 8
-    # And the pairing is an involution: the mirror of a vertex's mirror is
-    # itself, which is what a mirrored drag depends on.
-    for index, twin in pairs.items():
-        assert pairs[twin] == index
-
-
-def test_a_vertex_on_the_plane_maps_to_itself():
-    """The case that has to be handled rather than excluded: those are the ones
-    a mirrored drag must slide *along* the plane instead of moving off it."""
-    mesh = bp.grid()
-    pairs = select.mirror_pairs(mesh, 0)
-    on_plane = [
-        index
-        for index in range(len(mesh.positions))
-        if abs(float(mesh.positions[index][0])) < 1e-6
-    ]
-    assert on_plane
-    for index in on_plane:
-        assert pairs.get(index) == index
-
-
-def test_an_asymmetric_mesh_reports_what_it_can_rather_than_pretending():
-    """X-mirror can only be as good as the mesh: one that is not symmetric has
-    no pairs to find, and reporting the ones it has beats inventing the rest."""
-    import dataclasses
-
-    mesh = bp.box()
-    moved = np.asarray(mesh.positions, dtype="f8").copy()
-    moved[0][0] += 0.5
-    shifted = dataclasses.replace(mesh, positions=moved)
-
-    pairs = select.mirror_pairs(shifted, 0)
-
-    assert len(pairs) < len(moved)
-
-
-def test_the_mirror_axis_is_a_parameter():
-    box = bp.box()
-    assert len(select.mirror_pairs(box, 0)) == 8
-    assert len(select.mirror_pairs(box, 1)) == 8
-    assert len(select.mirror_pairs(box, 2)) == 8
-
-
-def test_mirror_pairs_is_reachable_from_a_live_code_path_or_its_docstring_says_it_is_not():
-    """The 2026-09-19 audit's clay-26: ``mirror_pairs``'s docstring reads as
-    though X-mirror editing already calls it ("what X-mirror editing needs"),
-    but ``header.py``'s own docstring admits the feature is not built yet --
-    X-mirror is explicitly listed there as "not here yet, deliberately".
-    ``elements.restrict()`` had exactly this gap (the 2026-09-08 audit's
-    clay-09) and ``test_elements.py`` closed it with this same self-adjusting
-    gate; ``mirror_pairs`` never got the mirror. Either a live caller exists,
-    or the docstring has to say plainly that none does, so a future caller
-    does not assume X-mirror dragging is already wired up.
-    """
-    import inspect
-    import re
-    from pathlib import Path
-
-    import realmspinner
-
-    root = Path(realmspinner.__file__).parent
-    callers = [
-        path
-        for path in root.rglob("*.py")
-        if path.name != "select.py"
-        and re.search(r"\bmirror_pairs\s*\(", path.read_text(encoding="utf-8"))
-    ]
-    if callers:
-        return  # a live caller exists -- nothing more to prove
-
-    doc = inspect.getdoc(select.mirror_pairs) or ""
-    assert "not currently called" in doc.lower() or "not built" in doc.lower(), (
-        "mirror_pairs() has no live caller anywhere under realmspinner/, but "
-        "its docstring no longer admits that -- either wire it into X-mirror "
-        "editing, or restore the honest docstring"
-    )
 
 
 # --- delete and duplicate, one undo step per gesture --------------------------

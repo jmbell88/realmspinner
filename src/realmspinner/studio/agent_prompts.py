@@ -33,20 +33,13 @@ from typing import Any
 # `tests/test_agent_prompts.py`, which has never existed), the same
 # "derived-not-duplicated, and a test proves it" shape `agent_clay` itself
 # uses for its own generator/op catalogues.
-_SCENE = "clay_scene"
 _ADD_PRIMITIVE = "clay_add_primitive"
-_ADD_FIGURE = "clay_add_figure"
 _TRANSFORM = "clay_transform"
 _SET_PARAMS = "clay_set_params"
 _MATERIAL = "clay_material"
-_BOOLEAN = "clay_boolean"
 _RENDER = "clay_render"
-_DIAGNOSE = "clay_diagnose"
 _EXPORT = "clay_export"
 _ELEMENTS = "clay_elements"
-_OP = "clay_op"
-_ELEMENT_MODE = "clay_element_mode"
-_SELECT_BY = "clay_select_by"
 _REFERENCE_ADD = "clay_reference_add"
 
 # The character pipeline's own tools, named here for the identical reason
@@ -63,10 +56,9 @@ def _model_from_description(args: dict[str, Any]) -> str:
     return (
         f"Build a Clay model matching this description: {description}\n\n"
         f"Work in the loop Clay's own conventions recommend: block the shape out with "
-        f"{_ADD_PRIMITIVE} (or {_ADD_FIGURE} for a posed figure), {_RENDER} from "
-        f"three_quarter and front to see it, adjust with {_TRANSFORM}/{_SET_PARAMS}/"
-        f"{_MATERIAL}, combine parts with {_BOOLEAN} where the shape needs one solid, "
-        f"run {_DIAGNOSE} before calling it finished, then {_EXPORT}."
+        f"{_ADD_PRIMITIVE}, check it with {_RENDER} from "
+        f"three_quarter and front, adjust with {_TRANSFORM}/{_SET_PARAMS}/"
+        f"{_MATERIAL}, then {_EXPORT} once it reads right."
     )
 
 
@@ -85,33 +77,8 @@ def _model_from_reference(args: dict[str, Any]) -> str:
         f"block out the shape with {_ADD_PRIMITIVE} and check your progress with "
         f"{_RENDER}'s 'compare' argument against that reference (try compare_mode "
         f"'beside' first, then 'overlay' once the silhouette is close). Iterate with "
-        f"{_TRANSFORM}/{_SET_PARAMS}/{_MATERIAL} and {_BOOLEAN} until the two line up, "
-        f"then {_DIAGNOSE} and {_EXPORT}."
-    )
-
-
-def _repair_mesh(args: dict[str, Any]) -> str:
-    uid = args.get("uid")
-    target = f"the object with uid {uid}" if uid else "every visible object"
-    return (
-        f"Repair {target}. Call {_DIAGNOSE} first -- pass 'select' on a finding to select "
-        f"the elements it names, the same way the properties pane's own click handler "
-        f"does. From there, {_ELEMENT_MODE} and {_SELECT_BY} put you in the right mode "
-        f"with the right elements selected, and {_OP} (fill-hole, merge-by-distance, "
-        f"recalc-normals and the rest of its mesh-repair rows) does the fix. Re-run "
-        f"{_DIAGNOSE} afterward to confirm the finding is gone, and {_RENDER} to see the "
-        f"result before trusting it."
-    )
-
-
-def _prepare_for_export(args: dict[str, Any]) -> str:
-    fmt = args.get("format")
-    target = f"the {fmt} format" if fmt else "export"
-    return (
-        f"Prepare this document for {target}. Run {_DIAGNOSE} across every visible object "
-        f"and fix what it finds (see the repair_mesh prompt for the loop), confirm the "
-        f"scale and grounding with {_SCENE} and {_RENDER}, then call {_EXPORT}. If "
-        f"{_EXPORT} refuses, its message names what to fix -- do not retry blind."
+        f"{_TRANSFORM}/{_SET_PARAMS}/{_MATERIAL} until the two line up, "
+        f"then {_EXPORT}."
     )
 
 
@@ -200,34 +167,6 @@ _PROMPTS: dict[str, _Prompt] = {
                 }
             ],
             _model_from_reference,
-        ),
-        _Prompt(
-            "repair_mesh",
-            "Repair a mesh",
-            "Find and fix what clay_diagnose reports, on one object or the whole scene.",
-            [
-                {
-                    "name": "uid",
-                    "description": "The object to repair. Omit to repair every visible "
-                    "object.",
-                    "required": False,
-                }
-            ],
-            _repair_mesh,
-        ),
-        _Prompt(
-            "prepare_for_export",
-            "Prepare for export",
-            "Diagnose, fix and confirm a document before exporting it.",
-            [
-                {
-                    "name": "format",
-                    "description": "The export format this is headed for, if it matters to "
-                    "how the document should be prepared.",
-                    "required": False,
-                }
-            ],
-            _prepare_for_export,
         ),
         _Prompt(
             "character_sheets_from_description",

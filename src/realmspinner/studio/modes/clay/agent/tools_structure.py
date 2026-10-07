@@ -1,21 +1,20 @@
 """Clay's agent tool surface, the scene-structure handler family (Clay tranche 3):
 ``clay_parent``, ``clay_group``, ``clay_ungroup``,
-``clay_lock``, ``clay_tag``, ``clay_separate``, ``clay_set_origin``,
-``clay_measure``, ``clay_checkpoint`` and ``clay_restore``.
+``clay_separate``, ``clay_set_origin``, ``clay_measure``,
+``clay_checkpoint`` and ``clay_restore``.
 
-A new family file, the same shape ``studio/modes/clay/agent/tools_modifiers.py`` landed in as
-tranche 2's own family: one new vocabulary -- parenting, groups, locking,
-tags, splitting an object apart, moving its origin, measuring it, and naming
-a history position -- that shares no argument shape with the ten object-level
-tools (``tools.py``) or the ten selection/ops/inspection ones (``tools_ops.py``).
+A family file of its own: one vocabulary -- parenting, groups, splitting an
+object apart, moving its origin, measuring it, and naming a history
+position -- that shares no argument shape with the object-level tools
+(``tools.py``) or the selection/ops/render ones (``tools_ops.py``).
 See ``studio/modes/clay/agent/validate.py``'s own module docstring for why
 every handler here reaches ``fail``/``ok``/``_json``/``Session``/``_tab``/the
 shared validators through that module rather than through
 ``studio/modes/clay/agent/dispatch.py`` directly: this file has no import of
-``dispatch.py`` at all, because none of these ten handlers ever needs
+``dispatch.py`` at all, because none of these eight handlers ever needs
 anything that lives only there.
 
-**Three of the ten are exempt from the "one call, one undo step" rule, and
+**Three of the eight are exempt from the "one call, one undo step" rule, and
 say so rather than pretend otherwise.** ``clay_checkpoint`` pushes no step at
 all -- ``ClayDoc.set_checkpoint`` only writes a name into an in-memory dict,
 never the undo stack -- the same shape ``clay_reference_add`` and the
@@ -38,25 +37,6 @@ divergent push after a checkpoint was set -- a redo branch a later edit
 discarded -- is exactly what turns ``"reachable"`` into ``"gone"``: not a
 bug, the serial the name pointed at is simply no longer on any branch
 ``step_history`` can reach.
-
-**Locking is not this file's own door.** ``ClayDoc.set_transform``/
-``remove_object`` already refuse a locked object with ``OpError("<name> is
-locked.")`` -- see ``document.py``'s own locking paragraph -- and
-``tools.py``'s own ``_h_transform``/``_h_delete`` are what map that refusal
-onto a field-named one. Of this file's two, only ``clay_separate`` reaches a
-locking door (``ClayDoc.separate`` refuses a locked source the same way);
-``clay_group`` does not, because ``ClayDoc.group`` reparents every member
-with ``keep_world=True``, and ``set_parent``'s own docstring is explicit
-that a ``keep_world`` reparent is exempt from ``_refuse_if_locked`` (it moves
-nothing on screen) -- so a locked object can be grouped. Both handlers
-(:func:`_h_group`, :func:`_h_separate`) catch the ``OpError`` and return it
-through ``fail()``, the same as every other handler in this file, rather
-than letting it through to ``call()``'s generic handling unwrapped.
-
-(The 2026-09-23 audit, second run, finding clay-19: this paragraph
-previously claimed the opposite of both -- that ``clay_group`` reaches a
-locking door and that the ``OpError`` from either is let through unwrapped.
-Neither held; corrected here.)
 """
 
 from __future__ import annotations
@@ -71,12 +51,9 @@ from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
 from .....kernels.mesh import separate as clay_separate
 from .....kernels.mesh.elements import OpError
-from .. import ops as clay_ops
 from .schema import (
     MAX_CHECKPOINTS,
     MAX_NAME_LENGTH,
-    MAX_TAG_LENGTH,
-    MAX_TAGS_PER_CALL,
     MEASURE_KINDS,
     ORIGIN_MODES,
     SEPARATE_MODES,
@@ -84,7 +61,6 @@ from .schema import (
 from .validate import (
     Session,
     _json,
-    _label_top,
     _over_frame_budget,
     _resolve_uid,
     _resolve_uids,
@@ -222,146 +198,22 @@ def _h_ungroup(ctx: Any, session: Session, args: dict) -> dict:
         doc.remove_object(obj.uid)
     except OpError as error:
         return fail(str(error), field="uid")
-    clay_ops._forget_manifold(ctx, [obj.uid])  # clay-101, as in _h_separate
     return _json({"ungrouped": obj.uid, "released": children})
-
-
-# --- clay_lock / clay_tag ------------------------------------------------------
-
-
-def _h_lock(ctx: Any, session: Session, args: dict) -> dict:
-    """Lock or unlock every named object, as one undo step. Not a locking
-    door itself -- ``ClayDoc.set_props`` deliberately allows this even on an
-    already-locked object (``document.py``'s own locking paragraph: a
-    mistake made while locked has to be undoable by something).
-    """
-    tab, failure = _tab(ctx, session)
-    if failure:
-        return failure
-    doc = tab.doc
-    uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
-    if failure:
-        return failure
-    if not uids:
-        return fail("give at least one uid.", field="uids")
-
-    locked_arg = args.get("locked")
-    if not isinstance(locked_arg, bool):
-        return fail("locked must be a boolean.", field="locked")
-
-    mark = doc.history.mark()
-    changed_uids = [uid for uid in uids if doc.set_props(uid, locked=locked_arg)]
-    doc.history.collapse_since(mark)
-    _label_top(doc, mark, "Lock" if locked_arg else "Unlock")
-
-    return _json({"locked": locked_arg, "uids": uids, "changed": changed_uids})
-
-
-def _normalize_tag_list(value: Any) -> set[str]:
-    """The same lower/strip/drop-empty rule ``document._normalize_tags``
-    applies on the way into ``Obj.tags`` -- duplicated here, in two lines,
-    rather than reached into across the kernel/studio boundary: what this
-    computes is only a *set to union or subtract*, and ``set_props`` below
-    normalizes the merged result the same way regardless, so a mismatch here
-    could only ever under- or over-match a tag already spelled inconsistently
-    -- never store anything this normalization did not also approve."""
-    return {str(t).strip().lower() for t in value if str(t).strip()}
-
-
-def _h_tag(ctx: Any, session: Session, args: dict) -> dict:
-    """Add and/or remove tags on every named object, as one undo step. Not a
-    locking door, same as :func:`_h_lock` and for the same reason.
-
-    ``add``/``remove`` apply the same to every named object -- there is no
-    per-object tag list in this call, the same "one params dict, several
-    uids" shape ``clay_set_params`` already gives an agent for a repeated
-    edit. Tags are normalized on the way in (see :func:`_normalize_tag_list`
-    and ``document._normalize_tags``), so ``add=["Prop", "prop"]`` neither
-    double-adds nor fights a tag already spelled ``prop``.
-    """
-    tab, failure = _tab(ctx, session)
-    if failure:
-        return failure
-    doc = tab.doc
-    uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
-    if failure:
-        return failure
-    if not uids:
-        return fail("give at least one uid.", field="uids")
-
-    add_arg = args.get("add")
-    remove_arg = args.get("remove")
-    if add_arg is None and remove_arg is None:
-        return fail("give add and/or remove.", field="add")
-
-    def _string_list(value: Any, field: str) -> tuple[list[str] | None, dict | None]:
-        if value is None:
-            return [], None
-        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-            return None, fail(f"{field} must be an array of strings.", field=field)
-        return value, None
-
-    add_list, failure = _string_list(add_arg, "add")
-    if failure:
-        return failure
-    remove_list, failure = _string_list(remove_arg, "remove")
-    if failure:
-        return failure
-    # The 2026-10-03 audit's clay-99: nothing bounded a tag's length or a
-    # call's tag count but the 8 MiB request frame, and every tag rides in
-    # every later ``clay_scene`` row.
-    for field, tags in (("add", add_list), ("remove", remove_list)):
-        if len(tags or []) > MAX_TAGS_PER_CALL:
-            return fail(
-                f"{field} takes at most {MAX_TAGS_PER_CALL} tags per call.", field=field
-            )
-        if any(len(t) > MAX_TAG_LENGTH for t in tags or []):
-            return fail(
-                f"each tag in {field} must be at most {MAX_TAG_LENGTH} characters.",
-                field=field,
-            )
-    add_set = _normalize_tag_list(add_list or [])
-    remove_set = _normalize_tag_list(remove_list or [])
-
-    mark = doc.history.mark()
-    rows: list[dict[str, Any]] = []
-    for uid in uids:
-        obj = doc.by_uid(uid)
-        wanted = (set(obj.tags) | add_set) - remove_set
-        doc.set_props(uid, tags=sorted(wanted))
-        # A list of {uid, tags} rows, not a dict keyed by uid: JSON has no
-        # integer keys, so a dict here would round-trip every uid through
-        # ``json.dumps`` as a string ("1" rather than 1) -- exactly the trap
-        # ``clay_scene``'s own ``objects`` list, and every other per-object
-        # reply in this fold, is built as a list to avoid.
-        rows.append({"uid": uid, "tags": list(doc.by_uid(uid).tags)})
-    doc.history.collapse_since(mark)
-    _label_top(doc, mark, "Tag")
-
-    return _json({"objects": rows})
 
 
 # --- clay_separate --------------------------------------------------------------
 
-_SEPARATE_FUNCS = {
-    "loose_parts": clay_separate.by_loose_parts,
-    "material": clay_separate.by_material,
-}
-
-
 def _h_separate(ctx: Any, session: Session, args: dict) -> dict:
     """Split one object into several along ``by``, as one undo step --
     ``ClayDoc.separate``'s own agent door. ``by`` is one of
-    :data:`schema.SEPARATE_MODES` -- ``loose_parts``, ``material`` (both take
-    no further argument, they read the object's own mesh) or ``selection``
+    :data:`schema.SEPARATE_MODES` -- ``loose_parts`` (takes no further
+    argument, it reads the object's own mesh) or ``selection``
     (splits at the object's *current* face/vertex/edge selection, converted
     to faces the way every other selection-consuming tool in this fold
     already converts one -- see ``kernels.mesh.elements.convert``).
 
-    Every piece keeps the source's parent, transform and modifier stack (the
-    stack copied onto each, unevaluated -- see ``ClayDoc.separate``'s own
-    docstring), and the source's generator is frozen, the same as every mesh
-    edit's own freeze rule.
+    Every piece keeps the source's parent and transform, and the source's
+    generator is frozen, the same as every mesh edit's own freeze rule.
     """
     tab, failure = _tab(ctx, session)
     if failure:
@@ -386,15 +238,10 @@ def _h_separate(ctx: Any, session: Session, args: dict) -> dict:
                 )
             pieces = clay_separate.by_selection(obj.mesh, sel)
         else:
-            pieces = _SEPARATE_FUNCS[by](obj.mesh)
+            pieces = clay_separate.by_loose_parts(obj.mesh)
         new_objs = doc.separate(obj.uid, pieces)
     except OpError as error:
         return fail(str(error))
-    # The source left ``doc.objects``, so its "last mesh check" entry would pin
-    # the old Mesh for the life of the tab -- the leak clay-08 (2026-09-08)
-    # closed at every other door; the 2026-10-03 audit's clay-101 found this
-    # one and ``_h_ungroup`` still open.
-    clay_ops._forget_manifold(ctx, [obj.uid])
 
     payload: dict = {
         "uids": [o.uid for o in new_objs],
@@ -422,10 +269,7 @@ def _origin_point(doc: Any, obj: Any, mode: str) -> np.ndarray | None:
     measure (no geometry for ``bounds``/``base``, nothing selected for
     ``selection``).
 
-    Measured off *obj*'s own base mesh, never the evaluated one: ``ClayDoc.
-    set_origin`` shifts ``obj.mesh`` itself, so a bounds measured from a
-    mirror or an array modifier's doubled geometry would move the pivot to a
-    point the base mesh it actually bakes into does not agree describes it.
+    Measured off *obj*'s own mesh: ``ClayDoc.set_origin`` shifts it directly.
     """
     world = doc.world_matrix(obj.uid)
     if mode == "world":
@@ -457,10 +301,8 @@ def _h_set_origin(ctx: Any, session: Session, args: dict) -> dict:
     (:data:`schema.ORIGIN_MODES` -- ``bounds``/``base``/``selection``/
     ``world``, computed by :func:`_origin_point`) or an explicit ``point``.
 
-    Not a locking door, the same exemption ``ClayDoc.set_origin``'s own
-    docstring states for itself: the mesh and every child stay exactly where
-    they were on screen, only the pivot moves, so it costs nothing to allow
-    even on a locked object.
+    The mesh and every child stay exactly where they were on screen; only
+    the pivot moves.
     """
     tab, failure = _tab(ctx, session)
     if failure:
@@ -504,7 +346,7 @@ def _resolve_point(doc: Any, value: Any, field: str) -> tuple[np.ndarray | None,
     space (however an agent got it there -- another object's own reported
     translation, an earlier measurement), or ``{"uid": <uid>}`` (that
     object's own world translation) / ``{"uid": <uid>, "vertex": <index>}``
-    (one vertex of that object's *base* mesh, in world space -- the same
+    (one vertex of that object's mesh, in world space -- the same
     mesh ``clay_select_elements``' own ``verts`` indexes, so a vertex an
     agent just selected can be measured from directly).
     """
@@ -552,19 +394,15 @@ def _h_measure(ctx: Any, session: Session, args: dict) -> dict:
     ``kind='distance'`` takes ``a``/``b`` (a :func:`_resolve_point` each);
     ``kind='angle'`` takes ``a``/``b``/``c`` (the angle at ``b``, between the
     rays ``b -> a`` and ``b -> c``). ``kind='area'`` takes ``uid`` and,
-    optionally, ``faces`` (indices into the object's own base mesh -- the
+    optionally, ``faces`` (indices into the object's own mesh -- the
     same ones ``clay_select_elements``/``clay_elements`` already use);
     omitted, it reads the object's *current* face selection, converted up
     from vertex/edge the way every selection-consuming tool already converts
     one. ``kind='volume'`` takes only ``uid``.
 
-    Reads the *base* mesh throughout, like ``clay_diagnose`` and unlike
-    ``clay_scene``/``clay_analyze`` -- deliberately: a vertex or face index
-    an agent names (via ``a``/``b``/``faces``) is only meaningful against the
-    mesh those indices actually come from, and every index-bearing tool in
-    this fold (``clay_select_elements``, ``clay_elements``) already means the
-    base. Measuring the evaluated mesh instead would silently disagree with
-    whatever index an agent had just read.
+    A vertex or face index an agent names (via ``a``/``b``/``faces``) is read
+    against the object's own mesh, the one every index-bearing tool in this
+    fold (``clay_select_elements``, ``clay_elements``) already means.
     """
     tab, failure = _tab(ctx, session)
     if failure:
@@ -604,10 +442,9 @@ def _h_measure(ctx: Any, session: Session, args: dict) -> dict:
     world = doc.world_matrix(obj.uid)
 
     if kind == "volume":
-        # The 2026-10-03 audit's clay-25: ``clay_analyze`` reports ``volume:
-        # null`` for an open mesh and this answered a number that moved with
-        # the object's position. Same rule, same shape: a null value and
-        # ``closed: false`` say why there is nothing to read.
+        # The 2026-10-03 audit's clay-25: an open mesh answered a number that
+        # moved with the object's position. A null value and ``closed: false``
+        # say why there is nothing to read.
         value = clay_measure.volume_if_closed(obj.mesh, world=world)
         return _json(
             {

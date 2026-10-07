@@ -86,7 +86,14 @@ def _load(path: Path) -> dict[str, Any]:
     return {"doc": doc, "path": path, "format": doc.file_format}
 
 
-def open_pixels(ctx: Any, pixels: Any, *, title: str = "Untitled") -> None:
+def open_pixels(
+    ctx: Any,
+    pixels: Any,
+    *,
+    title: str = "Untitled",
+    palette: Any = None,
+    on_open: Any = None,
+) -> None:
     """Open an in-memory RGBA array as an ordinary, unlinked document.
 
     Plotter's polish round trip comes through here. Unlinked deliberately, for
@@ -97,16 +104,36 @@ def open_pixels(ctx: Any, pixels: Any, *, title: str = "Untitled") -> None:
     Routed on the ``inker-open`` prefix so ``on_task_done`` adopts it with no
     routing change, and the copy happens on the task thread because the caller's
     array is routinely a tileset's frozen pixels, which nothing may write into.
+
+    ``palette`` (a sequence of RGBA tuples) makes the document palette-locked
+    before it is adopted: Clay's texture round trip opens a texture on the
+    PICO-8 table so every stroke lands on a colour the model's sampler will
+    show crisp. Applied here on the task thread, ahead of ``_adopt``, because
+    ``_adopt`` records the head it sees as the saved one -- a snap applied
+    after adoption would open the tab already dirty and Inker would ask to
+    save a pull the user never touched. ``on_open`` is called on the frame
+    thread with the adopted tab (see ``mode._done_open``), which is how a
+    caller learns the new document's uid; it rides in the result dict.
     """
 
     inker_mode.ensure(ctx)
     set_mode(ctx.state, "inker")
     array = np.array(pixels, dtype=np.uint8)
+    # Copied here: the task closure must not see the caller's list change.
+    table = None if not palette else [tuple(int(v) for v in c) for c in palette]
 
     def run() -> dict[str, Any]:
         from ....kernels import pixel as inker
 
-        return {"doc": inker.Document.from_pixels(array, name="Atlas"), "title": title}
+        doc = inker.Document.from_pixels(array, name="Atlas")
+        if table is not None:
+            # ``set_palette`` snaps visible pixels only (alpha 0 rides through
+            # verbatim, partial alpha is kept), so a cut-out texture stays cut out.
+            doc.set_palette(table)
+        out: dict[str, Any] = {"doc": doc, "title": title}
+        if on_open is not None:
+            out["on_open"] = on_open
+        return out
 
     if not ctx.submit(f"inker-open:pixels:{title}", run):
         # Same key as a copy already in flight for this title (Duplicate

@@ -109,24 +109,6 @@ def test_skin_weights_are_renormalised_and_a_dead_vertex_is_pinned():
 # --- the ops registry ---------------------------------------------------------
 
 
-def test_shade_auto_can_actually_reach_its_whole_document_branch():
-    """It was gated on ``has_objects``, which requires a *selection*, so the
-    fallback its own comment describes could never be taken."""
-    from types import SimpleNamespace
-
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
-    empty = SimpleNamespace(selection=set(), objects=[])
-    unselected = SimpleNamespace(selection=set(), objects=[SimpleNamespace(uid=1)])
-
-    assert clay_ops.any_object(empty) is False
-    assert clay_ops.any_object(unselected) is True
-    assert clay_ops.has_objects(unselected) is False
-
-    op = next(o for o in clay_ops.OPS if o.name == "shade-auto")
-    assert op.enabled is clay_ops.any_object
-
-
 def test_select_more_uses_the_one_definition_of_a_selected_face():
     """It reimplemented "a face is selected only when all of its corners are"
     as a Python loop over every face -- a second spelling of the rule those
@@ -143,16 +125,6 @@ def test_select_more_uses_the_one_definition_of_a_selected_face():
     body = inspect.getsource(select.sel_from_verts)
     assert "_face_corner_mask" in body
     assert "for face in range(" not in body
-
-
-def test_dissolve_edges_does_not_rescan_the_mesh_per_edge():
-    import inspect
-
-    from realmspinner.kernels.mesh import ops_dissolve
-
-    body = inspect.getsource(ops_dissolve.dissolve_edges)
-    assert "a.corner_edge == e" not in body
-    assert "searchsorted" in body
 
 
 def test_a_bevel_copies_the_faces_it_does_not_touch():

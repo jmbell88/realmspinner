@@ -224,79 +224,12 @@ def run(
     }
 
 
-def simplify_bytes(
-    data: bytes,
-    *,
-    ratio: float,
-    exe: Path,
-    timeout: float = DEFAULT_TIMEOUT,
-    lock_border: bool = False,
-    aggressive: bool = False,
-) -> bytes:
-    """Simplify one in-memory GLB and return the simplified bytes.
+def _argv(exe: Path, src: Path, dst: Path, ratio: float) -> list[str]:
+    """The gltfpack invocation ``run`` spawns.
 
-    For Clay's decimate operator, which has no ``source.glb`` on disk to point
-    ``run`` at -- it serialises the object being edited and wants the result
-    back the same way. Same flags and the same ``OptimizeError`` discipline as
-    ``run``, minus the triangle-budget/staged-copy bookkeeping that only makes
-    sense for a Library job with a ``dest`` other readers may be watching.
-
-    ``-slb`` locks vertices on an open boundary (a UV seam, a mesh border) so
-    they do not wander during simplification; ``-sa`` lets gltfpack change
-    topology when the plain simplifier cannot reach ``ratio`` otherwise. Both
-    flags are in the vendored gltfpack 1.2's own ``-h`` output (checked
-    2026-09-19), under "Simplification" alongside ``-si``.
+    ``-noq``/``-ke``/``-km`` are not negotiable (see the module docstring).
     """
-    if not 0.0 < ratio <= 1.0:
-        raise ValueError(f"ratio must be in (0, 1], got {ratio!r}")
-    if ratio == 1.0:
-        # No reduction asked for. Spawning gltfpack for a ratio of 1.0 would
-        # still re-encode the file for no gain -- the same reasoning `run`
-        # uses when the source is already inside budget.
-        return data
-    if not exe.is_file():
-        raise OptimizeError(
-            f"gltfpack not found at {exe}; use the 'raw' profile or set REALMSPINNER_GLTFPACK"
-        )
-    # TemporaryDirectory's own __exit__ removes tmpdir on every way out of this
-    # block -- the return below, an OptimizeError raised inside it, or
-    # anything else -- so there is nothing left for this function to clean up.
-    with tempfile.TemporaryDirectory(prefix="realmspinner-simplify-") as tmpdir:
-        src = Path(tmpdir) / "in.glb"
-        dst = Path(tmpdir) / "out.glb"
-        src.write_bytes(data)
-        argv = _argv(exe, src, dst, ratio, lock_border=lock_border, aggressive=aggressive)
-        proc = _invoke(argv, timeout=timeout)
-        if proc.returncode != 0:
-            raise OptimizeError(
-                f"gltfpack exited {proc.returncode}: {(proc.stderr or proc.stdout)[:500]}"
-            )
-        if not dst.is_file():
-            raise OptimizeError("gltfpack produced no output")
-        out = dst.read_bytes()
-        if not out:
-            raise OptimizeError("gltfpack produced an empty output")
-        return out
-
-
-def _argv(
-    exe: Path,
-    src: Path,
-    dst: Path,
-    ratio: float,
-    *,
-    lock_border: bool = False,
-    aggressive: bool = False,
-) -> list[str]:
-    """The gltfpack invocation shared by ``run`` and ``simplify_bytes``.
-
-    ``-noq``/``-ke``/``-km`` are not negotiable (see the module docstring);
-    ``-slb``/``-sa`` are opt-in because they change *how* geometry is allowed
-    to move, which only ``simplify_bytes``'s caller (Clay, editing one object
-    interactively) has an opinion about -- a Library retarget always wants the
-    plain simplifier.
-    """
-    argv = [
+    return [
         str(exe),
         "-i", str(src),
         "-o", str(dst),
@@ -305,20 +238,14 @@ def _argv(
         "-ke",
         "-km",
     ]
-    if lock_border:
-        argv.append("-slb")
-    if aggressive:
-        argv.append("-sa")
-    return argv
 
 
 def _invoke(argv: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
     """Spawn gltfpack inside the kill-on-close job; map a timeout to ``OptimizeError``.
 
-    Exit-code and output-file checking stay with the caller: ``run`` and
-    ``simplify_bytes`` stage their output differently (a named ``.opt.glb``
-    beside ``dest`` vs. a throwaway tempdir), so each decides for itself what
-    "produced no usable output" means and what, if anything, it must clean up
+    Exit-code and output-file checking stay with the caller: ``run`` stages
+    its output as a named ``.opt.glb`` beside ``dest``, so it decides for
+    itself what "produced no usable output" means and what it must clean up
     before raising.
     """
     try:

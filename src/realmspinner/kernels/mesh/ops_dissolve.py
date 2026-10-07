@@ -1,17 +1,11 @@
-"""Dissolve: removing an element by merging what it separated.
+"""Dissolve: merging the faces a selection joins into one.
 
 Delete and dissolve are different operations and the difference is the whole
-module. Deleting an edge would have to delete the faces on both sides of it,
-leaving a hole; dissolving it merges those two faces into one and leaves the
-surface intact. That is what a modeller means by "get rid of this edge", and it
-is why every op here is one shape: **find the faces the selection joins, work
-out the outline of each connected group, and replace the group with a single
-n-gon wound along that outline.**
-
-Three ops, one core. Edge-dissolve groups faces joined by a selected edge;
-face-dissolve groups the selected faces themselves; vertex-dissolve groups every
-face around a selected vertex. After that they are identical, which is why the
-group-to-n-gon step lives in :func:`merge_groups` and not three times over.
+module. Deleting faces leaves a hole; dissolving a block of them merges it into
+one n-gon and leaves the surface intact (Clay's Merge Faces). The op is one
+shape: **find the faces the selection joins, work out the outline of each
+connected group, and replace the group with a single n-gon wound along that
+outline.** The group-to-n-gon step lives in :func:`merge_groups`.
 
 **This is where refusing matters.** The core walks a group's border
 head-to-tail, and a walk has no defined next step when the border forks or
@@ -23,22 +17,16 @@ splits, so rather than guessing it names the element and stops:
   bridge it with a slit) are both worse than saying so.
 * A **bowtie ring** -- a border that visits one vertex twice. The n-gon would
   self-intersect.
-* A **boundary edge**, for edge-dissolve: there is only one face there, so
-  there is nothing to merge it with.
 * A **non-manifold edge**, anywhere: three faces meet, so "the other side" is
   not a single face.
-* A **boundary or non-manifold vertex**, for vertex-dissolve: the fan around it
-  does not close, so it has no ring.
 
 **Results are routinely concave**, and that is the first real consumer of
-:mod:`.earclip` -- dissolving the edge between two triangles of an L gives a
-polygon a fan would triangulate outside itself.
+:mod:`.earclip` -- merging the two triangles of an L gives a polygon a fan
+would triangulate outside itself.
 
-**A stated limitation:** the two ends of a dissolved edge stay in the merged
-n-gon as two-valence collinear corners. They are harmless (the Newell normal is
-stable across them, and :mod:`.earclip` tolerates them), they keep the vertex
-count honest about what the user removed, and removing them would be a separate
-"dissolve vertices" pass the user has a control for.
+**A stated limitation:** the two ends of a merged seam stay in the n-gon as
+two-valence collinear corners. They are harmless (the Newell normal is stable
+across them, and :mod:`.earclip` tolerates them).
 
 UV **preserved**: a border corner keeps its own uv and an interior corner is
 dropped along with the geometry it described.
@@ -53,7 +41,7 @@ from .adjacency import adjacency
 from .elements import ElementSel, OpError
 from .mesh import Mesh, face_count, face_normals
 
-__all__ = ["dissolve_edges", "dissolve_faces", "dissolve_verts", "merge_groups"]
+__all__ = ["dissolve_faces", "merge_groups"]
 
 
 def _group_by_label(labels: np.ndarray, subset: np.ndarray) -> list[np.ndarray]:
@@ -334,62 +322,6 @@ def merge_groups(mesh: Mesh, groups: list[np.ndarray]) -> tuple[Mesh, ElementSel
     return out, ElementSel(faces=np.arange(n_kept, n_kept + len(rings)))
 
 
-def _check_edges(mesh: Mesh, edges: np.ndarray) -> np.ndarray:
-    a = adjacency(mesh)
-    ids = a.edge_ids(edges)
-    if (ids < 0).any():
-        raise OpError("That edge is not part of this mesh.")
-    uses = a.edge_uses[ids]
-    if (uses == 1).any():
-        bad = edges[uses == 1][0]
-        raise OpError(
-            f"Edge {int(bad[0])}-{int(bad[1])} is on a boundary, so there is only "
-            "one face there and nothing to merge it with."
-        )
-    if (uses >= 3).any():
-        bad = edges[uses >= 3][0]
-        raise OpError(
-            f"Edge {int(bad[0])}-{int(bad[1])} has {int(uses[uses >= 3][0])} faces on "
-            "it, so there is no single face on the other side. Fix the "
-            "non-manifold edge first."
-        )
-    return ids
-
-
-def dissolve_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
-    """Merge the pair of faces across each selected edge."""
-    if len(sel.edges) == 0:
-        raise OpError("Select an edge to dissolve.")
-    ids = _check_edges(mesh, sel.edges)
-
-    a = adjacency(mesh)
-    # The corner list is sorted by edge **once** and each selected edge's pair
-    # of faces is found by bisection. It used to be ``corner_face[corner_edge
-    # == e]`` inside the loop -- a full scan of every corner in the mesh per
-    # selected edge -- so dissolving a loop of 400 edges on a 200k-corner
-    # sculpt was 80 million comparisons for an answer one sort already holds.
-    order = np.argsort(a.corner_edge, kind="stable")
-    by_edge = a.corner_edge[order]
-    faces_by_edge = a.corner_face[order]
-    lo = np.searchsorted(by_edge, ids, side="left")
-    hi = np.searchsorted(by_edge, ids, side="right")
-    # ``_check_edges`` has already refused anything but a manifold pair, so
-    # each ``[lo, hi)`` slice is exactly two faces -- fa/fb below is that pair,
-    # gathered for every selected edge at once rather than one Python slice
-    # per edge.
-    fa = faces_by_edge[lo].astype("i8")
-    fb = faces_by_edge[hi - 1].astype("i8")
-    subset = np.unique(np.concatenate([fa, fb])) if len(fa) else np.empty(0, dtype="i8")
-
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-
-    n_faces = face_count(mesh)
-    graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
-    labels = connected_components(graph, directed=False)[1]
-    return merge_groups(mesh, _group_by_label(labels, subset))
-
-
 def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """Merge each connected block of selected faces into one face."""
     if len(sel.faces) == 0:
@@ -414,73 +346,4 @@ def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     # Every edge above joins two ``chosen`` faces, so the selection itself is
     # the exact set worth grouping -- see ``_group_by_label``.
     groups = _group_by_label(labels, np.flatnonzero(chosen))
-    return merge_groups(mesh, groups)
-
-
-#: The most vertices one ``dissolve_verts`` call will walk.
-#:
-#: The 2026-09-22 audit, clay-11: unlike its siblings, `dissolve_verts` has a
-#: Python loop over the selection itself (below) with no ceiling at all, and
-#: `MAX_DISSOLVED_RING` cannot catch it -- a large *interior* selection
-#: dissolves down to one small n-gon (a k-vertex square block's boundary has
-#: only ~4k corners, not k^2), so the ring stays well under that ceiling no
-#: matter how many vertices were walked to build it. Reproduced (audit's own
-#: probe): 2.6 s at 249k vertices, linear. Re-measured at merge on a
-#: contiguous interior block (the shape that keeps the output ring small):
-#: 0.65 s at 40,000 vertices, 3.9 s at 250,000, roughly linear at ~15 us/vertex
-#: -- this ceiling keeps one call under a second.
-MAX_DISSOLVED_VERTS = 60_000
-
-
-def dissolve_verts(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
-    """Merge the fan of faces around each selected vertex into one face."""
-    if len(sel.verts) == 0:
-        raise OpError("Select a vertex to dissolve.")
-    if len(sel.verts) > MAX_DISSOLVED_VERTS:
-        raise OpError(
-            f"That selection has {len(sel.verts):,} vertices, past the "
-            f"{MAX_DISSOLVED_VERTS:,} Dissolve Vertices can walk without "
-            "stalling. Dissolve a smaller selection."
-        )
-    a = adjacency(mesh)
-    n_faces = face_count(mesh)
-    touched = np.zeros(n_faces, dtype=bool)
-    fa_parts: list[np.ndarray] = []
-    fb_parts: list[np.ndarray] = []
-    for v in sel.verts.astype("i8").tolist():
-        if v >= len(mesh.positions):
-            raise OpError(f"Vertex {v} is not part of this mesh.")
-        corners = a.vertex_corners(v)
-        if len(corners) == 0:
-            raise OpError(f"Vertex {v} belongs to no face.")
-        uses = a.edge_uses[a.corner_edge[corners]]
-        incoming = a.edge_uses[a.corner_edge[a.prev_corner[corners]]]
-        touch = np.concatenate([uses, incoming])
-        if (touch == 1).any():
-            raise OpError(
-                f"Vertex {v} is on a boundary, so the faces around it do not "
-                "close into a ring. Fill the hole first, or delete the vertex."
-            )
-        if (touch >= 3).any():
-            raise OpError(
-                f"Vertex {v} sits on a non-manifold edge, so the faces around it "
-                "have no single order. Fix that edge first."
-            )
-        faces = a.corner_face[corners].astype("i8")
-        touched[faces] = True
-        if len(faces) > 1:
-            fa_parts.append(np.full(len(faces) - 1, faces[0], dtype="i8"))
-            fb_parts.append(faces[1:])
-
-    fa = np.concatenate(fa_parts) if fa_parts else np.empty(0, dtype="i8")
-    fb = np.concatenate(fb_parts) if fb_parts else np.empty(0, dtype="i8")
-
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-
-    graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
-    labels = connected_components(graph, directed=False)[1]
-    # Only the faces in each vertex's fan could have ended up grouped with
-    # anything -- see ``_group_by_label``.
-    groups = _group_by_label(labels, np.flatnonzero(touched))
     return merge_groups(mesh, groups)

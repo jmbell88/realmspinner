@@ -1,17 +1,10 @@
 """Regressions for the 2026-09-23 audit's Clay-agent findings.
 
-clay-17: ``clay_boolean``'s not-closed-solid ``OpError`` reached ``call()``'s
-generic backstop uncaught, carrying no ``field``/``uids`` -- unlike this same
-handler's lock refusal (clay-22, 2026-09-22) and ``_h_delete``/``_h_material``/
-``_h_set_params``. ``_h_boolean`` now catches it and re-raises with
-``field="uids"``.
-
 agents-02: ``PROGRAM_DEADLINE_S`` is a 4s budget between ``clay_program``
 entries, and ``clay_program`` always rolls back on any failure -- so a
-subprocess-backed step (retopo/smart-unwrap/bake-detail, each a synchronous
-Blender spawn) that alone ran past the budget caused the very next entry to
-find the deadline already gone and discard the finished Blender work along
-with everything else, even though nothing was idle. ``_h_program``'s
+step that alone ran past the budget (a synchronous subprocess, say) caused
+the very next entry to find the deadline already gone and discard the
+finished work along with everything else, even though nothing was idle. ``_h_program``'s
 ``_make_entry`` now pushes the deadline out by exactly what each entry took
 to run, so only the gap *between* calls counts against the budget.
 
@@ -23,66 +16,11 @@ from __future__ import annotations
 
 import pytest
 
-from realmspinner.kernels.mesh import mesh as bm
-from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 from realmspinner.studio.modes.clay.agent import tools_batch as agent_clay_tools_batch
 
-from .test_agent_clay import _Ctx, _history_len, _new_agent_tab, _payload
-
-pytest.importorskip("manifold3d")
-
-
-def _open_box_mesh() -> bm.Mesh:
-    """A box with one face's worth of loops dropped -- an open surface, the
-    exact shape ``tests/modes/clay/test_ops_boolean.py``'s own
-    ``test_an_open_surface_is_refused_by_name`` uses to reach the same
-    ``ValueError`` -> ``OpError`` "needs every selected object to be a
-    closed solid" rewrite in ``ops_boolean._boolean_result``."""
-    box = bp.box()
-    return bm.Mesh(
-        positions=box.positions,
-        loops=box.loops[: box.starts[5]],
-        starts=box.starts[:6],
-        material=box.material[:5],
-        smooth=box.smooth[:5],
-    )
-
-
-# --- clay-17 -------------------------------------------------------------
-
-
-def test_clay_boolean_names_field_uids_when_the_targets_are_not_closed_solids() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    uid2 = _payload(added)["uid"]
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    # Make the first target an open surface directly on the document, the
-    # same shape ``test_clay_boolean_names_field_uids_when_a_target_or_
-    # absorbed_object_is_locked`` uses for a locked target: no tool exists to
-    # build a non-closed mesh, so it is written onto the live object the way
-    # a corrupt or hand-authored asset would arrive.
-    obj = tab.doc.by_uid(uid1)
-    tab.doc.objects[tab.doc.objects.index(obj)] = obj.__class__(
-        **{**obj.__dict__, "mesh": _open_box_mesh()}
-    )
-    history_before = _history_len(ctx, session)
-
-    result = agent_clay.call(
-        ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1, uid2]}
-    )
-
-    assert result["isError"] is True
-    structured = result.get("structuredContent") or {}
-    assert structured.get("field") == "uids", structured
-    assert set(structured.get("uids") or []) == {uid1, uid2}
-    assert "closed solid" in result["content"][0]["text"]
-    assert _history_len(ctx, session) == history_before, "no partial mutation"
-
+from .test_agent_clay import _Ctx, _payload
 
 # --- agents-02 -------------------------------------------------------------
 
@@ -103,7 +41,7 @@ class _FakeClock:
         return self._values.pop(0)
 
 
-def test_clay_program_does_not_roll_back_a_completed_blender_op_when_a_later_step_misses_the_deadline(  # noqa: E501
+def test_clay_program_does_not_roll_back_a_completed_slow_step_when_a_later_step_misses_the_deadline(  # noqa: E501
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ctx = _Ctx()
@@ -113,7 +51,7 @@ def test_clay_program_does_not_roll_back_a_completed_blender_op_when_a_later_ste
     # ``_make_entry`` makes for a two-step, no-refusal run:
     #   A: the initial deadline = 0.0 + PROGRAM_DEADLINE_S (4.0) = 4.0
     #   B: entry 0's ``started``                              = 0.0
-    #   C: entry 0's completion (a 100s "Blender" step)        = 100.0
+    #   C: entry 0's completion (a 100s "slow" step)           = 100.0
     #      -> deadline pushed to 4.0 + (100.0 - 0.0) = 104.0
     #   D: entry 1's deadline check: 100.0 > 104.0? No.
     #      (the unfixed code checked 100.0 > 4.0 -- True -- and refused here)

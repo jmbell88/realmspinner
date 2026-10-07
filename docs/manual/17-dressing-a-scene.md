@@ -67,8 +67,9 @@ Two of the same asset in the scene are **one upload to your card**, not two. Tha
 how Mason caches things and it is the reason a scene with four hundred props in it is affordable at
 all. You do not have to do anything to get it.
 
-Now place a primitive: scroll to the **Primitives** rows and put down a **Box**. These are Clay's
-shapes, and a scene needs a floor, a step or a wall far more often than it is worth generating one.
+Now place a primitive: scroll to the **Primitives** rows and put down a **Box**. These are the
+shapes Clay places, and a scene needs a floor, a step or a wall far more often than it is worth
+generating one.
 
 ## Moving things about
 

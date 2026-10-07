@@ -188,8 +188,11 @@ def test_manual_45_does_not_count_blender_ops_by_ordinal():
     assert "Rigging, pose baking and sprite-sheet rendering all need Blender" not in text
     # The op list named is the worker's own.
     section = text.split("## Blender out of process", 1)[1][:600]
-    for op in ("clay", "remesh"):
-        assert op in section.lower()
+    from realmspinner.pipelines import blender_worker
+
+    assert "remesh" in blender_worker.OPS
+    assert "remesh" in section.lower()
+    assert "clay_bake" not in blender_worker.OPS, "Clay no longer has a Blender-backed op"
 
 
 def test_manual_45_256px_claim_is_scoped_to_the_character_sheet_ladder():
@@ -226,7 +229,7 @@ def test_manual_30_op_names_match_registered_labels():
     labels = {op.label.rstrip(".") for op in ops.OPS}
     text = (MANUAL / "30-clay.md").read_text(encoding="utf-8")
     flat = " ".join(text.split())
-    for name in ("Inset Faces", "Bevel Edges", "Bake Transform", "Retopologize"):
+    for name in ("Inset Faces",):
         assert name in labels, name
         assert name in flat, name
     assert "| Faces | Inset |" not in flat

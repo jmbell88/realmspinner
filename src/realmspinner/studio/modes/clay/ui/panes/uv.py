@@ -1,6 +1,6 @@
 """Clay's UV pane: islands, pan/zoom, box-select, move/rotate/scale, Pack.
 
-Clay tranche 6 ("UV and materials"). Drawn with an imgui
+Drawn with an imgui
 draw list the way Inker's and Plotter's canvases are (``add_line``/
 ``add_rect``/``add_convex_poly_filled`` over an ``invisible_button``'s
 region) rather than as a composited texture -- the same reasoning Plotter's
@@ -102,6 +102,7 @@ from .....shell import paintview
 from .....tokens import sp
 from ... import mode as clay_mode
 from ... import ops as clay_ops
+from .. import _uv_texture
 
 log = logging.getLogger(__name__)
 
@@ -143,11 +144,9 @@ class UvPaneState:
     for_uid: int = 0
     selected_islands: frozenset[int] = field(default_factory=frozenset)
     # A one-shot rotate/scale field's own pending value -- not persisted
-    # across a commit, the same "value='' every frame" sentinel
-    # ``clay_props._tags``'s tag-add field already uses for an *action*
-    # rather than a property: pressing Apply resets each back to its
-    # identity (0 degrees, x1 scale) rather than leaving the box showing a
-    # number that was already applied.
+    # across a commit: these are an *action* rather than a property, so
+    # pressing Apply resets each back to its identity (0 degrees, x1 scale)
+    # rather than leaving the box showing a number that was already applied.
     pending_rotate: float = 0.0
     pending_scale: float = 1.0
     # Which gesture is in flight -- "" (none), "box" (a marquee, replacing
@@ -208,54 +207,31 @@ class UvPaneState:
     # reference (never an ``id()``) so the address-reuse trap that method's
     # docstring warns about cannot apply here -- this keeps the very object
     # alive that it compares against. The 2026-09-19 audit's clay-12 found
-    # ``_measurements`` re-running ``uvtools.overlap_faces``/``stretch``
+    # ``_measurements`` re-running ``uvtools.overlap_faces``
     # every single frame the pane was open, including every frame nothing
     # about the mesh had changed at all (panning, zooming, hovering).
     # ``None`` before anything has been measured.
     measured_mesh: Any = None
-    # The 2026-09-22 audit's clay-20: island ids joined this same cache
-    # (``_measurements``'s own docstring) rather than staying a second,
-    # unmemoised ``uvtools.islands(mesh)`` call in ``_canvas`` -- both are
-    # exactly as much a pure function of mesh identity as overlap/stretch.
-    # The 2026-09-26 audit's clay-panes-02: ``_edges`` called
-    # ``uvtools.seams_from_uv(mesh)`` fresh every frame the pane was open --
-    # 78ms of it at 10k faces, on top of ``_faces``'/``_edges``'/
-    # ``_island_outlines``' own per-face draw loops -- when the derived cuts
-    # are exactly as much a pure function of mesh identity as
-    # ``ids``/``overlap``/``stretch`` already are. Folded into the same memo
-    # rather than kept as a second, unmemoised call.
-    measured_result: tuple[
-        np.ndarray, np.ndarray | None, np.ndarray | None, str, np.ndarray
-    ] = field(
-        default_factory=lambda: (
-            np.empty(0, dtype=np.int64),
-            None,
-            None,
-            "",
-            np.empty((0, 2), dtype=np.int64),
-        )
+    # Island ids share this cache (``_measurements``'s own docstring) rather
+    # than a second, unmemoised ``uvtools.islands(mesh)`` call in ``_canvas``
+    # -- both are exactly as much a pure function of mesh identity.
+    measured_result: tuple[np.ndarray, np.ndarray | None, str] = field(
+        default_factory=lambda: (np.empty(0, dtype=np.int64), None, "")
     )
     # The 2026-10-03 audit's clay-panes-06: the canvas's screen-space geometry
-    # (corner positions, per-face fill colours, which edges are seams or island
-    # borders), each memoised on the identity of what it is a pure function of
-    # -- see ``_screen_corners``, ``_face_colours`` and ``_edge_classes``.
-    # ``_faces``/``_edges``/``_island_outlines`` used to rebuild every face's
-    # polygon in a Python loop on every frame the pane was open (233 ms per
-    # frame at 20,480 faces against a stub draw list, before imgui's own cost).
+    # (corner positions and per-face fill colours), each memoised on the
+    # identity of what it is a pure function of -- see ``_screen_corners`` and
+    # ``_face_colours``. ``_faces``/``_island_outlines`` used to rebuild every
+    # face's polygon in a Python loop on every frame the pane was open (233 ms
+    # per frame at 20,480 faces against a stub draw list, before imgui's own
+    # cost).
     geo: dict[str, Any] = field(default_factory=dict)
 
 #: The uv unit square is treated as a texture this many pixels on a side, for
 #: :mod:`~.shell.paintview`'s pan/zoom arithmetic alone -- it never appears in
-#: anything written to the document. Matches ``uvtools.texel_density``'s own
-#: default ``texture_px``, so "100%" in this pane and a 1K-texture density
-#: reading are the same familiar scale rather than two arbitrary numbers.
+#: anything written to the document. A 1K reference, so "100%" in this pane is
+#: a familiar scale rather than an arbitrary number.
 REF_PX = 1024.0
-
-#: :func:`stretch` readings at or past this (in either direction) get a full-
-#: strength tint; between 0 and here the tint fades in linearly. One stop
-#: either way (``log2`` of a 2x area ratio) is already a visibly soft or
-#: aliased texture, which is what earns the full-strength colour.
-STRETCH_FULL = 1.0
 
 # --- pure maths: island hit-testing and selection --------------------------
 
@@ -455,15 +431,13 @@ def drag_scale(
 
 
 def _set_mesh_or_toast(doc: Any, uid: int, mesh: Any, *, ctx: Any = None) -> bool:
-    """The four apply doors' shared refusal path (the 2026-09-23 audit's
-    clay-04).
+    """The four apply doors' shared refusal path.
 
-    ``doc.set_mesh`` raises ``OpError`` (nothing pushed) for a locked object
-    or one with a locked ancestor -- this pane never read ``obj.locked``
-    anywhere, so that refusal reached imgui uncaught and the whole UV pane
-    fell over to the "stopped drawing" placeholder instead of applying
-    nothing and saying why, the same shape ``clay_props._set_parent`` guards
-    against for its own door.
+    ``doc.set_mesh`` raises ``OpError`` (nothing pushed) for a mesh the
+    document refuses; uncaught, that reaches imgui and the whole UV pane falls
+    over to the "stopped drawing" placeholder instead of applying nothing and
+    saying why, the same shape ``clay_props._set_parent`` guards against for
+    its own door.
 
     ``ctx`` is optional and keyword-only, defaulting to ``None``, so the
     four ``apply_*`` doors below keep the positional ``(doc, uid, ...)``
@@ -678,33 +652,23 @@ def _selected_object(doc: Any) -> Any:
 
 def _measurements(
     view_state: UvPaneState, mesh: Any
-) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, str, np.ndarray]:
-    """``(ids, overlap, stretch, refusal, seam_cuts)`` for *mesh* --
-    ``uvtools.islands`` plus ``overlap_faces``/``stretch``/``seams_from_uv``,
-    computed once here rather than by the caller so both a refusal (a mesh
-    past ``uvtools.MAX_OVERLAP_TRIANGLES``) and the ordinary answer share one
-    call site. ``refusal`` is ``""`` on success.
+) -> tuple[np.ndarray, np.ndarray | None, str]:
+    """``(ids, overlap, refusal)`` for *mesh* -- ``uvtools.islands`` plus
+    ``overlap_faces``, computed once here rather than by the caller so both a
+    refusal (a mesh past ``uvtools.MAX_OVERLAP_TRIANGLES``) and the ordinary
+    answer share one call site. ``refusal`` is ``""`` on success.
 
     Memoised on *view_state* keyed by ``mesh`` identity (see
-    :attr:`UvPaneState.measured_mesh`): the 2026-09-19 audit's clay-12 found
-    the overlap/stretch half of this recomputed on every single frame the
-    pane was open, including every frame that panned, zoomed or merely
-    hovered with the mesh completely unchanged -- only an actual edit
-    replaces ``obj.mesh`` with a new object. The 2026-09-22 audit's clay-20
-    found ``_canvas`` still calling ``uvtools.islands(mesh)`` fresh every
-    frame right beside this memo -- island ids are exactly as much a
-    function of mesh identity as overlap/stretch are, so they are folded
-    into the same cache rather than kept as a second, unmemoised call. The
-    2026-09-26 audit's clay-panes-02: ``_edges`` was the same story again for
-    ``uvtools.seams_from_uv`` -- 78ms of it at 10k faces, every frame, for a
-    boundary set that only ever changes when the mesh itself does.
+    :attr:`UvPaneState.measured_mesh`): the overlap check was once recomputed
+    on every single frame the pane was open, including every frame that
+    panned, zoomed or merely hovered with the mesh completely unchanged -- only
+    an actual edit replaces ``obj.mesh`` with a new object. Island ids are
+    exactly as much a function of mesh identity as overlap is, so they share
+    the cache.
     """
     if view_state.measured_mesh is mesh:
         return view_state.measured_result
     ids = uvtools.islands(mesh)
-    seam_cuts = (
-        uvtools.seams_from_uv(mesh) if mesh.uv is not None else np.empty((0, 2), dtype=np.int64)
-    )
     try:
         overlap = uvtools.overlap_faces(mesh)
     except el.OpError as error:
@@ -714,11 +678,10 @@ def _measurements(
         # already says so in words next to the canvas (see ``_canvas``); the
         # log line is for whoever is chasing why the tint never lights up on
         # one object.
-        log.debug("uv pane: overlap/stretch not shown (%s)", error)
-        result = (ids, None, None, str(error), seam_cuts)
+        log.debug("uv pane: overlap not shown (%s)", error)
+        result = (ids, None, str(error))
     else:
-        stretch = uvtools.stretch(mesh)
-        result = (ids, overlap, stretch, "", seam_cuts)
+        result = (ids, overlap, "")
     view_state.measured_mesh = mesh
     view_state.measured_result = result
     return result
@@ -794,13 +757,10 @@ def _body(ctx: Any) -> None:
 def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
     from imgui_bundle import imgui
 
-    # The 2026-09-22 audit's clay-19: every other Clay pane greys out while a
-    # save is in flight ("saving gates every control that changes the
-    # document", mode.py's own module docstring) but this one never read
-    # tab.saving at all, so Apply rotate/scale, Pack and the live drag/E/R
-    # gestures in _canvas below stayed live during a save. No corruption --
-    # the save took its own snapshot and the tab just stays dirty -- but it
-    # is the one pane in the app where editing during a save looked allowed.
+    # Every Clay pane greys out while a save is in flight ("saving gates every
+    # control that changes the document", mode.py's own module docstring), so
+    # Apply rotate/scale, Pack and the live drag/E/R gestures in _canvas below
+    # wait too.
     imgui.begin_disabled(tab.saving)
     selected = view_state.selected_islands
     count = len(selected)
@@ -883,19 +843,17 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
     _unwrap_row(ctx, tab, doc)
 
 
-#: The three ways to make a layout, in the order Blender's UV menu lists them:
-#: the projection that cannot fail, the cut-along-seams unwrap, then the
-#: Blender-backed one for anything organic.
-_UNWRAP_OPS = ("unwrap", "unwrap-seams", "smart-unwrap")
+#: The way to make a layout: the box projection, which cannot fail.
+_UNWRAP_OPS = ("unwrap",)
 
 
 def _unwrap_row(ctx: Any, tab: Any, doc: Any) -> None:
     """The unwrap verbs, where the layout is.
 
-    The pane told you "unwrap it first" and then offered no way to: the three
-    ops were rows in a flat object-mode list on the other side of the window.
-    They are the same registry ops the UV menu in the viewport header runs, so
-    gating, reasons and parameter dialogs cannot differ.
+    The pane told you "unwrap it first" and then offered no way to: the op was a
+    row in a flat object-mode list on the other side of the window. It is the
+    same registry op the UV menu in the viewport header runs, so gating,
+    reasons and parameter dialogs cannot differ.
     """
     from imgui_bundle import imgui
 
@@ -952,11 +910,11 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     mouse = imgui.get_mouse_pos()
     mesh = obj.mesh
     # ``ids`` is wanted immediately below, for the drag dispatch -- fetched
-    # from the same memo the overlap/stretch tint reads further down (see
-    # :func:`_measurements`'s own docstring, the 2026-09-22 audit's clay-20),
-    # rather than a second, unmemoised ``uvtools.islands(mesh)`` call here.
+    # from the same memo the overlap tint reads further down (see
+    # :func:`_measurements`'s own docstring), rather than a second, unmemoised
+    # ``uvtools.islands(mesh)`` call here.
     #
-    # The 2026-09-26 audit's clay-panes-01: ``_measurements``'s memo is keyed
+    # ``_measurements``'s memo is keyed
     # on mesh *identity*, but ``apply_translate``/``apply_rotate``/
     # ``apply_scale`` each call ``doc.set_mesh`` every single frame a
     # move/rotate/scale drag is live, so the memo missed on every frame of
@@ -969,16 +927,16 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     # ``measured_mesh`` starts ``None`` and this branch never fires before
     # anything has been measured at least once.
     if view_state.drag_mode in ("move", "rotate", "scale") and view_state.measured_mesh is not None:
-        ids, overlap, stretch, refusal, seam_cuts = view_state.measured_result
+        ids, overlap, refusal = view_state.measured_result
     else:
-        ids, overlap, stretch, refusal, seam_cuts = _measurements(view_state, mesh)
+        ids, overlap, refusal = _measurements(view_state, mesh)
     uv_here = _to_uv(view, origin, mouse.x, mouse.y)
 
-    # The 2026-09-22 audit's clay-19: this whole dispatch -- live rotate/scale,
-    # arming E/R, drag-move and box-select -- is the canvas half of the same
-    # "greys out while a save is in flight" rule ``_toolbar`` now enforces
-    # above; ungated, dragging an island mid-save left the tab dirty against
-    # a save the user believed had just captured that drag (see module docstring).
+    # This whole dispatch -- live rotate/scale, arming E/R, drag-move and
+    # box-select -- is the canvas half of the same "greys out while a save is
+    # in flight" rule ``_toolbar`` enforces above; ungated, dragging an island
+    # mid-save left the tab dirty against a save the user believed had just
+    # captured that drag.
     if tab.saving:
         pass
     elif view_state.drag_mode in ("rotate", "scale"):
@@ -989,16 +947,10 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
         # and never while a text field (the rotate/scale spinners just
         # above, in ``_toolbar``) is the one taking keystrokes, or typing
         # "-45" into the degrees box would also arm a rotate underneath it.
-        # ``not obj.locked`` (the 2026-09-23 audit's clay-04): arming the
-        # drag on a locked object used to succeed -- only the eventual
-        # ``doc.set_mesh`` refused -- so every mouse-move frame re-raised
-        # ``OpError`` until Escape. Refusing to arm at all means there is
-        # nothing left to re-raise.
         if (
             hovered
             and not imgui.is_item_active()
             and view_state.selected_islands
-            and not obj.locked
             and not imgui.get_io().want_text_input
         ):
             if imgui.is_key_pressed(imgui.Key.e):
@@ -1039,17 +991,24 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     draw_list.push_clip_rect(
         (origin[0], origin[1]), (origin[0] + region[0], origin[1] + region[1]), True
     )
-    _backdrop(draw_list, view, origin)
+    # Resolved every frame, cheaply: ``pane_texture`` only touches the GL
+    # object when the material's image tuple is a different one, and it
+    # releases the tab's texture when the material under the pane has none.
+    # (``getattr``: the state-only tests drive this with a two-attribute tab
+    # stand-in and no GL context, where the uid is never used.)
+    texture = _uv_texture.pane_texture(
+        ctx, getattr(tab, "uid", ""), _uv_texture.material_for_pane(doc, obj)
+    )
+    _backdrop(draw_list, view, origin, texture)
     covered = touched_islands(mesh, ids, doc.element_sel.get(obj.uid))
     geo = view_state.geo
-    _faces(draw_list, view, origin, mesh, ids, overlap, stretch, geo)
-    _edges(draw_list, view, origin, mesh, obj.seams, seam_cuts, geo)
+    _faces(draw_list, view, origin, mesh, overlap, geo)
     _island_outlines(
         draw_list, view, origin, mesh, ids, view_state.selected_islands | covered, geo
     )
     draw_list.pop_clip_rect()
     if refusal:
-        widgets.muted(f"overlap/stretch not shown: {refusal}")
+        widgets.muted(f"overlap not shown: {refusal}")
 
 
 def _drive_live_transform(
@@ -1128,47 +1087,39 @@ def _to_screen(view: Any, origin: tuple[float, float], u: float, v: float):
     return paintview.to_screen(view, origin, u * REF_PX, v * REF_PX)
 
 
-def _backdrop(draw_list: Any, view: Any, origin: tuple[float, float]) -> None:
+def _backdrop(
+    draw_list: Any, view: Any, origin: tuple[float, float], texture: Any = None
+) -> None:
+    """The unit square, with the material's texture filling it when there is one.
+
+    The image goes in before :func:`_faces` and :func:`_island_outlines`, so the
+    translucent island fills and outlines read over it. The square is v-down on
+    screen and the image's first row is v = 0, the same convention the viewport
+    samples with, so no flip.
+    """
     from imgui_bundle import imgui
 
     p0 = _to_screen(view, origin, 0.0, 0.0)
     p1 = _to_screen(view, origin, 1.0, 1.0)
     draw_list.add_rect_filled(p0, p1, imgui.get_color_u32(theme.rgba(theme.ELEV_1)))
+    if texture is not None:
+        draw_list.add_image(widgets.texture_ref(texture), p0, p1)
     draw_list.add_rect(p0, p1, imgui.get_color_u32(theme.rgba(theme.EDGE)))
 
 
-#: A literal RGB for "compressed" (negative :func:`~.uvtools.stretch`) rather
-#: than a theme role: this is a heat-map tint over geometry, not a piece of
-#: chrome ``test_accessibility`` measures contrast for, and the palette has
-#: no cool colour of its own -- ``ACCENT`` is already spent on the selection
-#: outline drawn over the same faces, and reusing it here would make a
-#: compressed, unselected face and a selected, ordinary one read the same.
-_COMPRESSED_RGB = (0.35, 0.55, 0.95)
-
-
 def _face_fill(
-    face: int, overlap: np.ndarray | None, stretch: np.ndarray | None
+    face: int, overlap: np.ndarray | None
 ) -> tuple[float, float, float, float] | None:
     """One face's tint, or ``None`` for "draw the plain neutral fill".
 
-    Overlap wins outright -- it is the one condition that is simply wrong
-    (a texture with two faces painting the same texel), where stretch is a
-    matter of degree. Kept a pure function so the legend's own swatches and
-    a mesh's face colours can never silently disagree about what a colour
-    means.
+    Overlap is the one condition that is simply wrong (a texture with two
+    faces painting the same texel). Kept a pure function so the legend's own
+    swatches and a mesh's face colours can never silently disagree about what
+    a colour means.
     """
     if overlap is not None and overlap[face]:
         r, g, b = theme.rgba(theme.ERR)[:3]
         return (r, g, b, 0.55)
-    if stretch is not None:
-        value = float(stretch[face])
-        weight = min(abs(value) / STRETCH_FULL, 1.0)
-        if weight > 0.02:
-            if value > 0:
-                r, g, b = theme.rgba(theme.WARN)[:3]
-            else:
-                r, g, b = _COMPRESSED_RGB
-            return (r, g, b, 0.15 + 0.45 * weight)
     return None
 
 
@@ -1177,9 +1128,8 @@ def _screen_corners(
 ) -> list[tuple[float, float]]:
     """Every uv corner of *mesh* in screen space, as ``(x, y)`` tuples.
 
-    The 2026-10-03 audit's clay-panes-06: ``_faces``, ``_edges`` and
-    ``_island_outlines`` each called :func:`_to_screen` per corner per frame
-    from a Python loop. ``paintview.to_screen`` is affine in the point, so the
+    ``_faces`` and ``_island_outlines`` once each called :func:`_to_screen` per
+    corner per frame from a Python loop. ``paintview.to_screen`` is affine in the point, so the
     whole array is one numpy expression from the images of the origin and the
     two unit vectors, and the list is **memoised on the uv array's identity
     plus those three points** (which between them fix zoom, pan, orientation
@@ -1207,17 +1157,16 @@ def _screen_corners(
 def _face_colours(
     cache: dict[str, Any],
     overlap: np.ndarray | None,
-    stretch: np.ndarray | None,
     n_faces: int,
     neutral: int,
 ) -> list[int]:
     """One packed colour per face, memoised on what decides it.
 
-    A pure function of the overlap and stretch arrays (themselves memoised by
+    A pure function of the overlap array (itself memoised by
     :func:`_measurements`, and reused verbatim for the length of a live drag),
     the face count and the theme's neutral fill, so a frame that changes none
     of them -- panning, zooming, hovering -- does not call :func:`_face_fill`
-    again (the 2026-10-03 audit's clay-panes-06).
+    again.
     """
     from imgui_bundle import imgui
 
@@ -1225,64 +1174,19 @@ def _face_colours(
     if (
         hit is not None
         and hit[0] is overlap
-        and hit[1] is stretch
-        and hit[2] == n_faces
-        and hit[3] == neutral
+        and hit[1] == n_faces
+        and hit[2] == neutral
     ):
-        return hit[4]
-    if overlap is None and stretch is None:
+        return hit[3]
+    if overlap is None:
         colours = [neutral] * n_faces
     else:
         colours = []
         for face in range(n_faces):
-            fill = _face_fill(face, overlap, stretch)
+            fill = _face_fill(face, overlap)
             colours.append(imgui.get_color_u32(fill) if fill is not None else neutral)
-    cache["fills"] = (overlap, stretch, n_faces, neutral, colours)
+    cache["fills"] = (overlap, n_faces, neutral, colours)
     return colours
-
-
-def _edge_classes(
-    cache: dict[str, Any], mesh: Any, seams: Any, seam_cuts: np.ndarray
-) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-    """``(marked, boundary)``: the corner pairs of every authored seam edge and
-    of every other island-border edge, memoised on the arrays and the seams
-    they are read from (the 2026-10-03 audit's clay-panes-06 -- this used to
-    sort a tuple per face edge per frame just to find the few that are drawn).
-    A live drag moves only ``mesh.uv``, so ``loops``/``starts`` and the
-    drag-start ``seam_cuts`` stay the same objects and the answer is reused.
-    """
-    hit = cache.get("edges")
-    if (
-        hit is not None
-        and hit[0] is mesh.loops
-        and hit[1] is mesh.starts
-        and hit[2] is seam_cuts
-        and hit[3] is seams
-    ):
-        return hit[4]
-    seam_set = {tuple(sorted((int(a), int(b)))) for a, b in (seams or ())}
-    all_cuts = {tuple(sorted((int(a), int(b)))) for a, b in seam_cuts}
-    starts = mesh.starts.astype("i8").tolist()
-    loops = mesh.loops.tolist()
-    marked: list[tuple[int, int]] = []
-    boundary: list[tuple[int, int]] = []
-    if seam_set or all_cuts:
-        for face in range(len(starts) - 1):
-            lo, hi = starts[face], starts[face + 1]
-            count = hi - lo
-            if count < 2:
-                continue
-            for k in range(count):
-                c0, c1 = lo + k, lo + (k + 1) % count
-                v0, v1 = loops[c0], loops[c1]
-                edge_verts = (v0, v1) if v0 <= v1 else (v1, v0)
-                if edge_verts in seam_set:
-                    marked.append((c0, c1))
-                elif edge_verts in all_cuts:
-                    boundary.append((c0, c1))
-    result = (marked, boundary)
-    cache["edges"] = (mesh.loops, mesh.starts, seam_cuts, seams, result)
-    return result
 
 
 def _faces(
@@ -1290,13 +1194,12 @@ def _faces(
     view: Any,
     origin: tuple[float, float],
     mesh: Any,
-    ids: np.ndarray,
     overlap: np.ndarray | None,
-    stretch: np.ndarray | None,
     cache: dict[str, Any] | None = None,
 ) -> None:
     """Every face, filled -- plain where nothing is wrong with it, tinted
-    where :func:`_face_fill` has something to say.
+    where :func:`_face_fill` has something to say -- and outlined, so the
+    layout reads as faces rather than as a smear of translucent grey.
 
     Drawn from each face's own corners in order, as one convex polygon --
     every generator and unwrap in this package produces simple convex faces
@@ -1315,61 +1218,15 @@ def _faces(
     starts = mesh.starts.astype("i8").tolist()
     n_faces = len(starts) - 1
     corners = _screen_corners(cache, view, origin, mesh)
-    colours = _face_colours(cache, overlap, stretch, n_faces, neutral)
+    colours = _face_colours(cache, overlap, n_faces, neutral)
+    edge = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.8))
+    closed = imgui.ImDrawFlags_.closed.value
     for face in range(n_faces):
         lo, hi = starts[face], starts[face + 1]
         if hi - lo < 3:
             continue
         draw_list.add_convex_poly_filled(corners[lo:hi], colours[face])
-
-
-def _edges(
-    draw_list: Any,
-    view: Any,
-    origin: tuple[float, float],
-    mesh: Any,
-    seams: Any,
-    seam_cuts: np.ndarray,
-    cache: dict[str, Any] | None = None,
-) -> None:
-    """Island boundaries, with the edges the object's own ``seams`` names
-    drawn thicker and in a different colour.
-
-    Boundary detection is :func:`~.uvtools.seams_from_uv` plus the raw uv
-    layout's own cuts -- any edge whose loop does not close (a face edge with
-    no matching reverse corner elsewhere in the mesh's uv, i.e. every edge
-    :func:`~.uvtools.islands` itself would not walk across) -- rather than a
-    second, pane-local seam derivation: the spec calls for exactly this
-    function, read back against the object's own marked seams to decide
-    which of those boundary edges are *also* an authored seam.
-
-    ``seam_cuts`` is :func:`~.uvtools.seams_from_uv`'s own answer, already
-    computed by :func:`_measurements` and memoised on mesh identity there
-    (the 2026-09-26 audit's clay-panes-02) -- this function no longer calls
-    it fresh, so a caller passing a stale mesh's cuts here would be its own
-    bug, not this one's.
-    """
-    from imgui_bundle import imgui
-
-    if mesh.uv is None:
-        return
-    if cache is None:
-        cache = {}
-    boundary = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.8))
-    marked = imgui.get_color_u32(theme.rgba(theme.WARN))
-    # Every face edge is drawn once, from its own two uv corners -- an edge
-    # shared by two faces whose uv agrees draws twice, harmlessly (the same
-    # line on top of itself), which is cheaper than deriving a dedup set for
-    # a pane that redraws every frame. Which edges those are is memoised
-    # (``_edge_classes``); only the drawn ones are visited per frame.
-    marked_edges, boundary_edges = _edge_classes(cache, mesh, seams, seam_cuts)
-    if not marked_edges and not boundary_edges:
-        return
-    corners = _screen_corners(cache, view, origin, mesh)
-    for c0, c1 in marked_edges:
-        draw_list.add_line(corners[c0], corners[c1], marked, 2.5)
-    for c0, c1 in boundary_edges:
-        draw_list.add_line(corners[c0], corners[c1], boundary, 1.0)
+        draw_list.add_polyline(corners[lo:hi], edge, 1.0, closed)
 
 
 def _island_outlines(
@@ -1385,8 +1242,7 @@ def _island_outlines(
     boxed by the user, or touched by the current element selection.
 
     Only the faces of a wanted island are visited (one vectorised membership
-    test picks them), not every face of the mesh -- the 2026-10-03 audit's
-    clay-panes-06.
+    test picks them), not every face of the mesh.
     """
     from imgui_bundle import imgui
 
@@ -1415,10 +1271,7 @@ def _legend() -> None:
     draw_list = imgui.get_window_draw_list()
     for label, colour in (
         ("overlapping", (*theme.rgba(theme.ERR)[:3], 1.0)),
-        ("stretched", (*theme.rgba(theme.WARN)[:3], 1.0)),
-        ("compressed", (*_COMPRESSED_RGB, 1.0)),
         ("selected / touched", (*theme.rgba(theme.ACCENT)[:3], 1.0)),
-        ("seam", (*theme.rgba(theme.WARN)[:3], 1.0)),
     ):
         pos = imgui.get_cursor_screen_pos()
         side = sp(10)

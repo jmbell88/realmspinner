@@ -354,69 +354,7 @@ def _with_colour(material: Any, rgba: tuple[float, ...]) -> Any:
     return dataclasses.replace(material, base_color_factor=rgba)
 
 
-# --- export .blend and save screenshot ---------------------------------------
-
-
-def _blender_stub(monkeypatch: pytest.MonkeyPatch, *, ok: bool = True) -> list[bytes]:
-    from realmspinner.pipelines import clay_blender
-
-    sent: list[bytes] = []
-    why = "" if ok else "Needs Blender, which is not installed."
-    monkeypatch.setattr(clay_blender, "available", lambda: (ok, why))
-
-    def fake(glb: bytes, **_k: Any) -> bytes:
-        sent.append(glb)
-        return b"BLENDER-v500"
-
-    monkeypatch.setattr(clay_blender, "blend_bytes", fake)
-    return sent
-
-
-def test_export_mesh_file_blend_hands_blender_the_documents_glb(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from realmspinner.kernels.geom3d import gltf as gltf_mod
-
-    sent = _blender_stub(monkeypatch)
-    ctx = FakeCtx()
-    tab = _tab(ctx)
-    out = tmp_path / "scene"  # no suffix: the extension is appended, as for GLB/OBJ
-    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: out)
-
-    clay_mode.export_mesh_file(ctx, tab, "blend")
-    clay_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
-
-    assert (tmp_path / "scene.blend").read_bytes() == b"BLENDER-v500"
-    assert gltf_mod.load(sent[0]).nodes
-    assert any("Exported to" in m for m, _ in ctx.toasts)
-
-
-def test_export_mesh_file_blend_cancelled_picker_writes_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sent = _blender_stub(monkeypatch)
-    ctx = FakeCtx()
-    tab = _tab(ctx)
-    monkeypatch.setattr(dialogs, "save_file", lambda *a, **k: None)
-
-    clay_mode.export_mesh_file(ctx, tab, "blend")
-
-    assert ctx.result is None
-    assert not sent, "a cancelled dialog must not start Blender"
-
-
-def test_export_mesh_file_blend_without_blender_is_a_toast_not_a_task(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _blender_stub(monkeypatch, ok=False)
-    ctx = FakeCtx()
-    tab = _tab(ctx)
-
-    clay_mode.export_mesh_file(ctx, tab, "blend")
-
-    assert not ctx.submitted
-    assert any(level == "error" and "Blender" in m for m, level in ctx.toasts)
-    assert not tab.saving
+# --- save screenshot -------------------------------------------------------
 
 
 class _FakeView:

@@ -282,7 +282,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.rebuilds = 0
 
         self._rect = (0.0, 0.0, 1.0, 1.0)
-        self._grab: str | None = None  # orbit | pan | gizmo | marquee | keydrag | knife | opdrag
+        self._grab: str | None = None  # orbit | pan | gizmo | marquee | keydrag | opdrag
         self._last_mouse = (0.0, 0.0)
         self._drag_uids: list[int] = []
         self._drag_start: dict[int, tuple[Any, Any, Any]] = {}
@@ -299,11 +299,6 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         # ``_view_drag.begin_keyboard_drag``.
         self._key_kind = ""
         self._key_anchor: Any = None
-        # Where an Alt press went down, and whether Ctrl was held with it.
-        # Alt+drag orbits and Alt+click selects a loop; the two share the button
-        # and are told apart on the release -- see ``_view_drag._alt_click``.
-        self._alt_at: Any = None
-        self._alt_ctrl = False
 
         # What the cursor is over in an element mode, as ``(uid, index)`` read
         # through the document's own mode. Updated only on motion with no grab
@@ -323,31 +318,12 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.marquee: tuple[float, float, float, float] | None = None
         self._marquee_from: tuple[float, float] | None = None
         self._marquee_add = "replace"
-        # The knife gesture (tranche 5 integration): armed by
-        # ``clay_ops._knife`` firing bare (``DragOps.begin_knife``), live
-        # once the press that draws the line lands (``_grab == "knife"``),
-        # and cleared on commit or cancel (``DragOps._commit_knife``/
-        # ``cancel_drag``). Two screen points only -- the plane is computed
-        # once, on release, so the frame loop between press and release does
-        # nothing heavier than remembering where the cursor is now. The GL
-        # pair below is the line overlay drawn while it is live; see
-        # ``_view_overlay.OverlayOps._knife_draws``.
-        self._knife_armed = False
-        self._knife_from: tuple[float, float] | None = None
-        self._knife_to: tuple[float, float] | None = None
-        self._knife_vbo: Any = None
-        self._knife_vao: Any = None
-        self._knife_ibo: Any = None
         self._element_drags: dict[int, _ElementDrag] = {}
         # A live op drag (``_view_opdrag``) and an Extrude's drag gesture, each
         # ``None`` between gestures.
         self._op_drag: Any = None
         self._extrude_gesture: Any = None
         self._overlays: dict[int, _SelOverlay] = {}
-        # A collider's own translucent overlay (clay-09, 2026-09-19 audit) --
-        # one small per-uid GL cache, the shape ``_overlays`` and
-        # ``_ghost_cache`` already use, released in ``release()`` beside them.
-        self._collider_overlays: dict[int, _SelOverlay] = {}
         self._element_centre = np.zeros(3)
         # Redraw bookkeeping (B13), the shape Viewer.render uses (B12).
         self._render_dirty = True
@@ -389,10 +365,6 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
 
         self.drag_input = bdrag.DragInput()
         self.drag_hud: str = ""
-        # The world position a move has snapped onto, or None. Held rather than
-        # recomputed by the consumer because it is found from the *cursor*, and
-        # the transform is applied a layer down where the cursor is gone.
-        self._snap_point: np.ndarray | None = None
 
         # The Familiar ghost preview: a scratch document (see
         # ``clay.scratch``) and the diff it produced, or ``None`` between
@@ -495,10 +467,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             ground=self.god_light,
             overlays=(
                 self._element_overlays(doc)
-                + self._collider_draws(doc)
                 + self._gizmo_draws(doc, height)
                 + self._ghost_draws(doc)
-                + self._knife_draws()
             ),
         )
         return self.viewport.texture
@@ -591,13 +561,6 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
                 # also show it solid, or the ghost reads as decoration rather
                 # than as what would actually happen.
                 continue
-            if obj.role == "collider":
-                # Drawn instead as a translucent fill and wireframe by
-                # ``_collider_draws`` (clay-09, 2026-09-19 audit) -- never
-                # through this opaque, shaded path, which is what let a
-                # collider render as an opaque duplicate of the geometry it
-                # previews, occluding or z-fighting it.
-                continue
             entry = self._cache.get(obj.uid)
             if entry is None:
                 continue
@@ -657,7 +620,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         slightly toward the eye."
 
         The index buffer is built once per cache key and replayed
-        (``overlay.specs``, the shape ``_collider_draws`` uses), not minted
+        (``overlay.specs``), not minted
         per frame: only the matrices are per-frame. The colour rides in the
         key, so a uid that a refined preview moves from "added" to "removed"
         cannot replay the other kind's buffer.
@@ -675,10 +638,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         def _fill(source: Any, uid: int, color: tuple[float, float, float, float]) -> None:
             obj = source.by_uid(uid)
             live.add(uid)
-            # Evaluated -- this ghost is standing in for what would actually
-            # land on screen, the same reason the real cache (``_view_cache``)
-            # draws the evaluated mesh rather than the base.
-            mesh = source.evaluated(uid)
+            mesh = obj.mesh
             key = (id(mesh), color)
             overlay = self._ghost_cache.get(uid)
             if overlay is None or overlay.key != key:
@@ -1040,13 +1000,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         ``_view_cache.CacheOps.sync``) -- so every uid this method reports on
         is one the picture could actually have coloured, and a uid entirely
         occluded in this particular view still gets its row, at ``px=0``:
-        "hidden from this view", not "does not exist". A collider is filtered
-        out of that table too: ``_composite`` (below) already skips
-        ``role == "collider"`` objects entirely, so a collider was never one
-        the picture could have coloured, and its row read ``px=0`` no
-        differently from a genuinely occluded object -- indistinguishable in
-        the table, which is what the 2026-09-22 audit (clay-08) found. A
-        collider row is simply not drawable here, so it is not offered one.
+        "hidden from this view", not "does not exist".
         """
         self.sync(doc)
         saved, _lo, _hi = self._frame_camera(
@@ -1057,7 +1011,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             colors = {
                 obj.uid: _id_color(obj.uid)
                 for obj in doc.objects
-                if obj.visible and getattr(obj, "role", None) != "collider"
+                if obj.visible
             }
             self.renderer.draw_ids(target, self.camera, self._composite(doc), id_colors=colors)
             png = capture.png_bytes(target)
@@ -1074,9 +1028,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
     def release(self) -> None:
         self.clear()
         self._release_overlays()
-        self._release_collider_overlays()
         self._release_ghost()
-        self._release_knife_overlay()
         self.translate_gizmo.release()
         self.rotate_gizmo.release()
         self.scale_gizmo.release()

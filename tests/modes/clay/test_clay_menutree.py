@@ -89,15 +89,14 @@ def test_object_mode_gets_a_select_menu_and_vertex_mode_has_no_uv_menu() -> None
     assert "Object" in object_titles and "UV" in object_titles
     vertex_titles = [menu.title for menu in menutree.resolve("vertex")]
     assert "UV" not in vertex_titles, "vertex mode has no UV op to hold"
-    assert {"Mesh", "Vertex"} <= set(vertex_titles)
+    assert "Mesh" in vertex_titles
     assert "Object" not in vertex_titles
 
 
-def test_each_element_mode_gets_its_own_menu_and_not_the_others() -> None:
-    for mode, own in (("vertex", "Vertex"), ("edge", "Edge"), ("face", "Face")):
-        titles = {menu.title for menu in menutree.resolve(mode)}
-        assert own in titles
-        assert titles.isdisjoint({"Vertex", "Edge", "Face"} - {own}), mode
+def test_the_three_element_modes_share_one_mesh_menu_with_no_vertex_edge_or_face_menu() -> None:
+    for mode in ("vertex", "edge", "face"):
+        titles = [menu.title for menu in menutree.resolve(mode)]
+        assert titles == ["Select", "Add", "Mesh"], mode
 
 
 def test_shading_is_under_object_and_under_face_never_next_to_duplicate() -> None:
@@ -114,27 +113,16 @@ def test_shading_is_under_object_and_under_face_never_next_to_duplicate() -> Non
     assert "Shading" in face
 
 
-def test_the_three_unwraps_share_the_uv_group_ahead_of_packing() -> None:
-    """Smart Unwrap was seven rows from Box Unwrap, past Decimate and Retopologize."""
+def test_box_unwrap_shares_the_uv_group_ahead_of_packing() -> None:
     uv = menutree.GROUPS["uv"].ops
-    unwraps = ("unwrap", "unwrap-seams", "smart-unwrap")
-    assert all(name in uv for name in unwraps)
-    assert max(uv.index(name) for name in unwraps) < uv.index("pack-uv")
-
-
-def test_colliders_are_a_named_collider_submenu_in_the_add_menu() -> None:
-    add = next(m for m in menutree.resolve("object") if m.title == "Add")
-    collider = next(s for s in add.sections if s.label == "Collider")
-    assert collider.submenu
-    assert [op.name for op in collider.ops] == list(menutree.GROUPS["collider"].ops)
+    assert uv.index("unwrap") < uv.index("pack-uv")
 
 
 def test_select_all_none_and_invert_now_run_in_object_mode() -> None:
     for name in ("select-all", "select-none", "select-invert"):
         assert "object" in clay_ops.get(name).modes, name
     # The element-only verbs stay element-only: there is no object "linked".
-    for name in ("select-linked", "select-more", "select-less", "select-boundary"):
-        assert "object" not in clay_ops.get(name).modes, name
+    assert "object" not in clay_ops.get("select-linked").modes
 
 
 def test_select_none_in_object_mode_clears_the_object_selection() -> None:

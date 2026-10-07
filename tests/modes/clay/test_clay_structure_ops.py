@@ -1,4 +1,4 @@
-"""Tranche 3's OPS registry rows: parenting/groups, separate, set origin, lock.
+"""Tranche 3's OPS registry rows: parenting/groups, separate and set origin.
 
 The document doors (``ClayDoc.group``/``set_parent``/``remove_object``/
 ``set_origin``/``separate``) and the pure ``kernels.mesh.separate`` splitters
@@ -6,9 +6,8 @@ are tested on their own terms elsewhere (``tests/modes/clay/test_document.py``,
 ``tests/modes/clay/test_separate.py``); what belongs here is the registry
 wiring -- that the context menu, the tools pane and the keyboard all reach the
 new rows through one list, the way the rest of ``clay_ops`` already is, and
-that the handful of call sites this tranche touches (Bake, Merge/Union/
-Difference/Intersection, Mirror Copy, Place Between, Align/Distribute/Drop to
-Ground) now measure a *parented* object correctly rather than reading its
+that the handful of call sites this tranche touches (Merge, Mirror Copy, Drop
+to Ground) now measure a *parented* object correctly rather than reading its
 local TRS as if it were the world.
 """
 
@@ -22,7 +21,6 @@ import pytest
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
-from realmspinner.kernels.mesh import modifiers as mod
 from realmspinner.kernels.mesh import ops as clay_ops_geom
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio.modes.clay import ops as clay_ops
@@ -73,33 +71,15 @@ def _two_loose_boxes(offset: tuple[float, float, float] = (5.0, 0.0, 0.0)) -> bm
     return merged
 
 
-def _two_toned_box() -> bm.Mesh:
-    box = bp.box()
-    material = np.zeros(bm.face_count(box), dtype="i4")
-    material[: bm.face_count(box) // 2] = 1
-    out = bm.Mesh(
-        positions=box.positions,
-        loops=box.loops,
-        starts=box.starts,
-        material=material,
-        smooth=box.smooth,
-    )
-    bm.validate(out)
-    return out
-
-
 NEW_OBJECT_ROWS = (
     "group",
     "ungroup",
     "parent-to-last",
     "clear-parent",
     "separate-loose",
-    "separate-material",
     "origin-to-bounds",
     "origin-to-base",
     "origin-to-world",
-    "lock",
-    "unlock",
 )
 
 
@@ -313,19 +293,17 @@ def test_clear_parent_makes_selected_objects_roots_keeping_world() -> None:
     assert np.allclose(doc.world_matrix(child.uid), child_world_before)
 
 
-# --- separate: loose parts, material, selection -------------------------------
+# --- separate: loose parts, selection ----------------------------------------
 
 
-def test_separate_loose_makes_one_object_per_part_as_one_step_and_copies_the_stack() -> None:
+def test_separate_loose_makes_one_object_per_part_as_one_step_and_copies_the_transform() -> None:
     doc = bd.ClayDoc()
-    stack = (mod.make("weld", id=1),)
     obj = doc.add_object(
         bd.Obj(
             uid=bd.new_uid(),
             name="Both",
             mesh=_two_loose_boxes(),
             translation=[1.0, 0.0, 0.0],
-            modifiers=stack,
         )
     )
     doc.select([obj.uid])
@@ -337,35 +315,8 @@ def test_separate_loose_makes_one_object_per_part_as_one_step_and_copies_the_sta
     assert obj.uid not in [o.uid for o in doc.objects]
     assert len(doc.objects) == 2
     for piece in doc.objects:
-        assert piece.modifiers == stack
         assert np.allclose(piece.translation, [1.0, 0.0, 0.0])
         assert bm.face_count(piece.mesh) == 6
-
-
-def test_separate_material_makes_one_object_per_material_slot() -> None:
-    doc = bd.ClayDoc()
-    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="TwoTone", mesh=_two_toned_box()))
-    doc.select([obj.uid])
-    depth = len(doc.history)
-
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("separate-material")) is True
-
-    assert len(doc.history) == depth + 1
-    assert len(doc.objects) == 2
-    materials = sorted(int(o.mesh.material[0]) for o in doc.objects)
-    assert materials == [0, 1]
-
-
-def test_separate_material_refuses_a_single_material_object_as_a_toast() -> None:
-    doc, uid = _doc()
-    doc.select([uid])
-    ctx = _Ctx()
-    depth = len(doc.history)
-
-    assert clay_ops.run(ctx, doc, clay_ops.get("separate-material")) is False
-    assert ctx.toasts.errors
-    assert len(doc.objects) == 1
-    assert len(doc.history) == depth
 
 
 def test_separate_selection_splits_the_picked_faces_out_as_one_step() -> None:
@@ -451,36 +402,7 @@ def test_origin_to_selection_uses_the_element_selections_centroid() -> None:
     assert np.allclose(doc.by_uid(uid).translation, expected)
 
 
-# --- lock / unlock ---------------------------------------------------------------
-
-
-def test_lock_unlock_round_trip() -> None:
-    doc, uid = _doc()
-    doc.select([uid])
-
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("lock")) is True
-    assert doc.by_uid(uid).locked is True
-
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("unlock")) is True
-    assert doc.by_uid(uid).locked is False
-
-
-def test_a_locked_object_refuses_a_geometry_op_with_the_documents_sentence() -> None:
-    doc, uid = _doc()
-    doc.select([uid])
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("lock")) is True
-    assert doc.by_uid(uid).locked is True
-
-    doc.set_element_mode("face")
-    doc.set_element_sel(uid, el.ElementSel(faces=[0]))
-    ctx = _Ctx()
-
-    assert clay_ops.run(ctx, doc, clay_ops.get("extrude")) is False
-    assert ctx.toasts.errors == [f"{doc.by_uid(uid).name!r} is locked."]
-    assert bm.face_count(doc.by_uid(uid).mesh) == bm.face_count(bp.box()), "nothing was extruded"
-
-
-# --- world-space fixes: merge, align, drop to ground on a parented object -----
+# --- world-space fixes: merge, drop to ground on a parented object -----
 
 
 def test_merging_a_parented_child_uses_its_world_placement() -> None:
@@ -538,35 +460,4 @@ def test_drop_to_ground_rests_a_parented_objects_world_box_on_y_zero() -> None:
         "the child's *world* box bottom should rest on y=0 -- fails against the "
         "unfixed code, which drops it by its local box instead and leaves it "
         "floating at its parent's height"
-    )
-
-
-def test_align_centres_a_parented_and_a_root_object_on_the_same_world_axis() -> None:
-    """``_world_boxes`` again: aligning a root object (world Y centre 0) and
-    an object parented five metres above the origin must bring their *world*
-    Y centres together. Against the unfixed code the parented object's box
-    is read at its local translation (0, 0, 0) -- already believed to match
-    the root -- so no delta is applied to it at all, and the two centres
-    stay five metres apart.
-    """
-    doc = bd.ClayDoc()
-    root = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Root", mesh=bp.box()))
-    parent = doc.add_object(
-        bd.Obj(uid=bd.new_uid(), name="Parent", mesh=bp.box(), translation=[0.0, 20.0, 0.0])
-    )
-    child = doc.add_object(
-        bd.Obj(uid=bd.new_uid(), name="Child", mesh=bp.box(), translation=[0.0, 0.0, 0.0])
-    )
-    doc.set_parent(child.uid, parent.uid, keep_world=False)
-    doc.select([root.uid, child.uid])
-
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("align"), axis=1, mode=1) is True
-
-    centres = []
-    for uid in (root.uid, child.uid):
-        lo, hi = clay_ops_geom.world_box(doc.by_uid(uid), world=doc.world_matrix(uid))
-        centres.append(float((lo[1] + hi[1]) / 2.0))
-    assert centres[0] == pytest.approx(centres[1]), (
-        "both world Y centres should now agree -- fails against the unfixed "
-        "code, which leaves the parented object's centre 20m away"
     )

@@ -73,49 +73,6 @@ def mirror(obj: Obj, axis: int) -> Obj:
     return replace(obj, mesh=bm.transformed(obj.mesh, matrix))
 
 
-def translated(obj: Obj, offset: Iterable[float]) -> Obj:
-    """*obj* moved by *offset* in world space. The mesh is untouched.
-
-    The per-copy step of a linear array (``clay_ops.array-linear``): only the
-    translation changes, so the copy stays sharing its source's mesh -- see
-    :func:`duplicate`'s own docstring for why that sharing is safe and cheap,
-    and it is exactly what makes an array of sixty fence posts one GPU
-    upload rather than sixty.
-    """
-    return replace(
-        obj, translation=np.asarray(obj.translation, dtype="f8") + np.asarray(offset, dtype="f8")
-    )
-
-
-def rotated_about_origin(obj: Obj, axis: int, degrees: float) -> Obj:
-    """*obj* carried by a rotation of *degrees* about the *world* origin, around
-    the world *axis* (0/1/2 for X/Y/Z).
-
-    The per-copy step of a radial array (``clay_ops.array-radial``): the
-    object is picked up and spun about a point through the world's own
-    centre rather than its own, so both where it sits and which way it faces
-    move together. Translation is the old one rotated about the origin;
-    rotation is the axis rotation applied *after* the object's own -- world
-    orientation is "rotate into place, then spin the whole thing", the same
-    left-to-right order :func:`~.viewer.math3d.compose`'s own T*R*S reads in.
-
-    Scale and the mesh are untouched, and that is a real difference from
-    :func:`mirror_world`: nothing about what the copy *looks like* changed,
-    only where it sits, so it is still exactly the primitive its generator
-    describes and stays a live, editable shape rather than a frozen one.
-    """
-    if axis not in (0, 1, 2):
-        raise ValueError(f"axis must be 0, 1 or 2 ({', '.join(_AXIS_NAMES)}), got {axis!r}")
-    axis_vec = np.zeros(3, dtype="f8")
-    axis_vec[axis] = 1.0
-    spin = m3.quat_from_axis_angle(axis_vec, math.radians(degrees))
-    return replace(
-        obj,
-        translation=m3.quat_rotate(spin, np.asarray(obj.translation, dtype="f8")),
-        rotation=m3.quat_mul(spin, np.asarray(obj.rotation, dtype="f8")),
-    )
-
-
 def mirror_world(
     obj: Obj, axis: int, offset: float, world: np.ndarray | None = None
 ) -> Obj:
@@ -210,97 +167,6 @@ def mirror_world(
     return replace(mirror(obj, axis), translation=translation, rotation=rotation, scale=scale)
 
 
-def align_y(direction: Iterable[float]) -> tuple[float, float, float, float]:
-    """The XYZW quaternion taking ``+Y`` onto *direction*.
-
-    Every generator in :mod:`.primitives` is built along ``+Y`` -- that is
-    the module's own rule -- so a bone, a strut, anything that is not already
-    vertical is a rotation, never a re-authored mesh. The two degenerate
-    cases are written out because the cross product vanishes for both and
-    normalising it would divide by zero: parallel is the identity, and
-    antiparallel is a half turn about ``X``, picked arbitrarily since every
-    axis perpendicular to ``Y`` would do.
-
-    An ingredient, not an object op -- it takes a bare direction and hands
-    back a quaternion, not an :class:`Obj`, which is why it sits here rather
-    than reading as one of the ``Obj -> Obj`` shapes around it. Promoted out
-    of :mod:`.presets` (where it lived as ``_align_y``) rather than
-    reimplemented, because the two degenerate cases above were worked out
-    once already and a second derivation is a second place for them to
-    disagree. :func:`.presets._placed` was its first caller, laying a rigged
-    limb down a bone; :func:`place_between` is its second, laying anything
-    down the line between two arbitrary points -- both are "point this along
-    that direction" and neither needed its own copy of the reasoning.
-    """
-    d = np.asarray(direction, dtype="f8")
-    length = float(np.linalg.norm(d))
-    if length < 1e-12:
-        return (0.0, 0.0, 0.0, 1.0)
-    d = d / length
-    dot = float(d[1])
-    if dot > 1.0 - 1e-9:
-        return (0.0, 0.0, 0.0, 1.0)
-    if dot < -1.0 + 1e-9:
-        return (1.0, 0.0, 0.0, 0.0)
-    axis = np.cross(np.array([0.0, 1.0, 0.0]), d)
-    s = float(np.sqrt((1.0 + dot) * 2.0))
-    q = np.array([axis[0] / s, axis[1] / s, axis[2] / s, s * 0.5])
-    q /= float(np.linalg.norm(q))
-    return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
-
-
-def place_between(obj: Obj, a: Iterable[float], b: Iterable[float], *, fit: bool) -> Obj:
-    """*obj*, moved onto the segment between two *world*-space points.
-
-    The whole verb is "aim this along that line": the translation becomes the
-    segment's midpoint, and the rotation becomes :func:`align_y` of ``b - a``
-    -- **replacing** the object's own rotation rather than composing with it,
-    because "aim this along that line" is the entire instruction, and
-    composing would make the result depend on which way the object happened
-    to be facing before this ran. Every generator this package ships is built
-    along ``+Y`` (:func:`align_y`'s own rule), which is what makes one
-    quaternion the right answer here for any shape at all, rather than a
-    special case per generator.
-
-    With *fit*, the scale's Y component is set so the object's own *local* Y
-    extent -- read off :func:`~.mesh.bounds`, on the unscaled mesh, before
-    *any* existing scale is applied -- spans exactly ``|b - a|``. That is a
-    replacement of ``scale[1]``, not a multiple of whatever it already was:
-    "span the gap" is a statement about the result, not an adjustment to the
-    input.
-
-    A mesh with no Y extent at all cannot be fit this way -- a ``plane`` or a
-    ``grid`` is authored flat in XZ, so its local Y span is exactly zero and
-    the fit the caller asked for is a division by zero. **The fit is skipped
-    in that case, not refused**: the object still moves to the midpoint and
-    turns to face the line, which is the placement itself and not the part
-    that needed a Y extent to exist -- refusing that too over an axis the
-    mesh has no length along to begin with would punish the caller for a
-    generator's shape rather than for anything they did wrong. A flat mesh
-    placed this way keeps whatever scale it already had.
-
-    Two coincident anchors (``a == b``) are the same degenerate direction
-    :func:`align_y` already names as its identity case, so this returns the
-    object turned to identity rather than dividing by a zero-length segment
-    and producing a NaN.
-    """
-    a_arr = np.asarray(a, dtype="f8")
-    b_arr = np.asarray(b, dtype="f8")
-    direction = b_arr - a_arr
-    scale = np.asarray(obj.scale, dtype="f8").copy()
-    if fit:
-        lo, hi = bm.bounds(obj.mesh)
-        extent = float(hi[1] - lo[1])
-        if extent > 1e-9:
-            scale[1] = float(np.linalg.norm(direction)) / extent
-    return replace(
-        obj,
-        translation=(a_arr + b_arr) * 0.5,
-        rotation=np.asarray(align_y(direction), dtype="f8"),
-        scale=scale,
-    )
-
-
 def world_box(
     obj: Obj, mesh: bm.Mesh | None = None, world: np.ndarray | None = None
 ) -> tuple[np.ndarray, np.ndarray] | None:
@@ -315,10 +181,8 @@ def world_box(
     is honestly an upper bound. It is also O(1) after the local bounds, which is
     what lets a properties panel ask for it every frame.
 
-    ``mesh`` overrides ``obj.mesh``. Pass ``doc.evaluated(obj.uid)`` for the
-    box of what is on screen -- what framing, align, drop-to-ground and the
-    scene report all measure once an object carries a modifier stack, since a
-    mirror modifier alone doubles the width the base mesh would report.
+    ``mesh`` overrides ``obj.mesh`` (a caller measuring a mesh it has not yet
+    committed to the object).
 
     ``world`` overrides the matrix composed from *obj*'s own TRS -- pass
     ``doc.world_matrix(obj.uid)`` for a parented object, whose own TRS is

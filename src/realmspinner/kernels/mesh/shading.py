@@ -1,20 +1,13 @@
 """The angle rule that decides which faces of a mesh render smooth.
 
-Extracted out of ``clay_ops._shade_auto`` (the 2026-09-06 audit, the organic-
-shapes decision): the manual "Shade Auto..." op and the two insertion doors
-that now apply this automatically -- ``modes/clay/ui/panes/tools.add_primitive`` for a
-shape off the grid and ``modes/clay/ui/panes/tools.add_assembly`` for a figure's parts
--- need the identical rule, and a rule copied into three call sites is a rule
-that drifts the first time one of them is edited without the other two.
-``clay_ops._shade_auto`` now delegates here; see its own (much shorter)
-docstring for the object-selection plumbing this module has no opinion about.
+The insertion door (``modes/clay/ui/panes/tools.add_primitive``), the
+parameter regeneration (:mod:`.regen`) and the mesh importers all need the
+identical rule, and a rule copied into several call sites is a rule that drifts
+the first time one of them is edited without the others.
 
-**The bar for this extraction is byte identity.** Nothing about the maths
-below changed when it moved -- ``tests/modes/clay/test_shading.py`` asserts this
-function against the pre-extraction inline computation on a sphere, a
-cylinder and a box, and every one of ``_shade_auto``'s own pre-existing
-callers keeps working unchanged because the wrapper still returns the same
-skip-if-nothing-changed answer it always did.
+**The bar for this extraction is byte identity.** ``tests/modes/clay/
+test_shading.py`` asserts this function against the pre-extraction inline
+computation on a sphere, a cylinder and a box.
 """
 
 from __future__ import annotations
@@ -30,10 +23,7 @@ from .mesh import Mesh
 DEFAULT_ANGLE = 30.0
 """The angle every caller gets unless it names its own.
 
-One constant rather than two literals: before this extraction, ``30.0`` was
-written once as ``_shade_auto``'s own default and again as the ``Param``'s
-default in ``studio/modes/clay/ops.py``'s registration of the "Shade Auto..." op, and
-nothing tied the two together. Both now read this name.
+One constant rather than a literal per caller, so they cannot drift apart.
 """
 
 

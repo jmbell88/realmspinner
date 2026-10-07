@@ -1,4 +1,4 @@
-"""The two end-to-end paths the plan asks to be checked by hand, headlessly.
+"""The end-to-end paths the plan asks to be checked by hand, headlessly.
 
 Neither replaces sitting in front of the app, but both walk exactly the same
 sequence of calls a user's clicks and keypresses produce, so a regression in
@@ -11,7 +11,6 @@ from __future__ import annotations
 import numpy as np
 
 from realmspinner.kernels.geom3d import glbwrite, gltf
-from realmspinner.kernels.mesh import adjacency as adj
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import glbimport, serialize
@@ -76,25 +75,8 @@ def test_place_a_box_select_a_face_extrude_drag_and_undo() -> None:
     assert not ctx.toasts.errors
 
 
-def test_bevel_an_edge_with_a_width_and_the_result_is_still_closed() -> None:
-    ctx = _Ctx()
-    doc = bd.ClayDoc()
-    box = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
-    doc.set_element_mode("edge")
-    doc.set_element_sel(
-        box.uid, el.ElementSel(edges=[adj.adjacency(box.mesh).edge_verts[0]])
-    )
-
-    assert clay_ops.run(ctx, doc, clay_ops.get("bevel"), width=0.08)
-    out = doc.by_uid(box.uid).mesh
-    bm.validate(out)
-    assert bm.face_count(out) == 7
-    assert adj.check_manifold(out).clean
-    assert not ctx.toasts.errors
-
-
-def test_import_a_model_glb_repair_it_and_export_it_again(tmp_path) -> None:
-    """Drop a library ``model.glb`` -> weld -> fill hole -> export -> reopen.
+def test_import_a_model_glb_weld_it_and_export_it_again(tmp_path) -> None:
+    """Drop a library ``model.glb`` -> weld -> export -> reopen.
 
     The whole point of Phase 5 in one path: an asset that came out of the
     pipeline goes back in with its textures and its uvs intact, having been
@@ -124,17 +106,10 @@ def test_import_a_model_glb_repair_it_and_export_it_again(tmp_path) -> None:
     assert doc.by_uid(uid).mesh.uv is not None
 
     # Weld the whole thing (a no-op on a clean mesh, but the repair a user
-    # reaches for first), then cap both ends.
+    # reaches for first).
     doc.set_element_mode("vertex")
     doc.set_element_sel(uid, el.select_all(doc.by_uid(uid).mesh, "vertex"))
     assert clay_ops.run(ctx, doc, clay_ops.get("weld"), eps=1e-5)
-
-    doc.set_element_mode("edge")
-    boundary = adj.check_manifold(doc.by_uid(uid).mesh).boundary_edges
-    assert len(boundary) == 16, "two open ends of eight edges each"
-    doc.set_element_sel(uid, el.ElementSel(edges=boundary))
-    assert clay_ops.run(ctx, doc, clay_ops.get("fill-hole"))
-    assert adj.check_manifold(doc.by_uid(uid).mesh).clean, "closed now"
     assert not ctx.toasts.errors
 
     # Export it as an asset, and save the document beside it -- what

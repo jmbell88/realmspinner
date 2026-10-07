@@ -40,9 +40,10 @@ order you usually want them.
 in the viewport to put it down. This is the point of the mode: a prop you generated last week is one
 click from being in a room.
 
-**Primitives.** The same shapes [Clay](30-clay.md#adding-a-primitive) offers, in the same
-categories, armed and placed the same way. A scene often needs a floor, a wall or a step that is not
-worth generating, and a box is the right answer to all three.
+**Primitives.** Every shape in the primitive registry — the fifteen [Clay](30-clay.md#adding-a-primitive)
+offers, plus the structures Clay no longer builds (pyramid, arch, column, lathe, sweep and tube), which a
+scene can still place — armed and placed the same way. A scene often needs a floor, a wall or a step that
+is not worth generating, and a box is the right answer to all three.
 
 **Lights.** **Point**, **Spot** and **Directional**, each with a line saying what it is — a point
 light is "A bulb: falls off with distance in every direction", a spot is "A cone, narrowed by its

@@ -16,8 +16,6 @@ import pytest
 from realmspinner.kernels.geom3d import glbwrite, gltf
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import mesh as bm
-from realmspinner.kernels.mesh import modifiers as mod
-from realmspinner.kernels.mesh import ops_boolean
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh.elements import OpError
 
@@ -373,7 +371,7 @@ def test_export_hierarchy_round_trips_through_glbwrite_and_gltf() -> None:
 
 def _world_positions(doc: bd.ClayDoc, uid: int) -> np.ndarray:
     matrix = doc.world_matrix(uid)
-    pts = np.asarray(doc.evaluated(uid).positions, dtype="f8")
+    pts = np.asarray(doc.by_uid(uid).mesh.positions, dtype="f8")
     homogeneous = np.hstack([pts, np.ones((len(pts), 1))])
     return (matrix @ homogeneous.T).T[:, :3]
 
@@ -429,90 +427,21 @@ def test_set_origin_is_a_no_op_at_the_current_origin() -> None:
     assert doc.history.head == before
 
 
-# --- boolean modifier world-matrix cache (a pure ancestor move) --------------
-
-pytest.importorskip("manifold3d")
+# --- .rblk: parent -------------------------------------------
 
 
-def test_a_pure_ancestor_move_invalidates_a_boolean_modifiers_cache() -> None:
-    """The regression the tranche 3 spec names by hand: the boolean cache
-    used to key on the two objects' own *local* TRS, so moving an ancestor
-    -- neither object's own local TRS changes at all -- served a stale
-    result."""
-    doc = bd.ClayDoc()
-    cutter = doc.add_object(_obj("Cutter", translation=(0.3, 0.0, 0.0)))
-    target = doc.add_object(_obj("Target"))
-    parent = doc.add_object(_obj("Parent"))
-    doc.set_parent(target.uid, parent.uid, keep_world=False)
-
-    stack = (mod.make("boolean", {"target": cutter.uid, "operation": "difference"}, id=1),)
-    doc.set_modifiers(target.uid, stack)
-    first = doc.evaluated(target.uid)
-
-    # Move the parent -- the target's own local TRS is untouched.
-    doc.set_transform(parent.uid, translation=(5.0, 0.0, 0.0))
-    second = doc.evaluated(target.uid)
-    assert second is not first
-
-    # Correctness, not only cache invalidation: recompute the same boolean
-    # directly, from the *current* world matrices, and check the modifier's
-    # cached-or-recomputed result agrees. A stale cache keyed on local TRS
-    # would still report ``second is not first`` here only by coincidence of
-    # some *other* change; this is the actual number the spec's own
-    # "or a pure ancestor move serves a stale boolean" warns about.
-    from dataclasses import replace
-
-
-    expected = ops_boolean.boolean(
-        [replace(doc.by_uid(target.uid)), replace(doc.by_uid(cutter.uid))],
-        "difference",
-        world=[doc.world_matrix(target.uid), doc.world_matrix(cutter.uid)],
-    )
-    assert np.allclose(
-        np.sort(second.positions, axis=0), np.sort(expected.positions, axis=0), atol=1e-4
-    )
-
-
-# --- .rblk v3: parent/locked/tags -------------------------------------------
-
-
-def test_rblk_round_trips_parent_locked_and_tags() -> None:
+def test_rblk_round_trips_a_parent() -> None:
     from realmspinner.kernels.mesh import serialize as ser
 
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
     b = doc.add_object(_obj("B", translation=(1.0, 0.0, 0.0)))
     doc.set_parent(b.uid, a.uid)
-    doc.set_props(b.uid, locked=True, tags=("Prop", "hero"))
 
     out = ser.read_rblk(ser.rblk_bytes(doc))
     restored = out.by_uid(b.uid)
     assert restored.parent == a.uid
-    assert restored.locked is True
-    assert restored.tags == ("hero", "prop")  # sorted, lower-cased
     assert np.allclose(doc.world_matrix(b.uid), out.world_matrix(b.uid))
-
-
-def test_rblk_round_trips_a_colliders_parent_alongside_its_role() -> None:
-    """Tranche 7: ``ClayDoc.add_collider`` parents the collider onto its
-    source (see that method's own docstring) -- this is the one point where
-    tranche 3's own hierarchy and tranche 7's role/kind fields have to agree
-    about the same object at once, which neither ``test_rblk_round_trips_
-    parent_locked_and_tags`` above nor ``test_collider_objects.py``'s own
-    role/kind-focused round trip exercises together."""
-    from realmspinner.kernels.mesh import colliders as cl
-    from realmspinner.kernels.mesh import serialize as ser
-
-    doc = bd.ClayDoc()
-    a = doc.add_object(_obj("A"))
-    collider = doc.add_collider(a.uid, cl.fit_box(a.mesh))
-
-    out = ser.read_rblk(ser.rblk_bytes(doc))
-    restored = out.by_uid(collider.uid)
-    assert restored.parent == a.uid
-    assert restored.role == "collider"
-    assert restored.collider_kind == "box"
-    assert np.allclose(doc.world_matrix(collider.uid), out.world_matrix(collider.uid))
 
 
 def test_an_object_at_every_default_writes_no_hierarchy_keys() -> None:
@@ -524,8 +453,6 @@ def test_an_object_at_every_default_writes_no_hierarchy_keys() -> None:
     doc.add_object(_obj("A"))
     entry = json.loads(ser.scene_json(doc))["objects"][0]
     assert "parent" not in entry
-    assert "locked" not in entry
-    assert "tags" not in entry
 
 
 def test_a_document_with_parenting_is_still_byte_identical_when_repeated() -> None:
@@ -535,7 +462,6 @@ def test_a_document_with_parenting_is_still_byte_identical_when_repeated() -> No
     a = doc.add_object(_obj("A"))
     b = doc.add_object(_obj("B"))
     doc.set_parent(b.uid, a.uid)
-    doc.set_props(b.uid, locked=True, tags=("hero",))
     assert ser.rblk_bytes(doc) == ser.rblk_bytes(doc)
 
 
@@ -594,25 +520,19 @@ def test_rblk_refuses_a_cycle_in_the_file() -> None:
         ser.read_rblk(out.getvalue())
 
 
-def test_a_long_parent_chain_does_not_blow_the_recursion_limit_in_the_outliner_the_document_the_modifier_stack_or_a_loaded_file() -> None:  # noqa: E501
-    """The 2026-09-19 audit's clay-02: four separate recursive walks, none of
-    them capped, each raised an uncaught ``RecursionError`` on a legal,
-    acyclic chain well inside ``glbimport.MAX_OBJECTS`` (4,096) -- the
-    outliner's own tree walk and :meth:`~.document.ClayDoc.descendants` on a
-    3,000-deep parent chain (crashing the app the moment the outliner opened,
-    or the moment any object was selected with the properties panel open),
-    :func:`~.modifiers.would_cycle` and :func:`~.modifiers.evaluate` on a
-    1,500-deep chain of boolean-modifier targets (crashing ordinary viewing,
-    export, readiness and ``set_modifiers`` itself), and
-    :mod:`~.serialize`'s ``_validate_hierarchy`` on a 2,000-deep chain loaded
-    from a file that lists its objects child-first. :meth:`~.document.ClayDoc.
-    ancestors` was already written with an explicit stack three lines above
-    ``descendants``, and all four sites now copy that shape -- see each
-    site's own docstring. The existing cycle guards (``ancestors``' ``seen``
-    set, ``would_cycle``'s color marking) still refuse an actual cycle by
-    name; see ``test_a_hand_edited_cycle_is_refused_on_the_closing_modifier_
-    not_recursion`` in ``test_modifiers.py`` and
-    ``test_rblk_refuses_a_cycle_in_the_file`` just above for that half.
+def test_a_long_parent_chain_does_not_blow_the_recursion_limit_in_the_outliner_the_document_or_a_loaded_file() -> None:  # noqa: E501
+    """The 2026-09-19 audit's clay-02: recursive walks, none of them capped, each
+    raised an uncaught ``RecursionError`` on a legal, acyclic chain well inside
+    ``glbimport.MAX_OBJECTS`` (4,096) -- the outliner's own tree walk and
+    :meth:`~.document.ClayDoc.descendants` on a 3,000-deep parent chain
+    (crashing the app the moment the outliner opened, or the moment any object
+    was selected with the properties panel open), and :mod:`~.serialize`'s
+    ``_validate_hierarchy`` on a 2,000-deep chain loaded from a file that lists
+    its objects child-first. :meth:`~.document.ClayDoc.ancestors` was already
+    written with an explicit stack, and the other sites now copy that shape.
+    The cycle guard (``ancestors``' ``seen`` set) still refuses an actual cycle
+    by name; see ``test_rblk_refuses_a_cycle_in_the_file`` just above for that
+    half.
     """
     from realmspinner.kernels.mesh import serialize as ser
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
@@ -630,23 +550,6 @@ def test_a_long_parent_chain_does_not_blow_the_recursion_limit_in_the_outliner_t
     assert rows[-1][0].uid == objs[-1].uid and rows[-1][1] == chain_depth - 1
 
     assert doc.descendants(objs[0].uid) == [o.uid for o in objs[1:]]
-
-    # -- modifiers.would_cycle and modifiers.evaluate: a 1,500-deep chain of
-    # boolean modifiers, each targeting the next -- no cycle, but the same
-    # depth of Python recursion the old would_cycle and _evaluate needed.
-    pytest.importorskip("manifold3d")
-    mod_depth = 1500
-    mobjs = [
-        doc.add_object(_obj(f"M{i}", translation=(float(i) * 3.0, 0.0, 0.0)))
-        for i in range(mod_depth)
-    ]
-    for i in range(mod_depth - 1):
-        mobjs[i].modifiers = (
-            mod.make("boolean", {"target": mobjs[i + 1].uid, "operation": "union"}, id=1),
-        )
-    assert mod.would_cycle(doc, mobjs[0].uid, mobjs[0].modifiers) is False
-    ev = doc.evaluation(mobjs[0].uid)
-    assert ev.errors == ()
 
     # -- serialize._validate_hierarchy: a 2,000-deep chain read from a file
     # that lists its objects child-first.

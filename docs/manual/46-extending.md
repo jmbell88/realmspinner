@@ -286,9 +286,9 @@ its own when it connects, and every tool it has addresses that tab by name. A do
 have open is not merely unlikely to be touched; there is no request the agent can make that names
 it. What the agent does
 goes onto that document's ordinary undo stack, one step per action, so taking over means switching
-to its tab and pressing Ctrl+Z as often as you want to. **Generate...**, Clay's own door onto
-text2image and the reconstruction stage, is not part of the tool surface at all — an agent places and
-shapes geometry with the tools below, never by asking the image or mesh models for one. It also
+to its tab and pressing Ctrl+Z as often as you want to. Nothing in this surface asks the image or mesh
+models for a model — Clay has no Generate door any more — so an agent places and shapes geometry with
+the tools below and nothing else. It also
 arrives already knowing Realmspinner's
 units and conventions — metres, which way is up, that a generator stands on the ground rather than
 straddling it — rather than working them out by trial, which is why its first attempt at something
@@ -309,7 +309,7 @@ one back is the way you take back anything else in Library, by deleting it. Ther
 this half of the surface, because there is nothing here an undo stack was ever tracking.
 
 The tools are the ones you would reach for yourself, but most of them now do in one call what used
-to take several. Placing a primitive or a figure sets its size, its position, its rotation, its
+to take several. Placing a primitive sets its size, its position, its rotation, its
 scale, its name and its palette colour all at once, validated before anything appears and landing as
 a single undo step — it used to take four round trips to place one sized, positioned, named, coloured
 object. **Batch** folds up to thirty-two calls, a whole block-out, into that same one step, so backing
@@ -339,11 +339,11 @@ reference landing, for now, is a toast the moment the agent adds one — a thumb
 a reference plane in the 3D view, so you could see what it is comparing against without having to ask
 it, are wanted and not yet built.
 
-The agent can now take a mesh apart the way you can, rather than only place and boolean whole
-objects. It switches to vertex, edge or face mode, selects by index or by a question — "the faces
-pointing up", "the loop through this edge", "everything painted with this slot" — and then runs the
-same operations the context menu offers: inset, bevel, extrude and the rest, which used to refuse
-unconditionally because nothing could ever switch the mode they gate on. What it selected is
+The agent can take a mesh apart the way you can, rather than only place whole objects. It switches to
+vertex, edge or face mode, selects by index or by a question — "the faces pointing up", "everything
+painted with this slot", "everything inside this box" — and then runs the same operations the context
+menu offers: inset, extrude, weld and the rest, which refuse until something has switched the mode they
+gate on. What it selected is
 reported back after every operation, counts rather than the indices themselves, so an extrude
 followed by an inset is two calls rather than four — extrude hands back its own new caps, and the
 very next call operates on them with nothing re-selected in between.
@@ -353,12 +353,9 @@ Realmspinner's own registry. **Add mesh** takes a plain list of positions, a lis
 for the faces, and — since a texture seam is one vertex needing two different texture coordinates —
 an optional per-*corner* UV rather than a per-vertex one. Every fault that shape can carry is
 refused by naming the exact face and corner responsible, before anything is placed, the same as
-every other tool here. What arrives has no recipe behind it, so unlike a primitive or a figure it
+every other tool here. What arrives has no recipe behind it, so unlike a primitive it
 cannot later have one of its own numbers tweaked with **Set params** — the same refusal an edited
-primitive already gets, because both are geometry with no generator left to ask. What it can do
-that placing a primitive cannot is tell you, in the same call, whether what you handed over is a
-closed solid — the very thing a boolean needs — so a mesh that turns out to have a gap in it is
-caught immediately rather than several calls later when the boolean itself refuses.
+primitive already gets, because both are geometry with no generator left to ask.
 
 If an agent gives up waiting on a call Realmspinner has not started yet, that call is cancelled rather
 than run later, so a retry does not place the same box twice — the agent is told nothing changed
@@ -368,6 +365,29 @@ simply send the same request again and be handed the answer it missed rather tha
 second time. That only ever applies to an answer that never arrived, though — two identical
 requests you meant to send twice, and that both got answered, are still two things, so asking for
 the same box twice on purpose still gives you two boxes.
+
+**Material** paints rather than only appends. With a colour it adds one palette entry and paints the
+whole of each object named, as before. Give it `faces` — face numbers of one object, so it must
+name exactly one uid — and only those faces are painted, leaving the object's default slot alone:
+"the lid of the chest" is one call and one undo step. Give it `index` instead of a colour and it
+reuses an existing palette slot and adds nothing; a colour or name beside an `index` is refused
+rather than guessed at, and so is a slot or a face that does not exist. `clay_op` also runs
+Assign Material on the faces an agent has selected, taking the slot as its `index`. Making a
+texture and editing it in Inker are not agent tools: Inker is a mode, and an agent has its own
+Clay tab and can address no other.
+
+The whole Clay surface is thirty-four tools. **Reading**: `clay_scene`, `clay_measure`, `clay_render`,
+`clay_elements` and `clay_catalog`, which answers one of four topics on demand — `ops`, `primitives`,
+`queries` or `uv_actions` — so the tool list itself stays short. **Placing and shaping**:
+`clay_add_primitive`, `clay_add_mesh`, `clay_set_params`, `clay_transform`, `clay_material`,
+`clay_set_origin`, `clay_rename` and `clay_delete`. **Structure**: `clay_parent`, `clay_group`,
+`clay_ungroup` and `clay_separate`. **Selection**: `clay_select`, `clay_element_mode`,
+`clay_select_elements` and `clay_select_by`, whose questions are a material slot, a facing direction and a
+box. **Operations**: `clay_op`, which runs any row of Clay's operation registry, and `clay_uv`, which is
+unwrap, pack or transform. **History and folding**: `clay_undo`, `clay_redo`, `clay_checkpoint`,
+`clay_restore`, `clay_batch` and `clay_program`. **References**: `clay_reference_add`, `_list`, `_get`
+and `_remove`. And `clay_export`. There is no figure, boolean, modifier, collider or diagnosis tool,
+because Clay has none of those things.
 
 Exporting does what pressing the button does: it saves the model, writes a GLB, and mints a Library
 entry, so what an agent makes is an ordinary asset with no history of being unusual. Rigging,
@@ -446,9 +466,10 @@ yourself.
 
 `studio/modes/clay/agent/` is the surface and `studio/agent_host.py` is the plumbing. The important
 thing about the first is that **most of it is not written down**: the shapes an agent may place come
-from `primitives.GENERATORS`, the figures from `presets.ASSEMBLIES`, the operations from
-`clay_ops.OPS`, and the selection questions `clay_select_by` can answer from `select.QUERIES` — the
-same tables the add panel, the context menu and the selection menu are drawn from. A new
+from `primitives.CLAY_GENERATORS`, the operations from `clay_ops.OPS`, and the selection questions
+`clay_select_by` can answer from `select.QUERIES` — the same tables the add panel, the context menu and
+the selection menu are drawn from. (`primitives.GENERATORS` stays whole, because a Mason scene names its
+shapes by it; Clay offers the fifteen in `CLAY_GENERATORS` and an agent is offered the same fifteen.) A new
 generator, op or query added to Clay appears in the agent's tool list with no edit
 here at all, and a test asserts that in both directions, so the two cannot drift apart.
 
@@ -459,7 +480,7 @@ function that takes the context, the session and the arguments, and returns cont
 A character tool is the same idea on a different thread. `studio/agent_character.py` is that
 surface's own file, its handlers take the service layer and the session — never the context — and
 they run on the character pipeline's own worker pool rather than the frame thread, because a
-service door can block for real work (a Blender probe, a bake) in a way nothing on the frame thread
+service door can block for real work (a Blender probe, an `animated.glb` bake) in a way nothing on the frame thread
 is allowed to. Everything below about validating before mutating, refusing rather than raising, and
 an argument's name being checked against its own schema applies to both surfaces alike; only the
 thread a handler runs on, and what it is handed to run against, differs.
@@ -486,10 +507,10 @@ broke three calls later when `clay_scene` tried to read it back — by then ther
 at, and the whole document's introspection was bricked until someone thought to undo blind. Reach
 for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 number and
 `_validate_number_or_vec` for the `number | array-of-numbers | array-of-arrays` shape
-`clay_set_params` and `clay_add_primitive`'s `params` use (a lathe's `profile` is the
-array-of-arrays case) — all three live beside `validate.py`'s other validators, in the same
-"validate everything before the
-first mutation" style `_h_add_primitive` and `_h_add_figure` already followed. A TRS argument is
+`clay_set_params` and `clay_add_primitive`'s `params` use (a shape's `size` is the array case, and
+the shape that took an array of arrays went with the curve editor) — all three live beside
+`validate.py`'s other validators, in the same "validate everything before the
+first mutation" style `_h_add_primitive` already followed. A TRS argument is
 bounded in size as well as in shape (`_validate_translation` and `_validate_scale`): a translation
 component may be at most 1e7 metres, and a scale component is either exactly zero or between 1e-6 and
 1e6 in magnitude, because `1e308` once put a bare `Infinity` into every later `clay_scene` row and a
@@ -531,14 +552,15 @@ to `false` before the reply is built, rather than leaving a kept prefix the way 
 Both have a second way to refuse after the work is done: a run that finished is not rolled back, so
 if the reply it built is too large to send in one frame, the refusal carries `changed: true` and says
 the edits were kept and the call must not be repeated. Every tool whose reply grows with the
-document (`clay_scene`, a whole-document `clay_diagnose`, `clay_batch`, `clay_program`,
+document (`clay_scene`, `clay_batch`, `clay_program`,
 `clay_elements` with no `uid`) measures the reply as it will be framed, through
 `_over_frame_budget`, and a new one that does the same should call it.
 Writing this down is what found the one place that did not follow the
-rule — `clay_boolean` used to set the object selection before checking there were two visible
-objects to work with, so a refused boolean quietly replaced whatever you had selected. The order
-is fixed rather than the flag being made to admit it, which is the point of asking a tool to state
-whether anything moved: a claim a tool has to make about itself is one somebody eventually checks.
+rule — the boolean tool, since removed with the boolean, used to set the object selection before
+checking there were two visible objects to work with, so a refused one quietly replaced whatever you
+had selected. The order was fixed rather than the flag being made to admit it, which is the point of
+asking a tool to state whether anything moved: a claim a tool has to make about itself is one
+somebody eventually checks.
 
 A refusal that names a `field` also gets a `recovery` for free, from that field alone — naming the
 argument you are unhappy with is already telling the caller which one to change. Pass `recovery=`
@@ -581,8 +603,8 @@ one exception is a tool whose reply carries a picture — `clay_render` and `cla
 both bypass `_json` and build their result directly, because an image block has no JSON to
 duplicate, so a new tool answering with an image should follow their lead rather than call `_json`
 at all. Declaring an `outputSchema` for it is a separate, deliberate choice, not something that comes
-along for the ride — today only `clay_scene`, `clay_add_primitive`, `clay_add_mesh`,
-`clay_diagnose` and `clay_analyze` have one, because writing a schema for a result as small as a uid or a count is
+along for the ride — today only `clay_scene`, `clay_add_primitive` and `clay_add_mesh`
+have one, because writing a schema for a result as small as a uid or a count is
 authorship with no reader. Reach for one only when a client would actually be validating or
 generating against the shape — and when the shape is one already written down, compose it rather
 than copying it out again, the way `clay_add_mesh`'s own schema is the shared object-row schema
@@ -592,7 +614,7 @@ off, the same as every other tool in this file already does.
 ### Resources and prompts
 
 Tools are not the only thing the bridge answers over MCP. Eight **resources** — documents a client
-can fetch without spending a tool call — and five **prompts** — pre-written starting points a client
+can fetch without spending a tool call — and three **prompts** — pre-written starting points a client
 can ask for by name, with arguments filled in — ride the same private RPC v1 pipe, in
 `studio/agent_resources.py`, `studio/agent_character_resources.py` and `studio/agent_prompts.py`.
 
@@ -603,21 +625,21 @@ The five Clay resources:
 | `realmspinner://clay/scene` | This session's document, the same JSON `clay_scene` returns | Frame thread |
 | `realmspinner://clay/render/last` | The most recent picture this session's `clay_render` produced | Frame thread |
 | `realmspinner://clay/conventions` | `instructions()`'s own prose (`studio/modes/clay/agent/dispatch.py`) | Listener thread |
-| `realmspinner://clay/generators` | Every primitive `clay_add_primitive` can build, and its defaults | Listener thread |
+| `realmspinner://clay/generators` | The fifteen primitives `clay_add_primitive` can build, and their defaults | Listener thread |
 | `realmspinner://clay/operations` | Every op `clay_op` can run, its modes and its parameters | Listener thread |
 
 The first two touch this session's document, so they run through the same frame-thread job queue
 every `clay_*` tool call already does — a resource read is not exempt from the one-thread-touches-
 the-document rule just because it looks like a read rather than a call. The last three are pure
-functions of a registry that already exists for a human surface (`primitives.GENERATORS`,
+functions of a registry that already exists for a human surface (`primitives.CLAY_GENERATORS`,
 `clay_ops.OPS`, `dispatch.instructions()` in `studio/modes/clay/agent/`) and touch no document at all, so they answer on
 the
 listener thread directly — the same exemption `realmspinner_status` already has, for the same reason.
 
 `clay_scene` takes two optional arguments, `offset` and `limit`, which page the object rows of a
 document too large to read in one reply; `object_count` and `bounds` still describe the whole
-document, so a page reads like the whole answer with fewer rows. `clay_measure` and `clay_analyze`
-answer a volume of `null` with `closed: false` for an open mesh, rather than a number that moves
+document, so a page reads like the whole answer with fewer rows. `clay_measure`
+answers a volume of `null` with `closed: false` for an open mesh, rather than a number that moves
 with where the object sits.
 
 The character pipeline adds three more:
@@ -639,8 +661,8 @@ neither the image nor a not-found — it answers with a small JSON body instead,
 real size and pointing at `character_sheet_preview`, which has no such ceiling because it crops and
 resizes before answering rather than handing over the whole file.
 
-The five prompts — `model_from_description`, `model_from_reference`, `repair_mesh`,
-`prepare_for_export`, `character_sheets_from_description` — are pure text templating: a prompt's
+The three prompts — `model_from_description`, `model_from_reference` and
+`character_sheets_from_description` — are pure text templating: a prompt's
 rendered message is a string built from its arguments, naming real tools by their real names.
 `model_from_reference` takes one argument, `job_id`, the Library job whose picture is the reference;
 a picture outside the Library is sent inline to `clay_reference_add`, because that tool never
@@ -651,7 +673,7 @@ movements, and walks the same swamp-knight-shaped path described above: options,
 polling the rig job and its follow-up sheet job, then a preview, then the three export formats.
 
 **Derived, not hand-listed, the same rule the tool catalogue follows.** `agent_resources`'s
-generators and operations resources are built by walking `primitives.GENERATORS` and `clay_ops.OPS`
+generators and operations resources are built by walking `primitives.CLAY_GENERATORS` and `clay_ops.OPS`
 the same way the Clay agent package's own prose already does for its instructions text — a new
 primitive or a new op needs no edit here either. A prompt's own prose names tools by constants at
 the top of `agent_prompts.py` rather than by retyping the string in several places, but the

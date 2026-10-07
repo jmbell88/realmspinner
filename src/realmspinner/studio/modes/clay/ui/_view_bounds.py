@@ -47,13 +47,11 @@ class BoundsOps:
         from .....kernels.mesh import elements as el
         from .....kernels.mesh.selection import _element_pickable
 
-        # The 2026-10-03 audit's clay-70: the drag skips a hidden object and a
-        # collider (``_begin_element_drag``), but this centre averaged every
-        # entry of ``doc.element_sel`` -- so hiding an object that still held an
-        # element selection left the gizmo, and the pivot a rotate or scale turns
-        # about, off the vertices that actually move. The same eligibility the
-        # drag and every other element door share, in the key as well so hiding
-        # or un-hiding misses the memo.
+        # The drag skips a hidden object (``_begin_element_drag``), so this
+        # centre must too, or hiding an object that still held an element
+        # selection leaves the gizmo, and the pivot a rotate or scale turns
+        # about, off the vertices that actually move. The eligibility is in the
+        # key as well so hiding or un-hiding misses the memo.
         key = (id(doc), tuple(
             (uid, id(sel), self._pickable(doc, uid), *self._obj_key(doc, uid))
             for uid, sel in doc.element_sel.items()
@@ -100,7 +98,7 @@ class BoundsOps:
     @staticmethod
     def _pickable(doc: Any, uid: int) -> bool:
         """Whether *uid*'s elements are the drag's to move -- ``selection``'s
-        one eligibility, visible and not a collider. A missing uid is not."""
+        one eligibility. A missing uid is not."""
         from .....kernels.mesh.selection import _element_pickable
 
         try:
@@ -132,10 +130,8 @@ class BoundsOps:
         """The world AABB over visible objects, or ``(None, None)`` if there are none.
 
         Memoized the way ``element_centre`` is (B27): the key names every
-        object's visibility, selection membership, *evaluated* mesh identity
-        and transform identities, so a miss happens exactly when the box can
-        move -- which now includes a modifier's own parameters changing, not
-        only the base mesh, since ``doc.evaluated`` is what is boxed below.
+        object's visibility, selection membership, mesh identity and transform
+        identities, so a miss happens exactly when the box can move.
         """
         # ``obj.parent`` is in the key: ``_world`` composes the ancestor chain
         # into every box, and a reparent that keeps the local arrays in place
@@ -147,7 +143,7 @@ class BoundsOps:
         key = (id(doc), tuple(
             (
                 obj.uid, obj.visible, obj.uid in doc.selection, obj.parent,
-                id(doc.evaluated(obj.uid)), id(obj.translation), id(obj.rotation), id(obj.scale),
+                id(obj.mesh), id(obj.translation), id(obj.rotation), id(obj.scale),
             )
             for obj in doc.objects
         ))
@@ -161,8 +157,7 @@ class BoundsOps:
         # is held alive for as long as the memo can match on them.
         pins: list[Any] = [doc]
         for obj in doc.objects:
-            evaluated = doc.evaluated(obj.uid)
-            pins.extend((obj.mesh, evaluated, obj.translation, obj.rotation, obj.scale))
+            pins.extend((obj.mesh, obj.translation, obj.rotation, obj.scale))
             if not obj.visible or (selected_only and obj.uid not in doc.selection):
                 continue
             box = self._object_world_box(doc, obj)
@@ -176,14 +171,11 @@ class BoundsOps:
         return out
 
     def _object_world_box(self: ClayView, doc: Any, obj: Any) -> tuple[Any, Any] | None:
-        """``ops.world_box`` over the *evaluated* mesh, and deliberately nothing else.
+        """``ops.world_box`` over the object's mesh, and deliberately nothing else.
 
         It used to be a second copy of the same eight corners, which is how the
         properties panel's dimensions row and the camera's framing would have
-        come to disagree about the size of one object. Passing
-        ``doc.evaluated(obj.uid)`` is what keeps this agreeing with what the
-        viewport actually draws once an object carries a modifier stack --
-        a mirror alone doubles the width the base mesh would report.
+        come to disagree about the size of one object.
 
         ``world=self._world(doc, obj)`` (tranche 3: scene structure): left at
         ``world_box``'s own default, this composed only *obj*'s own TRS, which
@@ -196,7 +188,7 @@ class BoundsOps:
         """
         from .....kernels.mesh import ops as bops
 
-        return bops.world_box(obj, doc.evaluated(obj.uid), world=self._world(doc, obj))
+        return bops.world_box(obj, obj.mesh, world=self._world(doc, obj))
 
     def frame_selection(self: ClayView, doc: Any) -> float:
         """Put the selection -- or the whole document -- on screen.

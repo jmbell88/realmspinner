@@ -1,11 +1,6 @@
 """Regression tests for the 2026-09-26 audit's ``w1f4`` fixer brief, covering
-the ``studio/modes/clay`` files it owns: ``ops.py``, ``ui/_view_drag.py``,
+the ``studio/modes/clay`` files it owns: ``ui/_view_drag.py``,
 ``ui/panes/outliner.py``, ``ui/panes/props.py`` and ``ui/panes/uv.py``.
-
-clay-ops-tail-01: Retopologize/Smart Unwrap send Blender the *evaluated*
-mesh (base run through the modifier stack) and fold the result back as the
-new base -- but used to leave the modifier stack itself in place, so the
-next evaluation ran it a second time on a mesh that already had it baked in.
 
 clay-panes-01: the UV pane's overlap/stretch/island memo is keyed on mesh
 identity, but a live move/rotate/scale drag calls ``doc.set_mesh`` every
@@ -33,7 +28,6 @@ from __future__ import annotations
 
 import inspect
 import time
-from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -41,22 +35,17 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from realmspinner.kernels.geom3d import gltf as gltf_mod
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
-from realmspinner.kernels.mesh import modifiers as mods
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh import uvtools
-from realmspinner.pipelines import clay_blender
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.ui import view as clay_view
 from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.clay.ui.panes import uv as clay_uv
-
-# --- clay-ops-tail-01: retopo/unwrap must not run the modifier stack twice --
 
 
 class _InlineCtx:
@@ -66,114 +55,6 @@ class _InlineCtx:
 
     def toast(self, message: str, level: str = "info") -> None:
         self.toasted.append((message, level))
-
-
-def _fake_unwrap_bytes(
-    glb: bytes, *, angle_limit: float = 66.0, island_margin: float = 0.003, timeout: Any = None,
-) -> tuple[bytes, dict]:
-    del angle_limit, island_margin, timeout
-    model = gltf_mod.load(glb)
-    objects = [{"name": n.name, "islands": 1} for n in model.nodes if n.mesh is not None]
-    return glb, {"ok": True, "objects": objects}
-
-
-def test_unwrap_apply_on_an_object_with_a_modifier_stack_does_not_apply_the_stack_twice(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 2026-09-26 audit's clay-ops-tail-01, reproduced exactly: a box (12
-    triangles) under an Array modifier (count=3, 36 triangles evaluated) sent
-    to a faked "Blender" that echoes the same bytes back landed at 108
-    triangles after Smart Unwrap -- the 36-triangle result folded back in as
-    the new base, with the Array modifier still on the stack to run a second
-    time on the next evaluation.
-    """
-    monkeypatch.setattr(clay_blender, "available", lambda: (True, ""))
-    monkeypatch.setattr(clay_blender, "unwrap_bytes", _fake_unwrap_bytes)
-
-    doc = bd.ClayDoc()
-    obj = doc.add_object(
-        bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box(), generator="box", params={"size": 1.0})
-    )
-    doc.set_modifiers(obj.uid, (mods.make("array", {"count": 3.0, "offset_x": 2.0}, id=1),))
-    doc.select([obj.uid])
-
-    before_tris = clay_ops._tri_count(doc.evaluated(obj.uid))
-    assert before_tris == 36, "fixture sanity: 12 base triangles times an Array of 3"
-
-    ctx = _InlineCtx()
-    assert clay_ops.run(ctx, doc, clay_ops.get("smart-unwrap")) is True
-
-    obj_after = doc.by_uid(obj.uid)
-    assert obj_after.modifiers == (), (
-        "the modifier stack must be cleared -- Blender's own result already "
-        "has it baked in once"
-    )
-    after_tris = clay_ops._tri_count(doc.evaluated(obj_after.uid))
-    assert after_tris == before_tris, (
-        f"expected {before_tris} triangles (the modifier baked in exactly "
-        f"once), got {after_tris} -- the stack ran a second time"
-    )
-
-
-def test_smart_unwrap_keeps_the_faces_and_shading_it_was_given(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """clay-16 (2026-10-03): Smart Unwrap rebuilt the object as all triangles
-    with auto-smooth shading yet kept its generator and the manual says it
-    changes no geometry. Only the UVs may come back from Blender."""
-    monkeypatch.setattr(clay_blender, "available", lambda: (True, ""))
-    monkeypatch.setattr(clay_blender, "unwrap_bytes", _fake_unwrap_bytes)
-
-    for build in (bp.box, bp.uv_sphere):
-        doc = bd.ClayDoc()
-        mesh = build()
-        flat = replace(mesh, smooth=np.zeros(len(mesh.starts) - 1, dtype=bool))
-        obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Shape", mesh=flat))
-        doc.select([obj.uid])
-        ctx = _InlineCtx()
-        assert clay_ops.run(ctx, doc, clay_ops.get("smart-unwrap")) is True
-        after = doc.by_uid(obj.uid).mesh
-        assert len(after.starts) == len(flat.starts), "quads must stay quads"
-        assert not after.smooth.any(), "deliberate flat shading must survive"
-        assert after.uv is not None
-
-
-def test_retopo_apply_on_an_object_with_a_modifier_stack_also_clears_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Retopologize's own apply gets the identical fix -- same cause, same
-    shape, ``_retopo_apply`` beside ``_unwrap_apply``."""
-
-    def _fake_retopo_bytes(
-        glb: bytes, *, target_faces: int, close_holes: bool = False, seed: int = 0,
-        keep_uvs: bool = False, timeout: Any = None,
-    ) -> tuple[bytes, dict]:
-        del target_faces, close_holes, seed, keep_uvs, timeout
-        model = gltf_mod.load(glb)
-        objects = [
-            {"name": n.name, "method": "quadriflow", "faces_before": 12, "faces": 12, "quads": 1.0}
-            for n in model.nodes
-            if n.mesh is not None
-        ]
-        return glb, {"ok": True, "objects": objects}
-
-    monkeypatch.setattr(clay_blender, "available", lambda: (True, ""))
-    monkeypatch.setattr(clay_blender, "retopo_bytes", _fake_retopo_bytes)
-
-    doc = bd.ClayDoc()
-    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
-    doc.set_modifiers(obj.uid, (mods.make("array", {"count": 3.0, "offset_x": 2.0}, id=1),))
-    doc.select([obj.uid])
-
-    before_tris = clay_ops._tri_count(doc.evaluated(obj.uid))
-
-    ctx = _InlineCtx()
-    assert clay_ops.run(ctx, doc, clay_ops.get("retopo"), target_faces=1000) is True
-
-    obj_after = doc.by_uid(obj.uid)
-    assert obj_after.modifiers == ()
-    after_tris = clay_ops._tri_count(doc.evaluated(obj_after.uid))
-    assert after_tris == before_tris
 
 
 # --- clay-panes-01: the uv pane's measurement memo during a live drag -------

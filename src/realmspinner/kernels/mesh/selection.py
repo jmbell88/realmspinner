@@ -49,15 +49,8 @@ def select_all(doc: Any) -> None:
 
 
 def _element_pickable(obj: Any) -> bool:
-    """The eligibility every element door shares: visible, and not a collider.
-
-    The 2026-10-03 audit's clay-42: ``select_all`` and ``invert`` filtered on
-    ``visible`` alone, so Ctrl+A reached the elements of a collider -- which the
-    pick, hover, snap and marquee doors skip on purpose, because it is not drawn
-    on screen to sweep over -- and a following Delete or gizmo drag then changed
-    geometry the user could not see selected.
-    """
-    return bool(obj.visible) and obj.role != "collider"
+    """The eligibility every element door shares: a visible object."""
+    return bool(obj.visible)
 
 
 def invert(doc: Any) -> None:
@@ -128,14 +121,6 @@ def delete_selected(doc: Any) -> list[str]:
         doomed = sorted({int(u) for u in doc.selection}, key=doc.index_of, reverse=True)
         if not doomed:
             return []
-        # The 2026-09-22 audit, finding clay-01: this branch pops straight out
-        # of ``doc.objects`` rather than going through ``remove_object``, which
-        # is the only place that had ever checked ``obj.locked`` -- so a
-        # locked object selected in the outliner (locking is deliberately not
-        # a picking door, only a drag/transform one) was removed with no
-        # refusal at all. Collecting the refusal here, before anything is
-        # popped, keeps this function's own "a refusal on one object does not
-        # abandon the others" promise for the unlocked rest of the selection.
         refusals: list[str] = []
         removable = []
         for uid in doomed:
@@ -147,9 +132,6 @@ def delete_selected(doc: Any) -> list[str]:
             # already do: nothing the user can see was refused.
             if not obj.visible:
                 continue
-            if obj.locked:
-                refusals.append(f"{obj.name!r} is locked.")
-                continue
             removable.append(uid)
         if not removable:
             return refusals
@@ -157,14 +139,14 @@ def delete_selected(doc: Any) -> list[str]:
         # reimplement remove_object's bookkeeping inline (a hand-built
         # CompoundEdit around a hand-popped ``doc.objects.pop``) and it never
         # re-parented the removed object's children the way remove_object
-        # does, nor popped ``_evaluated`` -- deleting a parent left each
+        # does, -- deleting a parent left each
         # child's ``parent`` naming a uid the document no longer carries, and
         # read_rblk refuses to reopen that file (a saved model or journal
         # copy). Calling remove_object itself, per uid, inside a
         # mark()/collapse_since() gesture -- the same primitive the
         # element-mode branch below already uses to fold its own per-object
         # set_mesh steps -- gets every one of remove_object's guarantees
-        # (reparenting, the _mesh_stamps and _evaluated pops) for the whole
+        # (reparenting, the _mesh_stamps pop) for the whole
         # selection at once, still as one undo step, with no logic to
         # duplicate or drift out of sync.
         mark = doc.history.mark()
@@ -179,21 +161,6 @@ def delete_selected(doc: Any) -> list[str]:
         # clay-41 (2026-10-03 audit): a hidden object can still hold an element
         # selection, and its faces are not on screen to be deleted.
         if not obj.visible:
-            continue
-        # The 2026-09-22 audit, finding clay-02: this used to call
-        # ``delete_faces``/``set_mesh`` unconditionally for every object with
-        # something in ``doc.element_sel`` -- a locked object could be in
-        # there at all because neither ``pick_element`` nor
-        # ``_commit_marquee`` skipped one the way object-mode ``pick_face``
-        # already does, and once it was, ``set_mesh`` raised past this loop
-        # (only the ``delete_faces`` call was wrapped in ``try/except
-        # OpError``), aborting after earlier objects had already been
-        # rewritten. Checking the lock before either call keeps this
-        # function's own "a refusal on one object does not abandon the
-        # others" promise instead of a partial commit disguised as a total
-        # refusal.
-        if obj.locked:
-            refusals.append(f"{obj.name!r} is locked.")
             continue
         faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face")
         # The 2026-09-19 audit, finding clay-03: this used to ``continue`` past

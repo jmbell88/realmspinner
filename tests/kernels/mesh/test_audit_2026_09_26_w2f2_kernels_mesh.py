@@ -8,13 +8,11 @@ Pillow's ``UnidentifiedImageError`` instead.
 Reproduced against the unfixed reader in this fix's own scratch probe
 (``probe_clay_serialize.py``, never checked into the tree): a non-object
 ``scene.json`` and a non-mapping texture entry each raised ``AttributeError``;
-an ``Infinity`` in any of seven integer fields (a version, a uid, a material
-index, a parent, a modifier id, a seam vertex, a material's texture index)
-raised ``OverflowError`` (``int(float("inf"))``'s own exception, not
-``ValueError``); a modifier parameter of the wrong type (``null``, a list, a
-dict where a number belongs) raised ``TypeError`` from inside
-``modifiers.make``'s own ``float(value)`` coercion; and bytes that are not a
-real image raised Pillow's ``UnidentifiedImageError``.
+an ``Infinity`` in any of the integer fields (a version, a uid, a material
+index, a parent, a material's texture index) raised ``OverflowError``
+(``int(float("inf"))``'s own exception, not ``ValueError``); and bytes that
+are not a real image raised Pillow's ``UnidentifiedImageError``. (The modifier
+id, seam vertex and modifier-parameter variants went with the modifier stack.)
 """
 
 from __future__ import annotations
@@ -136,28 +134,6 @@ def test_an_infinite_integer_field_is_refused_rather_than_raising_overflowerror(
         ser.read_rblk(_rewrite(data, mangle))
 
 
-def test_an_infinite_modifier_id_is_refused_rather_than_raising_overflowerror() -> None:
-    data = ser.rblk_bytes(_doc())
-
-    def mangle(scene: dict) -> None:
-        scene["objects"][0]["modifiers"] = [
-            {"id": float("inf"), "kind": "bevel", "params": {"angle": 0.1, "width": 0.1}}
-        ]
-
-    with pytest.raises(ValueError, match="modifier"):
-        ser.read_rblk(_rewrite(data, mangle))
-
-
-def test_an_infinite_seam_vertex_is_refused_rather_than_raising_overflowerror() -> None:
-    data = ser.rblk_bytes(_doc())
-
-    def mangle(scene: dict) -> None:
-        scene["objects"][0]["seams"] = [[float("inf"), 0]]
-
-    with pytest.raises(ValueError, match="seam"):
-        ser.read_rblk(_rewrite(data, mangle))
-
-
 def test_an_infinite_material_texture_index_is_refused_rather_than_raising_overflowerror() -> (
     None
 ):
@@ -167,25 +143,6 @@ def test_an_infinite_material_texture_index_is_refused_rather_than_raising_overf
         scene["materials"][0]["textures"] = {"base_color": float("inf")}
 
     with pytest.raises(ValueError, match="material"):
-        ser.read_rblk(_rewrite(data, mangle))
-
-
-@pytest.mark.parametrize("bad_angle", [None, [1, 2], {"x": 1}])
-def test_a_modifier_parameter_of_the_wrong_type_is_refused_rather_than_raising_typeerror(
-    bad_angle,
-) -> None:
-    """A modifier parameter of the wrong type reaches ``modifiers.make``'s own
-    ``float(value)`` coercion as a bare ``TypeError`` -- ``_modifiers_from``
-    used to catch only ``el.OpError`` around that call.
-    """
-    data = ser.rblk_bytes(_doc())
-
-    def mangle(scene: dict) -> None:
-        scene["objects"][0]["modifiers"] = [
-            {"id": 1, "kind": "bevel", "params": {"angle": bad_angle, "width": 0.1}}
-        ]
-
-    with pytest.raises(ValueError, match="modifier"):
         ser.read_rblk(_rewrite(data, mangle))
 
 

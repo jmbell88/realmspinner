@@ -237,7 +237,6 @@ def test_an_extreme_transform_is_refused_by_every_tool_that_places_something(
     for tool, args in (
         ("clay_add_primitive", {"generator": "box", "translation": [1e308, 0, 0]}),
         ("clay_add_primitive", {"generator": "box", "scale": [1e-320, 1, 1]}),
-        ("clay_add_figure", {"key": "humanoid", "translation": [1e308, 0, 0]}),
     ):
         count = len(_doc(ctx, session).objects)
         r = agent_clay.call(ctx, session, tool, args)
@@ -282,9 +281,6 @@ def _open_box_session() -> tuple[_Ctx, agent_clay.Session, int]:
 
 def test_clay_measure_volume_of_an_open_mesh_does_not_answer_a_number() -> None:
     ctx, session, uid = _open_box_session()
-
-    analysed = _payload(agent_clay.call(ctx, session, "clay_analyze", {"uids": [uid]}))
-    assert analysed["objects"][0]["volume"] is None, "sanity: analyze says open"
 
     measured = agent_clay.call(ctx, session, "clay_measure", {"kind": "volume", "uid": uid})
     body = measured["structuredContent"] if measured["isError"] else _payload(measured)

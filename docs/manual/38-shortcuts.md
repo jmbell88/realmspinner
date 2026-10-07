@@ -172,17 +172,12 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | 1 / 2 / 3 / 4 | Vertex / edge / face / object mode |
 | E | Extrude, then drag it out at once — along the face normal in face mode, free in edge and vertex mode; click or `Enter` commits, `Esc` undoes the extrude too |
 | I | Inset faces — move the pointer, or type a value, then `Enter` (face mode) |
-| Ctrl+B / Ctrl+R | Bevel / loop cut — move the pointer, or type a value, then `Enter` (edge mode) |
-| Ctrl+Shift+E | Edge slide — move the pointer, or type a value, then `Enter` (edge mode) |
-| Shift+R | Repeat the last operation that had numbers (bevel, inset, loop cut…), at the same values, on what is selected now — element modes |
+| Shift+R | Repeat the last operation that had numbers (inset, weld…), at the same values, on what is selected now — element modes |
 | Alt+Z | Toggle X-ray, so an element behind the surface can be picked |
 | P | Separate Selection — splits the selected faces into a new object, in face mode |
-| V | Rip — splits every vertex the selected edges touch, in edge mode |
 | T | Triangulate Faces, in face mode |
 | G / S | Move / scale the selection with no handle to grab — the drag follows the pointer |
 | L | Select everything joined to what is selected — two shapes welded into one mesh come apart |
-| Ctrl+= / Ctrl+- | Grow / shrink the selection by one ring |
-| Alt+click | Select the edge loop under the pointer; `Ctrl`+`Alt`+click takes the ring instead |
 | G / R / S | Switch which transform a running drag is doing; the objects go back first |
 | F | Frame the selection |
 | X / Y / Z | Lock a drag already under way to that axis; the same key again clears it |
@@ -192,7 +187,6 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Delete | Delete the selection — faces in an element mode, objects in object mode |
 | Ctrl+J | Duplicate the selection (object mode only) |
 | Ctrl+M | Merge the selected objects into one (object mode only) |
-| Ctrl+Shift+M | Union the selected objects — as a merge, but cutting away what is inside the overlap |
 | Ctrl+D | Deselect — the same key Inker and Plotter use |
 | Ctrl+A | Select everything, in the current mode's sense |
 | Ctrl+Shift+I | Invert the selection |

@@ -148,18 +148,23 @@ def test_inker_manual_transform_fields_match_the_canvas_toolbar_labels():
 
 
 def test_modelling_manual_names_shade_flat_and_shade_auto_by_their_full_labels():
-    """The 2026-09-23b audit, finding docs-04: chapter 7 called two of
-    Clay's three shading ops "Flat" and "Auto"; ``ops.py`` registers them as
-    "Shade Flat" and "Shade Auto..." (``_shading`` rows, line ~3745)."""
+    """The 2026-09-23b audit, finding docs-04: chapter 7 called Clay's shading ops
+    "Flat" and "Auto"; ``ops.py`` registers them as "Shade Flat" and so on.
+
+    Shade Auto was removed in the picoCAD cut -- the angle rule now runs when a
+    shape is placed or rebuilt, and Shade Smooth and Shade Flat are the only
+    shading ops left -- so the claim is that chapter 7 uses the two full labels
+    and does not promise a third."""
     ops = (
         ROOT / "src" / "realmspinner" / "studio" / "modes" / "clay" / "ops.py"
     ).read_text(encoding="utf-8")
     assert '"Shade Smooth"' in ops
     assert '"Shade Flat"' in ops
-    assert '"Shade Auto' in ops
+    assert '"Shade Auto' not in ops
 
     text = _chapter("07-modelling")
-    assert "**Shade Smooth**, **Shade Flat** and **Shade Auto**" in text
+    assert "**Shade Smooth** and **Shade Flat**" in text
+    assert "**Shade Auto**" not in text
     assert "**Shade Smooth**, **Flat** and **Auto**" not in text
 
 

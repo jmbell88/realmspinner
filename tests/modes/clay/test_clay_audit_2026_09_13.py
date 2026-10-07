@@ -148,9 +148,8 @@ def test_join_still_works_under_the_real_ceiling_for_two_boxes():
 
 def test_output_schema_comment_lists_every_tool_that_declares_one():
     """Every tool that declares an ``outputSchema`` -- ``clay_scene``,
-    ``clay_add_primitive``, ``clay_add_mesh``, ``clay_diagnose`` and
-    ``clay_analyze`` -- is named in the module comment, which said three
-    long after ``clay_add_mesh`` picked up its own schema. This reads the
+    ``clay_add_primitive`` and ``clay_add_mesh`` -- is named in the module
+    comment, which once lagged ``clay_add_mesh`` picking up its own schema. This reads the
     source rather than importing the schema builders, so it fails against the
     unfixed comment text directly.
 
@@ -169,8 +168,8 @@ def test_output_schema_comment_lists_every_tool_that_declares_one():
     start = source.index("# --- output schemas -----")
     # The comment block itself, up to the next top-level statement.
     block = source[start : start + 1200]
-    assert "Five tools below declare an ``outputSchema``" in block
+    assert "Three tools below declare an ``outputSchema``" in block
     assert "clay_scene" in block and "clay_add_primitive" in block
-    assert "clay_add_mesh" in block and "clay_diagnose" in block
-    assert "clay_analyze" in block
+    assert "clay_add_mesh" in block
+    assert "clay_diagnose" not in block and "clay_analyze" not in block
     assert "Only three tools" not in block

@@ -106,7 +106,9 @@ def test_every_mesh_array_survives_exactly() -> None:
             assert np.array_equal(theirs, mine)
 
 
-def test_every_material_factor_survives() -> None:
+def test_every_kept_material_factor_survives_and_the_rest_fall_to_their_defaults() -> None:
+    """Clay's material is the :func:`~.document.reduce_material` subset: a name,
+    a colour, double-sided and cutout. The PBR and emissive slots are fixed."""
     doc = _doc()
     out = _roundtrip(doc)
 
@@ -114,12 +116,12 @@ def test_every_material_factor_survives() -> None:
     for before, after in zip(doc.materials, out.materials, strict=True):
         assert after.name == before.name
         assert np.allclose(after.base_color_factor, before.base_color_factor)
-        assert after.metallic_factor == pytest.approx(before.metallic_factor)
-        assert after.roughness_factor == pytest.approx(before.roughness_factor)
-        assert np.allclose(after.emissive_factor, before.emissive_factor)
         assert after.double_sided == before.double_sided
         assert after.alpha_mode == before.alpha_mode
-        assert after.alpha_cutoff == pytest.approx(before.alpha_cutoff)
+        assert after.metallic_factor == 0.0
+        assert after.roughness_factor == pytest.approx(0.6)
+        assert np.allclose(after.emissive_factor, (0.0, 0.0, 0.0))
+    assert out.materials[2].alpha_mode == "MASK"
 
 
 def test_a_restored_document_is_clean_with_an_empty_history() -> None:
@@ -712,13 +714,13 @@ def _uvd(mesh):
 def test_the_version_is_written_unconditionally() -> None:
     """No "downgrade when nothing needs v2/v3": a format that sometimes claims
     to be v1 for the same code is a format with two readers. Clay tranche 2
-    bumped this to 3 (modifier stacks); an untextured, unmodified document is
+    dropped the modifier stacks and moved it to 4; an untextured document is
     still v1-shaped apart from the number itself."""
     plain = json.loads(ser.scene_json(_doc()))
-    assert plain["version"] == 3
+    assert plain["version"] == ser.VERSION == 4
     assert "textures" not in plain, "an untextured document stays v1-shaped"
     assert "textures" not in plain["materials"][0]
-    assert "modifiers" not in plain["objects"][0], "an unmodified object stays v1/v2-shaped"
+    assert "modifiers" not in plain["objects"][0], "no object carries a modifier stack any more"
 
 
 def test_uvs_survive_a_round_trip_and_absent_ones_stay_absent() -> None:
@@ -736,7 +738,7 @@ def test_uvs_survive_a_round_trip_and_absent_ones_stay_absent() -> None:
     assert out.by_uid(plain.uid).mesh.uv is None
 
 
-def test_textures_round_trip_pixel_for_pixel() -> None:
+def test_the_base_colour_texture_round_trips_pixel_for_pixel() -> None:
     image = _tex()
     doc = bd.ClayDoc(
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
@@ -744,7 +746,7 @@ def test_textures_round_trip_pixel_for_pixel() -> None:
     )
     out = _roundtrip(doc)
     assert out.materials[0].base_color == image
-    assert out.materials[0].normal == _tex(7)
+    assert out.materials[0].normal is None, "only the base-colour texture is kept"
     assert out.materials[0].metallic_roughness is None
 
 

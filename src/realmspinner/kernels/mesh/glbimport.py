@@ -46,7 +46,7 @@ import numpy as np
 from ..geom3d import glbio, gltf
 from ..geom3d import math3d as m3
 from . import topo
-from .document import ClayDoc, Obj, new_uid
+from .document import ClayDoc, Obj, new_uid, reduce_material
 from .elements import OpError
 
 __all__ = ["MAX_OBJECTS", "MAX_TRIANGLES", "MAX_VERTICES", "glb_to_claydoc"]
@@ -462,13 +462,18 @@ def _material_index(
     reference one glTF material share the object, and two that reference
     different ones must stay separate even if every factor matches, because the
     user is about to edit them.
+
+    What is stored is :func:`~.document.reduce_material`'s subset -- name,
+    colour, base-colour texture, double-sided, cutout -- so a metallic, emissive
+    or normal-mapped source arrives as the plain material Clay can edit, while
+    the identity key stays the loader's own object.
     """
     if material is None:
         material = gltf.Material(name="imported")
     key = id(material)
     if key not in palette:
         palette[key] = len(materials)
-        materials.append(material)
+        materials.append(reduce_material(material))
     return palette[key]
 
 

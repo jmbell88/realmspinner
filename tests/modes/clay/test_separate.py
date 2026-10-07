@@ -1,12 +1,12 @@
 """Tranche 3: separate -- splitting one object's mesh into several, by loose
-parts, by material, or by a selection.
+parts or by a selection.
 
 The kernel (:mod:`realmspinner.kernels.mesh.separate`) and the document door
 (:meth:`~realmspinner.kernels.mesh.document.ClayDoc.separate`) are tested
 separately, the way this package always splits geometry from bookkeeping:
 the kernel answers "how would this split", the door answers "what happens to
-the document when it does" -- one undo step, the same parent/transform/
-modifier stack copied onto every piece, the source removed.
+the document when it does" -- one undo step, the same parent/transform
+copied onto every piece, the source removed.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ import pytest
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
-from realmspinner.kernels.mesh import modifiers as mod
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh import separate
 from realmspinner.kernels.mesh.elements import OpError
@@ -79,21 +78,6 @@ def _n_boxes(n: int) -> bm.Mesh:
     return merged
 
 
-def _two_toned_box() -> bm.Mesh:
-    box = bp.box()
-    material = np.zeros(bm.face_count(box), dtype="i4")
-    material[: bm.face_count(box) // 2] = 1
-    out = bm.Mesh(
-        positions=box.positions,
-        loops=box.loops,
-        starts=box.starts,
-        material=material,
-        smooth=box.smooth,
-    )
-    bm.validate(out)
-    return out
-
-
 # --- the kernel: by_loose_parts ---------------------------------------------
 
 
@@ -121,7 +105,7 @@ def test_by_loose_parts_compacts_positions_not_a_view_of_the_whole() -> None:
 def test_by_loose_parts_refuses_past_a_piece_count_ceiling_before_stalling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The 2026-09-20 audit's clay-04: ``by_loose_parts``/``by_material`` had
+    """The 2026-09-20 audit's clay-04: ``by_loose_parts`` had
     no ceiling at all, and the closing split cost ``pieces * n_faces`` twice
     over -- once in the per-group ``flatnonzero`` rescan, once again one call
     deeper where ``_piece`` recomputed ``np.diff(mesh.starts)`` (the whole
@@ -138,27 +122,6 @@ def test_by_loose_parts_refuses_past_a_piece_count_ceiling_before_stalling(
     three = _n_boxes(3)
     with pytest.raises(OpError, match="past the 2"):
         separate.by_loose_parts(three)
-
-
-def test_by_material_refuses_past_a_piece_count_ceiling_before_stalling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """See ``test_by_loose_parts_refuses_past_a_piece_count_ceiling_before_
-    stalling`` above -- the same ceiling guards both of :mod:`.separate`'s
-    grouping ops, since both end at :func:`~.separate._grouped_pieces`."""
-    monkeypatch.setattr(separate, "MAX_SEPARATE_PIECES", 2)
-    box = bp.box()
-    material = np.arange(bm.face_count(box), dtype="i4") % 3  # 3 distinct slots
-    three_toned = bm.Mesh(
-        positions=box.positions,
-        loops=box.loops,
-        starts=box.starts,
-        material=material,
-        smooth=box.smooth,
-    )
-    bm.validate(three_toned)
-    with pytest.raises(OpError, match="past the 2"):
-        separate.by_material(three_toned)
 
 
 def test_by_loose_parts_keeps_material_smooth_and_uv_per_piece() -> None:
@@ -189,28 +152,6 @@ def test_by_loose_parts_keeps_material_smooth_and_uv_per_piece() -> None:
     assert bool(tagged_piece.smooth[0]) is True
     assert tagged_piece.uv is not None
     assert np.array_equal(tagged_piece.uv[:, 0], uv[:, 0])
-
-
-# --- the kernel: by_material -------------------------------------------------
-
-
-def test_by_material_splits_by_slot() -> None:
-    pieces = separate.by_material(_two_toned_box())
-    assert len(pieces) == 2
-    materials = sorted(int(p.material[0]) for p in pieces)
-    assert materials == [0, 1]
-    for piece in pieces:
-        assert len(set(piece.material.tolist())) == 1
-
-
-def test_by_material_refuses_a_single_material_mesh() -> None:
-    with pytest.raises(OpError, match="same material"):
-        separate.by_material(bp.box())
-
-
-def test_by_material_refuses_a_faceless_mesh() -> None:
-    with pytest.raises(OpError, match="no faces"):
-        separate.by_material(bd._empty_mesh())
 
 
 # --- the kernel: by_selection -------------------------------------------------
@@ -252,17 +193,10 @@ def test_by_selection_converts_a_vertex_selection_up_to_faces() -> None:
 # --- the document door: ClayDoc.separate -------------------------------------
 
 
-def test_document_separate_is_one_step_with_stacks_copied() -> None:
+def test_document_separate_is_one_step_and_pieces_keep_parent_and_transform() -> None:
     doc = bd.ClayDoc()
     parent = doc.add_object(_obj("Parent"))
-    a = doc.add_object(
-        _obj(
-            "A",
-            mesh=_two_boxes(),
-            translation=(1.0, 0.0, 0.0),
-            modifiers=(mod.make("weld", id=1),),
-        )
-    )
+    a = doc.add_object(_obj("A", mesh=_two_boxes(), translation=(1.0, 0.0, 0.0)))
     doc.set_parent(a.uid, parent.uid, keep_world=False)
     before_head = doc.history.head
 
@@ -274,7 +208,6 @@ def test_document_separate_is_one_step_with_stacks_copied() -> None:
     for piece in new_objs:
         assert piece.parent == parent.uid
         assert np.allclose(piece.translation, [1.0, 0.0, 0.0])
-        assert piece.modifiers == (mod.make("weld", id=1),)
         assert piece.generator is None
 
     # Names are suffixed, not identical.

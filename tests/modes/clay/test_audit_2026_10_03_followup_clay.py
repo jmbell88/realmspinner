@@ -1,14 +1,13 @@
 """The 2026-10-03 audit's Clay follow-ups: the element counts and measure line
 agree with what a drag would move (clay-70), the HUD volume agrees with
 ``clay_measure`` about an open mesh (clay-25), and ``next_name`` stops being
-quadratic (the naming of an Array's copies).
+quadratic (the naming of a run of copies).
 """
 
 from __future__ import annotations
 
 import time
 
-from realmspinner.kernels.mesh import colliders as cl
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
@@ -46,18 +45,6 @@ def test_properties_selected_count_ignores_a_hidden_objects_element_selection() 
 
     text = clay_props.element_summary_text(doc)
     assert text == "face mode -- 2 faces across 1 object", text
-
-
-def test_properties_selected_count_ignores_a_colliders_element_selection() -> None:
-    doc, first, _second = _two_boxes()
-    collider = doc.add_collider(first.uid, cl.fit_box(first.mesh))
-    doc.set_element_mode("vertex")
-    doc.set_element_sel(first.uid, el.ElementSel(verts=[0, 2]))
-    doc.set_element_sel(collider.uid, el.ElementSel(verts=[0, 1]))
-
-    text = clay_props.element_summary_text(doc)
-
-    assert text == "vertex mode -- 2 vertices across 1 object", text
 
 
 def test_properties_with_only_a_hidden_selection_says_nothing_selected() -> None:

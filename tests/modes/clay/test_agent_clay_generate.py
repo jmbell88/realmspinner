@@ -1,12 +1,12 @@
 """"Generate into the current tab" is a UI door, never an agent one.
 
 Clay's agent surface (``studio/modes/clay/agent/``) derives its whole tool
-list from ``primitives.GENERATORS``, ``presets.ASSEMBLIES``, ``ops.OPS`` and
-``select.QUERIES`` -- see ``dispatch.py``'s own module docstring -- and none
+list from ``primitives.CLAY_GENERATORS``, ``ops.OPS`` and ``select.QUERIES``
+-- see ``dispatch.py``'s own module docstring -- and none
 of those name generation at all. These three tests are the other side of that
 claim: that deriving from those registries, rather than hand-listing a fifth
 door, actually keeps the tool an agent can drive innocent of text2image and
-trellis, both today and after a future edit to any of the four.
+trellis, both today and after a future edit to any of the three.
 """
 
 from __future__ import annotations

@@ -131,7 +131,13 @@ class _Writer:
         # base-colour map writes one PNG rather than eight.
         self.images: list[dict[str, Any]] = []
         self.textures: list[dict[str, Any]] = []
-        self._texture_index: dict[int, int] = {}
+        self._texture_index: dict[tuple[int, bool], int] = {}
+        # Image entry per pixels object, so a crisp and a smooth texture over
+        # one pixels object still share one PNG.
+        self._image_source: dict[int, int] = {}
+        # Never more than the one NEAREST sampler, and empty (so no ``samplers``
+        # key, bytes unchanged) until a material asks for it.
+        self.samplers: list[dict[str, Any]] = []
         self._texture_keep: list[Any] = []
 
     # -- accessors ---------------------------------------------------------
@@ -200,7 +206,7 @@ class _Writer:
 
     # -- textures ----------------------------------------------------------
 
-    def texture(self, image: tuple[int, int, bytes]) -> int:
+    def texture(self, image: tuple[int, int, bytes], *, nearest: bool = False) -> int:
         """One decoded image slot as a texture index, encoding it once.
 
         The image goes into the BIN chunk as a PNG buffer view, which is what
@@ -208,15 +214,30 @@ class _Writer:
         recipient does not have. PNG rather than JPEG because a normal map or a
         metallic-roughness map is not photographic data and JPEG artefacts in
         one are visible as shading noise, not as softness.
+
+        ``nearest`` picks the texture's sampler, so it is part of the dedup key:
+        one pixels object shared by a crisp material and a smooth one is two
+        texture entries (over one PNG) rather than one that is wrong for either.
         """
-        key = id(image)
+        key = (id(image), nearest)
         if key in self._texture_index:
             return self._texture_index[key]
         index = len(self.textures)
-        self.images.append(
-            {"bufferView": self.buffer.view_bytes(_png(image)), "mimeType": "image/png"}
-        )
-        self.textures.append({"source": len(self.images) - 1})
+        source = self._image_source.get(id(image))
+        if source is None:
+            self.images.append(
+                {"bufferView": self.buffer.view_bytes(_png(image)), "mimeType": "image/png"}
+            )
+            source = len(self.images) - 1
+            self._image_source[id(image)] = source
+        entry: dict[str, Any] = {"source": source}
+        if nearest:
+            if not self.samplers:
+                # No mipmaps, so minFilter is NEAREST too (not a mipmap mode).
+                near = gltf.FILTER_NEAREST
+                self.samplers.append({"magFilter": near, "minFilter": near})
+            entry["sampler"] = 0
+        self.textures.append(entry)
         self._texture_index[key] = index
         # Alive for the length of the call, for the reason ``material`` states:
         # an ``id`` key is only sound while nothing it names can be collected.
@@ -281,7 +302,10 @@ class _Writer:
         ):
             image = getattr(material, slot, None)
             if image is not None:
-                where[name] = {"index": self.texture(image)}
+                # Only the base colour is sampled crisp: ``Material.nearest``
+                # is defined as that slot's filter.
+                nearest = slot == "base_color" and getattr(material, "nearest", False)
+                where[name] = {"index": self.texture(image, nearest=bool(nearest))}
 
     # -- primitives --------------------------------------------------------
 
@@ -466,6 +490,8 @@ def write_glb(model: gltf.Model) -> bytes:
     if writer.textures:
         doc["images"] = writer.images
         doc["textures"] = writer.textures
+        if writer.samplers:
+            doc["samplers"] = writer.samplers
     if writer.accessors:
         doc["accessors"] = writer.accessors
         doc["bufferViews"] = writer.buffer.views

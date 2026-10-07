@@ -563,11 +563,6 @@ class App(
         from ...service import system as svc_system
 
         ctx = self.app_ctx
-        # Clay's bridge asks the ctx for this rather than importing App: the
-        # render it needs is an offscreen GL draw on the frame thread, which is
-        # the App's business and not a pane's. Attached here so the button has a
-        # handler from the first frame rather than toasting "not wired up yet".
-        ctx.clay_send_to_3d = self._clay_send_to_3d
         ctx.ask_quit = self._ask_quit
         ctx.clear_viewport = self._clear_viewport
         ctx.guidance = svc_system.guidance_catalog(self.svc)

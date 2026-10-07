@@ -201,7 +201,7 @@ not actually enforce, fixed rather than the test being weakened to match:
   agent's own value looked like it was asking not to see -- and its
   ``alpha`` (0..1) was only ever ``float()``-cast, with neither bound nor
   finiteness checked, the identical unvalidated-number hole
-  ``clay_material``'s colour and metallic/roughness already had before an
+  ``clay_material``'s colour already had before an
   earlier commit closed it with :func:`agent_clay._validate_unit`.
 * ``_QUERY_ARG_SCHEMAS["slot"]``'s ``minimum: 0`` and ``["max_angle"]``'s
   ``minimum: 0.0``/``maximum: 180.0`` were not checked at all -- a negative
@@ -251,7 +251,6 @@ from typing import Any
 import pytest
 from modes.clay.test_agent_clay import _Ctx, _install_fake_view, _payload  # see module docstring
 
-from realmspinner.kernels.mesh import presets
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
@@ -526,9 +525,6 @@ _OPEN_ENDED_PARAMS_TOOLS = (
     "clay_add_primitive",
     "clay_set_params",
     "clay_op",
-    "clay_modifier_add",
-    "clay_modifier_set",
-    "clay_collider",
 )
 
 
@@ -649,23 +645,6 @@ def _b_add_primitive(
     return ctx, session, args
 
 
-def _b_add_figure(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    key = sorted(presets.ASSEMBLIES)[0]
-    args = {
-        "key": key,
-        "translation": [0.0, 0.0, 0.0],
-        "yaw": 15.0,
-        "scale": 1.0,
-        "name_prefix": "figpfx_",
-    }
-    return ctx, session, args
-
-
 def _b_add_mesh(
     monkeypatch: Any = None, svc: Any = None
 ) -> tuple[Any, agent_clay.Session, Args]:
@@ -728,83 +707,22 @@ def _b_set_params_uids(
     return ctx, session, args
 
 
-def _b_modifier_add(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    args = {"uid": uid1, "kind": "array", "params": {"count": 4.0}, "index": 0}
-    return ctx, session, args
-
-
-def _b_modifier_set(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    added = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
-    assert added["isError"] is False, added
-    modifier_id = _payload(added)["modifier"]
-    args = {"uid": uid1, "modifier": modifier_id, "params": {"weld": 0.001}, "enabled": True}
-    return ctx, session, args
-
-
-def _b_modifier_remove(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    added = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
-    assert added["isError"] is False, added
-    modifier_id = _payload(added)["modifier"]
-    return ctx, session, {"uid": uid1, "modifier": modifier_id}
-
-
-def _b_modifier_move(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    r1 = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
-    assert r1["isError"] is False, r1
-    r2 = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "weld"})
-    assert r2["isError"] is False, r2
-    modifier_id = _payload(r2)["modifier"]
-    return ctx, session, {"uid": uid1, "modifier": modifier_id, "index": 0}
-
-
-def _b_modifier_apply(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    added = agent_clay.call(ctx, session, "clay_modifier_add", {"uid": uid1, "kind": "mirror"})
-    assert added["isError"] is False, added
-    modifier_id = _payload(added)["modifier"]
-    return ctx, session, {"uid": uid1, "modifier": modifier_id}
-
-
 def _b_material(
     monkeypatch: Any = None, svc: Any = None
 ) -> tuple[Any, agent_clay.Session, Args]:
     del monkeypatch, svc
     ctx, session, uid1, _uid2 = _new_world()
+    # ``faces`` is in the baseline so the walk can reach its items (a violation
+    # sets ``faces[0]``, which needs a ``faces`` to navigate into); ``index`` is
+    # not, because it is the alternative to ``color``/``name`` and the handler
+    # refuses the pair -- its own type and minimum are checked before that, so
+    # the walk's violations of it still name ``index``.
     args = {
         "uids": [uid1],
+        "faces": [0],
         "name": "probe_material",
         "color": [0.5, 0.4, 0.3, 1.0],
-        "metallic": 0.2,
-        "roughness": 0.5,
     }
-    return ctx, session, args
-
-
-def _b_boolean(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, uid2 = _new_world()
-    args = {"kind": "union", "uids": [uid1, uid2]}
     return ctx, session, args
 
 
@@ -871,18 +789,6 @@ def _b_select_by_bounds(
     return _select_by_call("bounds", extra, monkeypatch)
 
 
-def _b_select_by_loop(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    return _select_by_call("loop", {"edge": [0, 1]}, monkeypatch)
-
-
-def _b_select_by_face_loop(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    return _select_by_call("face_loop", {"face": 0}, monkeypatch)
-
-
 def _b_select_by_material(
     monkeypatch: Any = None, svc: Any = None
 ) -> tuple[Any, agent_clay.Session, Args]:
@@ -896,37 +802,6 @@ def _b_select_by_normal(
     return _select_by_call("normal", extra, monkeypatch)
 
 
-def _b_select_by_similar_area(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    """Routed to for ``faces`` and ``tolerance`` -- any "similar" query would
-    do for either (all six declare ``tolerance``; ``similar_normal``/
-    ``_material``/``_sides`` declare ``faces`` too), so this is the one
-    reachable baseline the module docstring's own paragraph promises, not a
-    baseline per query. Face 0 of a fresh box is always a real seed."""
-    extra = {"faces": [0], "tolerance": 0.5}
-    return _select_by_call("similar_area", extra, monkeypatch)
-
-
-def _b_select_by_similar_length(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    """Routed to for ``edges`` -- the one "similar" query with an edge seed
-    rather than a face or vertex one. ``(0, 1)`` is always a real edge of a
-    fresh box, the same fact :func:`_b_uv_mark_seam` already relies on."""
-    extra = {"edges": [[0, 1]], "tolerance": 0.5}
-    return _select_by_call("similar_length", extra, monkeypatch)
-
-
-def _b_select_by_similar_valence(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    """Routed to for ``verts`` -- the one "similar" query with a vertex
-    seed."""
-    extra = {"verts": [0], "tolerance": 0}
-    return _select_by_call("similar_valence", extra, monkeypatch)
-
-
 # ``clay_select_by``'s twelve query-argument schemas are declared as
 # top-level properties of *one* schema, but a given call only ever consults
 # the subset named by ``query`` (see the module docstring's own gap
@@ -935,17 +810,9 @@ def _b_select_by_similar_valence(
 # own ``minimum`` is actually reachable rather than silently ignored by a
 # ``bounds`` call that never reads it.
 _SELECT_BY_BASELINES: dict[str, BaselineFactory] = {
-    "edge": _b_select_by_loop,
-    "face": _b_select_by_face_loop,
     "slot": _b_select_by_material,
     "direction": _b_select_by_normal,
     "max_angle": _b_select_by_normal,
-    # Tranche 5's "similar" queries -- see each factory's own docstring for
-    # why one baseline per property, not per query, is enough here.
-    "faces": _b_select_by_similar_area,
-    "edges": _b_select_by_similar_length,
-    "verts": _b_select_by_similar_valence,
-    "tolerance": _b_select_by_similar_area,
 }
 
 
@@ -968,7 +835,7 @@ def _b_op(
 ) -> tuple[Any, agent_clay.Session, Args]:
     del monkeypatch, svc
     ctx, session, _uid1, _uid2 = _new_world()
-    return ctx, session, {"name": "shade-auto", "params": {"angle": 30.0}}
+    return ctx, session, {"name": "snap-to-grid", "params": {"step": 0.5}}
 
 
 def _b_render(
@@ -1035,28 +902,6 @@ _RENDER_BASELINES: dict[str, BaselineFactory] = {
     "compare_mode": _b_render_compare,
     "alpha": _b_render_compare,
 }
-
-
-def _b_diagnose(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    """A document with one real ``"hole"`` finding, so ``select`` names a
-    real ``(uid, kind)`` pair rather than one this handler would refuse for
-    an unrelated reason before ever looking at ``select``'s own shape."""
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    mode = agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
-    assert mode["isError"] is False, mode
-    sel = agent_clay.call(
-        ctx, session, "clay_select_elements", {"uid": uid1, "faces": [0], "how": "replace"}
-    )
-    assert sel["isError"] is False, sel
-    deleted = agent_clay.call(ctx, session, "clay_op", {"name": "delete"})
-    assert deleted["isError"] is False, deleted
-    back_to_object = agent_clay.call(ctx, session, "clay_element_mode", {"mode": "object"})
-    assert back_to_object["isError"] is False, back_to_object
-    args = {"uid": uid1, "select": {"uid": uid1, "kind": "hole"}}
-    return ctx, session, args
 
 
 def _b_export(
@@ -1200,24 +1045,6 @@ def _b_reference_remove(
     return _b_reference_get(monkeypatch)
 
 
-def _b_analyze(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, uid2 = _new_world()
-    args = {"uids": [uid1, uid2], "contact_tol": 0.001, "near": 0.05, "symmetry_tol": 0.002}
-    return ctx, session, args
-
-
-def _b_validate(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, _uid1, _uid2 = _new_world()
-    args = {"profile": agent_clay.readiness.DEFAULT_PROFILE, "visible_only": True}
-    return ctx, session, args
-
-
 # --- tranche 3: scene structure -------------------------------------------------
 
 
@@ -1245,22 +1072,6 @@ def _b_ungroup(
     grouped = agent_clay.call(ctx, session, "clay_group", {"uids": [uid1, uid2]})
     assert grouped["isError"] is False, grouped
     return ctx, session, {"uid": _payload(grouped)["uid"]}
-
-
-def _b_lock(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    return ctx, session, {"uids": [uid1], "locked": True}
-
-
-def _b_tag(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    return ctx, session, {"uids": [uid1], "add": ["probe_tag"], "remove": ["other_tag"]}
 
 
 def _b_separate(
@@ -1354,42 +1165,31 @@ def _b_uv(monkeypatch: Any = None, svc: Any = None) -> tuple[Any, agent_clay.Ses
     return ctx, session, {"uid": uid1, "action": "pack"}
 
 
-def _b_uv_density(
+def _b_uv_transform(
     monkeypatch: Any = None, svc: Any = None
 ) -> tuple[Any, agent_clay.Session, Args]:
+    """``action='transform'`` is the one action that reads ``islands``,
+    ``translate``, ``rotate_deg`` and ``scale``. Island 0 of a freshly placed
+    box always exists (box-unwrap lays out six islands)."""
     del monkeypatch, svc
     ctx, session, uid1, _uid2 = _new_world()
-    return ctx, session, {"uid": uid1, "action": "density", "target": 512.0}
-
-
-def _b_uv_mark_seam(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    """``primitives.box``'s own face list opens with ``[0, 1, 2, 3]``, so
-    ``(0, 1)`` is always a real edge of a freshly placed box -- no read of
-    the mesh needed to find one."""
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    return ctx, session, {"uid": uid1, "action": "mark_seam", "edges": [[0, 1]]}
+    args = {
+        "uid": uid1,
+        "action": "transform",
+        "islands": [0],
+        "translate": [0.0, 0.0],
+        "rotate_deg": 0.0,
+        "scale": 1.0,
+    }
+    return ctx, session, args
 
 
 _UV_BASELINES: dict[str, BaselineFactory] = {
-    "target": _b_uv_density,
-    "texture_px": _b_uv_density,
-    "edges": _b_uv_mark_seam,
+    "islands": _b_uv_transform,
+    "translate": _b_uv_transform,
+    "rotate_deg": _b_uv_transform,
+    "scale": _b_uv_transform,
 }
-
-
-def _b_collider(
-    monkeypatch: Any = None, svc: Any = None
-) -> tuple[Any, agent_clay.Session, Args]:
-    """``kind='box'`` with its own ``oriented`` param set, so the open-ended
-    ``params`` walk (:data:`_OPEN_ENDED_PARAMS_TOOLS`) has a real key to
-    perturb -- the only collider kind, besides convex/compound's
-    ``max_faces``, that declares one at all."""
-    del monkeypatch, svc
-    ctx, session, uid1, _uid2 = _new_world()
-    return ctx, session, {"uids": [uid1], "kind": "box", "params": {"oriented": 1.0}}
 
 
 def _b_catalog(
@@ -1402,17 +1202,10 @@ def _b_catalog(
 _BASELINES: dict[str, BaselineFactory] = {
     "clay_scene": _b_scene,
     "clay_add_primitive": _b_add_primitive,
-    "clay_add_figure": _b_add_figure,
     "clay_add_mesh": _b_add_mesh,
     "clay_transform": _b_transform,
     "clay_set_params": _b_set_params,
-    "clay_modifier_add": _b_modifier_add,
-    "clay_modifier_set": _b_modifier_set,
-    "clay_modifier_remove": _b_modifier_remove,
-    "clay_modifier_move": _b_modifier_move,
-    "clay_modifier_apply": _b_modifier_apply,
     "clay_material": _b_material,
-    "clay_boolean": _b_boolean,
     "clay_select": _b_select,
     "clay_element_mode": _b_element_mode,
     "clay_select_elements": _b_select_elements,
@@ -1420,11 +1213,7 @@ _BASELINES: dict[str, BaselineFactory] = {
     "clay_elements": _b_elements,
     "clay_op": _b_op,
     "clay_render": _b_render,
-    "clay_diagnose": _b_diagnose,
-    "clay_analyze": _b_analyze,
-    "clay_validate": _b_validate,
     "clay_uv": _b_uv,
-    "clay_collider": _b_collider,
     "clay_catalog": _b_catalog,
     "clay_export": _b_export,
     "clay_undo": _b_undo,
@@ -1440,8 +1229,6 @@ _BASELINES: dict[str, BaselineFactory] = {
     "clay_parent": _b_parent,
     "clay_group": _b_group,
     "clay_ungroup": _b_ungroup,
-    "clay_lock": _b_lock,
-    "clay_tag": _b_tag,
     "clay_separate": _b_separate,
     "clay_set_origin": _b_set_origin,
     "clay_measure": _b_measure,
@@ -1590,18 +1377,17 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 277,
-        "additionalProperties": 56,
-        "properties": 50,
-        "items": 62,
-        "required": 40,
-        "minItems": 38,
-        "enum": 26,
-        "maxItems": 23,
-        "minimum": 27,
-        "maximum": 14,
+        "type": 188,
+        "additionalProperties": 39,
+        "properties": 36,
+        "items": 40,
+        "required": 29,
+        "minItems": 28,
+        "enum": 20,
+        "maxItems": 20,
+        "minimum": 19,
+        "maximum": 11,
         "anyOf": 3,
-        "exclusiveMinimum": 2,
     }
 
 
@@ -1623,108 +1409,18 @@ _ALL_CASES = _all_cases()
 
 
 def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> None:
-    """346 -- see the module docstring's own derivation: 452 measured markers,
-    minus 84 structural ones that only route recursion (37 ``properties`` +
-    42 ``items`` + 5 schema-valued ``additionalProperties``), minus 34 root
-    ``type: object`` markers that are true by construction, minus 27
-    ``required`` *lists* replaced by the 39 individual keys they actually
-    name. ``clay_program`` (2026-09-13, deliberately shallow: ``variables``,
-    ``steps`` and ``dry_run``, ``additionalProperties: false``, one
-    ``required`` key) was the +8 over the then-current 299: five ``type``
-    markers (the root object, ``variables``, ``steps``, ``steps.items`` and
-    ``dry_run``), ``steps``' own ``minItems``/``maxItems``, and the root
-    ``additionalProperties`` -- the root ``type`` and the ``required`` list
-    are both excluded the same way every other tool's already are, so they
-    net to nothing here. ``clay_validate`` (2026-09-19, a read-only readiness
-    check with no ``required`` key at all: ``profile``, an enum of
-    ``readiness.PROFILES`` keys, and ``visible_only``, a boolean, both
-    optional, ``additionalProperties: false``) is the +4 over the previous
-    307: ``profile``'s own ``type`` and ``enum``, ``visible_only``'s own
-    ``type``, and the root ``additionalProperties`` -- the root ``type`` and
-    root ``properties`` are again both excluded the same way, so they net to
-    nothing here either.
-
-    Tranche 2 (2026-09-19), the modifier stack: five new tools --
-    ``clay_modifier_add``, ``_set``, ``_remove``, ``_move``, ``_apply``
-    (``studio/modes/clay/agent/tools_modifiers.py``) -- are the +35 over the
-    previous 311, each tool's own count reachable by summing
-    :func:`_walk_tool_schema` (plus :func:`_open_ended_params_cases` for the
-    two that declare one) directly: ``clay_modifier_add`` (``uid``/``kind``
-    required, ``uid``/``kind`` own ``type``, ``kind``'s own ``enum``, root
-    ``additionalProperties``, ``params``'s own ``type`` plus one
-    open-ended-params case inside it, ``index``'s own ``type``/``minimum``)
-    is 10; ``clay_modifier_set`` (``uid``/``modifier`` required, their own
-    ``type``, root ``additionalProperties``, ``params``'s own ``type`` plus
-    one open-ended case inside it, ``enabled``'s own ``type``) is 8;
-    ``clay_modifier_remove`` (``uid``/``modifier`` required, their own
-    ``type``, root ``additionalProperties``, no other constraint declared)
-    is 5; ``clay_modifier_move`` (``uid``/``modifier``/``index`` all
-    required, their own ``type``, root ``additionalProperties``, ``index``'s
-    own ``minimum``) is 8; ``clay_modifier_apply`` (``uid`` required, its own
-    ``type``, ``modifier``'s own ``type``, root ``additionalProperties``) is
-    4. 10 + 8 + 5 + 8 + 4 = 35, and 311 + 35 = 346. A modifier param's own
-    value schema is a bare ``{"type": "number"}`` with no ``anyOf`` to
-    walk -- unlike ``clay_add_primitive``'s three-branch one -- so
-    :func:`_open_ended_params_cases` contributes exactly one case per tool
-    here (a non-numeric value), the same shape ``clay_op``'s own ``params``
-    already gets.
-
-    Tranche 3 (2026-09-19), scene structure: ten new tools
-    (``studio/modes/clay/agent/tools_structure.py``) are the +58 over the
-    previous 346, plus one more case (``clay_select``'s own new ``tag``
-    property, added alongside them) for +59 total (346 + 59 = 405). Several
-    of these tools deliberately declare *no* schema constraint on a
-    property at all (``clay_parent``'s own ``parent``; ``clay_measure``'s
-    ``a``/``b``/``c``) -- a uid-or-null, or a point given three different
-    shapes, has no clean JSON Schema encoding this walk's own machinery
-    already supports (an ``anyOf`` of ``{"type": "null"}``/``{"type":
-    "integer"}`` would emit two identically-pathed ``type`` cases, one
-    quietly shadowing the other), so those arguments are validated by the
-    handler alone and carry no case here -- the same trade this file's own
-    docstring already states for ``clay_op``'s param *bounds*. Per tool,
-    reachable by summing :func:`_walk_tool_schema` directly: ``clay_parent``
-    (``uid``/``parent`` required, ``uid``/``keep_world`` own ``type``, root
-    ``additionalProperties``) is 5; ``clay_group`` (``uids`` required, its
-    own ``type``/``minItems``/items-``type``, ``name``'s own ``type``, root
-    AP) is 6; ``clay_ungroup`` (``uid`` required, its own ``type``, root AP)
-    is 3; ``clay_lock`` (``uids``/``locked`` required, ``uids``' own
-    ``type``/``minItems``/items-``type``, ``locked``'s own ``type``, root
-    AP) is 7; ``clay_tag`` (``uids`` required, ``uids``' own three, ``add``/
-    ``remove`` each ``type``+items-``type``, root AP) is 9; ``clay_separate``
-    (``uid``/``by`` required, ``uid``'s own ``type``, ``by``'s own
-    ``type``/``enum``, root AP) is 6; ``clay_set_origin`` (``uid`` required,
-    its own ``type``, ``mode``'s own ``type``/``enum``, ``point``'s own
-    ``type``/``minItems``/``maxItems``/items-``type``, root AP) is 9;
-    ``clay_measure`` (``kind`` required, its own ``type``/``enum``, ``uid``'s
-    own ``type``, ``faces``' own ``type``+items-``type``, root AP) is 7;
-    ``clay_checkpoint`` (``name`` required, its own ``type``, root AP) is 3;
-    ``clay_restore`` is the identical shape, also 3.
-    5+6+3+7+9+6+9+7+3+3 = 58, plus ``clay_select``'s new ``tag`` property
-    (``{"type": "string"}``, no other constraint, contributing one ``type``
-    case) = 59. 346 + 59 = 405. Pinned so a schema edit that silently drops
-    a case from the walk is caught here rather than only by a shrinking
-    "exercised" count nobody happens to notice.
-
-    Tranches 6/7 (``dev/CLAY-PLAN.md``): this tranche's own baseline was
-    already 422, not 405, before it added anything -- see this file's own
-    module docstring for the re-measurement and why it is trusted over the
-    old derivation chain rather than patched with an unverifiable delta.
-    ``clay_uv`` (20), ``clay_collider`` (10), ``clay_catalog`` (4) and
-    ``clay_export``'s own +2 (its new ``engine`` property) are each derived
-    the same way every tool above is, in that same module docstring
-    paragraph. 20 + 10 + 4 + 2 = 36, and 422 + 36 = 458.
-
-    The 2026-10-03 audit's clay-22: ``clay_scene`` gained optional ``offset``
-    (``type``, ``minimum: 0``) and ``limit`` (``type``, ``minimum: 1``) so a
-    document too large for one reply can be read in pages. Two new properties,
-    two walk cases each: 458 + 4 = 462.
-
-    The Blender-Lite plan's Phase D: the shared ``params`` value schema gained a
-    fourth ``anyOf`` branch (nested arrays, for curve handles), present on both
-    ``clay_add_primitive`` and ``clay_set_params``. Four ``type`` cases each:
-    462 + 8 = 470.
+    """327 (323 before clay_material gained ``faces`` and ``index``: five new
+    cases, and ``color`` is no longer ``required`` because ``index`` replaces
+    it), measured against the picoCAD-level tool surface (34 tools) the
+    sweep that cut the modifier, collider, boolean, figure, diagnose, analyze,
+    validate, lock and tag tools left behind -- the earlier tranche-by-tranche
+    derivation (346, 405, 470...) described tools that no longer exist, so it
+    was replaced by this one re-measured figure rather than patched with an
+    unverifiable delta. Pinned so a schema edit that silently drops a case
+    from the walk is caught here rather than only by a shrinking "exercised"
+    count nobody happens to notice.
     """
-    assert len(_ALL_CASES) == 470
+    assert len(_ALL_CASES) == 327
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------
@@ -1735,20 +1431,11 @@ def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> 
 # ``field`` the refusal names for them. Every entry names the reason; nothing
 # is silently downgraded without one. Keyed by ``_Case.id``.
 _FIELD_NOT_ASSERTED: dict[str, str] = {
-    "clay_diagnose:select/uid:required": (
-        "_resolve_uid names the field it was actually given ('uid'), not "
-        "the outer 'select' object it lives in -- more specific than "
-        "this file's own top-level-property default, not less correct."
-    ),
-    "clay_diagnose:select/uid:type": (
-        "same as clay_diagnose:select/uid:required above: _resolve_uid "
-        "names 'uid', the real field, not 'select'."
-    ),
     "clay_batch:calls/0/name:required": (
         "a call entry missing 'name' is refused as 'None is not a "
         "batchable tool' (field='calls'), not a required-key message."
     ),
-    "clay_op:params/angle:type": (
+    "clay_op:params/step:type": (
         "a non-numeric op param value is refused by call()'s own generic "
         "ValueError backstop (float() raising inside clay_ops.run), with "
         "no field named at all."

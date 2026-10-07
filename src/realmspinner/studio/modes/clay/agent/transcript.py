@@ -33,8 +33,8 @@ from . import dispatch as agent_clay
 
 def _all_property_names(schema: Any) -> set[str]:
     """Every key that appears as a member of some ``properties`` object,
-    anywhere inside *schema* -- an object's own top level, a nested object
-    (``clay_diagnose``'s ``select``), or the item schema of an array
+    anywhere inside *schema* -- an object's own top level, a nested object, or
+    the item schema of an array
     (``clay_batch``'s ``calls``). JSON Schema nests objects and arrays
     arbitrarily, so this recurses into every dict value and every list
     element rather than assuming ``properties`` only ever sits at the root.
@@ -161,11 +161,8 @@ class UnmappedUidError(ValueError):
 
 #: Uid-valued arguments whose names do not contain "uid", so :data:`UID_KEYS`
 #: (and its pinned derivation) cannot see them: ``clay_parent``'s ``parent``
-#: and ``clay_render``'s ``focus`` list. A boolean modifier's ``params.target``
-#: is the third; it is name-ambiguous (``clay_uv``/``clay_op`` have a numeric
-#: ``target`` of their own) so :func:`remap` reads it only under a
-#: ``clay_modifier_*`` tool. The 2026-10-03 audit (agents-08): a replay left
-#: all three stale.
+#: and ``clay_render``'s ``focus`` list. The 2026-10-03 audit (agents-08): a
+#: replay left them stale.
 EXTRA_UID_KEYS: frozenset[str] = frozenset({"parent", "focus"})
 
 
@@ -221,26 +218,20 @@ def remap(
             return mapping[value]
         return value
 
-    def walk(node: Any, current: str | None, in_params: bool = False) -> Any:
+    def walk(node: Any, current: str | None) -> Any:
         if isinstance(node, dict):
             # A clay_batch entry names its own tool beside its arguments.
             entry_tool = node.get("tool") if isinstance(node.get("tool"), str) else None
             out: dict = {}
             for key, value in node.items():
                 child_tool = entry_tool if (key == "arguments" and entry_tool) else current
-                modifier_target = (
-                    key == "target"
-                    and in_params
-                    and current is not None
-                    and current.startswith("clay_modifier_")
-                )
-                if key in UID_KEYS or key in EXTRA_UID_KEYS or modifier_target:
+                if key in UID_KEYS or key in EXTRA_UID_KEYS:
                     out[key] = remap_value(value)
                 else:
-                    out[key] = walk(value, child_tool, key == "params")
+                    out[key] = walk(value, child_tool)
             return out
         if isinstance(node, list):
-            return [walk(item, current, in_params) for item in node]
+            return [walk(item, current) for item in node]
         return node
 
     return walk(arguments, tool)

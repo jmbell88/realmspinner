@@ -144,8 +144,6 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("E", "Extrude, then drag it out -- along the face normal in face mode"),
             ("Shift+R", "Repeat the last operation (an element mode)"),
             ("I", "Inset faces -- drag, type a value, Enter (face mode)"),
-            ("Ctrl+B / Ctrl+R", "Bevel / loop cut -- drag, type a value, Enter (edge mode)"),
-            ("Ctrl+Shift+E", "Edge slide -- drag, type a value, Enter (edge mode)"),
             # Added by the 2026-09-07 audit's clay-08: the X-ray button's own
             # tooltip has named this chord since it was added, and nothing
             # bound it -- including here, where the popup and the manual are
@@ -156,20 +154,17 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             # since each was registered -- P, V and T were never a chord
             # anyone typed to find here or in chapter 38.
             ("P", "Separate Selection (face mode)"),
-            ("V", "Rip (edge mode)"),
             ("T", "Triangulate Faces (face mode)"),
             # The keyboard's half of a drag. G and S rather than G, R and S:
             # R is the Scale tool's letter and E is Rotate's, both taken long
             # before this, so rotate is reached mid-drag instead.
             ("G / S", "Move / scale the selection -- no handle to grab"),
             ("L", "Select everything joined to the selection"),
-            ("Ctrl+= / Ctrl+-", "Grow / shrink the selection by one ring"),
-            ("Alt+click", "Select the edge loop; Ctrl+Alt+click takes the ring"),
             ("G / R / S", "Switch the transform while a drag is under way"),
             ("F", "Frame the selection"),
             ("Delete", "Delete -- faces in an element mode, objects otherwise"),
             ("Ctrl+J", "Duplicate (object mode)"),
-            ("Ctrl+M / Ctrl+Shift+M", "Merge / union the selection (object mode)"),
+            ("Ctrl+M", "Merge the selected objects (object mode)"),
             ("Ctrl+D", "Deselect"),
             ("Ctrl+A", "Select all, in the current mode"),
             ("Ctrl+Shift+I", "Invert the selection"),

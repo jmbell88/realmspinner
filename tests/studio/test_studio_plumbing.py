@@ -1038,14 +1038,16 @@ def test_every_clay_pane_gates_its_controls_on_saving():
         assert "saving" in source, f"{pane.__name__} does not consult tab.saving"
 
 
-def test_the_bridge_offers_both_output_paths_and_they_are_different_calls():
-    """Two genuinely different things: the exact geometry, or a picture trellis
-    reinterprets. A bridge that wired both to one call would look complete."""
+def test_the_bridge_offers_the_library_and_the_file_exits_as_different_calls():
+    """Two genuinely different things: the exact geometry into the library as an
+    asset, or a plain mesh file on disk the library never sees. A bridge that
+    wired both to one call would look complete."""
     from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
 
     source = inspect.getsource(clay_bridge)
     assert "export_asset" in source
-    assert "send_to_3d" in source
+    assert "export_mesh_file" in source
+    assert "send_to_3d" not in source, "Clay no longer hands a picture to trellis"
 
 
 def test_the_tools_pane_mirrors_through_ops_rather_than_negating_a_scale():
@@ -1150,32 +1152,23 @@ def test_clay_persists_its_recent_list_and_no_mode():
     assert 'settings.set("mode"' not in inspect.getsource(main.App)
 
 
-def test_the_send_to_3d_render_carries_no_grid_gizmo_or_overlay():
-    """trellis is being handed a *subject*. A grid line in the picture is a
-    subject too, and it comes back as geometry nobody asked for.
+def test_the_screenshot_render_carries_no_grid_gizmo_or_overlay():
+    """A screenshot is a picture of the subject, not of the editor: a grid line
+    in the picture is a subject too.
 
-    ``show_grid`` became a parameter -- ``grid`` -- rather than a hardcoded
-    ``False`` when the agent surface grew a second caller for the same draw
+    ``show_grid`` is a parameter -- ``grid`` -- rather than a hardcoded
+    ``False`` because the agent surface has a second caller for the same draw
     that *does* want a ground plane, as a scale cue an agent has no ruler or
     viewport to get any other way (see ``ClayView.render_png``'s own
-    docstring). So the literal ``"show_grid=False" in source`` this test used
-    to assert is gone -- it would now be false of correct code, not just of
-    broken code. What still has to be pinned for trellis is the two halves of
-    the same claim restated where they are now true: the *default* is still
-    off, and the draw still honours whatever the caller asked for rather than
-    a hardcoded ``True`` that would silently put a grid back into every build
-    reference. Plus the delegation, because "no grid by default" would be
-    vacuously true of a ``_render_clay_reference`` that had quietly stopped
-    calling ``render_png`` at all.
-
-    ``"flat=True" in source`` was the literal assertion here before
-    ``shading`` existed; ``render_png`` now spreads
-    ``_SHADING_DRAW_KWARGS[shading]`` instead of hardcoding any single draw
-    keyword, so the equivalent claim -- the *default* draw is still the flat,
-    unlit one trellis has always gotten -- is now two checks: the parameter
-    default is ``"unlit"``, and ``"unlit"``'s own row in that table is
-    ``flat: True``.
+    docstring). What has to be pinned is the two halves of the claim where
+    they are now true: the *default* is still off, and the draw still honours
+    whatever the caller asked for rather than a hardcoded ``True``. The
+    default draw is the flat, unlit one: the parameter default is ``"unlit"``
+    and ``"unlit"``'s own row in ``_SHADING_DRAW_KWARGS`` is ``flat: True``.
+    Plus the delegation, because "no grid by default" would be vacuously true
+    of a screenshot that had quietly stopped calling ``render_png`` at all.
     """
+    from realmspinner.studio.modes.clay import mode as clay_mode
     from realmspinner.studio.modes.clay.ui import view as clay_view
     from realmspinner.studio.modes.clay.ui.view import ClayView
 
@@ -1185,34 +1178,30 @@ def test_the_send_to_3d_render_carries_no_grid_gizmo_or_overlay():
     source = inspect.getsource(ClayView.render_png)
     assert "show_grid=grid" in source
     assert "overlays=[]" in source
-    assert "render_png" in inspect.getsource(main.App._render_clay_reference)
+    assert "render_png" in inspect.getsource(clay_mode.save_screenshot)
 
 
-def test_the_send_to_3d_render_keeps_the_users_own_camera():
-    """**The picture trellis rebuilds from is the angle the user was looking
-    at**, and that is why this path passes ``frame=False``.
+def test_the_screenshot_keeps_the_users_own_camera():
+    """**The picture is the angle the user was looking at**, and that is why
+    this path passes ``frame=False``.
 
     ``render_png`` frames the subject by default because an agent asking for a
-    picture has no camera of its own. Taking that default here would silently
-    change the input to every future reconstruction -- and reconstruction
-    quality in this project is measured against stored corpora keyed on their
-    inputs, so the comparisons already taken would stop describing what they
-    measured. Cheap to assert, expensive to notice any other way.
+    picture has no camera of its own; taking that default here would silently
+    replace the angle the user chose with one the call picks.
     """
-    assert "frame=False" in inspect.getsource(main.App._render_clay_reference)
+    from realmspinner.studio.modes.clay import mode as clay_mode
+
+    assert "frame=False" in inspect.getsource(clay_mode.save_screenshot)
 
 
-def test_the_send_to_3d_render_happens_on_the_frame_thread():
-    """It needs the GL context. Only the service call goes to a task thread,
-    which is the shape inker_mode.send_to_3d already has."""
-    source = inspect.getsource(main.App._clay_send_to_3d)
-    assert "submit" not in source
-    assert "upload_bytes" in source
-    assert "submit" in inspect.getsource(
-        __import__(
-            "realmspinner.studio.modes.create.ui.panes.settings_3d", fromlist=["x"]
-        ).upload_bytes
-    )
+def test_the_screenshot_render_happens_on_the_frame_thread():
+    """It needs the GL context. Only the dialog and the write go to a task, so
+    the draw must come before the closure that is handed to ``_start``."""
+    from realmspinner.studio.modes.clay import mode as clay_mode
+
+    source = inspect.getsource(clay_mode.save_screenshot)
+    assert source.index("render_png") < source.index("def run")
+    assert source.index("render_png") < source.index("_start(")
 
 
 def test_neither_upload_path_submits_a_mesh_job():

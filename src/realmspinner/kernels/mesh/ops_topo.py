@@ -41,6 +41,7 @@ __all__ = [
     "flip_normals",
     "inset_faces",
     "merge_vertices",
+    "triangulate_faces",
     "weld",
 ]
 
@@ -1506,3 +1507,61 @@ def bridge_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     )
     n_faces = face_count(mesh)
     return out, ElementSel(faces=np.arange(n_faces, n_faces + span))
+
+
+def _new_face_starts(starts: np.ndarray, n_new: int, arity: int) -> np.ndarray:
+    """``starts`` grown by ``n_new`` freshly appended faces of ``arity``
+    corners each -- shared by every op below that appends a uniform-arity
+    block of faces onto an existing CSR loop table.
+    """
+    grown = int(starts[-1]) + arity * np.arange(1, n_new + 1, dtype="i8")
+    return np.concatenate([starts.astype("i8"), grown])
+
+
+# --- triangulate ----------------------------------------------------------
+
+
+def triangulate_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
+    """Replace the selected faces (or all of them) with their own triangles.
+
+    Goes through :mod:`.earclip`'s own **corner** triangulation, not
+    ``mesh.triangulate``'s vertex one -- a triangle's three corners are
+    literal existing corners of the source polygon, so UV is **preserved**
+    outright rather than interpolated: no new point is ever minted, and using
+    vertex indices instead would silently pick one of a seam's two uvs at
+    random.
+
+    An already-triangular face still costs one earclip pass and produces the
+    same single triangle back, which is the idempotent case rather than a
+    special one to detect.
+    """
+    faces = sel.faces if len(sel.faces) else np.arange(face_count(mesh), dtype="i4")
+    if face_count(mesh) == 0:
+        raise OpError("This object has no faces to triangulate.")
+    chosen = np.zeros(face_count(mesh), dtype=bool)
+    chosen[faces] = True
+
+    from .earclip import corner_triangles
+
+    normals = face_normals(mesh)
+    tri_corners, tri_face = corner_triangles(mesh.positions, mesh.loops, mesh.starts, normals)
+    keep = chosen[tri_face]
+    new_tri_corners = tri_corners[keep]
+    new_tri_face = tri_face[keep]
+
+    unselected = np.flatnonzero(~chosen)
+    base = topo.take_faces(mesh, unselected)
+    new_loops = mesh.loops[new_tri_corners].reshape(-1)
+    n_new = len(new_tri_face)
+
+    new_uv = None if mesh.uv is None else mesh.uv[new_tri_corners].reshape(-1, 2)
+    out = topo.rebuild(
+        mesh.positions,
+        np.concatenate([base.loops.astype("i8"), new_loops.astype("i8")]),
+        _new_face_starts(base.starts, n_new, 3),
+        np.concatenate([base.material, mesh.material[new_tri_face]]),
+        np.concatenate([base.smooth, mesh.smooth[new_tri_face]]),
+        uv=None if mesh.uv is None else np.concatenate([base.uv, new_uv]),
+    )
+    n_kept = len(unselected)
+    return out, ElementSel(faces=np.arange(n_kept, n_kept + n_new))

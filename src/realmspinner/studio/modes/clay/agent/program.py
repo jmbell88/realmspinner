@@ -1,6 +1,6 @@
 """``clay_program``'s compiler: a small declarative program -> an expanded,
 validated list of tool calls. Pure -- stdlib and numpy-free registry reads
-only (``primitives.GENERATORS``, ``presets.ASSEMBLIES``, ``clay_ops.OPS``),
+only (``primitives.CLAY_GENERATORS``, ``clay_ops.OPS``),
 no imgui/moderngl/pygame/service -- because it runs before there is a
 document, or even a session, to run against.
 
@@ -60,7 +60,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from .....kernels.mesh import presets
 from .....kernels.mesh import primitives as bp
 from .. import ops as clay_ops
 
@@ -68,7 +67,6 @@ __all__ = [
     "EXPR_MAX_CHARS",
     "EXPR_MAX_DEPTH",
     "FACTS",
-    "PROGRAM_MAX_BOOLEANS",
     "PROGRAM_MAX_CALLS",
     "PROGRAM_MAX_NESTING",
     "PROGRAM_MAX_REPEAT",
@@ -106,10 +104,8 @@ every ``repeat``/``if`` branch's own, independently."""
 
 PROGRAM_MAX_CALLS = 256
 """The most *expanded* tool-call units one program may compile to. A
-``clay_add_figure`` counts as its preset's own part count (``presets.build``)
-rather than 1, because it is one wire call standing in for that many objects;
-every other step counts each wire call it emits (``clay_op``'s two-call
-``op`` step included) as 1. Checked as the running total grows, so the
+Every step counts each wire call it emits (``clay_op``'s two-call ``op``
+step included) as 1. Checked as the running total grows, so the
 refusal names the step that pushed it over rather than a final tally with no
 address."""
 
@@ -120,13 +116,6 @@ may produce -- the product of every named range's own length."""
 PROGRAM_MAX_NESTING = 4
 """How many ``steps`` lists may sit inside one another -- the top-level list
 is depth 1, a ``repeat`` or taken ``if`` branch's own list is one deeper."""
-
-PROGRAM_MAX_BOOLEANS = 4
-"""The most ``boolean`` steps one compiled program may contain, counting
-every iteration a ``repeat`` expands one into. Each is `MAX_BOOLEAN_TRIANGLES`
-work on the frame thread (see ``dev/INVARIANTS.md``'s agent paragraph); a
-program is one MCP round trip and should not be able to queue an unbounded
-amount of that behind it."""
 
 PROGRAM_MAX_VARIABLES = 64
 """The most variable names simultaneously in scope -- the top-level
@@ -174,16 +163,14 @@ STEP_KINDS: dict[str, frozenset[str]] = {
     "add": frozenset(
         {"generator", "params", "translation", "rotation", "scale", "id", "material"}
     ),
-    "figure": frozenset({"key", "translation", "yaw", "scale", "id"}),
     "mesh": frozenset(
         {"positions", "faces", "uv", "translation", "rotation", "scale", "id", "material"}
     ),
     "transform": frozenset({"uid", "translation", "rotation", "scale"}),
     "params": frozenset({"uid", "uids", "params"}),
-    "material": frozenset({"uids", "name", "color", "metallic", "roughness"}),
+    "material": frozenset({"uids", "name", "color", "faces", "index"}),
     "delete": frozenset({"uids"}),
     "op": frozenset({"name", "params", "uids"}),
-    "boolean": frozenset({"kind", "uids"}),
     "select": frozenset({"uids"}),
     "repeat": frozenset({"ranges", "steps"}),
     "array": frozenset({"id", "count", "var", "add"}),
@@ -208,7 +195,6 @@ UID_BEARING_KEYS: dict[str, frozenset[str]] = {
     "material": frozenset({"uids"}),
     "delete": frozenset({"uids"}),
     "op": frozenset({"uids"}),
-    "boolean": frozenset({"uids"}),
     "select": frozenset({"uids"}),
     "move": frozenset({"uid"}),
     "turn": frozenset({"uid"}),
@@ -218,7 +204,7 @@ UID_BEARING_KEYS: dict[str, frozenset[str]] = {
 """Which of each kind's own keys carry a reference (a uid, a program id, a
 group, or ``$ref``) rather than a plain value -- a subset of that kind's
 entry in :data:`STEP_KINDS`, and absent entirely for a kind that carries
-none (``add``, ``figure``, ``mesh``, which only ever *create*; ``repeat``,
+none (``add``, ``mesh``, which only ever *create*; ``repeat``,
 ``array``, ``mirror``, ``group``, ``let``, ``if``, which are compile-time
 sugar or control flow)."""
 
@@ -233,7 +219,7 @@ placeholder instead -- ``agent_clay._h_program`` is what actually runs one,
 per its own turn in the same fold a real tool call's entry runs in, so a
 program with a live step is still one atomic undo step start to finish."""
 
-_CREATOR_KINDS = frozenset({"add", "figure", "mesh"})
+_CREATOR_KINDS = frozenset({"add", "mesh"})
 _WRAPPER_KINDS = frozenset({"repeat", "array", "mirror", "group", "let", "if"})
 _TOP_LEVEL_KEYS = frozenset({"variables", "steps", "dry_run"})
 
@@ -623,7 +609,7 @@ def _eval_expr(text: str, scope: dict[str, float]) -> float:
 # is a plain string or a small ``{"id"|"name"|"$ref"|"uid": ...}`` wrapper
 # *outside* the expression language, resolved by :func:`_resolve_singular`/
 # :func:`_resolve_plural` long before an expression is ever involved. A
-# condition has no such second channel -- ``"touches(a, b) and size(a, 1) >
+# condition has no such second channel -- ``"lo(a, 1) < hi(b, 1) and size(a, 1) >
 # 1"`` names two objects and a number in one string -- so the expression
 # grammar itself grows exactly one construct, a bare identifier that is not
 # a function call, parsed by :func:`_parse_condition` (``_Parser(...,
@@ -696,18 +682,6 @@ def _fact_exists(access: Any, name: Any) -> float:
     return 1.0 if access.exists(name) else 0.0
 
 
-def _fact_touches(access: Any, uid_a: Any, uid_b: Any) -> float:
-    return 1.0 if access.touches(uid_a, uid_b) else 0.0
-
-
-def _fact_grounded(access: Any, uid: Any) -> float:
-    return 1.0 if access.grounded(uid) else 0.0
-
-
-def _fact_floating(access: Any, uid: Any) -> float:
-    return 1.0 if access.floating(uid) else 0.0
-
-
 def _fact_volume(access: Any, uid: Any) -> float:
     return float(access.volume(uid))
 
@@ -719,9 +693,6 @@ FACTS: dict[str, tuple[tuple[str, ...], Any]] = {
     "center": (("id", "num"), _fact_center),
     "count": (("group",), _fact_count),
     "exists": (("any",), _fact_exists),
-    "touches": (("id", "id"), _fact_touches),
-    "grounded": (("id",), _fact_grounded),
-    "floating": (("id",), _fact_floating),
     "volume": (("id",), _fact_volume),
 }
 """Every function name an ``assert`` condition may call beyond
@@ -743,14 +714,10 @@ never constructs one and never imports a document type to describe its
 shape; see that function's own docstring for the small surface it must
 provide. ``lo``/``hi``/``size``/``center`` read ``access.bounds(uid)`` --
 world-space, and conservative under rotation exactly like ``clay_scene``'s
-own bounds block, not the exact-vertex box :mod:`.clay.analyze` computes for
-its own object rows -- one object's box is cheap enough to recompute per
-fact call, and matching the number an agent already read off ``clay_scene``
+own bounds block -- one object's box is cheap enough to recompute per fact
+call, and matching the number an agent already read off ``clay_scene``
 matters more here than shaving a rotated box down to its true extent.
-``touches``/``grounded``/``floating``/``volume`` are thin wrappers over
-:mod:`.clay.analyze` instead, because those facts -- contact, ground,
-closed-mesh volume -- are exactly what that module already measures and
-this registry has no reason to recompute."""
+``volume`` reads :func:`~.measure.volume_if_closed`."""
 
 
 def _parse_condition(text: str) -> Any:
@@ -798,7 +765,7 @@ def _validate_condition(
         name = node[1]
         raise _err(
             f"{name!r} is a bare id -- it may only appear as a fact's own "
-            f"argument, e.g. touches({name}, other) or lo({name}, 0), not as "
+            f"argument, e.g. volume({name}) or lo({name}, 0), not as "
             "a value on its own.",
             field="steps", path=path,
         )
@@ -867,8 +834,7 @@ def evaluate_condition(ast: Any, scope: dict[str, float], access: Any) -> float:
       ``group`` step's own members;
     - ``exists(name) -> bool``;
     - ``bounds(uid) -> (lo, hi)``, two length-3 sequences;
-    - ``touches(uid, uid) -> bool``, ``grounded(uid) -> bool``,
-      ``floating(uid) -> bool``, ``volume(uid) -> float``.
+    - ``volume(uid) -> float``.
 
     *scope* is the ``{name: float}`` snapshot the program's own ``$var``
     bindings held when this ``assert`` step compiled -- a condition never
@@ -878,9 +844,8 @@ def evaluate_condition(ast: Any, scope: dict[str, float], access: Any) -> float:
 
     Raises :class:`ConditionError` for anything that can only go wrong once
     the live document is in hand; never raises anything else itself, and
-    trusts *access*'s own geometry calls (``analyze.analyze`` included) to
-    have already converted their own exceptions the same way before this
-    function ever sees them.
+    trusts *access*'s own geometry calls to have already converted their own
+    exceptions the same way before this function ever sees them.
     """
     tag = ast[0]
     if tag == "num":
@@ -1093,7 +1058,7 @@ def _group_members(
 ) -> list[Any]:
     """A group's members as references, each checked alive the way
     ``_resolve_singular`` checks one id. The 2026-10-03 audit's agents-19: a
-    group whose member a later boolean or delete had consumed still compiled,
+    group whose member a later delete had consumed still compiled,
     and was refused only when that dead member's turn came at run time -- a
     full run and rollback for what every other stale reference refuses at
     compile time with a path."""
@@ -1188,7 +1153,6 @@ class _Compiler:
     groups: dict[str, tuple[str, ...]] = field(default_factory=dict)
     calls: list[tuple[Any, ...]] = field(default_factory=list)
     expanded: int = 0
-    boolean_count: int = 0
 
     def _budget(self, units: int, path: str) -> None:
         self.expanded += units
@@ -1264,8 +1228,6 @@ class _Compiler:
             self._compile_op(body, kind_path, scope)
         elif kind == "select":
             self._compile_select(body, kind_path, scope)
-        elif kind == "boolean":
-            self._compile_boolean(body, kind_path, scope)
         elif kind == "repeat":
             self._compile_repeat(body, kind_path, scope, nesting)
         elif kind == "array":
@@ -1283,7 +1245,7 @@ class _Compiler:
         else:  # pragma: no cover - STEP_KINDS and this dispatch are kept in sync by hand
             raise _err(f"step kind {kind!r} has no compiler.", field="steps", path=path)
 
-    # -- creators: add / figure / mesh --
+    # -- creators: add / mesh --
 
     def _compile_creator(self, kind: str, body: dict, path: str, scope: dict[str, float]) -> None:
         raw_id = body.get("id")
@@ -1297,7 +1259,7 @@ class _Compiler:
             # clay-agent-tools-06/-09's program-compiler twin -- ``x not in
             # a_dict`` hashes ``x``, and a list or object ``generator`` raised
             # a bare, unhashable ``TypeError`` instead of this ``ProgramError``.
-            if not isinstance(generator, str) or generator not in bp.GENERATORS:
+            if not isinstance(generator, str) or generator not in bp.CLAY_GENERATOR_NAMES:
                 raise _err(f"unknown generator {generator!r}.", field="steps", path=path)
             args: dict[str, Any] = {"generator": generator}
             if "params" in body:
@@ -1310,29 +1272,6 @@ class _Compiler:
                     new_id, self.objects, self.groups, self.live_names, path, "steps"
                 )
             self._emit("clay_add_primitive", args, path)
-
-        elif kind == "figure":
-            if "key" not in body:
-                raise _err("figure requires key.", field="steps", path=path)
-            key = body["key"]
-            # isinstance checked first: same reasoning as ``generator`` above.
-            if not isinstance(key, str) or key not in presets.ASSEMBLIES:
-                raise _err(f"unknown figure key {key!r}.", field="steps", path=path)
-            args = {"key": key}
-            if "translation" in body:
-                args["translation"] = _vec3(
-                    body["translation"], scope, path, "steps", "translation"
-                )
-            if "yaw" in body:
-                args["yaw"] = _num(body["yaw"], scope, f"{path}.yaw", "steps")
-            if "scale" in body:
-                args["scale"] = _num(body["scale"], scope, f"{path}.scale", "steps")
-            if new_id is not None:
-                args["name_prefix"] = _register_id(
-                    new_id, self.objects, self.groups, self.live_names, path, "steps"
-                )
-            self.calls.append(("clay_add_figure", args, path))
-            self._budget(max(1, len(presets.build(key))), path)
 
         else:  # mesh
             for required in ("positions", "faces"):
@@ -1397,23 +1336,53 @@ class _Compiler:
         self._emit("clay_set_params", args, path)
 
     def _compile_material(self, body: dict, path: str, scope: dict[str, float]) -> None:
-        for required in ("uids", "color"):
-            if required not in body:
-                raise _err(f"material requires {required}.", field="steps", path=path)
-        color = body["color"]
-        if not isinstance(color, list) or len(color) not in (3, 4):
-            raise _err(
-                "color must be an array of 3 or 4 numbers or expressions.", field="steps", path=path
-            )
-        args: dict[str, Any] = {
-            "uids": self._refN(body["uids"], path),
-            "color": [_num(v, scope, f"{path}.color[{i}]", "steps") for i, v in enumerate(color)],
-        }
-        if "name" in body:
-            args["name"] = body["name"]
-        for key in ("metallic", "roughness"):
-            if key in body:
-                args[key] = _num(body[key], scope, f"{path}.{key}", "steps")
+        if "uids" not in body:
+            raise _err("material requires uids.", field="steps", path=path)
+        args: dict[str, Any] = {"uids": self._refN(body["uids"], path)}
+        if "index" in body:
+            # An existing palette slot: nothing is made, so a colour or a name
+            # beside it would be dropped without a word.
+            if "color" in body or "name" in body:
+                raise _err(
+                    "material takes either index (an existing slot) or color/name "
+                    "(a new one), not both.",
+                    field="steps",
+                    path=path,
+                )
+            args["index"] = self._compile_material_index(body["index"], path)
+        else:
+            if "color" not in body:
+                raise _err("material requires color (or index).", field="steps", path=path)
+            color = body["color"]
+            if not isinstance(color, list) or len(color) not in (3, 4):
+                raise _err(
+                    "color must be an array of 3 or 4 numbers or expressions.",
+                    field="steps",
+                    path=path,
+                )
+            args["color"] = [
+                _num(v, scope, f"{path}.color[{i}]", "steps") for i, v in enumerate(color)
+            ]
+            if "name" in body:
+                args["name"] = body["name"]
+        if "faces" in body:
+            faces = body["faces"]
+            if (
+                not isinstance(faces, list)
+                or not faces
+                or any(isinstance(f, bool) or not isinstance(f, int) for f in faces)
+            ):
+                raise _err(
+                    "faces must be a non-empty list of integers.", field="steps", path=path
+                )
+            if len(args["uids"]) != 1:
+                raise _err(
+                    "faces needs uids to name exactly one object -- face numbers "
+                    "belong to one mesh.",
+                    field="steps",
+                    path=path,
+                )
+            args["faces"] = faces
         self._emit("clay_material", args, path)
 
     def _compile_delete(self, body: dict, path: str, scope: dict[str, float]) -> None:
@@ -1426,7 +1395,7 @@ class _Compiler:
             self.objects[name].consumed_by = "delete"
         self._emit("clay_delete", {"uids": refs}, path)
 
-    # -- op / select / boolean --
+    # -- op / select --
 
     def _compile_op(self, body: dict, path: str, scope: dict[str, float]) -> None:
         for required in ("name", "uids"):
@@ -1459,38 +1428,6 @@ class _Compiler:
         if "uids" not in body:
             raise _err("select requires uids.", field="steps", path=path)
         self._emit("clay_select", {"uids": self._refN(body["uids"], path)}, path)
-
-    def _compile_boolean(self, body: dict, path: str, scope: dict[str, float]) -> None:
-        del scope
-        for required in ("kind", "uids"):
-            if required not in body:
-                raise _err(f"boolean requires {required}.", field="steps", path=path)
-        if body["kind"] not in ("union", "difference", "intersection"):
-            raise _err("kind must be union, difference or intersection.", field="steps", path=path)
-        refs, names = self._refN_with_names(body["uids"], path)
-        if len(refs) < 2:
-            raise _err("boolean requires at least 2 uids.", field="steps", path=path)
-        self.boolean_count += 1
-        if self.boolean_count > PROGRAM_MAX_BOOLEANS:
-            raise _err(
-                f"program has over PROGRAM_MAX_BOOLEANS ({PROGRAM_MAX_BOOLEANS}) boolean steps.",
-                field="steps", path=path,
-            )
-        # clay_boolean keeps the input that comes first in *document* order.
-        # When every input was made by this program, creation order is
-        # document order, so that survivor is known here and stays
-        # addressable -- otherwise a program could never move its own
-        # boolean result. A live uid among the inputs could sort anywhere,
-        # so then every input is dead.
-        survivor = None
-        if len(names) == len(refs):
-            survivor = next(n for n in self.objects if n in names)
-        for name in names:
-            if name == survivor:
-                continue
-            self.objects[name].alive = False
-            self.objects[name].consumed_by = "boolean"
-        self._emit("clay_boolean", {"kind": body["kind"], "uids": refs}, path)
 
     # -- reference helpers --
 

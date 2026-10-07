@@ -1,9 +1,7 @@
 """Regression tests for the 2026-09-14 audit's Clay agent-door findings:
 docs-06 (TODO F9, ``clay_op`` crashing on a wrong-typed ``params`` value),
-agents-09 (``clay_reference_get`` skipping the post-``bounded_png`` frame
-budget check ``_h_render`` already performs), and the clay-01 follow-up
-(``clay_analyze``'s output schema declaring ``intersects`` a bare boolean
-after ``analyze.py``'s own clay-01 fix started returning ``None`` for it).
+and agents-09 (``clay_reference_get`` skipping the post-``bounded_png`` frame
+budget check ``_h_render`` already performs).
 
 Kept out of ``tests/modes/clay/test_agent_clay.py`` deliberately -- that file carries
 the user's own uncommitted work, and this brief's constraints say every new
@@ -163,22 +161,3 @@ def test_reference_get_still_returns_the_picture_under_budget() -> None:
 
     assert result["isError"] is False, result
     assert len(result["content"]) == 2, result
-
-
-# --- clay-01 follow-up: clay_analyze's schema allows an unknown intersects --
-
-
-def test_clay_analyze_output_schema_allows_an_unknown_intersects_past_the_pair_cap() -> None:
-    """``analyze.py``'s own clay-01 fix lets ``PairAnalysis.intersects`` be
-    ``None`` -- unknown, not "no" -- once a pair clears
-    ``MAX_TRIANGLE_PAIRS`` and the full narrow phase never runs. Before this
-    fix, ``clay_analyze``'s declared ``outputSchema`` still called
-    ``intersects`` a bare ``{"type": "boolean"}`` with no ``null`` admitted,
-    unlike ``distance``'s own ``anyOf`` beside it -- so ``_h_analyze`` could
-    emit a value ("null") the tool's own advertised schema forbade.
-    """
-    tools = {t.name: t for t in agent_clay.tools()}
-    pairs_schema = tools["clay_analyze"].output_schema["properties"]["pairs"]
-    intersects_schema = pairs_schema["items"]["properties"]["intersects"]
-    expected = {"anyOf": [{"type": "null"}, {"type": "boolean"}]}
-    assert intersects_schema == expected, intersects_schema

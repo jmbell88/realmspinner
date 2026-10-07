@@ -4,12 +4,11 @@ clay-80: ``OverflowError`` joined the caught tuple at the sites clay-agent-tools
 listed and nowhere else, so every other bare ``int()`` on ``inf`` and ``float()`` on
 a JSON integer past 1e308 still reached ``call()``'s "failed unexpectedly" backstop.
 clay-81: a non-image upload or an unhashable reference name did the same.
-clay-83 / clay-99: ``clay_collider``'s ``max_faces``, ``clay_render``'s view count and
-the length of a name or tag had no bound at the tool door.
+clay-99: ``clay_render``'s view count and the length of a name had no bound at
+the tool door.
 clay-85: ``kept_objects`` was cubic in a parent chain's depth.
 clay-100 / clay-107 / clay-108 / clay-123: stale docstrings and comments.
 clay-103: the three-vertex angle readout did not say which vertex is the apex.
-clay-117: the material shelf's trash button deleted on one click.
 clay-118: a plain click on the UV canvas never selected an island.
 clay-126 / clay-127: evidence gaps (pane deciders, outward-import pins).
 """
@@ -23,19 +22,16 @@ import inspect
 import io
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from realmspinner.kernels.mesh import colliders as cl
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import ops_subdiv
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio import viewport_hints as clay_hints
-from realmspinner.studio.modes.clay import matlib as clay_matlib
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 from realmspinner.studio.modes.clay.agent import schema as agent_schema
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
@@ -60,11 +56,6 @@ def _backstop(result: dict) -> bool:
 # (tool, arguments with "X" where the bad number goes, the field it must name).
 # "U" stands for a real uid. Covers the sites that were still escaping.
 _NUMERIC_DOORS = [
-    ("clay_modifier_add", {"uid": "U", "kind": "mirror", "index": "X"}, "index"),
-    ("clay_modifier_set", {"uid": "U", "modifier": "X", "params": {}}, "modifier"),
-    ("clay_modifier_remove", {"uid": "U", "modifier": "X"}, "modifier"),
-    ("clay_modifier_move", {"uid": "U", "modifier": "X", "index": 0}, "modifier"),
-    ("clay_modifier_apply", {"uid": "U", "modifier": "X"}, "modifier"),
     ("clay_render", {"size": "X"}, "size"),
     ("clay_undo", {"steps": "X"}, "steps"),
     ("clay_redo", {"steps": "X"}, "steps"),
@@ -80,15 +71,8 @@ _NUMERIC_DOORS = [
     ("clay_material", {"uids": ["U"], "color": ["X", 0, 0]}, "color"),
     ("clay_material", {"uids": ["U"], "color": [0.5, 0.5, 0.5], "metallic": "X"}, "metallic"),
     ("clay_material", {"uids": ["U"], "color": [0.5, 0.5, 0.5], "roughness": "X"}, "roughness"),
-    ("clay_analyze", {"uids": ["U"], "contact_tol": "X"}, "contact_tol"),
-    ("clay_analyze", {"uids": ["U"], "near": "X"}, "near"),
-    ("clay_analyze", {"uids": ["U"], "symmetry_tol": "X"}, "symmetry_tol"),
     ("clay_uv", {"uid": "U", "action": "pack", "margin": "X"}, "margin"),
-    ("clay_uv", {"uid": "U", "action": "density", "target": 1.0, "texture_px": "X"},
-     "texture_px"),
     ("clay_measure", {"kind": "distance", "a": ["X", 0, 0], "b": [0, 0, 0]}, "a"),
-    ("clay_add_figure", {"key": "humanoid", "yaw": "X"}, "yaw"),
-    ("clay_add_figure", {"key": "humanoid", "scale": "X"}, "scale"),
 ]
 
 
@@ -163,41 +147,6 @@ def test_reference_doors_refuse_a_non_image_and_a_non_string_name_naming_their_f
         assert compare["structuredContent"].get("field") == "compare", compare
 
 
-# --- clay-83 ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("kind", ["convex", "compound"])
-@pytest.mark.parametrize("bad", [0, -5, 3, 11, 10**9, 1025])
-def test_clay_collider_refuses_a_max_faces_outside_the_range_the_fit_supports(
-    kind: str, bad: int
-) -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "uv_sphere")
-
-    result = agent_clay.call(
-        ctx, session, "clay_collider", {"uids": [uid], "kind": kind, "params": {"max_faces": bad}}
-    )
-
-    assert result["isError"] is True, result
-    assert result["structuredContent"].get("field") == "params", result
-    text = result["content"][0]["text"]
-    assert "max_faces" in text, text
-    assert "coplanar" not in text, f"the refusal blamed the mesh for a parameter: {text}"
-
-
-def test_clay_collider_still_accepts_max_faces_at_both_ends_of_the_range() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "uv_sphere")
-    for value in (12, 64, 1024):
-        result = agent_clay.call(
-            ctx, session, "clay_collider",
-            {"uids": [uid], "kind": "convex", "params": {"max_faces": value}},
-        )
-        assert result["isError"] is False, (value, result)
-
-
 # --- clay-99 ------------------------------------------------------------------
 
 
@@ -214,7 +163,7 @@ def test_clay_render_refuses_more_views_than_the_documented_maximum() -> None:
     assert str(agent_schema.MAX_RENDER_VIEWS) in result["content"][0]["text"], result
 
 
-def test_names_and_tags_are_refused_past_their_length_and_count_caps() -> None:
+def test_names_are_refused_past_their_length_cap() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
     uid = _new_agent_tab(ctx, session, "box")
@@ -224,12 +173,10 @@ def test_names_and_tags_are_refused_past_their_length_and_count_caps() -> None:
         ("clay_rename", {"uid": uid, "name": long_name}),
         ("clay_checkpoint", {"name": long_name}),
         ("clay_reference_add", {"name": long_name, "png_base64": _png_b64()}),
-        ("clay_tag", {"uids": [uid], "add": ["t" * (agent_schema.MAX_TAG_LENGTH + 1)]}),
-        ("clay_tag", {"uids": [uid], "add": [f"t{i}" for i in range(agent_schema.MAX_TAGS_PER_CALL + 1)]}),  # noqa: E501
     ):
         result = agent_clay.call(ctx, session, tool, args)
         assert result["isError"] is True, (tool, result)
-        assert result["structuredContent"].get("field") in {"name", "add"}, (tool, result)
+        assert result["structuredContent"].get("field") == "name", (tool, result)
 
     ok = agent_clay.call(ctx, session, "clay_rename", {"uid": uid, "name": "n" * agent_schema.MAX_NAME_LENGTH})  # noqa: E501
     assert ok["isError"] is False, ok
@@ -360,11 +307,6 @@ def test_catmull_clark_docstring_matches_its_refusals() -> None:
     assert "Never refuses" not in doc
     assert "MAX_SUBDIVIDED_FACES" in doc
 
-    colliders_src = (SRC / "kernels" / "mesh" / "colliders.py").read_text("utf-8")
-    assert f"MAX_SUBDIVIDED_FACES`` is {ops_subdiv.MAX_SUBDIVIDED_FACES:,}" in colliders_src
-    assert "MAX_SUBDIVIDED_FACES`` is 1,000,000" not in colliders_src
-    assert cl.MAX_COMPOUND_SHELL_FACES < ops_subdiv.MAX_SUBDIVIDED_FACES
-
 
 # --- clay-108 -----------------------------------------------------------------
 
@@ -381,49 +323,6 @@ def test_no_module_cites_the_retired_clay_plan_file() -> None:
 
     ledger = (REPO / "tests" / "test_ux_todo_fixes.py").read_text("utf-8")
     assert '"CLAY-PLAN" ".md"' in ledger, "RETIRED_PLANS does not name the Clay plan file"
-
-
-# --- clay-117 -----------------------------------------------------------------
-
-
-class _Confirms:
-    def __init__(self) -> None:
-        self.asked: list = []
-
-    def ask(self, confirm) -> None:
-        self.asked.append(confirm)
-
-
-def test_deleting_a_saved_material_is_recoverable_or_confirmed(tmp_path: Path) -> None:
-    from realmspinner.kernels.geom3d import gltf
-
-    entry = clay_matlib.save_material(tmp_path, "Rusty", gltf.Material(name="Rusty"))
-    ctx = SimpleNamespace(confirms=_Confirms())
-
-    clay_props._confirm_delete_material(ctx, tmp_path, entry)
-
-    assert len(ctx.confirms.asked) == 1, "the trash button must ask first"
-    assert [e.id for e in clay_matlib.list_materials(tmp_path)] == [entry.id], (
-        "the material was deleted before the answer"
-    )
-    question = ctx.confirms.asked[0]
-    assert "Rusty" in question.message
-    question.on_confirm()
-    assert clay_matlib.list_materials(tmp_path) == []
-
-
-def test_the_trash_button_goes_through_the_confirm_not_straight_to_delete_material() -> None:
-    tree = ast.parse(inspect.getsource(clay_props))
-    fn = next(
-        n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_material_library"  # noqa: E501
-    )
-    direct = [
-        c for c in ast.walk(fn)
-        if isinstance(c, ast.Call)
-        and isinstance(c.func, ast.Attribute)
-        and c.func.attr == "delete_material"
-    ]
-    assert direct == [], "_material_library still calls delete_material on the click"
 
 
 # --- clay-118 -----------------------------------------------------------------
@@ -490,20 +389,13 @@ def test_the_uv_canvas_applies_a_click_on_release() -> None:
 
 
 def test_pane_deciders_face_fill_format_default_and_element_summary_are_pinned() -> None:
-    # uv._face_fill: overlap beats stretch, the 0.02 floor, the sign colour.
-    overlap = np.array([True, False, False, False])
-    stretch = np.array([5.0, 0.01 * clay_uv.STRETCH_FULL, 0.5, -0.5])
+    # uv._face_fill: an overlapping face is tinted, every other face draws plain.
+    overlap = np.array([True, False])
 
-    over = clay_uv._face_fill(0, overlap, stretch)
-    assert over is not None and over[3] == pytest.approx(0.55), "overlap must win outright"
-    assert clay_uv._face_fill(1, overlap, stretch) is None, "under the 0.02 floor draws plain"
-    stretched = clay_uv._face_fill(2, overlap, stretch)
-    squeezed = clay_uv._face_fill(3, overlap, stretch)
-    assert stretched is not None and squeezed is not None
-    assert stretched[3] == pytest.approx(0.15 + 0.45 * 0.5)
-    assert tuple(squeezed[:3]) == clay_uv._COMPRESSED_RGB, "a negative value is the compressed colour"  # noqa: E501
-    assert tuple(stretched[:3]) != tuple(squeezed[:3])
-    assert clay_uv._face_fill(0, None, None) is None
+    over = clay_uv._face_fill(0, overlap)
+    assert over is not None and over[3] == pytest.approx(0.55), "overlap must tint the face"
+    assert clay_uv._face_fill(1, overlap) is None, "a face with no overlap draws plain"
+    assert clay_uv._face_fill(0, None) is None
 
     # tools._format_default
     for value, text in (
@@ -525,24 +417,6 @@ def test_pane_deciders_face_fill_format_default_and_element_summary_are_pinned()
     assert clay_props.element_summary_text(doc) == "face mode -- nothing selected"
     doc.set_element_sel(a.uid, el.ElementSel(faces=[0, 1]))
     assert clay_props.element_summary_text(doc) == "face mode -- 2 faces across 1 object"
-
-
-def test_apply_library_material_is_one_undo_step_for_a_multi_object_selection() -> None:
-    from realmspinner.kernels.geom3d import gltf
-
-    doc = bd.ClayDoc()
-    objs = [doc.add_object(bd.Obj(uid=bd.new_uid(), name=f"o{i}", mesh=bp.box())) for i in range(3)]
-    steps = len(doc.history)
-    palette = len(doc.materials)
-
-    assert clay_props._apply_library_material(doc, [o.uid for o in objs], gltf.Material(name="L"))
-
-    assert len(doc.history) == steps + 1, "three objects must cost one Ctrl+Z, not three"
-    assert len(doc.materials) == palette + 1
-    assert all(o.material == palette and np.all(o.mesh.material == palette) for o in objs)
-    assert doc.undo()
-    assert all(o.material != palette for o in objs)
-    assert clay_props._apply_library_material(doc, [], gltf.Material()) is False
 
 
 # --- clay-127: outward-import pins -----------------------------------------------

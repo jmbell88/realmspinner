@@ -60,40 +60,6 @@ def test_editing_a_transform_or_generator_field_by_keystroke_is_one_undo_step() 
     assert "doc.set_generator_params(" in inspect.getsource(clay_props.apply_generator_params)
 
 
-def test_a_locked_objects_transform_fields_are_drawn_disabled_not_live_and_erroring() -> None:
-    """The 2026-09-26 audit's clay-panes-07: a locked object's Position/
-    Scale/Rotation fields stayed live and editable, so each keystroke reached
-    ``set_transform``'s own refusal (``OpError``) and popped a fresh toast --
-    typing "1.25" produced four toasts, one per character. The fields are now
-    wrapped in ``imgui.begin_disabled(obj.locked)``, the same chrome
-    ``clay_props.draw``'s own body already uses for "a save is in flight",
-    so a locked object's fields cannot be edited at all rather than being
-    edited and then refused."""
-    source = inspect.getsource(clay_props._transform)
-    # The 2026-10-03 audit's clay-67 widened the predicate from ``obj.locked``
-    # to the one ``set_transform`` refuses on (a locked ancestor included).
-    disable_at = source.index("imgui.begin_disabled(doc.lock_refusal(")
-    enable_at = source.index("imgui.end_disabled()")
-    position_at = source.index('"position##bt"')
-    dimensions_at = source.index("_dimensions(doc, obj")
-    assert disable_at < position_at < enable_at < dimensions_at, (
-        "the position field must be drawn between begin_disabled(...) and end_disabled()"
-    )
-
-
-def test_a_locked_objects_generator_fields_are_drawn_disabled_not_live_and_erroring() -> None:
-    """``_generator``'s own copy of clay-panes-07's gap, the same shape
-    ``_transform``'s own test above checks."""
-    source = inspect.getsource(clay_props._generator)
-    disable_at = source.index("imgui.begin_disabled(obj.locked)")
-    enable_at = source.index("imgui.end_disabled()")
-    widget_at = source.index("_widget(key,")
-    assert disable_at < widget_at < enable_at, (
-        "the per-param widget loop must be drawn between begin_disabled(obj.locked) and "
-        "end_disabled()"
-    )
-
-
 def test_adding_or_removing_a_material_slot_is_one_undo_step() -> None:
     """The 2026-09-08 audit's clay-02: clicking Add pushed
     ``doc.add_material()`` and ``doc.set_props(...)`` as two separate undo
@@ -149,9 +115,7 @@ def test_add_material_and_assign_closes_its_gesture_even_when_set_props_fails() 
     ``try`` here, so a bad uid (an object deleted out from under a stale
     panel reference) raised past ``collapse_since`` and left the gesture
     open forever -- ``UndoStack._open_gestures`` never dropped back to zero,
-    so eviction stayed deferred for the rest of the session (the same shape
-    ``test_clay_tranche1_decimate.py``'s own ``_open_gestures`` regression
-    checks)."""
+    so eviction stayed deferred for the rest of the session."""
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
 

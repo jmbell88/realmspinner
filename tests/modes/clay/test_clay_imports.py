@@ -60,8 +60,8 @@ OUTWARD_IMPORTS = {
     # clay-mesh-core-01 (2026-09-26 audit): the object-mode branch of
     # ``delete_selected`` used to hand-build its own ``CompoundEdit`` around a
     # hand-popped ``doc.objects.pop`` -- which never re-parented a removed
-    # object's children the way ``remove_object`` does, nor popped
-    # ``_evaluated``. It now calls ``remove_object`` itself, per uid, inside a
+    # object's children the way ``remove_object`` does. It now calls
+    # ``remove_object`` itself, per uid, inside a
     # ``doc.history.mark()``/``collapse_since()`` gesture instead, so
     # ``selection.py`` no longer imports ``core.undo`` directly at all.
     # Removed from this table rather than left stale.
@@ -84,37 +84,16 @@ OUTWARD_IMPORTS = {
     # material is a ``gltf.Material``, never a parallel type.
     ("objimport.py", "realmspinner.kernels.geom3d"),
     ("ops.py", "realmspinner.kernels.geom3d"),
-    # Added deliberately on 2026-09-06 (the audit's clay-08): grounding a
-    # figure preset has to know where its *built* geometry ends, not just
-    # where its bone landmark sits, so ``presets.build`` places each part
-    # through ``math3d.compose`` the same way ``drag.py``, ``ops.py``
-    # and ``document.py`` already do -- one quaternion convention, not a
-    # second one invented for this file.
-    ("presets.py", "realmspinner.kernels.geom3d"),
-    # analyze.py composes each object's world transform the same way
-    # ops.py/document.py/presets.py already do, via ``math3d.compose`` --
-    # not a second quaternion convention for a module that otherwise never
-    # touches the viewport.
-    ("analyze.py", "realmspinner.kernels.geom3d"),
     # serialize.py writes a material override straight out as a
     # ``gltf.Material`` -- the same "the export is the definition" reasoning
     # as the rest of this list, for the one file that also reaches
     # ``core.safeio`` above.
     ("serialize.py", "realmspinner.kernels.geom3d"),
-    # Clay tranche 2, the modifier stack: radial-array spins each copy about
-    # the object's own local origin, the same ``math3d.compose``/
-    # ``quat_from_axis_angle`` pair ``ops.py``'s ``rotated_about_origin``
-    # already reaches for -- one quaternion convention, not a second one for
-    # a modifier that happens to rotate too.
-    ("ops_modifiers.py", "realmspinner.kernels.geom3d"),
-    # Clay tranche 3, scene structure: readiness's ``scale``/``pivot``/
-    # ``transforms`` checks measure a document's *world* placement, not local
-    # TRS (a parented object's own fields are relative to its parent, not
-    # what an engine importing the document sees) -- so ``validate`` decomposes
-    # ``doc.world_matrix`` onto a duck-typed copy of each object before any
-    # check runs, the same ``math3d.compose``/``decompose`` pair ``ops.py``,
-    # ``document.py`` and ``analyze.py`` already reach for.
-    ("readiness.py", "realmspinner.kernels.geom3d"),
+    # legacy.py is the migration-only home of the old modifier kernels
+    # (radial-array and mirror spin each copy through ``math3d.compose``,
+    # the one quaternion convention ``ops.py`` already uses); only
+    # ``serialize`` may import it, so a version-3 file still opens.
+    ("legacy.py", "realmspinner.kernels.geom3d"),
 }
 
 #: Which modules of ``kernels.geom3d``, since the entry above is recorded at
@@ -136,11 +115,10 @@ BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 #: reason wearing different clothes: it is reached for by exactly one function
 #: in ``ops_boolean``, it drags a CSG kernel behind it, and this package is
 #: imported to answer questions about what an extrude does to a UV.
-#: ``scipy`` joins the other two on the same rule, for ``analyze.py``:
-#: ``cKDTree`` and ``csgraph.connected_components`` are reached for by a
-#: handful of functions in one module, and a top-level import would put a
-#: whole second numerics stack behind every other Clay module that imports
-#: this package for an unrelated question.
+#: ``scipy`` joins the other two on the same rule: ``cKDTree`` and
+#: ``csgraph.connected_components`` are reached for by a handful of functions,
+#: and a top-level import would put a whole second numerics stack behind every
+#: other Clay module that imports this package for an unrelated question.
 LAZY_ONLY = {"PIL", "trimesh", "manifold3d", "scipy"}
 
 

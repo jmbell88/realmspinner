@@ -314,7 +314,6 @@ def test_a_picker_drag_over_a_free_colour_opens_no_gesture(monkeypatch, frames):
         # visible label moved to a field_label line above), so the anchor
         # strings below matched the fix, not the pre-fix source.
         (clay_props._material, '"##base colour##bm"', "doc.set_material("),
-        (clay_props._material, '"##metallic##bm"', "doc.set_material("),
         (plotter_layers._layer_table, '"##layer-opacity"', "doc.set_layer_props("),
         (plotter_layers._layer_table, '"##layer-tint"', "doc.set_layer_props("),
         (plotter_layers._object_fields, '"##obj-opacity"', "doc.set_object("),
@@ -342,7 +341,6 @@ def test_a_picker_drag_over_a_free_colour_opens_no_gesture(monkeypatch, frames):
         "cel-z",
         "palette-slot",
         "clay-base-colour",
-        "clay-metallic",
         "layer-opacity",
         "layer-tint",
         "object-opacity",

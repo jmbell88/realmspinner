@@ -47,7 +47,7 @@ import numpy as np
 
 from ..geom3d import gltf
 from . import topo
-from .document import ClayDoc, Obj, default_material, new_uid
+from .document import ClayDoc, Obj, default_material, new_uid, reduce_material
 from .elements import OpError
 from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
 
@@ -384,7 +384,7 @@ def obj_to_claydoc(
         key = " ".join(mat_name.split()) if mat_name else ""
         if key not in palette:
             palette[key] = len(materials)
-            materials.append(_material_from_mtl(key, mtl_materials.get(key)))
+            materials.append(reduce_material(_material_from_mtl(key, mtl_materials.get(key))))
         return palette[key]
 
     positions_all: list[list[float]] = []

@@ -3,10 +3,10 @@
 Four claims are pinned here, each stated in that module's own docstring.
 
 **The bidirectional derivation gate.** ``tools()`` builds its enums from
-``primitives.GENERATORS``, ``presets.ASSEMBLIES`` and ``clay_ops.OPS`` rather
+``primitives.CLAY_GENERATOR_NAMES`` and ``clay_ops.OPS`` rather
 than naming shapes and ops by hand -- the whole point being that a thirteenth
 primitive needs no edit here. A same-membership assertion only proves today's
-three lists agree; it says nothing about *tomorrow's* fourth generator finding
+lists agree; it says nothing about *tomorrow's* fourth generator finding
 its way in with nobody touching this file. So each pair is pinned twice: once
 as a set equality (today's registry vs. today's enum) and once as a live gate
 -- monkeypatch a new entry into the registry and assert it shows up in
@@ -43,8 +43,8 @@ image_png(...))``) both build their result directly rather than through
 structurally rather than as a name or a count, and pinned exhaustively --
 walking every entry in ``_HANDLERS`` rather than a hand-kept subset -- by
 ``test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_picture``.
-Five tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh``,
-``clay_diagnose`` and ``clay_analyze`` -- also declare an ``outputSchema``
+Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_add_mesh`` --
+also declare an ``outputSchema``
 describing that shape, and none declares
 ``required`` or ``additionalProperties: false``, because a refusal shares
 the same result envelope and its ``structuredContent`` is whatever
@@ -118,10 +118,8 @@ from PIL import Image
 
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.mesh import document as bd
-from realmspinner.kernels.mesh import modifiers as clay_modifiers
-from realmspinner.kernels.mesh import ops_clean as oc
-from realmspinner.kernels.mesh import presets, serialize
 from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh import serialize
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
@@ -269,13 +267,7 @@ def _install_fake_view(
 def test_every_generator_key_is_a_clay_add_primitive_enum_option_and_vice_versa() -> None:
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_add_primitive"].schema["properties"]["generator"]["enum"])
-    assert enum == set(bp.GENERATORS)
-
-
-def test_every_assembly_key_is_a_clay_add_figure_enum_option_and_vice_versa() -> None:
-    tools = {t.name: t for t in agent_clay.tools()}
-    enum = set(tools["clay_add_figure"].schema["properties"]["key"]["enum"])
-    assert enum == set(presets.ASSEMBLIES)
+    assert enum == set(bp.CLAY_GENERATOR_NAMES)
 
 
 def test_every_op_name_is_a_clay_op_enum_option_and_vice_versa() -> None:
@@ -285,14 +277,21 @@ def test_every_op_name_is_a_clay_op_enum_option_and_vice_versa() -> None:
 
 
 def test_the_placement_ops_reach_the_clay_op_enum() -> None:
-    """align/distribute/drop-to-ground/snap-to-grid are ``clay_ops`` rows like
-    any other, so the bidirectional gate above already covers them -- this
-    names the four directly so an agent-visible regression (one dropped from
-    the registry, or renamed) fails here rather than only as a shrinking set
-    the test above would not explain."""
+    """drop-to-ground/snap-to-grid are ``clay_ops`` rows like any other, so
+    the bidirectional gate above already covers them -- this names the two
+    directly so an agent-visible regression (one dropped from the registry,
+    or renamed) fails here rather than only as a shrinking set the test above
+    would not explain."""
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_op"].schema["properties"]["name"]["enum"])
-    assert {"align", "distribute", "drop-to-ground", "snap-to-grid"} <= enum
+    assert {"drop-to-ground", "snap-to-grid"} <= enum
+
+
+def _offer_generator(monkeypatch: pytest.MonkeyPatch, name: str, entry: tuple) -> None:
+    """Register *entry* in ``GENERATORS`` and put *name* on Clay's own shortlist
+    (``CLAY_GENERATOR_NAMES``, which the agent surface reads at call time)."""
+    monkeypatch.setitem(bp.GENERATORS, name, entry)
+    monkeypatch.setattr(bp, "CLAY_GENERATOR_NAMES", bp.CLAY_GENERATOR_NAMES | {name})
 
 
 def test_a_thirteenth_generator_reaches_the_agent_surface_with_no_edit_here(
@@ -305,164 +304,10 @@ def test_a_thirteenth_generator_reaches_the_agent_surface_with_no_edit_here(
     hand, and this is why: a hand-restore that a later assertion failure
     skipped would leave a fake generator live for every test after this one.
     """
-    monkeypatch.setitem(bp.GENERATORS, "thirteenth_shape", ({"size": 1.0}, bp.box))
+    _offer_generator(monkeypatch, "thirteenth_shape", ({"size": 1.0}, bp.box))
     tools = {t.name: t for t in agent_clay.tools()}
     enum = tools["clay_add_primitive"].schema["properties"]["generator"]["enum"]
     assert "thirteenth_shape" in enum
-
-
-def test_a_ninth_figure_reaches_the_agent_surface_with_no_edit_here(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setitem(presets.ASSEMBLIES, "ninth_figure", ("Ninth", lambda: ()))
-    tools = {t.name: t for t in agent_clay.tools()}
-    assert "ninth_figure" in tools["clay_add_figure"].schema["properties"]["key"]["enum"]
-
-
-def test_clay_add_figure_description_names_every_part_of_every_figure() -> None:
-    """Run A of the Clay-assistant fine-tune (2026-09-12) refused 15 calls
-    with ``no object named '...'``, nine of them a creatures-family guess at
-    a generated figure's own part names (``hound_Beak``, ``t_Shank.R``,
-    ``s_Tail 01``) -- nothing in ``clay_add_figure``'s description told the
-    model what :func:`presets.build` actually calls a figure's parts.
-
-    Fails against the unfixed code: the old description ends at
-    ``name_prefix``'s collision rule and names no part of any figure.
-    """
-    tools = {t.name: t for t in agent_clay.tools()}
-    description = tools["clay_add_figure"].description
-    for key in sorted(presets.ASSEMBLIES):
-        for part in presets.build(key):
-            assert part.name in description, f"{key}'s part {part.name!r} is missing"
-
-
-# --- an array-of-arrays param, lathe's own shape -----------------------------
-
-
-def test_a_profile_param_survives_the_whole_agent_door() -> None:
-    """``lathe``'s ``profile`` -- an array of ``[radius, y]`` pairs -- makes
-    the same round trip a flat vector like a box's ``size`` already does:
-    placed through ``clay_add_primitive``, read back unchanged through
-    ``clay_scene``, and changed through ``clay_set_params``.
-
-    Fails today: the old ``_validate_number_or_vec``'s flat-array branch
-    calls ``float(v)`` on each *row* of the profile, and a row is itself a
-    list -- ``float([0.0, -0.5])`` raises ``TypeError``, caught by that
-    branch's own ``except`` and turned into a clean but wrong refusal,
-    ``"params must be a number or an array of numbers."``, before a single
-    vertex is placed.
-    """
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    profile = [[0.0, -0.5], [0.3, 0.0], [0.3, 0.5]]
-    result = agent_clay.call(
-        ctx,
-        session,
-        "clay_add_primitive",
-        {"generator": "lathe", "params": {"profile": profile}},
-    )
-    assert result["isError"] is False, result
-    row = _payload(result)
-    uid = row["uid"]
-    assert row["params"]["profile"] == profile
-
-    scene = agent_clay.call(ctx, session, "clay_scene", {})
-    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
-    assert scene_row["params"]["profile"] == profile
-
-    new_profile = [[0.0, -0.5], [0.4, 0.0], [0.1, 0.5]]
-    changed = agent_clay.call(
-        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile": new_profile}}
-    )
-    assert changed["isError"] is False, changed
-    scene = agent_clay.call(ctx, session, "clay_scene", {})
-    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
-    assert scene_row["params"]["profile"] == new_profile
-
-
-def test_a_tubes_path_survives_the_whole_agent_door() -> None:
-    """``tube``'s ``path`` -- an array of ``[x, y, z]`` triples -- is the
-    second real generator parameter of this shape, after ``lathe``'s
-    ``profile``, and the claim this module's own docstring makes about that
-    widening (``_validate_number_or_vec``/``_params_value_schema`` went
-    generic for *any* array-of-arrays param, not one hand-listed for
-    ``lathe``) is that ``tube`` needed no further edit here to reach the
-    same door. Placed through ``clay_add_primitive``, read back unchanged
-    through ``clay_scene``, and changed through ``clay_set_params`` -- the
-    same three steps
-    :func:`test_a_profile_param_survives_the_whole_agent_door` proves for
-    ``lathe``.
-    """
-    # Already centred on its own bounding box on all three axes -- the same
-    # care ``test_a_profile_param_survives_the_whole_agent_door``'s profile
-    # takes -- so a round trip through ``_clamp_path`` changes nothing here
-    # and the claim is about the door, not about the clamp.
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    path = [[-0.3, -0.1, -0.05], [0.0, 0.05, 0.02], [0.3, 0.1, 0.05]]
-    result = agent_clay.call(
-        ctx,
-        session,
-        "clay_add_primitive",
-        {"generator": "tube", "params": {"path": path}},
-    )
-    assert result["isError"] is False, result
-    row = _payload(result)
-    uid = row["uid"]
-    assert row["params"]["path"] == path
-
-    scene = agent_clay.call(ctx, session, "clay_scene", {})
-    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
-    assert scene_row["params"]["path"] == path
-
-    new_path = [[-0.3, -0.1, -0.05], [0.1, -0.05, 0.03], [0.3, 0.1, 0.05]]
-    changed = agent_clay.call(
-        ctx, session, "clay_set_params", {"uid": uid, "params": {"path": new_path}}
-    )
-    assert changed["isError"] is False, changed
-    scene = agent_clay.call(ctx, session, "clay_scene", {})
-    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
-    assert scene_row["params"]["path"] == new_path
-
-
-def test_an_array_of_arrays_param_survives_the_agent_door_for_any_generator(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The claim is about the door, not about ``lathe`` specifically -- a
-    fake generator whose only parameter is an array of arrays, monkeypatched
-    into the registry exactly the way
-    ``test_a_thirteenth_generator_reaches_the_agent_surface_with_no_edit_here``
-    does it, reaches ``clay_add_primitive``, ``clay_scene`` and
-    ``clay_set_params`` with nothing here naming ``lathe`` at all.
-    """
-
-    def fake_builder(rows: Any = ((1.0, 2.0), (3.0, 4.0))) -> bp.Mesh:
-        del rows
-        return bp.box(size=(1.0, 1.0, 1.0))
-
-    monkeypatch.setitem(
-        bp.GENERATORS, "fake_rows", ({"rows": ((1.0, 2.0), (3.0, 4.0))}, fake_builder)
-    )
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    rows = [[5.0, 6.0], [7.0, 8.0], [9.0, 10.0]]
-    result = agent_clay.call(
-        ctx, session, "clay_add_primitive", {"generator": "fake_rows", "params": {"rows": rows}}
-    )
-    assert result["isError"] is False, result
-    row = _payload(result)
-    uid = row["uid"]
-    assert row["params"]["rows"] == rows
-
-    scene = agent_clay.call(ctx, session, "clay_scene", {})
-    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
-    assert scene_row["params"]["rows"] == rows
-
-    new_rows = [[1.0, 1.0]]
-    changed = agent_clay.call(
-        ctx, session, "clay_set_params", {"uid": uid, "params": {"rows": new_rows}}
-    )
-    assert changed["isError"] is False, changed
 
 
 def test_every_element_mode_is_a_clay_element_mode_enum_option_and_vice_versa() -> None:
@@ -484,7 +329,7 @@ def test_every_query_name_is_a_clay_select_by_enum_option_and_vice_versa() -> No
 def test_a_seventh_query_reaches_the_agent_surface_with_no_edit_here(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The same live-gate shape as the thirteenth-generator and ninth-figure
+    """The same live-gate shape as the thirteenth-generator
     tests above, for the fourth derived registry: monkeypatch a new entry
     into ``select.QUERIES``, restored automatically, and assert it shows up
     in ``clay_select_by``'s own enum with no code here touched at all."""
@@ -513,31 +358,6 @@ def test_every_query_argument_name_has_a_schema_fragment_and_vice_versa() -> Non
 
     all_args = {a for q in clay_select_mod.QUERIES.values() for a in q.args}
     assert all_args == set(agent_clay._QUERY_ARG_SCHEMAS)
-
-
-def test_every_modifier_kind_is_a_clay_modifier_add_enum_option_and_vice_versa() -> None:
-    tools = {t.name: t for t in agent_clay.tools()}
-    enum = set(tools["clay_modifier_add"].schema["properties"]["kind"]["enum"])
-    assert enum == set(clay_modifiers.MODIFIERS)
-
-
-def test_an_eleventh_modifier_kind_reaches_the_agent_surface_with_no_edit_here(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The live-gate half of the derivation claim, the same shape
-    ``test_a_thirteenth_generator_reaches_the_agent_surface_with_no_edit_here``
-    and its siblings already prove for their own registries: monkeypatch a
-    new entry into ``modifiers.MODIFIERS``, restored automatically, and
-    assert it shows up in ``clay_modifier_add``'s own enum with no code here
-    touched at all."""
-    from dataclasses import replace
-
-    existing = clay_modifiers.MODIFIERS["weld"]
-    fake = replace(existing, name="eleventh_kind")
-    monkeypatch.setitem(clay_modifiers.MODIFIERS, "eleventh_kind", fake)
-    tools = {t.name: t for t in agent_clay.tools()}
-    enum = tools["clay_modifier_add"].schema["properties"]["kind"]["enum"]
-    assert "eleventh_kind" in enum
 
 
 def test_every_tool_not_excluded_from_batching_is_in_the_batch_name_enum() -> None:
@@ -661,8 +481,8 @@ def test_a_batch_refuses_at_the_entry_with_a_bad_argument_and_keeps_what_ran() -
 # --- the blast-radius claim ---------------------------------------------------
 
 # One call per tool, with just enough arguments to pass whatever this handler
-# validates *before* it resolves the session's tab -- ``clay_add_primitive``,
-# ``clay_add_figure`` and ``clay_batch`` check their own arguments first,
+# validates *before* it resolves the session's tab -- ``clay_add_primitive``
+# and ``clay_batch`` check their own arguments first,
 # every other handler here calls ``_tab`` before touching ``args`` at all.
 # See ``studio/modes/clay/agent/dispatch.py``'s source for that ordering; getting it backwards here
 # would test argument validation instead of the blast-radius gate.
@@ -670,13 +490,7 @@ _NEEDS_A_TAB = [
     ("clay_scene", {}),
     ("clay_transform", {}),
     ("clay_set_params", {}),
-    ("clay_modifier_add", {}),
-    ("clay_modifier_set", {}),
-    ("clay_modifier_remove", {}),
-    ("clay_modifier_move", {}),
-    ("clay_modifier_apply", {}),
     ("clay_material", {}),
-    ("clay_boolean", {}),
     ("clay_select", {}),
     ("clay_element_mode", {}),
     ("clay_select_elements", {}),
@@ -684,9 +498,6 @@ _NEEDS_A_TAB = [
     ("clay_elements", {}),
     ("clay_op", {}),
     ("clay_render", {}),
-    ("clay_diagnose", {}),
-    ("clay_analyze", {}),
-    ("clay_validate", {}),
     ("clay_export", {}),
     ("clay_undo", {}),
     ("clay_redo", {}),
@@ -695,8 +506,6 @@ _NEEDS_A_TAB = [
     ("clay_parent", {}),
     ("clay_group", {}),
     ("clay_ungroup", {}),
-    ("clay_lock", {}),
-    ("clay_tag", {}),
     ("clay_separate", {}),
     ("clay_set_origin", {}),
     ("clay_measure", {}),
@@ -704,7 +513,6 @@ _NEEDS_A_TAB = [
     ("clay_restore", {}),
     ("clay_batch", {"calls": [{"name": "clay_scene", "arguments": {}}]}),
     ("clay_uv", {}),
-    ("clay_collider", {}),
 ]
 
 # The four reference tools hold no document at all -- requiring one in order
@@ -732,8 +540,8 @@ _TETRA_MESH_ARGS = {
     "faces": [[0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]],
 }
 
-# The three tools that can start a document from nothing, and are therefore
-# the three that a *dead* pin must not refuse: the refusal every other tool
+# The tools that can start a document from nothing, and are therefore
+# the ones that a *dead* pin must not refuse: the refusal every other tool
 # gives names these as the way out, and while they refused too that sentence
 # was impossible to follow, which bricked the session for the rest of the
 # connection. They mint rather than substitute -- what arrives is a new empty
@@ -741,7 +549,6 @@ _TETRA_MESH_ARGS = {
 # above gates is unchanged. See ``_tab``'s own comment.
 _MINTS_A_TAB = [
     ("clay_add_primitive", {"generator": "box"}),
-    ("clay_add_figure", {"key": sorted(presets.ASSEMBLIES)[0]}),
     ("clay_add_mesh", _TETRA_MESH_ARGS),
 ]
 
@@ -1014,55 +821,6 @@ def test_material_is_one_undo_step_however_many_objects_it_paints() -> None:
     assert tab.doc.undo()
 
 
-def test_clay_material_reports_changed_false_even_though_a_material_was_added_and_an_earlier_uid_repainted_when_a_later_named_uid_is_locked() -> None:  # noqa: E501
-    """The 2026-09-20 audit's clay-10. This handler used to run straight
-    into ``add_material``/``_repaint`` for every named uid in order -- so
-    with the locked uid named *second*, ``add_material`` genuinely appended
-    a palette entry and ``_repaint`` genuinely repainted the first
-    (eligible) uid before its own ``set_mesh`` hit ``document``'s locked
-    refusal on the second uid. That raised ``OpError`` past this handler
-    into ``call()``'s generic ``except OpError``, whose ``fail()`` defaults
-    ``changed`` to ``False`` -- a reply claiming nothing moved while a
-    material had been added and an object repainted. Every named uid's lock
-    state is now resolved and refused before either mutation runs, the same
-    pre-check ``_h_delete`` already applies before removing anything.
-    """
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid_free = _new_agent_tab(ctx, session, "box")
-    uid_locked = _payload(
-        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    )["uid"]
-    locked_result = agent_clay.call(
-        ctx, session, "clay_lock", {"uids": [uid_locked], "locked": True}
-    )
-    assert locked_result["isError"] is False, locked_result
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    before_material = {u: tab.doc.by_uid(u).material for u in (uid_free, uid_locked)}
-    before_mesh = {u: tab.doc.by_uid(u).mesh for u in (uid_free, uid_locked)}
-    palette_len_before = len(tab.doc.materials)
-    history_before = _history_len(ctx, session)
-
-    # The locked uid named *second* is the shape that used to let
-    # ``_repaint`` paint ``uid_free`` for real before ever reaching
-    # ``uid_locked``.
-    result = agent_clay.call(
-        ctx, session, "clay_material", {"uids": [uid_free, uid_locked], "color": [1.0, 0.0, 0.0]}
-    )
-    assert result["isError"] is True
-    structured = result.get("structuredContent") or {}
-    assert structured.get("changed") is False
-
-    # All-or-nothing: no material appended to the palette, and neither
-    # object's material slot or mesh moved.
-    assert len(tab.doc.materials) == palette_len_before
-    for u in (uid_free, uid_locked):
-        assert tab.doc.by_uid(u).material == before_material[u]
-        assert tab.doc.by_uid(u).mesh is before_mesh[u]
-    assert _history_len(ctx, session) == history_before
-
-
 def test_transform_is_one_undo_step_and_undo_reverts_it_completely() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -1079,90 +837,6 @@ def test_transform_is_one_undo_step_and_undo_reverts_it_completely() -> None:
     assert list(tab.doc.by_uid(uid).translation) == pytest.approx([1.0, 2.0, 3.0])
     assert tab.doc.undo()
     assert list(tab.doc.by_uid(uid).translation) == pytest.approx([0.0, 0.0, 0.0])
-
-
-def test_boolean_is_one_undo_step_and_undo_reverts_it_completely() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    uid2 = _payload(added)["uid"]
-    before = _history_len(ctx, session)
-
-    result = agent_clay.call(
-        ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1, uid2]}
-    )
-    assert result["isError"] is False, result
-    assert _history_len(ctx, session) == before + 1
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    assert len(tab.doc.objects) == 1
-    assert tab.doc.undo()
-    assert len(tab.doc.objects) == 2
-
-
-def test_a_refused_boolean_leaves_the_selection_it_found() -> None:
-    """A boolean that names too few visible objects refuses -- and must leave
-    the person's own selection exactly as it was.
-
-    It used to write ``doc.select(wanted)`` *before* the "at least two"
-    count check, because re-reading the selection back was how it got the
-    document's own object order for picking the survivor. So a refused call
-    still overwrote whatever the human at the keyboard had selected, from a
-    call that changed nothing else and reported a refusal. The order is now
-    derived by walking ``doc.objects`` instead, which writes nothing -- and
-    that is what lets the refusal report ``changed: false`` honestly rather
-    than owning up to a mutation it had no reason to make.
-    """
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    uid2 = _payload(added)["uid"]
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    tab.doc.select([uid1, uid2])
-    before = set(tab.doc.selection)
-    history_before = _history_len(ctx, session)
-
-    # One visible object named, where a boolean needs two.
-    result = agent_clay.call(ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1]})
-
-    assert result["isError"] is True
-    structured = result.get("structuredContent") or {}
-    assert structured.get("changed") is False
-    assert set(tab.doc.selection) == before  # the selection it found, untouched
-    assert _history_len(ctx, session) == history_before
-
-
-def test_clay_boolean_names_field_uids_when_a_target_or_absorbed_object_is_locked() -> None:
-    """The 2026-09-22 audit, finding clay-22: a locked target or absorbed
-    object already refuses the merge with no partial mutation --
-    ``document.join_objects`` checks every uid before touching anything --
-    but before this fix the ``OpError`` it raised reached ``call()``'s
-    generic backstop uncaught, which carries no ``field``/``uids``, unlike
-    ``_h_delete``/``_h_material``/``_h_set_params``. Pre-checked in
-    ``_h_boolean`` now, the same shape as its own material-assign lock
-    check just above it."""
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    uid2 = _payload(added)["uid"]
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    tab.doc.by_uid(uid2).locked = True
-    history_before = _history_len(ctx, session)
-
-    result = agent_clay.call(
-        ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1, uid2]}
-    )
-
-    assert result["isError"] is True
-    structured = result.get("structuredContent") or {}
-    assert structured.get("field") == "uids", structured
-    assert uid2 in (structured.get("uids") or [])
-    assert _history_len(ctx, session) == history_before, "no partial mutation"
 
 
 # --- clamping is reported, never silent ---------------------------------------
@@ -1323,53 +997,6 @@ def test_clay_set_params_frozen_object_among_several_refuses_and_names_it() -> N
     assert str(uid_frozen) in result["content"][0]["text"]
 
     for u in (uid_normal, uid_frozen):
-        assert tab.doc.by_uid(u).mesh is before[u]
-    assert _history_len(ctx, session) == history_before
-
-
-def test_clay_set_params_reports_changed_false_even_though_an_earlier_uid_was_already_rebuilt_when_a_later_named_uid_is_locked() -> None:  # noqa: E501
-    """The 2026-09-20 audit's clay-09. Pass 1 already refused a frozen
-    object or an unknown params key for every named uid before pass 2
-    touched anything, but never checked ``locked`` -- so with the locked
-    uid named *second*, pass 2 rebuilt the first (eligible) uid for real,
-    then hit ``document.set_generator_params``'s own locked refusal on the
-    second uid. That raised ``OpError`` past this handler into ``call()``'s
-    generic ``except OpError``, whose ``fail()`` defaults ``changed`` to
-    ``False`` -- a reply claiming nothing moved while the first uid's
-    rebuild had already been pushed onto history. ``_h_delete`` already
-    resolves every named uid's lock state and refuses before touching any
-    of them; pass 1 here now does the same before pass 2 runs at all.
-    """
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid_free = _new_agent_tab(ctx, session, "box")
-    uid_locked = _payload(
-        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    )["uid"]
-    locked_result = agent_clay.call(
-        ctx, session, "clay_lock", {"uids": [uid_locked], "locked": True}
-    )
-    assert locked_result["isError"] is False, locked_result
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    before = {u: tab.doc.by_uid(u).mesh for u in (uid_free, uid_locked)}
-    history_before = _history_len(ctx, session)
-
-    # The locked uid named *second* is the shape that used to let pass 2
-    # rebuild ``uid_free`` for real before ever reaching ``uid_locked``.
-    result = agent_clay.call(
-        ctx,
-        session,
-        "clay_set_params",
-        {"uids": [uid_free, uid_locked], "params": {"size": [2.0, 1.0, 1.0]}},
-    )
-    assert result["isError"] is True
-    structured = result.get("structuredContent") or {}
-    assert structured.get("changed") is False
-
-    # All-or-nothing: neither object's mesh moved, and nothing was pushed
-    # onto history -- the same shape the frozen-object case above proves.
-    for u in (uid_free, uid_locked):
         assert tab.doc.by_uid(u).mesh is before[u]
     assert _history_len(ctx, session) == history_before
 
@@ -1593,29 +1220,29 @@ def test_clay_set_params_refuses_a_non_finite_value_rather_than_baking_it_into_p
 
 
 def test_a_bad_params_value_names_which_param_is_bad() -> None:
-    """A lathe has two numeric-shaped params -- ``profile`` (array of
-    arrays) and ``segments`` (a plain number) -- so a NaN in one beside a
-    good value in the other is exactly the case that used to come back as
-    the bare ``"params must be finite numbers."``: true, but silent about
-    which of the two keys was wrong, leaving an agent that cannot see its
-    own document to guess. ``field`` must still be the top-level ``"params"``
+    """A cylinder has several numeric params -- ``radius`` and ``segments``
+    among them -- so a NaN in one beside a good value in the other is exactly
+    the case that used to come back as the bare ``"params must be finite
+    numbers."``: true, but silent about which of the two keys was wrong,
+    leaving an agent that cannot see its own document to guess. ``field``
+    must still be the top-level ``"params"``
     (``tests/test_agent_schemas.py``'s ``_run_case`` walks only
     ``case.path[0]``); only the message may name the bad key.
     """
     ctx = _Ctx()
     session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "lathe")
+    uid = _new_agent_tab(ctx, session, "cylinder")
 
     result = agent_clay.call(
         ctx,
         session,
         "clay_set_params",
-        {"uid": uid, "params": {"segments": 8, "profile": [[1.0, float("nan")]]}},
+        {"uid": uid, "params": {"segments": 8, "radius": float("nan")}},
     )
     assert result["isError"] is True
     assert result["structuredContent"]["field"] == "params"
     message = result["content"][0]["text"]
-    assert "profile" in message
+    assert "radius" in message
     assert "segments" not in message
 
 
@@ -1627,7 +1254,7 @@ def test_two_bad_params_are_both_named_in_one_refusal() -> None:
     """
     ctx = _Ctx()
     session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "lathe")
+    uid = _new_agent_tab(ctx, session, "cylinder")
 
     result = agent_clay.call(
         ctx,
@@ -1635,13 +1262,13 @@ def test_two_bad_params_are_both_named_in_one_refusal() -> None:
         "clay_set_params",
         {
             "uid": uid,
-            "params": {"segments": float("inf"), "profile": [[1.0, float("nan")]]},
+            "params": {"segments": float("inf"), "radius": float("nan")},
         },
     )
     assert result["isError"] is True
     assert result["structuredContent"]["field"] == "params"
     message = result["content"][0]["text"]
-    assert "profile" in message
+    assert "radius" in message
     assert "segments" in message
 
 
@@ -1657,14 +1284,14 @@ def test_clay_add_primitive_also_names_which_param_is_bad() -> None:
         session,
         "clay_add_primitive",
         {
-            "generator": "lathe",
-            "params": {"segments": 8, "profile": [[1.0, float("nan")]]},
+            "generator": "cylinder",
+            "params": {"segments": 8, "radius": float("nan")},
         },
     )
     assert result["isError"] is True
     assert result["structuredContent"]["field"] == "params"
     message = result["content"][0]["text"]
-    assert "profile" in message
+    assert "radius" in message
     assert "segments" not in message
 
 
@@ -1779,7 +1406,7 @@ def test_the_instructions_state_metres_y_up_ground_at_zero_and_the_half_height_r
 def test_the_instructions_name_every_generator_the_registry_holds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setitem(bp.GENERATORS, "thirteenth_shape", ({"size": 1.0}, bp.box))
+    _offer_generator(monkeypatch, "thirteenth_shape", ({"size": 1.0}, bp.box))
     assert "thirteenth_shape" in agent_clay.instructions()
 
 
@@ -1882,82 +1509,6 @@ def test_clay_scene_is_refused_rather_than_oversized_past_max_frame(
     assert result["isError"] is True
 
 
-def test_clay_diagnose_whole_document_is_refused_rather_than_oversized_past_max_frame(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Regression, the 2026-09-18 audit's agents-03: the same missing check
-    as ``clay_scene``'s, in whole-document ``clay_diagnose`` (no ``uid``),
-    whose reply also grows with the document's own object count. Fails
-    against the unfixed ``_h_diagnose``, which never checks ``MAX_FRAME`` at
-    all and would answer ``isError: False`` here."""
-    from realmspinner.mcp import rpc
-
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    _new_agent_tab(ctx, session, "box")
-    monkeypatch.setattr(rpc, "MAX_FRAME", 10)
-
-    result = agent_clay.call(ctx, session, "clay_diagnose", {})
-    assert result["isError"] is True
-
-
-def test_clay_diagnose_reports_a_skip_for_one_oversized_object_without_losing_the_rest(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 2026-09-19 audit's clay-39: once `ops_clean.survey`/
-    `face_defect_masks` carry `MAX_CLEAN_CORNERS`, a whole-document
-    `clay_diagnose` call (no `uid`) must not let one oversized object's
-    `OpError` refuse the *entire* call -- every other, legally-sized object
-    in the same document would lose its findings too. Fails against the
-    unfixed `_h_diagnose`, which has no try/except around
-    `clay_diagnose.findings` in its per-object loop at all: the monkeypatched
-    refusal propagates out of the loop, out of `_h_diagnose`, and is only
-    caught by `call()`'s own generic `OpError` handler -- refusing the whole
-    call (`isError: True`) rather than reporting the small object's own
-    clean, real answer."""
-    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 100)  # a box clears it; a uv_sphere does not
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    add2 = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "uv_sphere"})
-    uid2 = _payload(add2)["uid"]
-
-    result = agent_clay.call(ctx, session, "clay_diagnose", {})
-    assert result["isError"] is False, result
-    rows = {row["uid"]: row for row in _payload(result)["objects"]}
-    assert {uid1, uid2} == set(rows)
-    assert rows[uid1]["clean"] is True
-    assert not any(f["kind"] == "too_large_to_check" for f in rows[uid1]["findings"])
-    assert any(f["kind"] == "too_large_to_check" for f in rows[uid2]["findings"])
-
-
-def test_clay_add_mesh_still_places_the_object_when_the_diagnose_step_is_too_large_to_check(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 2026-09-19 audit's clay-39: `_h_add_mesh` calls
-    `clay_diagnose.findings` purely to summarise the mesh it just placed --
-    by the time that runs, `doc.add_object` has already committed. Letting
-    the `OpError` reach `call()`'s own generic catch would report the whole
-    `clay_add_mesh` call a refusal even though the object is sitting in the
-    document, which would fool an agent into re-adding it. Fails against the
-    unfixed `_h_add_mesh`, which has no try/except around that call at all --
-    the monkeypatched refusal propagates out of the handler and `call()`
-    turns it into `isError: True`, with no `uid` in the reply to say the
-    object exists."""
-    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
-    ctx = _Ctx()
-    session = agent_clay.Session()
-
-    result = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
-    assert result["isError"] is False, result
-    payload = _payload(result)
-    assert payload["closed"] is False
-    assert any(f["kind"] == "too_large_to_check" for f in payload["findings"])
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    assert tab.doc.by_uid(payload["uid"]) is not None, "the object must still have been placed"
-
-
 # ==============================================================================
 # B3 -- place in one call
 # ==============================================================================
@@ -2029,40 +1580,6 @@ def test_add_primitive_returns_the_row_clay_scene_would_have_shown() -> None:
     assert added_row == scene_row
 
 
-def test_add_figure_yaw_rotates_part_positions_about_the_group_origin_not_each_part_in_place(
-) -> None:
-    plain = agent_clay.call(_Ctx(), agent_clay.Session(), "clay_add_figure", {"key": "humanoid"})
-    assert plain["isError"] is False, plain
-    plain_rows = {r["name"]: r for r in _payload(plain)["objects"]}
-
-    yawed = agent_clay.call(
-        _Ctx(), agent_clay.Session(), "clay_add_figure", {"key": "humanoid", "yaw": 90.0}
-    )
-    assert yawed["isError"] is False, yawed
-    yawed_rows = {r["name"]: r for r in _payload(yawed)["objects"]}
-
-    for name, row in plain_rows.items():
-        x, y, z = row["translation"]
-        expected = (z, y, -x)  # R_y(+90 deg): x' = z, y' = y, z' = -x
-        got = yawed_rows[name]["translation"]
-        assert got == pytest.approx(expected, abs=1e-3), name
-
-
-def test_add_figure_scale_multiplies_both_the_offsets_and_the_parts() -> None:
-    plain = agent_clay.call(_Ctx(), agent_clay.Session(), "clay_add_figure", {"key": "humanoid"})
-    plain_rows = {r["name"]: r for r in _payload(plain)["objects"]}
-
-    scaled = agent_clay.call(
-        _Ctx(), agent_clay.Session(), "clay_add_figure", {"key": "humanoid", "scale": 2.0}
-    )
-    scaled_rows = {r["name"]: r for r in _payload(scaled)["objects"]}
-
-    for name, row in plain_rows.items():
-        got = scaled_rows[name]
-        assert got["translation"] == pytest.approx([v * 2.0 for v in row["translation"]], abs=1e-3)
-        assert got["scale"] == pytest.approx([v * 2.0 for v in row["scale"]], abs=1e-3)
-
-
 def test_add_primitive_with_no_optional_arguments_behaves_exactly_as_it_did() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -2081,7 +1598,7 @@ def test_add_primitive_with_no_optional_arguments_behaves_exactly_as_it_did() ->
 # --- clay_add_mesh: geometry an agent hands over directly --------------------
 
 
-def test_a_hand_built_tetrahedron_places_and_reports_itself_closed() -> None:
+def test_a_hand_built_tetrahedron_places_as_four_faces() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
     result = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
@@ -2090,8 +1607,6 @@ def test_a_hand_built_tetrahedron_places_and_reports_itself_closed() -> None:
     assert row["faces"] == 4
     assert row["verts"] == 4
     assert row["generator"] is None
-    assert row["closed"] is True
-    assert row["findings"] == []
 
     tab = clay_mode.ensure(ctx).get(session.tab_uid)
     assert len(tab.doc.history.history()) == 1
@@ -2099,7 +1614,7 @@ def test_a_hand_built_tetrahedron_places_and_reports_itself_closed() -> None:
     assert len(tab.doc.objects) == 0
 
 
-def test_an_open_sheet_places_and_reports_itself_not_closed() -> None:
+def test_an_open_sheet_places_as_one_face() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
     result = agent_clay.call(
@@ -2113,9 +1628,8 @@ def test_an_open_sheet_places_and_reports_itself_not_closed() -> None:
     )
     assert result["isError"] is False, result
     row = _payload(result)
-    assert row["closed"] is False
-    kinds = {f["kind"] for f in row["findings"]}
-    assert "hole" in kinds
+    assert row["faces"] == 1
+    assert row["verts"] == 4
 
 
 def test_a_face_index_past_positions_is_refused_naming_the_face() -> None:
@@ -2357,18 +1871,6 @@ def test_clay_delete_of_several_objects_is_one_undo_step() -> None:
     assert len(tab.doc.history) == before + 1
     assert tab.doc.undo()
     assert len(tab.doc.objects) == 2
-
-
-def test_clay_delete_forgets_the_manifold_cache_entry_of_what_it_removed() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "box")
-    state = clay_mode.ensure(ctx)
-    state.manifold[uid] = (object(), [])
-
-    result = agent_clay.call(ctx, session, "clay_delete", {"uids": [uid]})
-    assert result["isError"] is False, result
-    assert uid not in state.manifold
 
 
 def test_clay_rename_refuses_a_name_another_object_wears_with_field_name() -> None:
@@ -3092,7 +2594,6 @@ def test_the_compiler_never_emits_a_batch_excluded_tool() -> None:
                 {"transform": {"uid": "a", "translation": [1, 0, 0]}},
                 {"params": {"uid": "a", "params": {"size": [2, 2, 2]}}},
                 {"material": {"uids": "a", "color": [1, 0, 0]}},
-                {"boolean": {"kind": "union", "uids": ["a", "b"]}},
                 {"select": {"uids": "a"}},
                 {"delete": {"uids": "a"}},
             ]
@@ -3202,7 +2703,7 @@ def test_an_assert_failure_rolls_back_pushes_no_step_and_names_the_step_path() -
     assert len(tab.doc.objects) == 0
 
 
-def test_a_passing_assert_over_touches_and_grounded_lets_the_program_commit() -> None:
+def test_a_passing_assert_over_size_and_exists_lets_the_program_commit() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
     result = agent_clay.call(
@@ -3211,7 +2712,7 @@ def test_a_passing_assert_over_touches_and_grounded_lets_the_program_commit() ->
             "steps": [
                 {"add": {"generator": "box", "id": "a", "translation": [0.0, 0.5, 0.0]}},
                 {"add": {"generator": "box", "id": "b", "translation": [1.0, 0.5, 0.0]}},
-                {"assert": {"condition": "grounded(a) and touches(a, b)"}},
+                {"assert": {"condition": "size(a, 1) > 0.99 and exists(b)"}},
             ]
         },
     )
@@ -3236,7 +2737,7 @@ def test_a_dry_run_with_live_steps_still_leaves_the_scene_unchanged() -> None:
             "steps": [
                 {"add": {"generator": "box", "id": "c", "translation": [0.0, 0.5, 0.0]}},
                 {"move": {"uid": "c", "by": [1.0, 0.0, 0.0]}},
-                {"assert": {"condition": "grounded(c)"}},
+                {"assert": {"condition": "exists(c)"}},
             ],
             "dry_run": True,
         },
@@ -3310,7 +2811,7 @@ def test_an_unknown_id_inside_assert_is_refused_at_compile_time_with_a_path() ->
             {
                 "steps": [
                     {"add": {"generator": "box", "id": "a"}},
-                    {"assert": {"condition": "touches(a, ghost)"}},
+                    {"assert": {"condition": "size(ghost, 1) > 0"}},
                 ]
             }
         )
@@ -3362,8 +2863,8 @@ def test_clay_op_catalog_describes_a_boolean_param_as_a_boolean():
     x)" -- a bare range is a poor description of a checkbox, and this prose is
     the only thing a model is ever told about an op's arguments."""
     catalogue = _clay_ops_catalog()
-    assert "fit (0.0-1.0, default 1.0)" not in catalogue
-    assert "fit (boolean" in catalogue
+    assert "rotate (0.0-1.0, default 0.0)" not in catalogue
+    assert "rotate (boolean" in catalogue
 
 
 def test_clay_op_catalog_describes_axis_as_a_named_three_way_choice():
@@ -3378,17 +2879,17 @@ def test_clay_op_catalog_describes_axis_as_a_named_three_way_choice():
 def test_clay_catalog_topics_are_a_bidirectional_gate_over_catalog_topics() -> None:
     """The catalogue diet's own bidirectional gate (``dev/CLAY-PLAN.md``
     tranches 6/7's integration brief): ``clay_catalog``'s published ``topic``
-    enum, ``agent_clay_schema.CATALOG_TOPICS``' own keys, and the nine
-    registries each topic actually reads are the same nine names checked
+    enum, ``agent_clay_schema.CATALOG_TOPICS``' own keys, and the four
+    registries each topic actually reads are the same four names checked
     three different ways.
 
     Direction one -- every published topic answers from its own registry,
     with real content that survives a round trip through the tool call
     itself, never merely calling the builder function directly (that alone
     would only prove the function exists, not that ``clay_catalog`` actually
-    reaches it). Direction two -- every one of the nine registries this fold
-    ever grew a tool-description catalogue for has a topic reaching it back,
-    so a tenth registry landing without a topic (or a topic quietly losing
+    reaches it). Direction two -- every one of the four registries this fold
+    still grows a tool-description catalogue for has a topic reaching it back,
+    so a fifth registry landing without a topic (or a topic quietly losing
     its registry) fails here rather than drifting unnoticed the way a
     hand-kept second list always eventually does.
     """
@@ -3396,15 +2897,12 @@ def test_clay_catalog_topics_are_a_bidirectional_gate_over_catalog_topics() -> N
     published_topics = set(tool.schema["properties"]["topic"]["enum"])
     assert published_topics == set(agent_clay_schema.CATALOG_TOPICS)
 
-    # The nine registries this fold's own catalogue functions are built from
-    # -- named once here, as the *other* side of the gate, so a tenth
+    # The four registries this fold's own catalogue functions are built from
+    # -- named once here, as the *other* side of the gate, so a fifth
     # registry's own catalogue function landing with no topic pointed at it
     # is caught by the length/name check below rather than only by whichever
     # tool's description happened to grow.
-    known_registries = {
-        "ops", "primitives", "figures", "queries", "modifiers",
-        "collider_kinds", "validate_profiles", "engines", "uv_actions",
-    }
+    known_registries = {"ops", "primitives", "queries", "uv_actions"}
     assert published_topics == known_registries
 
     ctx = _Ctx()
@@ -3470,22 +2968,6 @@ def test_clay_op_returns_refusal_messages_to_the_agent_instead_of_toasting_the_u
     assert payload["ran"] is False
     assert "could not do the thing" in payload["messages"]
     assert ctx.toasts == []  # the real ctx never saw it
-
-
-def test_clay_op_still_prunes_the_manifold_cache_through_the_proxy() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    uid2 = _payload(agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"}))[
-        "uid"
-    ]
-    state = clay_mode.ensure(ctx)
-    state.manifold[uid2] = (object(), [])
-    agent_clay.call(ctx, session, "clay_select", {"uids": [uid1, uid2]})
-
-    result = agent_clay.call(ctx, session, "clay_op", {"name": "join"})
-    assert result["isError"] is False, result
-    assert uid2 not in state.manifold
 
 
 # ==============================================================================
@@ -4035,8 +3517,8 @@ def test_clay_render_compare_returns_the_picture_even_if_silhouette_measurement_
 def test_clay_op_inset_refuses_until_the_agent_switches_to_face_mode_and_then_runs() -> None:
     """The headline capability this change adds. Before it, nothing in
     ``studio/modes/clay/agent/dispatch.py`` ever called ``doc.set_element_mode`` or
-    ``doc.set_element_sel``, so ``clay_op`` refused ``inset``/``bevel``/
-    ``extrude`` unconditionally, forever -- an agent could place and boolean
+    ``doc.set_element_sel``, so ``clay_op`` refused ``inset``/
+    ``extrude`` unconditionally, forever -- an agent could place
     shapes but could never touch a single face. Fails today at the second
     half: the refusal text matches ``clay_ops.reason_for``, but there is no
     way to reach the run.
@@ -4066,11 +3548,10 @@ def test_clay_op_inset_refuses_until_the_agent_switches_to_face_mode_and_then_ru
 @pytest.mark.parametrize(
     "op_name,mode,select_kwargs",
     [
-        ("bevel", "edge", {"edges": [[0, 1]]}),
         ("extrude", "face", {"faces": [0]}),
     ],
 )
-def test_clay_op_bevel_and_extrude_become_reachable_the_same_way(
+def test_clay_op_extrude_becomes_reachable_the_same_way(
     op_name: str, mode: str, select_kwargs: dict
 ) -> None:
     ctx = _Ctx()
@@ -4145,28 +3626,6 @@ def test_clay_select_elements_refuses_a_vertex_pair_that_is_not_an_edge() -> Non
     assert "[0, 2]" in result["content"][0]["text"]
 
 
-def test_clay_select_by_loop_selects_the_ring_of_edges_a_human_alt_click_would() -> None:
-    """Assert equality with ``select.edge_loop`` called directly, so the tool
-    cannot drift from the verb it wraps."""
-    from realmspinner.kernels.mesh import select as clay_select_mod
-
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "box")
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    mesh = tab.doc.by_uid(uid).mesh
-    expected = clay_select_mod.edge_loop(mesh, (0, 1))
-
-    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "edge"})
-    result = agent_clay.call(
-        ctx, session, "clay_select_by", {"uid": uid, "query": "loop", "edge": [0, 1]}
-    )
-    assert result["isError"] is False, result
-
-    got = tab.doc.element_sel_of(uid).edges
-    assert got.tolist() == expected.tolist()
-
-
 def test_clay_select_by_normal_takes_the_upward_faces_of_a_rotated_object_in_world_space() -> (
     None
 ):
@@ -4227,101 +3686,6 @@ def test_a_call_with_no_uid_is_told_to_give_one_rather_than_that_uid_none_does_n
         assert result["isError"] is True, tool
         assert result["content"][0]["text"] == "give a value for 'uid'.", tool
         assert result["structuredContent"]["recovery"] == "fix_arguments", tool
-
-
-def test_clay_diagnose_can_select_the_finding_it_reports() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "box")
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    obj = tab.doc.by_uid(uid)
-    original_vert_count = len(obj.mesh.positions)
-    # An unreferenced vertex, appended after every real one -- the cheapest
-    # defect to manufacture by hand: the mesh's topology (starts/loops) does
-    # not reference it, so ``clay_diagnose`` reports it as "unused".
-    positions = np.concatenate([obj.mesh.positions, np.zeros((1, 3), dtype="f4")])
-    tab.doc.set_mesh(uid, replace(obj.mesh, positions=positions), keep_generator=True)
-
-    diag = agent_clay.call(ctx, session, "clay_diagnose", {"uid": uid})
-    assert diag["isError"] is False, diag
-    findings = _payload(diag)["objects"][0]["findings"]
-    assert any(f["kind"] == "unused" for f in findings)
-
-    result = agent_clay.call(
-        ctx, session, "clay_diagnose", {"select": {"uid": uid, "kind": "unused"}}
-    )
-    assert result["isError"] is False, result
-    assert tab.doc.element_mode == "vertex"
-    assert tab.doc.element_sel_of(uid).verts.tolist() == [original_vert_count]
-
-
-def test_clay_analyze_reports_bounds_area_volume_and_ground_for_a_box() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "box")
-
-    result = agent_clay.call(ctx, session, "clay_analyze", {})
-    assert result["isError"] is False, result
-    payload = _payload(result)
-    row = next(o for o in payload["objects"] if o["uid"] == uid)
-    assert row["closed"] is True
-    assert row["volume"] == pytest.approx(1.0, abs=1e-4)
-    assert row["area"] == pytest.approx(6.0, abs=1e-4)
-    assert row["bounds"] is not None
-    assert "floating" in payload  # a whole-document call: no uids were given
-    assert payload["tolerances"] == {"contact_tol": 0.001, "near": 0.05, "symmetry_tol": 0.002}
-
-
-def test_clay_analyze_with_uids_skips_floating_and_reports_only_those_objects() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session)
-    add2 = agent_clay.call(
-        ctx, session, "clay_add_primitive", {"generator": "box", "translation": [5.0, 5.0, 0.0]}
-    )
-    uid2 = _payload(add2)["uid"]
-
-    result = agent_clay.call(ctx, session, "clay_analyze", {"uids": [uid1]})
-    assert result["isError"] is False, result
-    payload = _payload(result)
-    assert {o["uid"] for o in payload["objects"]} == {uid1}
-    assert "floating" not in payload
-    del uid2
-
-
-def test_clay_analyze_pushes_no_undo_step() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    _new_agent_tab(ctx, session)
-    before = _history_len(ctx, session)
-
-    result = agent_clay.call(ctx, session, "clay_analyze", {})
-    assert result["isError"] is False, result
-    assert _history_len(ctx, session) == before
-
-
-def test_clay_analyze_is_batchable() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    _new_agent_tab(ctx, session)
-
-    result = agent_clay.call(
-        ctx, session, "clay_batch", {"calls": [{"name": "clay_analyze", "arguments": {}}]}
-    )
-    assert result["isError"] is False, result
-    batch_payload = _payload(result)
-    assert batch_payload["completed"] == 1
-    assert "objects" in _payload(batch_payload["results"][0])
-
-
-def test_clay_analyze_refuses_an_out_of_range_tolerance() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    _new_agent_tab(ctx, session)
-
-    result = agent_clay.call(ctx, session, "clay_analyze", {"near": 100.0})
-    assert result["isError"] is True
-    assert result["structuredContent"]["field"] == "near"
 
 
 def test_an_element_selection_reports_a_stamp_that_changes_when_an_op_replaces_the_mesh() -> None:
@@ -4551,27 +3915,6 @@ def test_clay_select_refuses_object_uids_while_the_document_is_in_an_element_mod
     assert tab.doc.selection == before
 
 
-def test_clay_boolean_refuses_in_an_element_mode_rather_than_breaking_the_derived_selection_invariant() -> (  # noqa: E501
-    None
-):
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    uid2 = _payload(
-        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    )["uid"]
-    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
-
-    result = agent_clay.call(
-        ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1, uid2]}
-    )
-    assert result["isError"] is True
-    assert "clay_element_mode" in result["content"][0]["text"]
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    assert len(tab.doc.objects) == 2
-
-
 # ==============================================================================
 # Structured results -- every tool answers its JSON payload twice
 # ==============================================================================
@@ -4628,9 +3971,9 @@ def test_a_render_does_not_duplicate_its_header_into_structured_content(
     assert "_json(" not in source
 
 
-def test_the_five_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
+def test_the_three_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
     """The test that catches a schema drifting from ``_scene_row`` (or from
-    ``_h_scene``/``_h_diagnose``'s own payload): every key a real call's
+    ``_h_scene``'s own payload): every key a real call's
     ``structuredContent`` actually carries must appear in that tool's own
     declared ``outputSchema['properties']``."""
     ctx = _Ctx()
@@ -4654,66 +3997,31 @@ def test_the_five_declared_output_schemas_describe_what_those_tools_actually_ret
     add_result = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
     add_structured = add_result.get("structuredContent") or {}
     assert add_structured, "clay_add_primitive answered with no structuredContent at all"
-    # Exact but for three keys, for the same reason the rest is exact: this
-    # tool answers with ``_scene_row``, whose every *other* key is
-    # unconditional, so a row key added without touching the shared schema
-    # helper still fails here. ``modifiers``/``evaluated`` are present only
-    # once the object carries a non-empty modifier stack, and ``local`` only
-    # once it has a parent (see ``_object_row_output_schema``'s own
-    # docstring) -- a freshly placed primitive has neither.
-    assert set(add_structured) == set(add_schema["properties"]) - {
-        "modifiers", "evaluated", "local",
-    }
+    # Exact but for ``local``: this tool answers with ``_scene_row``, whose
+    # every *other* key is unconditional, so a row key added without touching
+    # the shared schema helper still fails here. ``local`` is present only
+    # once the object has a parent (see ``_object_row_output_schema``'s own
+    # docstring) -- a freshly placed primitive has none.
+    assert set(add_structured) == set(add_schema["properties"]) - {"local"}
 
     mesh_schema = getattr(tools["clay_add_mesh"], "output_schema", None)
     assert mesh_schema is not None
     mesh_result = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
     mesh_structured = mesh_result.get("structuredContent") or {}
     assert mesh_structured, "clay_add_mesh answered with no structuredContent at all"
-    # Exact but for the same three keys ``clay_add_primitive``'s check
-    # already excludes, plus a fourth: ``closed`` and ``findings`` are
-    # unconditional (both declared on the composed schema, see
-    # ``_mesh_row_output_schema``), but ``modifiers``/``evaluated``/``local``
-    # are not -- a hand-built mesh placed fresh never carries a stack, or a
-    # parent, either -- and (tranche 6) neither does ``uv``, since
-    # ``_TETRA_MESH_ARGS`` gives no ``uv`` of its own and ``clay_add_mesh``
-    # never invents one. Contrast ``clay_add_primitive``'s own check just
-    # above, which needs no such exclusion for ``uv``: every generator this
-    # fold ships already carries one (a box's own ``box_unwrap``, at least).
-    assert set(mesh_structured) == set(mesh_schema["properties"]) - {
-        "modifiers", "evaluated", "local", "uv",
-    }
-
-    diag_schema = getattr(tools["clay_diagnose"], "output_schema", None)
-    assert diag_schema is not None
-    diag_result = agent_clay.call(ctx, session, "clay_diagnose", {})
-    diag_structured = diag_result.get("structuredContent") or {}
-    assert diag_structured, "clay_diagnose answered with no structuredContent at all"
-    # A subset here, deliberately, and the one of the three where it has to
-    # be: ``selected`` appears only when the call asked for a finding to be
-    # selected, which needs a mesh that actually has one -- that half is
-    # already pinned by
-    # ``test_diagnose_hands_back_a_selection_the_agent_can_act_on``.
-    assert set(diag_structured) <= set(diag_schema["properties"])
-    assert "objects" in diag_schema["properties"]
-
-    analyze_schema = getattr(tools["clay_analyze"], "output_schema", None)
-    assert analyze_schema is not None
-    analyze_result = agent_clay.call(ctx, session, "clay_analyze", {})
-    analyze_structured = analyze_result.get("structuredContent") or {}
-    assert analyze_structured, "clay_analyze answered with no structuredContent at all"
-    # A subset, like clay_diagnose's: ``truncated`` only appears when true,
-    # and ``floating`` only for a whole-document call (this one -- no uids
-    # were given).
-    assert set(analyze_structured) <= set(analyze_schema["properties"])
-    assert "objects" in analyze_schema["properties"]
-    assert "pairs" in analyze_schema["properties"]
+    # Exact but for ``local`` and ``uv``: a hand-built mesh placed fresh has
+    # no parent, and ``_TETRA_MESH_ARGS`` gives no ``uv`` of its own and
+    # ``clay_add_mesh`` never invents one. Contrast ``clay_add_primitive``'s
+    # own check just above, which needs no such exclusion for ``uv``: every
+    # generator this fold ships already carries one (a box's own
+    # ``box_unwrap``, at least).
+    assert set(mesh_structured) == set(mesh_schema["properties"]) - {"local", "uv"}
 
 
 def test_no_declared_output_schema_demands_required_keys_because_a_refusal_shares_the_envelope() -> (  # noqa: E501
     None
 ):
-    """None of the five declared schemas names a ``required`` list or sets
+    """None of the three declared schemas names a ``required`` list or sets
     ``additionalProperties: false`` -- proven alongside the reason itself: a
     refusal from one of these same tools really does put ``field`` in
     ``structuredContent`` -- and, since ``changed`` was added, nothing else
@@ -4726,8 +4034,6 @@ def test_no_declared_output_schema_demands_required_keys_because_a_refusal_share
         "clay_scene",
         "clay_add_primitive",
         "clay_add_mesh",
-        "clay_diagnose",
-        "clay_analyze",
     ):
         schema = getattr(tools[name], "output_schema", None)
         assert schema is not None
@@ -4763,13 +4069,10 @@ def test_the_object_row_schema_is_shared_by_the_scene_and_the_primitive_tools() 
     assert scene_schema["properties"]["objects"]["items"] == agent_clay._object_row_output_schema()
 
     # ``clay_add_mesh`` composes the same shared row rather than copying it
-    # -- every key the row schema declares must still be there, plus exactly
-    # the two this tool alone answers with.
+    # -- the same one row, unwrapped, exactly like ``clay_add_primitive``.
     mesh_schema = getattr(tools["clay_add_mesh"], "output_schema", None)
     assert mesh_schema is not None
-    row_properties = agent_clay._object_row_output_schema()["properties"]
-    assert row_properties.items() <= mesh_schema["properties"].items()
-    assert set(mesh_schema["properties"]) - set(row_properties) == {"closed", "findings"}
+    assert mesh_schema == agent_clay._object_row_output_schema()
 
 
 # ==============================================================================
@@ -4794,8 +4097,8 @@ def test_every_refusal_says_whether_the_document_moved(svc) -> None:
     pass whatever a handler checks before it resolves a tab), so several of
     them succeed rather than refuse against a tab that already holds an
     object (``clay_scene``, ``clay_elements``,
-    ``clay_diagnose``, ``clay_validate``, ``clay_export`` with a real ``svc``, ``clay_undo``/
-    ``clay_redo``, ``clay_batch``, ``clay_program``, all three ``_MINTS_A_TAB``
+    ``clay_export`` with a real ``svc``, ``clay_undo``/
+    ``clay_redo``, ``clay_batch``, ``clay_program``, both ``_MINTS_A_TAB``
     creators, and every ``_SESSION_ONLY`` tool but ``clay_reference_get``
     naming a reference this session was never given). Those successes are
     skipped rather than
@@ -5235,11 +4538,11 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
 
 
 def test_a_params_value_is_held_to_the_shape_its_generator_default_declares() -> None:
-    """``pyramid`` given a list for ``base`` is a refusal that names the key,
+    """``cylinder`` given a list for ``radius`` is a refusal that names the key,
     not a crash.
 
     Fails today: the wire schema says a param value is ``number |
-    array-of-numbers | array-of-arrays`` for every key of every generator,
+    array-of-numbers`` for every key of every generator,
     and nothing checked which of the three *this* key wants -- so a list
     reached ``primitives.pyramid``'s ``float(base)`` and came back through
     ``call()``'s generic backstop as "failed unexpectedly; see the log",
@@ -5255,12 +4558,12 @@ def test_a_params_value_is_held_to_the_shape_its_generator_default_declares() ->
         ctx,
         session,
         "clay_add_primitive",
-        {"generator": "pyramid", "params": {"base": [1.0, 1.0, 1.0]}},
+        {"generator": "cylinder", "params": {"radius": [1.0, 1.0, 1.0]}},
     )
     assert bad["isError"] is True
     assert bad["structuredContent"]["field"] == "params"
     text = bad["content"][0]["text"]
-    assert "base" in text and "pyramid" in text
+    assert "radius" in text and "cylinder" in text
     assert "failed unexpectedly" not in text
 
     for value in (1.0, [1.0, 1.0], [[1.0, 1.0, 1.0]]):
@@ -5270,18 +4573,6 @@ def test_a_params_value_is_held_to_the_shape_its_generator_default_declares() ->
         assert wrong["isError"] is True, value
         assert "size" in wrong["content"][0]["text"]
 
-    # A row array's *width* is fixed by the default too, even though how many
-    # rows it has is the caller's to choose -- an over-wide row used to have
-    # its extra column silently dropped.
-    ragged = agent_clay.call(
-        ctx,
-        session,
-        "clay_add_primitive",
-        {"generator": "lathe", "params": {"profile": [[0.5, 0.0, 9.0], [0.4, 0.5, 9.0]]}},
-    )
-    assert ragged["isError"] is True
-    assert "profile" in ragged["content"][0]["text"]
-
     # And the same gate on the other door, where the refusal must say which
     # object it is talking about.
     on_set = agent_clay.call(ctx, session, "clay_set_params", {"uid": uid, "params": {"size": 2.0}})
@@ -5290,54 +4581,13 @@ def test_a_params_value_is_held_to_the_shape_its_generator_default_declares() ->
 
     # What the shapes really are still passes, both doors.
     good = agent_clay.call(
-        ctx, session, "clay_add_primitive", {"generator": "pyramid", "params": {"base": 2.0}}
+        ctx, session, "clay_add_primitive", {"generator": "cylinder", "params": {"radius": 2.0}}
     )
     assert good["isError"] is False, good
     fine = agent_clay.call(
         ctx, session, "clay_set_params", {"uid": uid, "params": {"size": [2.0, 1.0, 2.0]}}
     )
     assert fine["isError"] is False, fine
-
-
-def test_diagnose_reports_a_copy_family_that_no_longer_agrees_on_its_material() -> None:
-    """Place a box, array it, then paint only the original: the copies keep
-    the material they were made with, and that is the right behaviour -- a
-    copy is an independent object. What was wrong is that it had no symptom
-    at all short of a render, which is the one thing an agent over a pipe
-    cannot read cheaply.
-
-    Fails today: ``clay_diagnose`` measures meshes and nothing else, so a
-    whole-document call on a half-painted array answered "clean" for every
-    object in it.
-    """
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session)
-
-    select = agent_clay.call(ctx, session, "clay_select", {"uids": [uid]})
-    assert select["isError"] is False, select
-    array = agent_clay.call(
-        ctx, session, "clay_op", {"name": "array-linear", "params": {"count": 3}}
-    )
-    assert array["isError"] is False, array
-
-    before = agent_clay.call(ctx, session, "clay_diagnose", {})
-    assert "scene" not in _payload(before), "a uniform family says nothing"
-
-    painted = agent_clay.call(
-        ctx, session, "clay_material", {"uids": [uid], "name": "Red", "color": [1.0, 0.0, 0.0]}
-    )
-    assert painted["isError"] is False, painted
-
-    after = _payload(agent_clay.call(ctx, session, "clay_diagnose", {}))
-    assert "scene" in after, "a half-painted family has something to say"
-    row = next(r for r in after["scene"] if r["kind"] == "copies_disagree_on_material")
-    assert uid in row["uids"]
-    assert len(row["uids"]) == 3
-
-    # A single named object is asked about itself only, so a finding about how
-    # three objects relate has no business in that answer.
-    assert "scene" not in _payload(agent_clay.call(ctx, session, "clay_diagnose", {"uid": uid}))
 
 
 def test_clay_op_repeat_last_refuses_with_nothing_then_repeats_the_agents_own_op() -> None:
@@ -5370,48 +4620,3 @@ def test_clay_op_repeat_last_refuses_with_nothing_then_repeats_the_agents_own_op
     assert tab.doc.recent_op.params["thickness"] == 0.2
 
 
-def test_clay_set_params_takes_curve_handles_and_the_mesh_smooths() -> None:
-    """Bézier handles ride the derived ``params`` surface: ``profile_handles``
-    arrives in ``GENERATORS``' defaults, so an agent sets it like any other key,
-    and the stored value is what the clamp kept (aligned with the anchors)."""
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "lathe")
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    before = len(tab.doc.by_uid(uid).mesh.positions)
-    anchors = tab.doc.by_uid(uid).params["profile"]
-    handles = [[[0.0, -0.02], [0.0, 0.02]] for _ in anchors]
-
-    result = agent_clay.call(
-        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile_handles": handles}}
-    )
-    assert result["isError"] is False, result
-    obj = tab.doc.by_uid(uid)
-    assert len(obj.params["profile_handles"]) == len(anchors)
-    assert len(obj.mesh.positions) > before, "the curve flattened into extra stations"
-    shown = _payload(agent_clay.call(ctx, session, "clay_scene", {}))
-    assert shown is not None
-
-    cleared = agent_clay.call(
-        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile_handles": []}}
-    )
-    assert cleared["isError"] is False, cleared
-    assert tab.doc.by_uid(uid).params["profile_handles"] == []
-    assert len(tab.doc.by_uid(uid).mesh.positions) == before
-
-
-def test_clay_set_params_refuses_curve_handles_that_are_not_in_out_pairs() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "lathe")
-    refused = agent_clay.call(
-        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile_handles": [[1, 2]]}}
-    )
-    assert refused["isError"] is True
-    assert "handle pairs" in refused["content"][0]["text"]
-    assert agent_clay.call(
-        ctx,
-        session,
-        "clay_set_params",
-        {"uid": uid, "params": {"profile_handles": [[[0, 0], [float("nan"), 0]]]}},
-    )["isError"] is True

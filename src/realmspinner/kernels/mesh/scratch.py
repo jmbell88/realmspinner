@@ -3,7 +3,7 @@ agent's edits before they touch the document the user is looking at.
 
 **Why a clone rather than a dry-run flag threaded through every op.** Clay's
 tool surface (``studio/modes/clay/agent/dispatch.py``) already runs a person's whole vocabulary --
-booleans, element ops, figure presets -- against a real ``ClayDoc``, and none
+joins, element ops, primitives -- against a real ``ClayDoc``, and none
 of it was written to ask "what would this do" without doing it. Cloning the
 document and running the same tools against the clone costs one shallow copy
 and answers the question exactly, with no second code path for every op to
@@ -41,9 +41,9 @@ already treats "wrote the same numbers back" as no change via
 no-op edit looks like.
 
 **Transplant replays no tool call.** It cannot: an added object's uid is
-already picked, and any generator or boolean the scratch ran already built
+already picked, and any generator or op the scratch ran already built
 the mesh it built. Replaying the tool call would mint a *different* uid for
-the same "add a box" and run the heavy op (a boolean, a subdivide) a second
+the same "add a box" and run the heavy op (a subdivide) a second
 time for nothing. Transplant instead moves the *scratch's own objects and
 edits* onto the real document through the document's ordinary doors --
 ``add_objects``, ``remove_object``, ``set_mesh``, ``set_props``,
@@ -105,34 +105,14 @@ def clone(doc: bd.ClayDoc) -> bd.ClayDoc:
             params=dict(obj.params),
             visible=obj.visible,
             material=obj.material,
-            # Shared: the stack is an immutable tuple of frozen modifiers. Left
-            # out, a batch preview drew every mirrored or arrayed object as its
-            # bare base mesh, and a transplant back wrote the stack away.
-            modifiers=obj.modifiers,
-            # Tranche 3's own fields -- ``parent`` (an int or ``None``),
-            # ``locked`` (a bool) and ``tags`` (an immutable tuple of str) --
-            # carried as-is rather than defensively copied: none of them is
-            # ever mutated in place the way the TRS arrays and ``params``
-            # dict are (every write to any of the three replaces the value
-            # wholesale, through ``set_parent``/``set_props``), so there is
-            # nothing here for a scratch edit to alias into the base. Left
-            # out until the 2026-09-19 field-sweep test in
-            # ``tests/modes/clay/test_scratch.py`` caught it: a scratch run
-            # previewing anything that reads a parented object's world
-            # matrix (``world_bounds``, a boolean modifier target, an
-            # ``add_collider`` fit) saw every object as a root, and a locked
-            # object's own doors happily let a preview edit it, only to have
-            # the *real* document's ``set_mesh``/``set_props`` refuse the
-            # transplant with no explanation pointing back at this gap.
+            # ``parent`` is an int or ``None`` -- carried as-is rather than
+            # defensively copied, since every write to it replaces the value
+            # wholesale, through ``set_parent``. Left out until the
+            # 2026-09-19 field-sweep test in ``tests/modes/clay/test_scratch.py``
+            # caught it: a scratch run previewing anything that reads a
+            # parented object's world matrix (``world_bounds``) saw every
+            # object as a root.
             parent=obj.parent,
-            locked=obj.locked,
-            tags=obj.tags,
-            # Tranche 6/7: same reasoning as the three above -- ``seams`` is
-            # an immutable tuple of int pairs, ``role``/``collider_kind`` are
-            # plain strings; nothing here mutates any of the three in place.
-            seams=obj.seams,
-            role=obj.role,
-            collider_kind=obj.collider_kind,
         )
         for obj in doc.objects
     ]
@@ -209,30 +189,6 @@ class PreviewDiff:
         )
 
 
-# ``modifiers`` is a plain prop here: a stack is a tuple of frozen, value-equal
-# modifiers, so "the scratch run changed the stack" is an ``!=`` like a rename.
-# Missing, a batch that added a mirror previewed nothing and transplanted
-# nothing. :func:`transplant` itself, below, does **not** apply it through
-# ``set_props`` -- see that function's own comment for why.
-#
-# ``tags``, ``locked``, ``role`` and ``collider_kind`` join it for the same
-# comparison reason and *are* applied through ``set_props``: each is a value
-# ``ClayDoc.set_props`` accepts and applies with a plain ``setattr`` (see that
-# method's own docstring -- it blocks exactly one field, ``parent``, because
-# reparenting is the one case here that needs cycle-checking generic
-# ``set_props`` cannot do), so transplanting one through it is exactly as
-# sound as transplanting a rename.
-#
-# ``seams`` sits with ``modifiers`` rather than with those four: it already
-# went through :meth:`~.document.ClayDoc.set_seams`'s own validation *inside
-# the scratch run itself* before ever reaching here, and the 2026-09-19 audit
-# (finding clay-19) is why :func:`transplant` also routes it through
-# ``set_seams`` rather than ``set_props`` on the way back -- ``set_props`` is
-# deliberately not a locking door (its own docstring says so), so applying a
-# scratch's seams or modifier-stack edit through it walked straight past
-# ``_refuse_if_locked`` and could overwrite a locked object's seams or
-# modifier stack from an agent preview.
-#
 # ``parent`` is deliberately absent from this tuple: :meth:`~.document.ClayDoc.set_props`
 # refuses it by name ("use set_parent"), so adding it here would make
 # :func:`transplant` raise on the very first scratch run that reparented
@@ -248,10 +204,7 @@ class PreviewDiff:
 # relative numbers on an object Apply left under its *old* parent -- the
 # object jumped the instant Apply ran, even though the preview picture the
 # user approved showed it standing still.
-_PROP_FIELDS = (
-    "name", "visible", "generator", "params", "material", "modifiers",
-    "tags", "locked", "seams", "role", "collider_kind",
-)
+_PROP_FIELDS = ("name", "visible", "generator", "params", "material")
 
 
 def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
@@ -391,14 +344,11 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
     try:
         for uid in diff_.removed:
             if uid in {o.uid for o in doc.objects}:
-                # The 2026-09-22 audit's clay-17: this loop ran first, ahead
-                # of the mesh/transform/props loops below that all gained
-                # ``contextlib.suppress(el.OpError)`` under the 2026-09-19
-                # audit's clay-19 and the 2026-09-20 audit's clay-13 for the
-                # identical reason -- the base object may have been locked
-                # after the preview was built -- but this one, running
-                # first, was left to raise and abort the whole Apply before
-                # any of its siblings got a chance to tolerate anything.
+                # The 2026-09-22 audit's clay-17: this loop runs first, ahead
+                # of the mesh/transform loops below that tolerate a refusal
+                # the same way -- the base object may have moved since the
+                # preview was built -- and one refusal here must not abort
+                # the whole Apply before its siblings get a chance.
                 with contextlib.suppress(el.OpError):
                     doc.remove_object(uid)
 
@@ -423,10 +373,10 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
             # what the preview showed; doing only the transform half, as
             # before this fix, landed the new parent's local numbers on an
             # object that was still hanging under its old parent and the
-            # object visibly jumped. Tolerated the same way a removed or
-            # relocked base object is elsewhere in this function: the base
-            # object, or the intended new parent, may have been locked or
-            # removed since the preview was shown.
+            # object visibly jumped. Tolerated the same way a removed base
+            # object is elsewhere in this function: the base object, or the
+            # intended new parent, may have been removed since the preview
+            # was shown.
             with contextlib.suppress(el.OpError):
                 doc.set_parent(uid, new_parent, keep_world=False)
 
@@ -434,47 +384,23 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
         for uid in touched:
             s = scratch.by_uid(uid)
             if uid in diff_.mesh_changed:
-                # The 2026-09-20 audit's clay-13: the base object may have
-                # been locked after the preview was built, the same
-                # "state can move between preview and apply" gap clay-19
-                # closed for modifiers/seams above. set_mesh calls
-                # _refuse_if_locked and raised uncaught here, aborting the
-                # whole transplant against this docstring's own "the rest
-                # of the transplant still lands" -- so the refusal is
-                # tolerated the same way, and the loop moves on.
+                # The 2026-09-20 audit's clay-13: state can move between
+                # preview and apply, and an uncaught refusal here aborted
+                # the whole transplant against this docstring's own "the
+                # rest of the transplant still lands" -- so it is
+                # tolerated, and the loop moves on.
                 with contextlib.suppress(el.OpError):
                     doc.set_mesh(uid, s.mesh, keep_generator=True)
             fields = diff_.props_changed.get(uid)
             if fields:
-                # The 2026-09-19 audit, finding clay-19: ``set_props`` is
-                # deliberately not a locking door (a rename, a visibility
-                # flip or an unlock must still work on a locked object), so
-                # routing a scratch run's ``modifiers``/``seams`` edit
-                # through it walked straight past ``_refuse_if_locked`` and
-                # let an agent preview overwrite a locked object's modifier
-                # stack or marked seams. Their own doors -- ``set_modifiers``
-                # and ``set_seams`` -- check the lock; a refusal is tolerated
-                # exactly as a removed object is above (the base object may
-                # have been locked after the preview was shown, same as it
-                # may have been deleted), so the rest of the transplant still
-                # lands.
-                door_fields = fields & {"modifiers", "seams"}
-                if "modifiers" in door_fields:
-                    with contextlib.suppress(el.OpError):
-                        doc.set_modifiers(uid, s.modifiers)
-                if "seams" in door_fields:
-                    with contextlib.suppress(el.OpError):
-                        doc.set_seams(uid, s.seams)
-                generic_fields = fields - door_fields
-                if generic_fields:
-                    doc.set_props(uid, **{f: getattr(s, f) for f in generic_fields})
+                doc.set_props(uid, **{f: getattr(s, f) for f in fields})
 
         for uid in diff_.transform_changed - diff_.added:
             s = scratch.by_uid(uid)
             # Same tolerance as the mesh branch above, and the same
-            # clay-13 incident: set_transform is a locking door too, and an
-            # uncaught refusal here aborted every transform still queued
-            # behind it in this loop, not just this object's own.
+            # clay-13 incident: an uncaught refusal here aborted every
+            # transform still queued behind it in this loop, not just this
+            # object's own.
             with contextlib.suppress(el.OpError):
                 doc.set_transform(
                     uid, translation=s.translation, rotation=s.rotation, scale=s.scale

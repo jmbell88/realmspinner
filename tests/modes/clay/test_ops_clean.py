@@ -1,12 +1,12 @@
-"""``ops_clean``'s survey and repair ops, pinned against small hand-built meshes.
+"""``ops_clean``'s two ops (recalculate normals, merge by distance), pinned against
+small hand-built meshes.
 
 Every mesh below is built by hand from a :func:`primitives.box` (the one
 closed, UV-unwrapped, manifold reference every other test in this file starts
 from) rather than from a general-purpose fixture factory, because the point of
-each test is *exactly one* defect against an otherwise clean cube -- so a
-survey before an op runs is the specification of what that op owes, and a
-survey (or exact array comparison) after is the proof it paid only that debt
-and nothing else.
+each test is *exactly one* defect against an otherwise clean cube -- so an
+exact array comparison after an op is the proof it paid only that debt and
+nothing else.
 """
 
 from __future__ import annotations
@@ -41,56 +41,6 @@ def _fully_inverted(mesh: bm.Mesh) -> bm.Mesh:
     return out
 
 
-def _with_duplicate_face(mesh: bm.Mesh, face: int = 0) -> bm.Mesh:
-    """*mesh* plus one extra face over the same corners as *face*."""
-    corners = np.arange(int(mesh.starts[face]), int(mesh.starts[face + 1]))
-    loops = np.concatenate([mesh.loops.astype("i8"), mesh.loops.astype("i8")[corners]])
-    starts = np.concatenate([mesh.starts.astype("i8"), [int(mesh.starts[-1]) + len(corners)]])
-    material = np.concatenate([mesh.material, mesh.material[[face]]])
-    smooth = np.concatenate([mesh.smooth, mesh.smooth[[face]]])
-    uv = None if mesh.uv is None else np.concatenate([mesh.uv, mesh.uv[corners]])
-    return bm.Mesh(
-        positions=mesh.positions,
-        loops=loops,
-        starts=starts,
-        material=material,
-        smooth=smooth,
-        uv=uv,
-    )
-
-
-def _with_loose_vertex(mesh: bm.Mesh, position=(5.0, 5.0, 5.0)) -> bm.Mesh:
-    """*mesh* plus one vertex no face references."""
-    positions = np.vstack([mesh.positions, np.array([position], dtype="f4")])
-    return bm.Mesh(
-        positions=positions,
-        loops=mesh.loops,
-        starts=mesh.starts,
-        material=mesh.material,
-        smooth=mesh.smooth,
-        uv=mesh.uv,
-    )
-
-
-def _with_degenerate_face(mesh: bm.Mesh) -> bm.Mesh:
-    """*mesh* plus one extra triangle that reuses one vertex twice -- zero
-    area, and fewer than three distinct vertices either way."""
-    extra = np.array([0, 1, 0], dtype="i8")
-    loops = np.concatenate([mesh.loops.astype("i8"), extra])
-    starts = np.concatenate([mesh.starts.astype("i8"), [int(mesh.starts[-1]) + 3]])
-    material = np.concatenate([mesh.material, [0]])
-    smooth = np.concatenate([mesh.smooth, [False]])
-    uv = None if mesh.uv is None else np.concatenate([mesh.uv, np.zeros((3, 2), dtype="f4")])
-    return bm.Mesh(
-        positions=mesh.positions,
-        loops=loops,
-        starts=starts,
-        material=material,
-        smooth=smooth,
-        uv=uv,
-    )
-
-
 def _two_cubes_offset(mesh: bm.Mesh, eps: float = 1e-7) -> bm.Mesh:
     """Two copies of *mesh*, the second nudged by *eps* -- two shells whose
     corresponding vertices are coincident within any distance past *eps*."""
@@ -121,93 +71,7 @@ def _two_cubes_offset(mesh: bm.Mesh, eps: float = 1e-7) -> bm.Mesh:
     )
 
 
-def _open_box(mesh: bm.Mesh, face: int = 0) -> bm.Mesh:
-    """*mesh* with one face deleted -- an open box, one hole."""
-    out, _sel = ops_topo.delete_faces(mesh, el.ElementSel(faces=np.array([face], dtype="i4")))
-    return out
-
-
-# --- survey: each defect counted exactly -------------------------------------
-
-
-def test_survey_of_a_clean_box_is_all_zero() -> None:
-    assert oc.survey(_box()) == oc.Survey(0, 0, 0, 0, 0, 0, 0)
-
-
-def test_survey_counts_a_degenerate_face_exactly() -> None:
-    s = oc.survey(_with_degenerate_face(_box()))
-    assert s.degenerate_faces == 1
-    assert s.duplicate_faces == 0
-    assert s.flipped_faces == 0
-    assert s.inside_out_shells == 0
-
-
-def test_survey_counts_a_duplicate_face_exactly() -> None:
-    s = oc.survey(_with_duplicate_face(_box()))
-    # box's own faces already give every edge its twin, so the duplicate's
-    # edges are used a *third* time and fall out of twin/flipped-pair
-    # detection entirely (adjacency.py: only a 2-use edge is scored either
-    # way) -- this mesh's only defect really is the duplicate face.
-    assert s == oc.Survey(0, 1, 0, 0, 0, 0, 0)
-
-
-def test_survey_counts_a_loose_vertex_exactly() -> None:
-    s = oc.survey(_with_loose_vertex(_box()))
-    assert s == oc.Survey(0, 0, 1, 0, 0, 0, 0)
-
-
-def test_survey_counts_coincident_vertices_exactly() -> None:
-    mesh = _two_cubes_offset(_box(), eps=1e-7)
-    assert oc.survey(mesh, distance=1e-5).coincident_vertices == 8
-    # Past the two shells' own separation, nothing is coincident.
-    assert oc.survey(mesh, distance=1e-9).coincident_vertices == 0
-
-
-def test_survey_counts_one_flipped_face_exactly() -> None:
-    s = oc.survey(_with_reversed_face(_box(), face=0))
-    assert s.flipped_faces == 1
-    assert s.inside_out_shells == 0, "a single flipped face is a minority, not a net inversion"
-
-
-def test_survey_counts_an_inside_out_shell_exactly() -> None:
-    s = oc.survey(_fully_inverted(_box()))
-    # Every face agrees with every neighbour -- there is no minority to flag,
-    # only the shell's own volume sign says anything is wrong.
-    assert s.flipped_faces == 0
-    assert s.inside_out_shells == 1
-
-
-def test_survey_counts_open_edges_exactly() -> None:
-    assert oc.survey(_open_box(_box())).open_edges == 4
-    assert oc.survey(_box()).open_edges == 0
-
-
 # --- each op fixes only its own defect ---------------------------------------
-
-
-def test_remove_degenerate_removes_only_the_degenerate_face() -> None:
-    box = _box()
-    out = oc.remove_degenerate(_with_degenerate_face(box))
-    assert np.array_equal(out.positions, box.positions)
-    assert np.array_equal(out.loops, box.loops)
-    assert oc.survey(out) == oc.Survey(0, 0, 0, 0, 0, 0, 0)
-
-
-def test_remove_duplicate_faces_removes_only_the_later_duplicate() -> None:
-    box = _box()
-    out = oc.remove_duplicate_faces(_with_duplicate_face(box))
-    assert np.array_equal(out.loops, box.loops)
-    assert np.array_equal(out.material, box.material)
-    assert np.array_equal(out.smooth, box.smooth)
-    assert oc.survey(out) == oc.Survey(0, 0, 0, 0, 0, 0, 0)
-
-
-def test_remove_loose_vertices_removes_only_the_unreferenced_vertex() -> None:
-    box = _box()
-    out = oc.remove_loose_vertices(_with_loose_vertex(box))
-    assert np.array_equal(out.positions, box.positions)
-    assert np.array_equal(out.loops, box.loops)
-    assert oc.survey(out) == oc.Survey(0, 0, 0, 0, 0, 0, 0)
 
 
 def test_merge_by_distance_merges_only_the_coincident_vertices() -> None:
@@ -216,19 +80,7 @@ def test_merge_by_distance_merges_only_the_coincident_vertices() -> None:
     out = oc.merge_by_distance(mesh, 1e-5)
     assert len(out.positions) == len(box.positions)
     assert bm.face_count(out) == 2 * bm.face_count(box)
-    assert oc.survey(out, distance=1e-5).coincident_vertices == 0
-
-
-def test_fill_all_holes_fills_only_the_open_boundary() -> None:
-    opened = _open_box(_box())
-    out = oc.fill_all_holes(opened)
-    assert bm.face_count(out) == bm.face_count(_box())
-    s = oc.survey(out)
-    assert s.open_edges == 0
-    # Filling does not itself claim to restore the exact original winding or
-    # UVs of the face it replaces -- only that the hole is gone.
-    assert s.degenerate_faces == 0
-    assert s.duplicate_faces == 0
+    assert oc.merge_by_distance(out, 1e-5) is out, "nothing is left to merge"
 
 
 def test_recalc_outside_fixes_only_the_winding() -> None:
@@ -237,25 +89,16 @@ def test_recalc_outside_fixes_only_the_winding() -> None:
     assert np.array_equal(out.positions, box.positions)
     assert np.array_equal(out.loops, box.loops)
     assert np.array_equal(out.uv, box.uv)
-    assert oc.survey(out) == oc.Survey(0, 0, 0, 0, 0, 0, 0)
+    assert len(adj.adjacency(out).flipped_pairs) == 0
+    assert _signed_volume(out) > 0.0
 
 
 # --- identity: each op is a no-op when nothing needs fixing ------------------
 
 
-@pytest.mark.parametrize(
-    "op",
-    [
-        oc.remove_degenerate,
-        oc.remove_duplicate_faces,
-        oc.remove_loose_vertices,
-        oc.recalc_outside,
-        oc.fill_all_holes,
-    ],
-)
-def test_an_op_returns_the_identical_object_when_nothing_is_wrong(op) -> None:
+def test_recalc_outside_returns_the_identical_object_when_nothing_is_wrong() -> None:
     box = _box()
-    assert op(box) is box
+    assert oc.recalc_outside(box) is box
 
 
 def test_merge_by_distance_returns_the_identical_object_when_nothing_merges() -> None:
@@ -263,19 +106,11 @@ def test_merge_by_distance_returns_the_identical_object_when_nothing_merges() ->
     assert oc.merge_by_distance(box, 1e-5) is box
 
 
-def test_clean_returns_the_identical_object_when_nothing_is_wrong() -> None:
-    box = _box()
-    out, report = oc.clean(box)
-    assert out is box
-    assert report == oc.CleanReport(0, 0, 0, 0, 0, 0)
-
-
 @pytest.mark.parametrize("name", sorted(prim.GENERATORS))
-def test_clean_on_a_clean_primitive_returns_the_same_object(name: str) -> None:
+def test_recalc_outside_on_a_clean_primitive_returns_the_same_object(name: str) -> None:
     defaults, builder = prim.GENERATORS[name]
     mesh = builder(**defaults)
-    out, _report = oc.clean(mesh)
-    assert out is mesh
+    assert oc.recalc_outside(mesh) is mesh
 
 
 # --- recalc_outside: the winding claims themselves ---------------------------
@@ -300,9 +135,8 @@ def test_recalc_outside_leaves_every_manifold_edge_traversed_oppositely() -> Non
 
 
 def _signed_volume(mesh: bm.Mesh) -> float:
-    # Public API surfaces this only as a sign (Survey.inside_out_shells), so
-    # the module-private helper is read directly here to pin the geometric
-    # claim itself rather than just the yes/no count derived from it.
+    # The module-private helper is read directly to pin the geometric claim
+    # itself rather than just the winding it implies.
     return float(oc._face_fan_volume(mesh).sum()) / 6.0
 
 
@@ -323,30 +157,13 @@ def test_flipping_keeps_uv_rows_attached_to_their_corners() -> None:
 # --- the size ceiling ---------------------------------------------------------
 
 
-def test_clean_refuses_past_the_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
-    with pytest.raises(el.OpError):
-        oc.clean(_box())
-
-
-def test_clean_runs_under_the_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 10_000)
-    box = _box()
-    out, report = oc.clean(box)
-    assert out is box
-    assert report == oc.CleanReport(0, 0, 0, 0, 0, 0)
-
-
 def test_recalc_normals_refuses_a_mesh_past_the_clean_corner_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The 2026-09-19 audit's clay-14: `clean()` already refuses past
-    `MAX_CLEAN_CORNERS` before running the identical BFS/adjacency/volume
-    pass `recalc_outside` runs on its own -- but `recalc_outside` had no
-    such gate, even though `modes/clay/ops.py`'s `_recalc_normals` (both the
-    **Recalculate Normals** menu item and `readiness.FIX_OPS`' own remedy for
-    a `normals` warning) calls it directly, bypassing `clean()`'s gate
-    entirely."""
+    """The 2026-09-19 audit's clay-14: `recalc_outside` runs a BFS/adjacency/volume
+    pass over every corner, and `modes/clay/ops.py`'s `_recalc_normals` (the
+    **Recalculate Normals** menu item) calls it directly, so it carries the
+    ceiling itself."""
     monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
     with pytest.raises(el.OpError, match="past the"):
         oc.recalc_outside(_fully_inverted(_box()))
@@ -357,33 +174,7 @@ def test_recalc_normals_runs_under_the_ceiling(monkeypatch: pytest.MonkeyPatch) 
     box = _box()
     out = oc.recalc_outside(_fully_inverted(box))
     bm.validate(out)
-    assert oc.survey(out) == oc.Survey(0, 0, 0, 0, 0, 0, 0)
-
-
-def test_survey_refuses_a_mesh_past_the_clean_corner_ceiling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 2026-09-19 audit's clay-39, opened by clay-14's own fixer:
-    `survey` pays the identical BFS/adjacency/volume cost `clean()` and
-    `recalc_outside` already refuse past `MAX_CLEAN_CORNERS`, but was
-    exported with no ceiling of its own -- reached uncaught through
-    `diagnose.findings` from the properties panel's "Check mesh" button and
-    the agent's diagnose tools (see `test_diagnose.py` and
-    `test_agent_clay.py` for those three callers surviving this)."""
-    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
-    with pytest.raises(el.OpError, match="past the"):
-        oc.survey(_box())
-
-
-def test_face_defect_masks_refuses_a_mesh_past_the_clean_corner_ceiling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Same finding, same ceiling, the other of the two functions clay-39
-    named: `face_defect_masks` is what `diagnose.rows_for` actually calls
-    first, and it paid the same unbounded cost `survey` did."""
-    monkeypatch.setattr(oc, "MAX_CLEAN_CORNERS", 4)
-    with pytest.raises(el.OpError, match="past the"):
-        oc.face_defect_masks(_box())
+    assert len(adj.adjacency(out).flipped_pairs) == 0
 
 
 # --- every op's output validates ---------------------------------------------
@@ -392,27 +183,20 @@ def test_face_defect_masks_refuses_a_mesh_past_the_clean_corner_ceiling(
 @pytest.mark.parametrize(
     "mesh_factory",
     [
-        lambda: _with_degenerate_face(_box()),
-        lambda: _with_duplicate_face(_box()),
-        lambda: _with_loose_vertex(_box()),
         lambda: _two_cubes_offset(_box()),
         lambda: _fully_inverted(_box()),
-        lambda: _open_box(_box()),
+        lambda: _with_reversed_face(_box()),
     ],
 )
-def test_clean_output_always_validates(mesh_factory) -> None:
+def test_recalc_and_merge_outputs_always_validate(mesh_factory) -> None:
     mesh = mesh_factory()
-    out, _report = oc.clean(mesh, fill_holes=True, recalc=True)
-    bm.validate(out)
+    bm.validate(oc.recalc_outside(mesh))
+    bm.validate(oc.merge_by_distance(mesh, 1e-5))
 
 
 @pytest.mark.parametrize("name", sorted(prim.GENERATORS))
 def test_individual_op_outputs_validate_on_every_primitive(name: str) -> None:
     defaults, builder = prim.GENERATORS[name]
     mesh = builder(**defaults)
-    bm.validate(oc.remove_degenerate(mesh))
-    bm.validate(oc.remove_duplicate_faces(mesh))
-    bm.validate(oc.remove_loose_vertices(mesh))
     bm.validate(oc.merge_by_distance(mesh, 1e-5))
-    bm.validate(oc.fill_all_holes(mesh))
     bm.validate(oc.recalc_outside(mesh))

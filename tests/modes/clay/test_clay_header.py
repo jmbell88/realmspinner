@@ -73,8 +73,7 @@ def test_god_light_also_keeps_its_own_field_rather_than_moving_into_the_dict():
 def test_the_overlay_popup_has_a_grid_size_field():
     """Task A: the size field sits under the Grid row, not as a fifth item in
     ``OVERLAY_ROWS`` -- it is not a switch, it is the number the Grid switch
-    governs, the same shape ``_snap_popup``'s grid step and ``_
-    proportional_popup``'s radius already have."""
+    governs, the same shape ``_snap_popup``'s grid step has."""
     assert hasattr(clay_header, "_grid_size_field")
     keys = [key for key, _label, _tip in clay_header.OVERLAY_ROWS]
     assert keys.index("grid") < keys.index("god_light")
@@ -107,17 +106,15 @@ def test_every_axis_row_names_a_view_the_camera_has():
 # ``tests/studio/test_studio_smoke.py``, which already owns one.
 
 
-@pytest.mark.parametrize(
-    "popup", ["SNAP_POPUP", "PROPORTIONAL_POPUP", "OVERLAYS_POPUP", "VIEW_POPUP"]
-)
+@pytest.mark.parametrize("popup", ["SNAP_POPUP", "OVERLAYS_POPUP", "VIEW_POPUP"])
 def test_every_popup_has_its_own_name(popup):
     """Two popups sharing a name is one popup that opens when either is asked
     for, which imgui reports as neither working."""
     names = {
         getattr(clay_header, key)
-        for key in ("SNAP_POPUP", "PROPORTIONAL_POPUP", "OVERLAYS_POPUP", "VIEW_POPUP")
+        for key in ("SNAP_POPUP", "OVERLAYS_POPUP", "VIEW_POPUP")
     }
-    assert len(names) == 4
+    assert len(names) == 3
     assert getattr(clay_header, popup) in names
 
 

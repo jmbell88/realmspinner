@@ -113,82 +113,22 @@ def test_every_mode_and_tool_pair_has_a_hint(mode, tool):
     assert "Alt+LMB orbit" in line and "MMB pan" in line
 
 
-def test_the_element_modes_advertise_the_verbs_only_they_have():
-    """The complaint this answers: none of these is a button, so a user who has
-    not read chapter 30 cannot discover that edge mode does anything vertex
-    mode does not."""
-    assert "Alt+click loop" in clay_hints.hint("edge", "select")
-    assert "Ctrl+Alt+click ring" in clay_hints.hint("edge", "select")
-    assert "Alt+click loop" in clay_hints.hint("face", "select")
-    assert "Ctrl+Alt+click ring" not in clay_hints.hint("face", "select"), (
-        "a ring is an edge idea; offering it on faces is offer-then-refuse"
-    )
-    for mode in clay_ops.ELEMENT_MODES:
-        assert "L linked" in clay_hints.hint(mode, "select")
-
-
-def test_object_mode_offers_neither_the_element_verbs_nor_edit_mode_twice():
-    line = clay_hints.hint("object", "select")
-    assert "1/2/3 edit" in line
-    assert "loop" not in line and "linked" not in line
-
-
-def test_each_transform_tool_names_its_own_key():
-    assert "G move" in clay_hints.hint("object", "move")
-    # E, not R: ``clay_mode.TOOL_KEYS`` binds R to Scale and ``DRAG_KEYS`` has
-    # no rotate key at all, so "R rotate" named a key that scaled.
-    assert "E rotate" in clay_hints.hint("object", "rotate")
-    assert "S scale" in clay_hints.hint("object", "scale")
-    assert clay_hints.hint("object", "select") == clay_hints.hint("object", "select")
-
-
-def test_a_live_drag_replaces_the_line_rather_than_adding_to_it():
-    """Mid-drag the only keys that mean anything are the ones that constrain,
-    commit or cancel it, and a line still offering "Tab object" would be
-    offering a key that is not listened to."""
-    line = clay_hints.hint("edge", "move", dragging=True, drag_kind="move")
-    assert line.startswith("Move")
-    assert "X/Y/Z lock" in line and "Esc/RMB cancel" in line
-    assert "Tab" not in line and "Alt+click loop" not in line
-
-
-def test_the_drag_line_names_which_drag_is_running():
-    for kind in ("move", "rotate", "scale"):
-        assert clay_hints.hint("object", "move", dragging=True, drag_kind=kind).startswith(
-            kind.capitalize()
-        )
-    # And says something rather than nothing when the kind is unknown.
-    assert clay_hints.hint("object", "move", dragging=True).startswith("Drag")
-
-
-def test_an_unknown_mode_falls_back_rather_than_raising():
+def test_the_element_modes_advertise_only_the_verbs_they_still_have():
+    """Alt+click loop/ring and grow/shrink went with the loop and ring queries:
+    a hint that names a chord nothing listens to is offer-then-refuse."""
+    for mode in ("vertex", "edge", "face"):
+        line = clay_hints.hint(mode, "select")
+        assert "marquee" in line and "L linked" in line
+        assert "Alt+click" not in line and "grow/shrink" not in line
     assert clay_hints.hint("nonsense", "select") == clay_hints.hint("object", "select")
 
 
-# --- the background-op line ---------------------------------------------------
+# --- the measurement line ----------------------------------------------------
 
 
-def test_a_running_background_op_says_so_where_the_user_can_see_it():
-    """clay-41 (2026-09-19 audit, found during the fix phase): ``ClayTab.bg_busy``
-    was write-only -- five writers (``clay_ops``'s four background ops:
-    decimate, retopo, smart-unwrap, bake-detail) and zero readers, while the
-    sibling ``tab.saving`` it names itself after is read in six panes. Bake
-    Detail and Retopologize's own hint text warns they can take "minutes for
-    something dense", and for that whole window the user had nothing on
-    screen saying so. ``resolve_hint`` is what ``hud.hint_line`` now calls to
-    decide the line, and a background op in flight must win over both the
-    measurement readout and the ordinary mode/tool legend.
-    """
-    assert clay_hints.resolve_hint(busy="Decimating...", measure="", default="x") == "Decimating..."
-    assert (
-        clay_hints.resolve_hint(busy="Baking...", measure="area  1.0000 m²", default="x")
-        == "Baking..."
-    ), "a background op outranks a live measurement, not the other way round"
-    assert (
-        clay_hints.resolve_hint(busy="", measure="area  1.0000 m²", default="x")
-        == "area  1.0000 m²"
-    )
-    assert clay_hints.resolve_hint(busy="", measure="", default="x") == "x"
+def test_a_live_measurement_outranks_the_ordinary_legend():
+    assert clay_hints.resolve_hint(measure="area  1.0000 m²", default="x") == "area  1.0000 m²"
+    assert clay_hints.resolve_hint(measure="", default="x") == "x"
 
 
 # --- the keys the line names -------------------------------------------------
@@ -196,7 +136,7 @@ def test_a_running_background_op_says_so_where_the_user_can_see_it():
 
 def test_keys_named_finds_the_chords_and_the_bare_letters():
     found = clay_hints.keys_named(clay_hints.hint("edge", "move"))
-    assert {"L", "G", "4", "LMB", "MMB", "Alt+click", "Ctrl+Alt+click"} <= found
+    assert {"L", "G", "4", "LMB", "MMB", "Alt+LMB"} <= found
 
 
 def test_keys_named_does_not_read_english_as_a_binding():

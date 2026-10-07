@@ -9,10 +9,9 @@ into an overflow with the names back rather than clipping.
 **Every row is generated.** The op rows come from
 :func:`~realmspinner.studio.modes.clay.menutree.resolve` -- the same table the
 right-click menu reads -- so a label, a key, a greyed reason or a parameter
-dialog cannot differ between the two. The Add menu's primitive and figure rows
-come from ``primitives.CATEGORIES`` and ``presets.ASSEMBLIES``, the registries
-the left Add palette is already generated from, so a new shape appears in all
-three on its own.
+dialog cannot differ between the two. The Add menu's primitive rows
+come from ``primitives.CLAY_GENERATORS``, the registry the left Add palette is
+already generated from, so a new shape appears in all three on its own.
 
 **The strip follows the element mode**, as Blender's swaps Object for Mesh /
 Vertex / Edge / Face: a menu whose groups hold nothing for the current mode is
@@ -26,12 +25,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ......kernels.mesh import presets
 from ..... import controls, toolbar
 from ... import menutree as clay_menutree
 from ... import mode as clay_mode
 from ... import ops as clay_ops
-from . import bridge as clay_bridge
 from . import tools as clay_tools
 
 BAR = "clay-menu"
@@ -54,13 +51,6 @@ def draw(ctx: Any, state: Any, tab: Any) -> None:
         with controls.menu_popup(controls.menu_bar_id(BAR, menu.title)) as opened:
             if opened:
                 _menu_rows(ctx, state, tab, menu)
-    # The Generate popup is hosted here rather than in the Document pane: the
-    # strip is drawn whenever a document is open, where a pane can be hidden by
-    # the layout, and the row that asks for it is in this strip's Add menu.
-    if state.generate_open_pending:
-        state.generate_open_pending = False
-        imgui.open_popup(clay_bridge.GENERATE_POPUP)
-    clay_bridge.generate_popup(ctx, tab, state)
 
 
 def _menu_rows(ctx: Any, state: Any, tab: Any, menu: Any) -> None:
@@ -110,10 +100,9 @@ def _op_row(ctx: Any, tab: Any, op: Any) -> None:
 
 
 def _add_source(ctx: Any, state: Any, tab: Any, section: Any) -> None:
-    """The Add menu's rows that are not ops: shapes, figures.
+    """The Add menu's rows that are not ops: shapes, and the import row.
 
-    ``section.source`` names which: shapes, figures, or the two rows that bring
-    something in from outside (a file, or a generated mesh).
+    ``section.source`` names which.
     """
     doc = tab.doc
     if section.source == "primitives":
@@ -137,22 +126,6 @@ def _add_source(ctx: Any, state: Any, tab: Any, section: Any) -> None:
             not tab.saving,
             reason=why,
             tooltip="Open a .glb, .obj, .stl or .ply into this document. Units and "
-            "up axis are in Properties > Scene.",
+            "up axis are in Properties > Document.",
         )[0]:
             clay_mode.ask_import_mesh(ctx)
-        if controls.menu_item(
-            f"Generate...##{BAR}/generate",
-            "",
-            False,
-            not tab.saving,
-            reason=why,
-            tooltip="Build a mesh from a prompt or an image and land it here.",
-        )[0]:
-            state.generate_open_pending = True
-    elif section.source == "figures" and presets.ASSEMBLIES:
-        with controls.menu("Figures", enabled=not tab.saving, reason=_SAVING) as opened:
-            if opened:
-                for key, (label, _build) in presets.ASSEMBLIES.items():
-                    if controls.menu_item(f"{label}##{BAR}/figure/{key}")[0]:
-                        clay_tools.add_assembly(ctx, doc, key)
-                        state.generator = key

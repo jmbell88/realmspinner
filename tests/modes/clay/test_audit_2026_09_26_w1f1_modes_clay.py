@@ -8,12 +8,7 @@ still build a wire frame past ``MAX_FRAME``.
 
 clay-agent-tools-02: ``clay_batch``/``clay_program`` assemble a reply out of
 whole nested tool results with no ceiling of their own, unlike
-``clay_scene``/``clay_diagnose``.
-
-clay-agent-tools-03: ``clay_add_figure``'s prefix-collision refusal reverted
-its own mutate-then-refuse placement with ``doc.undo()`` (redoable by
-default), leaving the refused figure on the redo stack for a later
-``clay_redo`` to bring back.
+``clay_scene``.
 """
 
 from __future__ import annotations
@@ -23,7 +18,6 @@ import json
 import pytest
 
 from realmspinner.mcp import rpc
-from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 from realmspinner.studio.modes.clay.agent import validate as agent_validate
 
@@ -133,42 +127,3 @@ def test_clay_programs_reply_is_also_refused_before_its_reply_exceeds_max_frame(
 
     assert result["isError"] is True, "the unfixed code let this through (reproduced)"
     assert "too large" in result["content"][0]["text"]
-
-
-# --- clay-agent-tools-03 -----------------------------------------------------
-
-
-def test_a_refused_add_figure_prefix_collision_leaves_nothing_on_the_redo_stack() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    _new_agent_tab(ctx, session, "box")
-    # Pre-create an object named exactly what add_figure's own name_prefix
-    # would produce for the humanoid's "Head" part, so the collision refusal
-    # fires *after* add_assembly has already placed all nineteen parts.
-    added = agent_clay.call(
-        ctx, session, "clay_add_primitive", {"generator": "box", "name": "Rig_Head"}
-    )
-    assert added["isError"] is False, added
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    count_before = len(tab.doc.objects)
-    depth_before = len(tab.doc.history.history())
-
-    result = agent_clay.call(
-        ctx, session, "clay_add_figure", {"key": "humanoid", "name_prefix": "Rig_"}
-    )
-
-    assert result["isError"] is True
-    assert "collide" in result["content"][0]["text"]
-    assert len(tab.doc.objects) == count_before, "the refused figure's parts must not remain"
-    assert len(tab.doc.history.history()) == depth_before, "a total refusal records no undo step"
-    # The 2026-09-26 audit, finding clay-agent-tools-03: the unfixed code's
-    # ``doc.undo()`` reversed the placement redoably, so it was still sitting
-    # on the redo stack right here.
-    assert tab.doc.history.can_redo is False
-
-    redo_result = agent_clay.call(ctx, session, "clay_redo", {})
-    assert len(tab.doc.objects) == count_before, (
-        "clay_redo must not resurrect a figure that was refused (19 objects, reproduced)"
-    )
-    del redo_result

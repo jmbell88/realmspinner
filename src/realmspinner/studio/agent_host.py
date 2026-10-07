@@ -673,9 +673,6 @@ REPLAY_EXEMPT_READS = frozenset(
     {
         "clay_scene",
         "clay_measure",
-        "clay_analyze",
-        "clay_diagnose",
-        "clay_validate",
         "clay_elements",
     }
 )

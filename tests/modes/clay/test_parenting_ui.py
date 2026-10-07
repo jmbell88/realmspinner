@@ -1,12 +1,10 @@
 """Tranche 3 (scene structure): the viewport's half of parenting.
 
-Three claims, each one that fails against the unfixed view: the world memo
+Two claims, each one that fails against the unfixed view: the world memo
 has to invalidate when an ancestor moves (``ClayView._world`` used to key on
-only the object's own three arrays), a drag on a parented object has to write
-*local* TRS (the gizmo/keyboard drag used to write straight to
-``obj.translation``/``rotation``/``scale`` as if they were world values), and
-a locked object has to refuse a drag and refuse to be picked while the
-outliner can still reach it.
+only the object's own three arrays), and a drag on a parented object has to
+write *local* TRS (the gizmo/keyboard drag used to write straight to
+``obj.translation``/``rotation``/``scale`` as if they were world values).
 """
 
 from __future__ import annotations
@@ -165,70 +163,6 @@ def test_dragging_a_root_is_unchanged_by_the_local_conversion(view) -> None:
     view._apply(doc, doc.by_uid(obj.uid), was, np.array([2.0, 3.0, 4.0]), view.state)
 
     assert np.allclose(doc.by_uid(obj.uid).translation, [2.0, 3.0, 4.0])
-
-
-# --- locking -------------------------------------------------------------------
-
-
-def test_a_locked_object_cannot_be_dragged(view) -> None:
-    doc = bd.ClayDoc()
-    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box(), locked=True))
-    doc.select([obj.uid])
-    view.app_ctx.state.clay.tool = "move"
-    before = np.array(obj.translation, copy=True)
-
-    started = view._begin_gizmo_drag(doc)
-
-    assert started is False
-    assert view._grab is None
-    assert np.allclose(obj.translation, before)
-    assert view.app_ctx.toasted, "the refusal was never shown"
-    assert "locked" in view.app_ctx.toasted[0][0]
-
-
-def test_a_locked_descendant_of_a_locked_group_also_refuses_the_object_drag(view) -> None:
-    doc, parent, child = _parent_and_child()
-    doc.set_props(parent.uid, locked=True)
-    doc.select([child.uid])
-    view.app_ctx.state.clay.tool = "move"
-
-    started = view._begin_gizmo_drag(doc)
-
-    assert started is False
-    assert view.app_ctx.toasted
-
-
-def test_a_locked_object_cannot_be_picked(view) -> None:
-    doc = bd.ClayDoc()
-    doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box(), locked=True))
-    view.frame_selection(doc)
-    view.draw(doc, RECT, 0.0)
-
-    centre = (RECT[2] * 0.5, RECT[3] * 0.5)
-    assert view.pick(doc, centre) is None
-
-
-def test_a_locked_object_can_still_be_selected_and_unlocked_by_the_outliner(view) -> None:
-    """The outliner never picks through the viewport -- it addresses the
-    object by uid directly -- so ``doc.select`` and the lock toggle
-    (``set_props``, not a locking door) must keep working on it."""
-    doc = bd.ClayDoc()
-    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box(), locked=True))
-
-    doc.select([obj.uid])
-    assert doc.selection == {obj.uid}
-
-    doc.set_props(obj.uid, locked=False)
-    assert doc.by_uid(obj.uid).locked is False
-
-    # And now that it is unlocked, the viewport can pick it and drag it.
-    view.frame_selection(doc)
-    view.draw(doc, RECT, 0.0)
-    centre = (RECT[2] * 0.5, RECT[3] * 0.5)
-    assert view.pick(doc, centre) == obj.uid
-
-    view.app_ctx.state.clay.tool = "move"
-    assert view._begin_gizmo_drag(doc) is True
 
 
 # --- the properties panel's parent combo --------------------------------------

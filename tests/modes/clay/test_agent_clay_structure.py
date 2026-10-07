@@ -1,21 +1,20 @@
 """Regression and behaviour tests for Clay tranche 3's agent surface -- scene
-structure (``dev/CLAY-PLAN.md``): parenting and groups, locking, tags,
-separate, set origin, measure, and named checkpoints
+structure (``dev/CLAY-PLAN.md``): parenting and groups, separate, set origin,
+measure, and named checkpoints
 (``studio/modes/clay/agent/tools_structure.py``), plus the world/local split
-that lands on ``clay_scene`` and the locked-refusal wiring on
-``clay_transform``/``clay_delete``.
+that lands on ``clay_scene``.
 
 Kept out of ``tests/modes/clay/test_agent_clay.py`` deliberately -- the same
-rule ``test_agent_clay_modifiers.py`` states for itself: that file carries
+rule ``test_agent_clay_door_types.py`` states for itself: that file carries
 the user's own uncommitted work, and this session's own new tests go in
 their own file instead, with their own minimal ``ctx`` double rather than an
 import across files.
 
 **The bidirectional derivation gate does not apply here.** ``clay_separate``'s
 ``by``, ``clay_set_origin``'s ``mode`` and ``clay_measure``'s ``kind`` are
-each a fixed three/four/four-member tuple (``schema.SEPARATE_MODES``/
+each a fixed two/four/four-member tuple (``schema.SEPARATE_MODES``/
 ``ORIGIN_MODES``/``MEASURE_KINDS``), not a live registry the way
-``GENERATORS``/``OPS``/``QUERIES``/``MODIFIERS`` are -- there is no growing
+``CLAY_GENERATORS``/``OPS``/``QUERIES`` are -- there is no growing
 source for a "thirteenth entry reaches the surface with no edit here" test
 to prove anything about, the same reason ``RENDER_SHADINGS`` carries no such
 gate either.
@@ -46,7 +45,7 @@ class _Cache:
 class _Ctx:
     """The same minimal ``ctx`` double ``tests/modes/clay/test_agent_clay.py``
     uses -- duplicated here rather than imported, the same reason
-    ``test_agent_clay_modifiers.py`` gives for its own copy."""
+    ``test_agent_clay_door_types.py`` gives for its own copy."""
 
     def __init__(self, svc: Any = None) -> None:
         self.state = SimpleNamespace(clay=None)
@@ -249,177 +248,6 @@ def test_group_and_ungroup_are_batchable() -> None:
     assert "clay_ungroup" in handlers
 
 
-# --- clay_lock -----------------------------------------------------------------
-
-
-def test_lock_and_unlock_toggle_as_one_step_each() -> None:
-    ctx, session, uid1, uid2 = _new_world()
-    before = _history_len(ctx, session)
-
-    locked = agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1, uid2], "locked": True})
-    assert locked["isError"] is False, locked
-    assert _row(locked)["changed"] == [uid1, uid2]
-    assert _history_len(ctx, session) == before + 1
-
-    doc = _doc(ctx, session)
-    assert doc.by_uid(uid1).locked is True
-    assert doc.by_uid(uid2).locked is True
-
-    assert doc.undo()
-    assert doc.by_uid(uid1).locked is False
-    assert doc.by_uid(uid2).locked is False
-
-
-def test_lock_already_locked_pushes_no_step() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-    before = _history_len(ctx, session)
-    result = agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-    assert result["isError"] is False, result
-    assert _row(result)["changed"] == []
-    assert _history_len(ctx, session) == before
-
-
-def test_a_locked_object_refuses_transform_by_name() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-    before = _history_len(ctx, session)
-
-    result = agent_clay.call(
-        ctx, session, "clay_transform", {"uid": uid1, "translation": [1, 1, 1]}
-    )
-    assert result["isError"] is True
-    structured = result["structuredContent"]
-    assert structured["field"] == "uid"
-    assert structured["changed"] is False
-    assert "locked" in result["content"][0]["text"]
-    assert "Box" in result["content"][0]["text"]  # names the object
-    assert _history_len(ctx, session) == before
-
-
-def test_a_locked_object_refuses_transform_through_a_locked_ancestor() -> None:
-    ctx, session, uid1, uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_parent", {"uid": uid2, "parent": uid1})
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-
-    result = agent_clay.call(
-        ctx, session, "clay_transform", {"uid": uid2, "translation": [1, 1, 1]}
-    )
-    assert result["isError"] is True
-    assert result["structuredContent"]["field"] == "uid"
-
-
-def test_a_locked_object_refuses_delete_by_name() -> None:
-    ctx, session, uid1, uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-    before = _history_len(ctx, session)
-
-    result = agent_clay.call(ctx, session, "clay_delete", {"uids": [uid1, uid2]})
-    assert result["isError"] is True
-    structured = result["structuredContent"]
-    assert structured["field"] == "uids"
-    assert structured["changed"] is False
-    assert structured["uids"] == [uid1]
-    assert "Box" in result["content"][0]["text"]
-    assert _history_len(ctx, session) == before
-    # Nothing was removed, including uid2 -- validated before any mutation.
-    doc = _doc(ctx, session)
-    assert {o.uid for o in doc.objects} == {uid1, uid2}
-
-
-def test_locking_still_allows_rename_visibility_and_tags() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-
-    renamed = agent_clay.call(ctx, session, "clay_rename", {"uid": uid1, "name": "StillLocked"})
-    assert renamed["isError"] is False, renamed
-    tagged = agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1], "add": ["prop"]})
-    assert tagged["isError"] is False, tagged
-    unlocked = agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": False})
-    assert unlocked["isError"] is False, unlocked
-
-
-def test_lock_is_batchable() -> None:
-    assert "clay_lock" in set(agent_clay._HANDLERS) - agent_clay.BATCH_EXCLUDED
-
-
-# --- clay_tag --------------------------------------------------------------------
-
-
-def test_tag_normalizes_dedupes_sorts_and_lower_cases() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    before = _history_len(ctx, session)
-
-    result = agent_clay.call(
-        ctx, session, "clay_tag", {"uids": [uid1], "add": ["Prop", "prop", "Furniture"]}
-    )
-    assert result["isError"] is False, result
-    row = _row(result)["objects"][0]
-    assert row["uid"] == uid1
-    assert row["tags"] == ["furniture", "prop"]  # sorted, deduped, lower-cased
-    assert _history_len(ctx, session) == before + 1
-
-    doc = _doc(ctx, session)
-    assert doc.undo()
-    assert doc.by_uid(uid1).tags == ()
-
-
-def test_tag_remove_drops_a_tag_spelled_differently() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1], "add": ["Prop"]})
-    result = agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1], "remove": ["PROP"]})
-    assert result["isError"] is False, result
-    assert _row(result)["objects"][0]["tags"] == []
-
-
-def test_tag_applies_the_same_add_remove_to_every_named_object_as_one_step() -> None:
-    ctx, session, uid1, uid2 = _new_world()
-    before = _history_len(ctx, session)
-    result = agent_clay.call(
-        ctx, session, "clay_tag", {"uids": [uid1, uid2], "add": ["batch_tag"]}
-    )
-    assert result["isError"] is False, result
-    rows = {r["uid"]: r["tags"] for r in _row(result)["objects"]}
-    assert rows[uid1] == ["batch_tag"]
-    assert rows[uid2] == ["batch_tag"]
-    assert _history_len(ctx, session) == before + 1
-
-
-def test_tag_refuses_giving_neither_add_nor_remove() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    result = agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1]})
-    assert result["isError"] is True
-    assert result["structuredContent"]["field"] == "add"
-    assert result["structuredContent"]["changed"] is False
-
-
-def test_tag_is_not_a_locking_door() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-    result = agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1], "add": ["prop"]})
-    assert result["isError"] is False, result
-
-
-def test_select_by_tag_unions_with_uids() -> None:
-    ctx, session, uid1, uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1], "add": ["prop"]})
-    result = agent_clay.call(ctx, session, "clay_select", {"uids": [uid2], "tag": "Prop"})
-    assert result["isError"] is False, result
-    assert sorted(_payload(result)["selection"]) == sorted([uid1, uid2])
-
-
-def test_select_by_tag_alone_with_empty_uids() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1], "add": ["prop"]})
-    result = agent_clay.call(ctx, session, "clay_select", {"uids": [], "tag": "prop"})
-    assert result["isError"] is False, result
-    assert _payload(result)["selection"] == [uid1]
-
-
-def test_tag_is_batchable() -> None:
-    assert "clay_tag" in set(agent_clay._HANDLERS) - agent_clay.BATCH_EXCLUDED
-
-
 # --- clay_separate ---------------------------------------------------------------
 
 
@@ -454,32 +282,6 @@ def test_separate_by_loose_parts_as_one_step() -> None:
     assert {o.uid for o in doc.objects} == {uid}
 
 
-def test_separate_by_material() -> None:
-    """Half the box's faces get a second material -- the tool surface has no
-    door for painting part of one object's own faces (clay_material always
-    repaints the whole object), so this reaches into the document directly
-    for test setup only; the assertion below is entirely about
-    clay_separate's own behaviour."""
-    from dataclasses import replace as _replace
-
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
-    uid = _row(added)["uid"]
-    agent_clay.call(
-        ctx, session, "clay_material", {"name": "red", "uids": [uid], "color": [1, 0, 0]}
-    )
-    doc = _doc(ctx, session)
-    obj = doc.by_uid(uid)
-    material = obj.mesh.material.copy()
-    material[: len(material) // 2] = 0  # half the faces keep slot 0
-    doc.set_mesh(uid, _replace(obj.mesh, material=material), keep_generator=True)
-
-    result = agent_clay.call(ctx, session, "clay_separate", {"uid": uid, "by": "material"})
-    assert result["isError"] is False, result
-    assert len(_row(result)["uids"]) == 2
-
-
 def test_separate_by_selection() -> None:
     ctx, session, uid1, _uid2 = _new_world()
     mode_result = agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
@@ -506,17 +308,6 @@ def test_separate_refuses_when_the_split_would_be_a_single_piece() -> None:
     result = agent_clay.call(ctx, session, "clay_separate", {"uid": uid1, "by": "loose_parts"})
     assert result["isError"] is True
     assert result["structuredContent"]["changed"] is False
-
-
-def test_separate_refuses_a_locked_source() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    added = agent_clay.call(ctx, session, "clay_add_mesh", _TWO_TETRA_ARGS)
-    uid = _row(added)["uid"]
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid], "locked": True})
-    result = agent_clay.call(ctx, session, "clay_separate", {"uid": uid, "by": "loose_parts"})
-    assert result["isError"] is True
-    assert "locked" in result["content"][0]["text"]
 
 
 def test_separate_keeps_the_sources_parent_and_transform_on_every_piece() -> None:
@@ -628,13 +419,6 @@ def test_set_origin_freezes_the_generator() -> None:
     assert result["isError"] is False, result
     assert _row(result)["changed"] is True
     assert _row(result)["generator"] is None
-
-
-def test_set_origin_is_not_a_locking_door() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-    result = agent_clay.call(ctx, session, "clay_set_origin", {"uid": uid1, "mode": "world"})
-    assert result["isError"] is False, result
 
 
 def test_set_origin_is_batchable() -> None:
@@ -841,8 +625,6 @@ def test_scene_reports_world_trs_for_a_root_unchanged() -> None:
     assert row["rotation"] == pytest.approx([10.0, 20.0, 30.0])
     assert "local" not in row
     assert row["parent"] is None
-    assert row["locked"] is False
-    assert row["tags"] == []
 
 
 def test_scene_reports_world_trs_and_a_local_block_for_a_parented_object() -> None:
@@ -859,37 +641,3 @@ def test_scene_reports_world_trs_and_a_local_block_for_a_parented_object() -> No
     assert row["parent"] == uid2
 
 
-def test_scene_reports_tags_and_locked() -> None:
-    ctx, session, uid1, _uid2 = _new_world()
-    agent_clay.call(ctx, session, "clay_tag", {"uids": [uid1], "add": ["prop", "furniture"]})
-    agent_clay.call(ctx, session, "clay_lock", {"uids": [uid1], "locked": True})
-
-    scene = agent_clay.call(ctx, session, "clay_scene", {})
-    row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid1)
-    assert row["tags"] == ["furniture", "prop"]
-    assert row["locked"] is True
-
-
-def test_boolean_consumes_the_world_placement_of_a_parented_operand() -> None:
-    """world= threaded into ops_boolean.boolean: a parented operand's own
-    local TRS alone would put it in the wrong place -- this proves the
-    boolean actually reads its world matrix, not merely its own fields."""
-    ctx, session, uid1, uid2 = _new_world()
-    # Move uid2's own parent far away and re-parent uid2 under it, keeping
-    # world placement -- uid2's *local* TRS is now nowhere near [3, 0, 0],
-    # but its world placement (what the boolean must actually consume) still
-    # is, since keep_world=True is the default.
-    far = agent_clay.call(
-        ctx, session, "clay_add_primitive", {"generator": "box", "translation": [100.0, 0.0, 0.0]}
-    )
-    far_uid = _row(far)["uid"]
-    agent_clay.call(ctx, session, "clay_parent", {"uid": uid2, "parent": far_uid})
-
-    result = agent_clay.call(ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1, uid2]})
-    assert result["isError"] is False, result
-    survivor = _payload(result)["uid"]
-    doc = _doc(ctx, session)
-    lo, hi = agent_clay.clay_geom_ops.world_box(doc.by_uid(survivor), doc.evaluated(survivor))
-    # Two boxes centred at 0 and at [3,0,0] union to a box spanning roughly
-    # -0.5..3.5 on X -- not the ~100 a un-worlded read of uid2 would give.
-    assert hi[0] < 10.0

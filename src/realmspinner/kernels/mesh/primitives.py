@@ -2938,3 +2938,28 @@ and no name that is not a generator, so a primitive added to the registry and
 forgotten here fails a test rather than quietly vanishing from the panel that
 is generated from it.
 """
+
+
+CLAY_GENERATORS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("primitives", ("box", "plane", "grid", "cylinder", "cone",
+                    "uv_sphere", "icosphere", "torus", "capsule")),
+    ("game", ("wedge", "ramp", "rounded_box", "stairs", "wall", "doorway")),
+)
+"""The shapes Clay's Add palette offers, by section -- a subset of
+:data:`GENERATORS`, which stays whole.
+
+``GENERATORS`` is the registry every consumer of a *name* reads: a Mason
+``.rscn`` records its placed objects by generator name, so a name cannot leave
+it without breaking a saved scene. Clay, a picoCAD-level modeller, offers only
+the shapes a low-poly blockout starts from; the curve-driven ones (``lathe``,
+``sweep``, ``tube``) and the rest of the structures (``pyramid``, ``arch``,
+``column``) went with the curve editor that authored them.
+
+A ``.rblk`` that names a generator outside this set still opens: the reader
+*freezes* the object (keeps the mesh, drops the generator and its params), the
+same thing a first topology edit does, rather than refusing the file.
+"""
+
+CLAY_GENERATOR_NAMES: frozenset[str] = frozenset(
+    name for _, names in CLAY_GENERATORS for name in names
+)

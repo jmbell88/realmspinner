@@ -97,47 +97,18 @@ class ClayTab(docmodes.HistoryTab):
     # document afterwards does not change the mesh already on disk.
     job_id: str = ""
 
-    # What background task (if any) this tab is waiting on, in words a hint
-    # line can show as-is -- "Decimating..." -- or "" while nothing is
-    # pending. Set by the op that submits the ``clay-bg:<uid>`` task
-    # (``clay_ops._decimate``/``_retopo``/``_smart_unwrap``/``_bake_detail``)
-    # and cleared by ``clay_mode.on_task_done``/``on_task_failed`` once it
-    # lands, the same shape ``saving`` already has for a save in flight. Read
-    # by ``hud.hint_line`` (through ``viewport_hints.resolve_hint``) -- the
-    # 2026-09-19 audit's clay-41 found this field written in four places and
-    # read in none, so a multi-minute Blender bake left the user with nothing
-    # on screen saying so.
-    bg_busy: str = ""
-
-    # The last "Game check" result, and the document revision it was computed
-    # at -- ``readiness.validate`` is O(corners) (a BFS per object), so it
-    # runs on a button press, never per frame, and this is what lets the
-    # panel say "out of date" instead of silently showing a stale verdict
-    # after the document has moved on. ``None`` means no check has been run
-    # yet in this tab.
-    readiness_report: Any = None
-    readiness_head: int = -1
-    # The profile the section's combo shows, per tab: a mobile prop and a
-    # desktop hero asset open side by side are checked against different
-    # targets. It was declared on ``ClayState`` while every reader used the
-    # tab, so the pane raised on its first draw before any check had run.
-    readiness_profile: str = ""
-
     # Tranche 6: the UV pane's own pan/zoom and island selection. See
     # ``UvPaneState``'s own docstring (``ui/panes/uv.py``) for why it is a
     # nested dataclass beside ``view`` rather than loose fields here, and
     # ``_new_uv_view``'s above for why the default factory imports it lazily.
     uv_view: UvPaneState = field(default_factory=_new_uv_view)
 
-    # The size of this document's own ``.rblk`` the last time it was measured
-    # -- at open (``clay_mode._load`` already reads the whole file, so the
-    # length is free) and at save (the encode ``clay_mode.save_to``/
-    # ``save_as`` already do). 0 means "never measured" (a brand-new or
-    # imported document with no save yet), and ``.generate``'s own ceiling
-    # check reads that as "unknown" rather than as zero bytes -- a document
-    # this module has never seen the size of is not one it can refuse a
-    # generate landing in for being too big.
-    rblk_bytes: int = 0
+    # The Inker documents whose pixels flow into this document's palette entries
+    # (``texture_link.InkerLink``): one per "Edit texture in Inker" or "Take
+    # texture back". Typed ``Any`` because ``texture_link`` imports the Clay
+    # document types and this module is imported first; session state only, a
+    # saved ``.rblk`` carries the texture, never the link.
+    inker_links: list[Any] = field(default_factory=list)
 
 
 def title_for(path: Path | None) -> str:
@@ -176,30 +147,6 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     snap: bool = False
     snap_translate: float = DEFAULT_SNAP_TRANSLATE
     snap_rotate: float = DEFAULT_SNAP_ROTATE
-    # Snap a move onto the vertex under the cursor, in preference to the grid.
-    # A *separate* switch rather than a mode of ``snap``, because the two answer
-    # different questions -- "put it on round numbers" and "put it exactly
-    # there" -- and a user aligning two parts wants the second without giving up
-    # the first everywhere else. Off by default: it changes what a plain drag
-    # does, and a viewport that silently jumps is worse than one that does not.
-    snap_vertex: bool = False
-    # Tranche 3: scene structure. Two more targets beside grid and vertex --
-    # the nearest point on an edge, and the ray hit on a face, both in world
-    # space (``_view_drag.DragOps._snap_edge``/``_snap_face``). Independent
-    # switches, the same reason ``snap_vertex`` is one rather than a mode of
-    # ``snap``: a user may want any combination on, and ``_narrow`` tries
-    # vertex, then edge, then face -- finest target first -- when more than
-    # one is.
-    snap_edge: bool = False
-    snap_face: bool = False
-
-    # Proportional editing: an element drag carries the geometry around the
-    # selection with it, fading out over ``proportional_radius`` metres of world
-    # space. Off by default and radius-driven rather than count-driven, because
-    # a radius is the thing the user can see -- a "how many rings" control means
-    # nothing on an imported mesh whose density varies across it.
-    proportional: bool = False
-    proportional_radius: float = 0.5
     grid: bool = True
     # The grid's own size, in metres -- a user setting rather than something
     # derived from the document, unlike Mason's, Poser's and the asset
@@ -246,13 +193,13 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     overlays: dict[str, bool] = field(default_factory=lambda: {"wire": False})
 
     # What the properties panel offers when the user adds something -- the
-    # key of whichever add-tool (a primitive or a figure) was last pressed.
+    # key of whichever add-tool (a primitive) was last pressed.
     #
     # ``""`` means *nothing yet*, not Box. clay-12 (2026-09-08 audit, second run): this
     # used to default to ``"box"``, so a session that had never touched an
     # add-tool showed the grid's Box icon lit and its defaults printed in the
     # options block below it -- state that reads as a click nobody made. No
-    # key in ``primitives.GENERATORS`` or ``presets.ASSEMBLIES`` is ever the
+    # key in ``primitives.GENERATORS`` is ever the
     # empty string, so this sentinel can never collide with a real tool's name
     # and every reader that compares against a key (the icon grid's
     # "selected" highlight, ``clay_tools._options_for``) already treats it as
@@ -315,12 +262,6 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # An unknown key (a tab since removed) is read as ``"object"`` by the pane.
     props_tab: str = "object"
 
-    # Set by the Add menu's "Generate..." row, consumed by the menu strip, which
-    # hosts the popup: a menu row cannot open a popup itself (a submenu is a
-    # window of its own, so the popup would be named in *its* id stack) -- the
-    # ``open_op_popup`` / ``resize_pending`` pattern, for the same reason.
-    generate_open_pending: bool = False
-
     # Where a Shift+click range in the outliner is measured from. A uid, for the
     # reason every address in this package is one: the list reorders, and an
     # anchor that was an index would silently point at a different row.
@@ -332,11 +273,6 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # a document reopened expanded is the same "nothing remembered" default
     # every other transient view setting in this class gets.
     outliner_collapsed: set[int] = field(default_factory=set)
-    # The outliner's tag filter box, alongside the name filter's own entry
-    # in ``AppState.list_filters`` -- kept here instead, since a tag query is
-    # Clay-specific state with nothing else that would want to key on it the
-    # way the shared, cross-mode ``list_filters`` dict does.
-    outliner_tag_filter: str = ""
 
     # Units and up-axis for the next mesh import (the "Import Mesh..." button
     # and a file dropped onto the viewport both read these), remembered across
@@ -361,45 +297,10 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # here so the card can print it on the frames after the refusal. Cleared
     # by the card itself the moment the recent op stops being live.
     adjust_message: str = ""
-    # The curve editor's per-object view and gesture (``curve_edit.CurveUi``),
-    # keyed by uid. Display state: pan, zoom, which point is selected, and the
-    # drag in flight. Never written to a file.
-    curve_ui: dict[int, Any] = field(default_factory=dict)
     size_lock_aspect: bool = False
     euler_cache: dict[int, tuple[tuple[float, ...], tuple[float, float, float]]] = field(
         default_factory=dict
     )
-
-    # The last manifold check, per object: the ``Mesh`` it measured and the rows
-    # it produced. Held here rather than recomputed because ``check_manifold``
-    # builds a whole adjacency -- O(corners), and not something to run sixty
-    # times a second to redraw a line that has not changed.
-    #
-    # **Keyed on the mesh object, not on a revision or an id.** A ``Mesh`` is
-    # immutable and every op replaces it, so ``obj.mesh is measured`` is exactly
-    # "this result is still about what is on screen"; an ``id()`` would be
-    # recycled by the allocator onto a different mesh and silently report last
-    # edit's holes. Keeping the mesh alive is the price, and it is one mesh per
-    # object the user has actually asked about.
-    manifold: dict[int, tuple[Any, list[Any]]] = field(default_factory=dict)
-
-    # "Generate into the current tab" (``.generate``): one request in flight
-    # for the whole app, never per tab -- the popup that starts it is modal,
-    # so there is only ever one to hold. ``None`` means nothing is under way.
-    # ``.generate.poll``/``.on_task_done``/``.on_task_failed`` are the only
-    # writers; the bridge pane and ``.generate``'s own status line are the
-    # only readers. A dict rather than a dataclass, the same shape Inker's
-    # own ``inpaint_pending`` and ``flourish_texture_pending`` take -- the
-    # keys carried at each stage differ enough (a prompt only while text is
-    # rerollable, a decoded landing only while one is deferred) that a fixed
-    # set of fields would be mostly unused at any one stage.
-    generate_pending: dict[str, Any] | None = None
-    # The popup's own text field and budget choice -- widget state, not
-    # part of any request until Generate is pressed, ``ClayState.tool``'s
-    # own reasoning: it belongs to the *app*, the same way Inker's
-    # ``inpaint_prompt`` does, so it is not reset by a tab switch.
-    generate_prompt: str = ""
-    generate_budget: str = "standard"
 
     # -- documents ---------------------------------------------------------
 

@@ -134,7 +134,7 @@ def param_widget(op_name: str, param: Any, value: float) -> tuple[bool, float]:
         if changed:
             result = (True, float(int(picked)))
     elif param.integer:
-        # Honoured rather than declared. Smooth's "levels" is the only
+        # Honoured rather than declared. Subdivide's "levels" is the only
         # integer parameter and it was drawn as a float field, so it
         # accepted 1.5 and the op then truncated it -- a number the user
         # typed, silently becoming a different one.

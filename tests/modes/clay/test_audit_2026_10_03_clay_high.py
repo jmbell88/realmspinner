@@ -8,6 +8,8 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from realmspinner.mcp import protocol
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
@@ -83,8 +85,8 @@ def test_a_digit_string_in_an_array_argument_is_refused_not_read_as_digits() -> 
     cases = [
         ("clay_delete", {}),
         ("clay_select", {}),
-        ("clay_lock", {"locked": True}),
-        ("clay_boolean", {"kind": "union"}),
+        ("clay_group", {}),
+        ("clay_material", {"color": [1.0, 0.0, 0.0]}),
     ]
     for tool, extra in cases:
         ctx, session, uids = _boxes(3)
@@ -154,11 +156,8 @@ def test_join_objects_that_refuses_a_zero_scale_ancestor_leaves_the_target_untou
 
 
 def test_a_keyboard_tab_switch_does_not_overwrite_the_incoming_tabs_stored_camera() -> None:
-    import pytest
-
     from realmspinner.kernels.mesh import document as bd
     from realmspinner.kernels.mesh import primitives as bp
-    from realmspinner.studio.modes.clay import generate as clay_generate
 
     ctx = _Ctx()
 
@@ -177,7 +176,7 @@ def test_a_keyboard_tab_switch_does_not_overwrite_the_incoming_tabs_stored_camer
     state.activate(second.uid)
     camera = SimpleNamespace(theta=2.5, phi=0.7, distance=11.0, target=(4.0, 5.0, 6.0))
     ctx.clay_view = SimpleNamespace(camera=camera)
-    clay_generate.poll(ctx)
+    clay_mode.sync_active_camera(ctx)
     assert second.view.yaw == pytest.approx(0.5)
     assert first.view.yaw == pytest.approx(2.5)
 
@@ -190,7 +189,6 @@ def test_picking_a_palette_slot_in_properties_repaints_the_objects_faces_so_it_e
 
     from realmspinner.kernels.mesh import document as bd
     from realmspinner.kernels.mesh import primitives as bp
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -206,9 +204,6 @@ def test_picking_a_palette_slot_in_properties_repaints_the_objects_faces_so_it_e
     doc.repaint_object(obj.uid, 1)
     assert obj.material == 1 and np.all(obj.mesh.material == 1)
     assert len(doc.history) == steps + 1
-
-    assert clay_props._apply_library_material(doc, [obj.uid], doc.materials[0])
-    assert np.all(obj.mesh.material == len(doc.materials) - 1)
 
 
 # --- clay-18 ---------------------------------------------------------------

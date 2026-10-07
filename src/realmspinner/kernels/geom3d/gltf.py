@@ -34,6 +34,9 @@ _COMPONENT = {
     5125: np.uint32,
     5126: np.float32,
 }
+#: glTF's sampler enum for NEAREST (GL_NEAREST); ``glbwrite`` writes it and the
+#: loader reads it back, so the two halves share one definition.
+FILTER_NEAREST = 9728
 _NCOMP = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "MAT4": 16}
 
 #: Ceilings on what a hand-supplied file may declare. ``check_glb`` at the
@@ -157,6 +160,11 @@ class Material:
     normal: tuple[int, int, bytes] | None = None
     emissive: tuple[int, int, bytes] | None = None
     occlusion: tuple[int, int, bytes] | None = None
+    #: Sample the base-colour texture with NEAREST min/mag filtering and no
+    #: mipmaps (pixel art stays crisp). Last in the dataclass so every
+    #: positional construction keeps its meaning; ``glbwrite`` writes it as a
+    #: glTF sampler and the loader reads it back from one.
+    nearest: bool = False
 
 
 @dataclass
@@ -1490,11 +1498,37 @@ class _Reader:
             alpha_cutoff=_number(mat.get("alphaCutoff", 0.5), 0.5),
         )
         out.base_color = self.texture(pbr.get("baseColorTexture"))
+        out.nearest = out.base_color is not None and self._nearest(pbr.get("baseColorTexture"))
         out.metallic_roughness = self.texture(pbr.get("metallicRoughnessTexture"))
         out.normal = self.texture(mat.get("normalTexture"))
         out.emissive = self.texture(mat.get("emissiveTexture"))
         out.occlusion = self.texture(mat.get("occlusionTexture"))
         return out
+
+    def _nearest(self, ref: Any) -> bool:
+        """Whether a base-colour texture reference points at a NEAREST sampler.
+
+        Read defensively at every level, like ``_punctual``: ``texture()`` has
+        already refused a reference whose index is wrong, so what is left is
+        the optional sampler, and a malformed one is a cosmetic loss (the
+        texture filters smoothly) rather than a reason to refuse the file.
+        Keyed on ``magFilter`` alone: that is what a crisp magnified texel is.
+        """
+        if not isinstance(ref, dict):
+            return False
+        textures = self.gltf.get("textures")
+        samplers = self.gltf.get("samplers")
+        index = ref.get("index")
+        if not isinstance(textures, list) or not isinstance(samplers, list):
+            return False
+        if not isinstance(index, int) or not 0 <= index < len(textures):
+            return False
+        tex = textures[index]
+        slot = tex.get("sampler") if isinstance(tex, dict) else None
+        if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot < len(samplers):
+            return False
+        sampler = samplers[slot]
+        return isinstance(sampler, dict) and sampler.get("magFilter") == FILTER_NEAREST
 
     def _image_bytes(self, image: dict) -> bytes | None:
         """The encoded pixels for one glTF image, or None if unreachable.

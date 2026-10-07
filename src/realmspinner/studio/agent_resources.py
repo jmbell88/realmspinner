@@ -11,16 +11,16 @@ thread, which is the same rule ``agent_host``'s own module docstring states
 for a ``call``. ``realmspinner://clay/conventions``, ``realmspinner://clay/generators``
 and ``realmspinner://clay/operations`` are *static*: pure functions of registries
 that already exist for a human surface (:mod:`agent_clay`'s own prose,
-``clay.primitives.GENERATORS``, ``clay_ops.OPS``), touching no document and
+``clay.primitives.CLAY_GENERATORS``, ``clay_ops.OPS``), touching no document and
 no GL, so they are safe to answer on the listener thread directly and cheap
 enough to embed inline in the catalogue snapshot (see
 :func:`catalogue_resources`) -- a bridge dialled while Realmspinner itself is not
 running can still read them.
 
 **Never hand-listed.** :func:`_generators_json` and :func:`_operations_json`
-walk ``primitives.GENERATORS`` and ``clay_ops.OPS`` the same way
+walk ``primitives.CLAY_GENERATORS`` and ``clay_ops.OPS`` the same way
 ``agent_clay._generator_catalog``/``_op_catalog`` already do for their own
-prose -- a thirteenth primitive or op needs no edit here either.
+prose -- a new primitive or op needs no edit here either.
 
 **Bound memory, on purpose.** ``Session.last_render_png`` (see ``agent_clay.
 Session``) holds at most one PNG -- the most recent ``clay_render`` this
@@ -45,11 +45,16 @@ DYNAMIC_URIS = frozenset({SCENE_URI, RENDER_LAST_URI})
 
 
 def _generators_json() -> dict[str, Any]:
-    """``primitives.GENERATORS``, as JSON: for each generator, its default
-    parameters. Derived, never hand-listed -- see the module docstring."""
+    """The generators Clay offers (``primitives.CLAY_GENERATORS``), as JSON:
+    for each one, its default parameters (``GENERATORS`` holds those).
+    Derived, never hand-listed -- see the module docstring."""
     from ..kernels.mesh import primitives as bp
 
-    return {name: {"params": dict(defaults)} for name, (defaults, _fn) in bp.GENERATORS.items()}
+    return {
+        name: {"params": dict(bp.GENERATORS[name][0])}
+        for _category, names in bp.CLAY_GENERATORS
+        for name in names
+    }
 
 
 def _param_json(param: Any) -> dict[str, Any]:

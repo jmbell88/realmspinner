@@ -1,9 +1,8 @@
 """Regression tests for the 2026-09-15 audit's Clay/Familiar findings.
 
-Four unrelated defects, one file because one fixer owned all four: clay-01
+Three unrelated defects, one file because one fixer owned all three: clay-01
 (a live keyboard/gizmo drag survives a tab switch and settles against the
-wrong document), clay-04 (the copy-family reader mis-reads a four-digit
-suffix), agents-01 (a Familiar build preview can land as a ghost over a tab
+wrong document), agents-01 (a Familiar build preview can land as a ghost over a tab
 nobody asked to preview) and agents-07 (the character-plan landing path had
 no test at all, success or failure).
 """
@@ -15,7 +14,6 @@ from types import SimpleNamespace
 import numpy as np
 from familiar.test_familiar_ui import _canned_calls, _FakeCtx  # shared rather than duplicated
 
-from realmspinner.kernels.mesh import diagnose
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.service import errors as service_errors
@@ -159,32 +157,6 @@ def test_creating_or_opening_a_document_mid_drag_settles_the_drag_on_the_tab_it_
         )
     finally:
         view.release()
-
-
-# --- clay-04: a copy family with a four-digit suffix -------------------------
-
-
-def test_family_strips_a_four_digit_copy_suffix() -> None:
-    """``ops.next_name`` counts a copy up past ``.999`` into ``.1000``,
-    ``.10000``, and so on, never resetting the suffix width. ``diagnose.
-    _family`` used to check only the character exactly four from the end for
-    a literal ``.`` -- true for ``Box.001`` but false for ``Box.1000`` and
-    every wider suffix after it -- so a family duplicated past 999 copies
-    silently stopped being read as one: ``Box.1000`` came back as its own
-    family, named after itself, instead of joining ``Box``.
-
-    Fails against the unfixed code with:
-        AssertionError: assert 'Box.1000' == 'Box'
-    """
-    assert diagnose._family("Box.1000") == "Box"
-    assert diagnose._family("Box.10000") == "Box"
-    # The ordinary three-digit case, and the bare (uncopied) name, both still
-    # read the way they always did.
-    assert diagnose._family("Box.001") == "Box"
-    assert diagnose._family("Box") == "Box"
-    # A name that merely contains a dot-digits run earlier, not at the end,
-    # is not a copy suffix and must be left alone.
-    assert diagnose._family("Box.001.glb") == "Box.001.glb"
 
 
 # --- agents-01: a build preview landing after a tab switch -------------------

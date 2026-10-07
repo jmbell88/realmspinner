@@ -39,13 +39,10 @@ from ..geom3d import math3d as m3
 
 __all__ = [
     "AXES",
-    "MAX_FALLOFF_VERTICES",
     "DragInput",
     "constrain_rotation",
     "constrain_scale",
     "constrain_translation",
-    "falloff",
-    "proportional_set",
     "readout",
 ]
 
@@ -199,101 +196,6 @@ def constrain_rotation(quat: np.ndarray, drag: DragInput) -> np.ndarray:
     if axis is None:
         return m3.quat_identity()
     return m3.quat_from_axis_angle(axis, np.radians(value))
-
-
-# --- proportional editing -----------------------------------------------------
-#
-# The falloff turns a selection into a *neighbourhood*: the selected vertices
-# move fully, the ones near them move less, and the surface bends instead of
-# tearing. It is what takes Clay from blockout-only to organic-adjustment-
-# capable, and it is a weight per vertex and nothing else -- the drag maths, the
-# preview and the commit are all untouched by it.
-
-#: The largest vertex count (the mesh, not the selection) the distance search
-#: will attempt. Replaced the ``selected x vertices`` pair cap on 2026-09-13
-#: (`dev/measurements/2026-09-13-native-batch-10-candidates.md` §2): a
-#: ``cKDTree`` query is ~O((n + m) log m) rather than the broadcast's O(n*m),
-#: so the cost that matters is no longer the product -- it is dominated by the
-#: mesh's own vertex count, because the query side touches every vertex
-#: regardless of how few are selected. Measured on this machine (positions,
-#: selected -> best of 3): 300k/300k full-selection worst case 362 ms;
-#: 500k/100 155 ms; 1M/100 320 ms; 2M/2M 3.5 s. 300,000 keeps the realistic
-#: worst case (an imported mesh, fully selected, dragged with a soft falloff)
-#: at a few hundred milliseconds rather than seconds, matching the "well under
-#: a second" bar the other Clay op ceilings use. Past this the drag declines
-#: to an ordinary hard one, same as it always has.
-MAX_FALLOFF_VERTICES = 300_000
-
-
-def _min_distance(positions: np.ndarray, anchors: np.ndarray) -> np.ndarray:
-    """Per-vertex distance to the nearest of *anchors*.
-
-    A ``cKDTree`` over *anchors*, queried once for every row of *positions* --
-    replaced the chunked brute-force broadcast on 2026-09-13
-    (`dev/measurements/2026-09-13-native-batch-10-candidates.md` §2): 1343 ms
-    to 66 ms at the old cap's 40M pairs. The two agree to 1e-9, not bit for
-    bit, which is why this is no longer pinned bit-identical against a
-    reference broadcast in the tests -- only ``allclose``, with the selected
-    vertices asserted at exactly distance 0 regardless.
-
-    Lazy ``scipy`` import: this package's rule (`tests/modes/clay/test_clay_imports.py`)
-    is that a whole second numerics stack does not sit behind every Clay
-    module that imports ``drag`` for an unrelated question.
-    """
-    from scipy.spatial import cKDTree
-
-    tree = cKDTree(anchors)
-    distance, _ = tree.query(positions, k=1)
-    return np.asarray(distance, dtype="f8")
-
-
-def falloff(distance: np.ndarray, radius: float) -> np.ndarray:
-    """Smooth weights from a distance to the selection. 1 at zero, 0 at *radius*.
-
-    ``1 - smoothstep`` rather than a linear ramp: linear weights have a crease
-    at the selection boundary and another at the radius, both of which show up
-    as a visible ridge in the surface -- which is precisely the artefact
-    proportional editing exists to avoid. Zero radius returns a hard selection,
-    the ``snap_value`` convention: the off switch is the same control.
-    """
-    d = np.asarray(distance, dtype="f8")
-    if radius <= 0.0:
-        return (d <= 0.0).astype("f8")
-    t = np.clip(d / float(radius), 0.0, 1.0)
-    return 1.0 - (3.0 * t**2 - 2.0 * t**3)
-
-
-def proportional_set(
-    positions: np.ndarray, selected: np.ndarray, radius: float
-) -> tuple[np.ndarray, np.ndarray]:
-    """``(vertices, weights)`` for a drag with a soft falloff around *selected*.
-
-    Distance is to the **nearest selected vertex**, not to the selection's
-    centroid: a centroid measures from a point the geometry may not even pass
-    through, so dragging one end of a long selected strip would fade out along
-    the strip itself.
-
-    The set is the selected vertices -- all present, all at weight 1 -- plus
-    every vertex strictly inside the radius, **in vertex-index order**: the
-    caller pairs each entry with its weight and indexes the mesh with the lot,
-    so no ordering beyond that alignment is promised. A vertex at exactly the
-    radius weighs zero and is dropped, because carrying it means a drag that
-    reports moving geometry it does not move. The two declining paths -- zero
-    radius, or a mesh past ``MAX_FALLOFF_VERTICES`` -- hand the selection back
-    in the order it arrived, at weight 1 throughout.
-    """
-    positions = np.asarray(positions, dtype="f8").reshape(-1, 3)
-    selected = np.asarray(selected, dtype="i8").reshape(-1)
-    if len(selected) == 0 or radius <= 0.0:
-        return selected.astype("i4"), np.ones(len(selected))
-    if len(positions) > MAX_FALLOFF_VERTICES:
-        return selected.astype("i4"), np.ones(len(selected))
-
-    distance = _min_distance(positions, positions[selected])
-    weights = falloff(distance, radius)
-    weights[selected] = 1.0
-    keep = np.flatnonzero(weights > 0.0)
-    return keep.astype("i4"), weights[keep]
 
 
 # The unit each tool's readout is quoted in. Scale is a ratio and has none,

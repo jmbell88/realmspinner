@@ -1,41 +1,27 @@
-"""Clay's agent tool surface, the UV handler family (Clay tranche 6):
-``clay_uv`` alone.
+"""Clay's agent tool surface, the UV handler family: ``clay_uv`` alone.
 
-A new family file, the same shape ``studio/modes/clay/agent/tools_structure.py``
-landed in as tranche 3's own family -- one tool, but with five actions behind
-it (:data:`~.schema.UV_ACTIONS`), because the brief's own steer is one tool
-with an action enum rather than five separate ones ("the catalogue is
-already too big"). See ``studio/modes/clay/agent/validate.py``'s own module docstring for why
-this handler reaches ``fail``/``_json``/``Session``/``_tab``/the shared
-validators through that module rather than through ``studio/modes/clay/agent/dispatch.py``
-directly: this file has no import of ``dispatch.py`` at all.
+One tool with three actions behind it (:data:`~.schema.UV_ACTIONS`) -- unwrap,
+pack and transform -- rather than three separate tools, because the catalogue
+is already large. See ``studio/modes/clay/agent/validate.py``'s own module
+docstring for why this handler reaches ``fail``/``_json``/``Session``/``_tab``/
+the shared validators through that module rather than through
+``studio/modes/clay/agent/dispatch.py`` directly: this file has no import of
+``dispatch.py`` at all.
 
 **Every action is one document door, so every action is one undo step**
-(``ClayDoc.set_mesh``/``set_seams``, both already atomic) -- ``pack``,
-``density`` and ``unwrap_seams`` keep the generator (``keep_generator=True``,
-the way the existing box/planar unwrap already does: an unwrap is not
-geometry), and ``mark_seam``/``clear_seam`` touch ``Obj.seams`` alone, never
-the mesh. All five refuse a locked object by name -- ``set_mesh``/
-``set_seams`` both already do (``document.py``'s own locking paragraph); a
-seam or a UV layout is authoring intent about the object's own geometry, the
-identical footing a mesh edit already stands on.
-
-**``mark_seam``/``clear_seam`` read ``edges`` if given, or the object's
-current edge selection otherwise** -- the same shape the tranche 6
-integration spec gives the *interactive* Mark Seam/Clear Seam buttons ("OPS
-rows in edge mode"), reused here rather than forcing an agent to switch
-element mode and select edges first just to name two vertices it already
-knows.
+(``ClayDoc.set_mesh``) and keeps the generator (``keep_generator=True``, the
+way the box unwrap op already does: a UV layout is not geometry).
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
 
-from .....kernels.mesh import uvtools, uvunwrap
-from .....kernels.mesh.adjacency import adjacency
+from .....kernels.mesh import uv as uv_mod
+from .....kernels.mesh import uvtools
 from .....kernels.mesh.elements import OpError
 from .schema import UV_ACTIONS
 from .validate import (
@@ -49,152 +35,99 @@ from .validate import (
 )
 
 
-def _validate_edges_arg(mesh: Any, edges_arg: Any) -> tuple[list[list[int]] | None, dict | None]:
-    """*edges_arg* as ``[[v, v], ...]``, every pair a real edge of *mesh* --
-    the identical check ``agent_clay_tools_ops._h_select_elements`` already
-    runs for its own ``edges`` argument, reused rather than re-derived."""
-    if not isinstance(edges_arg, (list, tuple)) or any(
-        not isinstance(row, (list, tuple)) for row in edges_arg
-    ):
-        return None, fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
+def _set_uv_mesh(doc: Any, obj: Any, mesh: Any, action: str) -> dict:
     try:
-        pairs = [[int(a), int(b)] for a, b in edges_arg]
-    except (TypeError, ValueError, OverflowError):
-        return None, fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
-    if not pairs:
-        return None, fail("edges must not be empty.", field="edges")
-    # See ``_h_select_elements``: a vertex index past int32 is no edge of this
-    # mesh, and reaching the ``dtype="i4"`` cast below it was an OverflowError
-    # in ``call()``'s field-blind backstop (the 2026-10-03 audit's agents-15).
-    n_verts = len(mesh.positions)
-    out_of_mesh = next((p for p in pairs if not all(0 <= v < n_verts for v in p)), None)
-    if out_of_mesh is not None:
-        return None, fail(f"{out_of_mesh} is not an edge of this mesh.", field="edges")
-    ids = adjacency(mesh).edge_ids(np.asarray(pairs, dtype="i4"))
-    bad_at = next((i for i, e in enumerate(ids) if e < 0), None)
-    if bad_at is not None:
-        return None, fail(f"{pairs[bad_at]} is not an edge of this mesh.", field="edges")
-    return pairs, None
+        changed = doc.set_mesh(obj.uid, mesh, keep_generator=True)
+    except OpError as error:
+        return fail(str(error), field="uid")
+    return _json({"action": action, "changed": changed, **_scene_row(doc, obj)})
 
 
-def _seam_edges(obj: Any, doc: Any, args: dict) -> tuple[list[list[int]] | None, dict | None]:
-    """``args["edges"]``, validated -- or, omitted, the object's current edge
-    selection. Shared by ``mark_seam`` and ``clear_seam``; see this module's
-    own docstring for why the fallback exists."""
-    edges_arg = args.get("edges")
-    if edges_arg is not None:
-        return _validate_edges_arg(obj.mesh, edges_arg)
-    sel_edges = doc.element_sel_of(obj.uid).edges
-    if len(sel_edges) == 0:
-        return None, fail(
-            "give edges, or select some edges first (clay_select_elements or "
-            "clay_select_by, in edge mode).",
-            field="edges",
+def _needs_uv(obj: Any) -> dict | None:
+    if obj.mesh.uv is None:
+        return fail(
+            f"{obj.name!r} needs texture coordinates -- clay_uv action=unwrap first.",
+            field="uid",
         )
-    return [[int(a), int(b)] for a, b in sel_edges], None
+    return None
+
+
+def _uv_unwrap(doc: Any, obj: Any, args: dict) -> dict:
+    del args
+    return _set_uv_mesh(doc, obj, uv_mod.box_unwrap(obj.mesh), "unwrap")
 
 
 def _uv_pack(doc: Any, obj: Any, args: dict) -> dict:
-    if obj.mesh.uv is None:
-        return fail(
-            f"{obj.name!r} needs texture coordinates -- unwrap it first.", field="uid"
-        )
-    margin_arg = args.get("margin", 0.005)
-    margin, failure = _validate_range(margin_arg, "margin", 0.0, 0.5)
+    failure = _needs_uv(obj)
+    if failure:
+        return failure
+    margin, failure = _validate_range(args.get("margin", 0.005), "margin", 0.0, 0.5)
     if failure:
         return failure
     rotate_arg = args.get("rotate", False)
     if not isinstance(rotate_arg, bool):
         return fail("rotate must be a boolean.", field="rotate")
     mesh = uvtools.pack_islands(obj.mesh, margin=margin, rotate=rotate_arg)
-    try:
-        changed = doc.set_mesh(obj.uid, mesh, keep_generator=True)
-    except OpError as error:
-        return fail(str(error), field="uid")
-    return _json({"action": "pack", "changed": changed, **_scene_row(doc, obj)})
+    return _set_uv_mesh(doc, obj, mesh, "pack")
 
 
-def _uv_density(doc: Any, obj: Any, args: dict) -> dict:
-    if obj.mesh.uv is None:
-        return fail(
-            f"{obj.name!r} needs texture coordinates -- unwrap it first.", field="uid"
-        )
-    if args.get("target") is None:
-        return fail("give a value for 'target'.", field="target")
-    try:
-        target = float(args["target"])
-    except (TypeError, ValueError, OverflowError):
-        return fail("target must be a number.", field="target")
-    if not (target > 0.0):
-        return fail("target must be a positive number.", field="target")
-    texture_px_arg = args.get("texture_px", 1024)
-    try:
-        texture_px = int(texture_px_arg)
-    except (TypeError, ValueError, OverflowError):
-        return fail("texture_px must be an integer.", field="texture_px")
-    # An upper bound as well: a JSON integer past 1e308 is a fine ``int`` but
-    # reaches the kernel's ``float(texture_px)`` as an ``OverflowError`` (the
-    # 2026-10-03 audit's clay-80), and nothing a texture can be is that big.
-    if not (1 <= texture_px <= 65536):
-        return fail("texture_px must be between 1 and 65536.", field="texture_px")
-    mesh = uvtools.normalize_density(obj.mesh, target, texture_px=texture_px)
-    try:
-        changed = doc.set_mesh(obj.uid, mesh, keep_generator=True)
-    except OpError as error:
-        return fail(str(error), field="uid")
-    return _json({"action": "density", "changed": changed, **_scene_row(doc, obj)})
-
-
-def _uv_unwrap_seams(doc: Any, obj: Any, args: dict) -> dict:
-    del args
-    if not obj.seams:
-        return fail(
-            f"{obj.name!r} has no seams marked -- clay_uv action=mark_seam first.",
-            field="uid",
-        )
-    try:
-        mesh = uvunwrap.unwrap_lscm(obj.mesh, np.asarray(obj.seams, dtype="i4"))
-        changed = doc.set_mesh(obj.uid, mesh, keep_generator=True)
-    except OpError as error:
-        return fail(str(error), field="uid")
-    return _json({"action": "unwrap_seams", "changed": changed, **_scene_row(doc, obj)})
-
-
-def _uv_mark_seam(doc: Any, obj: Any, args: dict) -> dict:
-    pairs, failure = _seam_edges(obj, doc, args)
+def _uv_transform(doc: Any, obj: Any, args: dict) -> dict:
+    failure = _needs_uv(obj)
     if failure:
         return failure
-    merged = uvtools.edge_keys(list(obj.seams) + pairs)
+    ids = uvtools.islands(obj.mesh)
+    islands_arg = args.get("islands")
+    if islands_arg is None:
+        wanted = np.unique(ids).tolist()
+    else:
+        if not isinstance(islands_arg, list) or not islands_arg:
+            return fail("islands must be a non-empty list of island ids.", field="islands")
+        try:
+            wanted = [int(i) for i in islands_arg]
+        except (TypeError, ValueError, OverflowError):
+            return fail("islands must be a list of integers.", field="islands")
+        known = set(np.unique(ids).tolist())
+        unknown = [i for i in wanted if i not in known]
+        if unknown:
+            return fail(
+                f"no uv island {unknown[0]} on {obj.name!r} (it has {len(known)}).",
+                field="islands",
+            )
+
+    translate = args.get("translate", [0.0, 0.0])
+    if not isinstance(translate, list) or len(translate) != 2:
+        return fail("translate must be [u, v].", field="translate")
     try:
-        changed = doc.set_seams(obj.uid, merged.tolist())
-    except OpError as error:
-        return fail(str(error), field="uid")
-    return _json(
-        {"action": "mark_seam", "changed": changed, "uid": obj.uid, "seam_count": len(obj.seams)}
-    )
-
-
-def _uv_clear_seam(doc: Any, obj: Any, args: dict) -> dict:
-    pairs, failure = _seam_edges(obj, doc, args)
+        du, dv = float(translate[0]), float(translate[1])
+    except (TypeError, ValueError, OverflowError):
+        return fail("translate must be [u, v].", field="translate")
+    if not (math.isfinite(du) and math.isfinite(dv)):
+        return fail("translate must be finite numbers.", field="translate")
+    rotate_deg, failure = _validate_range(args.get("rotate_deg", 0.0), "rotate_deg", -360.0, 360.0)
     if failure:
         return failure
-    drop = {uvtools.edge_key(a, b) for a, b in pairs}
-    remaining = [e for e in obj.seams if e not in drop]
+    scale, failure = _validate_range(args.get("scale", 1.0), "scale", 1e-3, 1e3)
+    if failure:
+        return failure
+
     try:
-        changed = doc.set_seams(obj.uid, remaining)
+        mesh = uvtools.transform_islands(
+            obj.mesh,
+            wanted,
+            translate=(du, dv),
+            rotate_deg=rotate_deg,
+            scale=scale,
+            ids=ids,
+        )
     except OpError as error:
-        return fail(str(error), field="uid")
-    return _json(
-        {"action": "clear_seam", "changed": changed, "uid": obj.uid, "seam_count": len(obj.seams)}
-    )
+        return fail(str(error), field="islands")
+    return _set_uv_mesh(doc, obj, mesh, "transform")
 
 
 _UV_ACTION_HANDLERS: dict[str, Any] = {
+    "unwrap": _uv_unwrap,
     "pack": _uv_pack,
-    "density": _uv_density,
-    "unwrap_seams": _uv_unwrap_seams,
-    "mark_seam": _uv_mark_seam,
-    "clear_seam": _uv_clear_seam,
+    "transform": _uv_transform,
 }
 """Every :data:`~.schema.UV_ACTIONS` name mapped to its own handler function
 -- gated both ways by ``tests/modes/clay/test_agent_clay_uv.py`` against
@@ -204,8 +137,7 @@ this fold already gets."""
 
 def _h_uv(ctx: Any, session: Session, args: dict) -> dict:
     """Run one uv action against one object. See :data:`~.schema.UV_ACTIONS`
-    for the five actions and their own params, and this module's own
-    docstring for the undo/locking shape all five share.
+    for the three actions and their own params.
     """
     tab, failure = _tab(ctx, session)
     if failure:

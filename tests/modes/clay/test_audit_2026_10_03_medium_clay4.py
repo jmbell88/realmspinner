@@ -130,23 +130,6 @@ def test_duplicate_selected_skips_a_hidden_selected_object() -> None:
     assert len(doc.objects) == 3
 
 
-# --- clay-42 ----------------------------------------------------------------
-
-
-def test_select_all_in_an_element_mode_skips_collider_objects() -> None:
-    doc = bd.ClayDoc()
-    a = doc.add_object(_obj("A"))
-    c = doc.add_object(_obj("C", role="collider", collider_kind="box"))
-    doc.set_element_mode("face")
-
-    selection.select_all(doc)
-    assert not el.is_empty(doc.element_sel_of(a.uid))
-    assert el.is_empty(doc.element_sel_of(c.uid)), "Ctrl+A reached a collider's faces"
-
-    selection.invert(doc)
-    assert el.is_empty(doc.element_sel_of(c.uid)), "invert reached a collider's faces"
-
-
 # --- clay-43 ----------------------------------------------------------------
 
 

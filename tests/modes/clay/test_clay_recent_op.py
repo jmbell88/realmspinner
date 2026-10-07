@@ -72,12 +72,12 @@ def test_last_op_stays_gone_from_the_app_state() -> None:
 
 def test_a_parameterised_element_op_is_recorded_with_what_it_ran_with() -> None:
     doc, uid = _box_doc()
-    _edges_of_face(doc, uid)
-    assert clay_ops.run(_Ctx(), doc, clay_ops.get("bevel"), width=0.1) is True
+    _faces(doc, uid, 0)
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("inset"), thickness=0.1) is True
     recent = doc.recent_op
-    assert recent is not None and recent.op_name == "bevel"
-    assert recent.params == {"width": 0.1}
-    assert recent.element_mode == "edge"
+    assert recent is not None and recent.op_name == "inset"
+    assert recent.params == {"thickness": 0.1, "depth": 0.0, "region": 0}
+    assert recent.element_mode == "face"
     assert recent.live(doc)
 
 
@@ -88,36 +88,40 @@ def test_a_bare_action_and_an_object_level_op_are_not_recorded() -> None:
     assert doc.recent_op is None, "extrude has no numbers to adjust"
     doc.set_element_mode("object")
     doc.select([uid])
-    clay_ops.run(_Ctx(), doc, clay_ops.get("array-linear"), count=2)
+    clay_ops.run(_Ctx(), doc, clay_ops.get("snap-to-grid"), step=0.5)
     assert doc.recent_op is None, "an object-level op has a different selection model"
 
 
-def test_a_refused_op_leaves_no_record() -> None:
+def test_a_refused_op_leaves_no_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    from realmspinner.kernels.mesh import ops_topo
+
     doc, uid = _box_doc()
-    _edges_of_face(doc, uid)  # four edges: loop-cut wants exactly one
+    _faces(doc, uid, 0)
+    monkeypatch.setattr(ops_topo, "MAX_INSET_CORNERS", 1)  # the kernel refuses any inset
     ctx = _Ctx()
-    assert clay_ops.run(ctx, doc, clay_ops.get("loop-cut")) is False
+    assert clay_ops.run(ctx, doc, clay_ops.get("inset"), thickness=0.1) is False
+    assert ctx.errors
     assert doc.recent_op is None
 
 
 # --- adjust -----------------------------------------------------------------
 
 
-def test_adjusting_bevel_width_twice_is_one_undo_step_equal_to_running_it_directly() -> None:
+def test_adjusting_inset_thickness_twice_is_one_undo_step_equal_to_running_it_directly() -> None:
     doc, uid = _box_doc()
-    _edges_of_face(doc, uid)
+    _faces(doc, uid, 0)
     base = len(doc.history)
     ctx = _Ctx()
-    clay_ops.run(ctx, doc, clay_ops.get("bevel"), width=0.1)
-    assert recent_op.adjust(ctx, doc, width=0.2).ok
-    assert recent_op.adjust(ctx, doc, width=0.05).ok
+    clay_ops.run(ctx, doc, clay_ops.get("inset"), thickness=0.1)
+    assert recent_op.adjust(ctx, doc, thickness=0.2).ok
+    assert recent_op.adjust(ctx, doc, thickness=0.05).ok
     assert len(doc.history) == base + 1, "adjusting must not stack steps"
 
     direct, direct_uid = _box_doc()
-    _edges_of_face(direct, direct_uid)
-    clay_ops.run(_Ctx(), direct, clay_ops.get("bevel"), width=0.05)
+    _faces(direct, direct_uid, 0)
+    clay_ops.run(_Ctx(), direct, clay_ops.get("inset"), thickness=0.05)
     assert np.array_equal(_positions(doc, uid), _positions(direct, direct_uid))
-    assert doc.recent_op.params == {"width": 0.05}
+    assert doc.recent_op.params == {"thickness": 0.05, "depth": 0.0, "region": 0}
 
     assert doc.undo()
     assert np.array_equal(_positions(doc, uid), np.array(bp.box().positions)), (
@@ -128,8 +132,8 @@ def test_adjusting_bevel_width_twice_is_one_undo_step_equal_to_running_it_direct
 def test_the_card_hides_after_any_other_edit_an_undo_or_a_selection_change() -> None:
     def fresh():
         doc, uid = _box_doc()
-        _edges_of_face(doc, uid)
-        clay_ops.run(_Ctx(), doc, clay_ops.get("bevel"), width=0.1)
+        _faces(doc, uid, 0)
+        clay_ops.run(_Ctx(), doc, clay_ops.get("inset"), thickness=0.1)
         assert doc.recent_op.live(doc)
         return doc, uid
 
@@ -152,12 +156,12 @@ def test_the_card_hides_after_any_other_edit_an_undo_or_a_selection_change() -> 
 
 def test_adjust_on_a_stale_record_refuses_and_touches_nothing() -> None:
     doc, uid = _box_doc()
-    _edges_of_face(doc, uid)
-    clay_ops.run(_Ctx(), doc, clay_ops.get("bevel"), width=0.1)
+    _faces(doc, uid, 0)
+    clay_ops.run(_Ctx(), doc, clay_ops.get("inset"), thickness=0.1)
     doc.set_props(uid, name="Renamed")
     before = _positions(doc, uid)
     steps = len(doc.history)
-    result = recent_op.adjust(_Ctx(), doc, width=0.3)
+    result = recent_op.adjust(_Ctx(), doc, thickness=0.3)
     assert not result.ok and result.message
     assert np.array_equal(_positions(doc, uid), before) and len(doc.history) == steps
 
@@ -231,13 +235,12 @@ def test_repeat_last_runs_the_same_op_at_the_same_values_on_the_new_selection() 
 
 def test_repeat_last_names_the_mode_it_does_not_work_in() -> None:
     doc, uid = _box_doc()
-    _edges_of_face(doc, uid)
-    clay_ops.run(_Ctx(), doc, clay_ops.get("bevel"), width=0.1)
-    doc.set_element_mode("face")
-    doc.set_element_sel(uid, el.ElementSel(faces=[1]))
+    _faces(doc, uid, 0)
+    clay_ops.run(_Ctx(), doc, clay_ops.get("inset"), thickness=0.1)
+    _edges_of_face(doc, uid, 1)
     repeat = clay_ops.get("repeat-last")
     assert not repeat.enabled(doc)
-    assert "edge mode" in clay_ops.reason_for(repeat, doc)
+    assert "face mode" in clay_ops.reason_for(repeat, doc)
 
 
 def test_each_document_repeats_only_its_own_last_op() -> None:

@@ -200,10 +200,7 @@ def test_a_gpu_entry_holds_the_mesh_its_key_names(monkeypatch) -> None:
     )
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
-    # No modifier stack, so the evaluated mesh is ``obj.mesh`` itself
-    # (modifiers.py's fast path) -- this object's entry should still pin and
-    # key on exactly that.
-    mesh = doc.evaluated(obj.uid)
+    mesh = obj.mesh
     key = cv._object_key(mesh, cv._materials_key(doc), obj.material)
 
     entry = cv.ClayView._build(SimpleNamespace(ctx=None), obj, doc, key, mesh)
@@ -250,95 +247,14 @@ def test_every_camera_attribute_the_clay_view_reaches_exists():
 
 def test_the_add_panel_draws_every_generator_in_the_registry():
     """The sections are the panel's whole list of what can be added, so a
-    generator in neither ``CATEGORIES`` section has no button at all -- and a
-    missing button is invisible to every other test, because the shape still
-    builds, still has properties and still exports. ``sections`` sweeps the
-    unfiled ones into a trailing group for that reason, which makes this
-    equality hold whatever the table says."""
+    Clay generator in no ``CLAY_GENERATORS`` section has no button at all --
+    and a missing button is invisible to every other test, because the shape
+    still builds, still has properties and still exports. Mason keeps the whole
+    ``GENERATORS`` table, so the panel's list is the Clay subset, not it."""
     from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
     drawn = [name for _label, names in clay_tools.sections() for name in names]
-    assert sorted(drawn) == sorted(bp.GENERATORS)
+    assert sorted(drawn) == sorted(bp.CLAY_GENERATOR_NAMES)
     # Each exactly once: a name filed in two sections would draw two buttons
     # and pass a set comparison.
     assert len(drawn) == len(set(drawn))
-
-
-def test_every_assembly_preset_is_reachable_as_a_button():
-    """The figures list is generated from ``presets.ASSEMBLIES`` rather than
-    written out here, for the reason the icon grid is generated from
-    ``GENERATORS``: a ninth figure should be one entry in that registry and no
-    edit to the pane. This holds the loop to the registry and then places every
-    one of them, so a preset naming a generator that does not exist is a
-    failing test rather than a button that raises under the user's cursor."""
-    import inspect
-
-    from realmspinner.kernels.mesh import presets
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
-
-    assert "presets.ASSEMBLIES" in inspect.getsource(clay_tools._figures)
-    assert presets.ASSEMBLIES
-    for key in presets.ASSEMBLIES:
-        doc = bd.ClayDoc()
-        objs = clay_tools.add_assembly(None, doc, key)
-        assert objs, f"{key} placed nothing"
-        assert len(doc.objects) == len(objs)
-        assert len({obj.name for obj in objs}) == len(objs), f"{key} reuses a name"
-
-
-def test_a_whole_figure_is_one_undo_step():
-    """``add_object`` pushes one ``ObjectAddEdit`` each, so a sixteen-part
-    figure placed that way is sixteen presses of Ctrl+Z through fifteen states
-    that show a dismembered figure. One gesture is one step: ``add_objects``
-    folds them into a single ``CompoundEdit``, and undoing it takes the whole
-    figure away."""
-    from realmspinner.kernels.mesh import presets
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
-
-    key = next(iter(presets.ASSEMBLIES))
-    doc = bd.ClayDoc()
-    before = len(doc.history)
-    objs = clay_tools.add_assembly(None, doc, key)
-    assert len(objs) > 1, "pick a multi-part preset for this to mean anything"
-    assert len(doc.history) == before + 1
-    assert doc.selection == {obj.uid for obj in objs}
-    assert doc.undo() is True
-    assert doc.objects == []
-    assert len(doc.history) == before
-    assert doc.redo() is True
-    assert len(doc.objects) == len(objs)
-
-
-def test_the_figure_step_is_named_after_the_figure():
-    """``CompoundEdit`` reads as "compound" in the history panel, which tells a
-    reader nothing about what they are about to undo -- the exact case
-    ``Edit.label`` exists for."""
-    from realmspinner.kernels.mesh import presets
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
-
-    key = next(iter(presets.ASSEMBLIES))
-    label = presets.ASSEMBLIES[key][0]
-    doc = bd.ClayDoc()
-    clay_tools.add_assembly(None, doc, key)
-    assert doc.history.history()[-1][0] == label
-
-
-def test_a_figure_whose_parts_share_a_name_still_places_them_apart(monkeypatch):
-    """The parts of one figure are not in ``doc.objects`` while the rest are
-    being built, so a namer counting against the document alone cannot see the
-    ones this same call has already made -- two parts called ``Leg`` would both
-    come out as ``Leg``. Every shipped preset happens to name its parts
-    uniquely, which is exactly why this is asserted against a preset that does
-    not: the guard would otherwise be checked by nothing until the first
-    template that repeats a name."""
-    from realmspinner.kernels.mesh import presets
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
-
-    part = presets.Part(name="Leg", bone=None, generator="box", params={}, translation=(0, 0, 0))
-    monkeypatch.setitem(
-        presets.ASSEMBLIES, "twins", ("Twins", lambda: (part, part, part))
-    )
-    doc = bd.ClayDoc()
-    objs = clay_tools.add_assembly(None, doc, "twins")
-    assert len(objs) == 3
-    assert len({obj.name for obj in objs}) == 3

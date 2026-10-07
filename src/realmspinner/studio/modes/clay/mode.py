@@ -179,91 +179,6 @@ def persist(ctx: Any) -> None:
     ctx.settings.set("clay", block)
 
 
-# --- export engine (tranche 7: export profiles) ------------------------------
-#
-# **Lives in app settings, not on ``ClayTab``/``ClayState``.** The brief for
-# this tranche asked to check that first, since ``state.py`` was concurrently
-# owned by another agent while this was built: a per-tab field would have
-# meant either touching that file anyway or grafting the setting onto
-# ``ClayTab`` from outside it, and there is nothing document-specific about
-# "which engine do my exports target" to begin with -- it is a preference
-# about the *person's* project, the same kind of thing ``grid``/``grid_size``/
-# ``god_light`` already are (see :func:`persist`'s own docstring), and
-# unlike those three it has to be readable with no ``ClayState`` built yet
-# (:func:`export_engine` is called from :func:`export_asset`/
-# ``export_mesh_file`` before ``ensure`` runs). Stored under the same
-# ``"clay"`` settings block those three use, as a sibling key to ``"view"``
-# rather than a second top-level settings entry -- one block for "Clay's own
-# app-level preferences" rather than an ever-growing set of bare keys.
-
-
-def _default_export_engine() -> str:
-    """The engine :func:`export_engine` answers with when nothing has been
-    chosen yet -- whichever :data:`~.engines.ENGINES` entry targets
-    ``readiness.DEFAULT_PROFILE``, read off that one mapping rather than a
-    second hard-coded default this tranche's brief explicitly warns against
-    ("the engine choice must not become a second list -- ``ENGINES[key].
-    readiness_profile`` is the one mapping, gated both ways";
-    ``test_engines.py``'s own ``test_every_engine_profile_points_at_a_real_
-    readiness_profile`` is that gate's other direction). Today that is
-    ``"godot4"`` (``readiness.DEFAULT_PROFILE == "godot-desktop"``), but this
-    reads it rather than states it, so the two can never quietly disagree.
-    """
-    from ....kernels.mesh import engines as engines_mod
-    from ....kernels.mesh import readiness
-
-    for key, eng in engines_mod.ENGINES.items():
-        if eng.readiness_profile == readiness.DEFAULT_PROFILE:
-            return key
-    # Unreachable while ``test_every_engine_profile_points_at_a_real_
-    # readiness_profile`` holds *and* some engine targets the default
-    # profile -- both true today -- but a caller still gets a real engine
-    # key rather than ``None`` if that ever stops being so.
-    return next(iter(engines_mod.ENGINES))
-
-
-def export_engine(ctx: Any) -> str:
-    """The persisted export engine choice, read fresh from settings rather
-    than cached anywhere -- a value Settings' own combo writes (once built;
-    this tranche is the door, not that pane -- see the module docstring's
-    file list) must be visible here with no second copy to fall out of sync.
-
-    Always a real :data:`~.engines.ENGINES` key: an unrecognised or missing
-    stored value (a hand-edited ``settings.json``, or nothing chosen yet)
-    falls back to :func:`_default_export_engine` rather than ``None`` --
-    export always targets *some* engine's conventions, the same "there is
-    always a profile" contract ``ClayTab.readiness_profile`` keeps by falling
-    back to ``readiness.DEFAULT_PROFILE``.
-    """
-    from ....kernels.mesh import engines as engines_mod
-
-    settings = getattr(ctx, "settings", None)
-    if callable(getattr(settings, "get", None)):
-        stored = settings.get("clay")
-        key = stored.get("export_engine") if isinstance(stored, dict) else None
-        if isinstance(key, str) and key in engines_mod.ENGINES:
-            return key
-    return _default_export_engine()
-
-
-def set_export_engine(ctx: Any, key: str) -> None:
-    """Persist *key* as the export engine choice. Refuses an unknown engine
-    by name rather than silently storing a value :func:`export_engine` would
-    then have to fall back past."""
-    from ....kernels.mesh import engines as engines_mod
-
-    if key not in engines_mod.ENGINES:
-        choices = ", ".join(sorted(engines_mod.ENGINES))
-        raise ValueError(f"Unknown engine profile {key!r}. Choose one of {choices}.")
-    settings = getattr(ctx, "settings", None)
-    if not callable(getattr(settings, "set", None)):
-        return
-    stored = settings.get("clay") if callable(getattr(settings, "get", None)) else None
-    block = dict(stored) if isinstance(stored, dict) else {}
-    block["export_engine"] = key
-    ctx.settings.set("clay", block)
-
-
 def active(ctx: Any) -> ClayTab | None:
     state = ctx.state.clay
     return state.active if state is not None else None
@@ -287,6 +202,22 @@ def _enter_clay(ctx: Any) -> None:
 # --- opening ----------------------------------------------------------------
 
 
+def announce_migration(ctx: Any, doc: Any) -> None:
+    """One toast for what reading an older ``.rblk`` changed, when it changed
+    anything.
+
+    ``read_rblk`` records each change as a sentence on ``doc.notices`` (empty
+    for a current file and for any document built in the app). Called from
+    :func:`adopt`, the one landing every opener -- Open, Open in Clay on a
+    library asset, crash recovery -- ends in, so the person hears it exactly
+    once and no opener has to remember to ask.
+    """
+    notices = tuple(getattr(doc, "notices", ()) or ())
+    if notices:
+        message = "Opened an older Clay file and converted it.\n" + " ".join(notices)
+        ctx.toast(message, "info")
+
+
 def adopt(
     ctx: Any,
     doc: Any,
@@ -294,7 +225,6 @@ def adopt(
     path: Path | None = None,
     title: str | None = None,
     view: dict[str, Any] | None = None,
-    rblk_bytes: int = 0,
 ) -> ClayTab:
     state = ensure(ctx)
     tab = ClayTab(
@@ -302,7 +232,6 @@ def adopt(
         title=title or clay_state.title_for(path),
         path=path,
         saved_head=doc.history.head,
-        rblk_bytes=rblk_bytes,
     )
     if view:
         tab.view.yaw = view["yaw"]
@@ -315,6 +244,7 @@ def adopt(
     state.add(tab)
     remember_path(ctx, path)
     persist(ctx)
+    announce_migration(ctx, doc)
     return tab
 
 
@@ -421,11 +351,6 @@ def _load(path: Path) -> dict[str, Any]:
         # docstring for why the camera is not a second return value from
         # ``read_rblk``. It parses one small JSON member of an in-memory zip.
         "view": serialize.read_view(data),
-        # Free here -- the file is already fully in memory -- and it is what
-        # lets ``.generate``'s own too-big-to-reopen check answer for a
-        # document that has never been saved *this session* without an encode
-        # of its own.
-        "rblk_bytes": len(data),
     }
 
 
@@ -678,6 +603,27 @@ def camera_of(ctx: Any, tab: ClayTab) -> Any:
     return tab.view
 
 
+def sync_active_camera(ctx: Any) -> None:
+    """Keep the drawn tab's stored camera live, not just at save and switch.
+
+    ``tab.view`` is what a journal autosave writes, and it used to be refreshed
+    only on an explicit save or the viewport's tab-switch handoff, so minutes of
+    free orbiting could be lost to a crash. The viewport calls this every frame
+    *before* its handoff: the live camera belongs to the tab it last drew
+    (``state.camera_tab``), not to whatever ``active_uid`` says now -- an
+    event-layer switch (Ctrl+Tab, closing a tab) moves ``active_uid`` first --
+    so syncing from ``active_uid`` would write the outgoing tab's orientation
+    onto the incoming tab's stored view.
+    """
+    state = ctx.state.clay
+    if state is None:
+        return
+    drawn = getattr(state, "camera_tab", None)
+    tab = state.get(state.active_uid if drawn is None else drawn)
+    if tab is not None:
+        camera_of(ctx, tab)
+
+
 def remember_camera(ctx: Any, tab: ClayTab | None) -> None:
     """Snapshot the live camera onto a tab that is being switched away from."""
     if tab is not None:
@@ -732,7 +678,7 @@ def save_to(ctx: Any, tab: ClayTab, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = _encode_or_refuse(snap)
         atomic.write_bytes(path, data)
-        return {"rev": rev, "path": str(path), "retitle": True, "rblk_bytes": len(data)}
+        return {"rev": rev, "path": str(path), "retitle": True}
 
     _start(ctx, tab, f"clay-save:{tab.uid}", run)
 
@@ -794,55 +740,12 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
         # No mkdir -- the picker returns a directory that exists.
         data = _encode_or_refuse(snap)
         atomic.write_bytes(path, data)
-        return {"rev": rev, "path": str(path), "retitle": True, "rblk_bytes": len(data)}
+        return {"rev": rev, "path": str(path), "retitle": True}
 
     _start(ctx, tab, f"clay-saveas:{tab.uid}", run)
 
 
 # --- export -----------------------------------------------------------------
-
-
-def _rename_collider_nodes(doc: Any, model: Any, engine: str) -> None:
-    """Rewrite *model*'s collider node names to *engine*'s own convention, in
-    place -- the GLB half of tranche 7's export-profiles rule 2, mirroring
-    what :func:`~.objexport.claydoc_to_obj` already does for OBJ text.
-
-    ``document.to_model`` builds one ``gltf.Node`` per *kept* object -- every
-    visible object, plus every hidden object with a visible descendant
-    (its own docstring's "hiding is per object, as in Blender" rule) -- in
-    that same order, so zipping that "kept" list against ``model.nodes`` is
-    exactly how to tell which node came from which :class:`~.document.Obj`.
-    That filter is :func:`~.document.kept_objects` -- called here, not
-    re-derived, since the 2026-09-19 audit's clay-20: this function used to
-    hand-copy ``to_model``'s own five-line filter because ``document.py`` was,
-    at the time, a file a concurrent agent owned and this tranche's brief
-    said not to touch. Two copies of "which objects become nodes" is exactly
-    what "One conversion out, three consumers" exists to prevent -- a future
-    edit to one copy and not the other would silently misalign this zip and
-    rename a collider node belonging to the wrong object -- so now that both
-    files are owned together, this calls the one the exporter and the
-    viewport already agree on rather than keeping a second copy in sync by
-    hand.
-
-    Only a node whose object is a collider is touched
-    (:func:`~.objexport.collider_export_names` only ever returns collider
-    uids) -- an ordinary mesh node's name is exactly what ``to_model`` gave
-    it, ``obj.name``, untouched. The *document*'s own ``Obj.name`` is never
-    written to: only ``model.nodes[i].name``, on the in-memory
-    :class:`~.geom3d.gltf.Model` this call's caller is about to hand to
-    :func:`~.geom3d.glbwrite.write_glb` and throw away.
-    """
-    from ....kernels.mesh import document as bd
-    from ....kernels.mesh import objexport
-
-    names = objexport.collider_export_names(doc, engine)
-    if not names:
-        return
-    kept = bd.kept_objects(doc)
-    for obj, node in zip(kept, model.nodes, strict=True):
-        new_name = names.get(obj.uid)
-        if new_name is not None:
-            node.name = new_name
 
 
 def build_asset(
@@ -852,7 +755,6 @@ def build_asset(
     title: str,
     prompt: str | None = None,
     view: Any = None,
-    engine: str | None = None,
 ) -> str:
     """The one document -> finished ``model`` row chain.
 
@@ -873,15 +775,6 @@ def build_asset(
     always kept: a crash between them leaves the sidecar absent rather than
     lying about a mesh it did not produce.
 
-    ``engine``, tranche 7: when given, every collider node in the written GLB
-    is renamed to that engine's own convention (:func:`_rename_collider_nodes`)
-    before it is encoded -- the document's own object names are untouched, as
-    always. ``None`` (the default, and what the agent's own call above still
-    passes) skips that step entirely, reproducing this function's
-    pre-tranche-7 behaviour: the agent surface for an engine choice on export
-    is a later tranche's own door (see this tranche's brief, item 5), not
-    this one.
-
     Takes a ``RealmspinnerService`` rather than a ``ctx`` -- the house convention
     (see ``src/realmspinner/service/``) -- so this is callable from anywhere a
     document exists, headlessly included, with no tab, toast or task runner
@@ -894,8 +787,6 @@ def build_asset(
     from ....service import jobs as svc_jobs
 
     model = bd.to_model(doc)
-    if engine is not None:
-        _rename_collider_nodes(doc, model, engine)
     snap = serialize.snapshot(doc, view=view)
     glb = glbwrite.write_glb(model)
     result = svc_jobs.import_mesh(svc, glb, name=title, prompt=prompt or title)
@@ -915,9 +806,7 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
     its docstring for the read/encode ordering it owns. What stays here is
     what only the interactive path needs: the "nothing visible" refusal,
     the camera pulled from the live viewport (``camera_of``, GL-thread-bound,
-    so it is read before the task runs rather than inside it), the persisted
-    export engine (:func:`export_engine`, read on the frame thread beside the
-    camera -- settings, like the camera, do not belong inside ``run()``), and
+    so it is read before the task runs rather than inside it), and
     the task-thread split -- ``build_asset``'s reads and encodes both now run
     inside ``run()``, off the frame thread entirely.
     """
@@ -933,17 +822,15 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
         return
 
     view = camera_of(ctx, tab)
-    engine = export_engine(ctx)
 
     def run() -> dict[str, Any]:
-        job_id = build_asset(ctx.svc, doc, title=title, view=view, engine=engine)
+        job_id = build_asset(ctx.svc, doc, title=title, view=view)
         return {"job_id": job_id, "exported": True}
 
     _start(ctx, tab, f"clay-export:{tab.uid}", run)
 
 
 OBJ_FILTER = ["Wavefront OBJ (*.obj)", "*.obj"]
-BLEND_FILTER = ["Blender file (*.blend)", "*.blend"]
 #: Side of the square a screenshot is drawn at.
 SCREENSHOT_SIZE = 2048
 IMPORT_MESH_FILTER = [
@@ -956,10 +843,8 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
     """Save the document as a plain mesh file on disk -- GLB or OBJ+MTL --
     beside :func:`export_asset`'s library export.
 
-    The two are genuinely different destinations, the bridge pane's own
-    reasoning for keeping "Export to Library" and "Make 3D" apart applies
-    here too: this writes a file the library never sees, for a user handing a
-    mesh straight to another tool.
+    The two are genuinely different destinations: this writes a file the
+    library never sees, for a user handing a mesh straight to another tool.
 
     **Nothing is built on the frame thread.** The 2026-10-03 audit's clay-59:
     the GLB (``bd.to_model`` then ``glbwrite.write_glb``, which PNG-encodes every
@@ -970,16 +855,8 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
     ``run()`` now, *before* the picker opens (so the dialog's open time is never
     the moment a read straddles), the way ``build_asset`` reads on its task:
     ``_start`` has the tab ``saving`` for the whole task, which locks every
-    control that edits the document, and a background op's landing is held back
-    while it is set (:func:`drain_deferred_bg`), so nothing writes the document
-    between the read and the encode.
-
-    Tranche 7: both branches export under the persisted :func:`export_engine`
-    -- a collider is renamed to that engine's own convention either way
-    (:func:`_rename_collider_nodes` for GLB, ``objexport.claydoc_to_obj``'s
-    own ``engine`` argument for OBJ), and the OBJ branch alone also applies
-    that engine's axis/scale conversion (``claydoc_to_obj``'s own docstring
-    says why GLB does not).
+    control that edits the document, so nothing writes it between the read and
+    the encode.
     """
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -989,8 +866,6 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
         ctx.toast("There is nothing visible to export.", "error")
         return
 
-    engine = export_engine(ctx)
-
     if kind == "glb":
 
         def run() -> dict[str, Any] | None:
@@ -998,7 +873,6 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
             from ....kernels.mesh import document as bd
 
             model = bd.to_model(doc)
-            _rename_collider_nodes(doc, model, engine)
             data = glbwrite.write_glb(model)
             path = dialogs.save_file("Export mesh", f"{title}.glb", dialogs.GLB_FILTER)
             if path is None:
@@ -1012,7 +886,10 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
         def run() -> dict[str, Any] | None:
             from ....kernels.mesh import objexport
 
-            obj_text, mtl_text = objexport.claydoc_to_obj(doc, name=title, engine=engine)
+            obj_text, mtl_text = objexport.claydoc_to_obj(doc, name=title)
+            # PNG-encoded here, on the task thread, before the picker opens:
+            # the same read-then-ask order as the text above.
+            pngs = objexport.claydoc_textures(doc)
             path = dialogs.save_file("Export mesh", f"{title}.obj", OBJ_FILTER)
             if path is None:
                 return None
@@ -1023,32 +900,18 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
             # kept in sync here rather than re-reading the document with the
             # chosen name, so the obj always names the mtl actually beside it.
             text = obj_text.replace(f"mtllib {title}.mtl", f"mtllib {stem}.mtl", 1)
+            # The same rename for every ``map_Kd``: a texture is written as
+            # ``<stem>_<index>.png`` so the .mtl names the files actually beside it.
+            for index in pngs:
+                mtl_text = mtl_text.replace(
+                    f"map_Kd {objexport.texture_name(title, index)}",
+                    f"map_Kd {objexport.texture_name(stem, index)}",
+                    1,
+                )
             atomic.write_bytes(path, text.encode("utf-8"))
             atomic.write_bytes(path.with_name(f"{stem}.mtl"), mtl_text.encode("utf-8"))
-            return {"path": str(path), "exported_file": True}
-
-    elif kind == "blend":
-        from ....pipelines import clay_blender
-
-        ok, why = clay_blender.available()
-        if not ok:
-            ctx.toast(why, "error")
-            return
-
-        def run() -> dict[str, Any] | None:
-            from ....kernels.geom3d import glbwrite
-            from ....kernels.mesh import document as bd
-
-            model = bd.to_model(doc)
-            _rename_collider_nodes(doc, model, engine)
-            glb = glbwrite.write_glb(model)
-            # The picker opens before Blender is started: a cancelled dialog
-            # should cost nothing, and the conversion is the slow half.
-            path = dialogs.save_file("Export mesh", f"{title}.blend", BLEND_FILTER)
-            if path is None:
-                return None
-            path = _with_extension(path, ".blend")
-            atomic.write_bytes(path, clay_blender.blend_bytes(glb))
+            for index, png in pngs.items():
+                atomic.write_bytes(path.with_name(objexport.texture_name(stem, index)), png)
             return {"path": str(path), "exported_file": True}
 
     else:
@@ -1060,12 +923,11 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
 def save_screenshot(ctx: Any, tab: ClayTab | None = None) -> None:
     """Save a still of the document, as the user has it posed and framed.
 
-    Drawn offscreen through the live camera (``frame=False``, the Make 3D
-    path's rule: the picture is the angle the user chose, not one this call
-    picks), lit, with no gizmos, overlays or grid -- a picture of the subject,
-    not of the editor. The GL draw and the PNG encode happen here on the frame
-    thread, as ``_clay_send_to_3d`` does; only the dialog and the write go to a
-    task.
+    Drawn offscreen through the live camera (``frame=False``: the picture is
+    the angle the user chose, not one this call picks), lit, with no gizmos,
+    overlays or grid -- a picture of the subject, not of the editor. The GL
+    draw and the PNG encode happen here on the frame thread; only the dialog
+    and the write go to a task.
     """
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -1099,73 +961,6 @@ def save_screenshot(ctx: Any, tab: ClayTab | None = None) -> None:
 # --- task results -----------------------------------------------------------
 
 
-def tab_busy(ctx: Any, tab: ClayTab) -> bool:
-    """Whether *tab* is mid-save or mid-drag -- both read or mutate the document
-    in ways a landing (Generate's merge, a background op's result) must not
-    race. The one rule behind both doors; ``generate._tab_busy`` delegates here.
-    """
-    if tab.saving:
-        return True
-    view = getattr(ctx, "clay_view", None)
-    return bool(view is not None and getattr(view, "dragging", False))
-
-
-def _deferred_bg(state: ClayState) -> dict[str, list[Any]]:
-    """Background-op results waiting for their tab to stop being busy, by tab
-    uid (a list, applied in arrival order -- one op runs per tab at a time, so
-    it rarely holds more than one). Lives on the ``ClayState`` instance, which
-    is exactly the lifetime a held result has: it is meaningless past the
-    session that produced it."""
-    held = state.__dict__.get("bg_deferred")
-    if held is None:
-        held = state.__dict__["bg_deferred"] = {}
-    return held
-
-
-def _apply_bg(ctx: Any, tab: ClayTab, result: Any) -> None:
-    """Fold one finished background op into its tab's document; which of the
-    ``apply`` functions runs is read off the result's own ``"kind"`` --
-    decimate's result carries none (tranche 1 predates the other three), so it
-    stays the default."""
-    tab.bg_busy = ""
-    from . import ops as clay_ops
-
-    kind = result.get("kind") if isinstance(result, dict) else None
-    apply = {
-        "retopo": clay_ops.retopo_apply,
-        "unwrap": clay_ops.unwrap_apply,
-        "bake": clay_ops.bake_apply,
-        "collider": clay_ops.collider_apply,
-    }.get(kind, clay_ops.decimate_apply)
-    apply(ctx, tab.doc, result)
-
-
-def drain_deferred_bg(ctx: Any) -> None:
-    """Apply every held background result whose tab is free again, on the frame
-    thread. A held result for a tab that has since closed is dropped -- there
-    is no document left to put it in. Called once a frame from
-    ``generate.poll`` and straight after a save's completion."""
-    state = ctx.state.clay
-    if state is None:
-        return
-    held = state.__dict__.get("bg_deferred")
-    if not held:
-        return
-    for uid in list(held):
-        tab = state.get(uid)
-        if tab is None:
-            held.pop(uid, None)
-            continue
-        if tab_busy(ctx, tab):
-            continue
-        for result in held.pop(uid, ()):
-            try:
-                _apply_bg(ctx, tab, result)
-            except Exception:  # noqa: BLE001 - one bad result must not stop the frame loop
-                log.exception("a held background result could not be applied")
-                ctx.toast("A background edit could not be applied.", "error")
-
-
 def on_task_done(ctx: Any, done: Any) -> None:
     """Called from the app for every ``clay-`` key."""
     state = ensure(ctx)
@@ -1197,7 +992,6 @@ def on_task_done(ctx: Any, done: Any) -> None:
                     path=Path(result["path"]),
                     title=result.get("title"),
                     view=result.get("view"),
-                    rblk_bytes=int(result.get("rblk_bytes") or 0),
                 )
             _enter_clay(ctx)
         return
@@ -1224,79 +1018,11 @@ def on_task_done(ctx: Any, done: Any) -> None:
             _adopt_import(ctx, result)
         return
 
-    if name == "clay-readiness":
-        # The 2026-09-20 audit's clay-05: check_readiness now backgrounds
-        # readiness.validate rather than calling it on the frame thread, so
-        # the result lands here instead of directly on the tab. A closed tab
-        # (state.get returns None) has nowhere to put it -- the same "the tab
-        # may be gone by the time this comes back" reading every other
-        # per-tab task key in this function already has to handle.
-        tab = state.get(key.split(":", 1)[1]) if ":" in key else None
-        if tab is not None:
-            from ....kernels.mesh import readiness
-
-            if isinstance(result, readiness.Report):
-                tab.readiness_report = result
-                # ``done.tag`` is the head check_readiness captured *before*
-                # submitting -- see that function's own comment on why this
-                # is read from the tag rather than from tab.doc.history.head
-                # now that the call is asynchronous.
-                tab.readiness_head = done.tag
-        return
-
-    from . import generate as clay_generate
-
-    if name in clay_generate.TASK_KEYS:
-        # "Generate into the current tab" (``.generate``): three task keys
-        # that never touch ``saving`` -- a generate in flight leaves the
-        # document editable, the ``clay-bg`` precedent just below. Routed
-        # here, before the generic tail below, for the same reason ``clay-bg``
-        # is: that tail unconditionally clears ``tab.saving`` for *any*
-        # ``clay-*:<uid>`` key, which would unlock a tab mid-save the moment a
-        # refused or deferred landing happened to land on one that was
-        # genuinely saving.
-        clay_generate.on_task_done(ctx, done)
-        return
-
-    if name == "clay-bg":
-        # Clay's background ops -- Decimate (tranche 1) and, since tranche 4,
-        # Retopologize/Smart Unwrap/Bake Detail -- all land here; see
-        # ``clay_ops``'s own section docstrings for the ``prepare``/``work``/
-        # ``apply`` shape they share. Not folded into the generic
-        # ``tab.saving`` tail below: this key's result shapes (``{"items":
-        # ...}``/``{"glb_out": ...}``/``{"error": ...}``) are nothing like a
-        # save's, and nothing here should touch ``saving`` at all -- a
-        # background op in flight leaves the document editable, which is the
-        # feature.
-        #
-        # Which of the four ``apply`` functions to run is read off the
-        # result's own ``"kind"`` -- decimate's own result carries none
-        # (tranche 1 predates the other three), so it stays the default.
-        #
-        # **Held back while the tab is busy** (the 2026-10-03 audit's clay-77):
-        # this used to apply unconditionally, so a result landing on a document
-        # whose element drag was still live was overwritten by the drag's commit
-        # (which writes the mesh it held from before the op) while the toast
-        # reported success; and one landing during an ``export_asset`` read could
-        # add a collider under the exporting task's zip. Same rule as Generate's
-        # landing (:func:`tab_busy`): the result waits, and
-        # :func:`drain_deferred_bg` applies it once the tab is free.
-        tab = state.get(key.split(":", 1)[1]) if ":" in key else None
-        if tab is not None:
-            if tab_busy(ctx, tab):
-                _deferred_bg(state).setdefault(tab.uid, []).append(result)
-                return
-            _apply_bg(ctx, tab, result)
-        return
-
     tab = state.get(key.split(":", 1)[1]) if ":" in key else None
     if tab is None:
         ctx.cache.invalidate()
         return
     tab.saving = False
-    # A background result held back by this very save lands now, not at the next
-    # frame Clay is drawn.
-    drain_deferred_bg(ctx)
     if not isinstance(result, dict):
         return  # a cancelled dialog
 
@@ -1315,8 +1041,6 @@ def on_task_done(ctx: Any, done: Any) -> None:
         return
 
     tab.mark_saved(result.get("rev"))
-    if "rblk_bytes" in result:
-        tab.rblk_bytes = int(result["rblk_bytes"])
     # See ``inker_mode``: saved is the moment the crash copy stops
     # describing anything at risk (UX-05).
     journal.drop(ctx, tab)
@@ -1334,57 +1058,15 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     ``saving`` disables every editing control, so without this a single failed
     write makes the tab permanently read-only with no way back short of
     closing it.
-
-    A failed ``clay-bg`` task clears ``bg_busy`` the same way, as a safety
-    net: ``clay_ops._decimate_work`` catches its own ``OptimizeError`` and
-    returns it as an ordinary (non-failed) result specifically so
-    :func:`on_task_done` can toast the real gltfpack message rather than the
-    generic one this path shows, so this branch exists for whatever an
-    unexpected exception past that catch would otherwise leave stuck.
-
-    Each failure clears only the flag its own key owns (``clay-bg`` ->
-    ``bg_busy``; the save/export keys -> ``saving``), never both.
-
-    A failed ``clay-gen*`` task is routed to :mod:`.generate` instead of
-    falling into the generic body below, and for a stronger reason than
-    either of those two: this function's own unconditional ``tab.saving =
-    False`` would unlock a tab that is genuinely mid-save the moment a
-    generate task happens to fail while that save is in flight on the same
-    tab -- a refused or interrupted generate must never be what makes a save
-    that is still running look finished.
-
-    A failed ``clay-readiness`` task is refused the same protection, for the
-    same reason again: the 2026-09-26 audit's clay-mode-01 found this falling
-    straight into the generic tail below, which unconditionally clears both
-    ``saving`` and ``bg_busy`` on the tab -- flags :func:`check_readiness`
-    never sets in the first place. A refused readiness check (too many
-    visible objects, :data:`~kernels.mesh.readiness.MAX_VALIDATE_OBJECTS`)
-    must not be what makes a save genuinely still in flight on the same tab
-    look finished; the failure's own toast is already shown by the shell
-    before this runs, so there is nothing else to do here.
     """
     state = ctx.state.clay
     if state is None or ":" not in done.key:
         return
     name = done.key.split(":", 1)[0]
-    from . import generate as clay_generate
-
-    if name in clay_generate.TASK_KEYS:
-        clay_generate.on_task_failed(ctx, done)
-        return
-    if name == "clay-readiness":
-        return
     tab = state.get(done.key.split(":", 1)[1])
     if tab is None:
         return
-    # The 2026-10-03 audit, finding clay-96: each flag belongs to one kind of
-    # task, so only that kind's failure clears it. A failed ``clay-bg`` used to
-    # clear ``saving`` too -- unlocking a tab whose save was still encoding --
-    # and a failed save wiped the "Decimating..." hint of a background op that
-    # was still running.
-    if name == "clay-bg":
-        tab.bg_busy = ""
-    elif name in ("clay-save", "clay-saveas", "clay-export", "clay-exportfile"):
+    if name in ("clay-save", "clay-saveas", "clay-export", "clay-exportfile"):
         tab.saving = False
 
 
@@ -1427,6 +1109,14 @@ def close_tab(ctx: Any, uid: str) -> None:
     state = ensure(ctx)
 
     def release(tab: ClayTab) -> None:
+        # The UV pane's texture is keyed on the tab uid and would outlive the
+        # document in the one GL context; the Inker links point into a document
+        # that is about to stop existing. Function-scope: ``ui`` imports this
+        # module.
+        from .ui import _uv_texture
+
+        _uv_texture.release_doc(ctx, tab.uid)
+        tab.inker_links.clear()
         view = getattr(ctx, "clay_view", None)
         if view is not None:
             # Not gated on "active tab" the way the rest of this function is:
@@ -1444,18 +1134,6 @@ def close_tab(ctx: Any, uid: str) -> None:
                 # a drag holds the mesh it is moving.
                 view.cancel_drag(tab.doc)
             view.clear()
-        # Keyed on object uid, so only this document's entries go: the uid
-        # counter is process-wide and never rewinds, so nothing can collide
-        # with a stale entry, and clearing the whole table made every other
-        # open tab redo its (adjacency-building) checks on the next draw.
-        for obj in tab.doc.objects:
-            state.manifold.pop(obj.uid, None)
-        # The 2026-10-03 audit's clay-56: a Generate started from this tab has
-        # nowhere left to show its preview, and would hold the one app-wide
-        # request slot forever. Stopped here, with its job.
-        from . import generate as clay_generate
-
-        clay_generate.on_tab_closed(ctx, tab.uid)
 
     docmodes.close_tab(ctx, state, uid, release)
 
@@ -1515,62 +1193,6 @@ def undo(ctx: Any, tab: Any) -> None:
 def redo(ctx: Any, tab: Any) -> None:
     """One step forward. :func:`undo`'s twin, and its reasoning."""
     tab.doc.redo()
-
-
-def check_readiness(ctx: Any, tab: ClayTab, profile: str) -> None:
-    """Run ``readiness.validate`` against *tab*'s document, on a task thread.
-
-    O(corners) -- a BFS per visible object, see that module's own cost section
-    -- so this runs once per press of the bridge's "Check" button, never per
-    frame. Submitted through ``ctx.submit`` rather than called here directly:
-    the 2026-09-20 audit's clay-05 measured ``readiness.validate`` at 522 ms
-    for 50 visible objects, 3.7 s for 800, 15.1 s for 3,200, all of it on the
-    frame thread before this fix -- the same "nothing blocking runs on the
-    main thread" rule every other document-changing call in this module
-    already follows (this module's own docstring). The result lands on the
-    tab in :func:`on_task_done` once it comes back, keyed
-    ``clay-readiness:<tab uid>`` like ``clay-bg``'s own per-tab keys, so a
-    tab closed while the check is still running has nowhere to land it.
-
-    ``readiness.validate`` can also refuse outright now
-    (``readiness.MAX_VALIDATE_OBJECTS``, the same audit's other half): raised
-    inside ``run()``, on the task thread, it reaches the user as an ordinary
-    task-failure toast (``tasks.CARRIES_ITS_OWN_MESSAGE`` already lists
-    ``OpError``) rather than needing its own handling here.
-
-    **A private copy, not the live document.** The 2026-09-26 audit's
-    clay-mesh-model-09: ``readiness.validate`` reaches ``doc.evaluated`` for
-    every visible object, which -- on a cache miss or a stale entry --
-    *writes* ``doc._evaluated`` (``modifiers.py``'s own cache) as a side
-    effect. That write used to land on ``tab.doc`` itself, from this pool
-    thread, while the frame thread can be editing that same document at the
-    same moment -- a genuine data race, not merely a stale read. ``run()``
-    deep-copies the document *inside the task*, not here: the copy is itself
-    an O(document) cost, and paying it on the frame thread would undo the
-    reason this call is backgrounded at all. The copy's own ``_evaluated`` is
-    a fresh, private dict no other thread can see, so every cache write
-    ``validate`` makes from here on is invisible to ``tab.doc``.
-    """
-    tab.readiness_profile = profile
-    doc = tab.doc
-    # Captured *before* the task ever runs, not after it returns: once this
-    # is backgrounded, an edit landing while the check is still on the pool
-    # would otherwise get the *new* head attached to a report computed
-    # against the *old* one -- the exact "stale but marked fresh" reading
-    # ``readiness_head`` exists to prevent (see ``ClayTab``'s own comment),
-    # just moved to a different point in time than the old, synchronous call
-    # had to worry about.
-    head = doc.history.head
-
-    def run() -> Any:
-        import copy
-
-        from ....kernels.mesh import readiness
-
-        snapshot = copy.deepcopy(doc)
-        return readiness.validate(snapshot, profile)
-
-    ctx.submit(f"clay-readiness:{tab.uid}", run, tag=head)
 
 
 def step_history(ctx: Any, tab: Any, index: int) -> bool:
@@ -1738,7 +1360,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
 
             clay_ops.run(ctx, doc, clay_ops.get("delete"))
     elif event.key == pygame.K_ESCAPE:
-        _escape(state, tab, doc, view)
+        _escape(state, tab, doc)
     return True
 
 
@@ -1859,30 +1481,13 @@ state (``open_op_popup``) exactly as a key does, because an ``imgui.open_popup``
 made inside a submenu names the popup in the submenu's own id stack."""
 
 
-def _escape(state: ClayState, tab: ClayTab, doc: Any, view: Any = None) -> None:
-    """Esc, staged: the armed knife, then the elements, then the mode, then
-    the objects.
+def _escape(state: ClayState, tab: ClayTab, doc: Any) -> None:
+    """Esc, staged: the elements, then the mode, then the objects.
 
     One key that undoes the last thing the user got into, in the order they got
     into it. It **never leaves Clay mode**: Esc means "drop what I am doing",
     and losing a workspace full of tabs to a stray keypress is not that.
-
-    **The knife check comes first and returns early.** ``ClayView.begin_knife``
-    arms the gesture before any press lands -- waiting for the drag that draws
-    the cut line -- and that armed-but-undragged state sets no ``_grab`` of
-    its own (``begin_knife``'s own docstring), so ``handle_key``'s live-drag
-    branch above (which checks ``view.dragging``) never sees it and an armed
-    knife reached this function with nothing here that cancelled it: Esc
-    silently did nothing while the knife sat waiting for its first click.
-    ``view.cancel_drag`` already knows how to disarm exactly this state (its
-    own docstring: "checked *ahead* of the ``dragging`` guard... since an
-    *armed* knife... sets no ``_grab`` at all") -- this only has to ask it
-    before running the staged clearing below, which is otherwise correct but
-    has nothing to do with a knife that has not touched the document yet.
     """
-    if view is not None and getattr(view, "_knife_armed", False):
-        view.cancel_drag(doc)
-        return
     if not tab.saving:
         if doc.element_mode != "object":
             if doc.element_sel:
@@ -1955,12 +1560,9 @@ def _ctrl_key(
         #
         # Object mode only, for the reason Ctrl+J is: a merge is about whole
         # objects, and there is no element-mode reading of it to fall back on.
-        # Shift picks the union rather than the weld -- one predicate gates
-        # both, so the shift never changes whether the key does anything, only
-        # which of the two answers it gives.
         from . import ops as clay_ops
 
-        op = clay_ops.get("union" if shift else "join")
+        op = clay_ops.get("join")
         if op.enabled(doc):
             _fire_op(ctx, doc, op)
     elif name == "j" and doc.element_mode == "object":
@@ -1978,23 +1580,12 @@ def _ctrl_key(
             doc.clear_element_sel()
         else:
             doc.select([])
-    elif name in GROW_KEYS:
-        # Ctrl+plus and Ctrl+minus, on both the number row and the keypad.
-        # Four names for two verbs, because the two rows report different key
-        # names for the same glyph and a user pressing the one under their hand
-        # should not have to know which.
-        from . import ops as clay_ops
-
-        op = clay_ops.get(GROW_KEYS[name])
-        if op.enabled(doc) and doc.element_mode in op.modes:
-            _fire_op(ctx, doc, op)
     elif name == "tab":
         state.cycle(-1 if shift else 1)
     elif not tab.saving and not getattr(view, "dragging", False):
-        # A registry op bound to a Ctrl chord the cases above do not own (Bevel
-        # is Ctrl+B, Loop Cut Ctrl+R). Last, so an existing chord can never be
-        # taken by a later registration, and not under a live drag, which swallows
-        # the keys it does not know.
+        # A registry op bound to a Ctrl chord the cases above do not own. Last,
+        # so an existing chord can never be taken by a later registration, and
+        # not under a live drag, which swallows the keys it does not know.
         from . import ops as clay_ops
 
         label = ("Ctrl+Shift+" if shift else "Ctrl+") + name.upper()
@@ -2002,18 +1593,6 @@ def _ctrl_key(
         if op is not None and op.enabled(doc):
             _fire_op(ctx, doc, op, interactive=True)
     return True
-
-
-#: The two selection-size chords, by the key names pygame reports. ``=`` is the
-#: unshifted key that carries ``+``, which is what a user presses; ``[+]`` and
-#: ``[-]`` are the keypad's own names.
-GROW_KEYS = {
-    "=": "select-more",
-    "+": "select-more",
-    "[+]": "select-more",
-    "-": "select-less",
-    "[-]": "select-less",
-}
 
 
 # The two below are thin wrappers on ``clay.selection``, kept at their old

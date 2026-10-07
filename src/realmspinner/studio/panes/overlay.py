@@ -650,7 +650,7 @@ def _clay_box(ctx: Any) -> None:
 
     Which primitive is read off the registry rather than spelled here (the
     ``clay_props`` rule: the pane never names a generator), so a rename in
-    ``primitives.GENERATORS`` cannot leave this button pointing at nothing.
+    ``primitives.CLAY_GENERATORS`` cannot leave this button pointing at nothing.
     """
     from ...kernels.mesh import primitives as bp
     from ..modes.clay.ui.panes import tools as clay_tools
@@ -658,7 +658,7 @@ def _clay_box(ctx: Any) -> None:
     tab = ctx.state.clay.active if getattr(ctx.state, "clay", None) else None
     if tab is None:
         return
-    clay_tools.add_primitive(ctx, tab.doc, next(iter(bp.GENERATORS)))
+    clay_tools.add_primitive(ctx, tab.doc, bp.CLAY_GENERATORS[0][1][0])
 
 
 def _mason_box(ctx: Any) -> None:

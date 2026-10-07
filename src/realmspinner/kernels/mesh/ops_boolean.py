@@ -125,8 +125,8 @@ def boolean(
     own TRS, to be correctly related. ``None`` -- the whole argument or one
     entry -- composes that object's own TRS exactly as this always has,
     which is a root's own world matrix, so a document with no parenting
-    computes exactly what it always did. :mod:`.modifiers`' own boolean
-    kind is the one caller that always passes both.
+    computes exactly what it always did. The ``.rblk`` migration's replay of a
+    v3 boolean modifier (:mod:`.legacy`) is the caller that passes both.
 
     Disjoint inputs are *not* an error and are not special-cased **for a
     union**: the union of two solids that do not touch is a two-shell solid,

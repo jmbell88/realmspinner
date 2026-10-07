@@ -17,8 +17,7 @@ from realmspinner.core.undo import CompoundEdit
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
-from realmspinner.kernels.mesh import modifiers as mod
-from realmspinner.kernels.mesh import ops_topo, selection
+from realmspinner.kernels.mesh import ops_topo, selection, shading
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
 
@@ -297,22 +296,17 @@ def test_the_viewports_per_object_cache_agrees_with_to_model_for_a_hidden_parent
     instead. The claim is narrowed in both docstrings now; this pins the
     thing that narrowing depends on staying true -- that ``to_model``'s own
     per-object node content (built the same way, ``to_primitives(obj,
-    doc.materials, doc.evaluated(obj.uid))``) is exactly what the viewport's
+    doc.materials, obj.mesh)``) is exactly what the viewport's
     own per-object cache would build for the same object, including through
-    a modifier stack and a hidden parent with a visible child. If either
-    path ever started reading ``obj.mesh`` (the base) instead of
-    ``doc.evaluated(obj.uid)``, or dropped the hidden-parent-carries-its-
-    visible-child's-frame rule, this catches the drift the docstring note
-    now warns about instead of finding out from a mismatched render.
+    a hidden parent with a visible child. If either path ever dropped the
+    hidden-parent-carries-its-visible-child's-frame rule, this catches the
+    drift the docstring note now warns about instead of finding out from a
+    mismatched render.
     """
     doc = bd.ClayDoc()
     parent = doc.add_object(_obj("parent", visible=False))
     child = doc.add_object(_obj("child", bp.box()))
     doc.set_parent(child.uid, parent.uid)
-    # A modifier stack so ``doc.evaluated(child.uid)`` differs from
-    # ``child.mesh`` -- the thing that would expose either path quietly
-    # falling back to the base mesh instead of the evaluated one.
-    doc.set_modifiers(child.uid, (mod.make("triangulate", {}, id=1),))
 
     model = bd.to_model(doc)
     names = [n.name for n in model.nodes]
@@ -328,19 +322,13 @@ def test_the_viewports_per_object_cache_agrees_with_to_model_for_a_hidden_parent
 
     # The viewport cache's own build call, exactly as ``CacheOps._build``
     # makes it, for the same visible child.
-    cache_prims = bd.to_primitives(child, doc.materials, doc.evaluated(child.uid))
+    cache_prims = bd.to_primitives(child, doc.materials, child.mesh)
     model_prims = model.meshes[child_node.mesh]
     assert len(cache_prims) == len(model_prims) == 1
     for cache_prim, model_prim in zip(cache_prims, model_prims, strict=True):
         assert np.array_equal(cache_prim.positions, model_prim.positions)
         assert np.array_equal(cache_prim.indices, model_prim.indices)
         assert cache_prim.material is model_prim.material
-    # Neither path silently fell back to the un-evaluated base mesh: the
-    # triangulate modifier changes the index count, so the base mesh's own
-    # primitive would disagree on shape.
-    assert not np.array_equal(
-        bd.to_primitives(child, doc.materials)[0].indices, cache_prims[0].indices
-    )
 
 
 def test_to_model_de_duplicates_materials_by_identity() -> None:
@@ -973,29 +961,6 @@ def test_a_merge_that_absorbs_nothing_and_changes_nothing_pushes_no_step() -> No
     assert not doc.dirty
 
 
-def test_join_objects_refuses_a_locked_target_and_refuses_a_locked_absorbed_object() -> None:
-    """The 2026-09-20 audit's clay-01: locking gave an object no protection at
-    all against Join or any boolean -- ``join_objects`` never called
-    ``_refuse_if_locked``, for the target whose mesh it replaces or for the
-    absorbed objects it deletes, so a locked object was silently overwritten
-    or removed through ordinary clicks and through ``clay_join``/
-    ``clay_boolean`` alike. Both halves must refuse before either mutates.
-    """
-    a, b = _obj("A", locked=True), _obj("B")
-    doc = bd.ClayDoc([a, b])
-    with pytest.raises(el.OpError):
-        doc.join_objects(a.uid, _merged(doc, a.uid, [b.uid]), [b.uid])
-    assert [o.name for o in doc.objects] == ["A", "B"]
-    assert doc.by_uid(a.uid).mesh is a.mesh
-
-    c, d = _obj("C"), _obj("D", locked=True)
-    doc2 = bd.ClayDoc([c, d])
-    with pytest.raises(el.OpError):
-        doc2.join_objects(c.uid, _merged(doc2, c.uid, [d.uid]), [d.uid])
-    assert [o.name for o in doc2.objects] == ["C", "D"]
-    assert doc2.by_uid(d.uid).mesh is d.mesh
-
-
 # --- the palette as a list (Clay15) -------------------------------------------
 
 
@@ -1125,24 +1090,18 @@ def test_shading_that_changes_nothing_pushes_no_step() -> None:
 
 def test_auto_shading_smooths_a_closed_curved_surface() -> None:
     """A sphere's bands are 22 degrees apart, well inside the threshold."""
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
     doc = bd.ClayDoc()
     obj = doc.add_object(
         bd.Obj(uid=bd.new_uid(), name="S", mesh=bp.uv_sphere(segments=16, rings=8))
     )
-    doc.select([obj.uid])
-    clay_ops.run(None, doc, clay_ops.get("shade-auto"), angle=30.0)
+    doc.set_mesh(obj.uid, shading.auto_smooth(obj.mesh, 30.0))
     assert bool(doc.by_uid(obj.uid).mesh.smooth.all())
 
 
 def test_auto_shading_leaves_a_box_flat() -> None:
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
-    doc.select([obj.uid])
-    clay_ops.run(None, doc, clay_ops.get("shade-auto"), angle=30.0)
+    doc.set_mesh(obj.uid, shading.auto_smooth(obj.mesh, 30.0))
     assert not bool(doc.by_uid(obj.uid).mesh.smooth.any())
 
 
@@ -1156,22 +1115,16 @@ def test_a_capped_cylinder_comes_out_flat_and_that_is_the_right_answer() -> None
     very edge the caps define -- Blender avoids this with per-edge split
     normals, which is a different mesh format.
     """
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="C", mesh=bp.cylinder(segments=24)))
-    doc.select([obj.uid])
-    clay_ops.run(None, doc, clay_ops.get("shade-auto"), angle=30.0)
+    doc.set_mesh(obj.uid, shading.auto_smooth(obj.mesh, 30.0))
     assert not bool(doc.by_uid(obj.uid).mesh.smooth.any())
 
 
 def test_auto_shading_at_a_wide_angle_smooths_everything() -> None:
-    from realmspinner.studio.modes.clay import ops as clay_ops
-
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box()))
-    doc.select([obj.uid])
-    clay_ops.run(None, doc, clay_ops.get("shade-auto"), angle=179.0)
+    doc.set_mesh(obj.uid, shading.auto_smooth(obj.mesh, 179.0))
     assert bool(doc.by_uid(obj.uid).mesh.smooth.all())
 
 
@@ -1436,35 +1389,6 @@ def test_a_cached_plans_arrays_cannot_be_written_through() -> None:
     _, layout = bd.render_plan(bp.box())[0]
     with pytest.raises(ValueError):
         layout.indices[0] = 0
-
-
-def test_document_module_docstring_contains_the_locking_paragraph_it_cites() -> None:
-    """The 2026-09-19 audit's clay-28: a dozen docstrings and comments in this
-    module cite "the module docstring's locking paragraph" as authoritative
-    (``Obj.locked``'s own field comment among them), but the module docstring
-    itself said nothing about locking at all -- a citation with nothing to
-    cite. This pins that the paragraph actually exists and actually names
-    every door it is cited from: the ones that refuse a locked object, and
-    the ones deliberately exempt.
-    """
-    doc = inspect.getdoc(bd)
-    assert doc is not None
-    assert "locked" in doc.lower()
-
-    refusing_doors = (
-        "set_mesh",
-        "set_transform",
-        "set_generator_params",
-        "set_seams",
-        "set_modifiers",
-        "apply_modifiers",
-    )
-    for door in refusing_doors:
-        assert door in doc, f"the locking paragraph never names the refusing door {door!r}"
-
-    exempt_doors = ("set_parent", "set_origin", "set_props", "add_collider")
-    for door in exempt_doors:
-        assert door in doc, f"the locking paragraph never names the exempt door {door!r}"
 
 
 def test_document_module_docstring_no_longer_claims_obj_has_no_parent() -> None:

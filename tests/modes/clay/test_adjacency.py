@@ -168,8 +168,13 @@ def test_a_dead_mesh_takes_its_adjacency_with_it() -> None:
     assert ref() is None
 
 
+def _boundary_rings(mesh: bm.Mesh):
+    """Every border of the mesh: ``boundary_ring_from`` seeded with all edges."""
+    return adj.boundary_ring_from(mesh, adj.adjacency(mesh).edge_verts)
+
+
 def test_a_closed_mesh_has_no_boundary_at_all() -> None:
-    rings, pinched = adj.boundary_loops(prim.box())
+    rings, pinched = _boundary_rings(prim.box())
     assert rings == []
     assert len(pinched) == 0
 
@@ -178,7 +183,7 @@ def test_a_boundary_ring_is_wound_so_a_cap_built_from_it_is_consistent() -> None
     # The plane is one quad; its border is one ring of four, and a face wound
     # in that order traverses every shared edge opposite to the quad.
     m = prim.plane()
-    rings, pinched = adj.boundary_loops(m)
+    rings, pinched = _boundary_rings(m)
     assert len(rings) == 1 and len(pinched) == 0
     ring = rings[0]
     assert sorted(ring.tolist()) == [0, 1, 2, 3]
@@ -205,7 +210,7 @@ def test_a_tube_has_two_rings() -> None:
         material=m.material[:6],
         smooth=m.smooth[:6],
     )
-    rings, pinched = adj.boundary_loops(open_tube)
+    rings, pinched = _boundary_rings(open_tube)
     assert sorted(len(r) for r in rings) == [6, 6]
     assert len(pinched) == 0
 
@@ -221,7 +226,7 @@ def test_a_pinched_boundary_is_named() -> None:
         material=np.zeros(2, dtype="i4"),
         smooth=np.zeros(2, dtype=bool),
     )
-    _, pinched = adj.boundary_loops(m)
+    _, pinched = _boundary_rings(m)
     assert pinched.tolist() == [0]
 
 

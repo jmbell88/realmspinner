@@ -1,10 +1,8 @@
 """Clay's Tools panel: one grid, one selection, one options block.
 
-The 2026-09-08 panel-grammar pass replaced three affordances stacked in one
-sidebar -- primitives as an unlabelled icon grid, figures as a column of
-full-width text buttons, and the ops as a ragged two-column grid with a
-hand-rolled Delete -- with one selection field every add-tool writes
-(``state.generator``) and one options block that reads it. The ops grid itself
+The 2026-09-08 panel-grammar pass replaced the stacked affordances in one
+sidebar with one selection field every add-tool writes (``state.generator``)
+and one options block that reads it. The ops grid itself
 left for the header's menu strip on 2026-10-02. Each test's name is the claim it
 makes about the *redesigned* panel, and each is checked below to fail against
 the code as it stood before this pass (never with git -- a scratch copy with
@@ -67,22 +65,12 @@ def test_options_change_when_the_selected_tool_changes():
     assert "size" not in sphere_labels
 
 
-def test_options_for_a_figure_name_the_figure_rather_than_a_primitive():
-    """A figure has no per-field defaults of its own -- ``presets.build``
-    computes a whole rig template's worth of parts -- so the heading is the
-    template's own label and the rows are empty rather than borrowing a
-    primitive's."""
-    heading, rows, note = clay_tools._options_for("humanoid")
-    assert heading == "Humanoid (biped)"
-    assert rows == ()
-    assert "preset arrangement" in note
-
-
 def test_options_for_an_unknown_tool_is_none():
     """A document opened from an older save whose remembered ``state.generator``
-    names a generator since retired from the registry must not draw a stale
-    heading with nothing behind it."""
+    names a generator since retired from the registry (or a figure, which Clay no longer
+    has) must not draw a stale heading with nothing behind it."""
     assert clay_tools._options_for("not-a-real-tool-any-more") is None
+    assert clay_tools._options_for("humanoid") is None
 
 
 def test_a_fresh_clay_state_lights_no_add_tool_and_shows_no_options():
@@ -99,20 +87,7 @@ def test_a_fresh_clay_state_lights_no_add_tool_and_shows_no_options():
     assert clay_tools._options_for(state.generator) is None
 
 
-# --- primitives and figures share one affordance, not two -------------------
-
-
-def test_a_figure_button_writes_the_same_field_a_primitive_button_does():
-    """Before this pass ``_add`` took ``state`` only to immediately discard it
-    (``del state``), and ``_figures`` never touched ``state`` at all -- so a
-    figure and a primitive were two disconnected mechanisms with no shared
-    idea of "the tool in hand". Checked at the source because the claim is
-    that both write one field, which nothing on screen shows by itself."""
-    add_source = inspect.getsource(clay_tools._add)
-    figures_source = inspect.getsource(clay_tools._figures)
-    assert "del state" not in add_source
-    assert "state.generator = clicked" in add_source
-    assert "state.generator = key" in figures_source
+# --- the add grid ------------------------------------------------------------
 
 
 def test_clicking_the_box_button_selects_it_and_places_it(monkeypatch):

@@ -121,9 +121,8 @@ crop-then-scale path, and a manifest claiming so is only true while that holds.
 
 ## Blender out of process
 
-Rigging, pose baking, sprite-sheet rendering, FBX export, remeshing and Clay's retopology, unwrap and
-bake all need Blender, and Blender's Python module never runs inside the app process. The worker's
-`OPS` table is the full list of what it will do.
+Rigging, pose baking, sprite-sheet rendering, FBX export and remeshing all need Blender, and Blender's
+Python module never runs inside the app process. The worker's `OPS` table is the full list of what it will do.
 
 There are two reasons and either alone would be enough. `bpy` is process-global and not thread-safe,
 which is incompatible with a four-thread pool. And it hard-*crashes* rather than raising on some

@@ -21,7 +21,6 @@ Three things this pins:
 from __future__ import annotations
 
 import inspect
-from typing import Any
 
 import pytest
 from _ui_context import imgui_context
@@ -64,23 +63,25 @@ class _FakeState:
 # --- the new scalar fields fold into one replace, one step -------------------
 
 
-def test_every_new_pbr_field_reaches_the_replace_call() -> None:
+def test_every_material_field_reaches_the_replace_call() -> None:
     """Bidirectional, the way ``test_clay_props_widget.py``'s registry gates
-    are: a field added to the material editor's write must actually be
-    threaded from its own changed-flag into both the ``if`` guard and the
-    ``replace(...)`` call, or a press would silently do nothing."""
+    are: a field the material editor offers must be threaded from its own
+    changed-flag into both the ``if`` guard and the ``replace(...)`` call, or a
+    press would silently do nothing. The editor offers exactly the Clay subset:
+    colour, cutout and double-sided."""
     source = inspect.getsource(clay_props._material)
     for field, flag in (
-        ("emissive_factor=", "emissive_changed"),
-        ("alpha_mode=", "alpha_changed"),
-        ("alpha_cutoff=", "cutoff_changed"),
+        ("base_color_factor=", "changed"),
+        ("alpha_mode=", "cutout_changed"),
         ("double_sided=", "ds_changed"),
     ):
         assert field in source, f"{field} is never written"
         assert flag in source, f"{flag} is never read"
-    guard = source[source.index("if (") : source.index("):", source.index("if ("))]
-    for flag in ("emissive_changed", "alpha_changed", "cutoff_changed", "ds_changed"):
+    guard = source[source.index("if changed or") : source.index(":", source.index("if changed or"))]
+    for flag in ("cutout_changed", "ds_changed"):
         assert flag in guard, f"{flag} does not gate the write"
+    for gone in ("metallic", "roughness", "emissive"):
+        assert f'"##{gone}##bm"' not in source, f"{gone} is not a Clay material field"
 
 
 def test_toggling_double_sided_is_one_undo_step_and_a_full_replacement(
@@ -94,7 +95,11 @@ def test_toggling_double_sided_is_one_undo_step_and_a_full_replacement(
     # touching the colour/slider fields beside it, the same "monkeypatch the
     # one control kind this function calls once" shape
     # ``test_modifier_props.py``'s own enabled-checkbox test uses.
-    monkeypatch.setattr(clay_props.controls, "checkbox", lambda label, value, **kw: (True, True))
+    monkeypatch.setattr(
+        clay_props.controls,
+        "checkbox",
+        lambda label, value, **kw: (True, True) if "double-sided" in label else (False, value),
+    )
 
     ctx = _FakeCtxForMaterial()
     tab = _FakeTab("bd1", doc)
@@ -123,10 +128,8 @@ def test_toggling_double_sided_is_one_undo_step_and_a_full_replacement(
 
 
 class _FakeCtxForMaterial:
-    """``_material`` also calls ``_material_library``, which reads
-    ``ctx.svc.config.home`` -- a real, per-instance temp directory is fine
-    here since nothing is saved to it in this test (no Save/Apply button is
-    pressed), but it still has to resolve without raising."""
+    """The slice of ``Ctx`` the material editor reaches: a per-instance temp
+    ``config.home``, ``busy``/``submit`` and ``toast``."""
 
     def __init__(self) -> None:
         import tempfile
@@ -154,7 +157,7 @@ def test_clearing_a_texture_slot_is_one_undo_step(monkeypatch: pytest.MonkeyPatc
     material = doc.materials[obj.material]
     from dataclasses import replace
 
-    doc.set_material(obj.material, replace(material, base_color=image))
+    doc.set_material(obj.material, replace(material, base_color=image, nearest=True))
     before_history = len(doc.history)
     with_texture = doc.materials[obj.material]
     assert with_texture.base_color == image
@@ -175,6 +178,7 @@ def test_clearing_a_texture_slot_is_one_undo_step(monkeypatch: pytest.MonkeyPatc
     cleared = doc.materials[obj.material]
     assert cleared is not with_texture
     assert cleared.base_color is None
+    assert cleared.nearest is False, "the sampler choice goes with the picture"
     assert doc.undo()
     assert doc.materials[obj.material].base_color == image
 
@@ -253,206 +257,3 @@ def test_pick_texture_decodes_through_the_pixel_guard(
     result = clay_props._pick_texture("normal")
     expected_rgba = bytes(np.full((2, 3, 4), 128, dtype=np.uint8))
     assert result == {"width": 3, "height": 2, "rgba": expected_rgba}
-
-
-# --- the material shelf listing is cached, not re-read every frame ----------
-
-
-def test_material_library_listing_is_memoised_across_frames(
-    monkeypatch: pytest.MonkeyPatch, ui
-) -> None:
-    """The 2026-09-19 audit, finding clay-35: ``clay_matlib.list_materials``
-    -- a ``Path.glob`` plus one JSON parse per entry -- was called with no
-    memoisation on every single frame ``_material_library`` draws, which is
-    nearly every frame the properties panel shows an object with any
-    material at all. Cost scales with how many materials the user has ever
-    saved.
-    """
-    doc, obj = _doc_with_object()
-    ctx = _FakeCtxForMaterial()
-    tab = _FakeTab("bd1", doc)
-    home = ctx.svc.config.home
-    clay_props._invalidate_material_library(home)  # a clean slate for this home
-
-    calls = {"n": 0}
-    real_list = clay_props.clay_matlib.list_materials
-
-    def _counting_list(path):
-        calls["n"] += 1
-        return real_list(path)
-
-    monkeypatch.setattr(clay_props.clay_matlib, "list_materials", _counting_list)
-
-    def _run_frame() -> None:
-        ui.new_frame()
-        ui.begin("##host")
-        clay_props._material_library(ctx, tab, doc, obj)
-        ui.end()
-        ui.end_frame()
-
-    _run_frame()
-    assert calls["n"] == 1, "the first frame must read the shelf once"
-
-    for _ in range(4):
-        _run_frame()
-    assert calls["n"] == 1, "unchanged frames must not re-read the shelf"
-
-    def _typed_values():
-        yield "Rusty Metal"
-        while True:
-            yield ""
-
-    typed = _typed_values()
-    monkeypatch.setattr(clay_props.widgets, "input_text", lambda *a, **kw: next(typed))
-
-    _run_frame()  # types and *submits* a save (async, off the frame thread -- clay-09)
-    assert calls["n"] == 1, "submitting a save must not itself force a re-read"
-
-    # The save lands later, the way ``shell/tasks.py`` would deliver it --
-    # only landing (not submitting) is what must invalidate the cache.
-    clay_props.on_task_done(
-        ctx=None,
-        done=Done(key=clay_props._matlib_save_key(tab.uid), result=object(), tag=home),
-    )
-    _run_frame()
-    assert calls["n"] == 2, "landing a save must invalidate the cache and force a re-read"
-
-    for _ in range(4):
-        _run_frame()
-    assert calls["n"] == 2, "frames after the save, with nothing new changed, hit the cache again"
-
-
-# --- the material shelf's Save/Apply run off the frame thread ---------------
-
-
-def test_save_material_with_a_realistic_multi_slot_texture_set_is_submitted_through_ctx_submit(
-    monkeypatch: pytest.MonkeyPatch, ui
-) -> None:
-    """The 2026-09-22 audit's clay-09: ``matlib.save_material``/``load_material``
-    encode/decode PNGs (up to five slots, each potentially 4096^2) and were
-    called inline from ``_material_library``, on the frame thread -- the
-    audit's own reproduction measured 11.1 s for a save and 1.8 s for a load
-    at that size. Asserted here as "submitted through ``ctx.submit``, never
-    run inline" rather than a wall-clock budget, since a timing assertion is
-    flaky under this suite's own parallel dist (``-n 8 --dist loadfile``).
-
-    ``clay_matlib.save_material`` is monkeypatched to *raise* if ever called
-    directly -- the only way it can be reached is inline, since the fake
-    ``ctx.submit`` below records the call rather than invoking it, the same
-    "prove it never runs on this thread" shape ``test_pick_texture_...``
-    already gives the sibling texture-assign door.
-    """
-    doc, obj = _doc_with_object()
-
-    def _must_not_run_inline(home, name, material):
-        raise AssertionError("save_material must not be called inline on the frame thread")
-
-    monkeypatch.setattr(clay_props.clay_matlib, "save_material", _must_not_run_inline)
-
-    submitted: dict[str, Any] = {}
-
-    class _RecordingCtx(_FakeCtxForMaterial):
-        def submit(self, key: str, fn, *args, **kwargs) -> bool:
-            submitted["key"] = key
-            submitted["fn"] = fn
-            submitted["args"] = args
-            return True
-
-    ctx = _RecordingCtx()
-    tab = _FakeTab("bd1", doc)
-    typed = iter(["Rusty Metal"])
-    monkeypatch.setattr(clay_props.widgets, "input_text", lambda *a, **kw: next(typed, ""))
-
-    ui.new_frame()
-    ui.begin("##host")
-    clay_props._material_library(ctx, tab, doc, obj)
-    ui.end()
-    ui.end_frame()
-
-    assert submitted.get("fn") is clay_props.clay_matlib.save_material, (
-        "save_material must be handed to ctx.submit, not called directly"
-    )
-    assert submitted["args"][1] == "Rusty Metal"
-    assert submitted["key"].startswith(clay_props.MATLIB_SAVE_TASK_PREFIX)
-
-
-def test_applying_a_library_material_is_submitted_through_ctx_submit_not_run_inline(
-    monkeypatch: pytest.MonkeyPatch, ui, tmp_path
-) -> None:
-    """clay-09's Apply half: ``load_material`` decodes the same PNGs on the
-    way back in, and was likewise called inline from the Apply button."""
-    doc, obj = _doc_with_object()
-    home = tmp_path
-    entry = clay_props.clay_matlib.save_material(home, "Rusty Metal", doc.materials[obj.material])
-    clay_props._invalidate_material_library(home)
-
-    def _must_not_run_inline(h, entry_id):
-        raise AssertionError("load_material must not be called inline on the frame thread")
-
-    monkeypatch.setattr(clay_props.clay_matlib, "load_material", _must_not_run_inline)
-
-    submitted: dict[str, Any] = {}
-
-    class _RecordingCtx(_FakeCtxForMaterial):
-        def __init__(self) -> None:
-            super().__init__()
-            self.svc.config.home = home
-
-        def submit(self, key: str, fn, *args, **kwargs) -> bool:
-            submitted["key"] = key
-            submitted["fn"] = fn
-            submitted["args"] = args
-            return True
-
-    ctx = _RecordingCtx()
-    tab = _FakeTab("bd1", doc)
-    monkeypatch.setattr(clay_props.widgets, "input_text", lambda *a, **kw: "")
-    monkeypatch.setattr(
-        clay_props.controls, "small_button", lambda label, **kw: "matlibapply" in label
-    )
-
-    ui.new_frame()
-    ui.begin("##host")
-    clay_props._material_library(ctx, tab, doc, obj)
-    ui.end()
-    ui.end_frame()
-
-    assert submitted.get("fn") is clay_props.clay_matlib.load_material, (
-        "load_material must be handed to ctx.submit, not called directly"
-    )
-    assert submitted["args"] == (home, entry.id)
-    assert submitted["key"].startswith(clay_props.MATLIB_APPLY_TASK_PREFIX)
-
-
-def test_matlib_save_task_invalidates_the_listing_cache_only_once_it_lands(tmp_path) -> None:
-    home = tmp_path
-    clay_props._cached_materials(home)  # populate the cache with an empty read
-    assert home in clay_props._matlib_cache
-
-    done = Done(key=clay_props._matlib_save_key("bd1"), result=object(), tag=home)
-    clay_props.on_task_done(ctx=None, done=done)
-
-    assert home not in clay_props._matlib_cache
-
-
-def test_matlib_apply_task_applies_the_loaded_material_to_the_object(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from dataclasses import replace
-
-    doc, obj = _doc_with_object()
-    tab = _FakeTab("bd1", doc)
-    monkeypatch.setattr(clay_props.clay_mode, "ensure", lambda ctx: _FakeState(tab))
-    before_history = len(doc.history)
-
-    material = replace(doc.materials[obj.material], name="Rusty Metal")
-    key = clay_props._matlib_apply_key(tab.uid, obj.uid, "rusty-metal-abcd1234")
-    clay_props.on_task_done(ctx=None, done=Done(key=key, result=material))
-
-    assert len(doc.history) == before_history + 1
-    landed = doc.by_uid(obj.uid)
-    assert doc.materials[landed.material].name == "Rusty Metal"
-
-    assert doc.undo()
-    landed = doc.by_uid(obj.uid)
-    assert doc.materials[landed.material].name != "Rusty Metal"

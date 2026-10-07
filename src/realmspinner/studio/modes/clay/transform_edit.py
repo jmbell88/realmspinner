@@ -12,7 +12,7 @@ Euler produced*. While the object's quaternion is still that one the remembered
 angles are shown verbatim; the moment anything else moves it (a gizmo drag, an
 undo, an agent) the cache misses and the angles are read afresh.
 
-**Size.** ``width/height/depth`` is the evaluated mesh's *local* extent times
+**Size.** ``width/height/depth`` is the mesh's *local* extent times
 ``|scale|`` -- the one number that maps back to a scale without ambiguity. (The
 world box of a rotated object is a different number and no scale reproduces it,
 which is why that stays a read-only line underneath.)

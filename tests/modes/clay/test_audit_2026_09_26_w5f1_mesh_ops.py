@@ -1,9 +1,9 @@
 """Regressions for the 2026-09-26 audit's clay-mesh-ops-01..05 and
 clay-mesh-uv-02: five separate frame-thread ceilings/correctness gaps across
-``ops_topo.py``, ``ops_spin.py``, ``ops_subdiv.py``, ``ops_dissolve.py`` and
-``uvtools.py`` (see the 2026-09-26 audit's remaining-findings list, and the
-fix-pass brief for wave 5, fixer 1). One file because the six findings are
-small and share no state; each test names the finding it closes.
+``ops_topo.py``, ``ops_subdiv.py``, ``ops_dissolve.py`` and ``uvtools.py``
+(see the 2026-09-26 audit's remaining-findings list, and the fix-pass brief
+for wave 5, fixer 1). One file because the findings are small and share no
+state; each test names the finding it closes.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ import pytest
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
 from realmspinner.kernels.mesh import ops_dissolve as dis
-from realmspinner.kernels.mesh import ops_spin as osp
 from realmspinner.kernels.mesh import ops_subdiv as sub
 from realmspinner.kernels.mesh import ops_topo as ops
 from realmspinner.kernels.mesh import primitives as prim
@@ -58,34 +57,6 @@ def test_region_inset_depth_moves_opposite_facing_regions_each_along_its_own_nor
     assert top_after[:, 1].mean() > top_before[:, 1].mean() + 0.05, (
         "the +Y cap silently didn't move along its own normal"
     )
-
-
-# --- clay-mesh-ops-02: spin(angle=360, steps<3) ---------------------------
-
-_PROFILE = el.ElementSel(edges=np.array([[0, 4]], dtype="i4"))
-
-
-def test_spin_a_full_turn_refuses_fewer_than_three_steps() -> None:
-    """A whole-turn ``spin`` closes the ring by reusing ring zero's own
-    vertex indices for the last band (see ``spin``'s own docstring), which
-    needs at least three distinct rings to make a non-degenerate solid --
-    with ``steps=1`` there is only ring zero, so ``ring_index[k2]`` for the
-    single band wraps back onto the *same* ring it started from and every
-    quad gets repeated corners; with ``steps=2`` the two bands fold directly
-    back onto each other. Neither was refused before this fix -- reproduced
-    on a box's single-edge profile, spun a full turn.
-    """
-    box = prim.box()
-    with pytest.raises(el.OpError, match="at least three steps"):
-        osp.spin(box, _PROFILE, axis=1, angle=360.0, steps=1, center=(0.0, 0.0, 0.0))
-    with pytest.raises(el.OpError, match="at least three steps"):
-        osp.spin(box, _PROFILE, axis=1, angle=360.0, steps=2, center=(0.0, 0.0, 0.0))
-    # Three steps make a legitimate (if coarse) solid, and a partial turn is
-    # never affected by this refusal, however few steps it asks for.
-    out, _ = osp.spin(box, _PROFILE, axis=1, angle=360.0, steps=3, center=(0.0, 0.0, 0.0))
-    bm.validate(out)
-    out2, _ = osp.spin(box, _PROFILE, axis=1, angle=180.0, steps=1, center=(0.0, 0.0, 0.0))
-    bm.validate(out2)
 
 
 # --- clay-mesh-ops-03: collapse walks before it refuses -------------------

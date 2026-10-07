@@ -16,12 +16,6 @@ plain ``string``, but ``_scene_row`` answers ``None`` for a hand-built
 (``clay_add_mesh``) or frozen (topology-edited) object -- so ``clay_add_mesh``
 and ``clay_scene`` both violate their own declared ``outputSchema``.
 
-clay-agent-tools-08: ``_resolve_uids`` never deduplicated, so
-``clay_analyze uids:[u, u]`` reported a self-pair overlap and
-``clay_collider`` with a repeated uid added two colliders for one object --
-the same missing de-duplication as clay-agent-tools-04, in the one function
-several handlers share.
-
 clay-agent-tools-09: ``int(float('inf'))`` and ``round(float('inf'))`` raise
 ``OverflowError``, which is not among the exceptions ``int(...)``'s own
 ``except (TypeError, ValueError)`` clauses caught -- another route to the
@@ -58,9 +52,9 @@ from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 from realmspinner.studio.modes.clay.agent import program as ap
 from realmspinner.studio.modes.clay.agent import schema as agent_clay_schema
 
-from .test_agent_clay import _TETRA_MESH_ARGS, _Ctx, _history_len, _new_agent_tab, _payload
+from .test_agent_clay import _TETRA_MESH_ARGS, _Ctx, _history_len, _new_agent_tab
 
-# --- clay-agent-tools-04 / -08: _resolve_uids never deduplicated ------------
+# --- clay-agent-tools-04: _resolve_uids never deduplicated -------------------
 
 
 def test_clay_delete_with_a_repeated_uid_deletes_once_and_reports_one_undo_step() -> None:
@@ -77,45 +71,13 @@ def test_clay_delete_with_a_repeated_uid_deletes_once_and_reports_one_undo_step(
     assert _history_len(ctx, session) == before + 1
 
 
-def test_clay_analyze_with_a_repeated_uid_does_not_report_a_self_pair_overlap() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid1 = _new_agent_tab(ctx, session, "box")
-    uid2 = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "cylinder"})
-    assert uid2["isError"] is False, uid2
-
-    result = agent_clay.call(ctx, session, "clay_analyze", {"uids": [uid1, uid1]})
-    assert result["isError"] is False, result
-    pairs = _payload(result)["pairs"]
-    assert pairs == [], f"a single named object reported a pair against itself: {pairs}"
-
-
-def test_clay_collider_with_a_repeated_uid_adds_one_collider_not_two() -> None:
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "box")
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    before = {o.uid for o in tab.doc.objects}
-
-    result = agent_clay.call(ctx, session, "clay_collider", {"uids": [uid, uid], "kind": "box"})
-
-    assert result["isError"] is False, result
-    after = {o.uid for o in tab.doc.objects}
-    assert len(after - before) == 1, "a repeated uid added more than one collider"
-
-
 # --- clay-agent-tools-06: a non-string enum argument must not crash ---------
 
 _NON_STRING_ENUM_CASES = [
     ("clay_add_primitive", {"generator": ["box"]}, "generator", False),
-    ("clay_add_figure", {"key": ["a"]}, "key", False),
     ("clay_catalog", {"topic": ["ops"]}, "topic", False),
-    ("clay_collider", {"uids": [], "kind": ["box"]}, "kind", True),
-    ("clay_modifier_add", {"uid": 0, "kind": ["mirror"]}, "kind", True),
     ("clay_select_by", {"uid": 0, "query": ["all"]}, "query", True),
     ("clay_render", {"view": ["front"]}, "view", True),
-    ("clay_validate", {"profile": ["godot-desktop"]}, "profile", True),
-    ("clay_export", {"engine": ["godot4"]}, "engine", True),
     ("clay_uv", {"uid": 0, "action": ["pack"]}, "action", True),
     ("clay_reference_add", {"name": "r", "png_base64": "", "view": ["other"]}, "view", False),
 ]
@@ -183,31 +145,6 @@ def test_an_infinite_material_index_is_refused_naming_field_material_not_the_gen
     )
     assert result["isError"] is True
     assert result["structuredContent"].get("field") == "material", result
-
-
-def test_an_infinite_uid_in_clay_boolean_is_refused_naming_field_uids_not_the_generic_backstop() -> None:  # noqa: E501
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    _new_agent_tab(ctx, session, "box")
-    result = agent_clay.call(
-        ctx, session, "clay_boolean", {"kind": "union", "uids": [float("inf")]}
-    )
-    assert result["isError"] is True
-    assert result["structuredContent"].get("field") == "uids", result
-
-
-def test_an_infinite_collider_param_is_refused_naming_field_params_not_the_generic_backstop() -> None:  # noqa: E501
-    ctx = _Ctx()
-    session = agent_clay.Session()
-    uid = _new_agent_tab(ctx, session, "box")
-    result = agent_clay.call(
-        ctx,
-        session,
-        "clay_collider",
-        {"uids": [uid], "kind": "convex", "params": {"max_faces": float("inf")}},
-    )
-    assert result["isError"] is True
-    assert result["structuredContent"].get("field") == "params", result
 
 
 def test_an_infinite_uid_argument_is_refused_naming_its_field_not_the_generic_backstop() -> None:
@@ -336,6 +273,3 @@ def test_a_non_string_generator_in_a_program_step_is_a_program_error_not_a_bare_
         ap.compile_program({"steps": [{"add": {"generator": ["box"]}}]})
 
 
-def test_a_non_string_figure_key_in_a_program_step_is_a_program_error_not_a_bare_typeerror() -> None:  # noqa: E501
-    with pytest.raises(ap.ProgramError):
-        ap.compile_program({"steps": [{"figure": {"key": ["a"]}}]})

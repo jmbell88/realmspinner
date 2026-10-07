@@ -153,8 +153,8 @@ def _tree_rows(doc: Any) -> list[tuple[Any, int, bool]]:
     Roots first, then each root's own children before its next sibling.
     Ignores collapse entirely: what a row's expander hides is a *drawing*
     decision (``_body``'s own depth-skip loop), never a fact this walk
-    itself forgets, because a tag or name filter has to be able to find a
-    match inside a collapsed group.
+    itself forgets, because the name filter has to be able to find a match
+    inside a collapsed group.
 
     An explicit stack, not recursion: the 2026-09-19 audit's clay-02 found
     this walk raised an uncaught ``RecursionError`` on a legal, acyclic
@@ -185,21 +185,6 @@ def _tree_rows(doc: Any) -> list[tuple[Any, int, bool]]:
     return rows
 
 
-def _tag_filter(state: Any) -> str:
-    """A one-line box narrowing rows by tag. -> the lowered query.
-
-    Always shown, unlike the name filter's ``list_filter``: that one hides
-    below eight rows because a short list needs no search box at all, but a
-    tag filter earns its place the moment two objects share one tag, which a
-    four-object document can already do.
-    """
-    imgui.set_next_item_width(-1)
-    state.outliner_tag_filter = widgets.input_text(
-        "##clay-outliner-tag", state.outliner_tag_filter, max_length=60, hint="Filter by tag..."
-    )
-    return state.outliner_tag_filter.strip().lower()
-
-
 def _body(ctx: Any) -> None:
     state = clay_mode.ensure(ctx)
     tab = state.active
@@ -227,9 +212,8 @@ def _body(ctx: Any) -> None:
     # while a save was running would let the user narrow the list to one object
     # and then find every control on it refusing the click.
     needle = widgets.list_filter(ctx, "clay-outliner", len(doc.objects))
-    tag_needle = _tag_filter(state)
     _visibility_row(doc)
-    filtered = bool(needle) or bool(tag_needle)
+    filtered = bool(needle)
     shown = 0
     # Collapsed subtrees are skipped by depth: once a collapsed row is drawn,
     # every following row deeper than it belongs to its own (hidden) subtree,
@@ -256,8 +240,6 @@ def _body(ctx: Any) -> None:
             skip_below = None
         if needle and needle not in (obj.name or "").lower():
             continue
-        if tag_needle and not any(tag_needle in t for t in obj.tags):
-            continue
         visible.append((obj, depth, has_children))
         if not filtered and has_children and obj.uid in state.outliner_collapsed:
             skip_below = depth
@@ -272,7 +254,7 @@ def _body(ctx: Any) -> None:
                 filtered=filtered, saving=bool(tab.saving),
             )
     clipper.end()
-    widgets.no_matches(needle or tag_needle, shown)
+    widgets.no_matches(needle, shown)
     imgui.end_disabled()
 
 
@@ -453,35 +435,11 @@ def _reorder(
 def _remove_object(ctx: Any, doc: Any, obj: Any) -> None:
     """Remove exactly this one row's object, not the selection.
 
-    The 2026-09-09 audit's clay-03: this pane's trash button and its
-    context-menu "Delete" are the only two Clay callers of
-    ``doc.remove_object`` -- every other deletion goes through
-    ``clay_ops.run(delete)``, which calls ``_forget_manifold`` after the
-    removal so the properties panel's per-object mesh-check cache
-    (``ClayState.manifold``) does not keep the removed object's ``Mesh``
-    (positions/loops/starts arrays) alive under an orphaned uid, per the
-    2026-09-08 audit's clay-08. These two sites called ``remove_object``
-    straight, so they leaked exactly the cache entry clay-08 had already
-    fixed everywhere else. Deliberately *not* routed through the
-    selection-wide delete op instead -- that would change what the button
-    does, which this finding does not ask for.
-
-    Tranche 3: scene structure. ``remove_object`` is one of the locking
-    doors (``document.py``'s own list) and now genuinely can refuse -- a
-    locked row's own trash button existed before locking did and never had
-    anything to catch. Toasted rather than left to raise on the frame
-    thread, through the same door every other refusal in this mode goes
-    through.
+    This pane's trash button and its context-menu "Delete" act on the row that
+    was clicked, which is not what the selection-wide delete op does.
     """
-    from ......kernels.mesh.elements import OpError
-    from ... import ops as clay_ops
-
-    try:
-        doc.remove_object(obj.uid)
-    except OpError as error:
-        clay_ops.toast(ctx, str(error))
-        return
-    clay_ops._forget_manifold(ctx, [obj.uid])
+    del ctx
+    doc.remove_object(obj.uid)
 
 
 def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
@@ -513,26 +471,7 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
     imgui.end_popup()
 
 
-def row_label(obj: Any) -> str:
-    """This row's display text: the object's name (or a placeholder for an
-    unnamed one), with a distinct icon prefix for a collider.
-
-    clay-25 (2026-09-19 audit): the outliner drew a collider as an ordinary
-    row with ordinary icons -- the eye and the lock are the only two any row
-    ever gets -- so the auto-generated name (``document.add_collider``'s own
-    ``"<source> <kind label>"``) was the only thing anywhere in the tree
-    saying an object was one, and a double-click rename could erase that with
-    nothing left to say so. ``SQUARE_DASHED`` reads as "a boundary, not the
-    real geometry" -- the same reason a dashed outline means a proxy or a
-    guide everywhere else this app draws one.
-    """
-    label = obj.name or f"object {obj.uid}"
-    if obj.role == "collider":
-        return f"{icons.SQUARE_DASHED} {label}"
-    return label
-
-
-#: The expander's own width -- narrower than the eye/lock buttons, which are
+#: The expander's own width -- narrower than the eye button, which is a
 #: real targets a thumb aims at; the expander is a tree decoration most users
 #: never touch, so it earns less of the row. A leaf row reserves the same
 #: width with a blank ``imgui.dummy`` (see ``_row``), which is what keeps
@@ -575,21 +514,6 @@ def _row(
         imgui.set_tooltip("Hidden objects do not render, export or pick.")
     imgui.same_line()
 
-    # Tranche 3: scene structure. ``locked`` is not a locking door itself
-    # (``document.py``'s own paragraph on the point) -- toggling it, like
-    # toggling visibility, is always allowed, or a mistake made while locked
-    # could never be undone by anyone but the lock.
-    lock_icon = icons.LOCK if obj.locked else icons.LOCK_OPEN
-    if controls.button(f"{lock_icon}##lock", (sp(28), sp(ROW_HEIGHT))):
-        doc.set_props(obj.uid, locked=not obj.locked)
-    if imgui.is_item_hovered():
-        imgui.set_tooltip(
-            "Locked: geometry, transform and delete are refused until unlocked."
-            if obj.locked
-            else "Lock: refuses geometry, transform and delete on this object."
-        )
-    imgui.same_line()
-
     # What is still to come on this line: the delete button and the gap before
     # it. Measured rather than written out -- the literal 32 this replaces was
     # already a pixel short of sp(28) + spacing at scale 1.0, and at 1.6 it
@@ -607,7 +531,7 @@ def _row(
         if imgui.is_item_deactivated():
             state.renaming = 0
     else:
-        label = row_label(obj)
+        label = obj.name or f"object {obj.uid}"
         # A hidden object's name is drawn muted. It used to be a
         # ``text_colored(theme.MUTED, "")`` above the selectable, which coloured
         # nothing -- and, being an item rather than a style push, put the name

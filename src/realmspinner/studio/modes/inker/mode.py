@@ -1084,7 +1084,7 @@ def _done_open(ctx: Any, state: Any, done: Any) -> None:
             state.activate(existing.uid)
             set_mode(ctx.state, "inker")
             return
-        _adopt(
+        tab = _adopt(
             ctx,
             state,
             result["doc"],
@@ -1097,6 +1097,16 @@ def _done_open(ctx: Any, state: Any, done: Any) -> None:
             saved_head=result.get("saved_head"),
         )
         set_mode(ctx.state, "inker")
+        on_open = result.get("on_open")
+        if on_open is not None:
+            # A caller's hook (Clay learning which tab its texture landed in)
+            # runs on the frame thread: a raise here must not take the frame
+            # down, and the document is already open either way.
+            try:
+                on_open(tab)
+            except Exception:
+                log.exception("an open-pixels callback raised")
+                ctx.toast("The texture opened, but could not be linked back.", "warn", action="log")
         if result.get("matte_requested") and not result.get("matte_applied"):
             # "Fix matte" is the one command whose entire content is the
             # cutout, so the swallow in ``_cut_matte`` -- correct for Edit,

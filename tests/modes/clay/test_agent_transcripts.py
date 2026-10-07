@@ -96,26 +96,9 @@ finished document must have. Folding the two together would let a change
 that quietly breaks a call rewrite its own expectation the next time someone
 regenerates the recording without looking hard at the diff; kept apart, a
 person has to edit the claim file on purpose for the gate to move. Every
-number in ``<name>.expect.json`` is provably uid-agnostic -- object counts, a
-call count, and per-object diagnose findings keyed by *position* in
-``doc.objects`` (creation order, deterministic given the same transcript)
-rather than by uid -- so the same file is correct however the live process
+number in ``<name>.expect.json`` is provably uid-agnostic -- an object count
+and a call count -- so the same file is correct however the live process
 happens to have numbered its uids that run.
-
-**Choosing the diagnose claim.** ``clay/diagnose.findings`` (imported here as
-``clay_diagnose.findings``) is called directly against each finished object's
-own mesh, in ``doc.objects`` order -- not through the ``clay_diagnose`` tool,
-whose own JSON answer carries live uids that cannot be hard-coded into an
-expectation file. Both transcripts below build nothing but primitives, moved,
-sized and arrayed -- no boolean, no manual topology edit -- so every object
-should come back clean: an empty finding list is the honest, *exact* claim
-(stronger than "no errors" precisely because it is a real, checkable data
-shape, not a string) and it is stable because nothing here has a reason to
-produce a hole, a flipped edge or a stray vertex. A regression that broke a
-generator's manifoldness, or an op that left a seam, would turn one of those
-empty lists non-empty and fail the exact comparison -- which is the entire
-reason this is asserted per object rather than as one blanket "the document
-is clean" boolean.
 
 **The ``rblk_bytes`` round trip.** Assertion 5 below is a stand-in for "the
 document exports", not a proof of it: a real GLB export
@@ -139,21 +122,19 @@ this file uses to replay) to read off the real ``made`` lists and the real
 call outcomes -- "authored, verified by execution," not "recorded from an
 agent."
 
-**The three ``p43-*`` transcripts are recorded**, by tier two's recorder
-during the 2026-09-15 Clay agent benchmark sitting, from a real model driving the real app --
-the graded pass written up in
-``dev/measurements/2026-09-15-clay-agent-benchmark-results.md``. They are
-*slices* of that session's one file, and two edits were made in slicing,
-both stated here so the word "recorded" does not overclaim either:
-**every ``clay_render`` line is dropped** (it reads the document without
-changing it, and needs the GL context ``_Ctx`` deliberately lacks), and each
-slice **starts at its document's first building call**, leaving out the
-refusals the operator's own closing of the previous document caused at each
-handover -- a fresh session here mints its tab and would not refuse. Nothing
-else is touched: arguments, outcomes and ``made`` lists are the recorder's
-own. ``p43-telescope-colonnade`` is one slice because the model built both
-subjects in one document. The serpent, graded −3, was not promoted: this
-gate pins what a transcript builds, and nobody wants that build pinned.
+**``p43-chair`` is recorded**, by tier two's recorder during the 2026-09-15 Clay
+agent benchmark sitting, from a real model driving the real app. It is a
+*slice* of that session's one file, and two edits were made in slicing, both
+stated here so the word "recorded" does not overclaim either: **every
+``clay_render`` line is dropped** (it reads the document without changing it,
+and needs the GL context ``_Ctx`` deliberately lacks), and the slice **starts
+at its document's first building call**, leaving out the refusals the
+operator's own closing of the previous document caused at each handover -- a
+fresh session here mints its tab and would not refuse. Nothing else is
+touched: arguments, outcomes and ``made`` lists are the recorder's own. The
+bracket and telescope-colonnade slices were dropped when Clay lost the
+boolean, lathe and column tools they were recorded against: a recording
+cannot be re-authored, only replaced by a new sitting.
 """
 
 from __future__ import annotations
@@ -161,7 +142,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from realmspinner.kernels.mesh import diagnose as clay_diagnose
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import serialize
 from realmspinner.studio.modes.clay import mode as clay_mode
@@ -302,14 +282,6 @@ def _replay(name: str) -> dict[int, int]:
     # Assertion 3: the finished shape.
     assert len(doc.objects) == expect["object_count"]
 
-    # Assertion 4: clay/diagnose.findings, per object in creation order (see
-    # the module docstring's "choosing the diagnose claim" paragraph for why
-    # this is asserted by position rather than by uid or by name).
-    findings = [
-        sorted(row.kind for row in clay_diagnose.findings(obj.mesh)) for obj in doc.objects
-    ]
-    assert findings == expect["diagnose_findings"]
-
     # Assertion 5: the cheap, service-free export stand-in -- see the module
     # docstring's own paragraph on what this does and does not prove.
     restored = serialize.read_rblk(serialize.rblk_bytes(doc))
@@ -324,20 +296,12 @@ def test_chair_transcript_builds_a_four_legged_chair() -> None:
     _replay("chair")
 
 
-def test_spoked_hub_transcript_exercises_batch_ref_and_array_radial() -> None:
+def test_spoked_hub_transcript_exercises_batch_ref_and_duplicate() -> None:
     _replay("spoked-hub")
 
 
 def test_recorded_p43_chair_builds_ten_parts_in_two_calls() -> None:
     _replay("p43-chair")
-
-
-def test_recorded_p43_bracket_replays_to_its_three_graded_parts() -> None:
-    _replay("p43-bracket")
-
-
-def test_recorded_p43_telescope_and_colonnade_share_one_document() -> None:
-    _replay("p43-telescope-colonnade")
 
 
 def test_a_transcript_replays_even_though_its_recorded_uids_cannot_exist() -> None:

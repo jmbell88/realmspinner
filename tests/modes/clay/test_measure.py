@@ -83,30 +83,3 @@ def test_volume_of_an_empty_mesh_is_zero() -> None:
     from realmspinner.kernels.mesh import document as bd
 
     assert measure.volume(bd._empty_mesh()) == 0.0
-
-
-# --- edge_length ---------------------------------------------------------
-
-
-def test_edge_length_of_one_box_edge() -> None:
-    box = bp.box()
-    # Two adjacent corners of the bottom face, one edge unit apart.
-    length = measure.edge_length(box, [[0, 1]])
-    assert length == pytest.approx(1.0, abs=1e-5)
-
-
-def test_edge_length_sums_several_edges() -> None:
-    box = bp.box()
-    length = measure.edge_length(box, [[0, 1], [1, 2]])
-    assert length == pytest.approx(2.0, abs=1e-5)
-
-
-def test_edge_length_of_no_edges_is_zero() -> None:
-    assert measure.edge_length(bp.box(), []) == 0.0
-
-
-def test_edge_length_scales_with_a_world_matrix() -> None:
-    box = bp.box()
-    world = m3.scaling(np.array([3.0, 1.0, 1.0]))
-    length = measure.edge_length(box, [[0, 1]], world=world)
-    assert length >= 1.0  # stretched along X, so at least as long

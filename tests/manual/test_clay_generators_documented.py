@@ -1,8 +1,9 @@
-"""The manual's two shape lists, held against ``primitives.GENERATORS``.
+"""The manual's two shape lists, held against ``primitives.CLAY_GENERATORS``.
 
-Clay's add panel is generated from the registry, so a thirteenth primitive is a
-function and one registry line -- and it appears in the app the same day. The
-manual is the one place that does *not* follow along: two chapters write the
+Clay's add panel is generated from the registry (``CLAY_GENERATORS``, the subset
+of ``GENERATORS`` Clay offers -- Mason's saved scenes keep the whole registry), so
+a sixteenth primitive is a function and one registry line -- and it appears in the app
+the same day. The manual is the one place that does *not* follow along: two chapters write the
 shapes out in prose, and until this test nothing held either list against the
 registry. The failure mode is silent by construction. A shape missing from the
 prose still has a button, still has properties and still exports; it is simply
@@ -54,7 +55,7 @@ def _display(name: str) -> str:
 
 
 @pytest.mark.parametrize("key", CHAPTERS)
-@pytest.mark.parametrize("name", sorted(primitives.GENERATORS))
+@pytest.mark.parametrize("name", sorted(primitives.CLAY_GENERATOR_NAMES))
 def test_every_clay_generator_is_named_in_the_manual(name: str, key: str) -> None:
     text = _shape_list(key)
     pattern = r"\b" + re.escape(_display(name)) + r"\b"
@@ -62,4 +63,19 @@ def test_every_clay_generator_is_named_in_the_manual(name: str, key: str) -> Non
         f"docs/manual/{key}.md's {SECTIONS[key]!r} section does not name "
         f"the {name!r} primitive; "
         "the add panel is generated from the registry, the prose is not"
+    )
+
+
+_WORDS = {15: "fifteen"}
+
+
+@pytest.mark.parametrize("key", CHAPTERS)
+def test_each_chapter_states_the_number_of_shapes_clay_really_offers(key: str) -> None:
+    """A list that names every shape under a count that is wrong is still wrong:
+    chapter 7 said "Twenty-one" for a palette that had stopped being that long."""
+    count = len(primitives.CLAY_GENERATOR_NAMES)
+    assert count in _WORDS, f"teach this test the word for {count}"
+    assert _WORDS[count] in _shape_list(key), (
+        f"docs/manual/{key}.md's {SECTIONS[key]!r} section does not say Clay has "
+        f"{_WORDS[count]} shapes"
     )

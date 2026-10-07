@@ -162,66 +162,6 @@ def test_a_typed_angle_against_the_identity_stays_the_identity():
     assert np.allclose(out, m3.quat_identity())
 
 
-# --- proportional editing -----------------------------------------------------
-
-
-def test_the_falloff_is_one_at_the_selection_and_zero_at_the_radius():
-    out = bd.falloff(np.array([0.0, 0.5, 1.0]), 1.0)
-    assert out[0] == pytest.approx(1.0)
-    assert out[1] == pytest.approx(0.5)
-    assert out[2] == pytest.approx(0.0)
-
-
-def test_the_falloff_has_no_crease_at_either_end():
-    """A linear ramp creases at the selection boundary and again at the radius,
-    both of which show as a visible ridge -- the artefact this exists to avoid."""
-    t = np.linspace(0.0, 1.0, 201)
-    w = bd.falloff(t, 1.0)
-    slope = np.diff(w)
-    assert abs(float(slope[0])) < abs(float(slope[len(slope) // 2])) / 10.0
-    assert abs(float(slope[-1])) < abs(float(slope[len(slope) // 2])) / 10.0
-
-
-def test_a_zero_radius_is_a_hard_selection_rather_than_a_division_by_zero():
-    """The ``snap_value`` convention: the off switch is the same control."""
-    assert bd.falloff(np.array([0.0, 0.1]), 0.0).tolist() == [1.0, 0.0]
-
-
-def test_the_neighbourhood_measures_from_the_nearest_selected_vertex():
-    """Not from the centroid, which is a point the geometry may not pass
-    through: dragging one end of a long strip would fade out along the strip."""
-    positions = np.array([[0.0, 0, 0], [1.0, 0, 0], [2.0, 0, 0], [3.0, 0, 0]], dtype="f8")
-    verts, weights = bd.proportional_set(positions, np.array([0, 1]), 1.5)
-    assert verts.tolist() == [0, 1, 2]
-    assert weights[:2].tolist() == [1.0, 1.0]
-    assert 0.0 < float(weights[2]) < 1.0
-
-
-def test_a_vertex_exactly_at_the_radius_is_dropped_rather_than_carried():
-    """Carrying it means a drag that reports moving geometry it does not move."""
-    positions = np.array([[0.0, 0, 0], [1.0, 0, 0]], dtype="f8")
-    verts, _ = bd.proportional_set(positions, np.array([0]), 1.0)
-    assert verts.tolist() == [0]
-
-
-def test_a_mesh_too_big_for_the_search_falls_back_to_a_hard_selection():
-    """Declining beats a stall at the press. The cap (``MAX_FALLOFF_VERTICES``,
-    2026-09-13) is on the mesh's own vertex count now, not the ``selected x
-    vertices`` product: the ``cKDTree`` query that replaced the chunked
-    broadcast is dominated by how many vertices it touches, not by how many
-    are selected."""
-    positions = np.zeros((10, 3))
-    verts, weights = bd.proportional_set(positions, np.arange(10), 1.0)
-    assert len(verts) == 10
-    saved, bd.MAX_FALLOFF_VERTICES = bd.MAX_FALLOFF_VERTICES, 1
-    try:
-        verts, weights = bd.proportional_set(positions, np.array([0, 1]), 1.0)
-    finally:
-        bd.MAX_FALLOFF_VERTICES = saved
-    assert verts.tolist() == [0, 1]
-    assert weights.tolist() == [1.0, 1.0]
-
-
 # --- the readout --------------------------------------------------------------
 
 

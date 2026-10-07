@@ -6,16 +6,12 @@ carried that ``None`` faithfully forward. This is the half that produces one,
 and it is deliberately the *cheap* half: a planar projection per face, chosen by
 which axis the face points along most.
 
-**Not LSCM -- that solver is :mod:`.uvunwrap`, kept apart on purpose.** A
-conformal solver is the right answer for an organic mesh and the wrong shape
-for a module of projections: it is a sparse least-squares solve per island, it
-needs seams the user has drawn, and it fails in ways ("the solve did not
-converge") that a modelling panel has little to say about. A box projection is
-predictable, instant, has no failure mode, and is exactly right for the
-blockout geometry Clay produces. This file turned the solver down when nothing
-needed one; once retopologised and imported organic surfaces arrived, it was
-written next door as ``uvunwrap`` (the *Unwrap (Seams)* op), and this module
-stayed the cheap half.
+**Not LSCM.** A conformal solver is the right answer for an organic mesh and
+the wrong shape for a modelling panel: it needs seams the user has drawn and it
+fails in ways ("the solve did not converge") a panel has little to say about. A
+box projection is predictable, instant, has no failure mode, and is exactly
+right for the blockout geometry Clay produces -- which is why it is the only
+unwrap Clay offers.
 
 **Islands may overlap, and that is what a cube projection is.** Faces pointing
 +X and -X land in the same square, because the projection is by axis *pair*
@@ -35,7 +31,7 @@ import numpy as np
 
 from .mesh import Mesh, face_count, face_normals
 
-__all__ = ["box_unwrap", "planar_unwrap"]
+__all__ = ["box_unwrap"]
 
 # The two axes each dominant normal projects onto, and which of them is flipped
 # so the result is not mirrored when seen from outside the face. Written out
@@ -62,16 +58,6 @@ def dominant_axis(normals: np.ndarray) -> np.ndarray:
     return np.argmax(np.abs(np.asarray(normals, dtype="f8")), axis=1).astype("i4")
 
 
-def planar_unwrap(mesh: Mesh, axis: int = 1) -> Mesh:
-    """Project every face onto one axis. The degenerate case, and a useful one.
-
-    A whole mesh flattened down one axis is what a decal, a floor or a signboard
-    wants, and it is what :func:`box_unwrap` reduces to when every face happens
-    to point the same way.
-    """
-    return _projected(mesh, np.full(face_count(mesh), int(axis) % 3, dtype="i4"))
-
-
 def box_unwrap(mesh: Mesh) -> Mesh:
     """Project each face along whichever axis its normal is closest to.
 
@@ -96,8 +82,7 @@ def _projected(mesh: Mesh, axes: np.ndarray, *, normals: np.ndarray | None = Non
     """One planar projection per face, into a shared normalised square.
 
     ``normals`` is an optimisation and never a second opinion: a caller that has
-    already measured them passes them in, and one that has not -- the planar
-    unwrap, which picks its axis without looking at a normal -- leaves it None
+    already measured them passes them in, and one that has not leaves it None
     and gets the same array measured here.
     """
     positions = np.asarray(mesh.positions, dtype="f8")

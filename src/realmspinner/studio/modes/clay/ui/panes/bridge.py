@@ -1,20 +1,12 @@
-"""What the document is, and the two ways out of it.
+"""What the document is, and the ways out of it.
 
-The counts and the save state on top, the pipeline buttons underneath -- the
+The counts and the save state on top, the export buttons underneath -- the
 same shape the raster editor's bridge takes, and for the same reason: a panel
 that offers to send something somewhere should first say what it is going to
-send.
+send. Export puts the *exact* geometry in the library as an ordinary asset, or
+writes it to a file on disk.
 
-**The two output paths are genuinely different things, not two encodings of
-one.** Export puts the *exact* geometry in the library as an ordinary asset,
-which is what a user wants when the shape they modelled is the shape they
-meant. Make 3D renders the document flat and hands the picture to trellis,
-which reinterprets it -- the blockout becomes a suggestion rather than a
-specification, and what comes back is a reconstruction with surface detail
-nobody modelled. Choosing between them is the whole point of having both, so
-the panel says which is which rather than labelling them "Export" and "Export".
-
-Both buttons are disabled while a save is in flight, for the reason the tool
+Every button is disabled while a save is in flight, for the reason the tool
 panel states.
 """
 
@@ -25,7 +17,7 @@ from typing import Any
 from imgui_bundle import imgui
 
 from ......kernels.geom3d import units
-from ..... import icons, theme, tokens, verbs, widgets
+from ..... import icons, tokens, verbs, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as clay_mode
@@ -89,10 +81,7 @@ def _history(ctx: Any, tab: Any) -> None:
 def _facts(tab: Any) -> None:
     doc = tab.doc
     visible = [obj for obj in doc.objects if obj.visible]
-    # Evaluated: this is a count of what will actually export, not of the
-    # pre-modifier base mesh -- a mirror or an array changes how many
-    # triangles leave the document, and this line is a promise about that.
-    triangles = sum(_triangles(doc.evaluated(obj.uid)) for obj in visible)
+    triangles = sum(_triangles(obj.mesh) for obj in visible)
     widgets.muted(
         f"{len(visible)} of {len(doc.objects)} objects visible  -  "
         f"{triangles:,} triangles  -  {len(doc.materials)} materials"
@@ -129,7 +118,6 @@ def _files(ctx: Any, tab: Any) -> None:
         save=lambda: clay_mode.save(ctx, tab),
         save_as=lambda: clay_mode.save_as(ctx, tab),
     )
-    _generate_status(tab, clay_mode.ensure(ctx))
 
 
 #: Scale choices for "Import Mesh...", key is the multiplier ``import_file``
@@ -148,9 +136,9 @@ def import_settings(ctx: Any) -> None:
     ``ClayState.import_scale``/``import_up`` are what the Add menu's "Import
     Mesh..." row and a file dropped on the viewport both read
     (``clay_mode.import_mesh_path``'s own defaults) -- set here, in the
-    Properties pane's Scene tab, and remembered for the next import in either
+    Properties pane's Document tab, and remembered for the next import in either
     form. The row that *runs* the import moved to the menu strip with the rest
-    of the verbs; these two are settings, and the Scene tab is where the
+    of the verbs; these two are settings, and the Document tab is where the
     document-wide settings are.
     """
     state = clay_mode.ensure(ctx)
@@ -163,178 +151,16 @@ def import_settings(ctx: Any) -> None:
     state.import_up = widgets.combo("##clay-import-up", state.import_up, IMPORT_UP_OPTIONS, sp(90))
 
 
-# --- generate into this document ---------------------------------------------
-#
-# "Import Mesh..." (in the Add menu) brings in something built elsewhere; this
-# builds it, and lands it here rather than opening a second tab the way a
-# Library row's own "Edit in Clay" still does. See ``studio/modes/clay/
-# generate.py`` for every rule (the two-step text approval, the ceilings, the
-# frame-thread split) -- this file draws only what that module's own pure
-# helpers already decided. The row that opens the popup is in the menu strip,
-# which also hosts the popup; the status line stays here, under the file.
-
-GENERATE_POPUP = "clay-generate"
-
-
-def _generate_status(tab: Any, state: Any) -> None:
-    # Visible with the popup closed too -- the same reason ``ClayTab.bg_busy``
-    # (which this mirrors) is read by the hint line: a multi-minute wait with
-    # nothing on screen saying so is the clay-41 defect this door must not
-    # repeat.
-    pending = state.generate_pending
-    if pending is not None and pending.get("tab_uid") == tab.uid:
-        from ... import generate as clay_generate
-
-        line = clay_generate.status_line(pending)
-        if line:
-            widgets.muted(line)
-
-
-def generate_popup(ctx: Any, tab: Any, state: Any) -> None:
-    """The Generate popup's body. Called by the menu strip, which opens it."""
-    if not imgui.begin_popup(GENERATE_POPUP):
-        return
-    widgets.popup_chrome(_imgui=imgui)
-    from ... import generate as clay_generate
-
-    pending = state.generate_pending
-    if pending is not None and pending.get("tab_uid") == tab.uid:
-        if pending.get("stage") == "preview":
-            _generate_preview_body(ctx, tab, pending, clay_generate)
-        else:
-            _generate_working_body(ctx, tab, pending, clay_generate)
-    elif pending is not None:
-        widgets.muted_wrapped("A generation is already under way for another document.")
-    else:
-        _generate_prompt_body(ctx, tab, state, clay_generate)
-    imgui.end_popup()
-
-
-def _generate_text_reason(prompt_ok: bool, saving: bool) -> str:
-    """Why the popup's "Generate" button is refused right now, or ``""``.
-
-    Pulled out as a plain function, the ``_outputs_why`` pattern (clay-07,
-    the 2026-09-08 audit): a reason that only imgui can compute is a reason
-    no test can check. clay-14 (the 2026-09-23 audit): the button used to be
-    gated on ``prompt_ok`` alone -- pressing it while the tab was mid-save
-    started a reference job against a document the save was still encoding.
-    "Saving..." wins over the empty-prompt sentence: a save in progress is
-    why the button is off regardless of what the prompt field holds.
-    """
-    if saving:
-        return "Saving..."
-    return "" if prompt_ok else "Describe what to add first."
-
-
-def _generate_image_reason(saving: bool) -> str:
-    """Why "From an image..." is refused right now, or ``""``.
-
-    clay-15 (the 2026-09-23 audit): this button passed ``reason=""``
-    unconditionally, so it greyed out while saving with no explanation at
-    all -- the one case it can ever be disabled for.
-    """
-    return "Saving..." if saving else ""
-
-
-def _generate_prompt_body(ctx: Any, tab: Any, state: Any, clay_generate: Any) -> None:
-    widgets.muted_wrapped(
-        "Generate a mesh and land it in this document, beside whatever is "
-        "selected -- or at the origin, with nothing selected."
-    )
-    state.generate_prompt = widgets.input_text(
-        "##clay-generate-prompt", state.generate_prompt, hint="Describe what to add..."
-    )
-    imgui.dummy((0, sp(tokens.SP_1)))
-    widgets.field_label("Budget", "How many triangles gltfpack simplifies the mesh down to.")
-    state.generate_budget = widgets.combo(
-        "##clay-generate-budget", state.generate_budget, clay_generate.budget_choices(), sp(170)
-    )
-    widgets.muted(clay_generate.settings_note(ctx))
-    imgui.dummy((0, sp(tokens.SP_1)))
-
-    prompt_ok = bool(state.generate_prompt.strip())
-    if widgets.primary_button(
-        "Generate",
-        enabled=prompt_ok and not tab.saving,
-        reason=_generate_text_reason(prompt_ok, tab.saving),
-    ) and clay_generate.submit_text(ctx, tab, state.generate_prompt, budget=state.generate_budget):
-        imgui.close_current_popup()
-    imgui.same_line()
-    if widgets.disabled_button(
-        "From an image...", not tab.saving, reason=_generate_image_reason(tab.saving)
-    ):
-        clay_generate.submit_image(ctx, tab, budget=state.generate_budget)
-        imgui.close_current_popup()
-    imgui.same_line()
-    if widgets.disabled_button("Cancel##clay-generate-none", True):
-        imgui.close_current_popup()
-
-
-def _generate_preview_body(ctx: Any, tab: Any, pending: dict, clay_generate: Any) -> None:
-    job_id = pending.get("reference_job_id", "")
-    if job_id:
-        _generate_reference_image(ctx, job_id)
-    widgets.muted_wrapped("Approve this reference, or try another.")
-    if widgets.primary_button("Accept", enabled=True):
-        clay_generate.accept_reference(ctx, tab)
-    imgui.same_line()
-    if widgets.disabled_button("Reroll", True):
-        clay_generate.reroll_reference(ctx, tab)
-    if pending.get("force_offer"):
-        imgui.same_line()
-        if widgets.disabled_button("Build anyway", True):
-            clay_generate.accept_reference(ctx, tab, force=True)
-        # docs-02 (the 2026-09-23 audit): the manual promises the doubt's
-        # reason beside Build anyway; only a one-shot toast said it before,
-        # gone the moment a user missed it or came back to a reopened popup.
-        # ``pending["doubt_reasons"]`` is set by ``on_task_failed`` at the
-        # same point ``force_offer`` is.
-        for reason in pending.get("doubt_reasons") or ():
-            widgets.text_colored(theme.ERR, reason)
-    imgui.same_line()
-    if widgets.disabled_button("Cancel", True):
-        clay_generate.cancel(ctx, tab)
-        imgui.close_current_popup()
-
-
-def _generate_reference_image(ctx: Any, job_id: str) -> None:
-    textures = getattr(ctx, "textures", None)
-    if textures is None:
-        return
-    texture = textures.get(job_id, ctx.svc.job_dir(job_id) / "input.png")
-    if texture is None:
-        return
-    width, height = texture.size
-    avail = widgets.stable_content_width()
-    if avail <= 1.0:
-        avail = sp(320)
-    scale = min(1.0, avail / float(width))
-    imgui.image(widgets.texture_ref(texture), (float(width) * scale, float(height) * scale))
-
-
-def _generate_working_body(ctx: Any, tab: Any, pending: dict, clay_generate: Any) -> None:
-    widgets.muted(clay_generate.status_line(pending) or "Working...")
-    if widgets.disabled_button("Cancel", True):
-        clay_generate.cancel(ctx, tab)
-        imgui.close_current_popup()
-
-
 def _outputs_why(doc: Any, saving: bool) -> str:
-    """Why both output buttons below are refused right now, or ``""`` when
+    """Why the output buttons below are refused right now, or ``""`` when
     they are not.
 
-    One sentence for both, because they are refused for the same two reasons
-    and a user reading two different explanations of one state would look for
-    two different problems. The ``_VIEWPORT_WHY`` pattern: a shared gate gets a
-    shared sentence.
-
-    Pulled out as its own function by the 2026-09-08 audit's clay-07: the
-    "Make 3D" button next to Export received this sentence as its ``reason``,
-    but Export itself did not, so it greyed out with no explanation while the
-    comment two lines above it said both buttons share one. Extracting it is
-    also what lets this be asserted without imgui -- panes cannot be driven
-    headlessly, but the sentence a button greys with can still be a plain
-    function of a document and a bool.
+    One sentence for every output button, because they are refused for the
+    same two reasons and a user reading two different explanations of one state
+    would look for two different problems. Pulled out as its own function so it
+    can be asserted without imgui -- panes cannot be driven headlessly, but the
+    sentence a button greys with can still be a plain function of a document
+    and a bool.
     """
     if saving:
         return "Saving..."
@@ -362,20 +188,6 @@ def _outputs(ctx: Any, tab: Any) -> None:
             "of those are functions of model.glb."
         )
 
-    # "Make 3D", matching the Mesh stage's own button and Inker's -- wave 5
-    # left no "3D" to send anything to.
-    if widgets.disabled_button(f"{icons.SEND} Make 3D", ready, reason=why):
-        # The App owns the offscreen render: the picture has to be drawn on
-        # the frame thread because it needs the GL context, and the bridge is
-        # not where that belongs.
-        send_to_3d(ctx, tab)
-    if imgui.is_item_hovered():
-        imgui.set_tooltip(
-            "Renders the document flat and hands the picture to trellis, which "
-            "reinterprets it: the blockout becomes a suggestion, and what comes back "
-            "has surface detail nobody modelled."
-        )
-
     # Two labelled buttons rather than "Export File..." plus a bare "OBJ": the
     # first spelling wrote GLB without saying so, and a format is exactly the
     # thing a user reading the row needs to see before pressing.
@@ -393,18 +205,6 @@ def _outputs(ctx: Any, tab: Any) -> None:
     if imgui.is_item_hovered():
         imgui.set_tooltip(tip + " OBJ writes a .mtl of the same name beside it.")
 
-    from ......pipelines import clay_blender
-
-    blender_ok, blender_why = clay_blender.available()
-    if widgets.disabled_button(
-        "Export .blend...", ready and blender_ok, reason=why or blender_why
-    ):
-        clay_mode.export_mesh_file(ctx, tab, "blend")
-    if imgui.is_item_hovered():
-        imgui.set_tooltip(
-            tip + " A native Blender file with the textures packed in; Blender converts it, "
-            "so it takes a few seconds."
-        )
     imgui.same_line()
     if widgets.disabled_button(f"{icons.CAMERA} Save screenshot...", ready, reason=why):
         clay_mode.save_screenshot(ctx, tab)
@@ -416,29 +216,6 @@ def _outputs(ctx: Any, tab: Any) -> None:
 
     if tab.job_id:
         widgets.muted(f"Last exported as {tab.job_id}")
-
-
-def send_to_3d(ctx: Any, tab: Any) -> None:
-    """Hand the document to the App's offscreen render (``_clay_send_to_3d``).
-
-    The indirection through ``ctx`` is the point: the render needs the GL
-    context and therefore the frame thread, which is the App's business. A
-    headless ctx that never attached the handler gets a clear refusal rather
-    than a half-drawn frame.
-
-    The refusal stays -- ``Ctx.clay_send_to_3d`` defaults to None and only the
-    App assigns it, so a ctx built without one is a real construction and not a
-    hypothetical -- but its wording did not. It said the feature was "not wired
-    up yet", which was true of the branch's own first draft and has not been
-    true of the app since: a user who saw it went looking for a setting to turn
-    on. What the branch actually knows is that *this* window has nothing to
-    render from, so that is what it now says.
-    """
-    handler = getattr(ctx, "clay_send_to_3d", None)
-    if handler is None:
-        ctx.toast("Could not make a mesh: this window has no viewport to render from.", "error")
-        return
-    handler(tab)
 
 
 def _recent(ctx: Any) -> None:
@@ -456,127 +233,3 @@ def _recent(ctx: Any) -> None:
         clay_mode.recent_paths(ctx),
         lambda path: clay_mode.open_path(ctx, Path(path)),
     )
-
-
-# --- Game check ---------------------------------------------------------------
-#
-# ``readiness.validate`` is the one function the panel, an agent tool and a
-# future warning badge all read (see that module's own docstring) -- what
-# belongs here is only the on-demand trigger, the "out of date" staleness
-# read and turning a ``Report`` into rows a "Fix" button can act on.
-
-_STATUS_COLOR: dict[str, str] = {
-    "pass": "OK",
-    "warn": "ACCENT",
-    "fail": "ERR",
-    "skip": "MUTED",
-}
-_STATUS_ICON: dict[str, str] = {
-    "pass": icons.CHECK,
-    "warn": icons.TRIANGLE_ALERT,
-    "fail": icons.X,
-    "skip": icons.CIRCLE_ALERT,
-}
-
-
-def validator_rows(report: Any) -> list[tuple[str, str, str, str, tuple[int, ...]]]:
-    """A ``readiness.Report`` as plain ``(status, label, message, fix, uids)``
-    row tuples -- the whole of what the section below draws, pulled into a
-    function that takes no imgui so "does this Report produce a Fix button
-    only where a check actually names one" is a plain assertion rather than a
-    screenshot.
-    """
-    return [
-        (check.status, check.label, check.message, check.fix, check.uids)
-        for check in report.checks
-    ]
-
-
-def _run_fix(ctx: Any, tab: Any, fix: str, uids: tuple[int, ...]) -> None:
-    """A row's "Fix" button: select what the check named (object mode, if it
-    named anything), then run the op at its declared defaults.
-
-    Defaults rather than the op's own param popup: reaching that popup from
-    here would need the menu's own open-a-dialog machinery
-    (``ClayState.pending_op``/``open_op_popup``), which is a keyboard/menu
-    affordance this row is not one of. A user who wants non-default numbers
-    still has the op's own row in the tools pane or the context menu, unaffected
-    by this shortcut existing.
-    """
-    from ... import ops as clay_ops
-
-    doc = tab.doc
-    if uids:
-        doc.set_element_mode("object")
-        doc.select([uid for uid in uids if any(o.uid == uid for o in doc.objects)])
-    # The 2026-09-22 audit's clay-05: with an empty ``uids`` (a check that ran
-    # against nothing selectable) this used to fall through and run the op on
-    # whatever was already selected -- the wrong object, or nothing at all
-    # with no toast either way. ``clay_ops.run`` returns ``False`` when it
-    # refused or had nothing to do; say so rather than pretending the press
-    # did something.
-    if not clay_ops.run(ctx, doc, clay_ops.get(fix)):
-        ctx.toast("Nothing to fix.", "warn")
-
-
-def fix_gate(tab: Any) -> str:
-    """Why a Game check row's Fix button is greyed right now, or ``""``.
-
-    The 2026-10-03 audit, finding clay-120: the rows of a report the pane has
-    just labelled "Out of date" kept a live Fix button, and ``_run_fix``
-    replaces the selection with that stale report's uids (leaving the user's
-    element selection) and runs the op at its defaults -- on objects the
-    report no longer describes. A fix is offered only for a report that still
-    matches the document.
-    """
-    if tab.saving:
-        return "Saving..."
-    if tab.readiness_head != tab.doc.history.head:
-        return "Check again first -- the document has changed since this check ran."
-    return ""
-
-
-def game_check(ctx: Any, tab: Any) -> None:
-    """"Game check": a profile combo, a Check button, and one row per check.
-
-    Drawn by the Properties pane's Scene tab (it measures the *document*, so it
-    sits beside the other document-wide settings rather than under the file's
-    Recent list in a pane titled "Model file"). It is still defined here, next
-    to ``validator_rows`` and ``_run_fix``, which are its tested halves.
-    """
-    from ......kernels.mesh import readiness
-
-    profile = tab.readiness_profile or readiness.DEFAULT_PROFILE
-    options = [(key, prof.label) for key, prof in readiness.PROFILES.items()]
-    tab.readiness_profile = widgets.combo("##clay-readiness-profile", profile, options, sp(170))
-
-    imgui.same_line()
-    # The 2026-09-26 audit's clay-panes-08 (the in-flight half; the other
-    # half -- a failed check leaving stale old text on screen -- needs a new
-    # ClayTab field and a clay_mode.on_task_failed branch, both outside this
-    # file, and is left open): a second press while a check was already
-    # running reached ``TaskRunner.submit``'s own "refused rather than
-    # queued" door (that method's own docstring) with nothing on screen
-    # saying so -- the button just sat there, and a user who did not see the
-    # first press land pressed it again for nothing. ``ctx.busy`` is the same
-    # check ``_texture_slots`` already reads for exactly this reason.
-    busy = ctx.busy(f"clay-readiness:{tab.uid}")
-    why = "Checking..." if busy else ("Saving..." if tab.saving else "")
-    if widgets.disabled_button("Check", not tab.saving and not busy, reason=why):
-        clay_mode.check_readiness(ctx, tab, tab.readiness_profile)
-
-    report = tab.readiness_report
-    if report is None or report.profile != tab.readiness_profile:
-        widgets.muted("Not checked against this profile yet -- press Check.")
-        return
-    if tab.readiness_head != tab.doc.history.head:
-        widgets.muted("Out of date: the document has changed since this check ran.")
-
-    for status, label, message, fix, uids in validator_rows(report):
-        colour = getattr(theme, _STATUS_COLOR.get(status, "MUTED"))
-        widgets.text_colored(colour, f"{_STATUS_ICON.get(status, '?')} {label}")
-        imgui.same_line()
-        widgets.muted_wrapped(message)
-        fix_why = fix_gate(tab)
-        if fix and widgets.disabled_button(f"Fix##{label}", not fix_why, reason=fix_why):
-            _run_fix(ctx, tab, fix, uids)
