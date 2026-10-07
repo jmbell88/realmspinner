@@ -666,9 +666,9 @@ def test_collapsing_one_edge_does_not_walk_the_whole_meshs_vertex_count(
 
 
 def _grid_mesh(rows: int, cols: int, quad_size: float) -> bm.Mesh:
-    """A flat floor tiled from `rows` x `cols` separate quad faces -- the
-    same helper `tests/modes/clay/test_analyze.py::_grid_mesh` uses, kept
-    local here rather than imported across test modules."""
+    """A flat floor tiled from `rows` x `cols` separate quad faces. Kept
+    local rather than imported across test modules, so this file does not
+    break when another test module is renamed or removed."""
     positions = [
         (c * quad_size, 0.0, r * quad_size) for r in range(rows + 1) for c in range(cols + 1)
     ]

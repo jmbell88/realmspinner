@@ -1334,7 +1334,7 @@ def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> bool:
 # --- shading, selection, frame ------------------------------------------------
 
 
-def _shade(smooth: bool) -> Callable[..., None]:
+def _shade(smooth: bool) -> Callable[..., bool | None]:
     """Set the shading flag on the selected faces, or on whole objects.
 
     Both modes, because both readings are real: in face mode a user means
@@ -1343,10 +1343,14 @@ def _shade(smooth: bool) -> Callable[..., None]:
     have to be kept in agreement with it.
     """
 
-    def run(ctx: Any, doc: Any, **_: Any) -> None:
+    def run(ctx: Any, doc: Any, **_: Any) -> bool | None:
         if doc.element_mode == "object":
-            run_object_op(ctx, doc, lambda doc, obj: doc.set_shading(obj.uid, None, smooth))
-            return
+            # The 2026-10-07 audit's clay-38: the result of ``run_object_op``
+            # is what tells ``run`` that every object refused; dropping it
+            # made ``run`` report True for a press that changed nothing.
+            return run_object_op(
+                ctx, doc, lambda doc, obj: doc.set_shading(obj.uid, None, smooth)
+            )
         from ....kernels.mesh import elements as el
 
         for uid in list(doc.element_sel):

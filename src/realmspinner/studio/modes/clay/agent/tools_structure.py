@@ -70,6 +70,7 @@ from .validate import (
     _tab,
     _validate_translation,
     _validate_vec3,
+    _whole_number,
     fail,
 )
 
@@ -105,7 +106,10 @@ def _h_parent(ctx: Any, session: Session, args: dict) -> dict:
     parent_uid: int | None = None
     if parent_arg is not None:
         try:
-            parent_uid = int(parent_arg)
+            # ``_whole_number``, not ``int()``: the 2026-10-07 audit's clay-83
+            # -- ``int(7.9)`` is 7, so a fractional ``parent`` hung the child
+            # under an object the agent never named.
+            parent_uid = _whole_number(parent_arg)
         except (TypeError, ValueError, OverflowError):
             return fail("parent must be an integer uid or null.", field="parent")
         try:
@@ -363,7 +367,10 @@ def _resolve_point(doc: Any, value: Any, field: str) -> tuple[np.ndarray | None,
         if uid_val is None:
             return None, fail(f"{field}.uid is required.", field=field)
         try:
-            uid = int(uid_val)
+            # ``_whole_number``, not ``int()``: the 2026-10-07 audit's clay-83
+            # -- ``int(7.9)`` is 7, so a fractional uid measured from an
+            # object the agent never named.
+            uid = _whole_number(uid_val)
             obj = doc.by_uid(uid)
         except (KeyError, TypeError, ValueError):
             return None, fail(
@@ -374,7 +381,8 @@ def _resolve_point(doc: Any, value: Any, field: str) -> tuple[np.ndarray | None,
         world = doc.world_matrix(obj.uid)
         if "vertex" in value:
             try:
-                vertex = int(value["vertex"])
+                # The clay-83 residual: a fractional vertex index truncated too.
+                vertex = _whole_number(value["vertex"])
             except (TypeError, ValueError, OverflowError):
                 return None, fail(f"{field}.vertex must be an integer.", field=field)
             n = len(obj.mesh.positions)

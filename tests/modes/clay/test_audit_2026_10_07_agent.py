@@ -236,6 +236,52 @@ def test_a_fractional_or_boolean_uid_is_refused_not_truncated(spell) -> None:
         assert _history_len(ctx, session) == history, (tool, value)
 
 
+def test_clay_parents_parent_and_clay_measures_uid_refuse_a_fractional_value() -> None:
+    """The clay-83 residual: ``clay_parent``'s ``parent`` and ``clay_measure``'s
+    point uid still resolved with a bare ``int()``, so ``parent=7.9`` hung the
+    child under object 7 and ``{"uid": 7.9}`` measured from object 7."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    child = _new_agent_tab(ctx, session)
+    other = _payload(
+        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    )["uid"]
+    doc = _doc(ctx, session)
+    history = _history_len(ctx, session)
+
+    refused = agent_clay.call(
+        ctx, session, "clay_parent", {"uid": child, "parent": other + 0.9}
+    )
+    assert refused["isError"] is True, refused
+    assert refused["structuredContent"]["field"] == "parent"
+    assert doc.by_uid(child).parent is None
+    assert _history_len(ctx, session) == history
+
+    measured = agent_clay.call(
+        ctx,
+        session,
+        "clay_measure",
+        {"kind": "distance", "a": {"uid": other + 0.9}, "b": [0, 0, 0]},
+    )
+    assert measured["isError"] is True, measured
+    assert measured["structuredContent"]["field"] == "a"
+
+    vertex = agent_clay.call(
+        ctx,
+        session,
+        "clay_measure",
+        {"kind": "distance", "a": {"uid": other, "vertex": 0.9}, "b": [0, 0, 0]},
+    )
+    assert vertex["isError"] is True, vertex
+    assert vertex["structuredContent"]["field"] == "a"
+
+    # A whole-number float is still a uid.
+    ok = agent_clay.call(
+        ctx, session, "clay_parent", {"uid": child, "parent": float(other)}
+    )
+    assert ok["isError"] is False, ok
+
+
 def test_a_whole_number_float_uid_still_resolves() -> None:
     """``3.0`` is what a JSON encoder that writes every number as a float sends;
     it is a whole number and keeps working."""

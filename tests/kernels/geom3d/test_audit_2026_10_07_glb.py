@@ -13,7 +13,7 @@ import pytest
 
 from realmspinner.kernels.geom3d import glbio, glbwrite, gltf
 from realmspinner.kernels.mesh import document as bd
-from realmspinner.kernels.mesh import glbimport, ops, serialize
+from realmspinner.kernels.mesh import glbimport, meshimport, ops, serialize
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh.elements import OpError
 
@@ -108,6 +108,24 @@ def test_a_glb_node_transform_that_overflows_float32_is_refused_at_import(
 
 def test_a_large_but_representable_transform_still_imports() -> None:
     doc = glbimport.glb_to_claydoc(_node(scale=[1e6] * 3, translation=[1e7, 0, 0]))
+    assert np.isfinite(doc.objects[0].mesh.positions).all()
+
+
+def test_an_import_scale_that_overflows_float32_is_refused_by_name() -> None:
+    """The 2026-10-07 audit's clay-19 residual: the node transform is checked
+    at import, but the import-scale knob multiplies positions afterwards, so a
+    near-float32-max mesh times a large knob became an inf-position document."""
+    mesh = bp.box()
+    doc = bd.ClayDoc()
+    doc.objects.append(
+        bd.Obj(uid=bd.new_uid(), name="Box", mesh=replace(mesh, positions=mesh.positions * 1e30))
+    )
+    big = glbwrite.write_glb(bd.to_model(doc))
+    assert np.isfinite(glbimport.glb_to_claydoc(big).objects[0].mesh.positions).all()
+    with pytest.raises(OpError, match="float32|too large|range"):
+        meshimport.import_file(big, ".glb", scale=1e10)
+    # A knob the mesh survives still imports.
+    doc = meshimport.import_file(big, ".glb", scale=2.0)
     assert np.isfinite(doc.objects[0].mesh.positions).all()
 
 

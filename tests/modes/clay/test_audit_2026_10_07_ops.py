@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.elements import OpError
 from realmspinner.studio.modes.clay import ops as clay_ops
 
 
@@ -109,3 +111,25 @@ def test_mirror_x_on_an_empty_group_pushes_no_step() -> None:
     clay_ops.run(_Ctx(), doc, clay_ops.get("mirror-x"))
     assert doc.history.head == head
     assert clay_ops.run(_Ctx(), doc, clay_ops.get("mirror-x")) is False
+
+
+@pytest.mark.parametrize("name", ["shade-smooth", "shade-flat"])
+def test_shade_in_object_mode_reports_false_when_every_object_refused(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 2026-10-07 audit's clay-38 residual: Shade Smooth/Flat dropped
+    ``run_object_op``'s result, so ``run`` said True when every object refused."""
+    doc = bd.ClayDoc()
+    a = _box(doc, "A")
+    b = _box(doc, "B")
+    doc.select([a.uid, b.uid])
+    head = doc.history.head
+
+    def refuse(uid: int, faces: object, smooth: bool) -> bool:
+        raise OpError("This object cannot be shaded.")
+
+    monkeypatch.setattr(doc, "set_shading", refuse)
+    ctx = _Ctx()
+    assert clay_ops.run(ctx, doc, clay_ops.get(name)) is False
+    assert doc.history.head == head
+    assert len(ctx.log) == 2 and ctx.log[0][0] == "error"

@@ -93,8 +93,8 @@ def test_affected_verts_and_verts_of_finish_well_under_the_python_loops_time():
     0.51s (``elements.affected_verts``) / 0.41s (``select.verts_of``) at
     490,000 faces on a shared-vertex grid -- reproduced in this fix's own
     scratchpad against the pre-fix functions at 0.519s/0.412s. The vectorised
-    ``topo.corner_spans`` gather (already used by ``ops_model.bisect``)
-    measured 0.203s/0.200s for the same call -- a generous 0.35s bound is
+    ``topo.corner_spans`` gather (the one other topology walks already
+    use) measured 0.203s/0.200s for the same call -- a generous 0.35s bound is
     comfortably clear of the fix and comfortably short of the unfixed loop."""
     mesh = _grid_mesh(700, 701)
     faces = np.arange(face_count(mesh), dtype="i4")

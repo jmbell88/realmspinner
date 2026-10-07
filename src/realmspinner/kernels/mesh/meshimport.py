@@ -333,7 +333,19 @@ def import_file(
             except np.linalg.LinAlgError as error:
                 raise OpError("Import scale cannot be 0.") from error
             for obj in doc.objects:
-                obj.mesh = bm.transformed(obj.mesh, matrix)
+                # The overflow is the refusal below, not a warning.
+                with np.errstate(over="ignore"):
+                    obj.mesh = bm.transformed(obj.mesh, matrix)
+                # The 2026-10-07 audit, finding clay-19: ``glb_to_claydoc``
+                # refuses a node transform that overflows float32, but this
+                # knob multiplies the positions afterwards, so a mesh near
+                # float32's ceiling times a large scale came out as inf
+                # vertices in a document that could not save or draw.
+                if not np.isfinite(np.asarray(obj.mesh.positions, dtype="f4")).all():
+                    raise OpError(
+                        "The import scale makes this model too large for Clay's "
+                        "float32 positions. Use a smaller scale."
+                    )
                 local = m3.compose(obj.translation, obj.rotation, obj.scale)
                 t, r, s = m3.decompose(matrix @ local @ inverse)
                 obj.translation, obj.rotation, obj.scale = t, r, s
