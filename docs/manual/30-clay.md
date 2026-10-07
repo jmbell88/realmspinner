@@ -20,6 +20,8 @@ the header; under it a fixed **palette strip** shows the document's materials. O
 two panes, the outliner and Properties, and Properties' tabs are Object, Material, Document and UV. There
 is no left-hand column and no separate file pane. Several documents stay open at once.
 
+![Clay with a small keep open: tool rail, palette strip, outliner and Properties](img/30-clay.png)
+
 ## Starting a document
 
 With nothing open, the middle column offers **New model** and **Open a file...**, and lists the
@@ -349,6 +351,8 @@ so.
 The first operation that changes an object's topology **freezes** it. A box that has been extruded is
 no longer describable as "box, size 1", so the properties panel switches from the generator's
 parameters to a vertex and face count.
+
+![Face mode: one face of the keep selected, its median and area in Properties](img/30-clay-faces.png)
 
 ## Transforming
 
@@ -686,6 +690,8 @@ geometry, so an unwrapped box is still a box and editing its size still rebuilds
 Clay does not paint a texture itself. The layout is for a picture you draw in [Inker](28-inker.md)
 and lay on the object's material (see [Texturing](#texturing)).
 
+![The UV tab: island controls and the unwrap canvas, overlaps in red](img/30-clay-uv.png)
+
 ### The UV view
 
 The **UV** tab of Properties shows the selected object's texture layout: its islands, with the element
@@ -718,6 +724,8 @@ a property of the shell it belongs to, and a handful of selected faces is not a 
 imported meshes and hand-edited ones; every primitive already comes out facing outward, and an object
 that needs nothing is left exactly as it was, generator and all, and nothing is said about it. For a
 few faces that are wrong, **Flip Normals** in face mode is the sharper tool.
+
+![The Material tab: the Stone slot with its base colour, flags and texture](img/30-clay-material.png)
 
 ## Materials
 
