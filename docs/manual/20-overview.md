@@ -198,6 +198,8 @@ or close there. Everything else below holds in all eight.
   one. Under **Take it somewhere** are the ways out of the mode: the library, and whichever
   workspaces read what this one makes. Each panel has exactly one accented button, and it is the
   mode's own commit — export to the library, send to Poser, export the audio.
+  **Clay is the exception**: it has no separate file pane. The same verbs, its exports and **Undo** and
+  **Redo** are in its **File** menu, and Undo and Redo are also buttons in its header.
 - **The same gestures.** The wheel zooms, in 5% steps, in every canvas; `Shift` and the wheel scrolls
   sideways; the middle button pans. In a 3D view, `Alt`+drag orbits and the middle button pans.
   `Ctrl+1`, `Ctrl+3` and `Ctrl+7` look along an axis and `Ctrl+5` toggles perspective, in Clay, in

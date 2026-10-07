@@ -168,18 +168,18 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 
 | Keys | Action |
 | --- | --- |
-| Q / W / E / R | Select / move / rotate / scale |
+| Q / G / R / S | Select / move / rotate / scale — G, R and S also start a keyboard drag of that kind when something is selected |
 | 1 / 2 / 3 / 4 | Vertex / edge / face / object mode |
-| E | Extrude, then drag it out at once — along the face normal in face mode, free in edge and vertex mode; click or `Enter` commits, `Esc` undoes the extrude too |
+| E | Extrude, then drag it out at once — along the face normal in face mode, free in edge and vertex mode; click or `Enter` commits, `Esc` undoes the extrude too. Element modes only: in object mode it does nothing |
 | I | Inset faces — move the pointer, or type a value, then `Enter` (face mode) |
 | Shift+R | Repeat the last operation that had numbers (inset, weld…), at the same values, on what is selected now — element modes |
 | Alt+Z | Toggle X-ray, so an element behind the surface can be picked |
 | P | Separate Selection — splits the selected faces into a new object, in face mode |
 | T | Triangulate Faces, in face mode |
-| G / S | Move / scale the selection with no handle to grab — the drag follows the pointer |
 | L | Select everything joined to what is selected — two shapes welded into one mesh come apart |
-| G / R / S | Switch which transform a running drag is doing; the objects go back first |
-| F | Frame the selection |
+| G / R / S | Move / rotate / scale the selection with no handle to grab — the drag follows the pointer; pressed during a drag, switch which transform it is doing, the objects going back first |
+| F | Frame the selection — the camera keeps the angle it has |
+| H / Shift+H / Alt+H | Hide the selection / hide everything else (isolate) / show everything |
 | X / Y / Z | Lock a drag already under way to that axis; the same key again clears it |
 | digits, `.`, `-` | Type the drag's value outright; `Backspace` takes a character back |
 | Enter | Commit the drag |
@@ -199,12 +199,14 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Ctrl+1 / Ctrl+3 / Ctrl+7 | Look along front / right / top |
 | Ctrl+Shift+1 / +3 / +7 | The opposite view: back / left / bottom |
 | Ctrl+5 | Toggle orthographic and perspective |
+| Numpad 1 / 3 / 7 | Look along front / right / top, with no `Ctrl` — numpad 5 toggles orthographic and numpad `.` frames the selection |
 | Alt+drag | Orbit, whatever mode you are in |
 | Esc | Cancel a drag; otherwise step back: element selection, then element mode, then object selection |
 
 **The mouse.** Left-drag in empty space orbits, and `Alt`+left-drag always orbits whatever mode you
-are in. Middle-drag pans and the wheel dollies. Right-click opens the context menu — right-drag does
-nothing, so grabbing the wrong button mid-orbit costs you nothing.
+are in. Middle-drag pans (`Shift`+middle-drag does too) and the wheel zooms toward the pointer.
+Right-click opens the context menu — right-drag does nothing, so grabbing the wrong button mid-orbit
+costs you nothing.
 
 In an element mode, left-click selects an element, `Shift`+click adds and `Ctrl`+click removes;
 left-drag in empty space with `Q` selected sweeps a marquee.

@@ -1,46 +1,40 @@
-"""Clay's Add palette: every shape you can place, and what the next click makes.
+"""Clay's shapes: what can be placed, what it is called, and the flyout that lists it.
 
-The same shape the raster editor's tool panel takes -- an icon grid, then the
-options for whatever is selected rather than every option at once -- for the
-same reason: a panel that shows all of them is unreadable, and a rotation snap
-means nothing while the select tool is active.
+This was the left sidebar's Add pane, an icon grid with a read-only "what the
+next click places" block under it. The sidebar is gone (``skeletons.clay``'s
+left column is empty now) and the grid with it: the slim tool rail
+(``rail.py``) keeps four quick shapes and a ``+`` that opens the flyout drawn
+here, which lists **every** shape with its name beside its glyph. An unlabelled
+icon grid of fifteen near-identical silhouettes made the user hover each one to
+learn its name; a labelled list does not.
 
-**One grid, one selection, one options block.** Every add-tool writes
-``state.generator``, and the options block right below the grid reads that one
-field. ``tool_palette.icon_grid`` is the reusable half of the grammar -- the
-plain "equal buttons, tooltip-named, one selected" shape -- because Inker's
-toolbox and Plotter's tool rail are two more callers for the same idea.
+**What stays in this module is data and doors**, because other places reach
+for them: :func:`sections` (the shape registry, grouped), :func:`add_primitive`
+(the one door an object is placed through -- the rail, the Add menu, the
+empty-state button and the agent all call it), :func:`display_name` (the one
+spelling of a shape's name, so ``uv_sphere`` is "UV Sphere" in the rail, the
+Add menu and the flyout alike), and the tables the header reads.
 
 **Every control that changes the document is disabled while a save is in
-flight**, exactly as the layers panel is. Serialising reads the live document
-on a task thread, so a control that restructured it mid-encode would write a
-file describing a document that never existed. Disabling says so on screen
-rather than swallowing the click.
+flight**, as it is everywhere in Clay. Serialising reads the live document on a
+task thread, so a control that restructured it mid-encode would write a file
+describing a document that never existed. Disabling says so on screen rather
+than swallowing the click.
 
-**The operations are not here any more** (the 2026-10-02 menu regrouping). This
-column used to end in about fifty op buttons generated from the registry in one
-flat two-column grid, in the order the tranches landed in. They live in the
-header's menu strip now (``strip.py``), grouped by ``menutree`` the way
-Blender's Select / Add / Object / Mesh / UV menus group them, and in the
-right-click menu, which reads the same table -- so what is left here is what a
-sidebar is for: a palette of things to add, which is a list that wants height.
+**The operations are not here** (the 2026-10-02 menu regrouping). They live in
+the header's menu strip (``strip.py``), grouped by ``menutree``, and in the
+right-click menu, which reads the same table.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from imgui_bundle import imgui
-
 from ......kernels.mesh import document as bd
 from ......kernels.mesh import ops
 from ......kernels.mesh import primitives as bp
-from ..... import icons, tokens, tool_palette, widgets
+from ..... import controls, icons, tool_palette, widgets
 from .....manual import render as manual_render
-from .....tokens import sp
-from ... import mode as clay_mode
-
-COLUMNS = 4
 
 TOOL_ICONS = {
     "select": icons.SQUARE_DASHED,
@@ -51,74 +45,40 @@ TOOL_ICONS = {
 
 AXES = (("x", "X"), ("y", "Y"), ("z", "Z"))
 
-# The four element modes and the keys that switch them. Held as data beside
-# ``TOOL_ICONS`` so the row and ``clay_mode.ELEMENT_KEYS`` are one edit apart
-# rather than two files apart.
+# The four element modes and the keys that switch them, **in the order of the
+# keys** (1 2 3 4 = vertex, edge, face, object), which is the order the header's
+# pill draws them in. The pill used to lead with Object, so the first segment
+# was the key that is pressed last, and a reader counting segments left to
+# right got "4 1 2 3". Held as data beside ``TOOL_ICONS`` so the row and
+# ``clay_mode.ELEMENT_KEYS`` are one edit apart rather than two files apart.
 MODE_BUTTONS = (
-    ("object", "Object", "4"),
     ("vertex", "Verts", "1"),
     ("edge", "Edges", "2"),
     ("face", "Faces", "3"),
+    ("object", "Object", "4"),
 )
 
+#: The shapes the rail keeps one click away; the rest are behind its ``+``.
+#: Names, not glyphs -- the glyph and the label both come from the same tables
+#: the flyout reads, so a quick shape cannot drift from its flyout entry.
+QUICK_SHAPES = ("box", "cylinder", "uv_sphere", "cone")
 
-def draw(ctx: Any) -> None:
-    """This pane's headings, on tinted blocks.
+#: Words a shape's key spells that ``str.capitalize`` would get wrong. A
+#: "uv_sphere" is a UV sphere (latitude and longitude, as opposed to the
+#: icosphere beside it), and "Uv Sphere" reads as a typo.
+_ACRONYMS = frozenset({"uv"})
 
-    The blocks are opened *here* rather than in :func:`layout.pane`, which is
-    flat: a pane on a wide canvas wants no tint, and this is one of the four
-    narrow sidebars the grouping was written for (see
-    ``tests/test_section_blocks.py`` for the report it came from). Wrapping
-    ``_body`` rather than inlining the ``with`` keeps every early return inside
-    the scope, and the scope closes its last block on the way out.
+
+def display_name(name: str) -> str:
+    """A shape's key as the words a person reads: ``uv_sphere`` -> ``UV Sphere``.
+
+    One function for the rail, the Add menu, the flyout and the tooltips, which
+    each spelled it their own way (``name.replace("_", " ")`` in lower case in
+    one place, ``.title()`` in another) and so disagreed about the same sphere.
     """
-    with widgets.section_blocks():
-        _body(ctx)
-
-
-def _body(ctx: Any) -> None:
-    """What you can *add*, and what that add-tool will place -- and nothing else.
-
-    Most of what this pane held has gone to the viewport header: the tool grid,
-    the mode row, snapping and the view aids are settings
-    changed between clicks in the viewport, and the operations are menus there.
-    What is left is what a sidebar is right for -- lists that want the height
-    and are read down rather than flicked between, plus the one block under
-    them: which of those entries is the tool in hand right now.
-    """
-
-    state = clay_mode.ensure(ctx)
-    tab = state.active
-    widgets.section("Add")
-    manual_render.help_button(ctx, "clay-tools")
-    if tab is None:
-        widgets.muted("Open or start a document to build in.")
-        return
-
-    imgui.begin_disabled(tab.saving)
-    _add(ctx, state, tab.doc)
-    _options(ctx, state, tab.doc)
-    imgui.end_disabled()
-
-
-def _add(ctx: Any, state: Any, doc: Any) -> None:
-    """Every tool that places something, one grid per section.
-
-    Enumerated rather than listed, so a sixteenth shape is a new entry in
-    ``primitives.CLAY_GENERATORS`` and no edit here at all -- which is the
-    whole reason that registry is data. Each button sets ``state.generator`` to
-    the key it placed, so the options block below always names the tool in hand.
-    """
-    for label, names in sections():
-        widgets.field_label(label)
-        items = [
-            (name, tool_palette.PRIMITIVE_ICONS.get(name, icons.BOX), name.replace("_", " "))
-            for name in names
-        ]
-        clicked = tool_palette.icon_grid(items, COLUMNS, state.generator, id_prefix="add")
-        if clicked:
-            add_primitive(ctx, doc, clicked)
-            state.generator = clicked
+    return " ".join(
+        word.upper() if word in _ACRONYMS else word.capitalize() for word in name.split("_")
+    )
 
 
 def sections() -> list[tuple[str, tuple[str, ...]]]:
@@ -130,56 +90,74 @@ def sections() -> list[tuple[str, tuple[str, ...]]]:
     return [(label, tuple(names)) for label, names in bp.CLAY_GENERATORS]
 
 
-def _options(ctx: Any, state: Any, doc: Any) -> None:
-    """The selected tool's own name, and only its own defaults, beneath it.
+def draw_add_menu(ctx: Any, state: Any, tab: Any) -> None:
+    """The flyout's body: every shape Clay offers, grouped, name beside glyph.
 
-    ``state.generator`` already carried this meaning before this pass --
-    "what the properties panel offers when the user adds something", by its
-    own docstring on ``ClayState`` -- and nothing read it, because the grid
-    used to be one click and done; there was no "selected" for it to describe.
+    Enumerated rather than listed, so a sixteenth shape is a new entry in
+    ``primitives.CLAY_GENERATORS`` and no edit here at all -- which is the
+    whole reason that registry is data. Each entry sets ``state.generator`` to
+    the key it placed, the field the empty state reads.
 
-    **Read-only, deliberately.** The live, per-type dispatch that turns a
-    generator's defaults into editable fields already exists, in
-    ``clay_props._generator`` -- it edits a placed object's own params,
-    folding every keystroke into that object's one undo step. Rebuilding that
-    dispatch a second time here, against numbers that belong to no object yet,
-    would be exactly the mistake this file's own docstring names: two lists of
-    one thing, free to disagree about a clamp or a type the moment one of them
-    changes and the other does not. What is shown here is what the next click
-    starts *from*; adjusting a shape's own numbers is a door that already
-    exists, once the shape does.
+    Drawn inside the rail's popup (``rail.py`` owns the open and close), with
+    the heading's (?) here so the manual's "Adding a primitive" section stays
+    one click from the list it describes.
     """
-    entry = _options_for(state.generator)
-    if entry is None:
-        del ctx, doc
-        return
-    heading, rows, note = entry
-    imgui.dummy((0, sp(tokens.SP_2)))
-    widgets.section(heading)
-    for label, value in rows:
+    widgets.section("Add")
+    manual_render.help_button(ctx, "clay-tools")
+    blocked = tab is None or bool(tab.saving)
+    reason = (
+        "Open or start a document to build in."
+        if tab is None
+        else "This document is being written; the shapes come back when it lands."
+    )
+    for label, names in sections():
         widgets.field_label(label)
-        widgets.muted(value)
-    widgets.muted_wrapped(note)
-    del ctx, doc
+        for name in names:
+            glyph = tool_palette.PRIMITIVE_ICONS.get(name, icons.BOX)
+            hit = controls.menu_item(
+                f"{glyph} {display_name(name)}##clay-add/{name}",
+                "",
+                state.generator == name,
+                not blocked,
+                reason=reason,
+                tooltip=_defaults_tooltip(name),
+            )
+            if bool(hit[0] if isinstance(hit, tuple) else hit) and tab is not None:
+                add_primitive(ctx, tab.doc, name)
+                state.generator = name
+
+
+def _defaults_tooltip(name: str) -> str:
+    """What the entry places, in its generator's own numbers.
+
+    The old Add pane printed these under the grid for the selected shape; they
+    are a tooltip now, so the numbers are there when asked for and the list is
+    not a wall of them.
+    """
+    entry = _options_for(name)
+    if entry is None:
+        return ""
+    heading, rows, _note = entry
+    body = ", ".join(f"{label} {value}" for label, value in rows)
+    return f"{heading}: {body}. Edit the numbers in Properties once it is placed."
 
 
 #: Shown under a primitive's defaults. Editing them is the Properties panel's
-#: job, once the object exists -- see :func:`_options`'s docstring for why
-#: this file does not offer a second door onto the same numbers.
+#: job, once the object exists.
 _PRIMITIVE_NOTE = (
     "What the next click places. A shape's own numbers are edited afterwards, "
     "in Properties, once it exists."
 )
 
-def _options_for(name: str) -> tuple[str, tuple[tuple[str, str], ...], str] | None:
-    """``(heading, rows, note)`` for one add-tool's options, or ``None`` for a
-    name that is not one of Clay's shapes -- a remembered tool since removed
-    from the palette, say.
 
-    Pure: no imgui, no document. That is what makes "the options shown belong
-    to the selected tool and change when the selection changes" a claim a test
-    can prove without a GL context, the same way ``clay_header``'s own tables
-    are checked.
+def _options_for(name: str) -> tuple[str, tuple[tuple[str, str], ...], str] | None:
+    """``(heading, rows, note)`` for one shape's defaults, or ``None`` for a
+    name that is not one of Clay's shapes -- a remembered tool since removed
+    from the registry, say.
+
+    Pure: no imgui, no document, so "the defaults shown belong to the named
+    shape and change when it does" is a claim a test can prove without a GL
+    context.
     """
     entry = bp.GENERATORS.get(name) if name in bp.CLAY_GENERATOR_NAMES else None
     if entry is None:
@@ -188,7 +166,7 @@ def _options_for(name: str) -> tuple[str, tuple[tuple[str, str], ...], str] | No
     rows = tuple(
         (key.replace("_", " "), _format_default(value)) for key, value in defaults.items()
     )
-    return name.replace("_", " ").title(), rows, _PRIMITIVE_NOTE
+    return display_name(name), rows, _PRIMITIVE_NOTE
 
 
 def _format_default(value: Any) -> str:

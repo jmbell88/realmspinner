@@ -121,10 +121,10 @@ def test_a_unit_conversion_round_trips(unit) -> None:
 
 
 def test_the_import_scale_combo_derives_from_the_unit_table() -> None:
-    from realmspinner.studio.modes.clay.ui.panes import bridge
+    from realmspinner.studio.modes.clay import doc_io
 
-    assert [label for _, label in bridge.IMPORT_SCALE_OPTIONS] == [k for k, _ in units.LENGTH_UNITS]
-    assert dict(bridge.IMPORT_SCALE_OPTIONS)["0.0254"] == "in"
+    assert [label for _, label in doc_io.IMPORT_SCALE_OPTIONS] == [k for k, _ in units.LENGTH_UNITS]
+    assert dict(doc_io.IMPORT_SCALE_OPTIONS)["0.0254"] == "in"
 
 
 def test_an_unknown_unit_reads_as_metres() -> None:

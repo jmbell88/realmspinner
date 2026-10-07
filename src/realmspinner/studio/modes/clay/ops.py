@@ -1544,6 +1544,9 @@ def _register_defaults() -> None:
             run=_unwrap,
             enabled=has_objects,
             reason=_has_objects_reason,
+            hint="Gives every selected object a fresh box projection: each face "
+            "is flattened along the axis its normal points closest to. Whole "
+            "objects, not just the selected faces. Pack Islands needs this first.",
         )
     )
     register(
@@ -1899,7 +1902,7 @@ def _register_defaults() -> None:
             ),
             hint="Paints the selected faces with one palette entry, leaving the "
             "object's default slot alone. The slot is its number in the "
-            "Material tab's swatch row, counting from 0.",
+            "palette strip under the viewport, counting from 0.",
         )
     )
     register(

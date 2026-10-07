@@ -17,6 +17,10 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .view import ClayView
 
+#: How close Clay lets the camera dolly to a framed selection, as a fraction of its
+#: bounding radius (the viewer's own floor is 0.5).
+CLOSEST_ZOOM = 0.02
+
 
 class BoundsOps:
     """``ClayView``'s centres, bounds and framing. See the module docstring."""
@@ -208,6 +212,10 @@ class BoundsOps:
             lo, hi = self.world_bounds(doc)
         if lo is None:
             return 0.0
-        self.radius = self.camera.frame(lo, hi)
+        # ``keep_angles``: F centres and sizes the selection along the direction
+        # the user already chose, instead of throwing a lined-up front view back
+        # to the opening three-quarter one. ``min_zoom``: the viewer's floor of
+        # half the radius is too far out to place a vertex on a small detail.
+        self.radius = self.camera.frame(lo, hi, keep_angles=True, min_zoom=CLOSEST_ZOOM)
         self.camera.set_target((lo + hi) * 0.5)
         return self.radius

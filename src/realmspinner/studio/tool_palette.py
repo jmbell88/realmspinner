@@ -53,17 +53,15 @@ from .tokens import sp
 PRIMITIVE_ICONS = {
     "box": icons.BOX,
     "plane": icons.RECTANGLE,
-    "cylinder": icons.CROP,
-    "cone": icons.TRIANGLE_ALERT,
-    "uv_sphere": icons.CIRCLE,
-    "torus": icons.CIRCLE,
+    "cylinder": icons.CYLINDER,
+    "cone": icons.CONE,
+    "uv_sphere": icons.GLOBE,
+    "torus": icons.TORUS,
     "grid": icons.GRID,
     "capsule": icons.EGG,
     "icosphere": icons.STAR,
-    # The first four structures. The icon set is strained by now -- ``cone`` borrows
-    # triangle-alert, and ``uv_sphere`` and ``torus`` are both a circle -- so
-    # these are the nearest silhouettes rather than the right glyphs: a magnet
-    # is a horseshoe, which is the arch, and a ruler is the tallest thing in
+    # The first four structures. The icon set is strained here -- a magnet is
+    # a horseshoe, which is the arch, and a ruler is the tallest thing in
     # the set. ``lathe`` gets the spline glyph -- a profile revolved about an
     # axis is quite literally a spline, and it is otherwise unclaimed. The
     # tooltip carries the name.
@@ -72,31 +70,33 @@ PRIMITIVE_ICONS = {
     "column": icons.RULER,
     "lathe": icons.SPLINE,
     # A sweep is an extrusion of stacked cross-sections, and layers is the
-    # nearest silhouette this set has for that -- the same "strained by now"
-    # trade-off the comment above already makes for the rest of this group.
+    # nearest silhouette this set has for that.
     "sweep": icons.LAYERS,
     # Waypoints along a route is the nearest silhouette to a path with rings
     # threaded along it, and it is otherwise unclaimed here -- Inker's own
     # polyline tool uses the same glyph, which is fine: the two panes are
-    # never on screen at once, and this set is strained enough already.
+    # never on screen at once.
     "tube": icons.WAYPOINTS,
-    # Clay tranche 5: the "game" category's six blockout shapes. The set is
-    # already strained (the comments above say so twice), so these lean on
-    # reuse rather than invent a mismatch: a wedge and a ramp are literally
-    # the same right-triangle prism at two orientations (``primitives.ramp``'s
-    # own docstring), so only the ramp gets the distinct "rising" glyph and
-    # the wedge keeps the plain triangle cone already borrows.
-    "wedge": icons.TRIANGLE_ALERT,
+    # Clay's "game" category. Lucide ships real silhouettes for most of these
+    # (cone, cylinder, torus, globe, brick wall, door), and Clay's shape
+    # flyout names each shape beside its glyph -- so a borrowed glyph would be
+    # two shapes the eye cannot tell apart. ``cone``/``wedge`` and
+    # ``uv_sphere``/``torus`` each used to share one (triangle-alert and a
+    # plain circle); ``tests/modes/clay/test_clay_wiring.py`` now holds every
+    # glyph of ``CLAY_GENERATORS`` distinct. A wedge and a ramp are the same
+    # right-triangle prism at two orientations (``primitives.ramp``'s own
+    # docstring), so the wedge takes the plain right triangle and the ramp the
+    # rising arrow.
+    "wedge": icons.TRIANGLE_RIGHT,
     "ramp": icons.ARROW_UP_RIGHT,
-    "rounded_box": icons.SQUARE,
+    "rounded_box": icons.SQUARE_ROUND_CORNER,
     # No staircase glyph in the pinned set; layers -- already sweep's own
     # borrow for "stacked cross-sections" -- reads the same way for a
-    # staircase's stacked risers and treads.
+    # staircase's stacked risers and treads. Sweep is not a Clay shape, so the
+    # two never share a flyout.
     "stairs": icons.LAYERS,
-    "wall": icons.HOUSE,
-    # A doorway is a wall with an opening cut into it; a dashed square is the
-    # nearest silhouette this set has for "an outline with a gap in it".
-    "doorway": icons.SQUARE_DASHED,
+    "wall": icons.BRICK_WALL,
+    "doorway": icons.DOOR_OPEN,
 }
 
 

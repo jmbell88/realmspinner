@@ -118,19 +118,71 @@ def test_every_popup_has_its_own_name(popup):
     assert getattr(clay_header, popup) in names
 
 
-def test_the_mode_and_tool_pills_are_fields_rather_than_items():
+def _tab(doc=None):
+    from types import SimpleNamespace
+
+    from realmspinner.kernels.mesh import document as bd
+
+    return SimpleNamespace(doc=doc or bd.ClayDoc(), saving=False)
+
+
+def test_the_mode_pill_is_a_field_rather_than_an_item():
     """Items collapse into the overflow menu first, and a mode picker in a menu
     is a mode picker nobody can see the state of -- which is the one thing a
     mode picker is for."""
     state = clay_state.ClayState()
-    keys = {item.key for item in clay_header._items(state)}
-    assert "mode" not in keys and "tool" not in keys
-    assert isinstance(clay_header._tool_field(state), toolbar.Field)
-    assert clay_header._tool_field(state).priority == 0
+    tab = _tab()
+    keys = {item.key for item in clay_header._items(state, tab)}
+    assert "mode" not in keys
+    field = clay_header._mode_field(tab)
+    assert isinstance(field, toolbar.Field)
+    assert field.priority == 0
 
 
-def test_the_tool_pill_never_gets_narrower():
-    """Four glyphs are already the smallest it can be, and ``Field`` says so by
-    declaring one width twice rather than by a comment."""
-    field = clay_header._tool_field(clay_state.ClayState())
-    assert field.widths()[0] == field.widths()[1]
+def test_the_tool_pill_left_the_header_for_the_rail():
+    """Select / Move / Rotate / Scale are the tool rail's now. A second pill for
+    the same ``state.tool`` was two controls for one state, and its width is
+    what Undo and Redo took."""
+    assert not hasattr(clay_header, "_tool_field")
+    assert "tool" not in {item.key for item in clay_header._items(clay_state.ClayState(), _tab())}
+
+
+def test_the_mode_pill_is_in_the_order_of_its_keys():
+    """Vertex, Edge, Face, Object are keys 1 2 3 4. The pill led with Object, so
+    counting its segments left to right read "4 1 2 3"."""
+    keys = [key for _mode, _label, key in clay_tools.MODE_BUTTONS]
+    assert keys == ["1", "2", "3", "4"]
+    assert [mode for mode, _l, _k in clay_tools.MODE_BUTTONS] == [
+        "vertex", "edge", "face", "object",
+    ]
+
+
+def test_the_header_has_undo_and_redo_enabled_from_the_documents_history():
+    """The history lived three panes away in the Document tab, so the most-used
+    control in a modeller was reachable by a chord alone. The items read
+    ``tab.doc.history`` -- the stack the chord drives -- so their state cannot
+    disagree with what Ctrl+Z would do."""
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.kernels.mesh import primitives as bp
+
+    state = clay_state.ClayState()
+    doc = bd.ClayDoc()
+    tab = _tab(doc)
+
+    def items():
+        return {item.key: item for item in clay_header._items(state, tab)}
+
+    assert "undo" in items() and "redo" in items()
+    assert not items()["undo"].enabled and items()["undo"].reason
+    assert not items()["redo"].enabled and items()["redo"].reason
+
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+    assert items()["undo"].enabled and not items()["redo"].enabled
+    assert doc.undo()
+    assert not items()["undo"].enabled and items()["redo"].enabled
+
+    doc.redo()
+    tab.saving = True
+    assert not items()["undo"].enabled and "written" in items()["undo"].reason, (
+        "a click must not mutate the stack under a running encode"
+    )

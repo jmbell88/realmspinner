@@ -130,3 +130,5 @@ class CacheOps:
             entry.gpu.release()
         self._cache.clear()
         self._screens.clear()
+        self.hover_object = None
+        self._hover_pick_at = None

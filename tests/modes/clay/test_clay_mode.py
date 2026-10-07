@@ -560,29 +560,29 @@ def test_a_document_being_saved_cannot_be_exported(svc) -> None:
 
 
 def test_export_to_library_button_names_why_it_is_disabled() -> None:
-    """clay-07 (2026-09-08 audit): ``clay_bridge._outputs``'s own comment says
+    """clay-07 (2026-09-08 audit): the Document tab's ``_outputs`` comment says
     one sentence covers both output buttons below it, "because they are
     refused for the same two reasons" -- but only the "Make 3D" button
     actually received it as ``reason``; the "Export to the library" button
     passed none at all, so it greyed out with no explanation while saving or
     while every object was hidden.
 
-    The fix pulls that sentence into ``_outputs_why``, a plain function of a
+    The fix pulls that sentence into ``doc_io.outputs_why``, a plain function of a
     document and a bool, so it is assertable without imgui -- panes cannot be
     driven headlessly, but the reason a button greys with now can be.
     """
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay import doc_io
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
 
-    assert clay_bridge._outputs_why(doc, saving=True) == "Saving..."
+    assert doc_io.outputs_why(doc, saving=True) == "Saving..."
 
     obj.visible = False
-    assert "hidden" in clay_bridge._outputs_why(doc, saving=False)
+    assert "hidden" in doc_io.outputs_why(doc, saving=False)
 
     obj.visible = True
-    assert clay_bridge._outputs_why(doc, saving=False) == ""
+    assert doc_io.outputs_why(doc, saving=False) == ""
 
 
 # --- opening -----------------------------------------------------------------
@@ -1248,9 +1248,9 @@ def test_ctrl_j_duplicates_and_ctrl_d_deselects(svc) -> None:
     assert not doc.selection
 
 
-def test_g_and_s_start_a_keyboard_drag(svc) -> None:
-    """The two letters that were free. R is the Scale tool's and E is Rotate's,
-    both taken long before this."""
+def test_g_r_and_s_set_the_tool_and_start_a_keyboard_drag(svc) -> None:
+    """G, R and S are Move, Rotate and Scale's letters *and* the drag keys, so
+    one press names the gizmo and starts the gesture."""
     from types import SimpleNamespace
 
     import pygame
@@ -1266,9 +1266,12 @@ def test_g_and_s_start_a_keyboard_drag(svc) -> None:
         begin_keyboard_drag=lambda doc, kind: started.append(kind) or True,
     )
 
-    for key in (pygame.K_g, pygame.K_s):
+    tools: list[str] = []
+    for key in (pygame.K_g, pygame.K_r, pygame.K_s):
         clay_mode.handle_key(ctx, pygame.event.Event(pygame.KEYDOWN, key=key, mod=0))
-    assert started == ["move", "scale"]
+        tools.append(ctx.state.clay.tool)
+    assert started == ["move", "rotate", "scale"]
+    assert tools == ["move", "rotate", "scale"], "the tool follows the key"
 
 
 def test_a_keyboard_drag_is_refused_while_the_document_is_saving(svc) -> None:
@@ -1303,12 +1306,13 @@ def test_the_registry_keeps_a_letter_a_drag_would_otherwise_take(svc) -> None:
 
     source = inspect.getsource(clay_mode.handle_key)
     assert source.index("_registry_key(") < source.index("_keyboard_drag(")
-    # And the two letters a drag takes are not tool letters, which is the other
-    # half of why they were the two that were free.
-    tool_letters = {key.lower() for key in clay_mode.TOOL_KEYS}
-    assert not (tool_letters & set(clay_mode.DRAG_KEYS)), (
-        "a drag key that is also a tool letter would take a binding a user has"
-    )
+    # And a drag key is its tool's letter: pressing it must leave the tool and
+    # the gesture naming the same transform.
+    assert set(clay_mode.DRAG_KEYS) == {"g", "r", "s"}
+    for letter, kind in clay_mode.DRAG_KEYS.items():
+        assert clay_mode.TOOL_KEYS[letter] == kind
+    assert "e" not in clay_mode.TOOL_KEYS, "E is Extrude's alone"
+    assert "w" not in clay_mode.TOOL_KEYS
 
 
 def test_a_bare_1_typed_during_a_camera_orbit_still_switches_element_mode(

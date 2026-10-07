@@ -471,8 +471,8 @@ yourself.
 `studio/modes/clay/agent/` is the surface and `studio/agent_host.py` is the plumbing. The important
 thing about the first is that **most of it is not written down**: the shapes an agent may place come
 from `primitives.CLAY_GENERATORS`, the operations from `clay_ops.OPS`, and the selection questions
-`clay_select_by` can answer from `select.QUERIES` — the same tables the add panel, the context menu and
-the selection menu are drawn from. (`primitives.GENERATORS` stays whole, because a Mason scene names its
+`clay_select_by` can answer from `select.QUERIES` — the same tables the rail's shape flyout, the context menu
+and the selection menu are drawn from. (`primitives.GENERATORS` stays whole, because a Mason scene names its
 shapes by it; Clay offers the fifteen in `CLAY_GENERATORS` and an agent is offered the same fifteen.) A new
 generator, op or query added to Clay appears in the agent's tool list with no edit
 here at all, and a test asserts that in both directions, so the two cannot drift apart.

@@ -85,8 +85,46 @@ def build(span: float, divisions: int = DIVISIONS) -> tuple[np.ndarray, np.ndarr
     return np.array(positions, dtype="f4"), np.array(colors, dtype="f4")
 
 
+def axes_geometry(span: float) -> tuple[np.ndarray, np.ndarray]:
+    """-> (axis lines, origin marker), each ``(n, 6)`` f4 of ``x y z r g b``.
+
+    The two lines run the grid's full width, X in the gizmo's red and Z in its
+    blue (Y is up, so it has no line on the ground). The marker is a small
+    three-axis cross at the origin: ``lines`` has no point-size uniform, so a
+    dot would be one pixel, and a cross is legible at any zoom with no shader.
+    Pure, so a test reads what the grid will draw without a GL readback.
+    """
+    from .gizmo import AXIS_COLORS
+
+    half = span * 0.5
+    red, green, blue = (_rgb(AXIS_COLORS[a]) for a in "xyz")
+    lines = np.array(
+        [
+            [-half, 0.0, 0.0, *red], [half, 0.0, 0.0, *red],
+            [0.0, 0.0, -half, *blue], [0.0, 0.0, half, *blue],
+        ],
+        dtype="f4",
+    )
+    tick = min(max(span * 0.01, 0.02), 0.15)
+    marker = np.array(
+        [
+            [-tick, 0.0, 0.0, *red], [tick, 0.0, 0.0, *red],
+            [0.0, -tick, 0.0, *green], [0.0, tick, 0.0, *green],
+            [0.0, 0.0, -tick, *blue], [0.0, 0.0, tick, *blue],
+        ],
+        dtype="f4",
+    )
+    return lines, marker
+
+
 class Grid:
     """The grid's GPU buffers, rebuilt only when the span changes."""
+
+    # Class-level defaults for the axis overlay, so a grid built without
+    # ``__init__`` (the tests' fake-context one) still releases cleanly.
+    axes = False
+    _axes_vbo = _axes_vao = _marker_vbo = _marker_vao = None
+    _axes_span: float | None = None
 
     def __init__(self, ctx, programs) -> None:
         self.ctx = ctx
@@ -95,7 +133,45 @@ class Grid:
         self.divisions = DIVISIONS
         self._vbo = None
         self._vao = None
+        # The axis lines and origin dot are a second buffer, drawn over the grid
+        # only when a caller asks (``set_axes``); ``build`` never includes them.
         self.set_span(4.0)
+
+    def set_axes(self, on: bool) -> None:
+        """Draw the X (red) and Z (blue) axis lines and an origin marker over the grid.
+
+        Off by default so Mason, Poser and the asset viewer keep exactly the
+        grid they always had; Clay turns it on, because a modeller placing
+        things on a metre grid needs to know which way is which and where the
+        origin is. A *second* pair of vertex arrays rather than recolouring
+        ``build``'s centre lines: ``build`` is what the grid's tests pin, and
+        the axis colours are the gizmo's (``gizmo.AXIS_COLORS``), so a red line
+        on the ground and a red arrow on the handle are the same axis.
+        """
+        self.axes = bool(on)
+
+    def _ensure_axes(self) -> None:
+        """(Re)build the axis buffers for the current span. A no-op while current."""
+        if self._axes_span == self.span and self._axes_vao is not None:
+            return
+        self._release_axes()
+        lines, marker = axes_geometry(self.span)
+        self._axes_vbo = self.ctx.buffer(np.ascontiguousarray(lines).tobytes())
+        self._axes_vao = self.ctx.vertex_array(
+            self.program, [(self._axes_vbo, "3f 3f", "a_position", "a_color")]
+        )
+        self._marker_vbo = self.ctx.buffer(np.ascontiguousarray(marker).tobytes())
+        self._marker_vao = self.ctx.vertex_array(
+            self.program, [(self._marker_vbo, "3f 3f", "a_position", "a_color")]
+        )
+        self._axes_span = self.span
+
+    def _release_axes(self) -> None:
+        for obj in (self._axes_vao, self._axes_vbo, self._marker_vao, self._marker_vbo):
+            if obj is not None:
+                obj.release()
+        self._axes_vao = self._axes_vbo = self._marker_vao = self._marker_vbo = None
+        self._axes_span = None
 
     def set_span(self, span: float, divisions: int | None = None) -> None:
         """Rebuild for a new (span, divisions) pair, skipping an unchanged one.
@@ -125,11 +201,16 @@ class Grid:
         self.program["u_exposure"].value = 1.0
         self.program["u_alpha"].value = 1.0
         self._vao.render(mode=moderngl.LINES)
+        if self.axes:
+            self._ensure_axes()
+            self._axes_vao.render(mode=moderngl.LINES)
+            self._marker_vao.render(mode=moderngl.LINES)
 
     def release(self) -> None:
         for obj in (self._vao, self._vbo):
             if obj is not None:
                 obj.release()
         self._vao = self._vbo = None
+        self._release_axes()
         self.span = 0.0
         self.divisions = DIVISIONS

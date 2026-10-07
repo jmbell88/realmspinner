@@ -14,17 +14,21 @@ picture back from (see [Texturing](#texturing)), and a game-ready cleanup is the
 It is a mode, not a takeover. Switching away leaves every open document exactly where it was. Only
 quitting the app can lose unsaved work, and it asks first.
 
-The layout follows the rest of the app and Blender's: the **Add** palette on the left; in the middle the
-menu strip and the header over the viewport; on the right the outliner, the Properties tabs, the UV
-view and the file panel. Several documents stay open at once.
+The layout is picoCAD's more than Blender's: almost the whole window is the viewport. Down its left
+edge runs a slim **tool rail** — the four transform tools and the shapes — and over it the menu strip and
+the header; under it a fixed **palette strip** shows the document's materials. On the right are only
+two panes, the outliner and Properties, and Properties' tabs are Object, Material, Document and UV. There
+is no left-hand column and no separate file pane. Several documents stay open at once.
 
 ## Starting a document
 
 With nothing open, the middle column offers **New model** and **Open a file...**, and lists the
-documents you had open recently — clicking one reopens it, and hovering it shows the full path. The
-document panel on the right shows only that recent list until a document is open; then it gains
-**New**, **Open**, **Save** and **Save As...** — the same four buttons every workspace has, over
-the file's path and one line saying whether it is saved. `Ctrl+N` and `Ctrl+O` do the same two things from the keyboard.
+documents you had open recently — clicking one reopens it, and hovering it shows the full path. There
+is no separate file pane: every file command is in the **File** menu, which is where Clay's own rows sit among
+the ones every mode has — **New**, **Open...**, **Open Recent**, **Save**, **Save As...**, **Export to
+library**, **Export GLB...**, **Export OBJ...** and **Save Screenshot...**, with **Undo** and **Redo**
+beside them (and as two buttons in the header). `Ctrl+N` and `Ctrl+O` do the same two things from the
+keyboard.
 
 Choosing **Clay** from the Home screen opens an empty document for you when there is nothing open
 already. When there is, it leaves your documents exactly as they were — the documents *are* the
@@ -34,22 +38,20 @@ work, and entering the mode is not a reason to disturb them.
 
 A document with nothing in it says so in the viewport itself — "Add a shape", with "Pick one from
 Add" underneath and a button that drops a box at the origin — rather than leaving you to notice an
-empty grid and go looking for the **Add** palette on your own.
+empty grid and go looking for a shape on your own.
 
-The **Add** palette on the left is one icon grid, in two groups, and the **Add** menu in the menu
-strip lists the same shapes (see [The menu strip](#the-menu-strip)). **Primitives**: box, plane, grid,
+The **tool rail** down the left edge of the viewport has the four transform tools at the top (see
+[Transforming](#transforming)) and, under a divider, a few shapes as one-click buttons and a **+**
+button. **+** opens a flyout that lists all the shapes **by name**, and the **Add** menu in the menu
+strip lists the same ones (see [The menu strip](#the-menu-strip)). **Primitives**: box, plane, grid,
 cylinder, cone, UV sphere, icosphere, torus and capsule. **Game**: wedge, ramp, rounded box, stairs,
 wall and doorway. That is fifteen, and it is the whole list — Clay no longer builds pyramids, arches,
 columns, lathes, sweeps or tubes, because the curve editor that drove the last three went with them;
-a column is a cylinder. Clicking one places it at the
-origin, selects it, and marks it the tool in hand — its icon stays lit until another button is pressed
-next. Hovering a button names it. Nothing is lit and no preview block shows below the grid until you
-have pressed one -- a fresh document does not arrive with a shape already picked.
+a column is a cylinder. Clicking one places it at the origin and selects it. Hovering a rail button
+names it, and a fresh document does not arrive with a shape already picked.
 
-Under the grid, a short block names whichever tool is lit and lists the numbers a fresh press of it
-starts from — a cylinder's `radius`, `height` and `segments`, say. It is a preview of what the next
-click places, not a second place to edit them: a shape's own numbers are edited on the object itself,
-in Properties, once it exists.
+A shape's own numbers — a cylinder's `radius`, `height` and `segments`, say — are not set before it
+is placed: they are edited on the object itself, in Properties, once it exists.
 
 Shapes arrive with their shading already set, by an angle rule: a face is smooth when it meets its
 neighbours at a shallow angle all the way round, and flat otherwise. So a sphere, an icosphere, a
@@ -135,12 +137,18 @@ Everything with a key is also in [Keyboard shortcuts](38-shortcuts.md).
 
 The row across the top of the viewport is where everything you change *between* clicks lives: which
 element mode you are in, which transform tool you are holding, whether snapping is on, and what the
-viewport is drawing. All four used to be blocks down the tool panel, which is on the far side of the
-window from the model — a reach away from the thing every one of them is about.
+viewport is drawing. All four used to be blocks down a tool panel on the far side of the window from the
+model — a reach away from the thing every one of them is about.
 
-**Mode** and **tool** are the two pill groups. They never fold away, whatever the window is doing;
-everything else on the row gives up its label before it gives up its control, and if the window is
-narrow enough the rightmost group moves into a `…` menu with the full words back.
+**Mode** and **tool** are the two pill groups. The mode pills read **V**, **E**, **F** and **Obj** —
+vertex, edge, face and object, in the order of the keys `1`, `2`, `3` and `4`. The tool pills are the
+rail's four tools again, so either one lights the same tool. They never fold away, whatever the window
+is doing; everything else on the row gives up its label before it gives up its control, and if the
+window is narrow enough the rightmost group moves into a `…` menu with the full words back.
+
+**Undo** and **Redo** are two buttons on the header. Each is greyed when there is nothing to take back or
+put back, and hovering it says why; they do exactly what `Ctrl+Z` and `Ctrl+Y` do. The history behind
+them is one click away in the Document tab (see [The Properties tabs](#the-properties-tabs)).
 
 **Snap** is a button that opens the numbers behind it — a grid size and an angle. The button stays lit
 while the setting is on, so a shut popover still says what is armed. It does not grey out while a
@@ -160,9 +168,12 @@ projects; both are described below, under [Axis views](#axis-views) and [Snappin
 
 The **Grid** is a fixed size — 100 m by default, in 1 m cells, with a brighter line every ten of them
 — rather than one that follows whatever is on screen, and its own field sits under the Grid row in the
-Overlays popover, from 1 to 1000 m. Pressing `F` to frame the selection moves the camera only; it no
-longer resizes the grid out from under you. The size is remembered across sessions, the way the switch
-itself already was.
+Overlays popover, from 1 to 1000 m. Pressing `F` to frame the selection moves the camera only; it
+neither resizes the grid out from under you nor turns the view — you keep looking from the same angle.
+The size is remembered across sessions, the way the switch itself already was.
+
+Three marks on the grid say where you are standing in the world: a **red line** along the X axis, a
+**blue line** along the Z axis, and a dot at the origin where they cross.
 
 **God light** replaces the ordinary render with a single light straight down from 100 m overhead onto
 a flat ground plane under the grid — a deliberately flat, shadowless look for checking silhouette and
@@ -194,8 +205,9 @@ the line the only way to find out what a mode can do is to read this chapter.
 ## Element modes
 
 Every object starts as one thing you can move about. Press `1`, `2` or `3` and it becomes a mesh you
-can take apart: vertices, edges, faces. `4` goes back to object mode. The **Mode** pill in the
-viewport header says the same thing, and highlights whichever mode the document is in.
+can take apart: vertices, edges, faces. `4` goes back to object mode. The **Mode** pills in the
+viewport header say the same thing, in the same order as the keys — **V**, **E**, **F**, **Obj** — and
+highlight whichever mode the document is in.
 
 | Key | Mode | What clicking selects |
 | --- | --- | --- |
@@ -206,6 +218,10 @@ viewport header says the same thing, and highlights whichever mode the document 
 
 The mode belongs to the *document*, not to the app, so switching tabs does not reinterpret what you
 had selected in the other one.
+
+In object mode a selected object is drawn with an **orange outline** along its edges, so you can tell
+what a transform or a delete will act on, and the object under the pointer lights up before you click
+it. In an element mode the selected elements are highlighted instead.
 
 Going from one element mode to another carries the selection across. Down — faces to edges to
 vertices — takes everything the selection touches. Up takes a face only when *every* one of its
@@ -263,7 +279,7 @@ a marquee and `L` between them reach what a low-poly model needs.
 | Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
-| Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Material tab's swatch row, and leaves the object's default slot alone. See [Texturing](#texturing). |
+| Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number along the palette strip, and leaves the object's default slot alone. See [Texturing](#texturing). |
 | Faces | Triangulate Faces (`T`) | Replaces each selected face with its own triangles. |
 | Faces | Merge Faces | Merges a connected block of selected faces into one n-gon. |
 | Verts | Weld | Merges vertices closer together than a distance you give. A vertex joins a group only if it is within that distance of the group's first vertex, so a long run of closely spaced points is not collapsed into one. |
@@ -307,9 +323,9 @@ wires, so a vertex on its own has nothing to extrude and says that too.
 
 Pressed as `E`, Extrude also begins a move of what it made — in face mode **locked to the average
 face normal**, which is the direction an extrusion goes (`X`, `Y` or `Z` swaps that for a world
-axis, and `G`/`S` start a free transform). Click or `Enter` ends it as **one** undo step; `Esc` or a
-right-click undoes the extrude as well, so nothing is left behind. The menu's Extrude does not start
-a drag.
+axis, and `G`, `R` or `S` switch to a free move, rotation or scale). Click or `Enter` ends it as **one**
+undo step; `Esc` or a right-click undoes the extrude as well, so nothing is left behind. The menu's
+Extrude does not start a drag. `E` extrudes only in an element mode; in object mode it does nothing.
 
 ### Adjusting the last operation, and repeating it
 
@@ -341,14 +357,18 @@ With two objects selected the ring is drawn at the median and the document turns
 than each object spinning about its own origin, and a single object whose origin is not at the centre
 of its bounding box orbits the ring you can see.
 
-Four tools, on `Q`, `W`, `E` and `R`:
+Four tools, on `Q`, `G`, `R` and `S`, which are also the four buttons at the top of the tool rail:
 
 | Tool | Key | What it does |
 | --- | --- | --- |
-| Select | `Q` | Click an object in the viewport to select it. |
-| Move | `W` | Three arrows; drag one to slide along that axis. |
-| Rotate | `E` | Three rings; drag one to turn about that axis. |
-| Scale | `R` | Three handles plus a centre handle for uniform scale. |
+| Select | `Q` | Click an object in the viewport to select it. With something selected it shows the move gizmo, so a selection can be dragged without switching tool. |
+| Move | `G` | Three arrows and three plane handles between them; drag an arrow to slide along that axis, or a plane handle to slide in that plane. |
+| Rotate | `R` | Three rings; drag one to turn about that axis. |
+| Scale | `S` | Three handles plus a centre handle for uniform scale. |
+
+`G`, `R` and `S` do two things at once: they light the tool, so its gizmo appears, and with something
+selected they start a keyboard drag of that kind (see [Moving without a handle](#moving-without-a-handle)).
+`E` is not a tool; it is Extrude, and only in an element mode.
 
 A drag is one undo step, recorded when you let go — not one step per frame of the drag, which would
 bury everything else in the history.
@@ -356,8 +376,9 @@ bury everything else in the history.
 The gizmos work on elements too. In an element mode they sit at the centre of what is selected
 *inside* the objects rather than at the object's own centre, and dragging one moves those vertices.
 That is one undo step per drag, and a drag that ends where it started records nothing at
-all. **Select** (`Q`) shows no gizmo in an element mode, which is what leaves the left button free
-for the marquee.
+all. **Select** (`Q`) shows the move gizmo for an element selection just as it does for an object, and
+the marquee still works: dragging in empty space sweeps a rectangle, dragging the gizmo moves the
+selection.
 
 The **Move**, **Rotate** and **Scale** values are also typed directly in the properties panel, which
 is the better way to place something exactly. Position and scale boxes are labelled X, Y and Z.
@@ -383,19 +404,19 @@ Document tab are the same table.
 
 ### Moving without a handle
 
-`G` moves the selection and `S` scales it, with no handle grabbed: the drag follows the pointer until
-you click to commit or press `Esc` to put it back. Every transform in Clay used to go through
-grabbing a coloured arrow, which means finding it, which means never moving an object without first
-looking at the gizmo rather than at the model.
+`G` moves the selection, `R` rotates it and `S` scales it, with no handle grabbed: the drag follows the
+pointer until you click to commit or press `Esc` to put it back. Every transform in Clay used to go
+through grabbing a coloured arrow, which means finding it, which means never moving an object without
+first looking at the gizmo rather than at the model.
 
 `G`, `R` and `S` also switch which transform a *running* drag is doing — "move it; no, turn it" is one
 gesture rather than a cancel and a restart. The objects go back to where they started first, so a
 rotate that follows a half-finished move is measured from the original position and not from wherever
 the abandoned move left them.
 
-Rotate has no letter of its own to start with, because `R` is the Scale tool and `E` is Rotate — both
-taken long before this, and moving either would take away a binding you already have. `G` then `R` is
-how you start one.
+Each of the three is also its tool's letter, so the key and the tool never disagree: after pressing
+`R` to turn something, the Rotate tool is the one lit, and its rings are what you grab next. With
+nothing selected the key only chooses the tool. `Shift`+`R` is not a tool; it is Repeat Last.
 
 A keyboard drag holds no mouse button, so a **press** is how it ends: left commits, right cancels.
 Everything else behaves exactly as it does under a handle drag — the axis lock, the typed value and
@@ -442,6 +463,10 @@ The eye on each row hides an object, and a hidden object does not render, does n
 be clicked in the viewport. **Solo** above the list hides everything *except* what is selected and
 **Show all** brings them back — each is a single undo step, so `Ctrl+Z` is a third way out.
 
+All three are on the keyboard too: `H` hides the selection, `Shift`+`H` isolates it (the same as Solo)
+and `Alt`+`H` shows everything again. Hiding clears the selection, since a hidden object is no longer
+something you can act on.
+
 Rows are dragged to reorder them, which matters because display order is the order the objects come
 out in an exported GLB. Reordering is switched off while the filter box has something in it: the
 rows on screen are then a subset, so there is no honest answer for where a drop between two of them
@@ -458,20 +483,29 @@ reorders as before.
 
 ## The Properties tabs
 
-Properties on the right is a strip of three tabs. Hover a glyph for its name.
+Properties, under the outliner on the right, is a strip of four tabs, named in words.
 
 | Tab | What it holds |
 | --- | --- |
-| **Object** | Name, visibility, the parent, transform and size, and the shape's own numbers |
-| **Material** | The palette as a swatch row, the selected slot's name, colour, cutout and double-sided, and its base-colour texture: make one, edit it in Inker, take it back |
-| **Document** | The whole document: its counts, and the import units and up axis |
+| **Object** | Name, visibility, the parent, transform and size, the shape's own numbers, and in an element mode the selection's own data (below) |
+| **Material** | The selected slot's name, colour, cutout and double-sided, its base-colour texture (make one, edit it in Inker, take it back), and **Add** and **Remove** for slots; the swatches themselves are in the palette strip under the viewport |
+| **Document** | The whole document: its counts, the import units and up axis, the undo history, the last export, and the **Export GLB** and **Export OBJ** buttons |
+| **UV** | The selected object's texture layout, described under [The UV view](#the-uv-view) |
 
 The tab is remembered while the app is open and is the same for every document. Document is the one tab
 that needs no object selected, since it is about the document rather than a part of it; the others
 say "Nothing selected" or how many objects are selected until exactly one is.
 
 The Document tab's counts are of what leaves the document: the visible objects only, the same set the
-exporters write, so the triangle line is a promise about the exported file.
+exporters write, so the triangle line is a promise about the exported file. The step count is a button:
+press it for the whole undo stack, oldest first, with the head marked and the undone steps greyed, and
+click any row to move there in one go. Under the export buttons a line names the last file written.
+
+**With elements selected,** the Object tab gains a data row under the transform. In vertex, edge or face
+mode with something selected it shows the selection's **median** position as X, Y and Z in world space,
+and the boxes are typeable: enter a value and the selected elements move so their median lands there.
+Each entry is **one undo step**. A short readout beside the boxes gives the length of a selected edge or
+the area of a selected face.
 
 ## Parents and groups
 
@@ -587,14 +621,27 @@ stay parallel and there is no perspective foreshortening; it is what you want fo
 up. The **View** menu on the viewport header lists all six views and the orthographic toggle by
 name, and the navigation widget in the corner does the same with a click.
 
+The numeric keypad does the same without the `Ctrl`: numpad `1`, `3` and `7` look along front, right
+and top, numpad `5` toggles orthographic, and numpad `.` frames the selection. The digits on the main
+row are not views: they switch the element mode, which is why those keep their `Ctrl`.
+
 An axis view changes the *angle* only. It keeps the distance and whatever you were looking at,
 because reframing would lose the part of the model you were about to line up. Switching to
 orthographic keeps the scale at the point you are looking at, so it reads as a change of projection
 rather than a jump cut.
 
-These are Clay's keys, not the app's — which is why switching mode is a click on the rail or a
-command in the palette rather than a digit. A global binding is checked above Clay and would take
+These are Clay's keys, not the app's — which is why switching mode is a click on the app's mode
+rail or a command in the palette rather than a digit. A global binding is checked above Clay and would take
 the key from it permanently.
+
+### Moving the camera
+
+`Alt`+drag orbits, and the **middle button** pans — drag it alone, or with `Shift` held, which is
+Blender's spelling (`MMB` or `Shift`+`MMB`). The wheel zooms **toward the pointer**: the point under the
+cursor stays put as you zoom, so you steer by where you point rather than by first panning to the thing
+you want to look at. You can zoom in much closer than before, which is what a model a few centimetres
+across needs. `F` frames the selection without changing the angle you are looking from, and numpad `.`
+does the same.
 
 ## Snapping
 
@@ -602,10 +649,18 @@ the key from it permanently.
 beside the toggle, and setting either to zero turns that half off rather than snapping everything to
 the origin.
 
-Snapping applies to gizmo drags only. A number typed into the properties panel is used exactly as
-typed, because you already said what you meant, and so is a number typed during a drag, because at
-that point you have said where the thing goes. There is no snap to vertex, edge or face, and no
-proportional falloff: to make two things touch, set their positions, or snap both to the same grid.
+What lands on the grid depends on what you are moving. In object mode a move snaps the object's
+*origin*, so the object is carried by that point. In an element mode a move snaps **each moved
+vertex** onto a grid point in world space, so a face dragged with Snap on ends with all its corners on
+grid points however it started; the vertices are not carried by a common offset, which means a mesh that
+began off the grid is pulled onto it. Rotation snaps the angle.
+
+Snapping applies to gizmo and keyboard drags. A number typed into the properties panel is used exactly
+as typed, because you already said what you meant, and so is a number typed during a drag, because at
+that point you have said where the thing goes. A drag locked to an axis is not snapped either. The
+grid is the only thing there is to snap to: Clay has no snap to another object's vertex, edge or face,
+and no proportional falloff. To make two things touch, set their positions, or snap both to the same
+grid.
 
 ## Texture coordinates
 
@@ -633,16 +688,16 @@ and lay on the object's material (see [Texturing](#texturing)).
 
 ### The UV view
 
-The **UV** panel shows the selected object's texture layout: its islands, with the element selection
-highlighted inside them. An object with no layout yet says so and offers **Box Unwrap** right there;
-it stays under the toolbar once there is a layout, beside **Pack islands...**, which asks for its
+The **UV** tab of Properties shows the selected object's texture layout: its islands, with the element
+selection highlighted inside them. An object with no layout yet says so and offers **Box Unwrap** right
+there; it stays under the toolbar once there is a layout, beside **Pack islands...**, which asks for its
 margin the way the UV menu's Pack Islands does. The wheel zooms, the middle button pans,
 clicking an island selects it (a click on empty space deselects), and dragging either box-selects islands or moves
-whichever ones are selected. `E` and `R` rotate and
+whichever ones are selected. `R` and `S` rotate and
 scale what is selected — the same letters the viewport uses — following the mouse until you click to
 keep the result or press `Esc` to drop it. While the pointer is over the UV canvas with islands
-selected, those two keys belong to the canvas alone; they do not also extrude or switch the viewport's
-tool. The fields beside the canvas do the same thing to an
+selected, those two keys belong to the canvas alone; they do not also start a drag in the viewport or
+switch its tool. The fields beside the canvas do the same thing to an
 exact number. Either way each island turns about its own centre.
 
 Faces that overlap another island are tinted: overlap means two parts of the model would be painted
@@ -666,16 +721,16 @@ few faces that are wrong, **Flip Normals** in face mode is the sharper tool.
 
 ## Materials
 
-Every object points at a slot in the document's material palette, chosen with the swatch row in the
-Material tab of Properties (see [Painting faces](#painting-faces) for what a click does). A slot has
+Every object points at a slot in the document's material palette, chosen with the palette strip under
+the viewport (see [Painting faces](#painting-faces) for what a click does). A slot has
 a **name**, a **base colour**, an optional **base-colour texture**, **double-sided** and **cutout**, and
 the change reaches every object using that slot at once — which is the point of a palette rather than
 a material per object. That is the whole of it: the palette is
 the picoCAD one, a flat colour or a picture per slot, and there is no metallic, roughness, emissive,
 normal or occlusion map to set.
 
-**Add** appends a new slot and **Remove** drops one — but only a slot no face is using, and the
-panel says how many faces are in the way when it will not. Reassigning those faces to some other
+**Add** (or the palette strip's **+**) appends a new slot and **Remove** drops one — but only a slot no
+face is using, and the panel says how many faces are in the way when it will not. Reassigning those faces to some other
 slot is the alternative, and it is a silent change to how part of the model looks. A slot is an
 index that every face names, so adding always appends rather than inserting; removing one renumbers
 the slots above it, and an undo puts the numbering back.
@@ -715,24 +770,27 @@ is the one you painted, and Clay opens Inker for you and takes the picture back.
 
 ### Painting faces
 
-The Material tab opens on a **swatch row**: one swatch per palette slot, a textured slot marked by a
-small triangle in its corner, and the slot's number and name on hover. The outlined swatch is the slot
-the fields underneath edit, which is also the object's default slot. What a click does depends on the
-mode:
+The **palette strip** is a fixed band under the viewport, always in the same place, with one swatch
+per slot of the document's palette in a row, a textured slot marked by a small triangle in its corner,
+and the slot's number and name on hover. The **+** at the end of the row adds a slot. The outlined swatch
+is the slot the Material tab's fields edit, which is also the object's default slot. A strip with no
+slots shows only the **+**; a new document is not given a palette it did not ask for. What a click does
+depends on the mode:
 
-- **Object mode** — a click repaints the object: its default slot and every one of its faces move to
-  that slot, as one undo step.
+- **Object mode, one object selected** — a click repaints the object: its default slot and every one of
+  its faces move to that slot, as one undo step. With nothing or several objects selected the strip
+  paints nothing.
 - **Face mode, faces selected** — a click paints *those faces* with the slot and leaves the object's
   default slot alone. The Mesh menu's **Assign Material...** does the same from the menu: it asks for
-  the slot's number, counting from 0 along the swatch row. It has no key.
-- **`Ctrl`+click in face mode**, or a click with no face selected, paints nothing. It only makes that
-  slot the one the fields underneath edit, which is the way to reach another slot's colour and
-  texture while a face selection is up.
+  the slot's number, counting from 0 along the strip. It has no key.
+- **`Ctrl`+click**, in any mode, paints nothing. It only makes that slot the one the Material tab's fields
+  edit, which is the way to reach another slot's colour and texture while a face selection is up. A
+  plain click with no face selected in face mode does the same.
 - **Vertex and edge mode** — a click paints nothing. It only makes that slot the one the fields
-  underneath edit; switch to face mode to paint faces.
+  edit; switch to face mode to paint faces.
 
-Under a face selection the UV view draws the first selected face's slot, while the fields underneath
-edit the slot the swatch row outlines; the tab names both.
+Under a face selection the UV view draws the first selected face's slot, while the Material tab's
+fields edit the slot the strip outlines; the tab names both.
 
 Painting is one undo step however many objects the selection spans, and faces that already wear the
 slot say so and push nothing. A face's material is not geometry, so a painted box is still a box;
@@ -856,6 +914,10 @@ a *newer* Realmspinner than yours is refused by name rather than opened half-und
 
 Clay has two ways to turn a document into an asset, and they do genuinely different things.
 Choosing between them is the whole reason both exist. A third door writes a plain file.
+
+All of them are in the **File** menu (**Export to library**, **Export GLB...**, **Export OBJ...** and
+**Save Screenshot...**), and the Document tab of Properties carries buttons for the two file exports
+and a line naming the last file written. There is no separate file panel.
 
 **Export to the library** puts the *exact* geometry in the library as an ordinary asset. It is a
 finished model row from the moment it lands, so it inherits everything the rest of the app does to a

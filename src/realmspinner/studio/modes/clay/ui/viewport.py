@@ -41,16 +41,18 @@ class ClayViewport:
     """
 
     def _clay_workspace(self) -> None:
-        """The same sidebar / centre / sidebar skeleton every other mode uses:
+        """The same column / centre / column skeleton every other mode uses, with
+        nothing in the left column:
 
-            [ clay-tools ]  the header    [ clay-outliner ]
-            [            ]  the viewport  [ clay-props    ]
-            [            ]  the hint      [ clay-bridge   ]
+                          the header      [ clay-outliner ]
+            [ rail ]      the viewport    [ clay-props     ]
+            [ palette strip, under both ]
+                          the hint
 
-        Both sidebars are ``skeletons.clay``, which is where the argument for
-        that arrangement is written down. It was the last sidebar-shaped
-        workspace composed by hand here, which is to say the last one a saved
-        layout could not permute.
+        The right column is ``skeletons.clay``, which is where the argument for
+        that arrangement is written down. The left column is declared and empty:
+        its Add pane became the tool rail, which is drawn *inside* the centre
+        (``_clay_viewport``) so the model gets the width the sidebar took.
         """
         from imgui_bundle import imgui
 
@@ -65,15 +67,13 @@ class ClayViewport:
         right_w = layout_mod.sidebar_width("right")
         columns = skeletons.for_mode(ctx, "clay")
 
-        layout_mod.column(
-            ctx,
-            lay,
-            skeletons.ordered(ctx, self.layouts, "clay", columns["left"]),
-            width=left_w,
-            handle_length=left_w,
-        )
-
-        _column_boundary(self.layouts, "clay", "left")
+        left = skeletons.ordered(ctx, self.layouts, "clay", columns["left"])
+        # Skipped outright when empty, boundary included: ``_column_boundary`` is
+        # a ``same_line``, and one with no item before it in the content child
+        # indents the centre by an item spacing for nothing.
+        if left:
+            layout_mod.column(ctx, lay, left, width=left_w, handle_length=left_w)
+            _column_boundary(self.layouts, "clay", "left")
         width = layout_mod.centre_width()
         flags = imgui.WindowFlags_.no_scroll_with_mouse.value
         with layout_mod.pane(
@@ -105,6 +105,8 @@ class ClayViewport:
         from .panes import header as clay_header
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
+        from .panes import palette_strip as clay_palette
+        from .panes import rail as clay_rail
 
         # One tick per drawn frame, before anything below can return: the UV pane
         # stamps its hover against this count and ``clay_mode.handle_key`` reads it
@@ -124,13 +126,26 @@ class ClayViewport:
         # And the hint line's own row, reserved rather than drawn over: a line
         # the viewport has already claimed the height for is a line clipped away
         # at the bottom of the pane, which is where every status row in this app
-        # has gone wrong at least once.
+        # has gone wrong at least once. The palette strip's fixed height is
+        # reserved the same way and for the same reason (Inker's timeline strip
+        # is the precedent): it sits between the render and the hint, so a
+        # palette that grows must never take the model's height.
         hint_h = float(tokens.sp(clay_hud.HINT_H))
+        strip_h = clay_palette.height()
+        body_h = max(avail.y - hint_h - strip_h, 1.0)
+        origin = imgui.get_cursor_screen_pos()
+        # The tool rail, to the left of the render and as tall as it: a child of
+        # this pane rather than a docked one, so it costs the model its width and
+        # nothing else. Drawn before the rect is read -- the render is sized from
+        # what is left of the row.
+        clay_rail.draw(ctx, body_h)
+        imgui.same_line()
+        pos = imgui.get_cursor_screen_pos()
         rect = (
-            imgui.get_cursor_screen_pos().x,
-            imgui.get_cursor_screen_pos().y,
-            max(avail.x, 1.0),
-            max(avail.y - hint_h, 1.0),
+            pos.x,
+            pos.y,
+            max(avail.x - (pos.x - origin.x), 1.0),
+            body_h,
         )
         state = clay_mode.ensure(ctx)
         if state.frame_pending:
@@ -204,9 +219,13 @@ class ClayViewport:
         if clay_adjust.draw(ctx, rect):
             self._build_hovered = False
         clay_menu.draw(ctx, view)
-        # Last, and under the image: read when you are stuck, and a line over
+        # Under the render and the rail both, the full width of the centre: the
+        # palette is the document's, not the viewport's.
+        imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3]))
+        clay_palette.draw(ctx, max(avail.x, 1.0))
+        # Last, and under the strip: read when you are stuck, and a line over
         # the model covers the thing you are stuck on.
-        imgui.set_cursor_screen_pos((rect[0], rect[1] + rect[3]))
+        imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3] + strip_h))
         clay_hud.hint_line(ctx)
 
     def _clay_tabs(self, ctx: Any, clay_mode: Any) -> None:

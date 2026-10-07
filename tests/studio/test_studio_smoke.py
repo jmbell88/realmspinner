@@ -743,10 +743,8 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     import traceback
 
     from realmspinner.studio import layout as layout_mod
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
     from realmspinner.studio.modes.create.ui import workspace as generation_workspace
     from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
     from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
@@ -819,6 +817,21 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
             else:
                 app_ctx.state.preview[app_settings.CATEGORY_SLOT] = before
 
+    def _clay_document_tab() -> None:
+        """The Document tab with a document open: the file row, the history
+        pair and the three exports, in the 300 px column the Properties pane is
+        drawn in. This is the pane ``bridge.py`` was, and the only drawing of
+        those rows the walk reaches."""
+        from realmspinner.studio.modes.clay import mode as clay_mode
+
+        tab = _clay_tab(app_ctx)
+        tab.doc.select([tab.doc.objects[0].uid])
+        clay_mode.ensure(app_ctx).props_tab = "document"
+        try:
+            clay_props.draw(app_ctx)
+        finally:
+            clay_mode.ensure(app_ctx).props_tab = "object"
+
     panes = [
         ("results-tray", lambda: generation_workspace.draw(app_ctx, sp(320), "mesh")),
         ("app-settings-health", _settings_health),
@@ -833,10 +846,9 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
         ("retarget", lambda: retarget_panel.draw(app_ctx, job)),
         ("pose", lambda: pose_panel.draw(app_ctx, job)),
         ("sheet", lambda: sheet_panel.draw(app_ctx, job)),
-        ("clay-tools", lambda: clay_tools.draw(app_ctx)),
         ("clay-props", lambda: clay_props.draw(app_ctx)),
+        ("clay-props-document", _clay_document_tab),
         ("clay-outliner", lambda: clay_outliner.draw(app_ctx)),
-        ("clay-bridge", lambda: clay_bridge.draw(app_ctx)),
         ("inker-tools", lambda: inker_tools.draw(app_ctx)),
         ("inker-colors", lambda: inker_colors.draw(app_ctx)),
         # The two panes this wave added. Both are sidebar panes with headings,
@@ -2660,32 +2672,34 @@ def _clay_tab(app_ctx, *, objects: int = 2):
 
 def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
     """Every one of them has to survive the state the mode opens in."""
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
-    # ``clay_header`` is the strip over the viewport rather than a sidebar
-    # pane, and it walks with them for the reason they walk: an unbalanced
-    # disable stack or a popup left open is the same defect wherever it is.
-    for pane in (clay_tools, clay_props, clay_outliner, clay_bridge, clay_header):
+    # ``clay_header``, ``clay_rail`` and ``clay_palette`` are drawn inside the
+    # viewport rather than in a sidebar, and they walk with the panes for the
+    # reason the panes walk: an unbalanced disable stack, child or popup left
+    # open is the same defect wherever it is.
+    for pane in (clay_props, clay_outliner, clay_header, clay_rail, clay_palette):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
 
 
 def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx):
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
-    # ``clay_header`` is the strip over the viewport rather than a sidebar
-    # pane, and it walks with them for the reason they walk: an unbalanced
-    # disable stack or a popup left open is the same defect wherever it is.
-    for pane in (clay_tools, clay_props, clay_outliner, clay_bridge, clay_header):
+    # ``clay_header``, ``clay_rail`` and ``clay_palette`` are drawn inside the
+    # viewport rather than in a sidebar, and they walk with the panes for the
+    # reason the panes walk: an unbalanced disable stack, child or popup left
+    # open is the same defect wherever it is.
+    for pane in (clay_props, clay_outliner, clay_header, clay_rail, clay_palette):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
 
 
@@ -2693,19 +2707,20 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     """``saving`` puts every mutating control inside ``begin_disabled``, and an
     unbalanced disable stack is exactly the class of mistake this file exists
     to catch."""
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-    from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
+    from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
     tab.saving = True
-    # ``clay_header`` is the strip over the viewport rather than a sidebar
-    # pane, and it walks with them for the reason they walk: an unbalanced
-    # disable stack or a popup left open is the same defect wherever it is.
-    for pane in (clay_tools, clay_props, clay_outliner, clay_bridge, clay_header):
+    # ``clay_header``, ``clay_rail`` and ``clay_palette`` are drawn inside the
+    # viewport rather than in a sidebar, and they walk with the panes for the
+    # reason the panes walk: an unbalanced disable stack, child or popup left
+    # open is the same defect wherever it is.
+    for pane in (clay_props, clay_outliner, clay_header, clay_rail, clay_palette):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
 
 
@@ -2931,6 +2946,79 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
     assert seen["title"] == "Add a shape"
     assert "Add" in seen["hint"], "the palette it points at is called Add now"
     assert "Tools" not in seen["hint"]
+
+
+def test_the_clay_viewport_stacks_render_strip_and_hint_with_the_rail_beside_the_render(
+    app_ctx, imgui_ctx, gl, monkeypatch
+):
+    """The geometry of the compact layout, through the real viewport: the tool rail
+    is to the *left* of the render and as tall as it, the palette strip starts
+    exactly where the render ends and runs the full width under both, and the
+    hint line starts exactly where the strip's fixed 52 px ends. A strip that
+    overlapped the render would cover the model; one that left a gap would be a
+    band of unowned pixels."""
+    from imgui_bundle import imgui
+
+    from realmspinner.kernels.mesh import document as bd
+    from realmspinner.studio import widgets
+    from realmspinner.studio.main import App
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui import view as clay_view
+    from realmspinner.studio.modes.clay.ui.panes import hud as clay_hud
+    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
+    from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
+
+    app = App(app_ctx.runtime)
+    app.app_ctx = app_ctx
+    app.ctx = gl
+    clay_mode.adopt(app_ctx, bd.ClayDoc(), title="Empty")
+
+    seen: dict = {}
+    real_draw = clay_view.ClayView.draw
+    real_strip = clay_palette.draw
+    real_hint = clay_hud.hint_line
+    real_rail = clay_rail.draw
+
+    def draw(self, doc, rect, dt):
+        seen["rect"] = rect
+        return real_draw(self, doc, rect, dt)
+
+    def strip(ctx, width=0.0):
+        pos = imgui.get_cursor_screen_pos()
+        seen["strip"] = (pos.x, pos.y, width)
+        return real_strip(ctx, width)
+
+    def hint(ctx):
+        pos = imgui.get_cursor_screen_pos()
+        seen["hint"] = (pos.x, pos.y)
+        return real_hint(ctx)
+
+    def rail(ctx, height=0.0):
+        pos = imgui.get_cursor_screen_pos()
+        seen["rail"] = (pos.x, pos.y, height)
+        return real_rail(ctx, height)
+
+    monkeypatch.setattr(clay_view.ClayView, "draw", draw)
+    monkeypatch.setattr(clay_palette, "draw", strip)
+    monkeypatch.setattr(clay_hud, "hint_line", hint)
+    monkeypatch.setattr(clay_rail, "draw", rail)
+    try:
+        _frame(imgui_ctx, lambda: app._clay_viewport(app_ctx, clay_mode, widgets))
+    finally:
+        if app.clay_view is not None:
+            app.clay_view.release()
+
+    x, y, w, h = seen["rect"]
+    rail_x, rail_y, rail_h = seen["rail"]
+    strip_x, strip_y, strip_w = seen["strip"]
+    hint_x, hint_y = seen["hint"]
+    assert rail_x < x, "the rail is to the left of the render"
+    assert rail_y == pytest.approx(y) and rail_h == pytest.approx(h), "and exactly as tall"
+    assert strip_y == pytest.approx(y + h), "the strip starts where the render ends"
+    assert strip_x == pytest.approx(rail_x), "and runs under the rail as well"
+    assert strip_w >= (x - rail_x) + w - 1.0
+    assert hint_y == pytest.approx(strip_y + clay_palette.height()), "the hint is under the strip"
+    assert hint_x == pytest.approx(rail_x)
 
 
 def test_a_built_document_renders_the_flat_reference_trellis_is_given(app_ctx, gl):
@@ -6451,21 +6539,29 @@ def test_the_plotter_stamp_ghost_draws_the_brush_under_the_pointer(app_ctx, imgu
     state.tool = "stamp"
 
 
-#: What Clay's centre column actually gets at the app's default 1600x950. Two
-#: 300 dp sidebars and a 70 dp mode rail leave about this -- the number
-#: ``inker_context`` measured for the same reason and wrote down.
-CLAY_CENTRE_AT_DEFAULT = 835.0
+#: What Clay's centre column actually gets at the app's default 1600x950: one
+#: 300 dp sidebar and the 70 dp mode rail leave about this -- the number
+#: ``inker_context`` measured for the same reason and wrote down. It was 835
+#: with two sidebars; the left one is empty now (the tools are a rail *inside*
+#: the centre, below the header, so the header still spans the whole column),
+#: which hands its 300 dp to the centre.
+CLAY_CENTRE_AT_DEFAULT = 1135.0
 
 
 def _clay_header_tiers(imgui, avail: float) -> list[str]:
     """The tier ``toolbar`` would choose for each header entry at ``avail`` px."""
+    from realmspinner.kernels.mesh import document as bd
     from realmspinner.studio import toolbar
     from realmspinner.studio.modes.clay import state as clay_state
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
     state = clay_state.ClayState()
-    items = clay_header._items(state)
-    fields = [clay_header._tool_field(state)]
+    # A document in the state a fresh tab opens in: nothing to undo, so both
+    # history items are disabled -- which changes neither their width nor their
+    # tier, but is the case the first frame of every session draws.
+    tab = SimpleNamespace(doc=bd.ClayDoc(), saving=False)
+    items = clay_header._items(state, tab)
+    fields = [clay_header._mode_field(tab)]
     style = imgui.get_style()
     square = imgui.get_frame_height()
     full = [imgui.calc_text_size(item.label).x + style.frame_padding.x * 2.0 for item in items]
@@ -7068,6 +7164,61 @@ def test_the_clay_properties_tabs_show_their_own_sections_when_pressed(
     _press_tab(imgui_ctx, build, probe, "material")
     assert state.props_tab == "material"
     assert not shows_counts(drawn())
+
+
+def test_the_uv_tab_embeds_the_uv_body_without_a_second_heading(app_ctx, imgui_ctx, monkeypatch):
+    """UV was a pane of its own and is the Inspector's fourth tab: the same body,
+    minus a section heading the tab strip already supplies -- with the key-hover
+    stamps ``clay_mode.handle_key`` reads still recorded, because the shell routes
+    R and S without asking which pane the pointer is over."""
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import uv as clay_uv
+
+    tab = _clay_tab(app_ctx, objects=1)
+    state = clay_mode.ensure(app_ctx)
+    tab.doc.set_element_mode("object")
+    tab.doc.select([tab.doc.objects[0].uid])
+    headings: list[str] = []
+    real = clay_uv.widgets.section
+
+    def spy(label):
+        headings.append(label)
+        real(label)
+
+    monkeypatch.setattr(clay_uv.widgets, "section", spy)
+
+    state.frame_serial = 41
+    _frame(imgui_ctx, lambda: clay_uv.draw_embedded(app_ctx))
+    assert headings == [], "the tab strip already says UV"
+    assert tab.uv_view.frame_seen == 41, "the stamp the key guard reads is still written"
+
+    _frame(imgui_ctx, lambda: clay_uv.draw(app_ctx))
+    assert headings == ["UV"], "the standalone pane keeps its heading"
+
+    headings.clear()
+    state.props_tab = "uv"
+    _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
+    assert "UV" not in headings, "inside the Inspector it is the embedded body"
+
+
+def test_leaving_the_uv_tab_commits_an_armed_live_transform(app_ctx, imgui_ctx):
+    """An armed UV rotate or scale is committed by the canvas that armed it. Once
+    the user has clicked another tab that canvas is not drawn, so without this it
+    stayed armed with its undo gesture open and swallowed the viewport's R and S."""
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+
+    tab = _clay_tab(app_ctx, objects=1)
+    state = clay_mode.ensure(app_ctx)
+    tab.doc.select([tab.doc.objects[0].uid])
+    tab.uv_view.drag_mode = "rotate"
+    tab.uv_view.drag_mark = tab.doc.history.head
+    state.props_tab = "material"
+
+    _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
+
+    assert tab.uv_view.drag_mode == ""
 
 
 def test_the_clay_add_menu_imports_a_mesh_when_pressed(app_ctx, imgui_ctx, monkeypatch):

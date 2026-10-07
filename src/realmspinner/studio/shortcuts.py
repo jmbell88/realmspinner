@@ -141,7 +141,7 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
                 " / ".join(CLAY_KEYS.values()).capitalize(),
             ),
             ("1 / 2 / 3 / 4", "Vertex / edge / face / object mode"),
-            ("E", "Extrude, then drag it out -- along the face normal in face mode"),
+            ("E", "Extrude, then drag it out -- along the face normal (element modes)"),
             ("Shift+R", "Repeat the last operation (an element mode)"),
             ("I", "Inset faces -- drag, type a value, Enter (face mode)"),
             # Added by the 2026-09-07 audit's clay-08: the X-ray button's own
@@ -155,13 +155,18 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             # anyone typed to find here or in chapter 38.
             ("P", "Separate Selection (face mode)"),
             ("T", "Triangulate Faces (face mode)"),
-            # The keyboard's half of a drag. G and S rather than G, R and S:
-            # R is the Scale tool's letter and E is Rotate's, both taken long
-            # before this, so rotate is reached mid-drag instead.
-            ("G / S", "Move / scale the selection -- no handle to grab"),
+            # The keyboard's half of a drag. G, R and S are the tools' own
+            # letters (Q select, G move, R rotate, S scale), so pressing one
+            # lights its tool as well as starting the drag, and pressed
+            # mid-drag it switches the transform. E is no tool: it extrudes,
+            # in an element mode only.
+            (
+                "G / R / S",
+                "Move / rotate / scale the selection -- no handle to grab; mid-drag, switch",
+            ),
             ("L", "Select everything joined to the selection"),
-            ("G / R / S", "Switch the transform while a drag is under way"),
-            ("F", "Frame the selection"),
+            ("F", "Frame the selection, keeping the view angle"),
+            ("H / Shift+H / Alt+H", "Hide the selection / isolate it / show all"),
             ("Delete", "Delete -- faces in an element mode, objects otherwise"),
             ("Ctrl+J", "Duplicate (object mode)"),
             ("Ctrl+M", "Merge the selected objects (object mode)"),
@@ -184,6 +189,10 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Ctrl+1 / 3 / 7", "Look along front / right / top"),
             ("Ctrl+Shift+1 / 3 / 7", "The opposite view: back / left / bottom"),
             ("Ctrl+5", "Orthographic / perspective"),
+            # The numeric keypad reaches the same views without the Ctrl,
+            # which the main-row digits cannot spare: they pick the element
+            # mode. Numpad 5 toggles orthographic and numpad . frames.
+            ("Numpad 1 / 3 / 7", "Front / right / top view; numpad 5 ortho, numpad . frame"),
         ],
     )
     # Mason's own group, added with chapter 31 (Stage H of the Mason

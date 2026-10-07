@@ -465,10 +465,11 @@ def test_world_bounds_accounts_for_the_transform(view) -> None:
 # --- gizmos ------------------------------------------------------------------
 
 
-def test_no_gizmo_is_active_for_the_select_tool(view) -> None:
+def test_the_select_tool_shows_the_translate_gizmo_only_over_a_selection(view) -> None:
     doc = _doc(count=1)
+    assert view.active_gizmo(doc) is None, "nothing selected, nothing to move"
     doc.select([doc.objects[0].uid])
-    assert view.active_gizmo(doc) is None
+    assert view.active_gizmo(doc) is view.translate_gizmo
 
 
 def test_no_gizmo_is_active_with_nothing_selected(view) -> None:
@@ -822,14 +823,15 @@ def test_element_centre_follows_a_selected_childs_parent_after_it_moves(view) ->
     assert np.allclose(after, before + np.array([5.0, 0.0, 0.0]))
 
 
-def test_the_select_tool_shows_no_gizmo_in_an_element_mode(view) -> None:
+def test_the_select_tool_shows_the_translate_gizmo_only_over_selected_elements(view) -> None:
     from realmspinner.kernels.mesh import elements as el
 
     doc = _doc(count=1)
     _face_mode(doc)
-    doc.set_element_sel(doc.objects[0].uid, el.ElementSel(faces=[0]))
     view.app_ctx.state.clay.tool = "select"
-    assert view.active_gizmo(doc) is None
+    assert view.active_gizmo(doc) is None, "no elements selected"
+    doc.set_element_sel(doc.objects[0].uid, el.ElementSel(faces=[0]))
+    assert view.active_gizmo(doc) is view.translate_gizmo
     view.app_ctx.state.clay.tool = "move"
     assert view.active_gizmo(doc) is not None
 

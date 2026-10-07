@@ -3,10 +3,10 @@
 Three doors reach ``ClayDoc.paint_faces``, and each is pinned here:
 
 * the ``assign-material`` op (face mode, one parameter: the palette slot);
-* the Material tab's swatch row -- a click paints the selected faces in face
-  mode and repaints the object in object mode, exactly as the combo it
-  replaced did -- and the texture block below it (Add texture, Clear, Edit in
-  Inker, Take back);
+* the palette strip under the viewport -- a click paints the selected faces in
+  face mode and repaints the object in object mode, exactly as the combo it
+  replaced did -- and the Material tab's texture block (Add texture, Clear,
+  Edit in Inker, Take back);
 * ``clay_material``'s ``faces`` argument, for an agent.
 
 The pane is driven headless the way ``test_material_editor.py`` does it: a
@@ -33,7 +33,9 @@ from realmspinner.studio.modes.clay import menutree, texture_link
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
+from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.studio.modes.clay.ui.panes import swatches as clay_swatches
 
 
 class _Ctx:
@@ -57,6 +59,8 @@ class _Tab:
     def __init__(self, doc: bd.ClayDoc) -> None:
         self.uid = "t1"
         self.doc = doc
+        self.saving = False
+        self.job_id = ""
 
 
 @pytest.fixture
@@ -204,7 +208,7 @@ def test_the_agent_reaches_assign_material_through_clay_op_and_a_bad_slot_is_a_m
     assert body["ran"] is False and "no palette entry 7" in body["messages"][0]
 
 
-# --- the swatch row -----------------------------------------------------------
+# --- the palette strip --------------------------------------------------------
 
 
 def _frame(ui, draw) -> None:
@@ -221,29 +225,33 @@ def _press_swatch(monkeypatch: pytest.MonkeyPatch, index: int) -> list[dict]:
 
     def fake(label, colour, side, **kw):
         drawn.append({"label": label, "colour": colour, **kw})
-        return label == f"##matsw{index}"
+        return label == f"##palsw{index}"
 
-    monkeypatch.setattr(clay_props, "_swatch", fake)
+    monkeypatch.setattr(clay_swatches, "_swatch", fake)
     return drawn
 
 
-def _draw_material(ui, doc: bd.ClayDoc, uid: int, ctx: _Ctx) -> None:
-    obj = doc.by_uid(uid)
-    _frame(ui, lambda: clay_props._material(ctx, _Tab(doc), doc, obj))
+def _draw_strip(ui, doc: bd.ClayDoc, ctx: _Ctx) -> None:
+    _frame(ui, lambda: clay_palette._body(ctx, _Tab(doc)))
 
 
-def test_the_slot_combo_is_gone_and_there_is_one_swatch_per_palette_entry(
+def test_the_strip_draws_one_swatch_per_palette_entry_and_the_material_tab_none(
     monkeypatch: pytest.MonkeyPatch, ui
 ) -> None:
     doc, [uid] = _doc()
+    doc.select([uid])
     drawn = _press_swatch(monkeypatch, -1)
 
-    _draw_material(ui, doc, uid, _Ctx())
+    _draw_strip(ui, doc, _Ctx())
 
-    assert [d["label"] for d in drawn] == ["##matsw0", "##matsw1"]
+    assert [d["label"] for d in drawn] == ["##palsw0", "##palsw1"]
     assert [d["selected"] for d in drawn] == [True, False], "the object's default slot"
     assert drawn[1]["colour"] == pytest.approx((1.0, 0.0, 0.0, 1.0))
-    assert "labeled_combo" not in inspect.getsource(clay_props._material), "no combo any more"
+    source = inspect.getsource(clay_props._material)
+    assert "labeled_combo" not in source, "no combo any more"
+    drawn.clear()
+    _frame(ui, lambda: clay_props._material(_Ctx(), _Tab(doc), doc, doc.by_uid(uid)))
+    assert drawn == [], "the Material tab no longer draws a swatch row of its own"
 
 
 def test_a_textured_slot_is_marked_and_shows_its_first_texel() -> None:
@@ -253,6 +261,7 @@ def test_a_textured_slot_is_marked_and_shows_its_first_texel() -> None:
     assert clay_props._swatch_colour(doc.materials[1]) == pytest.approx(
         (10 / 255, 200 / 255, 30 / 255, 1.0)
     )
+    assert clay_swatches._swatch_colour is clay_props._swatch_colour, "one function, re-exported"
     assert clay_props._swatch_colour(doc.materials[0]) == pytest.approx(
         tuple(doc.materials[0].base_color_factor)
     )
@@ -262,10 +271,11 @@ def test_a_swatch_click_in_object_mode_repaints_the_whole_object_as_the_combo_di
     monkeypatch: pytest.MonkeyPatch, ui
 ) -> None:
     doc, [uid] = _doc()
+    doc.select([uid])
     _press_swatch(monkeypatch, 1)
     before = len(doc.history)
 
-    _draw_material(ui, doc, uid, _Ctx())
+    _draw_strip(ui, doc, _Ctx())
 
     obj = doc.by_uid(uid)
     assert obj.material == 1
@@ -284,7 +294,7 @@ def test_a_swatch_click_in_face_mode_paints_the_selected_faces_through_the_op(
     ctx = _Ctx()
     before = len(doc.history)
 
-    _draw_material(ui, doc, uid, ctx)
+    _draw_strip(ui, doc, ctx)
 
     obj = doc.by_uid(uid)
     assert list(obj.mesh.material) == [0, 0, 1, 1, 0, 0]
@@ -293,18 +303,24 @@ def test_a_swatch_click_in_face_mode_paints_the_selected_faces_through_the_op(
     assert ctx.info == ["Painted 2 face(s) with red."]
 
 
-def test_a_swatch_click_in_face_mode_with_no_faces_selected_only_picks_the_slot(
+def test_a_strip_click_in_face_mode_with_no_faces_selected_changes_nothing(
     monkeypatch: pytest.MonkeyPatch, ui
 ) -> None:
+    """With no faces there is no object in the selection either (in an element
+    mode an object is selected *through* its elements), so the strip has nothing
+    to paint and no single object whose slot it could retarget. The press is a
+    refused no-op -- it must not repaint the object behind the user's back."""
     doc, [uid] = _doc()
     doc.set_element_mode("face")
     _press_swatch(monkeypatch, 1)
+    before = len(doc.history)
 
-    _draw_material(ui, doc, uid, _Ctx())
+    _draw_strip(ui, doc, _Ctx())
 
     obj = doc.by_uid(uid)
-    assert obj.material == 1, "now the slot the fields below edit"
+    assert obj.material == 0
     assert not obj.mesh.material.any(), "and nothing was repainted behind the user's back"
+    assert len(doc.history) == before
 
 
 def test_ctrl_click_in_face_mode_picks_the_slot_without_painting(

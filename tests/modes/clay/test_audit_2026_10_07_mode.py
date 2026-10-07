@@ -87,7 +87,7 @@ def _hovered_uv_tab(ctx: FakeCtx, *, mode: str) -> tuple[Any, Any, Any]:
     return tab, doc, obj
 
 
-def test_e_over_the_uv_canvas_arms_the_uv_rotate_and_does_not_extrude_or_change_the_tool() -> None:
+def test_r_and_s_over_the_uv_canvas_arm_the_uv_gesture_and_do_not_change_the_tool() -> None:
     ctx = FakeCtx()
     tab, doc, obj = _hovered_uv_tab(ctx, mode="face")
     state = clay_mode.ensure(ctx)
@@ -95,19 +95,27 @@ def test_e_over_the_uv_canvas_arms_the_uv_rotate_and_does_not_extrude_or_change_
     tab.uv_view.key_hover_at = 40  # what the pane stamps on a frame it is hovered
     before = len(doc.by_uid(obj.uid).mesh.positions)
 
-    assert clay_mode.handle_key(ctx, _key(pygame.K_e)) is True
-    assert len(doc.by_uid(obj.uid).mesh.positions) == before, "E extruded the 3-D faces"
-    assert state.tool == "select"
+    # E is Extrude's, not the UV pane's any more: it must still extrude here
+    # only when the pointer is off the canvas, so the canvas claims R and S.
+    for key in (pygame.K_r, pygame.K_s):
+        assert clay_mode.handle_key(ctx, _key(key)) is True
+        assert state.tool == "select", "R/S over the UV canvas switched the 3-D tool"
+    assert len(doc.by_uid(obj.uid).mesh.positions) == before
 
     doc.set_element_mode("object")
-    assert clay_mode.handle_key(ctx, _key(pygame.K_e)) is True
-    assert clay_mode.handle_key(ctx, _key(pygame.K_r)) is True
-    assert state.tool == "select", "E/R over the UV canvas switched the 3-D tool"
+    for key in (pygame.K_r, pygame.K_s):
+        assert clay_mode.handle_key(ctx, _key(key)) is True
+        assert state.tool == "select"
 
     # The press lands before the next frame's panes draw, so last frame's stamp counts.
     state.frame_serial = 41
-    assert clay_mode.handle_key(ctx, _key(pygame.K_e)) is True
+    assert clay_mode.handle_key(ctx, _key(pygame.K_s)) is True
     assert state.tool == "select"
+
+    # Two frames on the claim has lapsed, and the key is the 3-D layer's again.
+    state.frame_serial = 43
+    assert clay_mode.handle_key(ctx, _key(pygame.K_s)) is True
+    assert state.tool == "scale"
 
 
 def test_e_with_the_pointer_off_the_uv_canvas_still_reaches_clays_key_layer() -> None:
@@ -126,6 +134,8 @@ def test_e_with_the_pointer_off_the_uv_canvas_still_reaches_clays_key_layer() ->
         assert doc.undo()
     doc.set_element_mode("object")
     clay_mode.handle_key(ctx, _key(pygame.K_e))
+    assert state.tool == "select", "E does nothing in object mode"
+    clay_mode.handle_key(ctx, _key(pygame.K_r))
     assert state.tool == "rotate"
 
 

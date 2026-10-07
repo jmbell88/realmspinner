@@ -1,4 +1,4 @@
-"""Properties is tabs: Object, Material and Document.
+"""Properties is tabs: Object, Material, Document and UV.
 
 The pane was one long scroll once. These claims pin the tab table and the
 fallback a saved setting naming a retired tab (Modifiers, Data, Scene) lands
@@ -15,7 +15,8 @@ def test_tab_keys_are_unique_and_the_default_is_one_of_them() -> None:
     keys = [key for key, *_ in clay_props.TABS]
     assert len(keys) == len(set(keys))
     assert clay_props.DEFAULT_TAB in keys
-    assert set(keys) == {"object", "material", "document"}
+    assert set(keys) == {"object", "material", "document", "uv"}
+    assert keys == ["object", "material", "document", "uv"], "the order the strip draws them in"
 
 
 def test_a_fresh_state_opens_on_object_and_an_unknown_tab_falls_back_to_it() -> None:
@@ -25,6 +26,8 @@ def test_a_fresh_state_opens_on_object_and_an_unknown_tab_falls_back_to_it() -> 
     assert clay_props.tab_key(state) == "object"
     state.props_tab = "document"
     assert clay_props.tab_key(state) == "document"
+    state.props_tab = "uv"
+    assert clay_props.tab_key(state) == "uv", "UV is a tab now, not a pane of its own"
 
 
 def test_a_saved_setting_naming_a_removed_tab_falls_back_to_object() -> None:
@@ -34,6 +37,10 @@ def test_a_saved_setting_naming_a_removed_tab_falls_back_to_object() -> None:
         assert clay_props.tab_key(state) == "object", retired
 
 
-def test_every_tab_has_a_glyph_and_a_sentence_for_its_tooltip() -> None:
-    for key, label, glyph, what in clay_props.TABS:
-        assert label and glyph and what, key
+def test_every_tab_is_named_in_words_and_has_a_sentence_for_its_tooltip() -> None:
+    """The strip used to be three glyphs (a box, a palette, a cog) whose names
+    were only in a tooltip. The label is the text drawn now, so it must be a
+    real word and not a glyph left over from the old table."""
+    for key, label, what in clay_props.TABS:
+        assert label.isalpha() and what, key
+        assert label.lower() == key or key == "uv", key

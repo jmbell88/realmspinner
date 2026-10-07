@@ -10,8 +10,8 @@ into an overflow with the names back rather than clipping.
 :func:`~realmspinner.studio.modes.clay.menutree.resolve` -- the same table the
 right-click menu reads -- so a label, a key, a greyed reason or a parameter
 dialog cannot differ between the two. The Add menu's primitive rows
-come from ``primitives.CLAY_GENERATORS``, the registry the left Add palette is
-already generated from, so a new shape appears in all three on its own.
+come from ``primitives.CLAY_GENERATORS``, the registry the tool rail's shape
+flyout is generated from, so a new shape appears in all three on its own.
 
 **The strip follows the element mode**, as Blender's swaps Object for Mesh /
 Vertex / Edge / Face: a menu whose groups hold nothing for the current mode is
@@ -111,9 +111,7 @@ def _add_source(ctx: Any, state: Any, tab: Any, section: Any) -> None:
                 if not opened:
                     continue
                 for name in names:
-                    if controls.menu_item(
-                        f"{name.replace('_', ' ').title()}##{BAR}/add/{name}"
-                    )[0]:
+                    if controls.menu_item(f"{clay_tools.display_name(name)}##{BAR}/add/{name}")[0]:
                         clay_tools.add_primitive(ctx, doc, name)
                         state.generator = name
     elif section.source == "import":

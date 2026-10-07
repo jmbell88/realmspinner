@@ -33,6 +33,10 @@ SEL_COLOR = (0.95, 0.25, 0.25, 1.0)
 HOVER_COLOR = (1.0, 0.85, 0.2, 1.0)
 GUIDE_COLOR = (0.55, 0.58, 0.62, 0.35)
 FILL_COLOR = (0.95, 0.25, 0.25, 0.28)
+# The outline of a selected *object* in object mode: orange, which is Blender's
+# and Unity's word for "this one is selected" and is not red, so it never reads
+# as an element selection (red) or the hover (yellow) it sits beside.
+OBJECT_SEL_COLOR = (1.0, 0.55, 0.1, 1.0)
 
 # How far a selected face's translucent fill is pulled toward the eye, as a
 # fraction of its distance. ``glPolygonOffset`` is the textbook answer and is
@@ -193,7 +197,7 @@ class OverlayOps:
         ``DrawItem`` grew a ``depth`` flag.
         """
         if doc.element_mode == "object":
-            self._release_overlays()
+            self._release_element_overlays()
             return []
 
         program = self.renderer.programs.get("solid")
@@ -363,7 +367,93 @@ class OverlayOps:
                 add(tris[tri_face == hover], moderngl.TRIANGLES, HOVER_COLOR, depth=False)
         return specs
 
-    def _release_overlays(self: ClayView) -> None:
+    def _object_overlays(self: ClayView, doc: Any) -> list[Any]:
+        """The object-mode outline: orange edges on each selected object, yellow on
+        the one under the cursor.
+
+        Object mode had no selection feedback on the model itself -- only the
+        gizmo said anything was selected, and a Select-tool user (no gizmo) had
+        nothing at all. The edges are drawn depth-tested and biased toward the eye
+        (the fill's recipe), so the near side of the outline sits over the surface
+        it lies on without z-fighting it and the far side stays hidden behind it:
+        a depth-off outline of every edge turns a selected box into a wireframe
+        cage and hides which side is facing the user.
+
+        A separate cache from :meth:`_element_overlays`' ``_overlays`` because the
+        two modes never share a key, and because object mode must not release
+        what element mode owns (nor the reverse) every frame it draws.
+        """
+        if doc.element_mode != "object":
+            self._release_object_overlays()
+            return []
+        program = self.renderer.programs.get("solid")
+        wanted: dict[int, bool] = {}
+        for obj in doc.objects:
+            if not obj.visible or len(obj.mesh.positions) == 0:
+                continue
+            selected = obj.uid in doc.selection
+            if selected or obj.uid == self.hover_object:
+                wanted[obj.uid] = selected
+        previewing = self._op_drag.bases if self._grab == "opdrag" else ()
+        items: list[Any] = []
+        for obj in doc.objects:
+            selected = wanted.get(obj.uid)
+            if selected is None or obj.uid in previewing:
+                continue
+            key = (id(obj.mesh), selected)
+            overlay = self._obj_overlays.get(obj.uid)
+            if overlay is None or overlay.key != key:
+                if overlay is not None:
+                    overlay.release()
+                overlay = _SelOverlay(self.ctx, program, key, obj.mesh.positions)
+                # Pinned so the id in the key stays sound; see ``_element_overlays``.
+                overlay.pins = obj.mesh
+                self._obj_overlays[obj.uid] = overlay
+            if overlay.specs is None:
+                from .....kernels.mesh.adjacency import adjacency
+
+                add, specs = self._collect(overlay, hover=False)
+                if selected:
+                    add(adjacency(obj.mesh).edge_verts, moderngl.LINES, OBJECT_SEL_COLOR,
+                        depth=True, biased=True)
+                overlay.specs = specs
+            hovered = 1 if obj.uid == self.hover_object else -1
+            if overlay.hover != hovered:
+                overlay.release_hover()
+                overlay.hover = hovered
+                if hovered >= 0 and not selected:
+                    from .....kernels.mesh.adjacency import adjacency
+
+                    add, specs = self._collect(overlay, hover=True)
+                    add(adjacency(obj.mesh).edge_verts, moderngl.LINES, HOVER_COLOR,
+                        depth=True, biased=True)
+                    overlay.hover_specs = specs
+            world = self._world(doc, obj)
+            for vao, gl_mode, color, depth, size, biased in [*overlay.specs, *overlay.hover_specs]:
+                items.append(
+                    DrawItem(
+                        vao=vao,
+                        color=color,
+                        model=_toward_eye(self.camera.position) @ world if biased else world,
+                        mode=gl_mode,
+                        depth=depth,
+                        point_size=size,
+                    )
+                )
+        for uid in [u for u in self._obj_overlays if u not in wanted]:
+            self._obj_overlays.pop(uid).release()
+        return items
+
+    def _release_element_overlays(self: ClayView) -> None:
         for overlay in self._overlays.values():
             overlay.release()
         self._overlays.clear()
+
+    def _release_object_overlays(self: ClayView) -> None:
+        for overlay in self._obj_overlays.values():
+            overlay.release()
+        self._obj_overlays.clear()
+
+    def _release_overlays(self: ClayView) -> None:
+        self._release_element_overlays()
+        self._release_object_overlays()

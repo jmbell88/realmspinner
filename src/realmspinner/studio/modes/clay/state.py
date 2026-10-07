@@ -34,9 +34,9 @@ if TYPE_CHECKING:
 # generator registry; the transform tools mirror the three gizmos.
 TOOLS = (
     ("select", "Select", "Q"),
-    ("move", "Move", "W"),
-    ("rotate", "Rotate", "E"),
-    ("scale", "Scale", "R"),
+    ("move", "Move", "G"),
+    ("rotate", "Rotate", "R"),
+    ("scale", "Scale", "S"),
 )
 
 # The snap increments a modelling package opens on: an eighth of a unit, and

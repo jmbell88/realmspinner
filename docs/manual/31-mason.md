@@ -85,7 +85,8 @@ picking objects out of a scene is what the [outliner](#the-outliner) is for.
 
 `Q`, `W`, `E` and `R` choose Select, Move, Rotate and Scale, and the gizmo in the viewport follows.
 Dragging an axis of the gizmo moves, turns or scales every selected node. This is
-[Clay's transform gizmo](30-clay.md#transforming) unchanged, and so are the keys.
+[Clay's transform gizmo](30-clay.md#transforming), though the letters are Mason's own: Clay chooses its
+tools with `Q`, `G`, `R` and `S`, and Mason keeps `Q`, `W`, `E` and `R`.
 
 The **Pivot** choice, in the viewport header, decides what a rotation or a scale happens *around*
 when more than one thing is selected.

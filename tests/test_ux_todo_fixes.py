@@ -223,7 +223,9 @@ def test_no_module_cites_a_retired_plan_file():
 #: check for. Looking each one up by name instead survives the next move.
 _PANES = pane_files()
 REASON_SWEPT = (
-    _PANES["clay_bridge.py"],
+    # The Document tab is the bridge pane now (2026-10-07): the file row, the
+    # history pair and the three exits all live in the Properties pane.
+    _PANES["clay_props.py"],
     _PANES["inker_bridge.py"],
     # Added in the Inker UX pass: this pane holds thirteen buttons that can
     # grey out and every one of them was silent about it, which is worse here

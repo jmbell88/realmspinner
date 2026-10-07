@@ -110,7 +110,8 @@ def test_every_mode_and_tool_pair_has_a_hint(mode, tool):
     assert line and "  " not in line
     # The two navigation buttons are on every line: they are what a newcomer to
     # a 3D viewport asks about first and what a manual is least open at.
-    assert "Alt+LMB orbit" in line and "MMB pan" in line
+    # The middle button pans bare or with Shift held, and the line says both.
+    assert "Alt+LMB orbit" in line and "MMB / Shift+MMB pan" in line
 
 
 def test_the_element_modes_advertise_only_the_verbs_they_still_have():
@@ -160,7 +161,14 @@ def test_every_key_the_line_names_is_a_key_the_mode_listens_to():
                 for key in clay_hints.keys_named(clay_hints.hint(mode, tool))
                 if len(key) == 1 and key.isupper()
             }
-    known = set(clay_mode.TOOL_KEYS) | {"g", "s", "r", "l"}
+    # The tool and drag letters, every bare-letter op the registry binds (E is
+    # Extrude's, no longer a tool key) and H, the hide key ``handle_key`` owns.
+    known = (
+        set(clay_mode.TOOL_KEYS)
+        | set(clay_mode.DRAG_KEYS)
+        | {op.key.lower() for op in clay_ops.OPS if len(op.key) == 1}
+        | {"l", "h"}
+    )
     assert letters <= known, sorted(letters - known)
 
 

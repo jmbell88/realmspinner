@@ -9,7 +9,8 @@ a diffusion model for a crate is the long way round.
 
 ## Getting a document
 
-`Ctrl+N` starts one, `Ctrl+O` opens a `.rblk`. A finished mesh in the library has **Open in Clay** in
+`Ctrl+N` starts one, `Ctrl+O` opens a `.rblk`; both, **Open Recent** and the exports are also in the
+**File** menu. A finished mesh in the library has **Open in Clay** in
 its menu, and a `.glb` dropped onto the window is imported.
 
 Two limits on import, both about memory rather than taste: past about 200,000 triangles Clay asks
@@ -26,7 +27,8 @@ torus and capsule. The game shapes, for blocking a level out: wedge, ramp, round
 and doorway. Place one and its parameters — radius, height, segments — stay live in the properties
 panel, so a cylinder can become a thinner cylinder without being rebuilt by hand. Anything else is
 built from these: a column is a cylinder. Clay no longer builds lathes, sweeps, tubes, arches, columns
-or pyramids.
+or pyramids. The rail down the left edge of the viewport places the shapes: a few as one-click buttons,
+and a **+** that lists all fifteen by name.
 
 **Until it freezes.** The first edit that changes topology — an extrude, an inset, a merge of faces —
 discards those parameters permanently, and the panel switches to a plain vertex and face count. It
@@ -39,20 +41,26 @@ wanted to tweak *after* modelling on it cannot be tweaked.
 ## Selecting and transforming
 
 `4`, `1`, `2`, `3` switch between Object, Vertex, Edge and Face modes. Selection is not undoable, on
-the reasoning that clicking a different object should not dirty a document.
+the reasoning that clicking a different object should not dirty a document. A selected object is
+outlined in orange.
 
-The tools are `Q` select, `W` move, `E` rotate, `R` scale. During a drag you can press `X`, `Y` or
+The tools are `Q` select, `G` move, `R` rotate, `S` scale; the last three also start a drag at once
+when something is selected, with no handle to grab. During a drag you can press `X`, `Y` or
 `Z` to lock to an axis and *type a number* to set the amount exactly — the two compose, so `X` then
-`2` moves two metres along X. `Esc` cancels the drag with nothing recorded.
+`2` moves two metres along X. `Esc` cancels the drag with nothing recorded. `H` hides the selection,
+`Shift`+`H` hides everything else and `Alt`+`H` brings it all back.
 
 One undo step per drag, committed on release, not one per mouse-move.
 
-Snapping is a grid for moving and an angle for rotating, and it applies to gizmo drags only. Set
-either to zero and that half is off. The details are in [Clay](30-clay.md), under *Snapping*. There is
-no snap to vertex and no soft falloff: to make two things touch, type their positions.
+Snapping is a grid for moving and an angle for rotating, and it applies to drags only. Set
+either to zero and that half is off. In an element mode each moved vertex lands on a grid point. The
+details are in [Clay](30-clay.md), under *Snapping*. The grid is all there is to snap to, with no snap
+to another object's vertex and no soft falloff: to make two things touch, type their positions.
 
-Camera: `Alt`-drag always orbits, `Ctrl+1`, `Ctrl+3` and `Ctrl+7` snap to axis views (add `Shift` for
-the opposite side), and `Ctrl+5` toggles orthographic.
+Camera: `Alt`-drag always orbits, the middle button (or `Shift` and the middle button) pans, and the
+wheel zooms toward the pointer. `F` frames the selection without turning the view. `Ctrl+1`, `Ctrl+3`
+and `Ctrl+7` snap to axis views (add `Shift` for the opposite side; the numeric keypad does the same
+without `Ctrl`), and `Ctrl+5` toggles orthographic.
 
 ## Editing the mesh
 
@@ -79,8 +87,8 @@ empty, so the set moves as one thing and each part is still a box you can resize
 
 One material palette per document, with slots referenced per face. A slot is a name, a base colour,
 an optional base-colour texture, double-sided and cutout — the picoCAD palette, a flat colour or a
-picture. Clicking a swatch in the Material tab repaints the object; in Face mode it paints the
-selected faces instead, and **Assign Material...** does the same from the menu.
+picture. Clicking a swatch in the palette strip under the viewport repaints the object; in Face mode it
+paints the selected faces instead, and **Assign Material...** does the same from the menu.
 
 Clay does not paint a texture itself — Inker does, and Clay opens it for you. **Add texture** on a slot
 makes a blank 32, 64 or 128 pixel picture in the slot's colour (box-unwrapping any object that had no

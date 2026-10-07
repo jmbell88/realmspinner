@@ -14,7 +14,7 @@ import inspect
 import re
 
 from realmspinner.studio import modes, state, verbs
-from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.inker import ops as inker_ops
 from realmspinner.studio.modes.inker.ui.panes import context as inker_context
 from realmspinner.studio.modes.library.ui.panes import library
@@ -54,7 +54,7 @@ def test_verbs_are_spelt_from_the_mode_table():
 
 def test_no_pane_spells_a_cross_workspace_verb_by_hand():
     panes = (
-        clay_bridge, inspector, library, muse_results, packwright_bridge,
+        clay_props, inspector, library, muse_results, packwright_bridge,
         plotter_menu, sheet_panel, sprite_panel, poser_sheet,
         inker_ops,
     )

@@ -519,7 +519,13 @@ def _row(
     if not filtered and has_children:
         collapsed = obj.uid in state.outliner_collapsed
         glyph = icons.CHEVRON_RIGHT if collapsed else icons.CHEVRON_DOWN
-        if controls.button(f"{glyph}##expand", (sp(_EXPANDER_W), sp(ROW_HEIGHT))):
+        if controls.button(
+            f"{glyph}##expand",
+            (sp(_EXPANDER_W), sp(ROW_HEIGHT)),
+            tooltip=(
+                "Show this object's children." if collapsed else "Hide this object's children."
+            ),
+        ):
             if collapsed:
                 state.outliner_collapsed.discard(obj.uid)
             else:
@@ -578,6 +584,10 @@ def _row(
             state.renaming = obj.uid
 
     imgui.same_line()
-    if controls.button(f"{icons.TRASH}##del", (sp(28), sp(ROW_HEIGHT))):
+    if controls.button(
+        f"{icons.TRASH}##del",
+        (sp(28), sp(ROW_HEIGHT)),
+        tooltip="Delete this object (Del). One undo step brings it back.",
+    ):
         _remove_object(ctx, doc, obj)
     imgui.pop_id()

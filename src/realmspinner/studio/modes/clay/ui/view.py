@@ -274,7 +274,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.god_light = False
         self.radius = 1.0
 
-        self.translate_gizmo = TranslateGizmo(ctx, self.renderer.programs)
+        self.translate_gizmo = TranslateGizmo(ctx, self.renderer.programs, planes=True)
         self.rotate_gizmo = RotateGizmo(ctx, self.renderer.programs)
         self.scale_gizmo = ScaleGizmo(ctx, self.renderer.programs)
 
@@ -330,6 +330,13 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self._op_drag: Any = None
         self._extrude_gesture: Any = None
         self._overlays: dict[int, _SelOverlay] = {}
+        # The object-mode outline's own cache (``_view_overlay._object_overlays``),
+        # and the object the cursor is over in object mode. ``_hover_pick_at`` is
+        # where the last hover pick was cast from, so a hover only re-picks once
+        # the pointer has really moved.
+        self._obj_overlays: dict[int, _SelOverlay] = {}
+        self.hover_object: int | None = None
+        self._hover_pick_at: tuple[float, float] | None = None
         self._element_centre = np.zeros(3)
         # Redraw bookkeeping (B13), the shape Viewer.render uses (B12).
         self._render_dirty = True
@@ -461,22 +468,30 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.camera.far = max(self.camera.far, self.camera.distance + self.grid_size)
         self.renderer.light_override = self.renderer.env.god_light if self.god_light else None
 
-        self.renderer.draw(
-            self.viewport,
-            self.camera,
-            self._composite(doc),
-            wireframe=self.wireframe,
-            flat=self.flat,
-            show_grid=self.show_grid,
-            wire_overlay=self.wire_overlay,
-            alpha=XRAY_ALPHA if self.xray else 1.0,
-            ground=self.god_light,
-            overlays=(
-                self._element_overlays(doc)
-                + self._gizmo_draws(doc, height)
-                + self._ghost_draws(doc)
-            ),
-        )
+        # The axis lines and origin marker are the interactive viewport's alone,
+        # set for this draw and put back: ``render_png`` and ``clay_render`` draw
+        # the same grid and must keep drawing the picture they always did.
+        self.renderer.grid.set_axes(True)
+        try:
+            self.renderer.draw(
+                self.viewport,
+                self.camera,
+                self._composite(doc),
+                wireframe=self.wireframe,
+                flat=self.flat,
+                show_grid=self.show_grid,
+                wire_overlay=self.wire_overlay,
+                alpha=XRAY_ALPHA if self.xray else 1.0,
+                ground=self.god_light,
+                overlays=(
+                    self._element_overlays(doc)
+                    + self._object_overlays(doc)
+                    + self._gizmo_draws(doc, height)
+                    + self._ghost_draws(doc)
+                ),
+            )
+        finally:
+            self.renderer.grid.set_axes(False)
         return self.viewport.texture
 
     def _world(self, doc: Any, obj: Any, index: dict[int, Any] | None = None) -> Any:
@@ -744,10 +759,15 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
 
         The tool lives on the mode's state rather than here, because it is an
         *app* setting shared across documents -- so this reads it rather than
-        holding it. Q (select) draws no gizmo in any mode, which in an element
-        mode is what frees the left button for the marquee.
+        holding it. Select shows the translate gizmo once there is something to
+        move -- a selected object, or selected elements -- so a selection always
+        has a handle on it, and a drag of that handle is a Move. Only the empty
+        space around it belongs to Select's marquee, which is what keeps the
+        left button free for it in an element mode.
         """
         kind = GIZMO_FOR_TOOL.get(getattr(self.state, "tool", "select"), "")
+        if not kind and getattr(self.state, "tool", "select") == "select":
+            kind = "translate"
         if not kind or not doc.selection:
             return None
         if doc.element_mode != "object" and not doc.element_sel:
@@ -779,6 +799,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         if self._grab not in ("gizmo", "keydrag"):
             return None
         kind = self._key_kind or str(getattr(self.state, "tool", ""))
+        if kind == "select":
+            # A Select-tool drag is the translate handle's: it is a move.
+            kind = "move"
         entry = self.drag_input
         return GizmoDragReadout(
             kind=kind,

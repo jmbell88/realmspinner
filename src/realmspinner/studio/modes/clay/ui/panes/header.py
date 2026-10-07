@@ -7,11 +7,18 @@ on the far side of the window from the model. Every one of them is a setting
 changed *between* clicks in the viewport, which is the same argument that moved
 Inker's tool options onto a context bar and Plotter's tools onto one.
 
-**The mode and the tool are fields, not items.** ``toolbar`` collapses items
-into an overflow menu before it collapses anything else, and a mode picker in a
-menu is a mode picker nobody can see the state of -- which is the one thing a
-mode picker is for. As fields they compete with the buttons by ``priority``, and
-they are priority 0.
+**The mode is a field, not an item.** ``toolbar`` collapses items into an
+overflow menu before it collapses anything else, and a mode picker in a menu is
+a mode picker nobody can see the state of -- which is the one thing a mode
+picker is for. As a field it competes with the buttons by ``priority``, and it
+is priority 0.
+
+**The tool is not here any more.** Select / Move / Rotate / Scale are the top of
+the tool rail beside the viewport (``rail.py``); a second pill for the same four
+buttons was two controls for one state. Its width went to Undo and Redo, which
+this bar had no button for at all -- the history lived three panes away in the
+Document tab, so the most-used control in a modeller was reachable only by a
+chord or a tab switch.
 
 **Modes are lettered, not drawn.** ``icons.py`` is a transcription of
 lucide-static 0.525.0 and its docstring forbids guessing a codepoint; the
@@ -35,7 +42,6 @@ from ..... import controls, fonts, icons, toolbar, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as clay_mode
-from ... import state as clay_state
 from . import strip as clay_strip
 from . import tools as clay_tools
 
@@ -81,27 +87,63 @@ def draw(ctx: Any, view: Any = None) -> None:
     clay_strip.draw(ctx, state, tab)
     hit = toolbar.toolbar(
         BAR,
-        _items(state),
-        fields=[_mode_field(tab), _tool_field(state)],
+        _items(state, tab),
+        fields=[_mode_field(tab)],
         trailing=_trailing(ctx, state, view),
     )
     if hit == "snap":
         imgui.open_popup(SNAP_POPUP)
+    elif hit == "undo":
+        # ``clay_mode.undo``/``redo`` rather than ``tab.doc.undo()``: the button
+        # and the chord carry the same side effects (see that module's history
+        # block).
+        clay_mode.undo(ctx, tab)
+    elif hit == "redo":
+        clay_mode.redo(ctx, tab)
     _snap_popup(state)
     widgets.divider()
 
 
-def _items(state: Any) -> list[Any]:
-    """The snap popover, which holds a switch and the numbers it governs.
+_UNDO_WHY = "Nothing to undo yet."
+_REDO_WHY = "Nothing to redo: this is the newest step."
 
-    Behind a button rather than on the bar because it is a switch *and* the
-    figures that switch governs -- a grid size and an angle -- and a 34 px row
-    is the wrong shape for a number field. ``selected`` on the button is what
+
+def _items(state: Any, tab: Any) -> list[Any]:
+    """Undo, Redo, and the snap popover.
+
+    **Undo and Redo read the document's own stack** (``tab.doc.history``): the
+    reason a greyed one gives is the history's, not a guess, and both grey while
+    a save is in flight for ``widgets.history_block``'s reason -- the chord is
+    already refused then (``docmodes.blocked_while_writing``), and a click that
+    could mutate the stack under a running encode must not be the way round it.
+    Clicking runs ``clay_mode.undo`` and ``redo`` (see :func:`draw`).
+
+    Snap is behind a button rather than on the bar because it is a switch *and*
+    the figures that switch governs -- a grid size and an angle -- and a 34 px
+    row is the wrong shape for a number field. ``selected`` on the button is what
     keeps the state visible with the popover shut, which is the whole reason a
     popover is allowed to hold a switch at all.
     """
 
+    history = tab.doc.history
+    busy = bool(getattr(tab, "busy", getattr(tab, "saving", False)))
     return [
+        toolbar.Item(
+            "undo",
+            "Undo",
+            icons.UNDO,
+            tooltip="Undo the last step (Ctrl+Z)",
+            enabled=bool(history.can_undo) and not busy,
+            reason=_SAVING if busy else _UNDO_WHY,
+        ),
+        toolbar.Item(
+            "redo",
+            "Redo",
+            icons.REDO,
+            tooltip="Redo the step you undid (Ctrl+Y)",
+            enabled=bool(history.can_redo) and not busy,
+            reason=_SAVING if busy else _REDO_WHY,
+        ),
         toolbar.Item(
             "snap",
             "Snap",
@@ -144,32 +186,6 @@ def _mode_field(tab: Any) -> Any:
             doc.set_element_mode(picked)
 
     return toolbar.Field("mode", "Mode", draw_it, width=176.0, compact=104.0)
-
-
-def _tool_field(state: Any) -> Any:
-    """Select / Move / Rotate / Scale, as glyphs at both tiers.
-
-    Four glyphs are already the smallest this can be, so its compact width is
-    its full one -- which is what ``Field`` means by a control that gets no
-    narrower. The letters are in the tooltips, where a compacted control's name
-    always goes.
-    """
-
-    def draw_it(_compact: bool) -> None:
-        options = [
-            (key, clay_tools.TOOL_ICONS.get(key) or label[:1])
-            for key, label, _shortcut in clay_state.TOOLS
-        ]
-        tips = {
-            key: f"{label}  ({shortcut})" for key, label, shortcut in clay_state.TOOLS
-        }
-        changed, picked = controls.segmented_choice(
-            "clay-tool", options, state.tool, tooltips=tips, compact=True
-        )
-        if changed:
-            state.tool = picked
-
-    return toolbar.Field("tool", "Tool", draw_it, width=124.0, compact=124.0)
 
 
 _SAVING = "This document is being written; the controls come back when it lands."
@@ -457,8 +473,8 @@ def measure(state: Any, tab: Any) -> float:
 
     style = imgui.get_style()
     gap = style.item_spacing.x
-    items = _items(state)
-    fields = [_mode_field(tab), _tool_field(state)]
+    items = _items(state, tab)
+    fields = [_mode_field(tab)]
     with fonts.label(imgui):
         widths = [widgets.button_width(item.label) for item in items]
     widths += [sp(field.width) for field in fields]

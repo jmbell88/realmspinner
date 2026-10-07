@@ -37,6 +37,14 @@ RING_TOLERANCE = 0.12
 ARROW_TOLERANCE = 0.10
 # The uniform-scale handle at the gizmo's centre, as a fraction of its size.
 CENTRE_RADIUS = 0.14
+# The translate gizmo's optional plane handles: a square between these two
+# distances along each of the plane's axes, as a fraction of the gizmo's size.
+# Clear of both arrows (which hug their own axis) so the two never compete for
+# the same click.
+PLANE_NEAR = 0.25
+PLANE_FAR = 0.55
+#: The plane handles, named by the two axes they span; the third is the normal.
+PLANES = {"xy": "z", "yz": "x", "xz": "y"}
 # A scale factor is clamped here rather than allowed to reach zero or go
 # negative. Zero is a transform that cannot be inverted -- picking and the
 # gizmo's own placement both stop working -- and negative is a mirror, which
@@ -271,8 +279,53 @@ class RotateGizmo(Gizmo):
         return items
 
 
+def plane_square(plane: str) -> np.ndarray:
+    """-> (8, 3) line vertices: the outline of a plane handle's square."""
+    a, b = (AXES[c] for c in plane)
+    corners = [
+        a * PLANE_NEAR + b * PLANE_NEAR,
+        a * PLANE_FAR + b * PLANE_NEAR,
+        a * PLANE_FAR + b * PLANE_FAR,
+        a * PLANE_NEAR + b * PLANE_FAR,
+    ]
+    verts = []
+    for i in range(4):
+        verts += [corners[i], corners[(i + 1) % 4]]
+    return np.array(verts, dtype="f4")
+
+
 class TranslateGizmo(Gizmo):
-    """Three arrows on the world axes; a drag slides along one."""
+    """Three arrows on the world axes; a drag slides along one.
+
+    With ``planes=True`` it also carries three square handles (XY, YZ, XZ) that
+    slide the gizmo freely in that plane. Off by default: Mason and Poser move
+    things along an axis and have no use for a handle that moves two at once --
+    Clay, which edits vertices on a grid, is the caller that turns it on.
+    """
+
+    #: Class-level so a stand-in that borrows ``hit`` without ``__init__`` (the
+    #: Poser viewer's tests do) sees "no plane handles" rather than a missing field.
+    planes = False
+
+    def __init__(self, ctx: Any, programs: Any, planes: bool = False) -> None:
+        super().__init__(ctx, programs)
+        self.planes = bool(planes)
+
+    def _plane_hit(self, origin: np.ndarray, direction: np.ndarray) -> str | None:
+        """Which plane handle's square the ray lands in, or ``None``."""
+        best: tuple[float, str] | None = None
+        for plane, normal_axis in PLANES.items():
+            hit = picking.ray_plane(origin, direction, self.origin, AXES[normal_axis])
+            if hit is None:
+                continue
+            local = (hit - self.origin) / max(self.scale, 1e-12)
+            u, v = (float(local["xyz".index(c)]) for c in plane)
+            if not (PLANE_NEAR <= u <= PLANE_FAR and PLANE_NEAR <= v <= PLANE_FAR):
+                continue
+            distance = float(np.linalg.norm(hit - origin))
+            if best is None or distance < best[0]:
+                best = (distance, plane)
+        return None if best is None else best[1]
 
     def hit(self, origin: np.ndarray, direction: np.ndarray) -> str | None:
         best: tuple[float, str] | None = None
@@ -285,9 +338,18 @@ class TranslateGizmo(Gizmo):
                 continue
             if distance <= self.scale * ARROW_TOLERANCE and (best is None or distance < best[0]):
                 best = (distance, axis)
-        return None if best is None else best[1]
+        if best is not None:
+            return best[1]
+        return self._plane_hit(origin, direction) if self.planes else None
 
     def begin(self, axis: str, origin: np.ndarray, direction: np.ndarray) -> bool:
+        if axis in PLANES:
+            normal = AXES[PLANES[axis]]
+            hit = picking.ray_plane(origin, direction, self.origin, normal)
+            if hit is None:
+                return False
+            self.drag = Drag(axis=axis, start=hit, origin=self.origin.copy(), normal=normal)
+            return True
         s, _distance = picking.closest_on_axis(origin, direction, self.origin, AXES[axis])
         self.drag = Drag(
             axis=axis,
@@ -298,9 +360,16 @@ class TranslateGizmo(Gizmo):
         return True
 
     def update(self, origin: np.ndarray, direction: np.ndarray) -> np.ndarray | None:
-        """-> the gizmo's new world position, constrained to the drag's axis."""
+        """-> the gizmo's new world position, constrained to the drag's axis or plane."""
         if self.drag is None:
             return None
+        if self.drag.axis in PLANES:
+            hit = picking.ray_plane(origin, direction, self.drag.origin, self.drag.normal)
+            if hit is None:
+                return None
+            moved = self.drag.origin + (hit - self.drag.start)
+            self.origin = moved
+            return moved
         s, _distance = picking.closest_on_axis(
             origin, direction, self.drag.origin, self.drag.normal
         )
@@ -327,6 +396,19 @@ class TranslateGizmo(Gizmo):
                     mode=moderngl.LINES,
                 )
             )
+        if self.planes:
+            for plane, normal_axis in PLANES.items():
+                # Coloured by the axis the plane is perpendicular to (XY blue),
+                # which is how Blender and Unity colour theirs.
+                colour = HOVER_COLOR if plane == active else AXIS_COLORS[normal_axis]
+                items.append(
+                    DrawItem(
+                        vao=self._geometry(f"plane:{plane}", plane_square(plane)),
+                        color=(*_rgb(colour), 1.0),
+                        model=model,
+                        mode=moderngl.LINES,
+                    )
+                )
         return items
 
 

@@ -1,5 +1,12 @@
-"""The selected object -- its transform, its generator's parameters, its material -- and
-the document's own counts and import settings.
+"""The Inspector: the selected object, its material, the document, and its UVs.
+
+Four tabs (``TABS``). **Object** is the selected object's name, parent, transform and
+its generator's parameters; **Material** is the selected slot's colour, flags and
+texture (the swatches themselves are the palette strip under the viewport); **Document**
+is the file row, the counts, the history, the import settings and the ways out -- what
+``bridge.py`` drew before the right column became two panes; **UV** is ``uv.py``'s body,
+embedded. In an element mode the Object and Material tabs also open with the selection's
+median as three editable numbers.
 
 **The parameter widgets are generated from the registry, not written by hand.**
 ``primitives.GENERATORS`` maps a name to ``(defaults, builder)`` and every
@@ -24,6 +31,7 @@ from __future__ import annotations
 import logging
 import weakref
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -33,17 +41,25 @@ from ......kernels.geom3d import math3d as m3
 from ......kernels.geom3d import units
 from ......kernels.mesh import document as clay_document
 from ......kernels.mesh import elements as el
+from ......kernels.mesh import measure, regen
 from ......kernels.mesh import primitives as bp
-from ......kernels.mesh import regen
 from ......kernels.mesh import uv as uv_projection
-from ..... import controls, icons, theme, tokens, widgets
+from ..... import controls, icons, tokens, verbs, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
+from ... import doc_io, element_move, transform_edit
 from ... import mode as clay_mode
 from ... import ops as clay_ops
-from ... import transform_edit
 from ...state import ClayState
 from . import outliner as clay_outliner
+from . import swatches
+from . import uv as clay_uv
+
+# The swatch code left for ``swatches.py`` with the swatch row (it is the
+# palette strip's now). Re-exported under the names this module always had,
+# because the tests that drive a press reach for ``clay_props._pick_slot`` and
+# ``clay_props._swatch_colour`` by those names.
+from .swatches import SWATCH, _pick_slot, _swatch, _swatch_colour  # noqa: F401
 
 log = logging.getLogger(__name__)
 
@@ -68,14 +84,28 @@ def draw(ctx: Any) -> None:
 
 
 #: The tabs of this pane, Blender's Properties editor reduced to what Clay has:
-#: ``(key, label, glyph, what it holds)``. Glyph-only on the strip (a 300 px
-#: sidebar has no room for three words) with the label and contents in the
-#: tooltip, as the header's tool pill does.
-TABS: tuple[tuple[str, str, str, str], ...] = (
-    ("object", "Object", icons.BOX, "Name, parent, transform and the shape's own numbers"),
-    ("material", "Material", icons.PALETTE, "The palette and textures"),
-    ("document", "Document", icons.SETTINGS, "Counts and the import settings, document-wide"),
+#: ``(key, label, what it holds)``. Words on the strip, not glyphs: the glyph
+#: strip had a box, a palette and a cog, which named none of the three -- the
+#: label was only in a tooltip, so the first thing a new user did with the tabs
+#: was hover each. The fourth, UV, was a pane of its own in the right column
+#: until the column became two slots (outliner and this); it is a tab now.
+TABS: tuple[tuple[str, str, str], ...] = (
+    ("object", "Object", "Name, parent, transform and the shape's own numbers"),
+    ("material", "Material", "The selected slot's colour, flags and texture"),
+    ("document", "Document", "Counts, import settings, history and the ways out"),
+    ("uv", "UV", "Texture coordinates: select islands, move, rotate, scale, pack"),
 )
+
+#: What this pane refuses to shrink past, in design pixels: the heading, the tab
+#: strip and a few rows under it.
+#:
+#: It is the right column's **fill** now, below the outliner's share, and
+#: ``layout_skeleton.heights`` hands a fill whatever the share left -- so on a
+#: short window, with no floor, the tab strip was all there was. The same
+#: lesson ``bridge.py`` learned for its own pane when two shares above it left
+#: it exactly zero pixels; a floor is how a pane says it needs a few rows to
+#: mean anything.
+PROPS_FLOOR = 280.0
 
 #: The tab a pane falls back to when ``ClayState.props_tab`` names one that no
 #: longer exists (a saved setting from a build with different tabs).
@@ -100,22 +130,38 @@ def _body(ctx: Any) -> None:
     current = tab_key(state)
     changed, picked = controls.segmented_choice(
         "clay-props-tab",
-        [(key, glyph) for key, _label, glyph, _what in TABS],
+        [(key, label) for key, label, _what in TABS],
         current,
-        tooltips={key: f"{label} -- {what}" for key, label, _glyph, what in TABS},
+        tooltips={key: f"{label} -- {what}" for key, label, what in TABS},
         compact=True,
     )
     if changed:
         state.props_tab = current = picked
     imgui.dummy((0, sp(tokens.SP_2)))
+    uv_view = getattr(tab, "uv_view", None)
+    if current != "uv" and uv_view is not None and uv_view.drag_mode in ("rotate", "scale"):
+        # A live UV rotate/scale armed on the canvas, and the user has since moved
+        # to another tab: the canvas that would commit it is no longer drawn, so
+        # it would stay armed with its undo gesture open (which switches the
+        # stack's eviction off for the rest of the document's life) and swallow
+        # the 3-D viewport's R and S. Committed, the choice every other way out
+        # makes (`UvPaneState`'s tab switch and selection change).
+        clay_uv.commit_live_transform(doc, uv_view)
     if current == "document":
         # The only tab about the document rather than the selection, so it is
         # the one that needs no object.
         imgui.begin_disabled(tab.saving)
-        _document(ctx, doc)
+        _document(ctx, tab, doc)
         imgui.end_disabled()
         return
-    _element_summary(doc)
+    if current == "uv":
+        # Its own pane's body, embedded: the UV tools draw their own empty
+        # states and gate themselves on ``tab.saving``, so nothing here
+        # decides for them. The element summary is not repeated -- a UV island
+        # selection is not an element selection.
+        clay_uv.draw_embedded(ctx)
+        return
+    _element_summary(doc, state)
     obj = _selected(doc)
     if obj is None:
         # Two sentences, because ``_selected`` returns None for two different
@@ -164,49 +210,261 @@ def _nothing_selected_text(doc: Any, tab: str = "object") -> tuple[str, str]:
         return "Nothing selected", "Click an object in the viewport."
     hint = f"Click {noun} in the viewport."
     if doc.element_mode == "face" and tab == "material":
-        hint += " Then pick a swatch to paint it."
+        hint += " Then pick a swatch in the palette strip to paint it."
     return "Nothing selected", hint
 
 
-def _document(ctx: Any, doc: Any) -> None:
-    """The document as a whole: what is in it, and how the next import reads a file.
+def _document(ctx: Any, tab: Any, doc: Any) -> None:
+    """The document as a whole: its file, what is in it, the history, how the next
+    import reads a file, and the ways out.
+
+    This is the tab that replaced ``bridge.py`` (the right column's third pane)
+    when the column became the outliner over the Inspector: everything that pane
+    drew is here, in the order it drew it, so nothing about a document went
+    unreachable -- the file row, the counts, Undo/Redo and the step popover, the
+    exports and the last export's id.
 
     The counts are of what leaves the document -- visible objects only, the same
     set the exporters write -- so the triangle line is a promise about the
     exported file.
     """
-    from . import bridge as clay_bridge
-
-    visible = [obj for obj in doc.objects if obj.visible]
-    widgets.field_label("counts")
-    widgets.muted(
-        f"{len(visible)} of {len(doc.objects)} objects visible  -  "
-        f"{len(doc.materials)} materials"
-    )
-    widgets.muted(
-        f"{sum(len(o.mesh.positions) for o in visible):,} vertices  -  "
-        f"{sum(max(0, len(o.mesh.starts) - 1) for o in visible):,} faces  -  "
-        f"{sum(clay_bridge._triangles(o.mesh) for o in visible):,} triangles"
+    # "Model file", the shape of every other bridge's heading ("Drawing file",
+    # "Map file", "Song file", "Atlas file").
+    widgets.section("Model file")
+    widgets.document_header(
+        tab,
+        new=lambda: clay_mode.new_document(ctx),
+        open_=lambda: clay_mode.ask_open(ctx),
+        save=lambda: clay_mode.save(ctx, tab),
+        save_as=lambda: clay_mode.save_as(ctx, tab),
     )
     imgui.dummy((0, sp(tokens.SP_2)))
-    clay_bridge.import_settings(ctx)
+    widgets.field_label("counts")
+    widgets.muted(doc_io.objects_line(doc))
+    widgets.muted(doc_io.geometry_line(doc))
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _history(ctx, tab)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _import_settings(ctx)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _outputs(ctx, tab)
+    widgets.recent_files(
+        clay_mode.recent_paths(ctx), lambda path: clay_mode.open_path(ctx, Path(path))
+    )
 
 
-def _element_summary(doc: Any) -> None:
-    """One line saying what is selected inside the objects, in element modes.
+def _history(ctx: Any, tab: Any) -> None:
+    """Undo and Redo, on screen -- and the step count as the history popover.
+
+    ``clay_mode.undo``/``redo`` rather than ``tab.doc.undo()`` here, so the
+    button and the chord carry the same side effects (see the history block in
+    that module).
+    """
+    widgets.history_block(
+        ctx,
+        tab,
+        key="clay",
+        undo=lambda: clay_mode.undo(ctx, tab),
+        redo=lambda: clay_mode.redo(ctx, tab),
+        step=lambda index: clay_mode.step_history(ctx, tab, index),
+    )
+
+
+def _import_settings(ctx: Any) -> None:
+    """The units and up-axis the next mesh import uses.
+
+    ``ClayState.import_scale``/``import_up`` are what the Add menu's "Import
+    Mesh..." row and a file dropped on the viewport both read
+    (``clay_mode.import_mesh_path``'s own defaults) -- set here and remembered
+    for the next import in either form. The row that *runs* the import is in
+    the menu strip; these two are settings, and the Document tab is where the
+    document-wide settings are.
+    """
+    state = clay_mode.ensure(ctx)
+    widgets.field_label("import units")
+    scale_key = f"{state.import_scale:g}"
+    picked = widgets.combo(
+        "##clay-import-scale", scale_key, doc_io.IMPORT_SCALE_OPTIONS, sp(90)
+    )
+    if picked != scale_key:
+        state.import_scale = float(picked)
+    widgets.field_label("import up axis")
+    state.import_up = widgets.combo(
+        "##clay-import-up", state.import_up, doc_io.IMPORT_UP_OPTIONS, sp(90)
+    )
+
+
+def _outputs(ctx: Any, tab: Any) -> None:
+    """The ways out of the document: the library, a mesh file, a picture.
+
+    Two genuinely different destinations: the exact geometry into the library as
+    an asset (everything downstream -- rigging, posing, sprite sheets -- is a
+    function of it), or a plain file on disk the library never sees.
+    """
+    # The one heading every mode's exits are under. See ``inker_bridge``'s
+    # ``_pipeline`` for why the five of them agree on a name.
+    widgets.section("Take it somewhere")
+    doc = tab.doc
+    why = doc_io.outputs_why(doc, tab.saving)
+    ready = not why
+
+    if widgets.primary_button(
+        f"{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}",
+        enabled=ready,
+        reason=why,
+        tooltip=doc_io.EXPORT_LIBRARY_TOOLTIP,
+    ):
+        clay_mode.export_asset(ctx, tab)
+
+    # Two labelled buttons rather than "Export File..." plus a bare "OBJ": the
+    # first spelling wrote GLB without saying so, and a format is exactly the
+    # thing a user reading the row needs to see before pressing.
+    if widgets.disabled_button(
+        f"{icons.DOWNLOAD} Export GLB...", ready, reason=why, tooltip=doc_io.EXPORT_GLB_TOOLTIP
+    ):
+        clay_mode.export_mesh_file(ctx, tab, "glb")
+    imgui.same_line()
+    if widgets.disabled_button(
+        "Export OBJ...", ready, reason=why, tooltip=doc_io.EXPORT_OBJ_TOOLTIP
+    ):
+        clay_mode.export_mesh_file(ctx, tab, "obj")
+    imgui.same_line()
+    if widgets.disabled_button(
+        f"{icons.CAMERA} Save screenshot...",
+        ready,
+        reason=why,
+        tooltip=doc_io.SCREENSHOT_TOOLTIP,
+    ):
+        clay_mode.save_screenshot(ctx, tab)
+
+    if tab.job_id:
+        widgets.muted(f"Last exported as {tab.job_id}")
+
+
+def _element_summary(doc: Any, state: Any = None) -> None:
+    """What is selected inside the objects, in element modes: a line, the
+    median as three editable numbers, and a measurement.
 
     The object panel below stays exactly as it was -- an element selection is
     still an object selection, by the document's own invariant -- so this adds
-    a line rather than replacing the pane. It is also where the *frozen* branch
+    rows rather than replacing the pane. It is also where the *frozen* branch
     of the generator section finally becomes reachable: an op that edits
     topology clears ``generator``, and this is usually the first thing the user
     sees afterwards.
+
+    **Outside the one-object gate**, and that is why the numbers are here and
+    not in the Transform block: an element selection can span three objects, and
+    the median of it is a fact about the selection, not about any one object. A
+    face selection on one cube used to be movable only by dragging; a modeller
+    putting a vertex at an exact coordinate had no field to type it into.
     """
     text = element_summary_text(doc)
     if text is None:
         return
     widgets.muted(text)
     imgui.dummy((0, sp(tokens.SP_1)))
+    _element_median(doc, state)
+    line = element_measure_text(doc, _unit_of(state))
+    if line:
+        widgets.muted(line)
+        imgui.dummy((0, sp(tokens.SP_1)))
+
+
+def _unit_of(state: ClayState | None) -> str:
+    """The unit position and size are shown in (``ClayState.length_unit``)."""
+    ui = _display_state(state)
+    return ui.length_unit if ui.length_unit in dict(units.LENGTH_UNITS) else units.DEFAULT_UNIT
+
+
+def _element_median(doc: Any, state: ClayState | None) -> None:
+    """The selection's world median as three numbers you can type into.
+
+    ``commit=True``: the field reports on Enter or on leaving it, so typing
+    "120" is one move to 120 and not three steps to 1, 12 and 120 -- the rule
+    every undoable field in this pane follows (``_identity``'s name, and the
+    transform fields via ``fold_undo``). The move itself is
+    :func:`element_move.move_elements`, the door the G drag also ends in: one
+    undo step however many objects hold a selection, parented objects handled,
+    hidden ones skipped.
+    """
+    median = element_move.element_median_world(doc)
+    if median is None:
+        return
+    unit = _unit_of(state)
+    shown = units.vec_to_display(median, unit)
+    widgets.field_label("median")
+    edited, typed = controls.input_vec(
+        "##median##bmedian",
+        list(shown),
+        ("X", "Y", "Z"),
+        commit=True,
+        tooltip="The middle of the selected elements, in world space. Type a "
+        "coordinate to move them there.",
+    )
+    controls.fold_undo(doc.history)
+    if edited:
+        commit_median(doc, median, shown, typed, unit)
+
+
+def commit_median(doc: Any, median: Any, shown: Any, typed: Any, unit: str) -> bool:
+    """Move the selection so its median is where the user typed. -> whether it moved.
+
+    Only the axes that were typed into go back through the unit: converting an
+    untouched axis out and back would let a unit's rounding nudge it, and a
+    centimetre display of 0.0125 m must not turn a Y-only edit into an X move.
+    """
+    delta = [
+        0.0
+        if typed[i] == shown[i]
+        else units.from_display(typed[i], unit) - float(median[i])
+        for i in range(3)
+    ]
+    return element_move.move_elements(doc, delta)
+
+
+def element_measure_text(doc: Any, unit: str = units.DEFAULT_UNIT) -> str | None:
+    """A read-only measurement of the element selection, or ``None``.
+
+    Edge mode: the summed length of the selected edges. Face mode: the summed
+    area of the selected faces -- :func:`~.kernels.mesh.measure.face_area`, the
+    function the HUD's ``area`` line and the agent's ``clay_measure`` both call,
+    so the three cannot disagree about one face. Vertex mode has the HUD's
+    distance and angle already, and object mode has no element selection.
+    Hidden objects are skipped for ``element_summary_text``'s reason.
+    """
+    from ......kernels.mesh.selection import _element_pickable
+
+    if doc.element_mode not in ("edge", "face"):
+        return None
+    total = 0.0
+    found = False
+    for uid, sel in doc.element_sel.items():
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            continue
+        if not _element_pickable(obj):
+            continue
+        world = doc.world_matrix(uid)
+        if doc.element_mode == "face":
+            if not len(sel.faces):
+                continue
+            found = True
+            total += measure.face_area(obj.mesh, sel.faces, world)
+        else:
+            if not len(sel.edges):
+                continue
+            found = True
+            points = element_move.apply_affine(world, obj.mesh.positions.astype("f8"))
+            pairs = np.asarray(sel.edges, dtype="i8")
+            total += float(
+                np.linalg.norm(points[pairs[:, 1]] - points[pairs[:, 0]], axis=1).sum()
+            )
+    if not found:
+        return None
+    if doc.element_mode == "face":
+        return f"area  {total:.4f} m\u00b2"
+    return f"length  {units.to_display(total, unit):.4f} {unit}"
 
 
 def element_summary_text(doc: Any) -> str | None:
@@ -243,18 +501,9 @@ def element_summary_text(doc: Any) -> str | None:
 
 
 def _selected(doc: Any) -> Any:
-    """The one selected object, or None.
-
-    One rather than the first of many: a properties panel that silently edited
-    whichever object happened to sort first under a multi-selection is worse
-    than one that says it cannot.
-    """
-    if len(doc.selection) != 1:
-        return None
-    try:
-        return doc.by_uid(next(iter(doc.selection)))
-    except KeyError:
-        return None
+    """The one selected object, or None -- :func:`swatches.single_selected`,
+    which the palette strip shares so the two agree on "one"."""
+    return swatches.single_selected(doc)
 
 
 def _identity(doc: Any, obj: Any) -> None:
@@ -284,7 +533,6 @@ def _set_parent(ctx: Any, doc: Any, uid: int, parent: int | None) -> None:
     every other refusal in this mode uses.
     """
     from ......kernels.mesh.elements import OpError
-    from ... import ops as clay_ops
 
     try:
         doc.set_parent(uid, parent, keep_world=True)
@@ -326,7 +574,10 @@ def _relations(ctx: Any, doc: Any, obj: Any) -> None:
         "the local numbers below, and which frame they are read in, change.",
     )
     if widgets.disabled_button(
-        "Clear parent##clearparent", obj.parent is not None, reason=_clear_parent_reason(obj)
+        "Clear parent##clearparent",
+        obj.parent is not None,
+        reason=_clear_parent_reason(obj),
+        tooltip="Detach this object from its parent. It stays where it is in the world.",
     ):
         picked = "0"
     if picked != current:
@@ -361,7 +612,6 @@ def _apply_transform(doc: Any, obj: Any, ctx: Any, **fields: Any) -> bool:
     with none given the refusal is re-raised rather than swallowed.
     """
     from ......kernels.mesh.elements import OpError
-    from ... import ops as clay_ops
 
     try:
         doc.set_transform(obj.uid, **fields)
@@ -653,7 +903,6 @@ def apply_generator_params(
     # ``_apply_transform``'s own catch gives: several tests drive this door
     # with a bare ``(doc, obj)`` and no ``ctx``.
     from ......kernels.mesh.elements import OpError
-    from ... import ops as clay_ops
 
     try:
         doc.set_generator_params(obj.uid, edited, mesh, was={"params": params})
@@ -717,133 +966,18 @@ def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
     return value, False
 
 
-#: A palette swatch's side, in design px -- the size Inker's own palette uses.
-SWATCH = 22.0
-
-
-def _swatch_colour(material: Any) -> tuple[float, float, float, float]:
-    """What a palette swatch is filled with.
-
-    A textured slot's colour factor is white (``add_texture`` moves the colour
-    into the picture), so the factor would draw every textured slot the same;
-    its first texel, already sRGB bytes, tells them apart.
-    """
-    image = material.base_color
-    if image is not None and len(image[2]) >= 4:
-        r, g, b = image[2][0], image[2][1], image[2][2]
-        return (r / 255.0, g / 255.0, b / 255.0, 1.0)
-    return tuple(float(c) for c in material.base_color_factor)  # type: ignore[return-value]
-
-
-def _swatch(
-    label: str,
-    colour: tuple[float, float, float, float],
-    side: float,
-    *,
-    selected: bool,
-    textured: bool,
-    tooltip: str,
-) -> bool:
-    """One palette swatch button. -> whether it was clicked.
-
-    The one place the row touches imgui's colour button, so a test can stand in
-    a press without a mouse. The slot the object defaults to is outlined in the
-    accent; a textured slot carries a corner notch so it reads as a picture and
-    not as a flat colour.
-    """
-    if selected:
-        imgui.push_style_color(imgui.Col_.border.value, imgui.ImVec4(*theme.rgba(theme.ACCENT)))
-        imgui.push_style_var(imgui.StyleVar_.frame_border_size.value, sp(2.0))
-    clicked = imgui.color_button(label, imgui.ImVec4(*colour), 0, (side, side))
-    if selected:
-        imgui.pop_style_var()
-        imgui.pop_style_color()
-    if textured:
-        low = imgui.get_item_rect_max()
-        notch = max(sp(5.0), side * 0.3)
-        draw = imgui.get_window_draw_list()
-        # Dark under light, so the notch reads on a pale texel and a dark one.
-        for size, tint in ((notch, theme.BG), (notch * 0.6, theme.TEXT)):
-            draw.add_triangle_filled(
-                imgui.ImVec2(low.x, low.y),
-                imgui.ImVec2(low.x - size, low.y),
-                imgui.ImVec2(low.x, low.y - size),
-                imgui.get_color_u32(imgui.ImVec4(*theme.rgba(tint))),
-            )
-    if imgui.is_item_hovered():
-        imgui.set_tooltip(tooltip)
-    return bool(clicked)
-
-
-def _pick_slot(ctx: Any, doc: Any, obj: Any, index: int) -> None:
-    """What a click on palette swatch *index* does.
-
-    Object mode keeps the old combo's behaviour exactly: the object's default
-    slot **and every face** go to the slot (the 2026-10-03 audit's clay-17).
-    In face mode with faces selected the click paints those faces through the
-    ``assign-material`` op and leaves the object's default slot alone; Ctrl
-    (or no faces selected) only makes it the slot the fields below edit, the
-    one way to reach another slot's colour and texture from a face selection.
-
-    Vertex and edge mode only pick the slot, like a face click with nothing
-    selected (the 2026-10-07 audit's clay-73): they used to take the object-mode
-    branch and repaint every face of the object, though the selection in front of
-    the user was a few points or edges and no face was named. Painting faces is
-    face mode's job.
-    """
-    if doc.element_mode == "object":
-        doc.repaint_object(obj.uid, index)
-        return
-    op = clay_ops.get("assign-material")
-    if doc.element_mode != "face" or imgui.get_io().key_ctrl or not op.enabled(doc):
-        if index != obj.material:
-            doc.set_props(obj.uid, material=index)
-        return
-    clay_ops.run(ctx, doc, op, index=index)
-
-
-def _swatch_row(ctx: Any, doc: Any, obj: Any) -> None:
-    """One swatch per palette slot, wrapped to the pane."""
-    current = min(max(int(obj.material), 0), len(doc.materials) - 1)
-    side = sp(SWATCH)
-    gap = imgui.get_style().item_spacing.x
-    per_row = max(1, int((imgui.get_content_region_avail().x + gap) // (side + gap)))
-    clicked: int | None = None
-    for i, entry in enumerate(doc.materials):
-        if i % per_row:
-            imgui.same_line()
-        name = entry.name or f"slot {i}"
-        textured = entry.base_color is not None
-        tip = f"{i}: {name}" + (" (textured)" if textured else "")
-        if _swatch(
-            f"##matsw{i}",
-            _swatch_colour(entry),
-            side,
-            selected=i == current,
-            textured=textured,
-            tooltip=tip,
-        ):
-            clicked = i
-    if doc.element_mode == "face":
-        widgets.muted_wrapped(
-            "Click a swatch to paint the selected faces; Ctrl+click to edit that slot instead."
-            if clay_ops.get("assign-material").enabled(doc)
-            else "Select faces to paint them with a swatch."
-        )
-    elif doc.element_mode != "object":
-        widgets.muted_wrapped(
-            "A click picks the slot the fields below edit. Switch to face mode to paint faces."
-        )
-    if clicked is not None:
-        _pick_slot(ctx, doc, obj, clicked)
-
-
 def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     widgets.field_label("material")
     if not doc.materials:
         widgets.muted("the palette is empty")
         return
-    _swatch_row(ctx, doc, obj)
+    # The swatches themselves are the palette strip under the viewport: painting
+    # is a viewport action, and this tab is where a slot's *options* live. Said
+    # here because a tab that quietly lost its picker would read as a bug.
+    widgets.muted_wrapped(
+        "Pick or paint a slot in the palette strip under the viewport "
+        "(Ctrl+click a swatch to edit it here)."
+    )
     _palette_row(doc, obj)
 
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
@@ -995,7 +1129,10 @@ def _palette_row(doc: Any, obj: Any) -> None:
     """
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     users = _material_users(doc, index)
-    if controls.small_button(f"{icons.PLUS} Add##matadd"):
+    if controls.small_button(
+        f"{icons.PLUS} Add##matadd",
+        tooltip="Add a palette slot and paint this object with it -- one undo step.",
+    ):
         # One step, not two -- the 2026-09-08 audit's clay-02: pushed as
         # ``add_material()`` then ``set_props(...)`` separately, one Ctrl+Z
         # after this click left a stray, unreferenced palette entry behind.
@@ -1003,7 +1140,12 @@ def _palette_row(doc: Any, obj: Any) -> None:
         doc.add_material_and_assign(obj.uid, repaint=True)
     imgui.same_line()
     reason = _palette_remove_reason(len(doc.materials), users)
-    if widgets.disabled_button("Remove##matdel", not reason):
+    if widgets.disabled_button(
+        "Remove##matdel",
+        not reason,
+        reason=reason,
+        tooltip="Remove this slot from the palette. Only a slot no face uses can go.",
+    ):
         # Same fold as Add, for the same reason.
         doc.remove_material_and_reassign(obj.uid, index)
     if reason:

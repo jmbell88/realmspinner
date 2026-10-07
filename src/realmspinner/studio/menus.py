@@ -242,6 +242,129 @@ def _inker_export_specs(
     return out
 
 
+#: The submenu Clay's recent documents live under. A second path segment is a
+#: submenu of its root (see :func:`_draw_row` and :func:`draw`); one level is all
+#: the renderer draws, and all anything needs.
+CLAY_RECENT_MENU = "Open Recent"
+
+
+def _clay_file_specs(
+    ctx: Any, commands: list[Any], *, evaluate: bool = True
+) -> list[MenuSpec]:
+    """Clay's file verbs that have no generic command: Open, Open Recent and the
+    three ways out of a document that are not "Export to the library".
+
+    New, Save, Save As, Export to the library, Undo and Redo are already File and
+    Edit rows from the palette's generic commands (``_COMMAND_PATHS``), so they
+    are **not** repeated here -- that is the duplicate-row mistake
+    :data:`SHADOWED_BY_COMMAND` exists to stop for Inker. What the palette has no
+    command for is opening a document, the recent list, and the three exports
+    that leave the library out of it; they were buttons in the Document tab and
+    the empty canvas, and a File menu that omits Open reads as a mode with no way
+    to open anything.
+
+    Drawn only while Clay is the active workspace, like Inker's, so a Library or
+    Mason user does not see "Export GLB..." greyed for a document that cannot
+    exist there. Label, enabled state and refusal come from
+    :mod:`.modes.clay.doc_io`, the same functions the Document tab's buttons
+    read, so the row and the button cannot disagree about whether a door is open.
+    """
+    if ctx.state.mode != "clay":
+        return []
+    from .modes.clay import doc_io
+    from .modes.clay import mode as clay_mode
+
+    # Read, never ``ensure``d: a menu bar that built a mode's state as a side
+    # effect of being drawn would make "Clay is the active mode" and "Clay has
+    # state" two facts to keep in step. Entering the mode builds it; until then
+    # there is no tab and the exports are greyed with the reason.
+    state = getattr(ctx.state, "clay", None)
+    tab = None if state is None else state.active
+    new_at = next((i for i, one in enumerate(commands) if one.key == "new-clay"), 0)
+    export_at = next((i for i, one in enumerate(commands) if one.key == "export"), 0)
+    out = [
+        MenuSpec(
+            identity="clay:open",
+            path=("File",),
+            order=new_at,
+            label="Open...",
+            enabled=True,
+            checked=False,
+            shortcut="",
+            disabled_reason="",
+            callback=lambda: clay_mode.ask_open(ctx),
+        )
+    ]
+    recent = clay_mode.recent_paths(ctx) if evaluate else []
+    if recent:
+        for path in recent:
+            name = _path(path).name or path
+            out.append(
+                MenuSpec(
+                    identity=f"clay:recent:{path}",
+                    path=("File", CLAY_RECENT_MENU),
+                    order=new_at,
+                    label=name,
+                    enabled=True,
+                    checked=False,
+                    shortcut="",
+                    disabled_reason="",
+                    callback=lambda path=path: clay_mode.open_path(ctx, _path(path)),
+                )
+            )
+    else:
+        # A submenu with no rows would not open, and a header that does nothing
+        # is a header nobody can tell is greyed for want of recents.
+        out.append(
+            MenuSpec(
+                identity="clay:recent:none",
+                path=("File", CLAY_RECENT_MENU),
+                order=new_at,
+                label="(no recent documents)",
+                enabled=False,
+                checked=False,
+                shortcut="",
+                disabled_reason="Documents you open or save appear here.",
+                callback=lambda: None,
+            )
+        )
+    if tab is None:
+        why = "Open or start a document first."
+    else:
+        why = doc_io.outputs_why(tab.doc, bool(tab.saving)) if evaluate else ""
+    exits = (
+        ("clay:export-glb", "Export GLB...", lambda: clay_mode.export_mesh_file(ctx, tab, "glb")),
+        ("clay:export-obj", "Export OBJ...", lambda: clay_mode.export_mesh_file(ctx, tab, "obj")),
+        (
+            "clay:screenshot",
+            "Save Screenshot...",
+            lambda: clay_mode.save_screenshot(ctx, tab),
+        ),
+    )
+    for index, (identity, label, callback) in enumerate(exits):
+        out.append(
+            MenuSpec(
+                identity=identity,
+                path=("File",),
+                order=export_at,
+                label=label,
+                enabled=tab is not None and not why if evaluate else True,
+                checked=False,
+                shortcut="",
+                disabled_reason=why if evaluate else "",
+                callback=callback,
+                separator_before=index == 0,
+            )
+        )
+    return out
+
+
+def _path(text: str) -> Any:
+    from pathlib import Path
+
+    return Path(text)
+
+
 def specs(ctx: Any, layout: Any = None, *, evaluate: bool = True) -> list[MenuSpec]:
     """The current menu tree as data, rebuilt so state never goes stale.
 
@@ -262,6 +385,7 @@ def specs(ctx: Any, layout: Any = None, *, evaluate: bool = True) -> list[MenuSp
         _command_specs(ctx, commands, evaluate=evaluate)
         + _inker_specs(ctx, evaluate=evaluate)
         + _inker_export_specs(ctx, commands, evaluate=evaluate)
+        + _clay_file_specs(ctx, commands, evaluate=evaluate)
     )
     if layout is not None:
         rows.append(
@@ -422,6 +546,23 @@ def _draw_status_group(ctx: Any) -> None:
                 imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.MUTED)), text)
 
 
+def _draw_row(row: MenuSpec) -> None:
+    """One menu row, and its callback if it was clicked while enabled."""
+
+    from . import controls
+
+    hit = controls.menu_item(
+        f"{row.label}##menu/{row.identity}",
+        row.shortcut,
+        row.checked,
+        row.enabled,
+        reason=row.disabled_reason,
+    )
+    clicked = hit[0] if isinstance(hit, tuple) else hit
+    if clicked and row.enabled:
+        row.callback()
+
+
 def draw(ctx: Any, layout: Any = None) -> None:
     """Render the 26 dp global menu bar in the host window."""
 
@@ -444,22 +585,29 @@ def draw(ctx: Any, layout: Any = None) -> None:
                     continue
                 if live is None:
                     live = specs(ctx, layout)
-                for row in sorted(
+                here = sorted(
                     (one for one in live if one.path and one.path[0] == root),
                     key=lambda one: one.order,
-                ):
+                )
+                opened_subs: set[str] = set()
+                for row in here:
+                    if len(row.path) > 1:
+                        # A second path segment is a submenu of this root, drawn
+                        # once at the place its first row sorts to and holding
+                        # every row that names it.
+                        sub = row.path[1]
+                        if sub in opened_subs:
+                            continue
+                        opened_subs.add(sub)
+                        with controls.menu(sub) as sub_open:
+                            if sub_open:
+                                for member in here:
+                                    if member.path[:2] == row.path[:2]:
+                                        _draw_row(member)
+                        continue
                     if row.separator_before:
                         controls.menu_separator()
-                    hit = controls.menu_item(
-                        f"{row.label}##menu/{row.identity}",
-                        row.shortcut,
-                        row.checked,
-                        row.enabled,
-                        reason=row.disabled_reason,
-                    )
-                    clicked = hit[0] if isinstance(hit, tuple) else hit
-                    if clicked and row.enabled:
-                        row.callback()
+                    _draw_row(row)
         # Reserved, never dropped -- see ``FAMILIAR_LABEL``'s own docstring.
         # T5 wired the one row that used to read "Installed -- not yet
         # wired" into a real command; the dock move (2026-09-23) made it a

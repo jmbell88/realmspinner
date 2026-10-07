@@ -384,7 +384,8 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
     for name in ("packwright_bridge.py", "sirens_bridge.py", "poser_sheet.py"):
         assert "widgets.primary_button(" in sources[name], name
     for name in (
-        "clay_bridge.py",
+        # Clay's bridge is the Properties pane's Document tab since 2026-10-07.
+        "clay_props.py",
         "packwright_bridge.py",
         "poser_sheet.py",
         "plotter_bridge.py",
@@ -393,8 +394,8 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
     ):
         heading = f'"{widgets.EXITS_HEADING}"'
         assert "widgets.exits()" in sources[name] or heading in sources[name], name
-    assert 'widgets.section("Model file")' in sources["clay_bridge.py"]
-    assert 'section("Document")' not in sources["clay_bridge.py"]
+    assert 'widgets.section("Model file")' in sources["clay_props.py"]
+    assert 'section("Document")' not in sources["clay_props.py"]
     for name, text in sources.items():
         assert 'role="primary"' not in text, name
 
@@ -408,7 +409,7 @@ def test_every_bridge_draws_the_one_history_block():
 
     sources = _pane_sources()
     for name in (
-        "clay_bridge.py",
+        "clay_props.py",
         # Mason postdates this list and drew the block from the start; it was
         # simply never enrolled (restructure P7 survey, 2026-09-18).
         "mason_bridge.py",

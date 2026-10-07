@@ -1257,13 +1257,15 @@ def release_all(ctx: Any) -> None:
 
 # --- keys -------------------------------------------------------------------
 
-# Q/W/E/R, which is where a user coming from Blender or Unity puts their left
-# hand. Held here rather than in the pane so the mapping is testable.
+# Q, then Blender's own G/R/S, which is where a modeller's left hand already
+# sits. Held here rather than in the pane so the mapping is testable. **E is
+# not a tool key**: it is Extrude's, and a letter doing two jobs by element mode
+# was how pressing E in object mode used to flip the tool under the user.
 TOOL_KEYS = {
     "q": "select",
-    "w": "move",
-    "e": "rotate",
-    "r": "scale",
+    "g": "move",
+    "r": "rotate",
+    "s": "scale",
 }
 
 # The element modes, on the number row. **Not Tab**, which imgui's keyboard
@@ -1294,9 +1296,10 @@ _DRAG_BLOCKED_CTRL = frozenset({"z", "y", "n", "o", "tab", "w", "s"})
 # --- history ------------------------------------------------------------------
 #
 # One call per direction, rather than two lines under the key handler, because
-# the bridge panel draws the same Undo/Redo pair Inker's does. Clay, Plotter and
-# Packwright each had a full undo stack and no on-screen control at all, so the
-# feature existed only for a user who already knew the chord -- and every
+# the header and the Properties pane draw the same Undo/Redo pair Inker's does.
+# Clay, Plotter and Packwright each had a full undo stack and no on-screen
+# control at all, so the feature existed only for a user who already knew the
+# chord -- and every
 # side effect a step has (nothing, here) belongs to *undoing*, not to the
 # keyboard.
 
@@ -1322,7 +1325,7 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
 
     ``ctx`` is taken and dropped: the parameter stays so the sibling editors'
     ``step_history(ctx, tab, index)`` and this one's one caller
-    (``studio/modes/clay/ui/panes/bridge.py``) share a signature. A jump needs
+    (the Properties pane's Document tab) share a signature. A jump needs
     no bookkeeping for the recent op (``ClayDoc.recent_op``): the adjust card
     is live only while the history head is the step the op pushed, so moving
     the head hides it by itself.
@@ -1366,6 +1369,45 @@ def _uv_canvas_owns_keys(state: ClayState, uv_view: Any) -> bool:
     """
     stamp = getattr(uv_view, "key_hover_at", None)
     return stamp is not None and state.frame_serial - stamp <= 1
+
+
+def _keypad(name: str) -> str | None:
+    """The character a keypad key stands for, or ``None`` for any other key.
+
+    ``pygame.key.name`` spells the keypad ``"[1]"``, ``"[.]"``, ``"[-]"``: the
+    same characters as the number row and the same meanings in a drag's typed
+    value, but a different string, so nothing keyed on ``"1"`` ever saw them.
+    """
+    if len(name) == 3 and name[0] == "[" and name[2] == "]":
+        return name[1]
+    return None
+
+
+def _hide_keys(tab: ClayTab, doc: Any, *, shift: bool, alt: bool) -> None:
+    """``H`` hides the selected objects, ``Shift+H`` isolates them, ``Alt+H`` shows all.
+
+    Blender's three, on the same chords. Hiding clears the selection afterwards:
+    a hidden object that stays selected keeps its gizmo, its outline and its
+    place in the next drag's set while being invisible, which reads as the
+    editor acting on things that are not there. Refused while the tab is saving,
+    like every control that changes the document.
+    """
+    if tab.saving:
+        return
+    if alt:
+        doc.show_all()
+        return
+    chosen = [uid for uid in sorted(doc.selection)]
+    if not chosen:
+        return
+    if shift:
+        doc.isolate(chosen)
+    else:
+        doc.set_visibility({uid: False for uid in chosen})
+        if doc.element_mode == "object":
+            doc.select([])
+        else:
+            doc.clear_element_sel()
 
 
 def handle_key(ctx: Any, event: Any) -> bool:
@@ -1421,7 +1463,8 @@ def handle_key(ctx: Any, event: Any) -> bool:
         if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
             view._release_drag(doc)
             return True
-        view.drag_key(doc, name)
+        # The keypad types into a drag as the row does: ``"[5]"`` is a 5.
+        view.drag_key(doc, _keypad(name) or name)
         # Consumed whether or not the drag wanted it. Falling through here put
         # every unclaimed bare key into the op registry below, so ``E`` typed
         # mid-``G`` ran Extrude against the mesh the drag was still moving --
@@ -1447,20 +1490,38 @@ def handle_key(ctx: Any, event: Any) -> bool:
 
     # The 2026-10-07 audit's clay-03: the shell routes every KEYDOWN here without
     # asking which pane the pointer is over, and the UV canvas arms its own live
-    # rotate/scale off the same E/R press -- so one press extruded the 3-D faces
-    # (or switched the 3-D tool) *and* armed the UV gesture. The pane records each
+    # rotate/scale off the same R/S press -- so one press started the 3-D drag
+    # (and switched the 3-D tool) *and* armed the UV gesture. The pane records each
     # frame it is hovered with islands boxed (``key_hover_at``; this module may not
-    # import ``ui/``), and a bare E/R on that frame or the next is the pane's alone.
+    # import ``ui/``), and a bare R/S on that frame or the next is the pane's alone.
     if (
         uv_view is not None
-        and name in ("e", "r")
+        and name in ("r", "s")
         and not (ctrl or alt or shift)
         and _uv_canvas_owns_keys(state, uv_view)
     ):
         return True
 
+    pad = _keypad(name)
+    if pad is not None and not alt:
+        # Blender's numpad views: 1 front, 3 right, 7 top (Shift the opposite
+        # side), 5 orthographic, "." frame -- with or without Ctrl, since the
+        # keypad has no digit-row meaning for Ctrl to disambiguate. Anything
+        # else on the pad is consumed and does nothing, as every bare key is.
+        if pad == ".":
+            state.frame_pending = True
+        elif view is not None and (pad in AXIS_VIEW_KEYS or pad == "5"):
+            axis_view_key(view.camera, pad, shift)
+        return True
+
     if ctrl:
         return _ctrl_key(ctx, state, tab, doc, name, shift=shift)
+
+    # Before the digit/registry/tool chain below, so the chord is its own and a
+    # future bare binding on H cannot shadow it.
+    if name == "h":
+        _hide_keys(tab, doc, shift=shift, alt=alt)
+        return True
 
     if alt and name == "z":
         # The 2026-09-07 audit's clay-08: the X-ray button's own tooltip
@@ -1511,22 +1572,17 @@ def handle_key(ctx: Any, event: Any) -> bool:
 
 
 
-#: The two letters that start a transform with no handle grabbed, and what each
-#: starts. **G and S only** -- not R, and the omission is the one interesting
-#: thing about the table.
-#:
-#: ``R`` is the Scale *tool*'s letter and ``E`` is Rotate's, both taken long
-#: before this and both in ``clay_state.TOOLS``; taking either back for a drag
-#: would move a binding a user already has. What is free is ``G``, which every
-#: modelling package uses for grab, and ``S``, which every one of them uses for
-#: scale. Rotate is reached mid-drag instead -- ``G`` then ``R`` -- which is a
-#: gesture Blender has anyway and which costs nothing here, because switching
-#: transforms mid-drag had to work regardless.
+#: The three letters that start a transform with no handle grabbed, and what
+#: each starts. They are also the Move, Rotate and Scale tools' letters
+#: (``TOOL_KEYS``): pressing one selects the tool *and*, with something selected,
+#: begins the drag, so the gizmo and the gesture always agree about which
+#: transform is running.
 #:
 #: Checked *after* the op registry, so a letter an element mode has claimed
-#: still fires its op: ``S`` is nothing in the registry today, and the ordering
-#: is what keeps that from being a thing to remember if it ever is.
-DRAG_KEYS = {"g": "move", "s": "scale"}
+#: still fires its op: none of G, R or S is in the registry bare today (Repeat
+#: Last is Shift+R), and the ordering is what keeps that from being a thing to
+#: remember if one ever is.
+DRAG_KEYS = {"g": "move", "r": "rotate", "s": "scale"}
 
 
 def _keyboard_drag(ctx: Any, view: Any, tab: ClayTab, doc: Any, name: str) -> bool:
@@ -1540,6 +1596,12 @@ def _keyboard_drag(ctx: Any, view: Any, tab: ClayTab, doc: Any, name: str) -> bo
     kind = DRAG_KEYS.get(name)
     if kind is None or view is None or tab.saving:
         return False
+    # The tool first, so the gizmo the drag begins over is the one its key names;
+    # a drag that is refused (nothing selected) still leaves the tool changed,
+    # which is the same thing the tool branch in ``handle_key`` does for it.
+    state = getattr(ctx.state, "clay", None)
+    if state is not None:
+        state.tool = TOOL_KEYS[name]
     return bool(view.begin_keyboard_drag(doc, kind))
 
 
@@ -1549,9 +1611,10 @@ def _registry_key(
     """Fire the registry op bound to a bare letter, if there is one.
 
     Checked *before* the tool keys so an element mode can claim a letter the
-    transform tools also use -- E is Extrude with faces selected and Rotate
-    without -- and checked through ``clay_ops.menu`` so the binding shown in the
-    context menu and the binding that fires are one value.
+    transform tools also use -- none does today (E is Extrude's alone), but the
+    ordering keeps a future bare letter from being shadowed by a tool -- and
+    checked through ``clay_ops.menu`` so the binding shown in the context menu
+    and the binding that fires are one value.
     """
     from . import ops as clay_ops
 

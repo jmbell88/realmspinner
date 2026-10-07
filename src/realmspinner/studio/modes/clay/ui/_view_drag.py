@@ -11,7 +11,8 @@ GPU and never touches the document until the release.
 locks and typed values, above both paths -- an invariant named in
 ``dev/INVARIANTS.md`` as ``ClayView._narrow``, which it still is: the class
 that carries this mixin is ``ClayView``. The grid snap is the one narrowing that
-is *not* there -- ``_apply`` and ``_element_world_transform`` apply it after the
+is *not* there -- ``_apply``, ``_element_world_transform`` and (for a move of
+selected elements, per corner) ``_preview_element_drag`` apply it after the
 delta arrives, and stand down for a typed value.
 """
 
@@ -60,11 +61,6 @@ def _about(centre: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     back = m3.identity()
     back[:3, 3] = np.asarray(centre, dtype="f8")
     return back @ matrix @ to
-
-
-def _apply_affine(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
-    homo = np.hstack([np.asarray(points, dtype="f8"), np.ones((len(points), 1))])
-    return (np.asarray(matrix, dtype="f8") @ homo.T).T[:, :3]
 
 
 def _rotation_hud(quat: Any, entry: Any) -> str:
@@ -119,7 +115,10 @@ class DragOps:
             return self._motion(doc, local)
         if event.type == pygame.MOUSEWHEEL and hovered:
             self._render_dirty = True
-            self.camera.dolly(event.y)
+            # Toward the pointer, so the point being looked at stays under it.
+            self.camera.dolly(
+                event.y, cursor=local, size=(float(self._rect[2]), float(self._rect[3]))
+            )
             return True
         return False
 
@@ -307,9 +306,9 @@ class DragOps:
             # Refused -- a toast is already showing why; ``_grab`` was never
             # set, so there is nothing here to put back.
             return False
-        # ``_begin_gizmo_drag`` reads the *gizmo's* origin, and Select draws no
-        # gizmo -- so the pivot is taken from the selection directly, which is
-        # the same point the gizmo would have been placed at.
+        # ``_begin_gizmo_drag`` reads the *gizmo's* origin, which is only placed
+        # once a frame has drawn it -- so the pivot is taken from the selection
+        # directly, which is the same point the gizmo is placed at.
         self._drag_origin = np.asarray(centre, dtype="f8")
         anchor = self._view_plane_point(self._last_mouse, self._drag_origin)
         if anchor is None:
@@ -829,6 +828,10 @@ class DragOps:
             # nothing must not relabel whatever step happens to be underneath.
             if top is not None and history.head != head:
                 kind = self._key_kind or str(getattr(self.state, "tool", ""))
+                if kind == "select":
+                    # The Select tool's gizmo is the translate one, so what a
+                    # drag of it commits is a move.
+                    kind = "move"
                 if kind in ("move", "rotate", "scale"):
                     top.label = kind.capitalize()
         self._drag_uids = []
@@ -849,16 +852,24 @@ class DragOps:
             self.hover_element = (
                 None if doc.element_mode == "object" else self.pick_element(doc, local)
             )
+            prev_hover_object = self.hover_object
+            self._hover_object(doc, local, gizmo_hot=gizmo is not None and gizmo.hover is not None)
             # clay-15 (the 2026-09-23 audit, second run): only a real change
             # to what the cursor is over -- which gizmo arm lit up, which
-            # element it now sits over -- earns a redraw; see
+            # element it now sits over, which object -- earns a redraw; see
             # ``handle_event``'s own comment for why a bare hover must not.
-            if (gizmo is not None and gizmo.hover != prev_gizmo_hover) or (
-                self.hover_element != prev_hover_element
+            if (
+                (gizmo is not None and gizmo.hover != prev_gizmo_hover)
+                or (self.hover_element != prev_hover_element)
+                or (self.hover_object != prev_hover_object)
             ):
                 self._render_dirty = True
             return False
         self._render_dirty = True
+        # A grab in progress is not hovering anything, and the highlight must
+        # not trail an orbit or follow a dragged object.
+        self.hover_object = None
+        self._hover_pick_at = None
         if self._grab == "marquee":
             start = self._marquee_from or local
             self.marquee = (start[0], start[1], local[0], local[1])
@@ -874,6 +885,37 @@ class DragOps:
         elif self._grab == "opdrag":
             self._op_drag_motion(doc)
         return True
+
+    #: How far the pointer must travel, in pixels, before the object hover casts
+    #: another ray. A pick is a BVH walk per visible object; one per pixel of a
+    #: slow drift across the viewport buys nothing the eye can see.
+    HOVER_PICK_STEP = 3.0
+
+    def _hover_object(
+        self: ClayView, doc: Any, local: tuple[float, float], *, gizmo_hot: bool
+    ) -> None:
+        """Set ``hover_object`` for the pointer at *local* -- object mode only.
+
+        Nothing is hovered over a gizmo handle (the handle is what the click
+        would grab), outside the viewport, or in an element mode (which hovers
+        elements, not whole objects). Throttled by distance moved so a still or
+        slowly drifting pointer costs no rays.
+        """
+        width, height = float(self._rect[2]), float(self._rect[3])
+        inside = 0.0 <= local[0] < width and 0.0 <= local[1] < height
+        if doc.element_mode != "object" or gizmo_hot or not inside:
+            self.hover_object = None
+            self._hover_pick_at = None
+            return
+        last = self._hover_pick_at
+        if (
+            last is not None
+            and abs(local[0] - last[0]) < self.HOVER_PICK_STEP
+            and abs(local[1] - last[1]) < self.HOVER_PICK_STEP
+        ):
+            return
+        self._hover_pick_at = local
+        self.hover_object = self.pick(doc, local)
 
     def _begin_element_drag(self: ClayView, doc: Any) -> None:
         """Snapshot every selected object's affected vertices at the press."""
@@ -934,12 +976,29 @@ class DragOps:
             scale = np.diag(np.append(factors, 1.0))
             world = _about(centre, scale)
         else:
+            # No grid snap on the target here: a move onto the grid is done per
+            # vertex in ``_preview_element_drag`` (``_element_snap_step``), where
+            # each corner lands on a grid point instead of only the median.
             target = np.asarray(delta, dtype="f8").reshape(3)
-            if snap:
-                target = ops.snap_translation(target, getattr(state, "snap_translate", 0.0))
             world = m3.identity()
             world[:3, 3] = target - centre
         return world
+
+    def _element_snap_step(self: ClayView, delta: Any, state: Any) -> float:
+        """The world-grid step each moved vertex snaps to, or ``0.0`` for none.
+
+        Move only -- a rotation and a scale snap their own delta in
+        ``_element_world_transform`` -- and never for a typed value or an axis
+        lock (``drag_input.active``): snapping the other two axes of a
+        constrained move would shift vertices the user asked to keep still.
+        """
+        if isinstance(delta, np.ndarray) and delta.shape == (4,):
+            return 0.0
+        if self._is_scale(state) or not bool(getattr(state, "snap", False)):
+            return 0.0
+        if self.drag_input.active:
+            return 0.0
+        return abs(float(getattr(state, "snap_translate", 0.0)))
 
     def _preview_element_drag(self: ClayView, doc: Any, delta: Any, state: Any) -> None:
         """Move the affected vertices on the GPU only, without touching the document.
@@ -949,9 +1008,19 @@ class DragOps:
         stays flat across a whole drag and there is exactly one history step at
         the end rather than one per mouse-move.
         """
+        from .. import element_move
+
         world = self._element_world_transform(delta, state)
+        step = self._element_snap_step(delta, state)
         for uid, drag in self._element_drags.items():
-            moved = _apply_affine(drag.inverse @ world @ drag.matrix, drag.local)
+            if step:
+                moved = element_move.moved_local(
+                    drag.local, drag.matrix, drag.inverse, world[:3, 3], snap_step=step
+                )
+            else:
+                moved = element_move.apply_affine(
+                    drag.inverse @ world @ drag.matrix, drag.local
+                )
             positions = np.array(drag.before.positions, dtype="f4")
             positions[drag.verts] = moved
             drag.preview = positions
@@ -1015,44 +1084,29 @@ class DragOps:
         identity the cache keys on has not changed, so nothing else would ever
         rebuild them.
         """
-        from dataclasses import replace
+        from .. import element_move
 
-        from .....kernels.mesh.elements import OpError
-
-        history = getattr(doc, "history", None)
-        mark = 0 if history is None else history.mark()
         drags, self._element_drags = self._element_drags, {}
-        # try/finally and the ``OpError`` catch: a ``set_mesh`` refusal raising
-        # out of here would skip ``collapse_since`` (``UndoStack._open_gestures``
-        # stuck at 1, eviction off for the session) and leave the previewed
-        # buffers on screen over an unchanged mesh.
-        try:
-            for uid, drag in drags.items():
-                try:
-                    doc.by_uid(uid)
-                except KeyError:
-                    continue
-                final = drag.before.positions if drag.preview is None else drag.preview
-                if np.array_equal(final, drag.before.positions):
-                    entry = self._cache.pop(uid, None)
-                    if entry is not None:
-                        entry.gpu.release()
-                    continue
-                try:
-                    doc.set_mesh(
-                        uid,
-                        replace(drag.before, positions=final),
-                        select=doc.element_sel_of(uid),
-                    )
-                except OpError as error:
-                    entry = self._cache.pop(uid, None)
-                    if entry is not None:
-                        entry.gpu.release()
-                    self._restore_overlays(doc, [uid])
-                    self._toast(str(error))
-        finally:
-            if history is not None:
-                history.collapse_since(mark)
+        # ``commit_positions`` owns the fold and its ``try/finally`` (an
+        # ``OpError`` escaping a ``set_mesh`` must not leave the undo stack's
+        # gesture counter open); what stays here is the view's half -- evicting
+        # the previewed buffers, which hold whatever the last frame wrote while
+        # the mesh identity the cache keys on has not changed.
+        changes = {
+            uid: (drag.before, drag.before.positions if drag.preview is None else drag.preview)
+            for uid, drag in drags.items()
+        }
+        _pushed, unchanged, refused = element_move.commit_positions(doc, changes)
+        for uid in unchanged:
+            entry = self._cache.pop(uid, None)
+            if entry is not None:
+                entry.gpu.release()
+        for uid, error in refused:
+            entry = self._cache.pop(uid, None)
+            if entry is not None:
+                entry.gpu.release()
+            self._restore_overlays(doc, [uid])
+            self._toast(str(error))
 
     def _drag_gizmo(self: ClayView, doc: Any, local: tuple[float, float]) -> None:
         """Apply a gizmo delta to every selected object, in place.
@@ -1106,6 +1160,8 @@ class DragOps:
         # Rotate said "0.4 deg" and under Select (or Scale) had no unit at all,
         # on the line that is the only confirmation of a typed value.
         kind = self._key_kind or tool or "move"
+        if kind == "select":
+            kind = "move"
         entry = self.drag_input
         if isinstance(delta, np.ndarray) and delta.shape == (4,):
             self.drag_hud = _rotation_hud(delta, entry)

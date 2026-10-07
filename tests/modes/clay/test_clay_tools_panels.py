@@ -1,22 +1,24 @@
-"""Clay's Tools panel: one grid, one selection, one options block.
+"""Clay's shapes: the registry, the names, and the flyout the rail's ``+`` opens.
 
-The 2026-09-08 panel-grammar pass replaced the stacked affordances in one
-sidebar with one selection field every add-tool writes (``state.generator``)
-and one options block that reads it. The ops grid itself
-left for the header's menu strip on 2026-10-02. Each test's name is the claim it
-makes about the *redesigned* panel, and each is checked below to fail against
-the code as it stood before this pass (never with git -- a scratch copy with
-the fix reverted by hand).
+The 2026-09-08 panel-grammar pass gave every add-tool one selection field
+(``state.generator``). The ops grid left for the header's menu strip on
+2026-10-02, and the sidebar's icon grid left for the tool rail's flyout on
+2026-10-07: the same entries, listed by name instead of as a grid of
+near-identical silhouettes. Each test's name is the claim it makes, and each is
+checked to fail against the code as it stood before the change (never with git
+-- a scratch copy with the fix reverted by hand).
 """
 
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 
 from _ui_context import imgui_context
 
 from realmspinner.kernels.mesh import document as bd
-from realmspinner.studio import icons, probe
+from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.studio import icons, probe, tool_palette
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
@@ -87,10 +89,70 @@ def test_a_fresh_clay_state_lights_no_add_tool_and_shows_no_options():
     assert clay_tools._options_for(state.generator) is None
 
 
-# --- the add grid ------------------------------------------------------------
+# --- the names and the glyphs -------------------------------------------------
 
 
-def test_clicking_the_box_button_selects_it_and_places_it(monkeypatch):
+def test_display_name_spells_a_shape_the_way_a_person_reads_it():
+    """``uv_sphere`` is a UV sphere; ``"Uv Sphere"`` read as a typo, and the Add
+    menu, the rail and the flyout each spelled it their own way."""
+    assert clay_tools.display_name("uv_sphere") == "UV Sphere"
+    assert clay_tools.display_name("rounded_box") == "Rounded Box"
+    assert clay_tools.display_name("icosphere") == "Icosphere"
+    assert clay_tools.display_name("box") == "Box"
+
+
+def test_every_clay_shape_has_a_name_and_no_two_share_a_glyph():
+    """The rail names each shape beside its glyph, and a glyph two shapes wear is
+    two shapes the eye cannot tell apart: cone and wedge shared triangle-alert,
+    and uv_sphere and torus were both a plain circle."""
+    names = [name for _label, group in bp.CLAY_GENERATORS for name in group]
+    assert len(names) == 15
+    glyphs = [tool_palette.PRIMITIVE_ICONS[name] for name in names]
+    assert len(set(glyphs)) == len(glyphs), {
+        glyph: [n for n in names if tool_palette.PRIMITIVE_ICONS[n] == glyph]
+        for glyph in glyphs
+        if glyphs.count(glyph) > 1
+    }
+    assert len({clay_tools.display_name(name) for name in names}) == len(names)
+
+
+def test_the_mode_pill_is_ordered_by_its_keys():
+    assert [key for _mode, _label, key in clay_tools.MODE_BUTTONS] == ["1", "2", "3", "4"]
+
+
+def test_the_quick_shapes_are_real_clay_shapes():
+    assert set(clay_tools.QUICK_SHAPES) <= set(bp.CLAY_GENERATOR_NAMES)
+    assert 1 <= len(clay_tools.QUICK_SHAPES) <= 6, "the rail has room for a few, not all fifteen"
+
+
+# --- the flyout ---------------------------------------------------------------
+
+
+def _tab(doc):
+    return SimpleNamespace(doc=doc, saving=False, uid="t1")
+
+
+def test_the_flyout_lists_every_shape_with_its_name_and_glyph(monkeypatch):
+    with imgui_context(monkeypatch) as imgui:
+        ctx = FakeCtx()
+        state = clay_mode.ensure(ctx)
+        tab = _tab(bd.ClayDoc())
+
+        probe.begin_frame()
+        imgui.new_frame()
+        imgui.set_next_window_size((320.0, 900.0))
+        imgui.begin("##host")
+        clay_tools.draw_add_menu(ctx, state, tab)
+        imgui.end()
+        imgui.end_frame()
+        drawn = {c.label for c in probe.FRAME_CONTROLS}
+    for _section, names in clay_tools.sections():
+        for name in names:
+            glyph = tool_palette.PRIMITIVE_ICONS[name]
+            assert f"{glyph} {clay_tools.display_name(name)}##clay-add/{name}" in drawn, name
+
+
+def test_clicking_the_box_entry_selects_it_and_places_it(monkeypatch):
     """Driven for real through a synthetic click, the way
     ``test_context_controls`` presses controls -- a control wired to nothing
     passes every test that calls the setter directly."""
@@ -99,7 +161,8 @@ def test_clicking_the_box_button_selects_it_and_places_it(monkeypatch):
         state = clay_mode.ensure(ctx)
         state.generator = "cylinder"
         doc = bd.ClayDoc()
-        box_label = f"{icons.BOX}##addbox"
+        tab = _tab(doc)
+        box_label = f"{icons.BOX} Box##clay-add/box"
 
         def frame(pos=(-100.0, -100.0), down=False):
             io = imgui.get_io()
@@ -109,13 +172,13 @@ def test_clicking_the_box_button_selects_it_and_places_it(monkeypatch):
             imgui.new_frame()
             imgui.set_next_window_size((320.0, 900.0))
             imgui.begin("##host")
-            clay_tools._add(ctx, state, doc)
+            clay_tools.draw_add_menu(ctx, state, tab)
             imgui.end()
             imgui.end_frame()
             return list(probe.FRAME_CONTROLS)
 
         found = [c for c in frame() if c.label == box_label]
-        assert found, "no Box button drawn -- the grid changed shape"
+        assert found, "no Box entry drawn -- the flyout changed shape"
         cx, cy = found[0].centre
 
         # imgui's default button fires on release-while-hovered, and hover
@@ -135,22 +198,22 @@ def test_clicking_the_box_button_selects_it_and_places_it(monkeypatch):
 # --- the operations left this pane for the menu strip ------------------------
 
 
-def test_the_add_palette_draws_no_operation_buttons(monkeypatch):
-    """The ~50-button op grid is gone from the left pane: every operation is a
+def test_the_add_flyout_draws_no_operation_buttons(monkeypatch):
+    """The ~50-button op grid is gone from the sidebar: every operation is a
     row in the header's menu strip and the right-click menu now, grouped by
-    ``menutree``. A pane that drew them again would be a second list of what
+    ``menutree``. A flyout that drew them again would be a second list of what
     Clay can do -- the thing the registry exists to prevent."""
     with imgui_context(monkeypatch) as imgui:
         ctx = FakeCtx()
         state = clay_mode.ensure(ctx)
-        doc = bd.ClayDoc()
+        tab = _tab(bd.ClayDoc())
 
         def frame():
             probe.begin_frame()
             imgui.new_frame()
             imgui.set_next_window_size((450.0, 900.0))
             imgui.begin("##host")
-            clay_tools._add(ctx, state, doc)
+            clay_tools.draw_add_menu(ctx, state, tab)
             imgui.end()
             imgui.end_frame()
             return list(probe.FRAME_CONTROLS)
@@ -163,7 +226,7 @@ def test_the_add_palette_draws_no_operation_buttons(monkeypatch):
     )
 
 
-def test_the_tools_pane_no_longer_carries_the_action_grid_or_its_popup_call():
+def test_the_shapes_module_no_longer_carries_the_action_grid_or_its_popup_call():
     source = inspect.getsource(clay_tools)
     assert "_actions" not in source
     assert "params_popup" not in source, (

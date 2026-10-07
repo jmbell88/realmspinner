@@ -1,4 +1,4 @@
-"""``_facts``'s triangle count, checked for cost rather than for a number.
+"""``doc_io.triangles``, checked for cost rather than for a number.
 
 The 2026-09-18 audit's clay-02: ``_triangles`` recomputed the triangle count
 with ``np.diff(mesh.starts)`` + ``np.maximum`` + ``.sum()`` over every visible
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import primitives as bp
-from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+from realmspinner.studio.modes.clay import doc_io
 
 
 class _RefusesToBeScanned:
@@ -53,7 +53,7 @@ class _StubMesh:
 def test_facts_triangle_count_does_not_rescan_the_whole_mesh_every_frame():
     # 6 faces, 20 corners (a mix of tris/quads/an n-gon) -> 20 - 2*6 = 8 tris.
     mesh = _StubMesh(faces=6, corners=20)
-    assert clay_bridge._triangles(mesh) == 8
+    assert doc_io.triangles(mesh) == 8
 
 
 def test_facts_triangle_count_matches_the_fan_a_real_mesh_exports():
@@ -62,10 +62,10 @@ def test_facts_triangle_count_matches_the_fan_a_real_mesh_exports():
     fan count, and a box fans into 12 triangles from 6 quad faces."""
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="o0", mesh=bp.box()))
-    total = sum(clay_bridge._triangles(obj.mesh) for obj in doc.objects if obj.visible)
+    total = sum(doc_io.triangles(obj.mesh) for obj in doc.objects if obj.visible)
     assert total == 12
 
 
 def test_facts_triangle_count_of_an_empty_mesh_is_zero():
     mesh = _StubMesh(faces=0, corners=0)
-    assert clay_bridge._triangles(mesh) == 0
+    assert doc_io.triangles(mesh) == 0

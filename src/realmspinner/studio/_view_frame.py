@@ -89,7 +89,13 @@ def axis_view_key(camera: Any, name: str, shift: bool) -> bool:
     3-D viewports cannot come to disagree about which number is the front --
     and so that both require Ctrl. Poser's copy tested the bare digit, so a 1
     typed into nothing snapped its camera while Clay's did not.
+
+    The keypad's digits arrive from ``pygame.key.name`` as ``"[1]"`` and mean the
+    same view as the row's ``"1"``, so a bracketed digit is read as the bare one
+    here, once, rather than every caller learning the spelling.
     """
+    if len(name) == 3 and name[0] == "[" and name[2] == "]":
+        name = name[1]
     if name in AXIS_VIEW_KEYS:
         wanted = AXIS_VIEW_KEYS[name]
         if shift:

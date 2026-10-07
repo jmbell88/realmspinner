@@ -74,8 +74,8 @@ generating one.
 ## Moving things about
 
 Press `W` for Move and drag the gizmo's arrows. `E` rotates, `R` scales, `Q` goes back to Select.
-These are Clay's keys and Clay's gizmo — if you have modelled in this app, your hands already know
-them.
+The gizmo is Clay's, so if you have modelled in this app your hands already know it; the letters are
+Mason's own, though, and differ from Clay's, where the tools are `G`, `R` and `S`.
 
 `F` frames whatever is selected, which is the key you will press most. `Alt`+drag orbits, middle-drag
 pans, the wheel dollies.

@@ -338,53 +338,42 @@ def plotter(ctx: Any) -> dict[str, Column]:
 
 
 def clay(ctx: Any) -> dict[str, Column]:
-    """Clay's two sidebars: the verbs on the left, the document on the right.
+    """Clay's right column: the outliner over the Inspector. The left is empty.
 
-    The last workspace composed by hand in ``main``, and the change is not only
-    tidiness: a hand-composed workspace is one a saved layout cannot permute, so
-    Clay was the one editor whose panes a user could not rearrange.
+    This was a left sidebar (the Add pane) and a four-pane right column
+    (outliner, properties, UV, document). Both are folded into the picoCAD
+    shape: **the tools are a slim rail inside the centre** (``panes/rail.py``,
+    drawn by ``_clay_workspace``'s viewport), **the palette is a strip under the
+    render** (``panes/palette_strip.py``), and **the right column is two panes**
+    -- what the scene *contains*, then what the selected part of it *is*.
 
-    **The left column is one pane now.** It was Tools over Properties, split by
-    a handle, and half of what the Tools pane held has gone to the viewport
-    header -- the mode row, the tool grid, snapping, proportional editing and
-    the view aids. What is left is what a *sidebar* is for: the primitives you
-    add and the operations you invoke, which is a list that wants the height.
+    **The left column is declared and empty**, not omitted. ``layout.column``
+    returns early for a column with no live slots and ``centre_width`` already
+    ignores the left one, so the render gets the 300 px the sidebar held; a
+    column that is still *there* keeps the skeleton three-columned, which is
+    what ``layout_skeleton.reconcile`` and the layout editor are written
+    against. ``clay-tools`` is retired with the pane: an orphaned
+    ``shares["clay-tools"]`` in a user's settings is inert, exactly as Plotter's
+    is; see :func:`plotter` for why no migration or ``VERSION`` bump is owed.
 
-    Properties moves to the right, under the outliner, which is where the
-    thing-you-have-selected belongs and where Plotter and Tiled both put it:
-    what the scene *contains*, then what the selected part of it *is*, then the
-    file. ``clay-props`` is a new share key, and ``clay-tools`` stops being one
-    -- a column of one FILL slot has nothing to share against. An orphaned
-    ``shares["clay-tools"]`` in a user's settings is inert, exactly as
-    Plotter's is; see :func:`plotter` for why no migration is owed.
+    **``clay-uv`` and ``clay-bridge`` are retired the same way.** ``reconcile``
+    drops a saved id the built-in column no longer names, so a layout saved with
+    either in its right column loads onto this one. UV became the Inspector's
+    fourth tab and the Document pane became its third; their contents did not go
+    away, they moved a tab over.
 
-    **``clay-uv`` (tranche 6) joins the right column below Properties**,
-    another SHARE slot rather than a fourth thing bolted onto the properties
-    pane: an island layout wants its own canvas the same reason the outliner
-    and the properties pane each already have theirs, and stacking it under
-    Properties keeps "what is selected" (name, transform, material) above
-    "what its uv looks like", nearest first.
+    **Properties is the FILL, with a floor.** It holds the pane that wants the
+    height -- the UV canvas is a square it fits itself into, and the Document tab
+    is a column of buttons -- and the outliner is the one whose list scrolls
+    happily in whatever it is given. The floor is what stops a short window
+    squeezing the tab strip to a heading: ``layout_skeleton.heights`` gives the
+    outliner its share first, and a fill with no floor takes whatever that left.
     """
 
-    from .modes.clay.ui.panes import bridge as clay_bridge
     from .modes.clay.ui.panes import outliner as clay_outliner
     from .modes.clay.ui.panes import props as clay_props
-    from .modes.clay.ui.panes import tools as clay_tools
-    from .modes.clay.ui.panes import uv as clay_uv
 
-    left = Column(
-        "left",
-        (
-            Slot(
-                "clay-tools",
-                "Tools",
-                clay_tools.draw,
-                role=_role("sidebar"),
-                edge=_edge("right"),
-                sizing=FILL,
-            ),
-        ),
-    )
+    left = Column("left", ())
     right = Column(
         "right",
         (
@@ -403,26 +392,8 @@ def clay(ctx: Any) -> dict[str, Column]:
                 clay_props.draw,
                 role=_role("inspector"),
                 edge=_edge("left"),
-                sizing=SHARE,
-                share_key="clay-props",
-            ),
-            Slot(
-                "clay-uv",
-                "UV",
-                clay_uv.draw,
-                role=_role("inspector"),
-                edge=_edge("left"),
-                sizing=SHARE,
-                share_key="clay-uv",
-            ),
-            Slot(
-                "clay-bridge",
-                "Document",
-                clay_bridge.draw,
-                role=_role("inspector"),
-                edge=_edge("left"),
                 sizing=FILL,
-                floor=clay_bridge.BRIDGE_FLOOR,
+                floor=clay_props.PROPS_FLOOR,
             ),
         ),
     )

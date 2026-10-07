@@ -139,24 +139,26 @@ _PICK = {
 _TOOL = {
     "select": "",
     "move": "G move . drag an arrow",
-    "rotate": "E rotate . drag a ring",
+    "rotate": "R rotate . drag a ring",
     "scale": "S scale . drag a handle",
 }
 
 #: Always true, and always last: the two mouse buttons that navigate. They are
 #: the keys a newcomer to a 3D viewport asks about first and the ones a manual
 #: is least likely to be open at.
-_NAVIGATE = "Alt+LMB orbit . MMB pan . wheel zoom"
+_NAVIGATE = "Alt+LMB orbit . MMB / Shift+MMB pan . wheel zoom"
 
 
 def hint(mode: str, tool: str) -> str:
     """One line of what the mouse and the keyboard do right now.
 
     Clay's viewport had no such line, and the cost was specific rather than
-    general: **every selection verb the mode offers is invisible**. Alt+click
-    for a loop, L for linked, Ctrl+plus to grow -- none of them is a button, so
-    a user who has not read chapter 30 has no way to discover that edge mode can
-    do anything a vertex mode cannot.
+    general: **every selection verb the mode offers is invisible**. L for
+    linked, a marquee, Shift and Ctrl to add and remove -- none of them is a
+    button, so a user who has not read chapter 30 has no way to discover what
+    the mode can do. (Alt+click loop select and Ctrl+plus grow went with the
+    loop and ring queries in the picoCAD cut, and a hint naming either would
+    be offer-then-refuse; tests/modes/clay/test_clay_hints.py pins that.)
 
     Nothing here speaks for a live G/R/S drag: that line is :func:`drag_readout`'s,
     chosen by ``hud.hint_line`` ahead of this one. A ``dragging`` branch used to

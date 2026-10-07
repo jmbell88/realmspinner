@@ -20,9 +20,9 @@ from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.pixel import Document
+from realmspinner.studio.modes.clay import doc_io
 from realmspinner.studio.modes.clay import texture_link as tl
 from realmspinner.studio.modes.clay.state import ClayState, ClayTab
-from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
 from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
@@ -388,7 +388,7 @@ def test_the_greyed_clear_texture_and_clear_parent_buttons_hand_their_reason_to_
 
 
 def test_the_export_obj_tooltip_names_the_texture_pngs_it_writes() -> None:
-    tip = clay_bridge.EXPORT_OBJ_TOOLTIP
+    tip = doc_io.EXPORT_OBJ_TOOLTIP
     assert ".mtl" in tip and "PNG" in tip
 
 

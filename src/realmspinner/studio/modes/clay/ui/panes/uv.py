@@ -26,12 +26,13 @@ own generator-parameter rebuild that is allowed to pass that flag. Move
 panel's transform and material fields already use; Pack is a single button
 press, so it needs no folding at all.
 
-**Rotate and scale are live drags too, armed by E and R** -- Realmspinner's own
-Clay-viewport tool letters (``clay_mode.TOOL_KEYS``: Q select, W move, E
-rotate, R scale), not Blender's G/R/S, because this app already spends R on
-scale for the exact left hand that already knows Q/W/E/R from the 3-D
-viewport, and teaching the opposite letter in a sibling pane of the same mode
-would be a worse convention than picking one of our own. Pressing E or R
+**Rotate and scale are live drags too, armed by R and S** -- the same letters
+that rotate and scale in the 3-D viewport (``clay_mode.TOOL_KEYS``: Q select,
+G move, R rotate, S scale), because a pane of the same mode that taught a
+different letter for the same gesture would be a worse convention than the one
+the viewport already has. (They were E and R while the viewport's tools were
+Q/W/E/R; the viewport moved to Blender's G/R/S and this followed, so the two
+cannot disagree.) Pressing R or S
 while an island is boxed and the canvas is hovered arms the gesture; moving
 the mouse (no button held, the 3-D viewport's own keyboard-drag shape --
 ``ui._view_drag.DragOps.begin_keyboard_drag``) previews it live, a left click
@@ -228,7 +229,7 @@ class UvPaneState:
     geo: dict[str, Any] = field(default_factory=dict)
     # The ``ClayState.frame_serial`` of the last frame the canvas was hovered with
     # islands boxed and no text field wanting the keys -- the frames on which a
-    # bare E/R arms the live rotate/scale here -- else ``None``. The 2026-10-07 audit's
+    # bare R/S arms the live rotate/scale here -- else ``None``. The 2026-10-07 audit's
     # clay-03: the shell hands every KEYDOWN to ``clay_mode.handle_key`` without
     # asking which pane the pointer is over, so the same press also extruded the
     # 3-D faces or switched the 3-D tool. The key layer cannot import this pane,
@@ -704,14 +705,32 @@ def _measurements(
 
 
 def draw(ctx: Any) -> None:
+    """The pane on its own, with its heading -- what the tests drive, and what a
+    saved layout that still slots a UV pane would draw."""
     with widgets.section_blocks():
         _body(ctx)
 
 
-def _body(ctx: Any) -> None:
+def draw_embedded(ctx: Any) -> None:
+    """The same body as a tab of the Properties pane.
+
+    No section heading of its own: the tab strip above already says "UV", and
+    two headings stacked is a pane announcing itself twice. The (?) stays -- it
+    is the manual's door into "The UV view", and the Properties pane's own (?)
+    points at Materials. Everything else is :func:`draw`'s, including the two
+    stamps ``_body`` leaves for ``clay_mode.handle_key`` (``key_hover_at`` and
+    ``frame_seen``): the shell routes a keypress without asking which pane the
+    pointer is over, and R/S over this canvas are the pane's, not the 3-D
+    viewport's.
+    """
+    _body(ctx, heading=False)
+
+
+def _body(ctx: Any, *, heading: bool = True) -> None:
     state = clay_mode.ensure(ctx)
     tab = state.active
-    widgets.section("UV")
+    if heading:
+        widgets.section("UV")
     manual_render.help_button(ctx, "clay-uv")
     if tab is None:
         return
@@ -817,7 +836,7 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
 
     # Every Clay pane greys out while a save is in flight ("saving gates every
     # control that changes the document", mode.py's own module docstring), so
-    # Apply rotate/scale, Pack and the live drag/E/R gestures in _canvas below
+    # Apply rotate/scale, Pack and the live drag/R/S gestures in _canvas below
     # wait too.
     imgui.begin_disabled(tab.saving)
     selected = view_state.selected_islands
@@ -832,17 +851,22 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
         "no islands boxed -- drag a box around one or more" if count == 0
         else f"{count} island(s) selected"
     )
-    if count and controls.small_button(f"{icons.X} Clear selection##uvclear", enabled=not live):
+    if count and controls.small_button(
+        f"{icons.X} Clear selection##uvclear",
+        enabled=not live,
+        reason="Finish the live rotate or scale first (click to commit, Esc to cancel).",
+        tooltip="Unbox every island. Selecting islands is not an undo step.",
+    ):
         view_state.selected_islands = frozenset()
     if count and not live:
-        # E and R also drive these live on the canvas -- Realmspinner's own
-        # Clay-viewport tool letters (module docstring), not a reinvented
+        # R and S also drive these live on the canvas -- the Clay viewport's own
+        # rotate and scale letters (module docstring), not a reinvented
         # pair. Shown only once something is selected, the same gate the
         # fields and Apply buttons below already use.
         # ``muted_wrapped`` rather than ``muted``: both of these are sentences
         # in a pane that shares a narrow column, and ``muted`` cannot wrap one.
         widgets.muted_wrapped(
-            "E rotate, R scale -- drag live; click commits, Esc/right-click cancels"
+            "R rotate, S scale -- drag live; click commits, Esc/right-click cancels"
         )
     elif live:
         widgets.muted_wrapped(
@@ -867,7 +891,12 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
     # ``apply_translate``.
     rotate_why = apply_rotate_reason(saving=bool(tab.saving), live=live, selected=count)
     if (
-        widgets.disabled_button("Apply##uvrotate", not rotate_why, reason=rotate_why)
+        widgets.disabled_button(
+            "Apply##uvrotate",
+            not rotate_why,
+            reason=rotate_why,
+            tooltip="Turn every boxed island by this many degrees about its own centre.",
+        )
         and view_state.pending_rotate != 0.0
     ):
         apply_rotate(doc, obj.uid, selected, view_state.pending_rotate, ctx=ctx)
@@ -885,7 +914,12 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
         pending_scale=view_state.pending_scale,
     )
     if (
-        widgets.disabled_button("Apply##uvscale", not scale_why, reason=scale_why)
+        widgets.disabled_button(
+            "Apply##uvscale",
+            not scale_why,
+            reason=scale_why,
+            tooltip="Scale every boxed island by this factor about its own centre.",
+        )
         and view_state.pending_scale != 1.0
     ):
         apply_scale(doc, obj.uid, selected, view_state.pending_scale, ctx=ctx)
@@ -899,6 +933,7 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
         f"{icons.SQUARE} Pack islands...##uvpack",
         enabled=not live and pack.enabled(doc),
         reason=clay_ops.reason_for(pack, doc),
+        tooltip=pack.hint,
     ):
         clay_mode.fire_op(ctx, doc, pack)
     imgui.end_disabled()
@@ -936,6 +971,7 @@ def _unwrap_row(ctx: Any, tab: Any, doc: Any) -> None:
             f"{op.label}##uvunwrap-{name}",
             enabled=in_object_mode and not tab.saving and op.enabled(doc),
             reason=why,
+            tooltip=op.hint,
         ):
             clay_mode.fire_op(ctx, doc, op)
 
@@ -995,7 +1031,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
         ids, overlap, refusal = _measurements(view_state, mesh)
     uv_here = _to_uv(view, origin, mouse.x, mouse.y)
 
-    # This whole dispatch -- live rotate/scale, arming E/R, drag-move and
+    # This whole dispatch -- live rotate/scale, arming R/S, drag-move and
     # box-select -- is the canvas half of the same "greys out while a save is
     # in flight" rule ``_toolbar`` enforces above; ungated, dragging an island
     # mid-save left the tab dirty against a save the user believed had just
@@ -1010,7 +1046,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     elif view_state.drag_mode in ("rotate", "scale"):
         _drive_live_transform(ctx, doc, obj.uid, view_state, uv_here, hovered)
     else:
-        # E/R arm a live rotate/scale -- only while nothing else already
+        # R/S arm a live rotate/scale -- only while nothing else already
         # owns the mouse over this canvas and there is a selection to turn,
         # and never while a text field (the rotate/scale spinners just
         # above, in ``_toolbar``) is the one taking keystrokes, or typing
@@ -1021,9 +1057,9 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
             and view_state.selected_islands
             and not imgui.get_io().want_text_input
         ):
-            if imgui.is_key_pressed(imgui.Key.e):
+            if imgui.is_key_pressed(imgui.Key.r):
                 begin_live_transform(doc, view_state, "rotate", mesh, ids, uv_here)
-            elif imgui.is_key_pressed(imgui.Key.r):
+            elif imgui.is_key_pressed(imgui.Key.s):
                 begin_live_transform(doc, view_state, "scale", mesh, ids, uv_here)
 
         if view_state.drag_mode not in ("rotate", "scale") and imgui.is_item_activated():

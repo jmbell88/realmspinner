@@ -1028,23 +1028,24 @@ def test_every_clay_pane_gates_its_controls_on_saving():
     """The rule Inker had to learn: a save encodes the live document on a task
     thread, so a control that restructures it mid-encode writes a file
     describing a document that never existed."""
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
+    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
     from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
-    for pane in (clay_tools, clay_props, clay_outliner, clay_bridge):
+    for pane in (clay_tools, clay_props, clay_outliner, clay_rail, clay_palette):
         source = inspect.getsource(pane)
         assert "saving" in source, f"{pane.__name__} does not consult tab.saving"
 
 
-def test_the_bridge_offers_the_library_and_the_file_exits_as_different_calls():
+def test_the_document_tab_offers_the_library_and_the_file_exits_as_different_calls():
     """Two genuinely different things: the exact geometry into the library as an
     asset, or a plain mesh file on disk the library never sees. A bridge that
     wired both to one call would look complete."""
-    from realmspinner.studio.modes.clay.ui.panes import bridge as clay_bridge
+    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
-    source = inspect.getsource(clay_bridge)
+    source = inspect.getsource(clay_props)
     assert "export_asset" in source
     assert "export_mesh_file" in source
     assert "send_to_3d" not in source, "Clay no longer hands a picture to trellis"

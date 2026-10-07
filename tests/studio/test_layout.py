@@ -335,18 +335,13 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
     # ``share_key``, so a declared key *is* a handle there too.
     keys = set(_share_literals()) | set(_skeleton_share_keys())
     assert keys == {
-        # Clay's right column stacks the outliner over the selected object's
-        # own settings over the document, so it carries two handles. The left
-        # column is one FILL pane since the viewport header took the tool grid,
-        # the mode row and the view aids -- and a column of one has nothing to
-        # share against, so ``clay-tools`` is no longer a key at all.
+        # Clay's right column is the outliner over the Inspector, and the
+        # Inspector is the FILL -- so one share, one handle. The left column is
+        # empty (the tools are a rail inside the centre now), ``clay-tools`` left
+        # as a key when it became a column of one, and ``clay-uv`` and
+        # ``clay-props`` left with the UV pane's move into a tab and the
+        # properties pane's becoming the fill.
         "clay-outliner",
-        "clay-props",
-        # Tranche 6: the UV pane joins the right column below Properties, a
-        # third SHARE slot -- an island layout wants its own canvas the same
-        # reason the outliner and the properties pane each already have
-        # theirs. See ``skeletons.clay``'s own docstring.
-        "clay-uv",
         # Mason stacks two shares in each column: the asset palette over the
         # tools on the left, and the outliner over the properties on the
         # right, with the document pane taking the FILL underneath. Four

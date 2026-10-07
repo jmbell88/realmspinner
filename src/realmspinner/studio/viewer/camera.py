@@ -156,13 +156,30 @@ class Camera:
 
     # -- framing -----------------------------------------------------------
 
-    def frame(self, lo: np.ndarray, hi: np.ndarray) -> float:
+    def frame(
+        self,
+        lo: np.ndarray,
+        hi: np.ndarray,
+        *,
+        keep_angles: bool = False,
+        min_zoom: float = 0.5,
+    ) -> float:
         """Put a bounding box on screen. -> the bounding radius.
 
         Everything is derived from the box rather than fixed because guidance
         sizes a model anywhere from 1 cm to 100 m: the near/far plane and the
         orbit limits scale with it, or a 100 m building clips through the far
         plane and a 1 cm gem sits inside the near one.
+
+        ``keep_angles`` frames along the direction the camera is already looking
+        instead of snapping back to the opening three-quarter view -- a modeller
+        who has lined up a front view and presses F wants the model centred and
+        sized, not the angle thrown away. It reads the camera's *angles* (their
+        damping goals, so a view still easing in counts) and never its target,
+        which keeps the result a function of the box alone. ``min_zoom`` is the
+        closest the user may then dolly, as a fraction of the radius: 0.5 is
+        right for a viewer, and far too far for a modeller placing a vertex on
+        a 2 cm detail.
         """
         size = np.asarray(hi, dtype="f8") - np.asarray(lo, dtype="f8")
         radius = max(float(np.linalg.norm(size)) * 0.5, 1e-4)
@@ -178,10 +195,24 @@ class Camera:
         # result is a function of the box alone.
         target = m3.vec3(0.0, size[1] * 0.5, 0.0)
         self.set_target(target)
-        self.set_position(
-            target + m3.vec3(distance * 0.62, distance * 0.47, distance * 0.62)
-        )
-        self.min_distance = radius * 0.5
+        if keep_angles:
+            theta, phi = self._goal_theta, self._goal_phi
+            sin_phi = math.sin(phi)
+            self.set_position(
+                target
+                + distance
+                * m3.vec3(sin_phi * math.sin(theta), math.cos(phi), sin_phi * math.cos(theta))
+            )
+            # ``set_position`` round-trips the angles through ``acos``/``atan2``,
+            # which is exact enough everywhere but the poles: put them back so a
+            # top or bottom view is left at exactly the angle it had.
+            self.theta = self._goal_theta = theta
+            self.phi = self._goal_phi = phi
+        else:
+            self.set_position(
+                target + m3.vec3(distance * 0.62, distance * 0.47, distance * 0.62)
+            )
+        self.min_distance = radius * min_zoom
         self.max_distance = radius * 20.0
         return radius
 
@@ -222,9 +253,47 @@ class Camera:
         up = view[1, :3]
         self._goal_target = self._goal_target - right * (dx * scale) + up * (dy * scale)
 
-    def dolly(self, steps: float) -> None:
+    def dolly(
+        self,
+        steps: float,
+        cursor: tuple[float, float] | None = None,
+        size: tuple[float, float] | None = None,
+    ) -> None:
+        """Zoom by wheel *steps*; toward the *cursor* when it and *size* are given.
+
+        ``cursor`` is a pixel in the viewport and ``size`` its ``(width, height)``.
+        A plain dolly scales the distance about the target, so whatever the user
+        is pointing at slides away from the pointer as they zoom -- the thing
+        that makes a wheel feel wrong in a modeller. Zooming toward the cursor
+        shifts the *goal* target by the fraction of the way the distance closes,
+        which keeps the world point under the pointer under it: both the
+        distance and the target ease toward their goals by the same ``alpha``
+        every frame (``update``), so the point stays put throughout the ease and
+        not only at its end. Measured against the goal camera rather than the
+        one on screen, so several notches in a row compound correctly.
+        """
         factor = 0.95**ZOOM_SPEED
-        self._goal_distance *= factor ** (-steps)
+        old = self._goal_distance
+        new = old * factor ** (-steps)
+        if cursor is None or size is None:
+            self._goal_distance = new
+            return
+        new = min(self.max_distance, max(self.min_distance, new))
+        ratio = new / old if old > 0.0 else 1.0
+        goal = Camera(self.aspect)
+        goal.fov = self.fov
+        goal._orthographic = self._orthographic
+        goal.far = self.far
+        goal.theta, goal.phi = self._goal_theta, self._goal_phi
+        goal.distance = old
+        goal.target = self._goal_target.copy()
+        origin, direction = screen_ray(goal, cursor[0], cursor[1], int(size[0]), int(size[1]))
+        forward = -goal.view()[2, :3]
+        denom = float(np.dot(direction, forward))
+        if abs(denom) > 1e-9:
+            hit = origin + direction * (float(np.dot(goal.target - origin, forward)) / denom)
+            self._goal_target = goal.target + (hit - goal.target) * (1.0 - ratio)
+        self._goal_distance = new
 
     def update(self, dt: float) -> None:
         """Advance one frame of damping.

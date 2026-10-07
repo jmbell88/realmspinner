@@ -288,10 +288,15 @@ def test_glbimport_docstring_points_at_the_loader_that_exists():
     assert "kernels/geom3d/gltf.py" in glbimport.__doc__ or "geom3d.gltf" in glbimport.__doc__
 
 
-def test_manual_clay_empty_state_matches_the_bridge_panes_empty_branch():
+def test_manual_clay_empty_state_matches_the_viewports_empty_branch():
+    """The bridge pane that once drew a recent-only list is gone (2026-10-07):
+    the recent list is the middle column's, and the file verbs are File-menu
+    rows, so the chapter must say that and no longer promise a file panel."""
     text = _clay_chapter()
     assert "offers the same two buttons" not in text
-    assert "shows only that recent list until a document is open" in text
+    assert "the middle column offers **New model** and **Open a file...**" in text
+    assert "There is no separate file pane" in text and "**Open Recent**" in text
+    assert "shows only that recent list until a document is open" not in text
 
 
 # ---------------------------------------------------------------------------
