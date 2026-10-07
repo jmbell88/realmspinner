@@ -96,6 +96,14 @@ MAX_OVERLAP_PAIRS = 8_000
 #: many-small-islands fixture: :func:`pack_islands` at
 #: 0.041s/0.144s/0.539s/2.074s for 500/2,000/4,000/8,000 islands. Any
 #: hard-surface prop unwrapped per-part reaches this.
+#:
+#: The ceiling bounds the island count only, and the 2026-10-07 audit's
+#: clay-25 found the scan it was measured against still made the *product*
+#: islands x corners unbounded (4.6 s at 1,900 islands over 486k corners). Both
+#: functions now group the corners by island in one sort and slice each island's
+#: corners out of it (:func:`_corners_by_island`), so the corner work is one
+#: pass and a few small numpy calls per island; the count is kept as it was
+#: measured because those per-island calls are still Python-level.
 MAX_UV_ISLANDS = 2_000
 
 
@@ -193,6 +201,34 @@ def _face_of_corner(mesh: Mesh) -> np.ndarray:
     return np.repeat(np.arange(face_count(mesh), dtype="i8"), counts)
 
 
+def _corners_by_island(
+    corner_island: np.ndarray, labels: np.ndarray, candidates: np.ndarray | None = None
+) -> list[tuple[int, np.ndarray]]:
+    """``[(label, corner indices)]`` for each of *labels* that owns a corner,
+    in ascending label order, from **one** sort of the corners.
+
+    The shape both island passes need, and the replacement for a boolean mask
+    over every corner built once per island (``corner_island == label``): that
+    was an O(corners) pass per island, so the cost was islands x corners (the
+    2026-10-07 audit's clay-25). *candidates*, given, narrows the sort to
+    those corner indices first -- ``transform_islands`` passes only the corners
+    of the islands it was asked about, so nudging one island of a large mesh
+    does not pay to sort the rest.
+    """
+    pool = np.arange(len(corner_island), dtype="i8") if candidates is None else candidates
+    owner = corner_island[pool]
+    order = np.argsort(owner, kind="stable")
+    pool, owner = pool[order], owner[order]
+    wanted = np.asarray(labels)
+    lo = np.searchsorted(owner, wanted, side="left")
+    hi = np.searchsorted(owner, wanted, side="right")
+    return [
+        (int(label), pool[a:b])
+        for label, a, b in zip(wanted.tolist(), lo.tolist(), hi.tolist(), strict=True)
+        if b > a
+    ]
+
+
 def transform_islands(
     mesh: Mesh,
     island_ids: Sequence[int] | np.ndarray,
@@ -242,6 +278,7 @@ def transform_islands(
     foc = _face_of_corner(mesh)
     corner_island = ids[foc]
     corner_mask = face_mask[foc]
+    selected = np.flatnonzero(corner_mask)
 
     new_uv = np.array(uv, dtype="f8", copy=True)
     theta = math.radians(float(rotate_deg))
@@ -249,17 +286,14 @@ def transform_islands(
     # Row-vector convention (p @ R): a CCW rotation by theta.
     rot = np.array([[cos_t, sin_t], [-sin_t, cos_t]])
 
-    for label in wanted.tolist():
-        sel = corner_mask & (corner_island == label)
-        if not sel.any():
-            continue
+    for _label, sel in _corners_by_island(corner_island, wanted, selected):
         pts = new_uv[sel]
         centre = np.zeros(2) if pivot == "origin" else (pts.min(axis=0) + pts.max(axis=0)) / 2.0
         pts = (pts - centre) * float(scale)
         pts = pts @ rot
         new_uv[sel] = pts + centre
 
-    new_uv[corner_mask] += np.asarray(translate, dtype="f8")
+    new_uv[selected] += np.asarray(translate, dtype="f8")
     return replace(mesh, uv=new_uv.astype("f4"))
 
 
@@ -275,6 +309,12 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     The target width is ``sqrt(total island area)``, which aims the raw
     layout at roughly square before the uniform rescale below, and is
     widened to the single widest island if that alone would exceed it.
+
+    ``margin`` is the gap between neighbouring islands **in the final unit
+    square**, not in the pre-scale layout, so the number typed is the gap that
+    comes out. When that many gaps could not leave the islands half the square
+    (a margin of 0.5 across three islands, say) the gap shrinks to the largest
+    that does.
 
     **The whole layout is then scaled uniformly** to fit ``[0, 1] x [0, 1]``
     -- one factor for every island, so a small island stays small relative to
@@ -315,15 +355,16 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     new_uv = np.array(uv, dtype="f8", copy=True)
 
     items = []
-    for label in labels:
-        mask = corner_island == label
-        pts = new_uv[mask]
+    # One sort of the corners, then a slice per island -- not a mask over every
+    # corner per island (the 2026-10-07 audit's clay-25; see MAX_UV_ISLANDS).
+    for label, corners in _corners_by_island(corner_island, np.asarray(labels)):
+        pts = new_uv[corners]
         lo, hi = pts.min(axis=0), pts.max(axis=0)
         w, h = float(hi[0] - lo[0]), float(hi[1] - lo[1])
         rotated = bool(rotate and w > h)
         if rotated:
             w, h = h, w
-        items.append((label, mask, lo, w, h, rotated))
+        items.append((label, corners, lo, w, h, rotated))
 
     # Tallest first; ties by label, so two same-height islands always land
     # in the same relative order regardless of dict/set iteration.
@@ -333,30 +374,63 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     widest = max((w for *_rest, w, _h, _r in items), default=0.0)
     target_width = max(math.sqrt(total_area), widest, 1e-9)
 
+    # The 2026-10-07 audit's clay-48: ``margin`` used to be added into this
+    # layout and the whole layout then divided down to the unit square, so the
+    # gap that came out was ``margin * scale`` -- a typed 0.5 left a 0.118
+    # column, and the number a user typed meant a different gap on every mesh.
+    # The layout is therefore solved in raw units with no gaps at all, and the
+    # gaps are added afterwards in *final* units, with the scale chosen so that
+    # islands plus gaps fill the square exactly: for each shelf
+    # ``scale * raw_width + (islands - 1) * margin <= 1``, and likewise down the
+    # shelves. A texel-density-preserving uniform scale is kept, as before.
     x = y = shelf_h = 0.0
-    max_x = 0.0
+    col = row = 0
+    shelf_widths: list[float] = []  # raw width of each shelf
+    shelf_counts: list[int] = []  # islands on each shelf
+    shelf_heights: list[float] = []  # raw height of each shelf
     placements = []
-    for _label, mask, lo, w, h, rotated in items:
-        if x > 0.0 and x + w > target_width:
-            y += shelf_h + margin
-            x = 0.0
-            shelf_h = 0.0
-        placements.append((mask, lo, rotated, x, y))
-        x += w + margin
-        max_x = max(max_x, x - margin)
+    for _label, corners, lo, w, h, rotated in items:
+        if col > 0 and x + w > target_width * (1.0 + 1e-9):
+            shelf_widths.append(x)
+            shelf_counts.append(col)
+            shelf_heights.append(shelf_h)
+            y += shelf_h
+            x = shelf_h = 0.0
+            col = 0
+            row += 1
+        placements.append((corners, lo, rotated, x, y, row, col))
+        x += w
+        col += 1
         shelf_h = max(shelf_h, h)
-    total_h = y + shelf_h
-    scale = 1.0 / max(max_x, total_h, 1e-9)
+    shelf_widths.append(x)
+    shelf_counts.append(col)
+    shelf_heights.append(shelf_h)
 
-    for mask, lo, rotated, ox, oy in placements:
-        pts = new_uv[mask] - lo
+    # A gap that cannot fit beside the islands is shrunk rather than refused:
+    # past half the square going to gaps the islands would be specks, and a
+    # refusal would fail a mesh the old packer always laid out. This is the one
+    # case where the final gap is less than the typed margin.
+    gaps = max(max(shelf_counts) - 1, len(shelf_counts) - 1)
+    gap = float(margin)
+    if gaps > 0 and gap * gaps > 0.5:
+        gap = 0.5 / gaps
+    scale = min(
+        min(
+            (1.0 - (n - 1) * gap) / max(width, 1e-9)
+            for width, n in zip(shelf_widths, shelf_counts, strict=True)
+        ),
+        (1.0 - (len(shelf_counts) - 1) * gap) / max(sum(shelf_heights), 1e-9),
+    )
+
+    for corners, lo, rotated, ox, oy, shelf, index in placements:
+        pts = new_uv[corners] - lo
         if rotated:
             # 90 degrees CCW about the island's own local origin, then
             # re-zeroed: the rotation can push the bbox negative, and the
             # shelf offset below assumes a bbox that starts at (0, 0).
             pts = np.stack([-pts[:, 1], pts[:, 0]], axis=1)
             pts -= pts.min(axis=0)
-        new_uv[mask] = (pts + (ox, oy)) * scale
+        new_uv[corners] = pts * scale + (ox * scale + index * gap, oy * scale + shelf * gap)
 
     return replace(mesh, uv=new_uv.astype("f4"))
 

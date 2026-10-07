@@ -135,9 +135,11 @@ GHOST_REMOVE_COLOR = (0.9, 0.25, 0.25, 0.22)
 #: one onto the other. ``"unlit"`` is first and is the default: it is
 #: byte-identical to what ``render_png`` always drew before ``shading``
 #: existed (``flat=True`` and nothing else set), which is what
-#: ``test_render_png_defaults_are_the_picture_the_trellis_path_already_got``
-#: pins -- ``main.py``'s Trellis caller never passes ``shading`` at all, so
-#: it is the one path this table must never move. ``"object_id"`` is
+#: ``test_render_png_defaults_are_the_picture_an_unparameterised_call_draws``
+#: pins -- a caller that never passes ``shading`` keeps getting the picture it
+#: always did (the 2026-10-07 audit's clay-64: the caller this pin used to name
+#: was removed, and the pin now names what it actually holds).
+#: ``"object_id"`` is
 #: deliberately absent: it draws through ``Renderer.draw_ids``, a different
 #: pass with a different return shape, not a ``Renderer.draw`` keyword
 #: combination -- see ``ClayView.render_ids``.
@@ -277,6 +279,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.scale_gizmo = ScaleGizmo(ctx, self.renderer.programs)
 
         self._cache: dict[int, _Entry] = {}
+        # One texture cache for every object's model (the 2026-10-07 audit's
+        # clay-28): reference-counted, so it frees a texture on the last
+        # object's release rather than the creator's.
+        self._textures = scenelib.TextureCache()
         # Counted rather than inferred: "only what changed was rebuilt" is a
         # property worth asserting, and there is no other way to see it.
         self.rebuilds = 0
@@ -473,7 +479,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         )
         return self.viewport.texture
 
-    def _world(self, doc: Any, obj: Any) -> Any:
+    def _world(self, doc: Any, obj: Any, index: dict[int, Any] | None = None) -> Any:
         """This object's world matrix, memoized on the transform arrays (B26,
         extended for tranche 3's parenting).
 
@@ -519,14 +525,42 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         address being handed to an unrelated new one is safe too -- the
         dereferenced weakref will not be that new document, however the
         addresses land.
+
+        **``index`` is the 2026-10-07 audit's clay-27.** Without it the chain is
+        resolved through ``doc.ancestors`` and ``doc.by_uid``, each a linear
+        ``index_of`` scan, *before* the memo is consulted -- so a frame over N
+        objects cost N scans of N even when every memo entry hit (607 ms at the
+        4,096-object import ceiling). ``_composite`` builds one uid -> object
+        map per frame and hands it down, and the chain is a few dict reads; on
+        a miss the matrix is composed from that same chain, not from
+        ``doc.world_matrix``, which would scan again. Same answer either way:
+        the walk is ``ancestors``' (first-seen uid wins, a dangling parent or a
+        revisit ends it) and the composition is ``world_matrix``'s.
         """
-        chain = [obj, *(doc.by_uid(u) for u in doc.ancestors(obj.uid))]
+        if index is None:
+            chain = [obj, *(doc.by_uid(u) for u in doc.ancestors(obj.uid))]
+        else:
+            chain = [obj]
+            seen = {obj.uid}
+            current = obj.parent
+            while current is not None and current not in seen:
+                parent = index.get(current)
+                if parent is None:
+                    break
+                chain.append(parent)
+                seen.add(current)
+                current = parent.parent
         slot = (id(doc), obj.uid)
         key = tuple(id(v) for o in chain for v in (o.translation, o.rotation, o.scale))
         hit = self._world_cache.get(slot)
         if hit is not None and hit[0]() is doc and hit[1] == key:
             return hit[2]
-        world = doc.world_matrix(obj.uid)
+        if index is None:
+            world = doc.world_matrix(obj.uid)
+        else:
+            world = m3.identity()
+            for link in reversed(chain):
+                world = world @ m3.compose(link.translation, link.rotation, link.scale)
         # Every ancestor's arrays are pinned, not only this object's own: an
         # id in the key is only sound while the array it names is alive, and
         # nothing else holds an ancestor's transform alive on this cache's
@@ -537,7 +571,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             self._world_cache.clear()
         return world
 
-    def _composite(self, doc: Any) -> Any:
+    def _composite(self, doc: Any, *, hide_removed: bool = True) -> Any:
         """Every cached object as one thing the renderer can draw in one pass.
 
         ``Renderer.draw`` clears the target it is given, so a call per object
@@ -550,10 +584,28 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         The transform being carried on the node rather than in the cache key is
         what keeps a move from rebuilding a buffer: it is a uniform written per
         frame, which is what ``world`` already is for a glTF node.
+
+        **``hide_removed`` is the interactive draw's alone**: the offscreen
+        renders pass ``False``. A pending Familiar preview drops the objects it
+        would delete from the solid pass because ``_ghost_draws`` tints them
+        instead -- but ``render_png`` and
+        ``render_ids`` draw no ghost, so applying the skip there made a
+        screenshot or a ``clay_render`` call show an empty scene (and report the
+        object occluded) for as long as a preview was pending (the 2026-10-07
+        audit's clay-29). The offscreen renders show the document as it is.
         """
-        removed = self._preview.removed if self._preview is not None else frozenset()
+        removed = (
+            self._preview.removed
+            if hide_removed and self._preview is not None
+            else frozenset()
+        )
         draws = []
         uids = []
+        # One uid -> object map for the frame, so ``_world`` never scans the
+        # document (clay-27). First-seen wins, as ``by_uid`` would answer.
+        index: dict[int, Any] = {}
+        for obj in doc.objects:
+            index.setdefault(obj.uid, obj)
         for obj in doc.objects:
             if obj.uid in removed:
                 # Drawn instead as a faint tint by ``_ghost_draws`` -- a
@@ -564,7 +616,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             entry = self._cache.get(obj.uid)
             if entry is None:
                 continue
-            world = self._world(doc, obj)
+            world = self._world(doc, obj, index)
             for node, primitive in entry.gpu.draws:
                 node.world = world
                 draws.append((node, primitive))
@@ -816,22 +868,23 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
     ) -> bytes:
         """One offscreen square draw of *doc*, on white, as PNG bytes.
 
-        Lifted from ``main.py:_render_clay_reference`` (build-to-trellis) and
-        generalised for a second caller with a different question: trellis
-        always wants the standard three-quarter framing, an MCP client asking
-        "what does this look like from the front" wants a named axis. Both are
-        answered by the same draw -- frame first, then optionally rotate onto
-        an axis without reframing, which is exactly what :meth:`Camera.
-        look_along` promises (it "keeps the target and the distance").
+        Three callers ask three different questions of it: the MCP
+        ``clay_render`` tool ("what does this look like from the front" wants a
+        named axis), the Familiar critique (a lit three-quarter picture of a
+        scratch document) and the screenshot command (the angle the user is
+        looking from, ``frame=False``). All are answered by the same draw --
+        frame first, then optionally rotate onto an axis without reframing,
+        which is exactly what :meth:`Camera.look_along` promises (it "keeps the
+        target and the distance").
 
         Deliberately **not** ``self.draw``: this always allocates its own
         render target rather than the viewport's live one, because the live
         target is sized to whatever pane is on screen this frame and a second
         caller mid-frame (an agent call queued between two draws) would either
         race the resize or hand back a picture at the wrong resolution. A
-        white background always; no gizmos and no overlays always, for the
-        reason ``_render_clay_reference`` already stated: trellis and an
-        agent are both being shown a *subject*. The grid is the one exception
+        white background always; no gizmos and no overlays always, because
+        every caller is being shown a *subject*, not the editor around it. The
+        grid is the one exception
         a caller can now ask for -- see ``grid`` below for why that is not a
         contradiction of the same sentence.
 
@@ -839,10 +892,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         ``flat``/``wireframe``/``wire_overlay``/``alpha`` this draw uses --
         see ``_SHADING_DRAW_KWARGS`` for the table and why ``"unlit"`` (the
         default) is the one entry that must never move: it is byte-identical
-        to what this method always drew before ``shading`` existed, which is
-        what keeps ``_render_clay_reference`` -- and every stored-corpus
-        comparison keyed on its input -- looking at the same picture it
-        always has. ``"object_id"`` is not a legal value here at all; it
+        to what this method always drew before ``shading`` existed, so a
+        caller that never passes ``shading`` -- and any stored comparison keyed
+        on its picture -- sees the same one it always has. ``"object_id"`` is
+        not a legal value here at all; it
         draws through :meth:`render_ids` instead, a different pass with a
         different return shape.
 
@@ -866,16 +919,12 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         ``vars(self.camera).update(saved)`` below already cover every field
         either method touches, generically.
 
-        ``frame=False`` is the build-to-trellis path and is not a stylistic
-        choice. ``_render_clay_reference`` has always drawn through whatever
-        camera the user had, so the picture trellis reconstructs from is the
-        angle the user was looking at when they pressed the button. Framing it
-        here would quietly change the input to every future reconstruction --
-        and reconstruction quality in this project is measured against stored
-        corpora keyed on their inputs, so a silent change to what the engine
-        is handed invalidates comparisons against every measurement already
-        taken. An agent asking for a picture has no camera of its own and
-        wants the subject to fill the square, so it takes the default.
+        ``frame=False`` is the screenshot path and is not a stylistic choice:
+        it draws through whatever camera the user has, so the picture is the
+        angle they were looking at when they pressed the button, and framing it
+        here would hand them a different picture from the one on their screen.
+        An agent asking for a picture has no camera of its own and wants the
+        subject to fill the square, so it takes the default.
 
         ``bounds``, when given, is a ``(lo, hi)`` world AABB framed in place of
         the document's own -- consulted only when ``frame`` is true. This is
@@ -911,9 +960,13 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
 
         The default path -- no ``angles``, no ``bounds``, ``grid=False`` -- is
         byte-identical to what this method drew before any of the three
-        existed: ``_render_clay_reference`` and every stored-corpus comparison
-        keyed on its input depend on that, and it is pinned by
-        ``test_render_png_defaults_are_the_picture_the_trellis_path_already_got``.
+        existed, and is pinned by
+        ``test_render_png_defaults_are_the_picture_an_unparameterised_call_draws``.
+
+        **Nothing here hides an object a pending preview would remove**
+        (``_composite`` is called with ``hide_removed=False`` here):
+        this draws no ghost to stand in for it, so the picture shows the
+        document as it is.
 
         ``god_light``, Task C's flat overhead light and ground plane, exists
         here so a test can exercise it through the same headless draw every
@@ -952,7 +1005,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             self.renderer.draw(
                 target,
                 self.camera,
-                self._composite(doc),
+                self._composite(doc, hide_removed=False),
                 show_grid=grid,
                 background=(1.0, 1.0, 1.0, 1.0),
                 overlays=[],
@@ -984,8 +1037,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         every framing argument is shared: the return shape is different -- a
         picture *and* a table, not a picture alone -- and folding a second
         element onto ``render_png``'s return would have meant every other
-        caller of it (the Trellis path chief among them) gaining an optional
-        tuple member it never uses. Same reasoning as the ``screenshot``/
+        caller of it (the screenshot command chief among them) gaining an
+        optional tuple member it never uses. Same reasoning as the ``screenshot``/
         ``draw`` split already in this class.
 
         No ``grid`` parameter at all: ``agent_clay`` refuses the combination
@@ -1013,7 +1066,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
                 for obj in doc.objects
                 if obj.visible
             }
-            self.renderer.draw_ids(target, self.camera, self._composite(doc), id_colors=colors)
+            self.renderer.draw_ids(
+                target, self.camera, self._composite(doc, hide_removed=False), id_colors=colors
+            )
             png = capture.png_bytes(target)
             pixels = target.read_rgba()[..., :3]
             counts = _count_colors(pixels, colors)
@@ -1027,6 +1082,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
 
     def release(self) -> None:
         self.clear()
+        # Every holder has let go by now; this is the backstop for one that
+        # never did, so no texture outlives the view.
+        self._textures.release_all()
         self._release_overlays()
         self._release_ghost()
         self.translate_gizmo.release()

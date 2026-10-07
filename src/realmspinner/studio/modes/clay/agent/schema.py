@@ -169,10 +169,31 @@ render on the frame thread (the 2026-10-03 audit's clay-99); the budget's own
 comment below already assumes "a dozen views" is the most anyone asks for."""
 
 MAX_NAME_LENGTH = 128
-"""The longest name ``clay_rename``, ``clay_checkpoint`` and ``clay_reference_add``
-take. Nothing bounded them but the 8 MiB request frame, so one long name made
-every later ``clay_scene`` row over budget and ``clay_reference_add`` put it
-verbatim into a UI toast (the 2026-10-03 audit's clay-99)."""
+"""The longest name any tool that takes one accepts: ``clay_rename``,
+``clay_checkpoint`` and ``clay_reference_add`` since the 2026-10-03 audit's
+clay-99, and ``clay_add_primitive``, ``clay_add_mesh``, ``clay_material`` and
+``clay_group`` since the 2026-10-07 audit's clay-33. Nothing bounded them but the
+8 MiB request frame, so one long name made every later ``clay_scene`` row over
+budget and ``clay_reference_add`` put it verbatim into a UI toast. The ceiling
+is deliberately not in the published schemas (no ``maxLength``): a schema
+change would move the frozen Familiar card, and the refusal names the number."""
+
+MAX_PALETTE = 1024
+"""The most palette slots ``clay_material`` will make. ``clay_scene`` returns the
+whole palette (it pages ``objects`` only) and a batch takes 32 ``clay_material``
+calls at a time, so nothing stopped the palette growing until every
+``clay_scene`` reply passed ``MAX_FRAME`` and refused with a narrowing it did
+not have (the 2026-10-07 audit's clay-80: a ~120,000-slot palette). Measured
+2026-10-07 on the dev machine by calling the real ``clay_scene`` on one object
+with a 1,024-slot palette of 128-character names (``MAX_NAME_LENGTH``, the
+worst row an agent can write, each row carrying the ``textured``/``nearest``
+flags): 458,994 bytes on the wire, 448 bytes a row, 5.5% of ``MAX_FRAME``
+(the figure is a byte count, not a timing, so it does not depend on the
+machine), so the ceiling is a size guard with a wide margin
+rather than a tuned figure; the choice of 1,024 is for what a palette is
+(picoCAD's is sixteen colours). A slot can still be *reused* by ``index`` at
+the ceiling, and a document that arrives with more (a glTF import) is read
+as before -- the ceiling only stops an agent making new ones."""
 
 MAX_CHECKPOINTS = 64
 """How many named checkpoints one document holds. Re-setting an existing name is
@@ -529,6 +550,10 @@ def _clay_scene_output_schema() -> dict:
                         "index": {"type": "integer"},
                         "name": {"type": "string"},
                         "color": {"type": "array", "items": {"type": "number"}},
+                        # The 2026-10-07 audit's clay-86: a slot carrying a
+                        # texture read as its (white) factor alone.
+                        "textured": {"type": "boolean"},
+                        "nearest": {"type": "boolean"},
                     },
                 },
             },

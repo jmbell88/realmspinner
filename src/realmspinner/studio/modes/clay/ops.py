@@ -38,6 +38,7 @@ bug and swallowing it would leave a half-built mesh on screen with no clue why.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -61,8 +62,9 @@ __all__ = [
 ]
 
 # The element modes an op can appear in. "object" is the fourth and is not an
-# element mode; ops that name it are the object-level ones (duplicate, bake,
-# mirror) that were previously hardcoded in the tools pane.
+# element mode; ops that name it are the object-level ones (duplicate, mirror,
+# group, origin) that were previously hardcoded in the tools pane. (The 2026-10-07
+# audit's clay-42: this named a bake op that Clay no longer has.)
 ALL_MODES: tuple[str, ...] = ("object", "vertex", "edge", "face")
 ELEMENT_MODES: tuple[str, ...] = ("vertex", "edge", "face")
 
@@ -296,9 +298,19 @@ def resolve_params(op: Op, params: dict[str, Any]) -> dict[str, Any]:
     previews through the kernel directly -- so the clamp is one function both
     call, and a preview can never show a value the commit would change.
     """
+    from ....kernels.mesh.elements import OpError
+
     values = defaults_for(op) | params
     for param in op.params:
-        value = min(max(float(values[param.name]), param.low), param.high)
+        value = float(values[param.name])
+        # The 2026-10-07 audit's clay-36: ``min(max(nan, lo), hi)`` returns NaN
+        # (every comparison with NaN is false), so a NaN that reached ``run``
+        # sailed through the clamp -- Mirror Copy put an object at NaN and Snap
+        # and Assign raised a bare ValueError. A refusal, in the same type every
+        # other op refusal uses, so ``run`` toasts it and records no edit.
+        if not math.isfinite(value):
+            raise OpError(f"{param.label} must be a finite number.")
+        value = min(max(value, param.low), param.high)
         values[param.name] = int(value) if param.stores_int else value
     return values
 
@@ -330,7 +342,11 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
 
     if not op.enabled(doc):
         return False
-    values = resolve_params(op, params)
+    try:
+        values = resolve_params(op, params)
+    except OpError as error:
+        toast(ctx, str(error))
+        return False
     head = doc.history.head
     before = _recent.snapshot(doc)
     mark = doc.history.mark()
@@ -683,13 +699,22 @@ def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
     doc.select([uids[0]])
 
 
-def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> None:
+def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> bool:
     from ....kernels.mesh import ops as clay_ops_geom
 
-    def one(doc: Any, obj: Any) -> None:
-        doc.set_mesh(obj.uid, clay_ops_geom.mirror(obj, axis).mesh)
+    mirrored: list[int] = []
 
-    run_object_op(ctx, doc, one)
+    def one(doc: Any, obj: Any) -> None:
+        # The 2026-10-07 audit's clay-39: a group's empty has no vertices, and
+        # mirroring it built a fresh Mesh and pushed an undo step that changed
+        # nothing. A vertex-less object is left alone, as Join and Unwrap's
+        # own "nothing to act on" objects are.
+        if len(obj.mesh.positions) == 0:
+            return
+        doc.set_mesh(obj.uid, clay_ops_geom.mirror(obj, axis).mesh)
+        mirrored.append(obj.uid)
+
+    return run_object_op(ctx, doc, one) and bool(mirrored)
 
 
 def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_: Any) -> bool:
@@ -733,7 +758,15 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     # copy's own mesh -- so every copy's world is kept and a child's local TRS
     # is taken relative to its parent copy's. Parents first, so that world is
     # already known.
-    originals = sorted(doc.selection, key=lambda u: (len(doc.ancestors(u)), doc.index_of(u)))
+    #
+    # The 2026-10-07 audit's clay-35: only *visible* originals. Duplicate and
+    # Delete leave a hidden selected object alone (``visible=False`` means it
+    # does not render, export or pick), and Mirror Copy used to copy it into a
+    # scene the user could not see the original in.
+    originals = sorted(
+        (u for u in doc.selection if doc.by_uid(u).visible),
+        key=lambda u: (len(doc.ancestors(u)), doc.index_of(u)),
+    )
     fresh = {uid: bd.new_uid() for uid in originals}
     copy_worlds: dict[int, Any] = {}
     made: list[Any] = []
@@ -771,6 +804,8 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
                 parent=parent,
             )
         )
+    if not made:
+        return False
     doc.add_objects(made)
     # Originals *and* copies: mirroring a mirror is a normal thing to want. Leaving the
     # copies unselected made "mirror across X, then mirror the pair across Z"
@@ -891,7 +926,7 @@ def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
     return _apply_deltas(ctx, doc, deltas)
 
 
-def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
+def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> bool:
     """Snap every selected object's *world* position onto a grid of *step*
     metres, each axis independently -- ``ops.snap_translation``'s own rounding
     (half away from zero, so the grid stays symmetric about the origin).
@@ -907,7 +942,15 @@ def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
     snaps against the parent's final position rather than moving off the grid
     again when its parent is snapped afterwards.
     """
+    from ....kernels.mesh import elements as el
     from ....kernels.mesh import ops as clay_ops_geom
+
+    # The 2026-10-07 audit's clay-37: ``snap_translation`` treats a step of 0 as
+    # "leave it alone", and the parameter's range starts at 0, so a zero step
+    # used to push nothing, say nothing and report that the op ran. A grid of
+    # no size is not a grid; refuse it with the sentence that names the field.
+    if not step > 0.0:
+        raise el.OpError("The grid step must be above zero; a step of 0 has no grid to snap to.")
 
     def one(doc: Any, obj: Any) -> None:
         if obj.parent is None:
@@ -920,7 +963,7 @@ def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
 
     live = [uid for uid in doc.selection if any(o.uid == uid for o in doc.objects)]
     order = sorted(live, key=lambda uid: len(doc.ancestors(uid)))
-    run_object_op(ctx, doc, one, uids=order)
+    return run_object_op(ctx, doc, one, uids=order)
 
 
 # --- tranche 3: scene structure -- parenting, groups, separate, origin -------
@@ -970,7 +1013,7 @@ def _group(ctx: Any, doc: Any, **_: Any) -> None:
     doc.select([empty.uid])
 
 
-def _ungroup(ctx: Any, doc: Any, **_: Any) -> None:
+def _ungroup(ctx: Any, doc: Any, **_: Any) -> bool:
     """Release every selected group's children back to its own parent, and
     delete the empty.
 
@@ -988,10 +1031,10 @@ def _ungroup(ctx: Any, doc: Any, **_: Any) -> None:
         if _is_group(doc, obj):
             doc.remove_object(obj.uid)
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
-def _parent_to_last(ctx: Any, doc: Any, **_: Any) -> None:
+def _parent_to_last(ctx: Any, doc: Any, **_: Any) -> bool:
     """Parent every other selected object onto the topmost one in the
     outliner.
 
@@ -1012,16 +1055,19 @@ def _parent_to_last(ctx: Any, doc: Any, **_: Any) -> None:
     """
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
     if len(uids) < 2:
-        return
+        return False
     target, *rest = uids
 
     def one(doc: Any, obj: Any) -> None:
         doc.set_parent(obj.uid, target, keep_world=True)
 
-    run_object_op(ctx, doc, one, uids=rest)
+    # The 2026-10-07 audit's clay-38: the result of ``run_object_op`` is what
+    # tells ``run`` that every parenting was refused (a cycle, say). Dropping it
+    # made ``run`` report True -- and an agent read ran=true with no step pushed.
+    return run_object_op(ctx, doc, one, uids=rest)
 
 
-def _clear_parent(ctx: Any, doc: Any, **_: Any) -> None:
+def _clear_parent(ctx: Any, doc: Any, **_: Any) -> bool:
     """Every selected object becomes a root, keeping its world placement --
     ``ClayDoc.set_parent(uid, None, keep_world=True)`` per object, the same
     door :func:`_ungroup` and :func:`_parent_to_last` both use. An
@@ -1033,7 +1079,7 @@ def _clear_parent(ctx: Any, doc: Any, **_: Any) -> None:
     def one(doc: Any, obj: Any) -> None:
         doc.set_parent(obj.uid, None, keep_world=True)
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
 def _separate_loose(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1087,7 +1133,7 @@ def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
     return run_object_op(ctx, doc, one)
 
 
-def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> None:
+def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> bool:
     """Move each selected object's origin to its own *world* box's centre.
 
     Measured off the object's world matrix (``doc.world_matrix``, tranche 3),
@@ -1105,10 +1151,10 @@ def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> None:
         lo, hi = box
         doc.set_origin(obj.uid, (lo + hi) * 0.5)
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
-def _origin_to_base(ctx: Any, doc: Any, **_: Any) -> None:
+def _origin_to_base(ctx: Any, doc: Any, **_: Any) -> bool:
     """Move each selected object's origin to its own world box's bottom
     centre -- :func:`_origin_to_bounds`'s identical measurement, with the
     Y (up) component read off the box's *low* corner instead of its middle,
@@ -1123,10 +1169,10 @@ def _origin_to_base(ctx: Any, doc: Any, **_: Any) -> None:
         lo, hi = box
         doc.set_origin(obj.uid, [(lo[0] + hi[0]) * 0.5, lo[1], (lo[2] + hi[2]) * 0.5])
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
-def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> None:
+def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> bool:
     """Move each selected object's origin to its own element selection's
     centroid.
 
@@ -1146,17 +1192,17 @@ def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> None:
         point = (doc.world_matrix(obj.uid) @ homogeneous)[:3]
         doc.set_origin(obj.uid, point)
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
-def _origin_to_world(ctx: Any, doc: Any, **_: Any) -> None:
+def _origin_to_world(ctx: Any, doc: Any, **_: Any) -> bool:
     """Move each selected object's origin to the world origin -- the one
     origin-* row that needs no measurement at all."""
 
     def one(doc: Any, obj: Any) -> None:
         doc.set_origin(obj.uid, [0.0, 0.0, 0.0])
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
 def _repeat_last_reason(doc: Any) -> str:
@@ -1188,7 +1234,7 @@ def _delete(ctx: Any, doc: Any, **_: Any) -> None:
         toast(ctx, message)
 
 
-def _unwrap(ctx: Any, doc: Any, **_: Any) -> None:
+def _unwrap(ctx: Any, doc: Any, **_: Any) -> bool:
     """Give every selected object a fresh box projection.
 
     Whole objects rather than the selected faces, and that is the decision:
@@ -1207,7 +1253,7 @@ def _unwrap(ctx: Any, doc: Any, **_: Any) -> None:
     def one(doc: Any, obj: Any) -> None:
         doc.set_mesh(obj.uid, uv_mod.box_unwrap(obj.mesh), keep_generator=True)
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
 def _assign_material(ctx: Any, doc: Any, index: int = 0, **_: Any) -> bool:
@@ -1250,7 +1296,7 @@ def _assign_material(ctx: Any, doc: Any, index: int = 0, **_: Any) -> bool:
     return True
 
 
-def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> None:
+def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> bool:
     """Make every selected object's winding consistent and outward.
 
     **Object mode only.** A flipped face is a property of a *shell* --
@@ -1282,7 +1328,7 @@ def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> None:
         if mesh is not obj.mesh:
             doc.set_mesh(obj.uid, mesh)
 
-    run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one)
 
 
 # --- shading, selection, frame ------------------------------------------------
@@ -1647,8 +1693,9 @@ def _register_defaults() -> None:
             # "Parent to Last Selected" is the full name the spec and the
             # manual use; shortened here because it is the longest label in
             # the object menu and does not fit even a one-column grid at the
-            # narrowest tested sidebar (190 dp) -- see
-            # ``test_no_action_button_is_narrower_than_its_own_label``.
+            # narrowest tested sidebar (190 dp). (The 2026-10-07 audit's
+            # clay-42: this cited ``test_no_action_button_is_narrower_than_its_own_label``,
+            # which no longer exists.)
             label="Parent to Last",
             modes=("object",),
             run=_parent_to_last,

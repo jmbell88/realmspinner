@@ -429,9 +429,12 @@ def write_glb(model: gltf.Model) -> bytes:
     """``model`` as the bytes of a self-contained binary glTF.
 
     Self-contained: one buffer, no URIs, nothing outside the file -- **textures
-    included**, PNG-encoded into the BIN chunk as buffer views. Clay still
-    paints none, but it imports them now, and an asset that lost its baked maps
-    on the way back out would be a round trip that quietly destroys work.
+    included**, PNG-encoded into the BIN chunk as buffer views. Clay's palette
+    textures (painted in Inker and pulled back, or imported from a GLB) ride
+    out here, and an asset that lost its baked maps on the way back out would
+    be a round trip that quietly destroys work. (The 2026-10-07 audit's
+    clay-72: an earlier sentence here denied Clay had any textures to write,
+    which stopped being true when the palette gained them.)
     Images are deduplicated by identity, so a palette sharing one map writes it
     once.
 

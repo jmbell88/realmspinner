@@ -122,9 +122,14 @@ def axis_matrix(*, scale: float, up: str) -> np.ndarray:
 
 # --- MTL, the small subset this parser reads ---------------------------------
 
+#: The comment :mod:`.objexport` writes under each ``newmtl`` to carry a
+#: material's real name. The one comment this parser reads.
+_NAME_COMMENT = "# Clay material name:"
+
 
 def _parse_mtl(text: str) -> dict[str, dict[str, object]]:
-    """``{material name: {"Kd": (r,g,b), "d": alpha, "Ns": ns}}``, best-effort.
+    """``{material name: {"Kd": (r,g,b), "d": alpha, "Ns": ns, "name": str}}``,
+    best-effort (``"name"`` only when :mod:`.objexport`'s name comment is present).
 
     Every field is optional and every unrecognised statement (``map_Kd``, ``Ka``,
     an illumination model...) is skipped -- this reads exactly the three fields
@@ -133,7 +138,23 @@ def _parse_mtl(text: str) -> dict[str, dict[str, object]]:
     """
     materials: dict[str, dict[str, object]] = {}
     current: dict[str, object] | None = None
+    # The 2026-10-07 audit's clay-15: Windows tools write a UTF-8 BOM, and the
+    # app reads the sibling ``.mtl`` with a plain ``utf-8`` decode that keeps
+    # it, so U+FEFF sat in front of the first ``newmtl`` and that material
+    # silently never existed. Stripped here, where every caller passes through.
+    text = text.removeprefix("﻿")
     for raw in text.splitlines():
+        # The 2026-10-07 audit's clay-69: :mod:`.objexport` writes the
+        # material's own name as a comment because the ``newmtl`` name is a
+        # collision-free ``Material_<index>``; the comment is the only place
+        # the real name survives, and the generic comment strip below would
+        # throw it away.
+        stripped = raw.strip()
+        if stripped.startswith(_NAME_COMMENT) and current is not None:
+            given = stripped[len(_NAME_COMMENT) :].strip()
+            if given:
+                current["name"] = given
+            continue
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
@@ -181,6 +202,9 @@ def _parse_mtl(text: str) -> dict[str, dict[str, object]]:
 def _material_from_mtl(name: str, entry: dict[str, object] | None) -> gltf.Material:
     if entry is None:
         return default_material(name or "Material")
+    # The name Clay wrote beside the ``newmtl`` wins over the slot name it
+    # wrote there (clay-69, 2026-10-07 audit); a foreign ``.mtl`` has none.
+    name = str(entry.get("name") or name)
     kd = entry.get("Kd", (0.8, 0.8, 0.8))
     alpha = float(entry.get("d", 1.0))  # type: ignore[arg-type]
     # glTF's colour factors are 0..1 and an MTL's are not bound to it: clay-88
@@ -315,6 +339,9 @@ def obj_to_claydoc(
     vertex as it is read, rather than to the assembled mesh afterward, because
     an OBJ vertex is a plain triple with no other transform to compose against.
     """
+    # The 2026-10-07 audit's clay-15: a UTF-8 BOM left on the text hides the
+    # first line (usually the first ``v``, which shifts every index).
+    text = text.removeprefix("﻿")
     if not text.strip():
         raise OpError("This OBJ is empty.")
 
@@ -392,7 +419,12 @@ def obj_to_claydoc(
     objects: list[Obj] = []
     taken: set[str] = set()
     current = _Building(name)
-    current_material = material_index(None)
+    # The 2026-10-07 audit's clay-69: the implicit unnamed slot used to be
+    # built here, before any face, so a file whose every face names a material
+    # (every OBJ Clay itself writes) arrived with an unused grey slot 0 in
+    # front of its real ones and every index shifted by one. Now it is made the
+    # first time a face with no ``usemtl`` in effect needs it.
+    current_material: int | None = None
     current_smooth = False
     saw_face = False
 
@@ -444,7 +476,21 @@ def obj_to_claydoc(
             # ``json.dumps`` emits anyway with its default ``allow_nan=True``.
             if not np.isfinite(xyz).all():
                 raise OpError(f"OBJ has a non-finite 'v' line: {line!r}")
-            positions_all.append((matrix @ xyz).tolist())
+            placed = matrix @ xyz
+            # The 2026-10-07 audit's clay-18: the check above is float64, but
+            # ``flush`` stores float32, so ``v 1e39 0 0`` (or 1e30 under a 1e10
+            # import scale) passed it and became an infinite position that only
+            # failed later, naming a GLB bound, far from this line. Checked
+            # after the axis/scale transform and the same cast ``flush`` makes,
+            # as :mod:`.meshimport` does for STL and PLY.
+            with np.errstate(over="ignore"):
+                fits = bool(np.isfinite(placed.astype("f4")).all())
+            if not fits:
+                raise OpError(
+                    f"OBJ has a 'v' line too large for Clay's float32 positions "
+                    f"(after the import scale and axis): {line!r}"
+                )
+            positions_all.append(placed.tolist())
         elif head == "vt":
             nums = rest.split()
             if not nums:
@@ -483,6 +529,8 @@ def obj_to_claydoc(
                 else:
                     current.corner_uv.append(texcoords_all[vt])
             current.counts.append(len(corners))
+            if current_material is None:
+                current_material = material_index(None)
             current.material.append(current_material)
             current.smooth.append(current_smooth)
             saw_face = True

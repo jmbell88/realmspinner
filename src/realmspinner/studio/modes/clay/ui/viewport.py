@@ -2,7 +2,7 @@
 
 A **mixin on** :class:`~.main.App`, which is this repository's idiom for a body
 of drawing that belongs to the shell -- ``ClayView`` is assembled the same way
-from five ops classes and ``Document`` from six. So ``self`` here is the App and
+from the ``_view_*`` ops mixins and ``Document`` from its own. So ``self`` here is the App and
 every method's body is unchanged.
 
 Lifted out of ``studio/main`` on 2026-09-04 (T7 of the 2026-09-02 review), after
@@ -106,6 +106,10 @@ class ClayViewport:
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
 
+        # One tick per drawn frame, before anything below can return: the UV pane
+        # stamps its hover against this count and ``clay_mode.handle_key`` reads it
+        # back (``ClayState.frame_serial``).
+        clay_mode.ensure(ctx).frame_serial += 1
         self._clay_tabs(ctx, clay_mode)
         tab = clay_mode.active(ctx)
         if tab is None:

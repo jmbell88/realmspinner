@@ -11,24 +11,24 @@ calls a generator a second time, to rebuild an existing object rather than to
 place a new one, is the door responsible for not throwing the object's own
 paint job and shading away on the very next keystroke.
 
-Until this module existed only one of those doors did that job, and only for
-one of the two attributes: ``panes/clay_props._carry_shading`` (now deleted;
-its reasoning moved here) carried ``smooth`` back onto a rebuilt mesh but
-never ``material``, and ``agent_clay._h_set_params`` carried neither -- it
-called ``shading.auto_smooth(bp.GENERATORS[obj.generator][1](**merged))``
-directly, which re-derives shading from scratch every time and repaints every
-face to slot 0 regardless of what the object was wearing. So a box painted
-with palette slot 3 came back grey after a resize typed into the properties
-panel, and after the identical resize sent by an agent the shading came back
-wrong too -- two doors quietly building two different meshes for the same
-edit, because the carry rule lived beside one of them instead of belonging to
-neither.
+Until this module existed only one of the two doors that rebuild an object did
+that job, and only for one of the two attributes: the properties panel
+carried ``smooth`` back onto a rebuilt mesh but never ``material``, and the
+agent's ``clay_set_params`` carried neither -- it called
+``shading.auto_smooth`` on the fresh build directly, which re-derives shading
+from scratch every time and repaints every face to slot 0 regardless of what
+the object was wearing. So a box painted with palette slot 3 came back grey
+after a resize typed into the properties panel, and after the identical resize
+sent by an agent the shading came back wrong too -- two doors quietly building
+two different meshes for the same edit, because the carry rule lived beside
+one of them instead of belonging to neither.
 
-:func:`carry_over` is the one rule now, reused by both doors rather than
-reinvented by either -- the same shape ``clay.shading.auto_smooth`` itself
-was extracted for (that extraction's docstring is the 2026-09-06 audit's
-organic-shapes decision, and this module leans on the identical function for
-its own re-derive case below).
+:func:`carry_over` is the one rule now, reused by both live doors
+(``studio/modes/clay/ui/panes/props.py`` and
+``studio/modes/clay/agent/tools.py``'s ``_h_set_params``) rather than
+reinvented by either -- the same shape ``shading.auto_smooth`` itself was
+extracted for, and this module leans on the identical function for its own
+re-derive case below.
 """
 
 from __future__ import annotations
@@ -41,6 +41,19 @@ import numpy as np
 from . import mesh as bm
 from . import shading
 from .mesh import Mesh
+
+
+def same_faces(old: Mesh, rebuilt: Mesh) -> bool:
+    """Whether *rebuilt* has *old*'s faces, index for index.
+
+    True when the face-corner structure (``starts``, ``loops``) is identical,
+    which is what "the same faces, only positions moved" means for every
+    generator Clay offers; a face count that merely matches is not enough (see
+    :func:`carry_over`'s ``changed_keys`` paragraph).
+    """
+    return bool(
+        np.array_equal(old.starts, rebuilt.starts) and np.array_equal(old.loops, rebuilt.loops)
+    )
 
 
 def carry_over(
@@ -104,13 +117,25 @@ def carry_over(
     to trade against -- so the face-count check alone is still trusted when
     ``changed_keys`` is left unset or has at most one member. A caller that
     can change several parameters in one rebuild (``clay_set_params``'s
-    multi-key ``params``) passes the keys it actually changed; more than one
-    forfeits the verbatim branch and re-derives instead, exactly as an
-    actual face-count change already does, because there is no cheap way
-    from here to know whether *this* generator's specific pair reorders
-    without asking every generator's own loop structure.
+    multi-key ``params``) passes the keys it actually changed.
+
+    **More than one changed key asks the meshes, not the key count** -- the
+    2026-10-07 audit's clay-08: forfeiting on the count of keys alone threw
+    away paint, the hand-made UV layout and the element selection whenever an
+    agent changed ``{"radius", "height"}`` on a cylinder, though those move
+    positions only and every face stays where it was. Every generator Clay
+    offers was swept (every parameter pair at every face count both sides
+    could build): the only same-face-count rebuilds whose faces are *not* the
+    same faces are ``torus``'s ``segments`` against ``sides`` and
+    ``uv_sphere``'s ``segments`` against ``rings``, where the same product
+    comes out of a transposed grid. Rather than keep that list (a generator
+    added later would be missing from it), :func:`same_faces` compares the
+    two meshes' face-corner structure: identical ``starts`` and ``loops`` is
+    the same faces by construction, and anything else is a reorder.
     """
-    reorder_risk = changed_keys is not None and len(changed_keys) > 1
+    reorder_risk = (
+        changed_keys is not None and len(changed_keys) > 1 and not same_faces(old, rebuilt)
+    )
     if bm.face_count(rebuilt) == bm.face_count(old) and not reorder_risk:
         return replace(rebuilt, smooth=old.smooth, material=old.material, uv=old.uv)
     smoothed = shading.auto_smooth(rebuilt)

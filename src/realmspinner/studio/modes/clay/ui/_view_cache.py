@@ -113,7 +113,17 @@ class CacheOps:
         # *mesh* is the entry's pin: see ``_Entry.mesh``'s own comment for why
         # an id in the key must be held alive for as long as the entry claims
         # to match it.
-        return _Entry(key, scenelib.GpuModel(self.ctx, model), model, mesh)
+        # The 2026-10-07 audit's clay-28: every object's model shares the view's
+        # one texture cache, so N objects over one palette picture are one GL
+        # texture and a preview frame's fresh model finds it already uploaded.
+        # ``getattr`` because a stand-in ``self`` (the wiring test's) carries no
+        # cache, and then the model keeps its own, as it always did.
+        textures = getattr(self, "_textures", None)
+        if textures is None:
+            gpu = scenelib.GpuModel(self.ctx, model)
+        else:
+            gpu = scenelib.GpuModel(self.ctx, model, texture_cache=textures)
+        return _Entry(key, gpu, model, mesh)
 
     def clear(self: ClayView) -> None:
         for entry in self._cache.values():

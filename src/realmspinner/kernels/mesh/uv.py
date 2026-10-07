@@ -17,8 +17,12 @@ unwrap Clay offers.
 +X and -X land in the same square, because the projection is by axis *pair*
 rather than by direction -- which is what Blender's Cube Projection does and
 what a user asking for a box unwrap is asking for. A layout with no overlap at
-all is a packing problem, and the primitives that can answer it cheaply (a box's
-six faces in a cross) answer it in their own generator instead.
+all is a packing problem, and this module does not solve it: the round primitives
+lay themselves out without overlap in their own generators, and the flat-panelled
+ones -- the box included, whose generator calls :func:`box_unwrap` -- keep the
+shared squares. (The 2026-10-07 audit's clay-52: this paragraph used to say a
+box's six faces are laid out in a cross by its own generator; it has not been
+since the box began calling the cube projection.)
 
 Everything here is pure: numpy and :mod:`~.mesh`, nothing from ``service``,
 ``queue`` or ``studio``, so every rule about where a corner lands is assertable
@@ -88,8 +92,16 @@ def _projected(mesh: Mesh, axes: np.ndarray, *, normals: np.ndarray | None = Non
     positions = np.asarray(mesh.positions, dtype="f8")
     if len(positions) == 0:
         return mesh
-    low = positions.min(axis=0)
-    span = float(np.max(positions.max(axis=0) - low))
+    # The 2026-10-07 audit's clay-49: the extent was taken over *every* position,
+    # but a GLB import keeps vertices no face references, and one such vertex
+    # 100 units out shrank every referenced face's layout into a sliver of the
+    # square. Only the vertices a face corner names lay anything out, so only
+    # they bound it.
+    referenced = positions[np.asarray(mesh.loops, dtype="i8")]
+    if len(referenced) == 0:
+        return mesh
+    low = referenced.min(axis=0)
+    span = float(np.max(referenced.max(axis=0) - low))
     # A flat or single-point mesh has no extent to normalise by. One is the
     # scale that leaves the coordinates as they are, which keeps a plane at
     # y = 0 unwrapping sensibly rather than dividing by zero.
@@ -100,7 +112,7 @@ def _projected(mesh: Mesh, axes: np.ndarray, *, normals: np.ndarray | None = Non
     corner_axis = axes[face_of]
     corner_pos = (positions[np.asarray(mesh.loops, dtype="i8")] - low) * scale
 
-    extent = (positions.max(axis=0) - low) * scale
+    extent = (referenced.max(axis=0) - low) * scale
     uv = np.zeros((len(mesh.loops), 2), dtype="f4")
     if normals is None:
         normals = face_normals(mesh)

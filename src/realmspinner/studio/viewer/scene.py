@@ -9,6 +9,7 @@ on the GPU side, so the two are deliberately not independent copies.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any
 
 import moderngl
@@ -32,6 +33,63 @@ TEXTURE_SLOTS = (
 )
 
 
+class TextureCache:
+    """A texture cache that several models can share, and that frees on the last use.
+
+    The 2026-10-07 audit's clay-28: Clay draws one :class:`GpuModel` per object,
+    and each model's own dict cache meant N objects over one palette picture
+    uploaded N identical GL textures (20 objects over a 512 px picture held
+    21 MB of VRAM for a 1 MB image), and every op-drag preview frame built a
+    fresh model and uploaded it all again. The plain-dict cache's rule -- only
+    the creator releases a texture, borrowers merely hold it -- is sound inside
+    one model, where creator and borrowers die together, and wrong across
+    models, where the creator can go first. Here every holder is counted, and
+    the texture is released when the last one lets go.
+
+    Keyed on ``(id(pixels), crisp)`` like the dict, and each entry pins its
+    ``pixels`` so that id cannot be recycled onto different bytes while the
+    entry lives -- a per-model dict got that for free from the ``Model`` it
+    lived beside; a shared one outlives every model that fed it.
+
+    Optional and injected: every caller that passes nothing (or a dict) is
+    exactly as it was, which is what keeps this safe for the viewers that share
+    this module.
+    """
+
+    def __init__(self) -> None:
+        # key -> [texture, pixels (the pin), holders]
+        self._entries: dict[Any, list[Any]] = {}
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def acquire(self, key: Any, pixels: Any, make: Any) -> moderngl.Texture:
+        """The texture for *key*, built by ``make()`` on first use. One hold is
+        taken; give it back with :meth:`release`."""
+        entry = self._entries.get(key)
+        if entry is None:
+            entry = [make(), pixels, 0]
+            self._entries[key] = entry
+        entry[2] += 1
+        return entry[0]
+
+    def release(self, key: Any) -> None:
+        entry = self._entries.get(key)
+        if entry is None:
+            return
+        entry[2] -= 1
+        if entry[2] <= 0:
+            del self._entries[key]
+            entry[0].release()
+
+    def release_all(self) -> None:
+        """Free whatever is still held -- teardown's backstop, since a holder
+        that never released would otherwise leak its texture for the process."""
+        entries, self._entries = list(self._entries.values()), {}
+        for texture, _pixels, _holders in entries:
+            texture.release()
+
+
 class GpuMaterial:
     """Uploaded textures plus the factors that go with them.
 
@@ -45,18 +103,24 @@ class GpuMaterial:
         self,
         ctx: moderngl.Context,
         material: Material,
-        texture_cache: dict[Any, moderngl.Texture] | None = None,
+        texture_cache: dict[Any, moderngl.Texture] | TextureCache | None = None,
     ) -> None:
         """``texture_cache`` de-duplicates uploads by decoded buffer (D40):
         keyed on ``(id(pixels), crisp)``, which is sound because the loader decodes
         each glTF image source once and shares the bytes object, and the
         Model keeps those bytes alive for as long as this material exists. A
-        texture found in the cache is *borrowed* -- only the creator releases
+        texture found in a plain dict is *borrowed* -- only the creator releases
         it -- so two materials over one atlas cost one upload and one free.
+
+        A :class:`TextureCache` instead counts its holders, so it can be shared
+        by materials of *different* models without a creator's release freeing
+        a texture a borrower still samples.
         """
         self.material = material
         self.textures: dict[str, moderngl.Texture] = {}
         self._owned: list[moderngl.Texture] = []
+        self._shared = texture_cache if isinstance(texture_cache, TextureCache) else None
+        self._held: list[Any] = []
         self.defines: list[str] = []
         try:
             self._upload(ctx, material, texture_cache)
@@ -71,7 +135,7 @@ class GpuMaterial:
         self,
         ctx: moderngl.Context,
         material: Material,
-        texture_cache: dict[Any, moderngl.Texture] | None,
+        texture_cache: dict[Any, moderngl.Texture] | TextureCache | None,
     ) -> None:
         for slot, define, _uniform, _srgb in TEXTURE_SLOTS:
             data = getattr(material, slot)
@@ -84,24 +148,53 @@ class GpuMaterial:
             # object that differ in ``nearest`` must not borrow each other's.
             crisp = bool(slot == "base_color" and material.nearest)
             key = (id(pixels), crisp)
-            texture = None if texture_cache is None else texture_cache.get(key)
-            if texture is None:
-                texture = ctx.texture((width, height), 4, pixels)
-                # Owned before the setup calls below can raise, so a failure
-                # there still leaves the texture reachable for ``release``.
-                self._owned.append(texture)
-                if crisp:
-                    # No mipmaps and no anisotropy: a mip chain would blur the
-                    # texels this flag exists to keep square.
-                    texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
-                else:
-                    texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
-                    texture.build_mipmaps()
-                    texture.anisotropy = min(8.0, ctx.max_anisotropy)
-                if texture_cache is not None:
-                    texture_cache[key] = texture
+            if self._shared is not None:
+                texture = self._shared.acquire(
+                    key,
+                    pixels,
+                    partial(self._make, ctx, width, height, pixels, crisp, owned=False),
+                )
+                self._held.append(key)
+            else:
+                texture = None if texture_cache is None else texture_cache.get(key)
+                if texture is None:
+                    texture = self._make(ctx, width, height, pixels, crisp, owned=True)
+                    if texture_cache is not None:
+                        texture_cache[key] = texture
             self.textures[slot] = texture
             self.defines.append(define)
+
+    def _make(
+        self,
+        ctx: moderngl.Context,
+        width: int,
+        height: int,
+        pixels: Any,
+        crisp: bool,
+        *,
+        owned: bool,
+    ) -> moderngl.Texture:
+        texture = ctx.texture((width, height), 4, pixels)
+        if owned:
+            # Owned before the setup calls below can raise, so a failure
+            # there still leaves the texture reachable for ``release``.
+            self._owned.append(texture)
+        try:
+            if crisp:
+                # No mipmaps and no anisotropy: a mip chain would blur the
+                # texels this flag exists to keep square.
+                texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            else:
+                texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+                texture.build_mipmaps()
+                texture.anisotropy = min(8.0, ctx.max_anisotropy)
+        except BaseException:
+            if not owned:
+                # A shared cache has not been handed this texture yet, so no
+                # holder's ``release`` can ever reach it.
+                texture.release()
+            raise
+        return texture
 
     def bind(self, program: Any) -> None:
         unit = 0
@@ -139,6 +232,13 @@ class GpuMaterial:
         for texture in self._owned:
             texture.release()
         self._owned.clear()
+        # A shared cache's textures are counted, not owned: give each hold back
+        # and the cache frees a texture when its last holder lets go.
+        shared, held = self._shared, self._held
+        self._held = []
+        if shared is not None:
+            for key in held:
+                shared.release(key)
         self.textures.clear()
 
 
@@ -295,14 +395,24 @@ def _face_normals(primitive: Primitive) -> np.ndarray:
 class GpuModel:
     """Everything on the GPU for one loaded GLB."""
 
-    def __init__(self, ctx: moderngl.Context, model: Model) -> None:
+    def __init__(
+        self,
+        ctx: moderngl.Context,
+        model: Model,
+        texture_cache: TextureCache | None = None,
+    ) -> None:
         self.ctx = ctx
         self.model = model
         self.materials: list[GpuMaterial] = []
         self._by_material: dict[int, GpuMaterial] = {}
         # Shared across this model's materials so one decoded buffer is one
-        # GPU texture (D40). Lives here so it dies with the model.
-        self._texture_cache: dict[Any, moderngl.Texture] = {}
+        # GPU texture (D40). Lives here so it dies with the model -- unless the
+        # caller injected a :class:`TextureCache`, which spans models (the Clay
+        # viewport's one-model-per-object layout, the 2026-10-07 audit's
+        # clay-28) and is the caller's to keep, so ``release`` never clears it.
+        self._texture_cache: dict[Any, moderngl.Texture] | TextureCache = (
+            {} if texture_cache is None else texture_cache
+        )
         # Per-node normal matrices, keyed on the world matrix's bytes (B15):
         # recomputed only when a pose actually moves the node.
         self._normal_cache: dict[int, tuple[bytes, bytes]] = {}
@@ -418,7 +528,8 @@ class GpuModel:
         self.draws.clear()
         self.materials.clear()
         self._by_material.clear()
-        self._texture_cache.clear()
+        if isinstance(self._texture_cache, dict):
+            self._texture_cache.clear()
         self._normal_cache.clear()
 
 

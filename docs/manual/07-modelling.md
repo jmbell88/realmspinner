@@ -120,8 +120,8 @@ applied downstream, in the retarget panel, and you can read the triangle count y
 
 Export to the library, then use **Open in Clay** on the resulting card, and you get your objects back —
 names, generator parameters and all. That works because the export keeps a `.rblk` beside the mesh.
-Opening a mesh that was *not* authored in Clay instead gives you one frozen object per material,
-which is the honest answer to "what were the objects in this file" for a file that never had any.
+Opening a mesh that was *not* authored in Clay instead gives you one frozen object per primitive
+of each node, which is the honest answer to "what were the objects in this file" for a file that never had any.
 
 ## Try it
 

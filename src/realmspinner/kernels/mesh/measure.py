@@ -137,4 +137,12 @@ def volume_if_closed(mesh: bm.Mesh, world: np.ndarray | None = None) -> float | 
     """
     if not is_closed(mesh):
         return None
+    # The 2026-10-07 audit's clay-14: ``is_closed`` counts only boundary and
+    # non-manifold edges, so a cube with one face wound the wrong way is
+    # "closed" and the divergence sum answered 0.667 for a unit cube -- a
+    # confident wrong number, the failure this gate exists to prevent. A
+    # flipped edge (two faces traversing it the same way) means the shell has
+    # no consistent outside, so the signed sum is not a volume either.
+    if len(check_manifold(mesh).flipped_edges):
+        return None
     return volume(mesh, world)

@@ -179,11 +179,11 @@ def test_the_hint_line_names_no_multi_character_binding_nothing_implements():
     """
     from realmspinner.studio.modes.clay import mode as clay_mode
 
-    # The two named tokens Clay's own key handler answers to outside a drag
-    # (the mouse buttons and the wheel are always true; a bare press never
-    # commits or cancels, so "Enter"/"Esc" only belong on the dragging line).
+    # The named tokens Clay's own key handler answers to (the mouse buttons and
+    # the wheel are always true; a bare press never commits or cancels, so
+    # "Enter"/"Esc" have no place on this line -- the drag has its own, see
+    # ``drag_readout``).
     known_named = {"LMB", "MMB", "RMB", "wheel"}
-    known_named_dragging = known_named | {"Enter", "Esc"}
     known_digits = set(clay_mode.ELEMENT_KEYS)
 
     for mode in clay_ops.ALL_MODES:
@@ -193,17 +193,6 @@ def test_the_hint_line_names_no_multi_character_binding_nothing_implements():
             digits = {key for key in found if key.isdigit()}
             assert multi <= known_named, (mode, tool, sorted(multi - known_named))
             assert digits <= known_digits, (mode, tool, sorted(digits - known_digits))
-            for kind in ("move", "rotate", "scale"):
-                found = clay_hints.keys_named(
-                    clay_hints.hint(mode, tool, dragging=True, drag_kind=kind)
-                )
-                multi = {key for key in found if len(key) > 1 and "+" not in key}
-                assert multi <= known_named_dragging, (
-                    mode,
-                    tool,
-                    kind,
-                    sorted(multi - known_named_dragging),
-                )
 
 
 def test_measure_lines_own_import_matches_what_the_module_docstring_now_claims():

@@ -1602,13 +1602,12 @@ def test_switching_to_the_transform_already_running_does_nothing(view) -> None:
 # --- render_png: the agent surface (bounds/angles/grid) -----------------------
 
 
-def test_render_png_defaults_are_the_picture_the_trellis_path_already_got(view) -> None:
+def test_render_png_defaults_are_the_picture_an_unparameterised_call_draws(view) -> None:
     """The default path has to stay byte-identical to what it drew before
-    ``angles``/``bounds``/``grid``/``shading`` existed -- ``_render_clay_reference``
-    and every stored-corpus comparison keyed on its input depend on it.
-    ``shading="unlit"`` is that same default spelled out: ``main.py``'s
-    Trellis caller never passes ``shading`` at all, so the picture it gets is
-    exactly the one this second assertion names."""
+    ``angles``/``bounds``/``grid``/``shading`` existed. ``shading="unlit"`` is
+    that same default spelled out: a caller that never passes ``shading`` gets
+    exactly the picture the second assertion names. (Renamed by the 2026-10-07
+    audit's clay-64: the Trellis caller the old name cited is gone.)"""
     doc = _doc(count=1)
     assert view.render_png(doc) == view.render_png(doc, angles=None, bounds=None, grid=False)
     assert view.render_png(doc) == view.render_png(doc, shading="unlit")

@@ -143,23 +143,13 @@ _TOOL = {
     "scale": "S scale . drag a handle",
 }
 
-#: The line **while a keyboard drag is live**, which replaces everything above
-#: it: mid-drag the only keys that mean anything are the ones that constrain,
-#: commit or cancel it, and a line still offering "4 object" would be offering
-#: a key the drag does not listen to (see ``handle_key``'s drag branch, which
-#: consumes every bare key rather than falling through to the element modes).
-_DRAGGING = (
-    "X/Y/Z lock (again: local, again: off) . type a number . "
-    "Enter/LMB commit . Esc/RMB cancel . G/R/S switch"
-)
-
 #: Always true, and always last: the two mouse buttons that navigate. They are
 #: the keys a newcomer to a 3D viewport asks about first and the ones a manual
 #: is least likely to be open at.
 _NAVIGATE = "Alt+LMB orbit . MMB pan . wheel zoom"
 
 
-def hint(mode: str, tool: str, *, dragging: bool = False, drag_kind: str = "") -> str:
+def hint(mode: str, tool: str) -> str:
     """One line of what the mouse and the keyboard do right now.
 
     Clay's viewport had no such line, and the cost was specific rather than
@@ -168,14 +158,14 @@ def hint(mode: str, tool: str, *, dragging: bool = False, drag_kind: str = "") -
     a user who has not read chapter 30 has no way to discover that edge mode can
     do anything a vertex mode cannot.
 
-    ``drag_kind`` names the live drag ("move"/"rotate"/"scale") and is used only
-    to say which one is running; the keys are the same for all three, which is
-    the point of the line.
+    Nothing here speaks for a live G/R/S drag: that line is :func:`drag_readout`'s,
+    chosen by ``hud.hint_line`` ahead of this one. A ``dragging`` branch used to
+    live here with no caller, and its legend promised that a second press of the
+    locked axis switches to a local space when ``DragInput`` has none -- the
+    second press only clears the lock (the 2026-10-07 audit's clay-63) -- so it
+    was deleted rather than kept in step with a line nobody draws.
     """
 
-    if dragging:
-        kind = drag_kind or "drag"
-        return f"{kind.capitalize()} . {_DRAGGING}"
     parts = [_PICK.get(mode, _PICK["object"])]
     extra = _TOOL.get(tool, "")
     if extra:
@@ -186,9 +176,8 @@ def hint(mode: str, tool: str, *, dragging: bool = False, drag_kind: str = "") -
 
 #: The verb a drag kind reads as. Keyed rather than ``.capitalize()``d inline
 #: at every call site, and ``"Drag"`` is what an unrecognised kind falls back
-#: to -- the same fallback ``hint()`` uses for its own ``drag_kind``, so a
-#: caller that has not yet worked out which of move/rotate/scale is running
-#: still gets a word rather than an empty verb.
+#: to, so a caller that has not yet worked out which of move/rotate/scale is
+#: running still gets a word rather than an empty verb.
 _VERBS = {"move": "Move", "rotate": "Rotate", "scale": "Scale"}
 
 

@@ -61,6 +61,7 @@ from .schema import (
 from .validate import (
     Session,
     _json,
+    _name_length_refusal,
     _over_frame_budget,
     _resolve_uid,
     _resolve_uids,
@@ -157,6 +158,11 @@ def _h_group(ctx: Any, session: Session, args: dict) -> dict:
     name_arg = args.get("name")
     if name_arg is not None and (not isinstance(name_arg, str) or not name_arg.strip()):
         return fail("name must not be empty.", field="name")
+    # The 2026-10-07 audit's clay-33: the ceiling every other door that takes a
+    # name already holds, here too, before ``doc.group`` writes the empty.
+    failure = _name_length_refusal(name_arg)
+    if failure:
+        return failure
 
     try:
         empty_obj = doc.group(uids, name=name_arg)

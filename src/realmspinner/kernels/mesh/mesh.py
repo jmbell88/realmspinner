@@ -722,12 +722,30 @@ _RAW_CACHE: dict[
 ] = {}
 _RAW_CACHE_LOCK = threading.Lock()
 
+#: The most the stash may hold, in bytes of raw normals plus moved-set stamps.
+#:
+#: The 2026-10-07 audit's clay-58: the bound used to be an entry count -- clear
+#: the whole dict past eight layouts -- on the premise that "a drag touches one
+#: layout at a time". It touches one *per material group*, so a drag over a
+#: sixteen-material object wiped the stash on its ninth layout and every frame
+#: after fell back to the full Newell pass the stash exists to avoid. What the
+#: stash actually costs is bytes (24 per face), and the weak references already
+#: let an entry go with its layout, so the budget is the real bound and the
+#: oldest entries are what go when it is exceeded. 64 MiB holds the raw normals
+#: of ~2.8 million faces; a drag over sixteen groups of a 200k-face import
+#: needs under 5 MiB. Not a measured ceiling -- a memory guard sized well past
+#: any real drag (machine-independent: it counts array bytes, not time).
+_RAW_CACHE_MAX_BYTES = 64 * 1024 * 1024
+#: A backstop on entries for the case the byte budget cannot see: a thousand
+#: layouts each holding a few bytes still cost a dict slot and a weak reference.
+_RAW_CACHE_MAX_ENTRIES = 1024
+
 
 def _stash(
     layout: RenderLayout, raw: np.ndarray, moved: np.ndarray | None = None
 ) -> None:
-    # Bounded by clearing when it grows past a handful as well as by the weak
-    # reference: a drag touches one layout at a time per material group.
+    # Bounded by bytes (oldest entries first) as well as by the weak
+    # reference -- see ``_RAW_CACHE_MAX_BYTES`` for why it is not a count.
     key = id(layout)
 
     def _forget(ref: weakref.ref[RenderLayout], key: int = key) -> None:
@@ -743,9 +761,23 @@ def _stash(
     ref = weakref.ref(layout, _forget)
     stamp = None if moved is None else np.array(moved, dtype="i8", copy=True)
     with _RAW_CACHE_LOCK:
-        if len(_RAW_CACHE) > 8:
-            _RAW_CACHE.clear()
+        # Re-inserting moves a refreshed layout to the young end of the dict,
+        # which is what makes the first key the least recently stashed.
+        _RAW_CACHE.pop(key, None)
         _RAW_CACHE[key] = (ref, raw, stamp)
+        # A snapshot, not a live walk: ``_forget`` above may pop from this dict
+        # when an allocation here triggers a collection, and iterating a dict
+        # that changes size raises.
+        entries = list(_RAW_CACHE.items())
+        sizes = [e[1][1].nbytes + (0 if e[1][2] is None else e[1][2].nbytes) for e in entries]
+        total = sum(sizes)
+        count = len(entries)
+        for (old_key, _entry), size in zip(entries[:-1], sizes, strict=False):
+            if total <= _RAW_CACHE_MAX_BYTES and count <= _RAW_CACHE_MAX_ENTRIES:
+                break
+            _RAW_CACHE.pop(old_key, None)
+            total -= size
+            count -= 1
 
 
 def raw_face_normals(

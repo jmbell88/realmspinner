@@ -578,7 +578,7 @@ def test_triangulate_faces_no_selection_fallback_is_unreachable_through_the_regi
     with none selected)", but ``triangulate``'s own ``enabled=in_mode("face")``
     requires a *non-empty* element selection (``in_mode``'s own ``bool(doc.
     element_sel)`` check), so the row is greyed out exactly when the kernel's
-    no-selection branch (``ops_model.triangulate_faces``) would fire. That
+    no-selection branch (``ops_topo.triangulate_faces``) would fire. That
     kernel branch is another fixer's file and stays untouched; the fix here is
     the sentence, which must stop promising a path this op can never reach."""
     doc, uid = _doc()

@@ -201,6 +201,12 @@ class ObjectAddEdit(Edit):
     def undo(self, doc: Any) -> None:
         doc.objects.pop(doc.index_of(self.obj.uid))
         doc.selection.discard(self.obj.uid)
+        # The 2026-10-07 audit's clay-42: an object leaving ``doc.objects`` by
+        # undo kept its ``mesh_stamp`` entry, pinning the whole ``Mesh`` that
+        # entry names for the life of the document. ``remove_object``,
+        # ``join_objects`` and ``separate`` already pop it; the two edits that
+        # take an object out on the way back or forward must too.
+        doc._mesh_stamps.pop(self.obj.uid, None)
         doc.touch()
 
     def redo(self, doc: Any) -> None:
@@ -230,6 +236,7 @@ class ObjectRemoveEdit(Edit):
     def redo(self, doc: Any) -> None:
         doc.objects.pop(doc.index_of(self.obj.uid))
         doc.selection.discard(self.obj.uid)
+        doc._mesh_stamps.pop(self.obj.uid, None)  # see ObjectAddEdit.undo
         doc.touch()
 
 

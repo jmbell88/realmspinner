@@ -374,7 +374,11 @@ reuses an existing palette slot and adds nothing; a colour or name beside an `in
 rather than guessed at, and so is a slot or a face that does not exist. `clay_op` also runs
 Assign Material on the faces an agent has selected, taking the slot as its `index`. Making a
 texture and editing it in Inker are not agent tools: Inker is a mode, and an agent has its own
-Clay tab and can address no other.
+Clay tab and can address no other. `clay_scene` marks a palette slot that carries a painted texture as
+`textured` (and `nearest` when it samples pixel-crisp), because its colour alone reads as white. The
+palette holds at most 1,024 entries and a name is at most 128 characters at every door that takes
+one; both are refused rather than clamped. `clay_op` answers with the `params` it actually ran with,
+defaults filled in and out-of-range values clamped, and names the clamped ones in `clamped`.
 
 The whole Clay surface is thirty-four tools. **Reading**: `clay_scene`, `clay_measure`, `clay_render`,
 `clay_elements` and `clay_catalog`, which answers one of four topics on demand — `ops`, `primitives`,
@@ -506,9 +510,10 @@ unchecked `translation` committed a two-element vector to the document, reported
 broke three calls later when `clay_scene` tried to read it back — by then there was nothing to point
 at, and the whole document's introspection was bricked until someone thought to undo blind. Reach
 for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 number and
-`_validate_number_or_vec` for the `number | array-of-numbers | array-of-arrays` shape
-`clay_set_params` and `clay_add_primitive`'s `params` use (a shape's `size` is the array case, and
-the shape that took an array of arrays went with the curve editor) — all three live beside
+`_validate_number_or_vec` for the `number | array-of-numbers` shape `clay_set_params` and
+`clay_add_primitive`'s `params` use (a shape's `size` is the array case), followed by
+`_params_shape_refusal`, which holds each value to the shape its own generator's default declares —
+all of them live beside
 `validate.py`'s other validators, in the same "validate everything before the
 first mutation" style `_h_add_primitive` already followed. A TRS argument is
 bounded in size as well as in shape (`_validate_translation` and `_validate_scale`): a translation
@@ -524,8 +529,10 @@ One more thing a new tool can trip, and it is easier to understand before than a
 `tests/modes/clay/test_agent_transcripts.py` replays a recorded sequence of tool calls against a real document, and
 because object uids are never reused for the life of a process, a recorded uid has to be rewritten to
 whatever the replaying process issued instead. It finds the arguments to rewrite by name, derived from the
-schemas rather than listed — and the whole surface has exactly two such names today, `uid` and `uids`, which
-a test asserts. Give a tool a third one, a `target_uid` say, and that assertion fails. It is doing its job:
+schemas rather than listed — and the tool schemas have exactly two such names today, `uid` and `uids`, which
+a test asserts; the two uid-valued arguments whose names do not contain that word, `clay_parent`'s
+`parent` and `clay_render`'s `focus`, are listed beside them by hand (`transcript.EXTRA_UID_KEYS`).
+Give a tool a third one, a `target_uid` say, and that assertion fails. It is doing its job:
 the alternative is a replay that quietly leaves your new argument pointing at whatever object the fresh
 process happened to number that way.
 

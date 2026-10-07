@@ -590,7 +590,10 @@ ceiling, never a default to fall back to.
 * ``"switch_mode"`` -- the document is in the wrong element mode for this
   call. ``clay_element_mode`` (or ``clay_select_elements``/``clay_select_by``'s
   own ``mode``) first, then repeat the call. Attached at the two sites using
-  ``agent_clay_validate._OBJECT_SELECTION_DERIVED_REFUSAL``. **Not** attached
+  ``agent_clay_validate._OBJECT_SELECTION_DERIVED_REFUSAL``, and at
+  ``clay_select_by``'s own wrong-mode refusal (the 2026-10-07 audit's clay-84:
+  it names ``field="query"``, which made ``fail`` derive ``fix_arguments``
+  for arguments that were fine). **Not** attached
   to ``clay_op``'s own disabled-op refusal (``agent_clay_tools_ops._h_op``,
   via ``clay_ops.reason_for``) even though its wording sometimes names a mode
   gate -- ``op.reason`` covers several unrelated predicates
@@ -695,10 +698,10 @@ def instructions() -> str:
         "clay_element_mode sets it on its own, and clay_select_elements and "
         "clay_select_by can set it in the same call as the selection they "
         "make. Entering vertex/edge/face mode from object mode selects "
-        "nothing, which is what makes clay_op's seedless rows -- select-all, "
-        "select-none, select-invert -- reachable with no seed at all "
-        "(select-linked needs a selection); clay_select_by is the door for the "
-        "rest of clay_op's element menu, "
+        "nothing, which is what makes clay_op's seedless rows -- select-all "
+        "and select-invert -- reachable with no seed at all (select-none "
+        "and select-linked need a selection); clay_select_by is the door for "
+        "the rest of clay_op's element menu, "
         "the ones that need one (a material slot, a direction, a box). "
         "clay_select and every tool that addresses a whole object want "
         "object mode, and refuse by name rather than switch back for you "
@@ -719,7 +722,8 @@ def instructions() -> str:
         "clay_export.\n\n"
         "Materials are linear RGB, 0..1. clay_scene's 'materials' lists the "
         "palette already in use -- reuse an index from it rather than "
-        "appending a near-duplicate. clay_material paints whole objects, or "
+        "appending a near-duplicate; a slot marked 'textured' carries a "
+        "painted image that its colour does not show. clay_material paints whole objects, or "
         "just some faces of one object with 'faces' (and 'index' to reuse a "
         "slot instead of making a new one).\n\n"
         "clay_uv box-unwraps, packs or transforms the islands of an "
@@ -809,6 +813,12 @@ def tools() -> list[Any]:
     op_names = [op.name for op in clay_ops.OPS]
     axis_views = sorted(Camera.AXIS_VIEWS) + ["three_quarter"]
     batch_names = sorted(set(_HANDLERS) - BATCH_EXCLUDED)
+    # The 2026-10-07 audit's clay-82: the sentence below listed what cannot be
+    # batched by hand while ``BATCH_EXCLUDED`` (what the handler enforces and
+    # ``batch_names`` derives from) is the table -- the same hand-kept copy
+    # ``MINTS_A_DOCUMENT`` was interpolated to rule out for the sentence above it.
+    excluded = sorted(BATCH_EXCLUDED)
+    excluded_prose = f"{', '.join(excluded[:-1])} and {excluded[-1]}"
     element_modes = list(el.MODES)
     query_names = sorted(bsel.QUERIES)
     uv_actions = sorted(UV_ACTIONS)
@@ -1225,7 +1235,10 @@ def tools() -> list[Any]:
                 "the result rather than a toast only the person at the "
                 "keyboard would see. 'name's own enum names every op; call "
                 "clay_catalog(topic='ops') for each one's own params, bounds "
-                "and element-mode gating."
+                "and element-mode gating. The result's 'params' gives each "
+                "declared param as it ran -- defaults filled in, a value "
+                "outside its range clamped -- and 'clamped' names the ones "
+                "that were changed."
             ),
             schema={
                 "type": "object",
@@ -1574,8 +1587,8 @@ def tools() -> list[Any]:
                 "Pure numbers, no selection or edit. 'distance' (a, b) and "
                 "'angle' (a, b, c -- angle at b) take points: [x,y,z] "
                 "(world space), {uid} (its world translation), or {uid, "
-                "vertex} (one vertex of its base mesh, world space). "
-                "'area' (uid, optional faces -- base-mesh indices, "
+                "vertex} (one vertex of its mesh, world space). "
+                "'area' (uid, optional faces -- mesh face indices, "
                 "defaulting to its current face selection) and 'volume' "
                 "(uid) read the mesh the clay_select_elements/clay_elements "
                 "indices address."
@@ -1640,8 +1653,7 @@ def tools() -> list[Any]:
                 "successful prefix. If this session owns no document yet, "
                 "the first call must be one of "
                 f"{', '.join(MINTS_A_DOCUMENT)}. "
-                "clay_batch, clay_program, clay_render, clay_export, "
-                "clay_undo, clay_redo, clay_restore and clay_reference_get "
+                f"{excluded_prose} "
                 "cannot be batched -- see their own tools for why. Anywhere inside a "
                 "later entry's arguments, {\"$ref\": \"<name>\"} resolves to "
                 "the uid of the object of that name as the document stands "

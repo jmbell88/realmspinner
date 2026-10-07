@@ -4509,11 +4509,23 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     arrive through the registries this test exists to notice. Catalogue JSON
     66,525 chars + instructions 12,076 chars = 78,601 chars total, over the
     78,350 ceiling above by 251. Raised to 78,650.
+
+    Re-measured 2026-10-07 (the audit's clay-81): the picoCAD-level cut (the
+    modifier, collider, boolean, figure, diagnose, analyze, validate, lock and
+    tag tools) had taken the surface down to 51,085 chars while this ceiling
+    still read 78,650, so the ratchet left 27,000 characters of growth no test
+    would notice. Lowered to 52,000, 1.2% over the 51,396 the surface measures
+    after that audit's own additions (catalogue JSON 43,427 + instructions
+    7,969): ``clay_op``'s reply sentence, the ``textured``/``nearest`` flags
+    on ``clay_scene``'s material rows and one sentence in ``instructions()``.
+    The next growth fails here and has to be argued for;
+    ``test_audit_2026_10_07_agent.py`` pins that the ceiling stays within 3%
+    of the measured surface.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 78_650
+    CEILING = 52_000
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

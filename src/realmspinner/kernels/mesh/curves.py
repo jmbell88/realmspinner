@@ -1,10 +1,16 @@
 """Bézier handles over a polyline, flattened back to a polyline.
 
 ``lathe``'s ``profile``, ``sweep``'s ``outline`` and ``tube``'s ``path`` are
-polylines, and every consumer of them -- the clamps, the builders, the viewport,
-the agent -- already speaks polyline. A curve is therefore *stored* as the
-polyline plus per-anchor handles and *flattened into that same polyline at build
-time*, so nothing downstream learns that curves exist.
+polylines, and every consumer of them -- the clamps and the builders -- already
+speaks polyline. A curve is therefore *stored* as the polyline plus per-anchor
+handles and *flattened into that same polyline at build time*, so nothing
+downstream learns that curves exist.
+
+Clay no longer offers those three shapes, so it has no curve canvas, viewport
+overlay or agent tool for these handles (the 2026-10-07 audit's clay-56: this
+paragraph used to name them as consumers). The generators stay whole in
+``primitives.GENERATORS`` because a Mason scene records placed objects by
+generator name; a ``.rblk`` that names one is frozen to its mesh on open.
 
 **A handle of zero length is a corner.** Handles are per-anchor ``(in, out)``
 offsets from the anchor; a segment whose two relevant handles are both zero is
@@ -38,7 +44,14 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["MAX_STATIONS", "DEFAULT_TOL", "flatten", "has_curves", "normalise_handles"]
+__all__ = [
+    "MAX_STATIONS",
+    "MAX_HANDLE",
+    "DEFAULT_TOL",
+    "flatten",
+    "has_curves",
+    "normalise_handles",
+]
 
 #: The station ceiling a flattened curve is held to. Kept equal to
 #: ``primitives.MAX_PROFILE_STATIONS`` (a test holds the two equal) rather than
@@ -49,6 +62,16 @@ MAX_STATIONS = 512
 #: lathe's silhouette). A millimetre-scale error on a prop that is metres across
 #: is invisible, and tight enough that a 128-segment lathe reads as round.
 DEFAULT_TOL = 0.002
+
+#: The largest magnitude a handle component is flattened with. The 2026-10-07
+#: audit's clay-54: a finite but huge handle (``1e308``) is accepted by
+#: :func:`normalise_handles`, but the second difference built from it overflows
+#: to ``inf`` and ``math.ceil(inf)`` raised a bare ``OverflowError`` out of a
+#: ``clamp_params`` call -- and two opposite huge handles made ``nan``, a
+#: ``ValueError``. A million units is far past any anchor the primitives accept
+#: (their clamps are metres wide), so no drawn handle is touched; the curve only
+#: stops being able to ask for more resolution than ``cap`` already allows.
+MAX_HANDLE = 1.0e6
 
 
 def normalise_handles(handles: Any, count: int, dim: int) -> list[list[list[float]]]:
@@ -118,6 +141,8 @@ def flatten(
     pts = np.asarray(anchors, dtype="f8")
     inn = np.asarray([row[0] for row in rows], dtype="f8")
     out = np.asarray([row[1] for row in rows], dtype="f8")
+    inn = np.clip(inn, -MAX_HANDLE, MAX_HANDLE)
+    out = np.clip(out, -MAX_HANDLE, MAX_HANDLE)
     segments = count if closed else count - 1
     controls = []
     for i in range(segments):

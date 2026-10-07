@@ -155,9 +155,10 @@ def nearest_vertex(
     """The vertex under the cursor, or ``None``.
 
     ``allowed`` is a ``(V,)`` bool narrowing the candidates before the occlusion
-    rule runs, and it exists for snapping: a drag that could snap to the very
-    vertices it is moving would follow the cursor exactly and call it a snap.
-    Left ``None`` -- which is what picking wants -- every vertex is a candidate.
+    rule runs. It was added for a drag-time vertex snap, which Clay no longer
+    has (a drag snaps to the grid only), so no caller in the tree passes it
+    today; it stays as a general mask, pinned by ``test_pick_elements``. Left
+    ``None`` -- which is what picking wants -- every vertex is a candidate.
     """
     if len(screen.xy) == 0:
         return None

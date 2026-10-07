@@ -149,37 +149,52 @@ def delete_selected(doc: Any) -> list[str]:
         # (reparenting, the _mesh_stamps pop) for the whole
         # selection at once, still as one undo step, with no logic to
         # duplicate or drift out of sync.
+        #
+        # The 2026-10-07 audit's clay-11: both branches opened the gesture with
+        # no ``try/finally``, and ``remove_object`` can refuse (a child that
+        # cannot keep its place under a zero-axis parent) -- the refusal
+        # escaped, ``_open_gestures`` stayed at 1 for the session and undo
+        # eviction was off for good. A refusal on one object is now collected
+        # and the rest still go, the rule the docstring already states.
         mark = doc.history.mark()
-        for uid in removable:
-            doc.remove_object(uid)
-        doc.history.collapse_since(mark)
+        try:
+            for uid in removable:
+                try:
+                    doc.remove_object(uid)
+                except el.OpError as error:
+                    refusals.append(str(error))
+        finally:
+            doc.history.collapse_since(mark)
         return refusals
     refusals = []
     mark = doc.history.mark()
-    for uid in list(doc.element_sel):
-        obj = doc.by_uid(uid)
-        # clay-41 (2026-10-03 audit): a hidden object can still hold an element
-        # selection, and its faces are not on screen to be deleted.
-        if not obj.visible:
-            continue
-        faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face")
-        # The 2026-09-19 audit, finding clay-03: this used to ``continue`` past
-        # an object whose selection converted to zero faces -- a partial
-        # vertex or edge selection, the ordinary case rather than an edge
-        # case -- which swallowed ``delete_faces``'s own refusal ("Select at
-        # least one face to delete.") before it could reach the caller's
-        # toast. Calling ``delete_faces`` unconditionally lets it raise that
-        # refusal itself, and collecting it here keeps the same "a refusal on
-        # one object does not abandon the others" contract this function's
-        # docstring already promises for every other ``OpError``: an object
-        # whose selection does convert to a face is still deleted.
-        try:
-            mesh, sel = ops_topo.delete_faces(obj.mesh, faces)
-        except el.OpError as error:
-            refusals.append(str(error))
-            continue
-        doc.set_mesh(uid, mesh, select=sel)
-    doc.history.collapse_since(mark)
+    try:
+        for uid in list(doc.element_sel):
+            obj = doc.by_uid(uid)
+            # clay-41 (2026-10-03 audit): a hidden object can still hold an
+            # element selection, and its faces are not on screen to be deleted.
+            if not obj.visible:
+                continue
+            faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face")
+            # The 2026-09-19 audit, finding clay-03: this used to ``continue``
+            # past an object whose selection converted to zero faces -- a
+            # partial vertex or edge selection, the ordinary case rather than
+            # an edge case -- which swallowed ``delete_faces``'s own refusal
+            # ("Select at least one face to delete.") before it could reach the
+            # caller's toast. Calling ``delete_faces`` unconditionally lets it
+            # raise that refusal itself, and collecting it here keeps the same
+            # "a refusal on one object does not abandon the others" contract
+            # this function's docstring already promises for every other
+            # ``OpError``: an object whose selection does convert to a face is
+            # still deleted.
+            try:
+                mesh, sel = ops_topo.delete_faces(obj.mesh, faces)
+            except el.OpError as error:
+                refusals.append(str(error))
+                continue
+            doc.set_mesh(uid, mesh, select=sel)
+    finally:
+        doc.history.collapse_since(mark)
     return refusals
 
 

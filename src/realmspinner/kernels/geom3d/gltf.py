@@ -533,6 +533,14 @@ def load(path: Path | bytes) -> Model:
     ext_required = _check_list_field(
         gltf.get("extensionsRequired") or [], 'this GLB\'s "extensionsRequired"'
     )
+    # The 2026-10-07 audit's clay-71: the entries are untrusted too -- a list
+    # or an object in there is unhashable, so ``set(...)`` raised a raw
+    # TypeError from the one door the kernel promises ValueError at.
+    for entry in ext_required:
+        if not isinstance(entry, str):
+            raise ValueError(
+                f'this GLB\'s "extensionsRequired" must list extension names, got {entry!r}'
+            )
     required = set(ext_required) - SUPPORTED_EXTENSIONS
     if required:
         raise ValueError(
@@ -820,6 +828,23 @@ def _alpha_mode(raw: Any) -> str:
     return raw if isinstance(raw, str) and raw in ("OPAQUE", "MASK", "BLEND") else "OPAQUE"
 
 
+def _name(raw: Any) -> str:
+    """A node or material ``name`` off the JSON, always a ``str``.
+
+    The 2026-10-07 audit's clay-17: ``name`` was stored untyped, so a numeric
+    one reached Clay as ``Obj.name == 5`` (Duplicate then raised in
+    ``next_name``) and a list raised a raw TypeError in ``Model.__init__``.
+    A name is cosmetic, like a camera's or a light's (which go through
+    ``str()``), so it is coerced rather than refusing the file: a string stays,
+    a number becomes its text, and anything else is the empty name.
+    """
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return str(raw)
+    return ""
+
+
 def _factor(raw: Any, n: int, default: tuple[float, ...]) -> tuple[float, ...]:
     """One fixed-length material factor off a material's JSON, or the glTF default.
 
@@ -863,7 +888,14 @@ def _trs(
     on-disk ``.rblk`` format.
     """
     raw = node[key] if default is None else node.get(key, default)
-    value = np.asarray(raw, dtype="f8")
+    # The 2026-10-07 audit's clay-71: an object (or a ragged list, or a
+    # 400-digit integer) is not numbers, and ``np.asarray`` says so with a raw
+    # TypeError/ValueError/OverflowError that names neither the node nor the
+    # field -- unlike the shape and finiteness refusals right below.
+    try:
+        value = np.asarray(raw, dtype="f8")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"node {name!r} has a {key} that is not {n} numbers") from exc
     if value.shape != (n,):
         raise ValueError(f"node {name!r} has a {key} of {value.size} numbers, not {n}")
     # The 2026-10-03 audit, finding clay-37: json.loads reads a bare NaN or
@@ -1473,7 +1505,7 @@ class _Reader:
         pbr = mat.get("pbrMetallicRoughness", {})
         pbr = pbr if isinstance(pbr, dict) else {}
         out = Material(
-            name=mat.get("name", ""),
+            name=_name(mat.get("name")),
             base_color_factor=_factor(
                 pbr.get("baseColorFactor", (1.0, 1.0, 1.0, 1.0)), 4, (1.0, 1.0, 1.0, 1.0)
             ),
@@ -1875,7 +1907,7 @@ class _Reader:
         # inside ``load()``, means no GPU resource is ever created for a file
         # that will not finish loading -- the same ceiling ``prim["material"]``
         # already gets a few lines below.
-        name = node.get("name", "") or "<unnamed>"
+        name = _name(node.get("name")) or "<unnamed>"
         mesh = node.get("mesh")
         if mesh is not None:
             # The 2026-09-09 audit, finding clay-04: range-checked just below
@@ -1943,7 +1975,7 @@ class _Reader:
                     f"{light}, but this GLB declares {n_lights} light(s)"
                 )
         out = Node(
-            name=node.get("name", ""),
+            name=_name(node.get("name")),
             children=children,
             mesh=mesh,
             skin=skin,

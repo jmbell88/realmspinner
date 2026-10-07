@@ -326,7 +326,15 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
         # agent reading this refusal and a person reading the same query's
         # greyed-out menu row must never be told two different sentences for
         # the same gate.
-        return fail(clay_ops._in_mode_reason(*query.modes)(doc), field="query")
+        # ``recovery`` named explicitly (the 2026-10-07 audit's clay-84): the
+        # ``field`` makes ``fail`` derive ``fix_arguments``, but the arguments
+        # are fine -- it is the document that is in the wrong element mode,
+        # which is ``switch_mode`` everywhere else this is refused.
+        return fail(
+            clay_ops._in_mode_reason(*query.modes)(doc),
+            field="query",
+            recovery="switch_mode",
+        )
 
     how = args.get("how", "replace")
     if how not in ("replace", "add", "subtract"):
@@ -546,6 +554,21 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     failure = _op_params_type_refusal(op, params)
     if failure:
         return failure
+    # The 2026-10-07 audit's clay-87: ``clay_ops.run`` fills defaults and clamps
+    # every declared param into its range (``resolve_params``), and this reply
+    # said only ``ran: true`` -- an agent that asked for ``thickness=1000`` was
+    # told nothing of the 0.9 it got. Resolved here by the same function ``run``
+    # calls, so what is reported is what runs, and reported back below.
+    try:
+        used = clay_ops.resolve_params(op, params)
+    except el.OpError as error:
+        return fail(str(error), field="params", op=op.name)
+    used_params = {p.name: used[p.name] for p in op.params}
+    clamped = [
+        p.name
+        for p in op.params
+        if p.name in params and float(params[p.name]) != used_params[p.name]
+    ]
     proxy = _OpCtx(state=getattr(ctx, "state", None))
     # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
     # and every op is ``Mesh -> Mesh`` (``document.py``'s own rule, the same
@@ -575,6 +598,8 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
             "pushed": doc.history.head != head,
             "element_mode": doc.element_mode,
             "messages": proxy.messages,
+            "params": used_params,
+            "clamped": clamped,
             "changed": changed,
         }
     )

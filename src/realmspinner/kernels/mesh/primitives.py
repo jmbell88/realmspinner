@@ -92,15 +92,15 @@ and on 2026-09-06 the user decided what replaces it: **organic shapes insert
 smooth-shaded.** The decision belongs at *insertion*, not here -- a generator
 is called every time a parameter field is edited, and a generator that decided
 its own shading would be deciding it again on every keystroke, silently
-overwriting a Shade Flat the user had just clicked. So the two doors an object
-is placed through, ``modes/clay/ui/panes/tools.add_primitive`` and
-``modes/clay/ui/panes/tools.add_assembly``, apply ``clay.shading.auto_smooth`` to what a
-generator hands back, and this module keeps handing back the same flat mesh it
-always did -- a box "at rest" is one description regardless of where it ends
-up, and what a viewport shows of it is a fact about the door it walked through,
-not about the box. Axes are glTF's -- Y up, right-handed -- because that is the
-space the viewer, the exporter and everything downstream of Clay already
-speak.
+overwriting a Shade Flat the user had just clicked. So the door an object is
+placed through, ``studio/modes/clay/ui/panes/tools.add_primitive`` (the Add
+palette's, which the agent's ``clay_add_primitive`` also calls), applies
+``shading.auto_smooth`` to what a generator hands back, and this module keeps
+handing back the same flat mesh it always did -- a box "at rest" is one
+description regardless of where it ends up, and what a viewport shows of it is
+a fact about the door it walked through, not about the box. Axes are glTF's --
+Y up, right-handed -- because that is the space the viewer, the exporter and
+everything downstream of Clay already speak.
 """
 
 from __future__ import annotations
@@ -525,7 +525,14 @@ def _clamp_path(value: Any) -> list[list[float]]:
     return deduped
 
 
-# --- curve handles (the Bézier editor) ---------------------------------------
+# --- curve handles --------------------------------------------------------------
+#
+# The canvas editor that authored these went in the picoCAD cut, and Clay no
+# longer offers the three curve-driven generators; the handles stay because
+# ``GENERATORS`` stays whole (a Mason ``.rscn`` records its placed objects by
+# generator name and rebuilds ``lathe``, ``sweep`` and ``tube`` from stored
+# parameters; the 2026-10-07 audit's clay-56 found this comment still
+# describing an editor).
 #
 # ``profile``, ``outline`` and ``path`` each have a ``*_handles`` sibling: per
 # anchor ``[in, out]`` offsets, flattened into the polyline at build time
@@ -538,9 +545,9 @@ def _clamp_path(value: Any) -> list[list[float]]:
 #
 # One decision worth stating: the re-centring offset is measured on the
 # *flattened curve*, not on the anchors. A curve can bulge past its anchors, and
-# the editor draws the stored anchors -- if the mesh were centred on one box and
-# the stored points on another, what was drawn and what was built would sit a
-# fixed offset apart.
+# whatever draws the stored anchors would otherwise disagree with the built
+# mesh -- centred on one box while the stored points sit on another, a fixed
+# offset apart.
 
 
 def _flat_extent(
@@ -2789,8 +2796,8 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
     "cylinder": ({"radius": 0.5, "height": 1.0, "segments": 16}, cylinder),
     "cone": ({"radius": 0.5, "height": 1.0, "segments": 16}, cone),
     "uv_sphere": ({"radius": 0.5, "segments": 16, "rings": 8}, uv_sphere),
-    # ``sides`` is 16 rather than 12 for the reason ``presets.LIMB_RINGS`` is
-    # 4: twelve sides puts the step around the tube at exactly 30 degrees,
+    # ``sides`` is 16 rather than 12: twelve sides puts the step around the
+    # tube at exactly 30 degrees,
     # which is ``shading.DEFAULT_ANGLE``, so a freshly placed torus came back
     # a third smooth instead of smooth throughout (measured 2026-09-06, when
     # insertion began applying the angle rule). Sixteen steps by 22.5 and

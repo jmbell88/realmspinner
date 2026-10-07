@@ -381,8 +381,10 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
 #: geometry for, in either its per-face or its ``region=True`` shape. The
 #: 2026-09-19 audit's clay-23 found inset had no ceiling of any kind, unlike
 #: every sibling growth op in this package (``MAX_BEVELED_CORNERS``,
-#: ``MAX_LOOP_CUT_CORNERS``, ``MAX_COLLAPSED_PAIRS``, ``MAX_BRIDGED_RING``,
-#: ``ops_dissolve.MAX_DISSOLVED_RING``, ``ops_subdiv.MAX_SUBDIVIDED_FACES``):
+#: ``MAX_COLLAPSED_PAIRS``, ``MAX_BRIDGED_RING``,
+#: ``ops_dissolve.MAX_DISSOLVED_RING``, ``ops_subdiv.MAX_SUBDIVIDED_FACES``;
+#: the loop-cut op's own ceiling went with the op, so the 2026-10-07 audit's
+#: clay-68 no longer lets this list name it):
 #: a 700x700 grid, 490,000 selected faces (1,960,000 corners), inset in
 #: 904 ms with no refusal, and kept growing past it. Measured on this
 #: machine, a flat grid of *n* separate quad faces (so corners = 4n, the same
@@ -798,8 +800,9 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
     labels = np.unique(labels, return_inverse=True)[1].reshape(-1).astype("i8")
 
     # A component fits inside one eps ball only if its box does; the rest are
-    # chains, and are split by the leader pass (members only within eps of the
-    # component's own first point).
+    # chains, and are split by the leader pass (members only within eps / 2 of
+    # the component's own first point, so no pair in one cluster is farther
+    # apart than eps in any dimension -- the 2026-10-07 audit's clay-13).
     n_labels = int(labels.max()) + 1
     lo = np.full((n_labels, points.shape[1]), np.inf)
     hi = np.full((n_labels, points.shape[1]), -np.inf)
@@ -830,13 +833,26 @@ WELD_PAIR_BUDGET = 1_000_000
 
 
 def _leader_labels(points: np.ndarray, eps: float, tree: Any = None) -> np.ndarray:
-    """Cluster *points* so every member sits within ``eps`` of its cluster's
-    first point (the *leader*); returns a dense label per point.
+    """Cluster *points* so every member sits within ``eps / 2`` of its
+    cluster's first point (the *leader*); returns a dense label per point.
+
+    **The radius is half the weld distance, so a cluster's diameter is at most
+    ``eps``.** The 2026-10-07 audit's clay-13 found the pass admitting anything
+    within a full ``eps`` of the leader, which only bounds a pair to ``2 eps``
+    by the triangle inequality: a leader with one point either side of it, each
+    0.95 eps away, welded two vertices 1.9 eps apart, and a 6 x 6 grid at 0.9
+    eps spacing did the same -- against a manual and an invariant that both
+    promise "closer together than the distance you give". Half the distance is
+    what the gridded arm of :func:`_clusters` already keeps for the same
+    reason, and it bounds any pair in one cluster to ``eps`` in every
+    dimension, which the 1-D box check on the exact arm cannot. The price is
+    the false negative the gridded arm documents too: two points under ``eps``
+    apart can stay separate when neither is within ``eps / 2`` of a leader.
 
     Leaders are taken in coordinate order (``lexsort``), not vertex order, so
     the same geometry saved two ways clusters the same way -- the property
     :func:`weld`'s centroid representative exists to protect. Leaders are more
-    than eps apart by construction, so a point lies in at most a handful of
+    than eps / 2 apart by construction, so a point lies in at most a handful of
     leaders' balls and the whole pass is linear in the points however many of
     them are coincident.
     """
@@ -851,7 +867,7 @@ def _leader_labels(points: np.ndarray, eps: float, tree: Any = None) -> np.ndarr
     for lead in order.tolist():
         if labels[lead] >= 0:
             continue
-        ball = np.asarray(tree.query_ball_point(points[lead], eps), dtype="i8")
+        ball = np.asarray(tree.query_ball_point(points[lead], eps / 2.0), dtype="i8")
         ball = ball[labels[ball] < 0]
         labels[ball] = next_label
         next_label += 1

@@ -510,12 +510,23 @@ def join(
     **And the weld is applied to the whole merged result, not only across the
     seam.** That is deliberate -- a seam is not identifiable without deciding
     which vertices "belong" to which side, and three objects meeting at a point
-    have no seam in the pairwise sense -- and it is harmless for the geometry
-    Clay can currently author: UVs are per face corner, so ``merge_vertices``
-    carries a texture seam through a weld untouched, and no op here produces two
-    vertices at one position. The one case it does bite is worth knowing: merge
-    at 0 (documented as keeping separate shells inside one object) and then merge
-    *that* object with a third, and the shells kept apart on purpose are welded.
+    have no seam in the pairwise sense -- and it is harmless for most of the
+    geometry Clay can author: UVs are per face corner, so ``merge_vertices``
+    carries a texture seam through a weld untouched. It is **not** harmless for
+    two cases, and the 2026-10-07 audit's clay-67 found the second one
+    undocumented here (this paragraph used to claim no op produced two vertices
+    at one position, which is false):
+
+    * merge at 0 (documented as keeping separate shells inside one object) and
+      then merge *that* object with a third, and the shells kept apart on
+      purpose are welded;
+    * an Extrude that has not been moved yet. ``extrude_faces`` leaves its new
+      ring exactly on the old one by design (the gizmo drag is a second step),
+      so a Merge Objects at a non-zero distance welds that coincident ring back
+      into the surface and silently undoes the extrude. Move the extruded faces
+      before merging, or merge at 0. Left as it is rather than excluded from the
+      weld, because "which coincident vertices were meant to stay apart" is not
+      something the mesh records.
 
     The document palette is shared by every object in it, so ``material`` is an
     index that means the same thing in all of them and concatenates as-is. UVs

@@ -44,6 +44,7 @@ Clay strips them anyway.
 from __future__ import annotations
 
 import io
+import re
 from typing import Any
 
 import numpy as np
@@ -53,7 +54,7 @@ from . import ops
 from .document import ClayDoc
 from .objimport import ns_from_roughness
 
-__all__ = ["claydoc_textures", "claydoc_to_obj", "texture_name"]
+__all__ = ["claydoc_textures", "claydoc_to_obj", "safe_name", "texture_name"]
 
 
 def _num(x: float) -> str:
@@ -69,8 +70,11 @@ def _num(x: float) -> str:
     return f"{float(x):.9g}"
 
 
-def _line_text(name: object) -> str:
-    """*name* as text that is safe on one line of an OBJ or MTL file.
+_TRAILING_BACKSLASH = re.compile(r"\\+\s*$")
+
+
+def _control_free(name: object) -> str:
+    """*name* with every non-printable character turned into one space.
 
     The 2026-10-03 audit, finding clay-38: an object or material name went into
     ``o {name}`` and ``# Clay material name: {name}`` verbatim, so a name with
@@ -81,6 +85,30 @@ def _line_text(name: object) -> str:
     paragraph separators ``str.splitlines`` also breaks on) becomes one space.
     """
     return "".join(ch if ch.isprintable() else " " for ch in str(name))
+
+
+def _line_text(name: object) -> str:
+    """*name* as text that is safe in a *statement* of an OBJ or MTL file
+    (``o``, ``mtllib``, ``map_Kd``): :func:`_control_free`, and no ``#`` and no
+    trailing backslash.
+
+    The 2026-10-07 audit, finding clay-16: the reader strips everything from a
+    ``#`` as a comment and joins a line ending in a backslash to the next one,
+    so an object named ``Crate`` plus a backslash wrote a continuation that
+    swallowed the following ``v`` line (Clay then refused its own export, a vertex index short) and
+    ``Box #2`` came back as ``Box``. Each becomes ``_``. The material-name
+    comment does not go through this -- it is read back verbatim by its
+    prefix, so it keeps both.
+    """
+    text = _control_free(name).replace("#", "_")
+    return _TRAILING_BACKSLASH.sub("_", text)
+
+
+def safe_name(name: object) -> str:
+    """The form of a document title or file stem that ``mtllib``, ``o`` and
+    ``map_Kd`` carry: what a caller must name the ``.mtl`` it writes beside the
+    OBJ, since the OBJ line holds this and not the raw title."""
+    return _line_text(name)
 
 
 def _slot_name(index: int) -> str:
@@ -100,7 +128,7 @@ def _write_material(lines: list[str], index: int, material: Any, name: str) -> N
     r, g, b, a = material.base_color_factor
     lines.append(f"newmtl {_slot_name(index)}")
     if material.name:
-        lines.append(f"# Clay material name: {_line_text(material.name)}")
+        lines.append(f"# Clay material name: {_control_free(material.name)}")
     lines.append(f"Kd {_num(r)} {_num(g)} {_num(b)}")
     lines.append(f"d {_num(a)}")
     lines.append(f"Ns {_num(ns_from_roughness(material.roughness_factor))}")
@@ -127,7 +155,7 @@ def claydoc_to_obj(
     """
     exported = _exported(doc, visible_only)
 
-    obj_lines = ["# Written by Realmspinner's Clay", f"mtllib {name}.mtl"]
+    obj_lines = ["# Written by Realmspinner's Clay", f"mtllib {_line_text(name)}.mtl"]
     used_materials: set[int] = set()
     v_offset = 0
     vt_offset = 0

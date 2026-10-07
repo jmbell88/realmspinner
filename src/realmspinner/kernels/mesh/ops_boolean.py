@@ -1,19 +1,23 @@
 """Constructive solid geometry: the one op here that removes what it overlaps.
 
-This is the counterpart :func:`.ops.join` names in its own docstring and
-deliberately is not. A join *welds*: it concatenates the geometry, fuses points
-that coincide, and keeps everything inside the overlap, because throwing that
-away means classifying every face against every other solid and a wrong
-classification silently deletes a surface the user can see. That reasoning has
-not changed -- what changed is that the classifier is no longer ours to get
-wrong. ``manifold3d`` is a published, tested CSG kernel; ``trimesh.boolean``
-dispatches to it; so the op that could not be written by hand is one call.
+This is the counterpart :func:`.ops.join` deliberately is not. A join
+*welds*: it concatenates the geometry, fuses points that coincide, and keeps
+everything inside the overlap, because throwing that away means classifying
+every face against every other solid and a wrong classification silently
+deletes a surface the user can see. That reasoning has not changed -- what
+changed is that the classifier is no longer ours to get wrong. ``manifold3d``
+is a published, tested CSG kernel; ``trimesh.boolean`` dispatches to it; so the
+op that could not be written by hand is one call.
 
-Both survive, and the manual says which is which, because they answer different
-questions. Two shapes that *touch* and should read as one surface is a join.
-Two shapes that *interpenetrate* and should read as one solid is a union: the
-walls buried inside the other body are exactly what has to go, and a join leaves
-them there to z-fight, to be exported, and to make the result unwatertight.
+**Clay no longer offers this** (the picoCAD cut removed Union, Difference and
+Intersection from the editor, and with them the manual section that told them
+apart from Merge Objects); the module stays because the character generators
+call :func:`union` and the format-3 migration reads :data:`KINDS`. The
+distinction it was written for still holds for those callers. Two shapes that
+*touch* and should read as one surface is a join. Two shapes that
+*interpenetrate* and should read as one solid is a union: the walls buried
+inside the other body are exactly what has to go, and a join leaves them there
+to z-fight, to be exported, and to make the result unwatertight.
 
 Three costs are real and stated rather than hidden.
 

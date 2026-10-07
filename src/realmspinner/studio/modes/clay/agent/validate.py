@@ -335,6 +335,44 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
 # --- shared validation and mutation helpers -----------------------------------
 
 
+def _whole_number(value: Any) -> int:
+    """*value* as an int, refusing a bool and anything that is not whole.
+
+    ``int()`` alone takes ``True``, ``2.7`` and ``"3"``; an agent that wrote
+    one of those meant something else, and acting on uid 2 for ``2.7`` (the
+    2026-10-07 audit's clay-83: ``clay_delete uids=[9.9]`` deleted object 9) is
+    a silent wrong answer. A whole-number float (``3.0``, what a JSON encoder
+    that writes every number as a float sends) still resolves. Raises what
+    ``int()`` raises so callers share one ``except``.
+    """
+    if isinstance(value, bool):
+        raise TypeError("a bool is not a number here")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError("not a whole number")
+    if not isinstance(value, (int, float, np.integer)):
+        raise TypeError("not a number")
+    return int(value)
+
+
+def _name_length_refusal(name: Any) -> dict | None:
+    """A refusal when *name* is a string past ``MAX_NAME_LENGTH``, else ``None``.
+
+    The 2026-10-07 audit's clay-33: the 2026-10-03 ceiling reached
+    ``clay_rename``, ``clay_checkpoint`` and ``clay_reference_add`` but not the
+    four doors that *create* a name (``clay_add_primitive``, ``clay_add_mesh``,
+    ``clay_material``, ``clay_group``), so one 10 MB name landed, pushed its
+    ``clay_scene`` row past ``MAX_FRAME`` and bricked every page holding it.
+    Only the length is judged here; a non-string is each door's own refusal.
+    ``schema`` is imported inside the function because this module imports no
+    sibling at module scope (see its docstring).
+    """
+    from .schema import MAX_NAME_LENGTH
+
+    if isinstance(name, str) and len(name) > MAX_NAME_LENGTH:
+        return fail(f"name must be at most {MAX_NAME_LENGTH} characters.", field="name")
+    return None
+
+
 def _resolve_uid(doc: Any, args: dict, key: str = "uid") -> tuple[Any, dict | None]:
     """*doc*'s object named by ``args[key]``, or a refusal naming ``field=key``.
 
@@ -360,7 +398,10 @@ def _resolve_uid(doc: Any, args: dict, key: str = "uid") -> tuple[Any, dict | No
         # infinite uid used to escape past this refusal into ``call()``'s
         # generic "failed unexpectedly" backstop instead of the same
         # "no object with uid" refusal any other unresolvable uid gets.
-        uid = int(args[key])
+        # ``_whole_number``, not ``int()``: the 2026-10-07 audit's clay-83 --
+        # ``int(9.9)`` is 9 and ``int("1")`` is 1, so a malformed uid acted on
+        # a real object instead of being refused.
+        uid = _whole_number(args[key])
         obj = doc.by_uid(uid)
     except (KeyError, ValueError, TypeError, OverflowError):
         return None, fail(
@@ -405,7 +446,8 @@ def _resolve_uids(
         # The 2026-09-26 audit's clay-agent-tools-09: ``int(float("inf"))``
         # raises ``OverflowError``, which this tuple did not name -- see
         # ``_resolve_uid``'s own comment just above for the identical hole.
-        uids = list(dict.fromkeys(int(u) for u in values or []))
+        # ``_whole_number``: see ``_resolve_uid``'s comment (clay-83).
+        uids = list(dict.fromkeys(_whole_number(u) for u in values or []))
     except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a list of integers.", field=field, recovery="fix_arguments"

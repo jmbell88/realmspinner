@@ -1,11 +1,12 @@
 """Where every Clay op lives in a menu, as data, with no imgui.
 
 :data:`ops.OPS` says what Clay can *do* and in which element modes. It never
-said how those operations *group*: the only signal was ``Op.separator_before``,
-which is positional (a row sits under whichever row was registered before it, so
-Shade Smooth sat under Duplicate),
-and which both surfaces that listed the registry -- the right-click menu and the
-tools pane's button grid -- drew as one flat run.
+said how those operations *group*: the only signal was registration order
+(a row sat under whichever row was registered before it, so Shade Smooth sat
+under Duplicate), which both surfaces that listed the registry -- the
+right-click menu and the tools pane's button grid -- drew as one flat run.
+(The 2026-10-07 audit's clay-42: this named an ``Op.separator_before`` field
+that no longer exists.)
 
 This module is the grouping. Three tables, each answering one question:
 

@@ -337,6 +337,11 @@ class QuitMixin:
             _step("release inker textures", lambda: inker_mode.release_all(ctx))
             _step("release plotter textures", lambda: plotter_mode.release_all(ctx))
             _step("release atlas textures", lambda: packwright_mode.release_all(ctx))
+            from ..modes.clay import mode as clay_mode
+
+            # Before the viewer, like its three siblings: the texture was made
+            # from ``viewer.ctx`` and must be forgotten while that still exists.
+            _step("release clay uv textures", lambda: clay_mode.release_all(ctx))
         if self.viewer is not None:
             _step("release viewer", self.viewer.release)
         # ``getattr``, not an attribute access: teardown runs after a *failed*

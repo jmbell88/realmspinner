@@ -81,6 +81,14 @@ MAX_VERTICES = 3 * MAX_TRIANGLES
 # normals reads every flat face as smooth.
 FLAT_COSINE = 0.999
 
+# The 2026-10-07 audit's clay-19: the largest magnitude a float32 vertex holds.
+_F4_MAX = float(np.finfo("f4").max)
+
+# The 2026-10-07 audit's clay-01: the scale a zero-scaled node is lifted to
+# (see ``_object_for``). One ten-thousandth: far below anything a modeller
+# draws, far above where float32 or a matrix inverse starts to lose it.
+_LIFTED_SCALE = 1e-4
+
 
 def _placed_nodes(model: gltf.Model) -> list[gltf.Node]:
     """The nodes that name a mesh *and* that the active scene places.
@@ -414,6 +422,20 @@ def _object_for(
     # the object, and the document would fail at export far from here.
     if not np.all(np.isfinite(node.world)):
         raise OpError(f"Node {node.name or base!r} has a non-finite transform.")
+    # The 2026-10-07 audit's clay-19: the check above is in float64, but the
+    # mesh is float32 -- a scale of 1e200 or a translation of 1e39 is a finite
+    # matrix whose product with a float32 vertex is not, and the bake (or the
+    # first export, which bakes the same matrix) then wrote inf/NaN positions
+    # into a document that opened fine and failed far from the file. The
+    # placed positions are measured here, in float64, before anything is
+    # built from them; ``set_transform`` refuses what a user types, and this
+    # is the same door for what a file says.
+    placed = _world_positions(mesh, node.world)
+    if not np.all(np.abs(placed) <= _F4_MAX):
+        raise OpError(
+            f"Node {node.name or base!r} places this mesh outside the range Clay can "
+            "hold (its scale or translation is too large for float32 positions)."
+        )
     translation, rotation, scale = m3.decompose(node.world)
     # The 2026-09-26 audit's clay-io-02: ``gltf.py``'s own loader refuses a
     # node whose *own* declared ``matrix`` has shear (the 2026-09-20 audit's
@@ -428,8 +450,20 @@ def _object_for(
     # loses nothing: this module stores no per-vertex normal for a transform
     # to invalidate, and every reader derives one from the baked geometry.
     if not np.allclose(m3.compose(translation, rotation, scale), node.world, atol=1e-4, rtol=1e-4):
-        mesh = _bake_world(mesh, node.world)
+        mesh = replace(mesh, positions=np.ascontiguousarray(placed, dtype="f4"))
         translation, rotation, scale = m3.vec3(), m3.quat_identity(), m3.vec3(1.0, 1.0, 1.0)
+    elif not np.any(scale):
+        # The 2026-10-07 audit's clay-01: a node whose world scale is zero --
+        # or so small that ``decompose``'s column norms underflow to it -- is
+        # how game assets hide a part, and it used to arrive as an object with
+        # scale (0, 0, 0) that ``set_transform`` refuses and ``read_rblk``
+        # refuses to reopen: the document saved, autosaved and journalled, and
+        # could never be opened again (crash recovery lost it too). Refusing
+        # the import would refuse the asset for carrying a hidden part, and
+        # baking the matrix would crush the part's geometry to a point for
+        # good; instead the part comes in at a floor scale -- invisible at any
+        # normal zoom, geometry intact, and one scale edit from visible.
+        scale = m3.vec3(_LIFTED_SCALE, _LIFTED_SCALE, _LIFTED_SCALE)
     return Obj(
         uid=new_uid(),
         name=_unique(node.name or base, taken),
@@ -477,20 +511,20 @@ def _material_index(
     return palette[key]
 
 
-def _bake_world(mesh: Any, matrix: np.ndarray) -> Any:
-    """*mesh*, with *matrix* applied to every vertex position.
+def _world_positions(mesh: Any, matrix: np.ndarray) -> np.ndarray:
+    """*mesh*'s vertices placed by *matrix*, in float64 so an overflow shows.
 
     :func:`_object_for`'s escape hatch for a composed node transform ``Obj``'s
     own T/R/S cannot represent (see its own comment, the 2026-09-26 audit's
-    clay-io-02): baking the exact matrix into the geometry once, up front,
-    keeps the imported shape identical to what the file actually places,
-    where handing ``decompose`` a sheared matrix would have silently dropped
-    the shear instead.
+    clay-io-02) is to bake exactly this into the geometry once, up front: that
+    keeps the imported shape identical to what the file actually places, where
+    handing ``decompose`` a sheared matrix would have silently dropped the
+    shear instead. The same product is what the overflow check measures.
     """
     points = np.asarray(mesh.positions, dtype="f8")
     homogeneous = np.concatenate([points, np.ones((len(points), 1), dtype="f8")], axis=1)
-    baked = (matrix @ homogeneous.T).T[:, :3]
-    return replace(mesh, positions=np.ascontiguousarray(baked, dtype="f4"))
+    with np.errstate(all="ignore"):
+        return (matrix @ homogeneous.T).T[:, :3]
 
 
 def _mesh_for(prim: gltf.Primitive, material: int) -> Any:
@@ -503,6 +537,12 @@ def _mesh_for(prim: gltf.Primitive, material: int) -> Any:
     # from the file that caused it.
     if not np.all(np.isfinite(positions)):
         raise OpError("This mesh has a non-finite (NaN or infinite) vertex position.")
+    # The 2026-10-07 audit's clay-70: the same refusal for the UV stream.
+    # ``write_glb`` happily writes a NaN texcoord, so a GLB from any exporter
+    # that did could import, and the document then wrote ``vt nan`` into every
+    # OBJ it exported -- a file Clay's own OBJ reader refuses.
+    if prim.uvs is not None and not np.all(np.isfinite(np.asarray(prim.uvs, dtype="f4"))):
+        raise OpError("This mesh has a non-finite (NaN or infinite) UV coordinate.")
     indices = np.asarray(prim.indices, dtype="i8").reshape(-1)
     tris = indices[: (len(indices) // 3) * 3].reshape(-1, 3)
 

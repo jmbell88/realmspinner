@@ -226,6 +226,19 @@ class UvPaneState:
     # per frame at 20,480 faces against a stub draw list, before imgui's own
     # cost).
     geo: dict[str, Any] = field(default_factory=dict)
+    # The ``ClayState.frame_serial`` of the last frame the canvas was hovered with
+    # islands boxed and no text field wanting the keys -- the frames on which a
+    # bare E/R arms the live rotate/scale here -- else ``None``. The 2026-10-07 audit's
+    # clay-03: the shell hands every KEYDOWN to ``clay_mode.handle_key`` without
+    # asking which pane the pointer is over, so the same press also extruded the
+    # 3-D faces or switched the 3-D tool. The key layer cannot import this pane,
+    # so it reads this field by duck-typing, as it does ``drag_mode``
+    # (a count of frames, not a clock: ``clay_mode.handle_key`` honours a stamp
+    # from the current or the previous frame).
+    key_hover_at: int | None = None
+    # The frame serial ``_body`` read for this frame, for ``_canvas`` to stamp
+    # with: ``_canvas`` is handed no ``ctx`` by its headless tests.
+    frame_seen: int = 0
 
 #: The uv unit square is treated as a texture this many pixels on a side, for
 #: :mod:`~.shell.paintview`'s pan/zoom arithmetic alone -- it never appears in
@@ -703,7 +716,19 @@ def _body(ctx: Any) -> None:
     if tab is None:
         return
     doc = tab.doc
+    # Re-recorded by ``_canvas`` on the frames it is hovered; every other frame
+    # (no canvas drawn at all, below) leaves the keys to Clay's own layer.
+    tab.uv_view.key_hover_at = None
+    tab.uv_view.frame_seen = getattr(state, "frame_serial", 0)
     obj = _selected_object(doc)
+    armed = tab.uv_view.drag_mode in ("rotate", "scale")
+    if armed and (obj is None or obj.mesh.uv is None):
+        # The 2026-10-07 audit's clay-12: these returns came before the settle
+        # check below, so a live rotate/scale armed on an object the selection
+        # then left (emptied, or moved to a mesh with no uv) stayed armed with
+        # its undo gesture open and its preview applied. Committed, as the
+        # per-object reset below does.
+        commit_live_transform(doc, tab.uv_view)
     if obj is None:
         count = len(doc.selection)
         if count > 1:
@@ -752,6 +777,39 @@ def _body(ctx: Any) -> None:
     _toolbar(ctx, tab, doc, obj, view_state)
     _canvas(ctx, tab, doc, obj, view_state)
     _legend()
+
+
+def apply_rotate_reason(
+    *, saving: bool, live: bool, selected: int, pending_scale: float = 1.0
+) -> str:
+    """Why "Apply" under the rotate field is greyed, or ``""`` when it is live.
+
+    The 2026-10-07 audit's clay-75: a disabled button with no ``reason=`` is a
+    dead control with nothing on screen to say what to do about it. Pure, so the
+    sentence is testable without a frame. ``pending_scale`` is accepted and unused
+    so the pair share one call shape.
+    """
+    del pending_scale
+    if saving:
+        return "Saving..."
+    if live:
+        return "Finish the live rotate or scale first (click to commit, Esc to cancel)."
+    if selected <= 0:
+        return "Box one or more islands first."
+    return ""
+
+
+def apply_scale_reason(
+    *, saving: bool, live: bool, selected: int, pending_scale: float
+) -> str:
+    """:func:`apply_rotate_reason`'s twin for the scale field, which adds the one
+    value the button refuses: a factor of 0 or less would collapse the islands."""
+    why = apply_rotate_reason(saving=saving, live=live, selected=selected)
+    if why:
+        return why
+    if pending_scale <= 0.0:
+        return "Scale must be above 0."
+    return ""
 
 
 def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> None:
@@ -807,8 +865,9 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
     # "compares against the current value first" check the move gesture just
     # below already makes (``delta != (0.0, 0.0)``) before calling
     # ``apply_translate``.
+    rotate_why = apply_rotate_reason(saving=bool(tab.saving), live=live, selected=count)
     if (
-        widgets.disabled_button("Apply##uvrotate", bool(selected) and not live)
+        widgets.disabled_button("Apply##uvrotate", not rotate_why, reason=rotate_why)
         and view_state.pending_rotate != 0.0
     ):
         apply_rotate(doc, obj.uid, selected, view_state.pending_rotate, ctx=ctx)
@@ -819,10 +878,14 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
     if changed:
         view_state.pending_scale = value
     imgui.same_line()
+    scale_why = apply_scale_reason(
+        saving=bool(tab.saving),
+        live=live,
+        selected=count,
+        pending_scale=view_state.pending_scale,
+    )
     if (
-        widgets.disabled_button(
-            "Apply##uvscale", bool(selected) and view_state.pending_scale > 0.0 and not live
-        )
+        widgets.disabled_button("Apply##uvscale", not scale_why, reason=scale_why)
         and view_state.pending_scale != 1.0
     ):
         apply_scale(doc, obj.uid, selected, view_state.pending_scale, ctx=ctx)
@@ -937,6 +1000,11 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     # in flight" rule ``_toolbar`` enforces above; ungated, dragging an island
     # mid-save left the tab dirty against a save the user believed had just
     # captured that drag.
+    view_state.key_hover_at = (
+        view_state.frame_seen
+        if hovered and view_state.selected_islands and not imgui.get_io().want_text_input
+        else None
+    )
     if tab.saving:
         pass
     elif view_state.drag_mode in ("rotate", "scale"):
@@ -1000,7 +1068,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
         ctx, getattr(tab, "uid", ""), _uv_texture.material_for_pane(doc, obj)
     )
     _backdrop(draw_list, view, origin, texture)
-    covered = touched_islands(mesh, ids, doc.element_sel.get(obj.uid))
+    covered = _covered_islands(view_state.geo, mesh, ids, doc.element_sel.get(obj.uid))
     geo = view_state.geo
     _faces(draw_list, view, origin, mesh, overlap, geo)
     _island_outlines(
@@ -1009,6 +1077,27 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     draw_list.pop_clip_rect()
     if refusal:
         widgets.muted(f"overlap not shown: {refusal}")
+
+
+def _covered_islands(
+    cache: dict[str, Any], mesh: Any, ids: np.ndarray, sel: Any
+) -> set[int]:
+    """:func:`touched_islands`, memoised on what it is a function of.
+
+    The 2026-10-07 audit's clay-76: it ran on every frame the pane was open --
+    ``np.isin`` over every corner, plus ``affected_verts`` -- though a frame that
+    only pans or zooms changes none of its inputs. Keyed on the identity of the
+    mesh, the island ids and the selection (``Mesh`` and ``ElementSel`` are both
+    immutable, so identity is an exact revision check, the reasoning
+    ``measured_mesh`` gives) and held as strong references so an address cannot
+    be reused under it.
+    """
+    hit = cache.get("covered")
+    if hit is not None and hit[0] is mesh and hit[1] is ids and hit[2] is sel:
+        return hit[3]
+    covered = touched_islands(mesh, ids, sel)
+    cache["covered"] = (mesh, ids, sel, covered)
+    return covered
 
 
 def _drive_live_transform(

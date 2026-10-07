@@ -52,7 +52,7 @@ from .earclip import corner_triangles
 from .mesh import Mesh
 from .primitives import CLAY_GENERATOR_NAMES
 
-__all__ = ["LegacyFields", "migrate", "read_fields"]
+__all__ = ["LegacyFields", "freeze_unknown_generators", "migrate", "read_fields"]
 
 
 
@@ -74,21 +74,34 @@ def _triangle_count(mesh: Mesh) -> int:
     return int(np.clip(counts, 0, None).sum())
 
 
-def _refuse_growth(verb: str, predicted: int) -> None:
+def _refuse_growth(verb: str, predicted: int, limit: int | None = None) -> None:
     """Refuse before or after the fact, from a triangle count either way.
 
     Called *before* an allocation that scales with a parameter Clay does not
     otherwise bound (array/radial-array's ``count``, up to 200), and again,
-    centrally, by :mod:`.modifiers` after every kind's ``apply`` runs -- the
-    backstop for the kinds that have no growth parameter of their own to
-    pre-check (mirror, solidify) and a second net under the ones that do.
+    centrally, by :func:`_bake` after every kind's apply runs -- the backstop
+    for the kinds that have no growth parameter of their own to pre-check
+    (mirror, solidify) and a second net under the ones that do.
+
+    *limit* is the room the *document* has left for this one mesh (see
+    :func:`_bake`): the 2026-10-07 audit's clay-05 found the ceiling was
+    charged per modifier only, so a file of a few small objects each baking to
+    just under it opened as millions of triangles that Save then refused.
+    ``None`` is the whole ceiling.
     """
     from .glbimport import MAX_TRIANGLES
 
-    if predicted > MAX_TRIANGLES:
+    ceiling = MAX_TRIANGLES if limit is None else min(limit, MAX_TRIANGLES)
+    if predicted > ceiling:
+        if ceiling == MAX_TRIANGLES:
+            raise el.OpError(
+                f"{verb} would make {predicted:,} triangles, past the "
+                f"{MAX_TRIANGLES:,} Clay works with."
+            )
         raise el.OpError(
-            f"{verb} would make {predicted:,} triangles, past the "
-            f"{MAX_TRIANGLES:,} Clay works with."
+            f"{verb} would make {predicted:,} triangles, past the {max(ceiling, 0):,} "
+            f"this model has room for ({MAX_TRIANGLES:,} is the most Clay works with "
+            "in all)."
         )
 
 
@@ -158,7 +171,7 @@ def mirror(mesh: Mesh, params: dict) -> Mesh:
     return merged
 
 
-def array_linear(mesh: Mesh, params: dict) -> Mesh:
+def array_linear(mesh: Mesh, params: dict, limit: int | None = None) -> Mesh:
     """``count`` copies, copy *k* translated by ``k * offset``, concatenated."""
     count = max(1, int(params.get("count", 3)))
     offset = np.array(
@@ -170,7 +183,7 @@ def array_linear(mesh: Mesh, params: dict) -> Mesh:
         dtype="f8",
     )
     weld_distance = float(params.get("weld", 0.0))
-    _refuse_growth("Arraying this object", _triangle_count(mesh) * count)
+    _refuse_growth("Arraying this object", _triangle_count(mesh) * count, limit)
     copies = [
         mesh if k == 0 else replace(mesh, positions=mesh.positions.astype("f8") + offset * k)
         for k in range(count)
@@ -188,7 +201,7 @@ def _closes_a_ring(angle: float) -> bool:
     return remainder < 1e-6 or remainder > 360.0 - 1e-6
 
 
-def array_radial(mesh: Mesh, params: dict) -> Mesh:
+def array_radial(mesh: Mesh, params: dict, limit: int | None = None) -> Mesh:
     """``count`` copies spun about the *local* origin, closed-ring aware.
 
     Same divisor rule as the object-level radial array op: a sweep that closes
@@ -199,7 +212,7 @@ def array_radial(mesh: Mesh, params: dict) -> Mesh:
     count = max(1, int(params.get("count", 6)))
     angle = float(params.get("angle", 360.0))
     axis = int(params.get("axis", 1))
-    _refuse_growth("Arraying this object", _triangle_count(mesh) * count)
+    _refuse_growth("Arraying this object", _triangle_count(mesh) * count, limit)
     if count <= 1:
         return mesh
     divisor = count if _closes_a_ring(angle) else count - 1
@@ -303,7 +316,7 @@ def solidify(mesh: Mesh, params: dict) -> Mesh:
     # rim loop below -- so a mesh past the ceiling does not first pay for two
     # full copies of itself it will never get to use. See
     # MAX_SOLIDIFY_RIM_CORNERS for why _refuse_growth's own post-apply check
-    # (below, via .modifiers) is too late to protect this loop.
+    # (below, in :func:`_bake`) is too late to protect this loop.
     a = adjacency(mesh)
     boundary_corners = np.flatnonzero(a.edge_uses[a.corner_edge] == 1)
     _refuse_solidify_rim(len(boundary_corners))
@@ -686,7 +699,19 @@ def _bake(
     own rule. A boolean takes its target's *evaluated* mesh, so targets are
     visited first, in post-order with an explicit stack; a target that would
     close a cycle is refused on the modifier that closes it.
+
+    **The whole document is bounded, not just each modifier.** The 2026-10-07
+    audit's clay-05: ``read_rblk`` charges ``MAX_TRIANGLES`` against the *base*
+    meshes before this runs, and the bake only ever bounded one modifier's
+    result, so a 19.6 KB file of a few arrays opened as 15.5M triangles that
+    Save, Save As and the journal all then refused. A running total of every
+    object's current triangles rides the loop; a modifier whose result would
+    push it past the ceiling is refused like any other that cannot run --
+    dropped and named -- so the document this hands back is one the writer
+    accepts. (Colliders are dropped afterwards and only ever lower the total.)
     """
+    from .glbimport import MAX_TRIANGLES
+
     result: dict[int, Mesh] = {}
     errors: dict[int, list[str]] = {}
     cyclic: set[tuple[int, int]] = set()
@@ -727,6 +752,8 @@ def _bake(
                 order.append(node)
                 frames.pop()
 
+    counts = {o.uid: _triangle_count(o.mesh) for o in doc.objects}
+    total = sum(counts.values())
     for uid in order:
         stack = stacks.get(uid, ())
         if not any(m.enabled for m in stack):
@@ -737,6 +764,7 @@ def _bake(
             if not mod.enabled:
                 continue
             label = _KINDS[mod.kind][0]
+            room = MAX_TRIANGLES - (total - counts[uid])
             try:
                 if mod.kind == "boolean":
                     target = int(mod.get("target", 0))
@@ -754,13 +782,18 @@ def _bake(
                         operation,
                         world=[doc.world_matrix(uid), doc.world_matrix(target)],
                     )
+                elif mod.kind in ("array", "radial-array"):
+                    grown = _KINDS[mod.kind][2](mesh, mod.as_dict(), limit=room)
                 else:
                     grown = _KINDS[mod.kind][2](mesh, mod.as_dict())
-                _refuse_growth("This modifier", _triangle_count(grown))
+                grown_count = _triangle_count(grown)
+                _refuse_growth("This modifier", grown_count, room)
             except el.OpError as error:
                 errors.setdefault(uid, []).append(f"the {label} modifier could not run ({error})")
                 continue
             mesh = grown
+            total += grown_count - counts[uid]
+            counts[uid] = grown_count
         if mesh is not obj.mesh:
             result[uid] = mesh
     return result, errors
@@ -824,6 +857,22 @@ def migrate(doc: ClayDoc, fields: dict[int, LegacyFields]) -> list[str]:
             f"Seams, tags and locks are gone from Clay; they were cleared from {_names(lost)}."
         )
 
+    frozen = freeze_unknown_generators(doc)
+    if frozen is not None:
+        notices.append(frozen)
+    return notices
+
+
+def freeze_unknown_generators(doc: ClayDoc) -> str | None:
+    """Freeze every object whose generator Clay's Add palette no longer offers --
+    the mesh stays, the generator and its params go -- and return the notice
+    naming them, or ``None`` when there was nothing to freeze.
+
+    Public because it is a rule about the generator, not the file's age: the
+    2026-10-07 audit's clay-43 found it ran only for format 3, so a version-4
+    file naming ``lathe`` kept a live generator panel whose edits are refused.
+    ``serialize.read_rblk`` calls it for every version.
+    """
     unknown = [
         o
         for o in doc.objects
@@ -831,12 +880,12 @@ def migrate(doc: ClayDoc, fields: dict[int, LegacyFields]) -> list[str]:
     ]
     for obj in unknown:
         obj.generator, obj.params = None, {}
-    if unknown:
-        notices.append(
-            f"{_names(unknown)} used a shape Clay no longer builds; "
-            "the mesh is kept as a plain mesh."
-        )
-    return notices
+    if not unknown:
+        return None
+    return (
+        f"{_names(unknown)} used a shape Clay no longer builds; "
+        "the mesh is kept as a plain mesh."
+    )
 
 
 def _drop(doc: ClayDoc, doomed: list[Obj]) -> None:

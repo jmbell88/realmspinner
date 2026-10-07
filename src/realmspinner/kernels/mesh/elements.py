@@ -137,7 +137,7 @@ def affected_verts(mesh: Mesh, sel: ElementSel) -> np.ndarray:
         # The 2026-09-26 audit (clay-mesh-core-05): a Python loop per selected
         # face measured 0.51s at 490,000 faces (select-all on a heavy mesh
         # calls this on every drag-gizmo frame); `topo.corner_spans` is the
-        # same vectorised CSR gather `ops_model.bisect` already uses instead
+        # same vectorised CSR gather `ops_topo`'s extrude and inset already use instead
         # of iterating faces one at a time.
         corners = topo.corner_spans(mesh.starts, sel.faces)
         parts.append(mesh.loops[corners].astype("i8"))

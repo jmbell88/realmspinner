@@ -310,6 +310,10 @@ def test_a_recovered_clay_document_reopens_with_the_camera_the_journal_stored(
     tab = _tab(ctx)
     tab.view.yaw, tab.view.pitch, tab.view.distance = 1.25, -0.5, 7.5
     tab.view.target = [1.0, 2.0, 3.0]
+    # A camera the user moved belongs to a tab the viewport has drawn, and drawing
+    # frames it (``apply_camera``); the 2026-10-07 audit's clay-60 stopped the
+    # journal writing the default camera of a tab that was never drawn.
+    tab.view.fitted = True
     crash_copy = tmp_path / "crash.rblk"
     crash_copy.write_bytes(clay_mode._journal_encode(tab))
 

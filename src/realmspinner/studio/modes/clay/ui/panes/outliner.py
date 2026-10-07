@@ -258,6 +258,16 @@ def _body(ctx: Any) -> None:
     imgui.end_disabled()
 
 
+def _solo_reason(doc: Any) -> str:
+    """Why Solo is greyed, or ``""``."""
+    return "" if doc.selection else "Select an object to show only it."
+
+
+def _show_all_reason(hidden: int) -> str:
+    """Why Show all is greyed, or ``""``."""
+    return "" if hidden > 0 else "No object is hidden."
+
+
 def _visibility_row(doc: Any) -> None:
     """Solo and Show all, above the list.
 
@@ -267,12 +277,24 @@ def _visibility_row(doc: Any) -> None:
     Ctrl+Z is the third way back.
     """
     hidden = sum(1 for obj in doc.objects if not obj.visible)
-    if widgets.disabled_button(f"{icons.EYE} Solo##claysolo", bool(doc.selection)):
+    # ``reason=`` and ``tooltip=`` on the widget: a disabled item swallows hover,
+    # so the ``is_item_hovered`` this used to ask never fired for the greyed
+    # state, and neither button said why it was grey (the 2026-10-07 audit's
+    # clay-75).
+    if widgets.disabled_button(
+        f"{icons.EYE} Solo##claysolo",
+        bool(doc.selection),
+        reason=_solo_reason(doc),
+        tooltip="Show only the selected objects",
+    ):
         doc.isolate(doc.selection)
-    if imgui.is_item_hovered():
-        imgui.set_tooltip("Show only the selected objects")
     imgui.same_line()
-    if widgets.disabled_button(f"{icons.EYE} Show all##clayshowall", hidden > 0):
+    if widgets.disabled_button(
+        f"{icons.EYE} Show all##clayshowall",
+        hidden > 0,
+        reason=_show_all_reason(hidden),
+        tooltip="Show every hidden object again",
+    ):
         doc.show_all()
     if hidden:
         widgets.muted(f"{hidden} hidden")

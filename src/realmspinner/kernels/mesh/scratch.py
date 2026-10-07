@@ -353,7 +353,13 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                     doc.remove_object(uid)
 
         if diff_.added:
-            added_objs = [scratch.by_uid(uid) for uid in diff_.added]
+            # The 2026-10-07 audit's clay-53: ``diff_.added`` is a ``set``, so
+            # iterating it put the new objects in hash order -- uids 125..129
+            # straddle a multiple of the table size and landed 128, 129, 125,
+            # 126, 127 -- while the preview showed them in ``scratch.objects``
+            # order. The document's object order is what the outliner, the
+            # exports and ``order_changed`` below all read.
+            added_objs = [o for o in scratch.objects if o.uid in diff_.added]
             doc.add_objects(added_objs)
 
         for uid, new_parent in diff_.parent_changed.items():

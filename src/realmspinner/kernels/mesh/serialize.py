@@ -193,9 +193,11 @@ def _material_json(
 ) -> dict[str, Any]:
     """The factors, plus the index of each texture slot that has one.
 
-    Clay paints no textures, but it now *imports* them, and an imported asset
-    that lost its baked maps on the way through a save would be worse than one
-    that could not be imported at all. The slot map is omitted entirely when
+    Clay's palette textures are painted in Inker and pulled back, and an
+    imported asset brings its own baked maps; either one lost on the way
+    through a save would be worse than never having been there (the
+    2026-10-07 audit's clay-56: this used to say Clay paints no textures, false
+    since textures arrived from Inker). The slot map is omitted entirely when
     there are none, so an authored document's JSON is v1-shaped.
     """
     slots = {}
@@ -303,7 +305,7 @@ def read_view(data: bytes) -> dict[str, Any] | None:
     """The camera out of a ``.rblk``, or ``None`` if it has none it can trust.
 
     **A second function rather than a second return value from**
-    :func:`read_rblk`, which is the same call ``files.unready_reason`` makes:
+    :func:`read_rblk`, which the mode's open path calls on the same bytes:
     that reader's job is to hand back the engine's own document type, and a
     camera is not part of one -- ``ClayDoc`` is geometry and a palette, and
     where somebody last left the viewport is a property of the *tab*. Widening
@@ -317,7 +319,18 @@ def read_view(data: bytes) -> dict[str, Any] | None:
     try:
         with zipguard.BoundedZip(io.BytesIO(data)) as zf:
             scene = json.loads(zf.read(SCENE))
-    except (zipfile.BadZipFile, KeyError, UnicodeDecodeError, json.JSONDecodeError):
+    except (
+        zipfile.BadZipFile,
+        KeyError,
+        UnicodeDecodeError,
+        ValueError,
+        # The 2026-10-07 audit's clay-44: ``json.loads`` of a deeply nested
+        # ``scene.json`` raises ``RecursionError``, which is not a
+        # ``ValueError`` and escaped a reader whose contract is "None".
+        RecursionError,
+    ):
+        return None
+    if not isinstance(scene, dict):
         return None
     entry = scene.get("view")
     if not isinstance(entry, dict):
@@ -439,6 +452,31 @@ def triangle_count(mesh: bm.Mesh) -> int:
     return int(np.clip(counts, 0, None).sum())
 
 
+#: The three transform fields an object entry carries and the default each one
+#: reads with -- the one list the reader (``read_rblk``) and the writer's check
+#: (``_refuse_unreadable``) both walk.
+_TRANSFORM_DEFAULTS = (
+    ("translation", (0.0, 0.0, 0.0)),
+    ("rotation", (0.0, 0.0, 0.0, 1.0)),
+    ("scale", (1.0, 1.0, 1.0)),
+)
+
+
+def _refuse_non_finite(mesh: bm.Mesh, who: str) -> None:
+    """Refuse a mesh with a NaN or an Infinity in a position or a uv, by name.
+
+    The 2026-10-07 audit's clay-45: ``bm.validate`` checks the CSR's shape and
+    never a value, so a mesh member carrying NaN positions read cleanly and the
+    writer wrote one without complaint -- a document that opens "fine" and then
+    breaks every bound, normal and export taken from it, far from the file.
+    One function for the reader and the writer, so they agree.
+    """
+    if not np.isfinite(mesh.positions).all():
+        raise ValueError(f"{who} has a position that is not a finite number")
+    if mesh.uv is not None and not np.isfinite(mesh.uv).all():
+        raise ValueError(f"{who} has a uv that is not a finite number")
+
+
 def _refuse_unreadable(snap: RblkSnapshot) -> None:
     """Refuse to encode a document :func:`read_rblk` would refuse to reopen."""
     from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
@@ -456,6 +494,30 @@ def _refuse_unreadable(snap: RblkSnapshot) -> None:
                 f"this clay document has more than {MAX_TRIANGLES:,} "
                 "triangles, the most Clay can edit"
             )
+    # The 2026-10-07 audit's clay-01 and clay-45: the reader refuses an object
+    # whose translation, rotation or scale is not a usable transform (``_vector``)
+    # and a mesh with a non-finite position or uv (``_read_mesh``), and this
+    # writer checked neither -- a GLB node scaled to zero imported with scale
+    # (0, 0, 0) and the document saved, autosaved and journalled a file that
+    # could never be opened again, crash recovery included. The transforms are
+    # read back out of the snapshot's own ``scene`` text and put through the
+    # reader's ``_vector``, not a second copy of its rules, so the two cannot
+    # drift; the task thread therefore never touches the live document.
+    scene = json.loads(snap.scene)
+    names = {}
+    for entry in scene.get("objects", ()):
+        names[int(entry["uid"])] = str(entry.get("name", ""))
+        for key, default in _TRANSFORM_DEFAULTS:
+            try:
+                _vector(entry, key, default)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{exc} ({entry.get('name', '')!r}); saving it would write a file "
+                    "this build cannot open again"
+                ) from exc
+    for uid, mesh in snap.meshes:
+        label = names.get(uid, f"uid {uid}")
+        _refuse_non_finite(mesh, f"the mesh of the object {label!r}")
 
 
 def snapshot_bytes(snap: RblkSnapshot) -> bytes:
@@ -467,7 +529,9 @@ def snapshot_bytes(snap: RblkSnapshot) -> bytes:
     document at all.
 
     Refuses (``ValueError``) a snapshot :func:`read_rblk` would refuse to
-    reopen for its object or triangle count. The 2026-10-03 audit's clay-27:
+    reopen for its object or triangle count -- and, since the 2026-10-07 audit's
+    clay-01 and clay-45, for an object transform or a mesh value the reader's
+    own checks refuse (a zero scale, a NaN). The 2026-10-03 audit's clay-27:
     the 2026-09-23 save guard (``clay_mode._refuse_oversized_save``) checks
     bytes only, and Clay lets a document grow past ``MAX_OBJECTS`` and
     ``MAX_TRIANGLES`` -- 4,097 tiny objects write a 9.3 MB file, far under the
@@ -547,6 +611,9 @@ def _read_mesh(zf: zipfile.ZipFile, uid: int) -> bm.Mesh:
     # and ``face_normals`` do not raise on a bad ``starts``, they produce
     # nonsense. Better to refuse the file than to render it.
     bm.validate(mesh)
+    # clay-45, the 2026-10-07 audit: ``validate`` is about the CSR's shape, so a
+    # member of NaN positions or uvs passed it; the writer refuses the same.
+    _refuse_non_finite(mesh, f"a mesh in this clay document ({name})")
     return mesh
 
 
@@ -959,6 +1026,13 @@ def read_rblk(data: bytes) -> ClayDoc:
             KeyError,
             UnicodeDecodeError,
             json.JSONDecodeError,
+            # The 2026-10-07 audit's clay-44: a ``scene.json`` nested a few
+            # thousand levels deep (a few KB of ``[``) is valid JSON that
+            # ``json.loads`` cannot parse without exhausting the interpreter's
+            # recursion limit, and the bare ``RecursionError`` reached the
+            # mode's open path -- crash recovery's too -- instead of this
+            # reader's named refusal.
+            RecursionError,
         ) as exc:
             raise ValueError("this is not a Realmspinner Clay document") from exc
         if not isinstance(scene, dict):
@@ -1143,4 +1217,13 @@ def read_rblk(data: bytes) -> ClayDoc:
                 "metallic, roughness, emissive and the extra texture maps are gone."
             )
         doc.notices = tuple(notices)
+    else:
+        # The 2026-10-07 audit's clay-43: the freeze of a generator Clay's Add
+        # palette no longer offers ran only inside the format-3 migration, so a
+        # version-4 file naming ``lathe`` (a hand edit, a build that still had
+        # it) kept a live generator panel whose edits ``clay_set_params``
+        # refuses. The rule is about the generator, not the file's age.
+        frozen = legacy.freeze_unknown_generators(doc)
+        if frozen is not None:
+            doc.notices = (frozen,)
     return doc

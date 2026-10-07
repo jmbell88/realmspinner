@@ -114,12 +114,22 @@ def _settle_drag_on_tab_switch(ctx: Any, state: ClayState, old_uid: str) -> None
     was made on and the user can Ctrl+Z it like anything else when they
     switch back, rather than losing it silently.
     """
+    tab = state.get(old_uid)
+    if tab is None:
+        return
+    # The 2026-10-07 audit's clay-12: an armed UV live rotate/scale is a drag the
+    # viewport knows nothing about, and the pane that would commit it draws only
+    # the *active* tab. Left armed, the leaving tab kept its undo gesture open
+    # (which switches the stack's eviction off) and its preview applied, and
+    # swallowed every bare key the next time it was active. Committed, like the
+    # 3-D drag below, for the same reason: the preview is already on the object.
+    uv_view = getattr(tab, "uv_view", None)
+    if uv_view is not None and uv_view.drag_mode in ("rotate", "scale"):
+        _settle_uv_gesture(tab.doc, uv_view, commit=True)
     view = getattr(ctx, "clay_view", None)
     if view is None or not getattr(view, "dragging", False):
         return
-    tab = state.get(old_uid)
-    if tab is not None:
-        view.settle_drag(tab.doc)
+    view.settle_drag(tab.doc)
 
 
 def _restore_view(state: ClayState, stored: Any) -> None:
@@ -211,11 +221,37 @@ def announce_migration(ctx: Any, doc: Any) -> None:
     :func:`adopt`, the one landing every opener -- Open, Open in Clay on a
     library asset, crash recovery -- ends in, so the person hears it exactly
     once and no opener has to remember to ask.
+
+    **A warning when anything was lost, and a bounded one.** The 2026-10-07
+    audit's clay-23: this was the one announcement of an irreversible v3 -> v4
+    change and it went out as an "info" toast (four seconds, no input) whose
+    per-object sentences were unbounded -- 532 characters for the repo's own
+    fixture -- and ``doc.notices`` is shown nowhere else. A notice that says
+    something was dropped, removed or gone raises the sticky "warn" level
+    (``state.TOAST_STICKY``: it takes the mouse, so the person can read it and
+    close it), lists those sentences first, and stops at
+    :data:`MAX_MIGRATION_NOTICES` with "and N more"; the whole list goes to the
+    log. The lead sentence says what happened rather than that the file was
+    older: a current-format file can carry notices too (an unknown generator
+    frozen to a plain mesh), and "older" was untrue of it.
     """
     notices = tuple(getattr(doc, "notices", ()) or ())
-    if notices:
-        message = "Opened an older Clay file and converted it.\n" + " ".join(notices)
-        ctx.toast(message, "info")
+    if not notices:
+        return
+    lost = [n for n in notices if any(word in n for word in _LOSS_WORDS)]
+    ordered = lost + [n for n in notices if n not in lost]
+    shown = ordered[:MAX_MIGRATION_NOTICES]
+    message = "Clay changed this file as it opened it.\n" + " ".join(shown)
+    if len(ordered) > len(shown):
+        message += f" ...and {len(ordered) - len(shown)} more (see the log)."
+        log.info("Clay changed a file as it opened it: %s", " ".join(notices))
+    ctx.toast(message, "warn" if lost else "info")
+
+
+#: The most conversion sentences the open toast spells out.
+MAX_MIGRATION_NOTICES = 3
+#: What ``kernels/mesh/legacy.py``'s notices say when they report something lost.
+_LOSS_WORDS = ("dropped", "removed", " gone")
 
 
 def adopt(
@@ -401,7 +437,11 @@ def _sibling_mtl(path: Path, data: bytes) -> str | None:
     read a file somewhere else on the disk. A missing, oversized or unreadable
     library is not an error: the OBJ still imports, just without its colours.
     """
-    for raw in data.decode("utf-8", errors="replace").splitlines():
+    # ``utf-8-sig`` on both reads (the 2026-10-07 audit's clay-15): a BOM at the
+    # head of the OBJ hid a first-line ``mtllib`` from the ``startswith`` below, and
+    # one at the head of the ``.mtl`` made its first ``newmtl`` unrecognisable --
+    # Windows tools write them routinely, and the colours silently went grey.
+    for raw in data.decode("utf-8-sig", errors="replace").splitlines():
         line = raw.strip()
         if not line.startswith("mtllib"):
             continue
@@ -412,7 +452,7 @@ def _sibling_mtl(path: Path, data: bytes) -> str | None:
         try:
             if not candidate.is_file() or candidate.stat().st_size > MAX_MTL_BYTES:
                 return None
-            return candidate.read_text(encoding="utf-8", errors="replace")
+            return candidate.read_text(encoding="utf-8-sig", errors="replace")
         except OSError:
             return None
     return None
@@ -619,7 +659,14 @@ def sync_active_camera(ctx: Any) -> None:
     if state is None:
         return
     drawn = getattr(state, "camera_tab", None)
-    tab = state.get(state.active_uid if drawn is None else drawn)
+    if not drawn:
+        # The 2026-10-07 audit's clay-02: until the viewport has drawn a tab the
+        # live camera belongs to *nothing* -- it is the fresh viewport's default.
+        # Falling back to ``active_uid`` here copied that default onto the tab a
+        # session's first Open/Resume/recovery had just adopted, before
+        # ``apply_camera`` could read the stored view off it, and marked it framed.
+        return
+    tab = state.get(drawn)
     if tab is not None:
         camera_of(ctx, tab)
 
@@ -839,6 +886,45 @@ IMPORT_MESH_FILTER = [
 ]
 
 
+#: The first line :func:`~.kernels.mesh.objexport.claydoc_to_obj` writes into
+#: both of its files: what makes an existing ``.mtl`` recognisably one of ours.
+_EXPORT_HEADER = b"# Written by Realmspinner's Clay"
+
+
+def _refuse_foreign_sidecars(targets: dict[Path, bytes], primary: Path) -> None:
+    """Refuse, before anything is written, to replace a file the user did not
+    pick and that is not a previous Clay export.
+
+    The 2026-10-07 audit's clay-07, Mason's mason-34 over again: the native
+    dialog confirms an overwrite of the one name typed (``crate.obj``), while
+    the export also writes ``crate.mtl`` and each ``crate_<n>.png`` beside it,
+    so a user's own ``crate_0.png`` was replaced with no prompt. An ``.mtl``
+    is ours when it opens with the export header; a PNG carries no marker, so
+    it counts as ours only when an ``.mtl`` of ours is among the existing files
+    being replaced alongside it. Raises ``Conflict`` (``field="export"``), which
+    reaches the person as a toast naming the file.
+    """
+    from ....service.errors import Conflict
+
+    def ours(target: Path) -> bool:
+        try:
+            with target.open("rb") as handle:
+                return handle.read(len(_EXPORT_HEADER)) == _EXPORT_HEADER
+        except OSError:
+            return False
+
+    existing = [t for t in targets if t != primary and t.is_file()]
+    owns_textures = any(t.suffix == ".mtl" and ours(t) for t in existing)
+    for target in existing:
+        if not (ours(target) if target.suffix == ".mtl" else owns_textures):
+            raise Conflict(
+                f"{target.name} already exists beside {primary.name} and is not a "
+                "Clay export -- exporting would replace it. Pick another file name "
+                "or move it first.",
+                field="export",
+            )
+
+
 def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
     """Save the document as a plain mesh file on disk -- GLB or OBJ+MTL --
     beside :func:`export_asset`'s library export.
@@ -899,7 +985,12 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
             # own title, which the save dialog is free to have renamed --
             # kept in sync here rather than re-reading the document with the
             # chosen name, so the obj always names the mtl actually beside it.
-            text = obj_text.replace(f"mtllib {title}.mtl", f"mtllib {stem}.mtl", 1)
+            # Both names go through ``safe_name``, the form the OBJ text itself
+            # carries (a ``#`` or a trailing backslash is neutralised there), and
+            # the ``.mtl`` and PNGs are written under that same form: a name the
+            # OBJ line holds and no file answers to is a grey import.
+            safe_title, safe_stem = objexport.safe_name(title), objexport.safe_name(stem)
+            text = obj_text.replace(f"mtllib {safe_title}.mtl", f"mtllib {safe_stem}.mtl", 1)
             # The same rename for every ``map_Kd``: a texture is written as
             # ``<stem>_<index>.png`` so the .mtl names the files actually beside it.
             for index in pngs:
@@ -908,10 +999,21 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
                     f"map_Kd {objexport.texture_name(stem, index)}",
                     1,
                 )
-            atomic.write_bytes(path, text.encode("utf-8"))
-            atomic.write_bytes(path.with_name(f"{stem}.mtl"), mtl_text.encode("utf-8"))
-            for index, png in pngs.items():
-                atomic.write_bytes(path.with_name(objexport.texture_name(stem, index)), png)
+            # One set, staged whole (the 2026-10-07 audit's clay-07). Four
+            # separate ``write_bytes`` calls put the ``.obj`` on disk first, so a
+            # PNG that then failed left an ``.obj``/``.mtl`` naming a texture that
+            # never arrived. Written PNGs first, ``.mtl`` next, ``.obj`` last, so
+            # the window between the replaces never shows an OBJ whose library is
+            # missing; and a sidecar that is not a previous Clay export is refused
+            # before anything is written -- the dialog confirmed only the ``.obj``.
+            targets: dict[Path, bytes] = {
+                path.with_name(objexport.texture_name(stem, index)): png
+                for index, png in pngs.items()
+            }
+            targets[path.with_name(f"{safe_stem}.mtl")] = mtl_text.encode("utf-8")
+            targets[path] = text.encode("utf-8")
+            _refuse_foreign_sidecars(targets, path)
+            atomic.staged_set(targets)
             return {"path": str(path), "exported_file": True}
 
     else:
@@ -1138,6 +1240,21 @@ def close_tab(ctx: Any, uid: str) -> None:
     docmodes.close_tab(ctx, state, uid, release)
 
 
+def release_all(ctx: Any) -> None:
+    """Quit's sweep of the GL textures Clay's panes hold, ``plotter_mode.release_all``'s
+    twin.
+
+    The 2026-10-07 audit's clay-51: the UV pane's one-texture-per-tab cache has
+    a ``release_all`` that nothing called, so quitting released Inker's,
+    Plotter's and Packwright's tab textures and left Clay's registered with the
+    imgui backend when the viewer's context went away. Function-scope import:
+    ``ui`` imports this module.
+    """
+    from .ui import _uv_texture
+
+    _uv_texture.release_all(ctx)
+
+
 # --- keys -------------------------------------------------------------------
 
 # Q/W/E/R, which is where a user coming from Blender or Unity puts their left
@@ -1236,6 +1353,21 @@ def _settle_uv_gesture(doc: Any, view_state: Any, *, commit: bool) -> None:
     view_state.drag_islands = frozenset()
 
 
+def _uv_canvas_owns_keys(state: ClayState, uv_view: Any) -> bool:
+    """Whether the UV canvas was hovered, islands boxed, on the current frame or
+    the one before it (``ClayState.frame_serial``).
+
+    The press is handled in the event layer *before* the frame whose pane would
+    arm the gesture, so the freshest stamp there is can be the previous frame's --
+    and a pane that stopped drawing (hidden, docked away, the tab switched) lets
+    its claim lapse a frame later instead of swallowing the keys. A count of
+    frames rather than a reading of the clock: a frame that stalls for a second
+    must not let the same press through to the 3-D layer.
+    """
+    stamp = getattr(uv_view, "key_hover_at", None)
+    return stamp is not None and state.frame_serial - stamp <= 1
+
+
 def handle_key(ctx: Any, event: Any) -> bool:
     """Clay's shortcuts. -> whether the key was consumed.
 
@@ -1311,6 +1443,20 @@ def handle_key(ctx: Any, event: Any) -> bool:
             _settle_uv_gesture(doc, uv_view, commit=False)
         elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
             _settle_uv_gesture(doc, uv_view, commit=True)
+        return True
+
+    # The 2026-10-07 audit's clay-03: the shell routes every KEYDOWN here without
+    # asking which pane the pointer is over, and the UV canvas arms its own live
+    # rotate/scale off the same E/R press -- so one press extruded the 3-D faces
+    # (or switched the 3-D tool) *and* armed the UV gesture. The pane records each
+    # frame it is hovered with islands boxed (``key_hover_at``; this module may not
+    # import ``ui/``), and a bare E/R on that frame or the next is the pane's alone.
+    if (
+        uv_view is not None
+        and name in ("e", "r")
+        and not (ctrl or alt or shift)
+        and _uv_canvas_owns_keys(state, uv_view)
+    ):
         return True
 
     if ctrl:
@@ -1648,13 +1794,38 @@ def _duplicate_selection(ctx: Any, state: ClayState, doc: Any) -> None:
 # a save.
 
 
-def _journal_encode(tab: Any) -> bytes:
+def _journal_snapshot(tab: Any) -> Any:
+    """The journal provider's encoder: the cheap half now, the archive later.
+
+    **Frame thread: ``serialize.snapshot`` only.** The 2026-10-07 audit's
+    clay-24: ``rblk_bytes`` (the zip, one npz per mesh, one PNG per texture) ran
+    here on every autosave -- 377 ms for two 100k-triangle objects against
+    0.1 ms for the snapshot -- though :attr:`journal.Provider.encode` may return
+    a zero-argument callable that the write's task runs (Packwright's does). The
+    snapshot holds references to immutable meshes and a camera already turned
+    into a dict, so the closure never touches the live document. An oversize
+    document's ``ValueError`` (``snapshot_bytes``'s object and triangle ceilings)
+    now surfaces when the task calls it, which the shell reports as the failed
+    autosave it is; the debounce has already moved, so it retries in
+    ``JOURNAL_SECONDS`` rather than every frame.
+
+    The camera goes in for the same reason a save carries it: a recovered model
+    that framed itself somewhere else is a recovered model the user has to find
+    their way back around. But **only a camera that has been framed**
+    (``clay-60``): a tab nothing has drawn yet still holds ``CameraView``'s
+    defaults, and writing those made recovery adopt them as a stored view and
+    mark the tab fitted, so the recovered model was never auto-framed.
+    """
     from ....kernels.mesh import serialize
 
-    # The camera goes in for the same reason a save carries it: a recovered
-    # model that framed itself somewhere else is a recovered model the user has
-    # to find their way back around.
-    return serialize.rblk_bytes(tab.doc, view=tab.view)
+    snap = serialize.snapshot(tab.doc, view=tab.view if tab.view.fitted else None)
+    return lambda: serialize.snapshot_bytes(snap)
+
+
+def _journal_encode(tab: Any) -> bytes:
+    """:func:`_journal_snapshot` and its archive in one call -- for a caller
+    already off the frame thread (a test, a batch tool)."""
+    return _journal_snapshot(tab)()
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
@@ -1700,5 +1871,5 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any]:
 
 
 JOURNAL = journal.tab_provider(
-    "clay", ".rblk", "model", encode=_journal_encode, adopt=_journal_adopt
+    "clay", ".rblk", "model", encode=_journal_snapshot, adopt=_journal_adopt
 )

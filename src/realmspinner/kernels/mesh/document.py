@@ -95,6 +95,7 @@ from ..geom3d import gltf
 from ..geom3d import math3d as m3
 from . import elements as el
 from . import mesh as bm
+from . import regen
 from . import uv as uv_projection
 from .edits import (  # noqa: F401
     MaterialEdit,
@@ -342,9 +343,10 @@ class ClayDoc:
         """A wire-safe revision number for one object's current mesh.
 
         ``Mesh`` is immutable and ``eq=False`` (see its own docstring), so
-        object identity already *is* the mesh's revision -- ``clay/mesh.py``'s
-        ``_RAW_CACHE`` (lines 623-641) already keys off exactly that, for a
-        drag's per-frame normals cache. What identity is not is a value safe to
+        object identity already *is* the mesh's revision -- ``mesh.py``'s
+        ``_RAW_CACHE`` already keys off exactly that, for a drag's per-frame
+        normals cache (the 2026-10-07 audit's clay-47: this named a module path
+        and line range that no longer existed). What identity is not is a value safe to
         hand an agent over the wire: ``id()`` is a memory address CPython
         recycles the moment the old object is garbage collected, so a stale
         token an agent held onto across a few calls could come back and
@@ -484,6 +486,33 @@ class ClayDoc:
             target = inverse @ np.asarray(world, dtype="f8")
         return m3.decompose(target)
 
+    def _kept_place(self, name: str, world: np.ndarray, parent: int | None) -> tuple[Any, Any, Any]:
+        """:meth:`_local_relative`, refusing a result that is not finite.
+
+        The one door every "re-express this world placement under that parent"
+        caller goes through -- :meth:`set_parent`, :meth:`remove_object`,
+        :meth:`join_objects`, :meth:`separate` and :meth:`set_origin`. The
+        2026-10-03 audit's clay-24 put the refusal inside ``set_parent`` alone;
+        the 2026-10-07 audit's clay-04 found the other four doing the same
+        arithmetic without it: a parent whose scale is a denormal (``1e-320``,
+        finite and nonzero, so past ``np.linalg.inv``'s singular test) inverts
+        to ``inf`` and ``decompose`` hands back ``NaN`` that was then written
+        onto the child -- a document that saves and can never be reopened.
+        Callers compute every child's result through this *before* their first
+        assignment, so a refusal leaves nothing half-changed.
+        """
+        return self._finite_place(name, self._local_relative(world, parent))
+
+    @staticmethod
+    def _finite_place(name: str, trs: tuple[Any, Any, Any]) -> tuple[Any, Any, Any]:
+        """*trs* itself, or an OpError naming *name* when any part is not finite."""
+        if not all(np.isfinite(np.asarray(v, dtype="f8")).all() for v in trs):
+            raise el.OpError(
+                f"{name!r} cannot keep its place under that parent: the "
+                "transform between them is not finite (an extreme scale)."
+            )
+        return trs
+
     def local_from_world(self, uid: int, matrix: np.ndarray) -> tuple[Any, Any, Any]:
         """*matrix*, a world transform, as ``(t, r, s)`` local to *uid*'s own
         current parent -- what a gizmo writes back after dragging in world
@@ -520,7 +549,6 @@ class ClayDoc:
         edits: list[Any] = []
         if keep_world:
             world = self.world_matrix(uid)
-            t, r, s = self._local_relative(world, parent)
             # The 2026-10-03 audit's clay-24: a parent whose scale is a
             # denormal (``1e-320``, finite and nonzero, so past both
             # ``set_transform``'s checks and ``np.linalg.inv``'s singular
@@ -528,11 +556,9 @@ class ClayDoc:
             # ``NaN`` translation, rotation and scale that were written onto
             # the child without a look -- the poisoned transform
             # ``set_transform``'s own finiteness assertion exists to keep out.
-            if not all(np.isfinite(np.asarray(v, dtype="f8")).all() for v in (t, r, s)):
-                raise el.OpError(
-                    f"{obj.name!r} cannot keep its place under that parent: the "
-                    "transform between them is not finite (an extreme scale)."
-                )
+            # The refusal now lives in ``_kept_place``, shared with the other
+            # four doors that do this arithmetic (2026-10-07 clay-04).
+            t, r, s = self._kept_place(obj.name, world, parent)
             before_trs = tuple(np.array(v, copy=True) for v in obj.trs())
             after_trs = (t, r, s)
             if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
@@ -596,6 +622,17 @@ class ClayDoc:
                 f"{obj.name} has a zero scale, so its children cannot be corrected."
             ) from error
 
+        # The 2026-10-07 audit's clay-04: each child's new local TRS is worked
+        # out, and checked finite, before the mesh or the translation moves --
+        # a denormal-scaled origin made ``decompose`` return NaN that was
+        # written onto the child after the object itself had already changed.
+        child_trs = {
+            c: self._finite_place(
+                self.by_uid(c).name, m3.decompose(world_new_inv @ child_worlds_old[c])
+            )
+            for c in children
+        }
+
         edits: list[Any] = []
         before_mesh, obj.mesh = obj.mesh, bm.transformed(obj.mesh, shift)
         edits.append(MeshEdit(uid, before_mesh, obj.mesh))
@@ -608,7 +645,7 @@ class ClayDoc:
         edits.append(TransformEdit(uid, before_trs, obj.trs()))
         for c in children:
             child = self.by_uid(c)
-            t, r, s = m3.decompose(world_new_inv @ child_worlds_old[c])
+            t, r, s = child_trs[c]
             before_c = tuple(np.array(v, copy=True) for v in child.trs())
             child.translation, child.rotation, child.scale = t, r, s
             edits.append(TransformEdit(c, before_c, (t, r, s)))
@@ -628,6 +665,14 @@ class ClayDoc:
 
         Refuses (OpError, nothing pushed) an empty *uids*: there is no bounds
         to place the empty at and nothing to parent.
+
+        Only the selection's *topmost* members are parented onto the empty (the
+        2026-10-07 audit's clay-09): a member whose own ancestor is also in
+        *uids* is already carried by that ancestor, and lifting it out from
+        under its parent turned Select All -> Group into a flat list. Every
+        parented member is checked for a finite re-expressed placement before
+        anything is added (clay-10), so a refused member leaves no empty and no
+        half-applied group behind.
         """
         from . import ops as mesh_ops
 
@@ -654,11 +699,33 @@ class ClayDoc:
             empty_name = mesh_ops.next_name(empty_name, taken)
         empty_obj = Obj(uid=new_uid(), name=empty_name, mesh=_empty_mesh(), translation=center)
 
+        chosen = set(members)
+        topmost: list[int] = []
+        for u in dict.fromkeys(members):
+            ancestor = self.by_uid(u).parent
+            while ancestor is not None and ancestor not in chosen:
+                ancestor = self.by_uid(ancestor).parent
+            if ancestor is None:
+                topmost.append(u)
+        # The empty has identity rotation and scale, so its inverse world is a
+        # plain translation: the same arithmetic ``set_parent`` will run, asked
+        # of every member now, before the first assignment.
+        empty_inverse = np.linalg.inv(m3.compose(*empty_obj.trs()))
+        for u in topmost:
+            self._finite_place(
+                self.by_uid(u).name, m3.decompose(empty_inverse @ self.world_matrix(u))
+            )
+
         mark = self.history.mark()
-        self.add_object(empty_obj)
-        for u in members:
-            self.set_parent(u, empty_obj.uid, keep_world=True)
-        self.history.collapse_since(mark)
+        try:
+            self.add_object(empty_obj)
+            for u in topmost:
+                self.set_parent(u, empty_obj.uid, keep_world=True)
+        finally:
+            # The 2026-10-07 audit's clay-10: this gesture was opened with no
+            # try/finally, so a refused member left ``_open_gestures`` at 1 for
+            # the rest of the session -- undo eviction switched off for good.
+            self.history.collapse_since(mark)
         self.touch()
         return empty_obj
 
@@ -743,11 +810,11 @@ class ClayDoc:
     def add_objects(self, objs: Iterable[Obj], label: str = "") -> list[Obj]:
         """Insert several objects as **one** step, and select all of them.
 
-        The figure presets build sixteen parts at once, and sixteen
-        ``add_object`` calls are sixteen ``ObjectAddEdit`` pushes -- so undoing
-        a humanoid you did not want is sixteen presses of Ctrl+Z, through
-        fifteen intermediate states that are a dismembered figure standing in
-        the viewport. One assembly is one gesture, so it is one step, for the
+        Several parts added at once (Duplicate on a multi-selection, an
+        agent's batch of primitives) are N ``add_object`` calls, and N
+        ``ObjectAddEdit`` pushes -- so undoing three copies you did not want is
+        three presses of Ctrl+Z, through two intermediate states that were
+        never a state anyone made. One gesture is one step, for the
         reason ``set_visibility`` and :meth:`join_objects` are: an undo history
         whose entries are not the actions the user took is not a history.
 
@@ -803,10 +870,18 @@ class ClayDoc:
         children = self.children_of(uid)
         child_worlds = {c: self.world_matrix(c) for c in children}
 
+        # Every child's new local TRS is computed, and checked finite, before the
+        # first assignment (the 2026-10-07 audit's clay-04): a refusal part-way
+        # through used to leave the earlier children already re-parented with
+        # no history step.
+        kept = {
+            c: self._kept_place(self.by_uid(c).name, child_worlds[c], new_parent) for c in children
+        }
+
         edits: list[Any] = []
         for c in children:
             child = self.by_uid(c)
-            t, r, s = self._local_relative(child_worlds[c], new_parent)
+            t, r, s = kept[c]
             before = {"parent": child.parent}
             child.parent = new_parent
             edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
@@ -988,6 +1063,10 @@ class ClayDoc:
             new_parent = self.by_uid(uid).parent
             if new_parent is not None and self.children_of(uid):
                 self._require_invertible(new_parent)
+            # ...and, the 2026-10-07 audit's clay-04, that the result is finite:
+            # a denormal ancestor inverts without raising and decomposes to NaN.
+            for c in self.children_of(uid):
+                self._kept_place(self.by_uid(c).name, self.world_matrix(c), new_parent)
         before, obj.mesh = obj.mesh, mesh
         edits: list[Any] = [MeshEdit(target_uid, before, mesh)]
         props_before: dict[str, Any] = {}
@@ -1015,7 +1094,7 @@ class ClayDoc:
             for c in self.children_of(uid):
                 child = self.by_uid(c)
                 child_world = self.world_matrix(c)
-                t, r, s = self._local_relative(child_world, new_parent)
+                t, r, s = self._kept_place(child.name, child_world, new_parent)
                 before = {"parent": child.parent}
                 child.parent = new_parent
                 edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
@@ -1063,16 +1142,16 @@ class ClayDoc:
         document ask to be saved again.
 
         A per-field shape and finiteness assertion is the backstop here, not
-        the message a caller sees -- ``agent_clay``'s ``_h_transform``
-        validates its own arguments before ever reaching this method, but an
-        unvalidated ``clay_transform`` once committed a two-element
-        ``translation`` straight through this method with nothing to notice
-        the wrong shape, and every later ``clay_scene`` raised trying to
-        broadcast it into a 3x3 matrix (``viewer/math3d.py``'s ``compose``
-        does ``m[:3, 3] = t``) -- bricking introspection for the whole
-        document, with no recovery but a blind undo. This method has other
-        callers than ``_h_transform`` -- the properties panel, the gizmo
-        drag, ``clay_ops._bake`` -- so the assertion belongs here too,
+        the message a caller sees -- the agent surface's ``_h_transform``
+        (``studio/modes/clay/agent/tools.py``) validates its own arguments
+        before ever reaching this method, but an unvalidated ``clay_transform``
+        once committed a two-element ``translation`` straight through this
+        method with nothing to notice the wrong shape, and every later
+        ``clay_scene`` raised trying to broadcast it into a 3x3 matrix
+        (``viewer/math3d.py``'s ``compose`` does ``m[:3, 3] = t``) -- bricking
+        introspection for the whole document, with no recovery but a blind
+        undo. This method has other callers than ``_h_transform`` -- the
+        properties panel, the gizmo drag -- so the assertion belongs here too,
         closing the door for every caller, present and future, rather than
         trusting each one to have validated first.
 
@@ -1204,18 +1283,23 @@ class ClayDoc:
                 # clay-05 (2026-10-03): one changed key at the same face count
                 # moves positions only (the same rule ``regen.carry_over``
                 # trusts), so the same faces are still selected; ``prior`` is
-                # withheld there. Anything else keeps the drop-on-same-count
-                # policy, since several keys can reorder faces.
+                # withheld there. Several keys at the same count keep the
+                # selection only when the faces are provably the same faces
+                # (``regen.same_faces``, the 2026-10-07 audit's clay-08: the
+                # key count alone dropped it on ``{"radius", "height"}``);
+                # anything else keeps the drop-on-same-count policy.
                 old_params = before["params"]
                 changed = [
                     k
                     for k in set(old_params) | set(params)
                     if old_params.get(k) != params.get(k)
                 ]
-                same_faces = len(changed) <= 1 and len(mesh.starts) == len(was_mesh.starts)
+                same = len(mesh.starts) == len(was_mesh.starts) and (
+                    len(changed) <= 1 or regen.same_faces(was_mesh, mesh)
+                )
                 self.set_element_sel(
                     uid,
-                    el.restrict(mesh, existing, prior=None if same_faces else was_mesh),
+                    el.restrict(mesh, existing, prior=None if same else was_mesh),
                 )
         if not edits:
             return False
@@ -1281,9 +1365,14 @@ class ClayDoc:
         new_parent = obj.parent
         children = self.children_of(uid)
         child_worlds = {c: self.world_matrix(c) for c in children}
+        # Computed, and checked finite, before the first assignment (the
+        # 2026-10-07 audit's clay-04).
+        kept = {
+            c: self._kept_place(self.by_uid(c).name, child_worlds[c], new_parent) for c in children
+        }
         for c in children:
             child = self.by_uid(c)
-            t, r, s = self._local_relative(child_worlds[c], new_parent)
+            t, r, s = kept[c]
             before = {"parent": child.parent}
             child.parent = new_parent
             edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
@@ -1470,7 +1559,7 @@ class ClayDoc:
                 painted = replace(
                     obj.mesh, material=np.full(len(obj.mesh.material), index, dtype="i4")
                 )
-                self.set_mesh(uid, painted, keep_generator=True)
+                self.set_mesh(uid, self._with_uvs_for(painted, index), keep_generator=True)
             self.set_props(uid, material=index)
         finally:
             self.history.collapse_since(mark)
@@ -1504,7 +1593,29 @@ class ClayDoc:
             return False
         painted = np.array(obj.mesh.material, dtype="i4", copy=True)
         painted[picked] = index
-        return self.set_mesh(uid, replace(obj.mesh, material=painted), keep_generator=True)
+        return self.set_mesh(
+            uid,
+            self._with_uvs_for(replace(obj.mesh, material=painted), index),
+            keep_generator=True,
+        )
+
+    def _with_uvs_for(self, mesh: bm.Mesh, index: int) -> bm.Mesh:
+        """*mesh*, box-unwrapped when it has no UVs and palette entry *index*
+        carries a texture; otherwise *mesh* itself.
+
+        The 2026-10-07 audit's clay-40: painting a textured slot onto an
+        object with no UVs put the texture on faces with no coordinates -- the
+        manual's "one texel everywhere" -- with no unwrap and no warning.
+        :meth:`add_texture` already unwraps every UV-less object that wears
+        the slot it textures; this is the same rule for the other direction
+        (the slot already textured, the object arriving), and it rides inside
+        the caller's one ``set_mesh`` so the paint and the unwrap are one undo
+        step. An object that already has UVs keeps them: an author's layout is
+        not ours to redo.
+        """
+        if mesh.uv is None and self.materials[index].base_color is not None:
+            return uv_projection.box_unwrap(mesh)
+        return mesh
 
     def add_texture(self, index: int, size: int = 64) -> bool:
         """Give palette entry *index* a blank ``size`` x ``size`` base-colour

@@ -223,8 +223,8 @@ it is how you look at what you are about to click.
 
 Right-click opens the context menu, listing exactly the operations that apply in the current mode
 with the ones that cannot run greyed out. The same table drives the menu strip, so
-neither can offer something the other refuses. Operations that take a number — inset, weld, merge
-objects, snap to grid, mirror copy, pack islands — open a small dialog with the fields and an
+neither can offer something the other refuses. Operations that take a number — inset, weld, assign
+material, merge objects, snap to grid, mirror copy, pack islands — open a small dialog with the fields and an
 **Apply** button, and remember what you last used.
 
 `Ctrl+A` selects everything in the current mode's sense of everything, `Ctrl+Shift+I` inverts it, and
@@ -239,9 +239,13 @@ Delete, Duplicate and element drags leave a hidden object alone too, without a m
 **Element selection is transient.** It is not saved with the document, and an undo that changes
 geometry drops it — the indices it named describe a mesh that no longer exists. An undo that only
 moves or renames something keeps it, because those cannot invalidate it. A properties-panel or agent
-edit that rebuilds a shape from its own parameters is different again: if the face count comes out
-the same the selection is carried through unchanged, and if it shrinks the selection is *restricted*
-to whatever indices still exist rather than left pointing past the end of a smaller mesh.
+edit that rebuilds a shape from its own parameters is different again: if it comes out with the same
+faces in the same order (every change to a size, however many are changed at once) the selection, any
+per-face paint and the UV layout are carried through unchanged, and so is the shading. Two counts that
+trade places for the same face total (a torus's segments and sides, a sphere's segments and rings)
+rebuild different faces under the same numbers, so the selection goes and the paint falls back to the
+object's own slot. If the face count shrinks the selection is *restricted* to whatever indices still
+exist rather than left pointing past the end of a smaller mesh.
 
 ### Selecting more than one thing
 
@@ -309,8 +313,9 @@ a drag.
 
 ### Adjusting the last operation, and repeating it
 
-An operation that takes numbers — inset, weld, and the rest of the ones that open a dialog — leaves a
-small **adjust card** in the viewport's bottom-left corner. It holds the same fields the dialog had,
+An operation that takes numbers and is run in an element mode — inset, weld, assign material — leaves a
+small **adjust card** in the viewport's bottom-left corner; the object-level ones (merge objects, snap
+to grid, mirror copy, pack islands) open a dialog but leave no card. It holds the same fields the dialog had,
 and changing one re-runs the operation from the state it started in: you see the new thickness on the
 mesh, and the whole thing is still **one** undo step, the same mesh you would have got by running the
 operation at that value in the first place. If the new value is one the operation refuses, the
@@ -429,7 +434,8 @@ below, this acts once on whatever is already selected rather than following a li
 
 ## The outliner
 
-Every object in the document, newest at the top. Click to select, `Ctrl`-click to toggle one and
+Every object in the document, in document order — the oldest root first, each with its subtree under
+it. Click to select, `Ctrl`-click to toggle one and
 `Shift`-click to take a range. The filter box above narrows the list by name.
 
 The eye on each row hides an object, and a hidden object does not render, does not export and cannot
@@ -481,7 +487,9 @@ car's origin rather than the world's. An object can never become its own ancesto
 make a loop is refused and says so.
 
 **Group Selected** is parenting with a holder made for you: an empty object appears at the centre of
-what you selected, with everything parented to it. The empty has no geometry of its own — it draws
+what you selected, with everything parented to it. If you select an object and something already
+parented to it, only the topmost of them is parented to the empty, so the hierarchy below it stays as
+it was. The empty has no geometry of its own — it draws
 nothing and exports as a bare node — so it is purely a handle for moving a set of things as one.
 **Ungroup** dissolves it and leaves the children where they stand.
 
@@ -532,11 +540,13 @@ ruler, not 1 mm in whatever units the survivor's own transform happens to work i
 
 The weld is applied to the **whole merged result**, not only where the shapes meet. That is what
 lets three objects touching at one point come out joined, and it costs nothing for ordinary work —
-texture coordinates are stored per face corner, so a weld carries a UV break through untouched, and
-nothing else in Clay leaves two vertices sitting at one position. The exception worth knowing:
-merge at zero to keep two parts as separate shells, then merge *that* object with a third at a
-non-zero distance, and the shells you kept apart are welded together. Merge the third one first, or
-keep the parts as separate objects until last.
+texture coordinates are stored per face corner, so a weld carries a UV break through untouched. Two
+things leave vertices sitting at one position, and the weld joins them. One: merge at zero to keep
+two parts as separate shells, then merge *that* object with a third at a non-zero distance, and the
+shells you kept apart are welded together. Merge the third one first, or keep the parts as separate
+objects until last. Two: an Extrude you have not moved yet leaves its new ring exactly on the old
+one, so merging at a non-zero distance welds the ring back flat and the extrude vanishes. Move the
+extruded faces before you merge, or merge at zero.
 
 It is a weld and not a solid union. Geometry inside an overlap is kept rather than cut away, and
 there is no boolean in Clay to cut it: two interpenetrating cubes come out as one object still
@@ -599,9 +609,9 @@ proportional falloff: to make two things touch, set their positions, or snap bot
 
 ## Texture coordinates
 
-Every primitive comes with texture coordinates already on it — a box's six faces, a cylinder's band
-with its two caps tucked into the corners, a sphere laid out pole to pole, a torus wrapped both
-ways. The round shapes (cylinder, cone, sphere, torus, capsule and the like) are laid out so that
+Every primitive comes with texture coordinates already on it — a box's six faces projected onto one
+square, a cylinder's band with its two caps tucked into the corners, a sphere laid out pole to pole,
+a torus wrapped both ways. The round shapes (cylinder, cone, sphere, torus, capsule and the like) are laid out so that
 no two parts of one shape sit on top of each other in the square. The flat-panelled ones — box,
 wedge, ramp, rounded box, stairs, wall and doorway — and the icosphere are box-projected instead:
 faces that point opposite ways share the same square on purpose, which paints well and is what a
@@ -630,7 +640,9 @@ margin the way the UV menu's Pack Islands does. The wheel zooms, the middle butt
 clicking an island selects it (a click on empty space deselects), and dragging either box-selects islands or moves
 whichever ones are selected. `E` and `R` rotate and
 scale what is selected — the same letters the viewport uses — following the mouse until you click to
-keep the result or press `Esc` to drop it. The fields beside the canvas do the same thing to an
+keep the result or press `Esc` to drop it. While the pointer is over the UV canvas with islands
+selected, those two keys belong to the canvas alone; they do not also extrude or switch the viewport's
+tool. The fields beside the canvas do the same thing to an
 exact number. Either way each island turns about its own centre.
 
 Faces that overlap another island are tinted: overlap means two parts of the model would be painted
@@ -716,6 +728,11 @@ mode:
 - **`Ctrl`+click in face mode**, or a click with no face selected, paints nothing. It only makes that
   slot the one the fields underneath edit, which is the way to reach another slot's colour and
   texture while a face selection is up.
+- **Vertex and edge mode** — a click paints nothing. It only makes that slot the one the fields
+  underneath edit; switch to face mode to paint faces.
+
+Under a face selection the UV view draws the first selected face's slot, while the fields underneath
+edit the slot the swatch row outlines; the tab names both.
 
 Painting is one undo step however many objects the selection spans, and faces that already wear the
 slot say so and push nothing. A face's material is not geometry, so a painted box is still a box;
@@ -733,11 +750,16 @@ would show the colour squared, darker than the swatch you clicked.
 
 Every object with a face on that slot and **no texture coordinates at all** gets a Box Unwrap in the
 same step, because a picture on a mesh with no layout would show one texel everywhere. An object that
-already has a layout keeps it. The whole of it is one undo step, and a slot that already has a picture
+already has a layout keeps it. The same rule runs the other way: painting a slot that already has a
+picture onto an object with no texture coordinates (Assign Material, a swatch's repaint, the agent's
+`clay_material`) gives that object a Box Unwrap in the same undo step. The whole of it is one undo
+step, and a slot that already has a picture
 refuses rather than replacing it: clear it first with the cross, which drops the picture as one step.
 
 The folder button beside it assigns a PNG from disk instead. The file is decoded off the frame
-thread, and it keeps whatever size it has.
+thread and set up the way Add texture sets one up: the slot's colour field goes white, every object
+with a face on the slot and no texture coordinates gets a Box Unwrap in the same undo step, and the
+picture is smooth rather than crisp. A picture larger than 1024 pixels on a side is refused by name.
 
 ### Editing in Inker
 
@@ -753,14 +775,17 @@ and it opens clean: closing it without drawing does not ask to save.
 fill, a paste — the picture is flattened and lands on the slot the next time Clay is on screen, as
 **one undo step in Clay per return**: a long session of strokes comes back as one step, and
 `Ctrl+Z` in Clay takes the picture back to what it was before. A return that changes no texel
-pushes nothing. A drawing larger than 1024 pixels on a side is refused by name rather than uploaded
-to the card every revision.
+pushes nothing. Opening the picture counts as its first return, so snapping it to the PICO-8 table
+lands as its own step before you paint anything. A drawing larger than 1024 pixels on a side is
+refused by name rather than uploaded to the card every revision, and Edit texture in Inker refuses a
+picture that large before it opens.
 
 The link between the slot and the Inker document is the *picture's*, not the palette entry's. It
 survives editing the slot's colour, cutout or double-sided, which replace the entry but keep the
 picture. It is let go when the texture is cleared, when you undo a return (the slot then holds a
 different picture, and the next **Edit texture in Inker** opens a fresh document rather than guessing),
-when a slot below is removed and the numbering shifts, and when the Inker document is closed. Pressing
+when a slot below is removed and the numbering shifts, and after the Inker document is closed:
+closing it lands whatever you last painted first, and says so. Pressing
 **Edit texture in Inker** on a slot whose document is still open switches to that tab instead of
 opening a second one.
 
@@ -794,8 +819,9 @@ transforms, their generator parameters and the palette) plus one compressed mesh
 JSON half is sorted and indented so it is readable and diffable, and two saves of an unchanged
 document produce byte-identical files.
 
-A saved document keeps every object's identity, so an undo recorded before the save still lands on
-the object it was made against after you reopen it. It also keeps the **camera**, so reopening a
+A saved document keeps every object's identity, so a reopened or crash-recovered document never
+reissues an object's id; its undo history is not saved, and a reopened document starts with none. It
+also keeps the **camera**, so reopening a
 document puts you back where you were looking rather than framing it afresh. A file written before
 that key existed still opens, and simply gets framed.
 
@@ -818,7 +844,10 @@ those builds (format 3) still opens. What the new Clay does with the parts it no
   crisp), double-sided and cutout. Metallic, roughness, emissive, normal and occlusion are set to
   plain defaults.
 
-Whenever any of that happened, Clay says so once, in one toast, naming what changed. Nothing is
+Whenever any of that happened, Clay says so once, in one toast. When something was dropped or
+removed it is a warning you can read and close, listing those sentences first and at most three in
+all, with "and N more" for the rest; the full list is in the log. A format-4 file that names a shape
+Clay no longer builds gets the same treatment for that shape. Nothing is
 written back until you save, and a save writes format 4: **a document opened this way and saved is no
 longer readable by the older builds.** Keep the original file if you may need to go back. A file from
 a *newer* Realmspinner than yours is refused by name rather than opened half-understood.
@@ -841,6 +870,9 @@ materials never collide). The name is a bare file name, like the `.mtl`'s own, s
 together as long as they stay in one folder. A textured material's `Kd` is white, since its colour is
 in the picture. The OBJ is in Clay's own axes and metres — a plain OBJ, with no engine profile and no
 axis or scale conversion — and a GLB is likewise written as it is, carrying the textures inside it.
+An OBJ export writes its `.obj`, `.mtl` and PNGs together or not at all, and it never replaces a file
+it did not write: if `barrel.mtl` or `barrel_2.png` already exists beside the `.obj` and is not a
+previous Clay export, the export is refused by name before anything is written.
 None of them touches the library, and none counts as saving the document. There is no `.blend` export:
 Clay no longer hands anything to Blender.
 
@@ -869,14 +901,19 @@ times too big.
 An OBJ keeps its faces as they were written, quads and larger included, and keeps its texture
 coordinates. Each `o` or `g` line starts a new object, and `usemtl` picks the material. The colours
 come from the `.mtl` file the OBJ names, when it sits in the same folder; without it the materials
-arrive grey. An OBJ that Clay exported comes back with the colours it left with, but a `map_Kd`
-picture is not read: the faces keep their texture coordinates and the slot arrives untextured, so
-assign the PNG again from the Material tab. STL and PLY carry
+arrive grey. An OBJ that Clay exported comes back with its material names and flat colours, and only
+the materials its faces use (a slot nothing uses is not in the file). A `map_Kd` picture is not read,
+so a textured slot arrives as its plain colour, often white, with the faces keeping their texture
+coordinates: assign the PNG again from the Material tab. STL and PLY carry
 neither materials nor texture coordinates, so each arrives as one grey object with its triangles
 joined back into one surface. A GLB brings in only the meshes its active scene places, each with its
 own transform, so the nodes of a file's other scenes are not stacked at the origin. A file whose
 positions or transforms hold NaN or infinity, or whose vertex data is corrupt (a stride smaller than
-its elements, say), is refused by name.
+its elements, say), is refused by name, and so is one placed so far out that its coordinates do not fit
+the 32-bit numbers a mesh is stored in, or a GLB whose texture coordinates hold NaN or infinity. A GLB
+node scaled to zero — the way a game asset often hides a part — comes in at a tiny scale (one
+ten-thousandth) with its geometry intact rather than flattened, so it stays invisible until you
+scale it up. An OBJ or MTL saved with a byte-order mark reads the same as one without.
 
 **Open in Clay** prefers the document you authored. If the asset was exported from Clay, its
 `build.rblk` sidecar is reopened — objects, names, generator parameters and all. If it was not, the

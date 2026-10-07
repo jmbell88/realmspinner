@@ -8,9 +8,11 @@ release, and the element path, which previews by writing vertex buffers on the
 GPU and never touches the document until the release.
 
 :meth:`DragOps._narrow` is deliberately the **single** narrowing site for axis
-locks, typed values and vertex snapping, above both paths -- an invariant named
-in ``dev/INVARIANTS.md`` as ``ClayView._narrow``, which it still is: the class
-that carries this mixin is ``ClayView``.
+locks and typed values, above both paths -- an invariant named in
+``dev/INVARIANTS.md`` as ``ClayView._narrow``, which it still is: the class
+that carries this mixin is ``ClayView``. The grid snap is the one narrowing that
+is *not* there -- ``_apply`` and ``_element_world_transform`` apply it after the
+delta arrives, and stand down for a typed value.
 """
 
 from __future__ import annotations
@@ -150,7 +152,16 @@ class DragOps:
         # so releasing the left button found nothing to commit and the drag was
         # stranded: the object stayed wherever the last motion put it, with no
         # history step and the gizmo still holding a live drag.
-        if self._grab == "gizmo" and button != 1:
+        #
+        # The 2026-10-07 audit's clay-30: the marquee is the other grab whose
+        # button-up *does* something (it applies the sweep), and it had no such
+        # guard -- a middle press mid-sweep switched the grab to a pan, so the
+        # left release found nothing to commit, the rectangle stayed on screen
+        # and the sweep was dropped. Both are owned by the left button. Orbit
+        # and pan are left out on purpose: their release commits nothing, and
+        # letting a fresh press replace them is what unsticks a grab whose
+        # button-up the window never delivered.
+        if self._grab in ("gizmo", "marquee") and button != 1:
             return True
         if button == 3:
             self._rmb_at = local
@@ -730,6 +741,13 @@ class DragOps:
         rect, self.marquee, self._marquee_from = self.marquee, None, None
         if rect is None:
             return
+        # The 2026-10-07 audit's clay-62: the ``4`` key is not a drag and so is
+        # not gated by ``dragging``; pressed mid-sweep it left object mode with
+        # a marquee still live, and the release then wrote an *element*
+        # selection into a document that has no element mode -- which the next
+        # switch back to an element mode would show as a selection nobody made.
+        if doc.element_mode == "object":
+            return
         if abs(rect[2] - rect[0]) < 2.0 and abs(rect[3] - rect[1]) < 2.0:
             if self._marquee_add == "replace":
                 doc.clear_element_sel()
@@ -1082,6 +1100,12 @@ class DragOps:
         from .....kernels.mesh import drag as bdrag
 
         tool = getattr(state, "tool", "") if state is not None else ""
+        # The 2026-10-07 audit's clay-31: the readout's unit follows what the
+        # drag *is*, and a keyboard drag is what its key said -- the same rule
+        # ``_is_scale`` states for the maths. Read off the tool, a G drag under
+        # Rotate said "0.4 deg" and under Select (or Scale) had no unit at all,
+        # on the line that is the only confirmation of a typed value.
+        kind = self._key_kind or tool or "move"
         entry = self.drag_input
         if isinstance(delta, np.ndarray) and delta.shape == (4,):
             self.drag_hud = _rotation_hud(delta, entry)
@@ -1094,7 +1118,7 @@ class DragOps:
         anchor = self._element_centre if doc.element_mode != "object" else self._drag_origin
         target = np.asarray(delta, dtype="f8").reshape(3)
         moved = bdrag.constrain_translation(target - anchor, entry)
-        self.drag_hud = bdrag.readout(tool or "move", moved, entry)
+        self.drag_hud = bdrag.readout(kind, moved, entry)
         return anchor + moved
 
     def _accumulate(self: ClayView, delta: Any) -> Any:

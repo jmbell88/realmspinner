@@ -293,7 +293,9 @@ def import_file(
     """
     suf = suffix.lower()
     if suf == ".obj":
-        text = data.decode("utf-8", errors="replace")
+        # ``utf-8-sig``: the 2026-10-07 audit's clay-15 -- a BOM that survives
+        # the decode hides the file's first line (the first ``v``).
+        text = data.decode("utf-8-sig", errors="replace")
         return objimport.obj_to_claydoc(text, name, mtl=mtl, scale=scale, up=up)
     if suf in (".stl", ".ply"):
         return mesh_file_to_claydoc(data, suf, name, scale=scale, up=up)

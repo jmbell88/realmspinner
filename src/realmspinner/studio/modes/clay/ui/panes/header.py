@@ -223,9 +223,7 @@ OVERLAY_ROWS: tuple[tuple[str, str, str], ...] = (
     (
         "stats",
         "Statistics",
-        "Objects, vertices, edges, faces and triangles -- and how many are "
-        "selected. Every one of these was unavailable anywhere in Clay before "
-        "the overlay existed.",
+        "Objects, vertices, edges, faces and triangles -- and how many are selected.",
     ),
     (
         "god_light",

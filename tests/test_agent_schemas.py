@@ -34,62 +34,36 @@ here with nobody having to remember to extend a list for it.
 ``.schema`` recursively and counting occurrences of ``type``,
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
-``exclusiveMinimum`` reproduces an independently measured count exactly:
-277/62/50/56/40/38/26/23/27/14/3/2 respectively (618 total; the Blender-Lite plan's Phase D
-added the fourth ``params`` value branch -- nested arrays for curve handles -- to both
-``clay_add_primitive`` and ``clay_set_params``: four ``type`` and three ``items`` markers
-each) -- see
+``exclusiveMinimum`` reproduces an independently measured count exactly -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
-it covers is checked rather than asserted. Two of those twelve keywords,
-``properties`` and ``items``, are never violated directly -- they exist only
-to route recursion into a nested object's fields or an array's element
-shape, so this file's *discovery-and-exercise* walk (:func:`_walk_tool_schema`)
-counts them as structural rather than as constraints with a violation of
-their own -- and a third marker joins them for the identical reason: six
-of the 56 ``additionalProperties`` occurrences are not ``false`` but a
-*schema* (``clay_add_primitive``/``clay_set_params``/``clay_op``/
-``clay_modifier_add``/``clay_modifier_set``/``clay_collider``'s own
-``params``, an open-ended object whose keys are never named in
-``properties``), so those six route recursion into that open-ended shape
-rather than being violated themselves either -- see
-:data:`_OPEN_ENDED_PARAMS_TOOLS`. A fourth kind of marker is excluded for a
-different reason: each of the 47 tools' own root ``"type": "object"`` is
-never a case, because ``agent_clay.call`` only ever reaches a handler with
-``arguments`` already a dict -- there is nothing there for a schema's own
-root type to promise that is not already true by construction. What
-survives after subtracting those (50 ``properties`` + 56 ``items`` + 6
-schema-valued ``additionalProperties`` + 47 root ``type``) is 441 violable
-markers; ``required``'s remaining 40 occurrences are *lists*, each naming
-one or more keys -- 57 individual keys between them, one violation apiece
-rather than one per list -- which nets the walk's own exercise total to
-**458** concrete violation attempts (441 - 40 + 57), pinned by
-``test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases``
-so a schema edit that silently drops a case from the walk is caught here
-rather than only by a shrinking "exercised" count nobody happens to notice.
+it covers is checked rather than asserted. The figures are stated there and
+nowhere else: this docstring used to restate them (458 attempts across 47
+tools, with the modifier, collider, figure and diagnose tools among them) and
+went stale when Clay became a picoCAD-level modeller and those tools were
+removed (the 2026-10-07 audit's clay-88), the same failure the paragraph
+below names for a restated count.
 
-Tranches 6/7 (``dev/CLAY-PLAN.md``) raised every one of the numbers above
-from what had been 405 total (240/52/47/49/37/31/22/21/19/13/3/1, 44 tools):
-three new tools (:func:`_b_uv`/:func:`_b_collider`/:func:`_b_catalog` below)
-and one new optional property on an existing one (``clay_export``'s
-``engine``). Re-measured rather than hand-added to the old figure --
-this tranche found the pre-tranche tree already past 405 (422, not the
-documented number) before adding anything of its own, which this file's own
-"checked against the schemas themselves rather than trusted" rule says to
-re-derive from the live schemas rather than paper over with an unverifiable
-delta. ``clay_uv`` alone contributes 20 cases (``uid``/``action`` required,
-their own ``type``, ``action``'s own ``enum``, ``margin``'s ``type``/
-``minimum``/``maximum``, ``rotate``'s ``type``, ``target``'s ``type``/
-``exclusiveMinimum``, ``texture_px``'s ``type``/``minimum``, ``edges``'s own
-``type``/``minItems`` plus its item pairs' own ``type``/``minItems``/
-``maxItems``/items-``type``, root ``additionalProperties``); ``clay_collider``
-10 (``uids``/``kind`` required, their own ``type``, ``uids``'s own
-``minItems``/items-``type``, ``kind``'s own ``enum``, root
-``additionalProperties``, ``params``'s own ``type`` plus one open-ended-params
-case inside it); ``clay_catalog`` 4 (``topic`` required, its own ``type``/
-``enum``, root ``additionalProperties``); ``clay_export`` rises from 1 (root
-``additionalProperties`` alone) to 3 (``engine``'s own ``type``/``enum``
-join it). 20 + 10 + 4 + 2 = 36, and 422 + 36 = 458.
+Two of those twelve keywords, ``properties`` and ``items``, are never
+violated directly -- they exist only to route recursion into a nested
+object's fields or an array's element shape, so this file's
+*discovery-and-exercise* walk (:func:`_walk_tool_schema`) counts them as
+structural rather than as constraints with a violation of their own -- and a
+third marker joins them for the identical reason: ``additionalProperties`` is
+usually ``false``, but on ``clay_add_primitive``/``clay_set_params``/
+``clay_op``'s own ``params`` it is a *schema* (an open-ended object whose keys
+are never named in ``properties``), so those route recursion into that
+open-ended shape rather than being violated themselves either -- see
+:data:`_OPEN_ENDED_PARAMS_TOOLS`. A fourth kind of marker is excluded for a
+different reason: each tool's own root ``"type": "object"`` is never a case,
+because ``agent_clay.call`` only ever reaches a handler with ``arguments``
+already a dict -- there is nothing there for a schema's own root type to
+promise that is not already true by construction. ``required``'s lists count
+one violation per named key rather than one per list. What is left is the
+walk's own exercise total, pinned by
+``test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases`` so a
+schema edit that silently drops a case from the walk is caught here rather
+than only by a shrinking "exercised" count nobody happens to notice.
 
 **Coverage, honestly.** Every one of the cases the derivation above counts is
 attempted -- the number is stated once, in that derivation, and pinned by the
@@ -115,21 +89,14 @@ baseline cannot meet at the same time as every other property** -- not
 "unreachable", just needing a *different* valid baseline for that one
 property, routed to by :data:`_PROPERTY_OVERRIDES`:
 
-* ``clay_select_by``'s twelve query-argument schemas (``_QUERY_ARG_SCHEMAS``)
-  are all declared as top-level properties of one schema, but which ones a
+* ``clay_select_by``'s query-argument schemas (``_QUERY_ARG_SCHEMAS``) are
+  all declared as top-level properties of one schema, but which ones a
   given call actually *needs* depends on ``query`` -- a ``slot`` given to a
-  ``loop`` query is simply never read. :data:`_SELECT_BY_BASELINES` gives
-  ``edge``/``face``/``slot``/``direction``/``max_angle`` each the query that
-  actually consults it, rather than the ``bounds`` query the main
+  ``bounds`` query is simply never read. :data:`_SELECT_BY_BASELINES` gives
+  ``slot`` the query that consults it (``material``) and ``direction``/
+  ``max_angle`` theirs (``normal``), rather than the ``bounds`` query the main
   :func:`_b_select_by` baseline uses for ``uid``/``query``/``how``/
-  ``expect_stamp``/``min``/``max``/``space``. Tranche 5's "similar" queries
-  add four more: ``faces``/``tolerance`` route to ``similar_area``,
-  ``edges`` to ``similar_length`` and ``verts`` to ``similar_valence`` --
-  each is one query that actually reads the property in question, the same
-  reasoning as the first five, not a baseline per new query (``faces``
-  alone is also what ``similar_normal``/``similar_material``/
-  ``similar_sides`` read, and one reachable baseline is all this file's own
-  per-property walk needs).
+  ``expect_stamp``/``min``/``max``/``space``.
 * ``clay_render``'s ``view`` conflicts with ``views`` (the main baseline's
   choice) if simply added alongside it, so it gets its own baseline
   (:func:`_b_render_view`); ``compare_mode`` and ``alpha`` are only read once
@@ -147,6 +114,12 @@ property, routed to by :data:`_PROPERTY_OVERRIDES`:
   case is actually trying to reach. :func:`_b_set_params_uids` gives
   ``uids`` (and its items, and its ``minItems``) a baseline with no ``uid``
   in it at all.
+* ``clay_set_origin``'s ``point`` is never read alongside ``mode`` (both
+  at once is the handler's own exactly-one refusal), so
+  :func:`_b_set_origin_point` gives it a baseline with no ``mode`` in it.
+* ``clay_uv``'s ``islands``/``translate``/``rotate_deg``/``scale`` are read
+  only on ``action='transform'``, while the main baseline is ``pack``;
+  :data:`_UV_BASELINES` routes them to :func:`_b_uv_transform`.
 
 **What genuinely is not reachable here, and why**, matching the shape of gap
 this module's own docstring asks for rather than a silent skip:
@@ -159,15 +132,12 @@ this module's own docstring asks for rather than a silent skip:
   every one of those checks runs *before* ``_view_for(ctx)`` is ever called.
   Real pixels from a real GPU are still not exercised by this file, the same
   limit ``test_agent_clay.py`` already documents for itself.
-* ``clay_export``'s only property is an optional ``engine`` enum (tranche 7)
-  that this handler validates and echoes back but does not yet thread
-  further -- see ``tools_ops._h_export``'s own docstring for why. That is
-  reachable here the ordinary way (``enum``/``type``); what stays out of
-  reach is ``clay_mode.build_asset`` itself, its own real-service
-  dependency, which this file's baseline (:func:`_b_export`) exercises
-  through the shared ``svc`` fixture but a schema violation never reaches:
-  refusing an unknown top-level key, or a bad ``engine``, both happen before
-  ``build_asset`` is ever called.
+* ``clay_export`` takes no argument at all, so its one case is the root
+  ``additionalProperties`` every tool carries; what stays out of reach is
+  ``clay_mode.build_asset`` itself, its own real-service dependency, which
+  this file's baseline (:func:`_b_export`) exercises through the shared
+  ``svc`` fixture but a schema violation never reaches: refusing an unknown
+  top-level key happens before ``build_asset`` is ever called.
 * An op's own declared parameter *bounds* (``Param.low``/``Param.high`` in
   ``studio/modes/clay/ops.py``) are not part of the JSON schema at all -- ``clay_op``'s
   schema only declares ``params`` an object of numbers, with no per-key
@@ -208,9 +178,9 @@ not actually enforce, fixed rather than the test being weakened to match:
   palette slot or an angle past 180 degrees passed straight through to the
   query function and simply matched nothing, a silent no-op standing in for
   the refusal the schema promised.
-* ``clay_diagnose``'s ``select`` sub-object and ``clay_batch``'s own
-  ``calls[]`` entries both declare ``additionalProperties: false``; neither
-  was checked, so an extra key on either rode along unnoticed.
+* ``clay_batch``'s own ``calls[]`` entries declare
+  ``additionalProperties: false``; it was not checked, so an extra key on an
+  entry rode along unnoticed.
 * ``clay_op``'s ``params`` (declared an object) reached ``**params``
   unpacking with no type check of its own -- a non-dict value did get
   refused, but only via ``call()``'s generic backstop and a logged
@@ -220,11 +190,10 @@ not actually enforce, fixed rather than the test being weakened to match:
   all before handing it to the generator function, so a non-numeric string
   reached ``bp.box(**merged)`` directly and raised a bare ``TypeError`` two
   frames deep.
-* ``clay_add_primitive``'s ``name``, ``clay_add_figure``'s ``name_prefix``
-  and ``clay_material``'s ``name`` (all three declared strings) were coerced
-  with a bare ``str()`` rather than checked -- ``clay_rename``'s identical
-  field already used ``isinstance(name, str)``, so all three were brought in
-  line with it.
+* ``clay_add_primitive``'s ``name`` and ``clay_material``'s ``name`` (both
+  declared strings) were coerced with a bare ``str()`` rather than checked --
+  ``clay_rename``'s identical field already used ``isinstance(name, str)``,
+  so both were brought in line with it.
 * ``clay_select``'s ``uids`` is declared required, but ``_resolve_uids``
   alone reads a missing value the same as an explicit empty list (its own
   "clear the selection" meaning) -- so *omitting* the argument entirely was

@@ -42,14 +42,26 @@ log = logging.getLogger(__name__)
 MAX_TEXTURE_SIDE = 1024
 
 
+#: ``InkerLink.pulled_rev`` before anything has landed: no history head is ever
+#: negative, so the first pull always counts the document as moved.
+UNLANDED = -1
+
+
 @dataclass
 class InkerLink:
-    """One palette entry <-> one Inker document. See the module docstring."""
+    """One palette entry <-> one Inker document. See the module docstring.
+
+    ``doc`` is the Inker :class:`~realmspinner.kernels.pixel.Document` itself,
+    held so a pull can still land its last committed head after the Inker *tab*
+    is gone (the 2026-10-07 audit's clay-06). ``None`` for a link built without
+    one, which then cannot outlive its tab.
+    """
 
     index: int
     material: Material
     inker_uid: str
     pulled_rev: int
+    doc: Any = None
 
 
 # --- reading the Inker side -------------------------------------------------
@@ -106,6 +118,18 @@ def edit_in_inker(ctx: Any, tab: Any, index: int) -> None:
     if material.base_color is None:
         ctx.toast("Add a texture first.", "error")
         return
+    width, height, _data = material.base_color
+    if max(width, height) > MAX_TEXTURE_SIDE:
+        # The 2026-10-07 audit's clay-20: a texture assigned from a file may be
+        # far past the pull's ceiling, and opening it anyway let the first
+        # committed stroke be refused and the link dropped -- the user painted a
+        # picture that could never come back. Refused here, at the door, by name.
+        ctx.toast(
+            f"That texture is {width} x {height}; Inker can only take one back at most "
+            f"{MAX_TEXTURE_SIDE} px on a side.",
+            "error",
+        )
+        return
 
     for link in _links(tab):
         if link.index == index and _live(tab, link):
@@ -120,7 +144,7 @@ def edit_in_inker(ctx: Any, tab: Any, index: int) -> None:
     from ....kernels.pixel.palettes import PICO8
     from ..inker import opening as inker_opening
 
-    width, height, data = material.base_color
+    data = material.base_color[2]
     pixels = np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4)
     name = material.name or f"slot {index}"
 
@@ -131,7 +155,16 @@ def edit_in_inker(ctx: Any, tab: Any, index: int) -> None:
         mats = tab.doc.materials
         if not 0 <= index < len(mats) or mats[index].base_color is not material.base_color:
             return
-        _record(tab, InkerLink(index, material, inker_tab.uid, inker_tab.doc.history.head))
+        _record(
+            tab,
+            InkerLink(index, material, inker_tab.uid, UNLANDED, doc=inker_tab.doc),
+        )
+        # The 2026-10-07 audit's clay-50: ``open_pixels`` snapped the picture to
+        # PICO-8 before the tab was adopted, so the head recorded here already
+        # held the snap and nothing pulled it -- the first real stroke then
+        # recoloured every texel at once. ``UNLANDED`` makes the next pull count
+        # the opened document as moved, and the snap returns on its own step.
+        pull(ctx, tab)
 
     inker_opening.open_pixels(
         ctx, pixels, title=f"{tab.title} - {name} (texture)", palette=PICO8, on_open=on_open
@@ -146,10 +179,10 @@ def _record(tab: Any, link: InkerLink) -> None:
 # --- the pull ---------------------------------------------------------------
 
 
-def _flatten(ctx: Any, inker_tab: Any) -> tuple[int, int, bytes] | None:
+def _flatten(ctx: Any, inker_doc: Any) -> tuple[int, int, bytes] | None:
     """The Inker document as a ``(w, h, rgba_bytes)`` texture, or ``None`` after
     a toast when its size is not one a texture may have."""
-    pixels = np.asarray(inker_tab.doc.flatten(matte=False), dtype=np.uint8)
+    pixels = np.asarray(inker_doc.flatten(matte=False), dtype=np.uint8)
     height, width = int(pixels.shape[0]), int(pixels.shape[1])
     if width < 1 or height < 1 or max(width, height) > MAX_TEXTURE_SIDE:
         ctx.toast(
@@ -179,19 +212,34 @@ def pull(ctx: Any, tab: Any) -> None:
     """Land every linked Inker document that has moved since it was last landed."""
     for link in list(_links(tab)):
         inker_tab = _find(ctx, link.inker_uid)
-        if inker_tab is None or not _live(tab, link):
+        if not _live(tab, link):
             _drop(tab, link)
             continue
-        head = inker_tab.doc.history.head
+        # The 2026-10-07 audit's clay-06: a closed Inker tab used to drop its
+        # link here without landing what was last painted -- a pull runs only
+        # while Clay is drawn, so paint, close Inker and open Clay lost the
+        # picture. The link holds the document itself, which outlives its tab,
+        # so the last committed head still lands and the link goes with it.
+        closed = inker_tab is None
+        inker_doc = link.doc if closed else inker_tab.doc
+        if inker_doc is None:
+            _drop(tab, link)
+            continue
+        head = inker_doc.history.head
         if head == link.pulled_rev:
+            if closed:
+                _drop(tab, link)
             continue
         try:
-            image = _flatten(ctx, inker_tab)
+            image = _flatten(ctx, inker_doc)
             if image is None:
                 _drop(tab, link)
                 continue
             link.material = _land(tab, link.index, image)
             link.pulled_rev = head
+            if closed:
+                _drop(tab, link)
+                ctx.toast("The Inker tab was closed; its last changes were taken back first.")
         except Exception:
             # A pull runs every frame Clay is drawn: one that raises would raise
             # every frame. Let go of the link and say so once.
@@ -235,12 +283,12 @@ def take_back(ctx: Any, tab: Any, index: int, inker_tab: Any) -> None:
         ctx.toast(f"There is no palette entry {index}.", "error")
         return
     head = inker_tab.doc.history.head
-    image = _flatten(ctx, inker_tab)
+    image = _flatten(ctx, inker_tab.doc)
     if image is None:
         return
     before = tab.doc.materials[index]
     material = _land(tab, index, image)
-    _record(tab, InkerLink(index, material, inker_tab.uid, head))
+    _record(tab, InkerLink(index, material, inker_tab.uid, head, doc=inker_tab.doc))
     ctx.toast(
         "Texture unchanged."
         if material is before

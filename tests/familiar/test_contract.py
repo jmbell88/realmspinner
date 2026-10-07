@@ -33,6 +33,22 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
     assert contract.card_sha("clay") == expected
 
 
+def test_the_frozen_clay_card_equals_the_card_derived_from_the_live_surface():
+    """The 2026-10-07 audit's clay-34: nothing compared ``cards/clay-2.txt``
+    with the live surface (the sha, tool-name and property-name tests above all
+    pass with an op dropped from ``clay_ops.OPS``), because the comparison that
+    did, ``test_derive_clay_card_reproduces_the_dataset_manifest_tools_sha``,
+    moved to ``dev/tests/familiar/`` and reads the training dataset's manifest.
+    This one needs no ``dev/``: ``derive_clay_card()`` rebuilds the card from the
+    live registries, and a Clay change that moves it (an op or generator added,
+    dropped or re-bounded, a tool's schema or opening sentence) fails here
+    until the card is deliberately re-frozen and its sha above re-pinned --
+    which is a fine-tune decision, not an edit made to quiet a test.
+    ``tests/modes/clay/test_audit_2026_10_07_agent.py`` proves this comparison
+    notices a dropped op."""
+    assert contract.derive_clay_card() == contract.load_card("clay")
+
+
 def test_the_frozen_clay_card_names_only_tools_the_live_door_accepts():
     """``allowed_calls('clay')`` (parsed from the frozen card's own
     ``- <name>: ...`` description lines) must be a subset of what the live

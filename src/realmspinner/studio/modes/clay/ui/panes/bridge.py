@@ -151,6 +151,16 @@ def import_settings(ctx: Any) -> None:
     state.import_up = widgets.combo("##clay-import-up", state.import_up, IMPORT_UP_OPTIONS, sp(90))
 
 
+#: The Export OBJ tooltip. The 2026-10-07 audit's clay-77: it named the ``.mtl``
+#: and not the PNG a textured material writes beside it (``<name>_<slot>.png``), so
+#: a user who exported a textured model found files the button never mentioned.
+EXPORT_OBJ_TOOLTIP = (
+    "Saves the document as a plain mesh file on disk, for handing straight "
+    "to another tool. The library never sees it. OBJ writes a .mtl of the same "
+    "name beside it, and a PNG next to that for each textured material."
+)
+
+
 def _outputs_why(doc: Any, saving: bool) -> str:
     """Why the output buttons below are refused right now, or ``""`` when
     they are not.
@@ -203,7 +213,7 @@ def _outputs(ctx: Any, tab: Any) -> None:
     if widgets.disabled_button("Export OBJ...", ready, reason=why):
         clay_mode.export_mesh_file(ctx, tab, "obj")
     if imgui.is_item_hovered():
-        imgui.set_tooltip(tip + " OBJ writes a .mtl of the same name beside it.")
+        imgui.set_tooltip(EXPORT_OBJ_TOOLTIP)
 
     imgui.same_line()
     if widgets.disabled_button(f"{icons.CAMERA} Save screenshot...", ready, reason=why):

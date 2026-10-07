@@ -135,6 +135,13 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     #: that did not live with the others.
     frame_pending: bool = False
 
+    #: Bumped once per drawn Clay frame by ``ui/viewport.py``. A generation
+    #: counter for the one question the key layer cannot ask a pane directly --
+    #: "was the pointer over you a moment ago?" (``UvPaneState.key_hover_at``) --
+    #: so the answer is a count of frames rather than a reading of the wall
+    #: clock, which a stalled frame would outrun (the 2026-10-07 audit's clay-03).
+    frame_serial: int = 0
+
     #: The tab whose camera the shared viewport is showing right now -- written
     #: by ``ui/viewport.py`` after its handoff. The 2026-10-03 audit's clay-12:
     #: the per-frame camera sync keyed on ``active_uid``, which a keyboard tab

@@ -122,10 +122,6 @@ ALLOWED: dict[tuple[str, str], str] = {
         "pipelines/sheet.py / pipelines.sheet (not sheetcheck, not charsheet)",
     ): "\"this module's old location, before...\" -- explicitly past tense.",
     (
-        "src/realmspinner/kernels/mesh/regen.py",
-        "panes/<mode>_<name>.py / panes.<mode>_<name>",
-    ): "panes/clay_props._carry_shading is named \"now deleted\" -- not a live citation.",
-    (
         "src/realmspinner/studio/modes/inker/mode.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",
     ): (

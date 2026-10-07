@@ -427,7 +427,7 @@ def test_inset_refuses_an_empty_selection() -> None:
 
 def test_inset_faces_refuses_past_its_own_size_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
     """The 2026-09-19 audit's clay-23: unlike every sibling growth op
-    (`MAX_BEVELED_CORNERS`, `MAX_LOOP_CUT_CORNERS`, `MAX_COLLAPSED_PAIRS`,
+    (`MAX_BEVELED_CORNERS`, `MAX_COLLAPSED_PAIRS`,
     `MAX_BRIDGED_RING`), `inset_faces` had no size ceiling of any kind -- a
     700x700 grid, 490,000 selected faces (1,960,000 corners), inset in
     904 ms with no refusal and kept growing past it. Both the per-face

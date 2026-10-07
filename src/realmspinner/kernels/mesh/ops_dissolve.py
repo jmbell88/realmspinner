@@ -39,7 +39,7 @@ import numpy as np
 from . import earclip, topo
 from .adjacency import adjacency
 from .elements import ElementSel, OpError
-from .mesh import Mesh, face_count, face_normals
+from .mesh import Mesh, _newell, face_count
 
 __all__ = ["dissolve_faces", "merge_groups"]
 
@@ -61,7 +61,7 @@ def _group_by_label(labels: np.ndarray, subset: np.ndarray) -> list[np.ndarray]:
     which the 2026-09-17 native-kernel review (batch 11) measured at 665 ms on
     a 200k-face select-all dissolve, 1.79M ``find()`` calls. Replaced with
     ``scipy.sparse.csgraph.connected_components`` (already used three lines
-    away in ``ops_topo.py`` and in ``select.py``/``analyze.py``) for the
+    away in ``ops_topo.py`` and in ``select.py``) for the
     union-find itself, and this function for the grouping step, which is
     exactly the ``_Union.groups`` contract above but vectorised: no
     ``.tolist()`` loop, no dict.
@@ -184,19 +184,21 @@ def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
         n = len(ring)
         if n < 3:
             continue
-        # A throwaway single-face mesh just to ask face_normals/concave_faces
-        # the question -- the real merged face does not exist yet, and
-        # refusing here is the whole point of asking before it does.
-        virtual = Mesh(
-            positions=mesh.positions,
-            loops=np.asarray(ring, dtype="i4"),
-            starts=np.array([0, n], dtype="i4"),
-            material=np.zeros(1, dtype="i4"),
-            smooth=np.zeros(1, dtype=bool),
-        )
-        normals = face_normals(virtual)
+        # The 2026-10-07 audit's clay-26: this used to build a throwaway
+        # single-face ``Mesh`` over ``mesh.positions`` to ask the question, and
+        # ``Mesh.__post_init__`` copies every array it is given, so each ring
+        # paid a copy of the whole position array -- rings x mesh vertices,
+        # 5.3 s for 2,000 rings on an 832k-vertex mesh, and Fill Hole's call
+        # here 6.4 s against the 0.83 s written beside its ceiling. The ring's
+        # own points are all the question reads, so they are gathered once and
+        # the same two kernels (``_newell``, ``concave_faces``) run over the
+        # ring-local array: the answer is the same, the cost is the ring's.
+        ring_ids = np.asarray(ring, dtype="i8")
+        local = np.arange(n, dtype="i8")
+        points = mesh.positions[ring_ids]
+        normals = _newell(points, local, np.roll(local, -1), np.zeros(1, dtype="i8"))
         is_concave = earclip.concave_faces(
-            virtual.positions, virtual.loops, virtual.starts, normals
+            points, local, np.array([0, n], dtype="i8"), normals
         )[0]
         if not is_concave:
             continue

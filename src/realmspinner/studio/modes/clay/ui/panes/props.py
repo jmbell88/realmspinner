@@ -26,6 +26,7 @@ import weakref
 from dataclasses import replace
 from typing import Any
 
+import numpy as np
 from imgui_bundle import imgui
 
 from ......kernels.geom3d import math3d as m3
@@ -34,6 +35,7 @@ from ......kernels.mesh import document as clay_document
 from ......kernels.mesh import elements as el
 from ......kernels.mesh import primitives as bp
 from ......kernels.mesh import regen
+from ......kernels.mesh import uv as uv_projection
 from ..... import controls, icons, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -130,7 +132,8 @@ def _body(ctx: Any) -> None:
                 "Select one to edit it.",
             )
         else:
-            widgets.empty_state(icons.BOX, "Nothing selected", "Click an object in the viewport.")
+            title, hint = _nothing_selected_text(doc, current)
+            widgets.empty_state(icons.BOX, title, hint)
         return
 
     imgui.begin_disabled(tab.saving)
@@ -145,6 +148,24 @@ def _body(ctx: Any) -> None:
     else:
         _material(ctx, tab, doc, obj)
     imgui.end_disabled()
+
+
+def _nothing_selected_text(doc: Any, tab: str = "object") -> tuple[str, str]:
+    """The empty state's ``(title, hint)`` for a pane with no object to show.
+
+    The 2026-10-07 audit's clay-74: in an element mode an object is selected
+    *through* its elements (``ClayDoc.selection`` is exactly the uids with a
+    non-empty element selection), so "Click an object" asked for the one gesture
+    that mode does not make -- and the swatch row the manual describes for face
+    mode was unreachable behind it. The hint names what the mode picks.
+    """
+    noun = {"vertex": "a vertex", "edge": "an edge", "face": "a face"}.get(doc.element_mode)
+    if noun is None:
+        return "Nothing selected", "Click an object in the viewport."
+    hint = f"Click {noun} in the viewport."
+    if doc.element_mode == "face" and tab == "material":
+        hint += " Then pick a swatch to paint it."
+    return "Nothing selected", hint
 
 
 def _document(ctx: Any, doc: Any) -> None:
@@ -249,6 +270,11 @@ def _identity(doc: Any, obj: Any) -> None:
         doc.set_props(obj.uid, visible=value)
 
 
+def _clear_parent_reason(obj: Any) -> str:
+    """Why "Clear parent" is greyed, or ``""`` (the 2026-10-07 audit's clay-75)."""
+    return "" if obj.parent is not None else "This object has no parent."
+
+
 def _set_parent(ctx: Any, doc: Any, uid: int, parent: int | None) -> None:
     """``doc.set_parent(..., keep_world=True)``, refused as a toast.
 
@@ -299,7 +325,9 @@ def _relations(ctx: Any, doc: Any, obj: Any) -> None:
         help_text="Reparenting keeps this object's world position -- only "
         "the local numbers below, and which frame they are read in, change.",
     )
-    if widgets.disabled_button("Clear parent##clearparent", obj.parent is not None):
+    if widgets.disabled_button(
+        "Clear parent##clearparent", obj.parent is not None, reason=_clear_parent_reason(obj)
+    ):
         picked = "0"
     if picked != current:
         _set_parent(ctx, doc, obj.uid, None if picked == "0" else int(picked))
@@ -756,12 +784,18 @@ def _pick_slot(ctx: Any, doc: Any, obj: Any, index: int) -> None:
     ``assign-material`` op and leaves the object's default slot alone; Ctrl
     (or no faces selected) only makes it the slot the fields below edit, the
     one way to reach another slot's colour and texture from a face selection.
+
+    Vertex and edge mode only pick the slot, like a face click with nothing
+    selected (the 2026-10-07 audit's clay-73): they used to take the object-mode
+    branch and repaint every face of the object, though the selection in front of
+    the user was a few points or edges and no face was named. Painting faces is
+    face mode's job.
     """
-    if doc.element_mode != "face":
+    if doc.element_mode == "object":
         doc.repaint_object(obj.uid, index)
         return
     op = clay_ops.get("assign-material")
-    if imgui.get_io().key_ctrl or not op.enabled(doc):
+    if doc.element_mode != "face" or imgui.get_io().key_ctrl or not op.enabled(doc):
         if index != obj.material:
             doc.set_props(obj.uid, material=index)
         return
@@ -796,6 +830,10 @@ def _swatch_row(ctx: Any, doc: Any, obj: Any) -> None:
             if clay_ops.get("assign-material").enabled(doc)
             else "Select faces to paint them with a swatch."
         )
+    elif doc.element_mode != "object":
+        widgets.muted_wrapped(
+            "A click picks the slot the fields below edit. Switch to face mode to paint faces."
+        )
     if clicked is not None:
         _pick_slot(ctx, doc, obj, clicked)
 
@@ -810,6 +848,7 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
 
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     material = doc.materials[index]
+    widgets.muted_wrapped(_edit_slot_note(doc, obj, index))
     # Each a sub-field of the "slot" combo above, named on its own line
     # (2026-09-08 consistency pass); ids kept stable, "Foo##bm" -> "##Foo##bm".
     widgets.field_label("base colour")
@@ -845,6 +884,47 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
         material = fresh
 
     _texture_slots(ctx, tab, doc, index, material)
+
+
+def _uv_view_slot(doc: Any, obj: Any) -> int | None:
+    """The palette slot the UV pane draws the picture of for *obj* under a face
+    selection, or ``None`` when it draws the object's own slot.
+
+    Mirrors ``_uv_texture.material_for_pane``'s choice (the slot of the first
+    selected face); that module belongs to the UV pane, so the rule is restated
+    here rather than imported across the two panes.
+    """
+    selection = doc.element_sel.get(obj.uid)
+    faces = getattr(selection, "faces", None)
+    per_face = obj.mesh.material
+    if faces is not None and len(faces) and 0 <= int(faces[0]) < len(per_face):
+        return int(per_face[int(faces[0])])
+    return None
+
+
+def _slot_label(doc: Any, index: int) -> str:
+    name = doc.materials[index].name if 0 <= index < len(doc.materials) else ""
+    return f"slot {index} ({name})" if name else f"slot {index}"
+
+
+def _edit_slot_note(doc: Any, obj: Any, index: int) -> str:
+    """One sentence naming the slot the fields below edit, and -- under a face
+    selection -- the other slot the UV view is showing.
+
+    The 2026-10-07 audit's clay-22: the UV pane draws the first selected face's
+    slot's picture while these fields, Edit texture in Inker, Take back and clear
+    all act on the object's default slot, and neither side said which it was. The
+    two are kept separate on purpose (Ctrl+click on a swatch is the documented way
+    to edit another slot from a face selection), so the fix is to name them.
+    """
+    note = f"Editing {_slot_label(doc, index)}."
+    shown = _uv_view_slot(doc, obj)
+    if shown is not None and shown != index and 0 <= shown < len(doc.materials):
+        note += (
+            f" The UV view shows {_slot_label(doc, shown)}, the first selected face's;"
+            " Ctrl+click its swatch to edit it instead."
+        )
+    return note
 
 
 def _palette_remove_reason(material_count: int, users: int) -> str:
@@ -945,8 +1025,9 @@ def _palette_row(doc: Any, obj: Any) -> None:
 TEXTURE_SLOTS = ("base_color",)
 
 #: This pane's own task-key prefix for "assign a texture from a file" --
-#: **not** ``clay-bg`` or a bare ``clay-`` key, because landing the result is
-#: not a document task in ``clay_mode.on_task_done``'s sense (see
+#: **not** a bare ``clay-`` key (``clay-open``, ``clay-save``, ``clay-export``...),
+#: because landing the result is not a document task in
+#: ``clay_mode.on_task_done``'s sense (see
 #: ``shell/tasks.py``'s own ``clay-mattex:`` branch, checked before its
 #: ``clay-`` one for exactly this reason).
 TEXTURE_TASK_PREFIX = "clay-mattex"
@@ -1037,8 +1118,56 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # the same silent no-op every other staleness case in this function
         # already gets.
         return
-    image = (result["width"], result["height"], result["rgba"])
-    doc.set_material(index, replace(material, **{slot: image}))
+    from ... import texture_link
+
+    width, height = int(result["width"]), int(result["height"])
+    if max(width, height) > texture_link.MAX_TEXTURE_SIDE:
+        # The 2026-10-07 audit's clay-79 (and clay-20): the picker's decode only
+        # bounds a *file*, and an 8192 px picture here made a ``.rblk`` that saved
+        # but passed the reader's decoded-bytes budget on reopen -- and a slot
+        # Inker could not take back. The same ceiling the pull applies, by name.
+        ctx.toast(
+            f"That picture is {width} x {height}; a texture can be at most "
+            f"{texture_link.MAX_TEXTURE_SIDE} px on a side.",
+            "error",
+        )
+        return
+    _land_assigned_texture(doc, index, material, slot, (width, height, result["rgba"]))
+
+
+def _land_assigned_texture(
+    doc: Any, index: int, material: Any, slot: str, image: tuple[int, int, bytes]
+) -> None:
+    """*image* as palette slot *index*'s texture, set up the way Add texture sets
+    one up, as **one** undo step.
+
+    The 2026-10-07 audit's clay-21: a PNG from a file landed only the picture, so
+    the slot kept its 0.8 grey colour factor (the shader multiplies factor by
+    texel, tinting the picture), a UV-less object showed one texel everywhere, and
+    ``nearest`` kept whatever the slot had -- True over a crisp texture, so a big
+    smooth PNG sampled NEAREST. Colour factor white (alpha kept), every UV-less
+    object with a face on the slot box-unwrapped, and ``nearest`` False: a picture
+    from disk is smooth until it has been through Inker, which is what the manual
+    says. Done here through ``ClayDoc``'s public doors because ``add_texture``
+    refuses a slot that already has a picture.
+    """
+    mark = doc.history.mark()
+    try:
+        factor = material.base_color_factor
+        doc.set_material(
+            index,
+            replace(
+                material,
+                **{slot: image},
+                base_color_factor=(1.0, 1.0, 1.0, float(factor[3])),
+                nearest=False,
+            ),
+        )
+        for obj in list(doc.objects):
+            if obj.mesh.uv is None and np.any(obj.mesh.material == index):
+                doc.set_mesh(obj.uid, uv_projection.box_unwrap(obj.mesh), keep_generator=True)
+    finally:
+        doc.history.collapse_since(mark)
 
 
 #: The size "Add texture" makes, in texels a side. Pane state rather than
@@ -1105,8 +1234,20 @@ def _texture_slots(ctx: Any, tab: Any, doc: Any, index: int, material: Any) -> N
             if controls.small_button(f"{icons.FOLDER_OPEN}##texassign{slot}", tooltip=assign_tip):
                 _assign_texture(ctx, tab, index, slot, material)
             imgui.same_line()
-            if widgets.disabled_button(f"{icons.X}##texclear{slot}", image is not None):
+            # Glyph-only, so it carries a tooltip of its own, and a reason while
+            # the slot has no picture (the 2026-10-07 audit's clay-75).
+            if widgets.disabled_button(
+                f"{icons.X}##texclear{slot}",
+                image is not None,
+                reason=_clear_texture_reason(image),
+                tooltip="Clear the texture -- one undo step.",
+            ):
                 _clear_texture(tab, doc, index, material, slot)
+
+
+def _clear_texture_reason(image: Any) -> str:
+    """Why the clear-texture button is greyed, or ``""``."""
+    return "" if image is not None else "This slot has no texture to clear."
 
 
 def _clear_texture(tab: Any, doc: Any, index: int, material: Any, slot: str) -> None:

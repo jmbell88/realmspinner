@@ -34,11 +34,12 @@ from .....kernels.mesh import ops as clay_geom_ops
 from .....kernels.mesh import primitives as bp
 from .....kernels.mesh import regen, shading
 from ..ui.panes import tools as pane_clay_tools
-from .schema import MAX_MESH_FACES, MAX_MESH_VERTICES, MAX_NAME_LENGTH
+from .schema import MAX_MESH_FACES, MAX_MESH_VERTICES, MAX_NAME_LENGTH, MAX_PALETTE
 from .validate import (
     Session,
     _json,
     _label_top,
+    _name_length_refusal,
     _over_frame_budget,
     _params_shape_refusal,
     _quat_from_euler_xyz,
@@ -53,6 +54,7 @@ from .validate import (
     _validate_translation,
     _validate_unit,
     _validate_vec3,
+    _whole_number,
     fail,
 )
 
@@ -113,6 +115,13 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
             "index": i,
             "name": m.name,
             "color": _round(list(m.base_color_factor)),
+            # The 2026-10-07 audit's clay-86: a slot carrying a base-colour
+            # texture (painted in Inker and pulled back) reads here as its
+            # white factor alone, so an agent reused it as a colour or
+            # painted a plain slot over a texture it could not see. "nearest"
+            # is the pixel-art sampler flag the texture travels with.
+            "textured": m.base_color is not None,
+            "nearest": bool(m.nearest),
         }
         for i, m in enumerate(doc.materials)
     ]
@@ -167,6 +176,14 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
             f"generator must be one of {', '.join(sorted(bp.CLAY_GENERATOR_NAMES))}.",
             field="generator",
         )
+
+    # The 2026-10-07 audit's clay-33: the length ceiling is judged here, before
+    # anything is built and before the tab is resolved, so a name that was
+    # always going to be refused neither mints an empty document nor lands and
+    # pushes every later ``clay_scene`` page past the frame.
+    failure = _name_length_refusal(args.get("name"))
+    if failure:
+        return failure
 
     params = args.get("params")
     if params is not None:
@@ -329,6 +346,11 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
     in exactly the state that freeze leaves an edited primitive in, rather
     than passing through it.
     """
+    # The 2026-10-07 audit's clay-33: see ``_h_add_primitive``'s identical check.
+    failure = _name_length_refusal(args.get("name"))
+    if failure:
+        return failure
+
     positions_arg = args.get("positions")
     if not isinstance(positions_arg, list) or not positions_arg:
         return fail("positions must be a non-empty array of [x, y, z].", field="positions")
@@ -884,6 +906,20 @@ def _h_material(ctx: Any, session: Session, args: dict) -> dict:
         # same way ``clay_rename`` already checks its identical field.
         if name_arg is not None and not isinstance(name_arg, str):
             return fail("name must be a string.", field="name")
+        failure = _name_length_refusal(name_arg)
+        if failure:
+            return failure
+        # The 2026-10-07 audit's clay-80: a new slot past ``MAX_PALETTE`` is
+        # refused, because ``clay_scene`` returns the whole palette and one
+        # grown past the frame could never be read again. ``index`` still
+        # reuses an existing slot at the ceiling.
+        if len(doc.materials) >= MAX_PALETTE:
+            return fail(
+                f"the palette is full ({MAX_PALETTE} entries); give 'index' to "
+                "reuse one of the existing entries (clay_scene's 'materials') "
+                "instead of a color.",
+                field="color",
+            )
         material = replace(bd.default_material(name_arg or ""), base_color_factor=rgba)
 
     # One material for the whole call -- never one per object -- folded into
@@ -905,23 +941,6 @@ def _h_material(ctx: Any, session: Session, args: dict) -> dict:
         payload["faces"] = len(face_ids)
     payload["color"] = list(rgba)
     return _json(payload)
-
-
-def _whole_number(value: Any) -> int:
-    """*value* as an int, refusing a bool and anything that is not whole.
-
-    ``int()`` alone takes ``True``, ``2.7`` and ``"3"``; an agent that wrote
-    one of those meant something else, and painting face 1 for ``true`` is a
-    silent wrong answer. Raises what ``int()`` raises so callers share one
-    ``except``.
-    """
-    if isinstance(value, bool):
-        raise TypeError("a bool is not a number here")
-    if isinstance(value, float) and not value.is_integer():
-        raise ValueError("not a whole number")
-    if not isinstance(value, (int, float, np.integer)):
-        raise TypeError("not a number")
-    return int(value)
 
 
 def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
