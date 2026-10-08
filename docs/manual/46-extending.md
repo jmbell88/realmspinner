@@ -520,7 +520,15 @@ bounded in size as well as in shape (`_validate_translation` and `_validate_scal
 component may be at most 1e7 metres, and a scale component is either exactly zero or between 1e-6 and
 1e6 in magnitude, because `1e308` once put a bare `Infinity` into every later `clay_scene` row and a
 scale of `1e-320` turned into `NaN` on a child when it was re-parented keeping its world transform.
-`clay_parent` with `keep_world` also refuses a result that is not finite.
+`clay_parent` with `keep_world` also refuses a result that is not finite. Numeric arguments are bounded
+the same way: a generator parameter or a hand-built mesh coordinate may not exceed 1e7 in magnitude, a uv
+1e6, and a `clay_measure` world point 1e7, and the mesh that results must be finite, because a value that
+fits a float64 but not Clay's float32 positions once built an infinite mesh and froze the app on the next
+`clay_scene`. Every integer argument is a whole number (a fraction or a boolean is refused), `clay_select_elements`
+selects only the kind the document's element mode holds (give `mode`), `clay_select_by` refuses a zero
+`direction` and a `min` above `max`, and `clay_measure angle` refuses a zero-length ray instead of answering 0.
+`clay_op` run in the wrong element mode answers `ran: false` with "Switch to object mode first." (or the mode
+the op needs); `ran` is also false when an object-level op changed nothing.
 `tests/test_agent_schemas.py` is what proves this half is actually done, tool by tool and
 constraint by constraint, discovered from the schemas themselves rather than a hand-written list of
 what to check.

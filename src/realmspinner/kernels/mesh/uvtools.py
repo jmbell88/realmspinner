@@ -115,6 +115,40 @@ def _require_uv(mesh: Mesh, op: str) -> np.ndarray:
     return mesh.uv
 
 
+def _require_finite_uv(uv: np.ndarray, op: str) -> None:
+    """Refuse a uv holding a NaN or an infinity, naming the cause.
+
+    The 2026-10-07 audit's clay-01: ``overlap_faces`` took the bounding box of a
+    uv that held an ``inf`` (one agent ``clay_add_mesh`` call could store it),
+    divided by the resulting NaN cell size and cast the NaNs to int64, so the
+    bucket loop that followed ran over garbage cell ranges and never returned --
+    on the frame thread, and the dispatch timeout cannot interrupt a call already
+    running. Every function here that reads the uv's extent asks first.
+    """
+    if not np.isfinite(uv).all():
+        raise OpError(
+            f"{op} cannot read this object's texture coordinates: some are not "
+            f"finite numbers (NaN or infinite). Unwrap the object again to "
+            f"replace them."
+        )
+
+
+def _finite_f4(uv: np.ndarray, op: str) -> np.ndarray:
+    """*uv* as float32, or an :class:`OpError` when that is not entirely finite.
+
+    The cast is where a float64 result past float32 range turns into ``inf``, so
+    the check is on the stored array, not the float64 one it came from.
+    """
+    with np.errstate(over="ignore", invalid="ignore"):
+        out = uv.astype("f4")
+    if not np.isfinite(out).all():
+        raise OpError(
+            f"{op} would push a texture coordinate past what a texture can hold "
+            f"(not finite as a float32). Use a smaller amount."
+        )
+    return out
+
+
 def _two_sided_corners(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
     """``(c, twin[c])`` for every proper two-face edge, each edge counted once.
 
@@ -244,8 +278,8 @@ def transform_islands(
 
     Each island spins and scales around **its own** centre rather than a
     shared one -- Blender's "individual origins" pivot -- because a batch of
-    islands unwrapped independently (a box unwrap's six squares, an LSCM
-    cut's several patches) has no shared centre that means anything; a
+    islands unwrapped independently (a box unwrap's six squares, a join of
+    several boxes) has no shared centre that means anything; a
     common-origin rotate would fling every island but the first off across
     the square. ``translate`` is the one part applied to the selection as a
     whole, because nudging several islands together is the ordinary case a
@@ -263,6 +297,20 @@ def transform_islands(
     array of its own to hand in. See :data:`MAX_UV_ISLANDS` for the ceiling.
     """
     uv = _require_uv(mesh, "transform_islands")
+    # The 2026-10-07 audit's clay-15: a NaN, an infinity or a factor that
+    # overflows float32 (a scale of 1e300, a translate of 1e39) was applied
+    # without a look, and ``doc.set_mesh`` took the result -- the document then
+    # could not be saved, and only Ctrl+Z recovered. Refused here, in the
+    # kernel, so the pane, the agent and a headless caller all stop at it.
+    for name, value in (
+        ("translate", translate[0]),
+        ("translate", translate[1]),
+        ("rotate", rotate_deg),
+        ("scale", scale),
+    ):
+        if not math.isfinite(float(value)):
+            raise OpError(f"The uv {name} must be a finite number.")
+    _require_finite_uv(uv, "transform_islands")
     if ids is None:
         ids = islands(mesh)
     wanted = np.unique(np.asarray(list(island_ids), dtype="i4"))
@@ -294,7 +342,7 @@ def transform_islands(
         new_uv[sel] = pts + centre
 
     new_uv[selected] += np.asarray(translate, dtype="f8")
-    return replace(mesh, uv=new_uv.astype("f4"))
+    return replace(mesh, uv=_finite_f4(new_uv, "transform_islands"))
 
 
 def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> Mesh:
@@ -339,6 +387,9 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     an island's own internal layout is not this function's job.
     """
     uv = _require_uv(mesh, "pack_islands")
+    if not math.isfinite(float(margin)):
+        raise OpError("The pack margin must be a finite number.")
+    _require_finite_uv(uv, "pack_islands")
     n_faces = face_count(mesh)
     if n_faces == 0:
         return mesh
@@ -347,8 +398,9 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     if len(labels) > MAX_UV_ISLANDS:
         raise OpError(
             f"This mesh has {len(labels)} uv islands, past the {MAX_UV_ISLANDS} "
-            f"pack_islands reads -- check a smaller selection instead of the "
-            f"whole mesh."
+            f"Pack handles. Pack always takes every island of the object, so "
+            f"split it with Separate Loose Parts (or join fewer parts into it) "
+            f"and pack each piece."
         )
     foc = _face_of_corner(mesh)
     corner_island = ids[foc]
@@ -432,7 +484,7 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
             pts -= pts.min(axis=0)
         new_uv[corners] = pts * scale + (ox * scale + index * gap, oy * scale + shelf * gap)
 
-    return replace(mesh, uv=new_uv.astype("f4"))
+    return replace(mesh, uv=_finite_f4(new_uv, "pack_islands"))
 
 
 # --- overlap -----------------------------------------------------------
@@ -483,6 +535,7 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
     unbounded total (see that constant's own docstring).
     """
     uv = _require_uv(mesh, "overlap_faces")
+    _require_finite_uv(uv, "overlap_faces")
     n_faces = face_count(mesh)
     out = np.zeros(n_faces, dtype=bool)
     if n_faces == 0:

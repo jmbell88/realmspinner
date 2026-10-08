@@ -103,7 +103,16 @@ class DragOps:
         # dirtiness is decided in :meth:`_motion`, which knows whether a drag
         # is live or the hover state actually moved.
         local = self._local(event)
-        if event.type == pygame.MOUSEBUTTONDOWN and hovered:
+        # The 2026-10-07 audit's clay-12: a keyboard (G/R/S) or op drag has no
+        # button held, so a *press* is how it ends -- but this branch read only
+        # presses over the viewport image, and the shell routes a press on a
+        # panel here with ``hovered`` false (the viewport takes the pointer
+        # while a grab is live). The press on the header's Undo or the outliner
+        # then ran against uncommitted displacement and the drag stayed live.
+        # Left commits and right cancels wherever the pointer is; every other
+        # press is still the hover rule's.
+        ends_drag = self._grab in ("keydrag", "opdrag")
+        if event.type == pygame.MOUSEBUTTONDOWN and (hovered or ends_drag):
             self._render_dirty = True
             return self._press(doc, event.button, local)
         if event.type == pygame.MOUSEBUTTONUP:
@@ -234,13 +243,32 @@ class DragOps:
         with a selected ancestor, because moving that ancestor already carries
         it along.
         """
+        # One uid -> object map for the press (the 2026-10-07 audit's clay-21):
+        # the ancestor test and the snapshot below each resolved every selected
+        # uid with a linear ``index_of`` scan.
+        index = self._uid_index(doc)
         uids = [o.uid for o in doc.objects if o.uid in doc.selection]
         if doc.element_mode == "object":
+            # The 2026-10-07 audit's clay-06: hiding an object (the outliner's
+            # eye, the Properties box) leaves it selected, and this moved it
+            # anyway -- unseen, since the gizmo and the bounds skip it. The
+            # element path has always dropped a hidden object
+            # (``_element_pickable``); a hidden one is not the user's to drag.
+            # The ancestor test below reads the *visible* set: a hidden
+            # parent is not moved, so it carries nothing and its visible
+            # child has to move itself.
+            uids = [uid for uid in uids if index[uid].visible]
+            if not uids:
+                return False
             selected = set(uids)
-            uids = [uid for uid in uids if selected.isdisjoint(doc.ancestors(uid))]
+            uids = [
+                uid
+                for uid in uids
+                if selected.isdisjoint(self._ancestor_uids(index, index[uid]))
+            ]
         self._drag_uids = uids
         self._drag_start = {
-            uid: tuple(np.array(v, copy=True) for v in doc.by_uid(uid).trs())
+            uid: tuple(np.array(v, copy=True) for v in index[uid].trs())
             for uid in self._drag_uids
         }
         self._drag_quat = m3.quat_identity()
@@ -343,19 +371,24 @@ class DragOps:
     def _selection_normal(self: ClayView, doc: Any) -> np.ndarray | None:
         """The unit average normal of the selected faces, in world space, or ``None``."""
         from .....kernels.mesh import mesh as bm
+        from .....kernels.mesh.selection import _element_pickable
 
         total = np.zeros(3)
+        index = self._uid_index(doc)
         for uid, sel in doc.element_sel.items():
             if not len(sel.faces):
                 continue
-            try:
-                obj = doc.by_uid(uid)
-            except KeyError:
+            obj = index.get(uid)
+            # The 2026-10-07 audit's clay-11: a hidden object keeps its element
+            # selection, and its faces pulled the extrude's normal lock toward
+            # geometry the drag does not move (``_begin_element_drag`` drops
+            # it). The same eligibility the pick doors and the drag use.
+            if obj is None or not _element_pickable(obj):
                 continue
             normals = bm.face_normals(obj.mesh)[sel.faces].sum(axis=0)
             # A normal turns by the inverse transpose of the placement, which is
             # not the placement itself under a non-uniform scale.
-            matrix = np.asarray(self._world(doc, obj), dtype="f8")[:3, :3]
+            matrix = np.asarray(self._world(doc, obj, index), dtype="f8")[:3, :3]
             try:
                 total += np.linalg.inv(matrix).T @ normals
             except np.linalg.LinAlgError:
@@ -440,12 +473,23 @@ class DragOps:
         if doc.element_mode != "object":
             self._preview_element_drag(doc, delta, state)
             return
+        self._apply_to_dragged(doc, delta, state)
+
+    def _apply_to_dragged(self: ClayView, doc: Any, delta: Any, state: Any) -> None:
+        """One motion frame over every dragged object -- the loop the gizmo and
+        the keyboard drag share.
+
+        The map is built once per frame and handed to :meth:`_apply`: the
+        2026-10-07 audit's clay-21 measured this loop at 918 ms a frame with
+        4,096 objects selected, every iteration resolving the object, its
+        parent's world matrix and its local placement by linear scans.
+        """
+        index = self._uid_index(doc)
         for uid, was in self._drag_start.items():
-            try:
-                obj = doc.by_uid(uid)
-            except KeyError:
-                continue
-            self._apply(doc, obj, was, delta, state)
+            obj = index.get(uid)
+            if obj is None:
+                continue  # deleted mid-drag
+            self._apply(doc, obj, was, delta, state, index)
         doc.touch()
 
     def _press_element(
@@ -548,10 +592,30 @@ class DragOps:
             self._grab = None
             self._op_drag_commit(doc)
             return True
+        if self._grab == "marquee":
+            return self.cancel_marquee()
         if self._grab not in ("gizmo", "keydrag"):
             return False
         was, self._grab = self._grab, None
         self._settle_drag_tail(doc, was)
+        return True
+
+    def cancel_marquee(self: ClayView) -> bool:
+        """Drop a live marquee without selecting anything. -> whether one was live.
+
+        The 2026-10-07 audit's clay-85: a marquee is a grab but not a transform
+        drag (``dragging``), so Ctrl+Tab and Ctrl+W were not held back by it and
+        the eventual button-up swept the old rectangle into whichever document
+        had become active. A tab switch or close calls this against the view,
+        beside ``settle_drag``/``cancel_drag``. Nothing to commit: the rectangle
+        is a gesture, not an edit.
+        """
+        if self._grab != "marquee":
+            return False
+        self._grab = None
+        self.marquee = None
+        self._marquee_from = None
+        self._render_dirty = True
         return True
 
     # -- the keyboard's half of a drag (Clay18) ------------------------------
@@ -755,10 +819,11 @@ class DragOps:
         mode = doc.element_mode
         if self._marquee_add == "replace":
             doc.clear_element_sel()
+        index = self._uid_index(doc)
         for obj in doc.objects:
             if not obj.visible:
                 continue
-            screen = self.screen_of(doc, obj.uid)
+            screen = self.screen_of(doc, obj.uid, index)
             if mode == "vertex":
                 swept = el.ElementSel(verts=bp.marquee_verts(screen, rect))
             elif mode == "edge":
@@ -925,10 +990,10 @@ class DragOps:
         self._element_drags = {}
         centre = self.element_centre(doc)
         self._element_centre = np.zeros(3) if centre is None else centre
+        index = self._uid_index(doc)
         for uid, sel in doc.element_sel.items():
-            try:
-                obj = doc.by_uid(uid)
-            except KeyError:
+            obj = index.get(uid)
+            if obj is None:
                 continue
             # Hiding an object leaves its element selection in
             # ``doc.element_sel``, and a gizmo grab would move the vertices of
@@ -939,7 +1004,7 @@ class DragOps:
             verts = el.affected_verts(obj.mesh, sel)
             if not len(verts):
                 continue
-            matrix = self._world(doc, obj)
+            matrix = self._world(doc, obj, index)
             try:
                 inverse = np.linalg.inv(matrix)
             except np.linalg.LinAlgError:
@@ -1129,13 +1194,7 @@ class DragOps:
         if doc.element_mode != "object":
             self._preview_element_drag(doc, delta, state)
             return
-        for uid, was in self._drag_start.items():
-            try:
-                obj = doc.by_uid(uid)
-            except KeyError:
-                continue
-            self._apply(doc, obj, was, delta, state)
-        doc.touch()
+        self._apply_to_dragged(doc, delta, state)
 
     def _narrow(
         self: ClayView, doc: Any, delta: Any, state: Any, local: tuple[float, float]
@@ -1203,7 +1262,15 @@ class DragOps:
             return self._drag_quat
         return delta
 
-    def _apply(self: ClayView, doc: Any, obj: Any, was: Any, delta: Any, state: Any) -> None:
+    def _apply(
+        self: ClayView,
+        doc: Any,
+        obj: Any,
+        was: Any,
+        delta: Any,
+        state: Any,
+        index: dict[int, Any] | None = None,
+    ) -> None:
         """One object's transform under the live drag, written in **local** space.
 
         **A rotate and a scale orbit the pivot, not the object's own origin**,
@@ -1238,6 +1305,14 @@ class DragOps:
         end, through the object's *current* parent -- so a reparent mid-drag
         (not offered today, but nothing here assumes otherwise) would still
         write a sound local value.
+
+        ``index`` is :meth:`_uid_index`'s map for the frame (clay-21): the
+        parent's world matrix and the world-to-local conversion then read it
+        instead of ``doc.world_matrix`` / ``doc.local_from_world``, each of
+        which scans the document. Same arithmetic either way -- ``_world`` is
+        ``world_matrix``'s composition and the conversion is
+        ``local_from_world``'s (``decompose`` of the inverse parent times the
+        target), a root's being ``decompose`` of the target itself.
         """
         from .....kernels.mesh import ops
 
@@ -1245,7 +1320,14 @@ class DragOps:
         snap = bool(getattr(state, "snap", False)) and not self.drag_input.active
         pivot = np.asarray(self._drag_origin, dtype="f8")
         parent = obj.parent
-        parent_world = m3.identity() if parent is None else doc.world_matrix(parent)
+        parent_world = m3.identity()
+        if parent is not None:
+            parent_obj = None if index is None else index.get(parent)
+            parent_world = (
+                doc.world_matrix(parent)
+                if parent_obj is None
+                else self._world(doc, parent_obj, index)
+            )
         before_world = parent_world @ m3.compose(*was)
         before_t, before_r, before_s = m3.decompose(before_world)
 
@@ -1273,7 +1355,18 @@ class DragOps:
             world_r, world_s = before_r, before_s
 
         world_target = m3.compose(world_t, world_r, world_s)
-        t, r, s = doc.local_from_world(obj.uid, world_target)
+        if index is None or (parent is not None and parent not in index):
+            t, r, s = doc.local_from_world(obj.uid, world_target)
+        elif parent is None:
+            t, r, s = m3.decompose(world_target)
+        else:
+            try:
+                inverse = np.linalg.inv(parent_world)
+            except np.linalg.LinAlgError:
+                # The document's own door raises the refusal that names it.
+                t, r, s = doc.local_from_world(obj.uid, world_target)
+            else:
+                t, r, s = m3.decompose(inverse @ world_target)
         obj.translation, obj.rotation, obj.scale = t, r, s
 
     def _is_scale(self: ClayView, state: Any) -> bool:

@@ -1,4 +1,4 @@
-"""Linked, grow, material and the selection queries.
+"""Linked, material and the selection queries.
 
 The counts are checked against solids whose answers are arithmetic rather than
 remembered: a 4x4 grid has 25 vertices, 40 edges and 16 faces, and those are
@@ -174,15 +174,6 @@ def test_linked_matches_label_propagation_on_several_seeded_islands():
 
         assert fast.dtype == reference.dtype
         assert np.array_equal(np.sort(fast), np.sort(reference))
-
-
-# --- grow ---------------------------------------------------------------------
-
-
-def test_grow_takes_one_ring_outward():
-    mesh = _grid()
-    corner = select.grow(mesh, [0])
-    assert len(corner) == 3, "a corner vertex and its two neighbours"
 
 
 # --- material -----------------------------------------------------------------

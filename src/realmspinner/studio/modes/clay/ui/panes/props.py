@@ -342,8 +342,25 @@ def _outputs(ctx: Any, tab: Any) -> None:
     ):
         clay_mode.save_screenshot(ctx, tab)
 
+    for line in export_lines(tab):
+        widgets.muted(line)
+
+
+def export_lines(tab: Any) -> list[str]:
+    """The muted lines under the export buttons: the library row last minted and
+    the last file written to disk.
+
+    The 2026-10-07 audit's clay-09: the manual promises "a line names the last
+    file written", but only ``Last exported as <job id>`` (the library export)
+    was ever drawn -- an Export GLB/OBJ or a screenshot left its path in a toast
+    and nowhere else. Both lines show when both exports happened.
+    """
+    lines: list[str] = []
     if tab.job_id:
-        widgets.muted(f"Last exported as {tab.job_id}")
+        lines.append(f"Last exported as {tab.job_id}")
+    if getattr(tab, "exported_path", ""):
+        lines.append(f"Last file written: {tab.exported_path}")
+    return lines
 
 
 def _element_summary(doc: Any, state: Any = None) -> None:
@@ -392,7 +409,7 @@ def _element_median(doc: Any, state: ClayState | None) -> None:
     undo step however many objects hold a selection, parented objects handled,
     hidden ones skipped.
     """
-    median = element_move.element_median_world(doc)
+    median = element_median_cached(doc)
     if median is None:
         return
     unit = _unit_of(state)
@@ -409,6 +426,54 @@ def _element_median(doc: Any, state: ClayState | None) -> None:
     controls.fold_undo(doc.history)
     if edited:
         commit_median(doc, median, shown, typed, unit)
+
+
+#: ``doc -> {readout name: (key, value)}``, one slot per readout. A weak key, so
+#: a closed document takes its entry with it (``viewport_hints._MEASURE_CACHE``'s
+#: own shape).
+_READOUT_CACHE: weakref.WeakKeyDictionary[Any, dict[str, tuple[Any, Any]]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def readout_key(doc: Any, extra: Any = None) -> tuple[Any, ...] | None:
+    """What the element readouts below are memoised on: the document's change
+    counter and its element mode (plus *extra*, the display unit for the one
+    that prints it). ``None`` when the document has no ``rev`` -- no memo, measure
+    fresh, as ``viewport_hints.measure_line`` does.
+
+    ``rev`` covers a changed selection as well as a changed mesh
+    (``select``/``set_element_sel``/``set_element_mode`` each ``touch``), and a
+    live drag touches it every frame, so a drag still recomputes -- once a frame,
+    not several.
+    """
+    rev = getattr(doc, "rev", None)
+    if rev is None:
+        return None
+    return (rev, doc.element_mode, extra)
+
+
+def _memoised(doc: Any, name: str, extra: Any, compute: Any) -> Any:
+    key = readout_key(doc, extra)
+    if key is None:
+        return compute()
+    slots = _READOUT_CACHE.setdefault(doc, {})
+    cached = slots.get(name)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    value = compute()
+    slots[name] = (key, value)
+    return value
+
+
+def element_median_cached(doc: Any) -> Any:
+    """:func:`element_move.element_median_world`, memoised on :func:`readout_key`.
+
+    The 2026-10-07 audit's clay-18: the Properties readouts re-ran every frame
+    (``affected_verts`` 31 ms and an uncached ``triangulate`` for the area 194-204 ms
+    at 200k triangles), where the HUD's measure line was already memoised.
+    """
+    return _memoised(doc, "median", None, lambda: element_move.element_median_world(doc))
 
 
 def commit_median(doc: Any, median: Any, shown: Any, typed: Any, unit: str) -> bool:
@@ -428,6 +493,12 @@ def commit_median(doc: Any, median: Any, shown: Any, typed: Any, unit: str) -> b
 
 
 def element_measure_text(doc: Any, unit: str = units.DEFAULT_UNIT) -> str | None:
+    """:func:`_element_measure_text`, memoised on :func:`readout_key` -- see
+    :func:`element_median_cached` for the incident."""
+    return _memoised(doc, "measure", unit, lambda: _element_measure_text(doc, unit))
+
+
+def _element_measure_text(doc: Any, unit: str = units.DEFAULT_UNIT) -> str | None:
     """A read-only measurement of the element selection, or ``None``.
 
     Edge mode: the summed length of the selected edges. Face mode: the summed
@@ -596,6 +667,18 @@ _BARE_STATE: ClayState | None = None
 _UNIT_OPTIONS = [(key, key) for key, _ in units.LENGTH_UNITS]
 
 
+def euler_key(state: ClayState | None, obj_uid: int) -> tuple[str, int]:
+    """The ``euler_cache`` key for an object: ``(active tab uid, object uid)``.
+
+    The 2026-10-07 audit's clay-23: the cache is one dict on the app-level
+    ``ClayState`` and was keyed on the bare object uid, but uids are only unique
+    inside one document -- two separately authored files both carry 1 and 2 -- so
+    a rotation typed into one tab's object was shown for the other tab's.
+    """
+    tab = getattr(state, "active", None)
+    return (getattr(tab, "uid", ""), obj_uid)
+
+
 def _display_state(state: ClayState | None) -> ClayState:
     global _BARE_STATE
     if state is not None:
@@ -695,7 +778,8 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
     # decomposing one is not stable frame to frame, so the angles shown are
     # cached per object until something else moves the quaternion
     # (``transform_edit``'s docstring).
-    euler = transform_edit.displayed_euler(ui.euler_cache, obj.uid, obj.rotation)
+    euler_at = euler_key(ui, obj.uid)
+    euler = transform_edit.displayed_euler(ui.euler_cache, euler_at, obj.rotation)
     if parented:
         edited, typed_euler = controls.input_vec(
             "local rotation (deg)##br", list(euler), ("X", "Y", "Z")
@@ -723,7 +807,7 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
         )
         if landed and edited:
             transform_edit.remember_euler(
-                ui.euler_cache, obj.uid, doc.by_uid(obj.uid).rotation, typed_euler
+                ui.euler_cache, euler_at, doc.by_uid(obj.uid).rotation, typed_euler
             )
     _dimensions(doc, obj, ctx=ctx, state=ui)
 
@@ -972,10 +1056,18 @@ def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
     return value, False
 
 
+#: The 2026-10-07 audit's clay-82: this tab said only "the palette is empty" and
+#: returned before any control, so nothing on it pointed at the one place a slot
+#: can be added from an empty palette -- the + in the strip under the viewport.
+EMPTY_PALETTE_TEXT = (
+    "The palette is empty. Add a slot with the + in the palette strip under the viewport."
+)
+
+
 def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     widgets.field_label("material")
     if not doc.materials:
-        widgets.muted("the palette is empty")
+        widgets.muted_wrapped(EMPTY_PALETTE_TEXT)
         return
     # The swatches themselves are the palette strip under the viewport: painting
     # is a viewport action, and this tab is where a slot's *options* live. Said

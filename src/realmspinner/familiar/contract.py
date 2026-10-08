@@ -506,7 +506,9 @@ _SCENE_ROW_KEYS: tuple[str, ...] = (
     "material",
 )
 """The Verifier design section's "Compact scene for edit/query rows"
-paragraph, verbatim: ``_scene_row`` carries fifteen fields; the training
+paragraph, verbatim except the count: ``_scene_row`` carries seventeen fields,
+plus ``uv`` when the mesh has texture coordinates and ``local`` when the object
+is parented (the 2026-10-07 audit's clay-76 found "fifteen" stale); the training
 state turn keeps these nine plus the document's own ``materials``/``bounds``,
 dropping ``faces``/``verts``/``stamp``/``selected``/``visible``/``bbox``/
 ``center`` -- the ones a token budget cannot afford and an edit prompt does

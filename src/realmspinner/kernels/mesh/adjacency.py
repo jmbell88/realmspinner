@@ -66,6 +66,7 @@ __all__ = [
     "boundary_ring_from",
     "cached_triangulation",
     "check_manifold",
+    "closed_facts",
 ]
 
 
@@ -353,6 +354,40 @@ def cached_triangulation(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
     frame is the difference between an interactive viewport and a slideshow.
     """
     return _memoized(_TRIS, _TRIS_BUILDING, mesh, _build_tris)
+
+
+_CLOSED: weakref.WeakKeyDictionary[Mesh, tuple[bool, bool]] = weakref.WeakKeyDictionary()
+_CLOSED_BUILDING: weakref.WeakKeyDictionary[Mesh, threading.Lock] = weakref.WeakKeyDictionary()
+
+
+def _build_closed(mesh: Mesh) -> tuple[bool, bool]:
+    if len(mesh.starts) <= 1:
+        return (False, False)
+    a = adjacency(mesh)
+    # ``edge_uses`` is 1 on a boundary edge and 3+ on a non-manifold one, so a
+    # mesh with neither is exactly one where every edge is used twice. A flipped
+    # pair is two uses traversing the edge the same way -- the same rows
+    # ``check_manifold`` reports as ``flipped_edges``.
+    return (bool(np.all(a.edge_uses == 2)), bool(len(a.flipped_pairs)))
+
+
+def closed_facts(mesh: Mesh) -> tuple[bool, bool]:
+    """``(closed, has_flipped_edge)`` for *mesh*, memoised against it.
+
+    *closed* is "no boundary edge and no non-manifold edge" (and at least one
+    face); *has_flipped_edge* is "two faces traverse some shared edge the same
+    way". Both are read straight off the cached :class:`Adjacency`, which is
+    what :func:`check_manifold` reads for the same three lists.
+
+    The 2026-10-07 audit's clay-19: ``measure.volume_if_closed`` called
+    :func:`check_manifold` twice per call, and each call rebuilt the whole
+    report -- a per-face lexsort and a per-arity ``np.unique(axis=0)`` for the
+    *duplicate-face* and *repeated-corner* lists the volume gate never reads --
+    482 ms at 400k triangles, on every selection change through the HUD hint
+    line. A mesh is immutable, so the two facts are as cacheable as the tables
+    they come from.
+    """
+    return _memoized(_CLOSED, _CLOSED_BUILDING, mesh, _build_closed)  # type: ignore[return-value]
 
 
 # --- boundary rings ---------------------------------------------------------

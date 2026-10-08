@@ -54,6 +54,7 @@ __all__ = [
     "by_key",
     "defaults_for",
     "menu",
+    "outliner_order",
     "reason_for",
     "register",
     "run",
@@ -80,9 +81,11 @@ class Param:
 
     **``boolean`` and ``choices`` are widget kinds, not storage kinds.** The
     ops that reached for a number on 2026-09-10 because this dataclass had
-    no other shape -- ``mirror-copy``'s ``axis`` ("axis (0=X, 1=Y, 2=Z)") is
-    the one that is left -- are the tell: the *label* was doing the widget's
-    job because the field couldn't. ``default`` stays a ``float`` and :func:`run` still
+    no other shape are the tell: the *label* was doing the widget's job
+    because the field couldn't. None is left -- ``mirror-copy``'s ``axis``,
+    once labelled "axis (0=X, 1=Y, 2=Z)", is ``choices=("X", "Y", "Z")``
+    now (the 2026-10-07 audit's clay-44 found this paragraph still calling
+    it the one that was left). ``default`` stays a ``float`` and :func:`run` still
     clamps to ``low``/``high`` regardless of which of the three this is, so a
     checkbox writes 0.0/1.0 and a combo writes its index -- exactly what the
     bare int field they replaced already wrote, and why converting an op to
@@ -340,6 +343,16 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
     """
     from ....kernels.mesh.elements import OpError
 
+    # The 2026-10-07 audit's clay-10: only ``enabled`` was consulted, so the
+    # agent's ``clay_op`` (which has no menu to hide a row) ran Join, Group or
+    # Mirror Copy while the document was in an element mode -- leaving
+    # ``selection`` holding objects with no ``element_sel`` behind them, the
+    # state ``Select None`` then greys out of and ``Delete`` answers ``ran``
+    # for with nothing deleted. ``Op.modes`` is the declared set, so it is the
+    # gate, here, for every caller (menu, key, tools pane, agent) at once.
+    if doc.element_mode not in op.modes:
+        toast(ctx, _wrong_mode_reason(op))
+        return False
     if not op.enabled(doc):
         return False
     try:
@@ -379,6 +392,19 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
     if op.params and before[0] != "object" and doc.history.head != head:
         _recent.record(doc, op.name, values, before)
     return True
+
+
+def _mode_list(modes: Iterable[str]) -> str:
+    """``("vertex", "edge", "face")`` -> "vertex, edge or face"."""
+    names = list(modes)
+    if len(names) == 1:
+        return names[0]
+    return f"{', '.join(names[:-1])} or {names[-1]}"
+
+
+def _wrong_mode_reason(op: Op) -> str:
+    """The sentence for an op asked to run in a mode it does not declare."""
+    return f"Switch to {_mode_list(op.modes)} mode first."
 
 
 def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
@@ -429,6 +455,7 @@ def run_mesh_op(
     what a user selecting faces across two objects means by pressing the button
     once.
     """
+    from ....kernels.mesh import selection
     from ....kernels.mesh.elements import OpError
 
     ran = False
@@ -436,6 +463,13 @@ def run_mesh_op(
         try:
             obj = doc.by_uid(uid)
         except KeyError:
+            continue
+        # The 2026-10-07 audit's clay-11: an object hidden after it was picked
+        # keeps its element selection, and this loop rewrote it -- 8 vertices
+        # to 32 on a box the user could not see -- while the op drag's preview
+        # and every other element door (``_element_pickable``) skipped it, so
+        # the preview showed one result and the commit made another.
+        if not selection._element_pickable(obj):
             continue
         try:
             mesh, sel = func(obj.mesh, doc.element_sel_of(uid), **params)
@@ -462,6 +496,15 @@ def run_object_op(
 
     The snapshot is taken before anything runs because ``doc.selection`` is live
     and several of these ops change it.
+
+    **``func`` may answer ``False`` to say it changed nothing** -- the 2026-10-07
+    audit's clay-41: Clear Parent on roots, Recalculate Normals on a primitive,
+    a Snap onto a grid the object already sat on and Origin to Bounds on an
+    empty all returned ``True`` from ``run`` with no step pushed, and an agent
+    read ``ran: true`` for a press that did nothing. Every ``ClayDoc`` door
+    these closures end in already answers "did anything change", so a closure
+    returns that. Any other return (``None``, ``True``) still counts as ran, so
+    a closure that has no way to be a no-op needs no change.
     """
     from ....kernels.mesh.elements import OpError
 
@@ -472,12 +515,56 @@ def run_object_op(
         except KeyError:
             continue
         try:
-            func(doc, obj)
+            changed = func(doc, obj)
         except OpError as error:
             toast(ctx, str(error))
             continue
-        ran = True
+        if changed is not False:
+            ran = True
     return ran
+
+
+def outliner_order(doc: Any) -> list[int]:
+    """Every object's uid in the order the outliner draws its rows: roots first
+    in document order, each followed by its whole subtree depth-first.
+
+    The 2026-10-07 audit's clay-08: Merge Objects and Parent to Last Selected
+    both say "the topmost selected object in the outliner" (the hint, the
+    manual), and both read ``doc.objects`` order instead -- which differs from
+    what the pane draws as soon as a group exists, because ``Group`` is added
+    *last* but drawn as a root above its children. Merging A (in Group) with Q
+    kept A while the outliner showed Q above it; Parent to Last on Group + A
+    refused a cycle the user could not see. This reproduces
+    ``ui/panes/outliner.py::_tree_rows``'s walk without importing it (this
+    module draws nothing), and
+    ``test_outliner_order_matches_the_outliner_pane_row_for_row`` holds the two
+    equal so they cannot drift.
+
+    An object the walk cannot reach (its parent chain never meets a root --
+    only a hand-built, cyclic document) is appended in document order rather
+    than dropped, so a selected one still has a rank.
+    """
+    children: dict[Any, list[int]] = {}
+    for obj in doc.objects:
+        children.setdefault(obj.parent, []).append(obj.uid)
+    order: list[int] = []
+    seen: set[int] = set()
+    stack = list(reversed(children.get(None, [])))
+    while stack:
+        uid = stack.pop()
+        if uid in seen:  # cycle guard, as ``ClayDoc.ancestors``
+            continue
+        seen.add(uid)
+        order.append(uid)
+        stack.extend(reversed(children.get(uid, [])))
+    order.extend(obj.uid for obj in doc.objects if obj.uid not in seen)
+    return order
+
+
+def _in_outliner_order(doc: Any, uids: Iterable[int]) -> list[int]:
+    """*uids* (any order) sorted topmost-first by :func:`outliner_order`."""
+    rank = {uid: i for i, uid in enumerate(outliner_order(doc))}
+    return sorted(uids, key=lambda uid: rank.get(uid, len(rank)))
 
 
 # --- predicates -------------------------------------------------------------
@@ -543,6 +630,20 @@ def _has_objects_reason(doc: Any) -> str:
 
 def _has_elements_reason(doc: Any) -> str:
     return "" if has_elements(doc) else "Select something in the viewport first."
+
+
+def _element_only_reason(doc: Any) -> str:
+    """The reason for an op that works in vertex, edge or face mode.
+
+    The 2026-10-07 audit's clay-42: Extrude, Select Linked and Origin to
+    Selection answered "Select something in the viewport first." in object
+    mode, where an object *is* selected and the viewport selection is exactly
+    what the user did -- the thing missing is the mode. Mode first, then the
+    selection, the order :func:`_in_mode_reason` already uses.
+    """
+    if doc.element_mode == "object":
+        return f"Switch to {_mode_list(ELEMENT_MODES)} mode first."
+    return _has_elements_reason(doc)
 
 
 def _has_any_selection_reason(doc: Any) -> str:
@@ -652,6 +753,49 @@ def _extrude(ctx: Any, doc: Any, **params: Any) -> bool:
     return which is not None and run_mesh_op(ctx, doc, which, **params)
 
 
+#: The largest weld distance Weld and Merge Objects accept, in metres. The
+#: 2026-10-07 audit's clay-43: both kept ``Param``'s 1e6 default ``high``, and a
+#: typed ``1e6`` (or a stray extra digit) welded every vertex of the mesh into
+#: one point and reported success. Fifty metres is far past any distance a
+#: user means for a *weld* -- a model is a few metres to a few tens across and a
+#: weld closes seams of millimetres -- so past it the number is a typo;
+#: :func:`_collapse_sentence` guards the in-range distances that are still too
+#: big for the object in front of them.
+MAX_WELD_DISTANCE = 50.0
+
+
+def _collapse_sentence(distance: float, what: str) -> str:
+    return (
+        f"A weld distance of {float(distance):g} m would collapse every face of {what}; "
+        "use a smaller distance."
+    )
+
+
+def _weld(ctx: Any, doc: Any, **params: Any) -> bool:
+    """Weld vertices closer than a distance -- ``ops_topo.weld`` per object, but
+    refusing a distance that leaves an object with no faces at all.
+
+    The refusal is per object (``run_mesh_op`` toasts it and carries on to the
+    next), so one object too small for the distance does not stop the others.
+    """
+    from ....kernels.mesh import mesh as bm
+    from ....kernels.mesh import ops_topo
+    from ....kernels.mesh.elements import OpError
+
+    distance = float(params.get("eps", 1e-4))
+
+    def guarded(mesh: Any, sel: Any, **kw: Any) -> Any:
+        out = ops_topo.weld(mesh, sel, **kw)
+        if bm.face_count(mesh) and not bm.face_count(out[0]):
+            raise OpError(_collapse_sentence(distance, "this object"))
+        return out
+
+    return run_mesh_op(ctx, doc, guarded, **params)
+
+
+_weld.kernel = "ops_topo.weld"  # type: ignore[attr-defined]
+
+
 def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
     from ....kernels.mesh import selection
 
@@ -662,11 +806,14 @@ def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
 def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
     """Merge every selected object into the topmost one in the outliner.
 
-    Document order rather than "the one clicked last": ``doc.selection`` is a
-    set and carries no order at all, so a target read out of it would be
-    whichever object the hash happened to put first -- and the name, transform
-    and material default that the merge keeps are the *target's*, which makes
-    that an arbitrary answer to a question the user can see the answer to.
+    Outliner order (:func:`outliner_order`) rather than "the one clicked last":
+    ``doc.selection`` is a set and carries no order at all, so a target read out
+    of it would be whichever object the hash happened to put first -- and the
+    name, transform and material default that the merge keeps are the
+    *target's*, which makes that an arbitrary answer to a question the user can
+    see the answer to. Outliner order and not ``doc.objects`` order, which this
+    docstring used to call the same thing: it is not once a group exists (the
+    2026-10-07 audit's clay-08).
 
     The geometry is ``clay.ops.join``'s and the bookkeeping is
     ``ClayDoc.join_objects``'s, which is this module's usual boundary; the one
@@ -689,12 +836,20 @@ def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
     first object's frame" contract), so the target's transform is untouched
     either way.
     """
+    from ....kernels.mesh import mesh as bm
     from ....kernels.mesh import ops as clay_ops_geom
+    from ....kernels.mesh.elements import OpError
 
-    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    visible = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    uids = _in_outliner_order(doc, visible)
     objs = [doc.by_uid(uid) for uid in uids]
     worlds = [doc.world_matrix(uid) for uid in uids]
     mesh = clay_ops_geom.join(objs, eps=float(weld), world=worlds)
+    # The 2026-10-07 audit's clay-43: the distance used to go up to 1e6 and a
+    # merge at it welded every vertex into one point -- an object with no
+    # faces, reported as a success. Refused with the number that did it.
+    if bm.face_count(mesh) == 0 and any(bm.face_count(o.mesh) for o in objs):
+        raise OpError(_collapse_sentence(weld, "these objects"))
     doc.join_objects(uids[0], mesh, uids[1:])
     doc.select([uids[0]])
 
@@ -952,14 +1107,16 @@ def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> bool:
     if not step > 0.0:
         raise el.OpError("The grid step must be above zero; a step of 0 has no grid to snap to.")
 
-    def one(doc: Any, obj: Any) -> None:
+    def one(doc: Any, obj: Any) -> bool:
         if obj.parent is None:
             snapped = clay_ops_geom.snap_translation(obj.translation, step)
         else:
             world = np.array(doc.world_matrix(obj.uid), dtype="f8", copy=True)
             world[:3, 3] = clay_ops_geom.snap_translation(world[:3, 3], step)
             snapped = doc.local_from_world(obj.uid, world)[0]
-        doc.set_transform(obj.uid, translation=snapped)
+        # The 2026-10-07 audit's clay-41: ``set_transform`` pushes nothing for a
+        # position already on the grid, and says so.
+        return doc.set_transform(obj.uid, translation=snapped)
 
     live = [uid for uid in doc.selection if any(o.uid == uid for o in doc.objects)]
     order = sorted(live, key=lambda uid: len(doc.ancestors(uid)))
@@ -1027,9 +1184,11 @@ def _ungroup(ctx: Any, doc: Any, **_: Any) -> bool:
     ``_shade``'s own face-mode branch already reads.
     """
 
-    def one(doc: Any, obj: Any) -> None:
-        if _is_group(doc, obj):
-            doc.remove_object(obj.uid)
+    def one(doc: Any, obj: Any) -> bool:
+        if not _is_group(doc, obj):
+            return False
+        doc.remove_object(obj.uid)
+        return True
 
     return run_object_op(ctx, doc, one)
 
@@ -1038,28 +1197,33 @@ def _parent_to_last(ctx: Any, doc: Any, **_: Any) -> bool:
     """Parent every other selected object onto the topmost one in the
     outliner.
 
-    The topmost selected object in document order is the new parent --
+    The topmost selected object in :func:`outliner_order` is the new parent --
     ``doc.selection`` is a set with no order of its own, the same reason
-    ``_join`` reads its own merge target out of ``doc.objects`` rather than
+    ``_join`` reads its own merge target from the outliner's order rather than
     out of the selection directly (see its docstring). "Last
     Selected" is Blender's own name for this gesture, which reads the
     *active* object; Clay has no such concept, so this reuses the identical
-    document-order tiebreak a user can see and predict, rather than
-    inventing a second one.
+    tiebreak a user can see and predict, rather than inventing a second one.
 
-    ``ClayDoc.set_parent`` is the door, one call per child -- it refuses a
-    cycle (parenting an object onto its own descendant) with its own
-    sentence, toasted and skipped by ``run_object_op`` exactly like every
-    other per-object refusal in this file, so one bad choice in a bigger
-    selection does not abandon the rest of it.
+    Because a parent is always drawn above its descendants, the target is never
+    a descendant of anything else selected, so this op cannot form a cycle.
+    Document order did not have that property -- it made the 2026-10-07
+    audit's clay-08 refusal ("cannot be parented to itself or one of its own
+    descendants") on a selection whose outliner order was perfectly legal.
+
+    ``ClayDoc.set_parent`` is the door, one call per child; an OpError from it
+    is toasted and skipped by ``run_object_op`` exactly like every other
+    per-object refusal in this file, so one bad choice in a bigger selection
+    does not abandon the rest of it.
     """
-    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    uids = _in_outliner_order(doc, (obj.uid for obj in doc.objects if obj.uid in doc.selection))
     if len(uids) < 2:
         return False
     target, *rest = uids
 
-    def one(doc: Any, obj: Any) -> None:
-        doc.set_parent(obj.uid, target, keep_world=True)
+    def one(doc: Any, obj: Any) -> bool:
+        # Already a child of the target: nothing changed (``set_parent`` says so).
+        return doc.set_parent(obj.uid, target, keep_world=True)
 
     # The 2026-10-07 audit's clay-38: the result of ``run_object_op`` is what
     # tells ``run`` that every parenting was refused (a cycle, say). Dropping it
@@ -1076,8 +1240,8 @@ def _clear_parent(ctx: Any, doc: Any, **_: Any) -> bool:
     that had somewhere to fall from.
     """
 
-    def one(doc: Any, obj: Any) -> None:
-        doc.set_parent(obj.uid, None, keep_world=True)
+    def one(doc: Any, obj: Any) -> bool:
+        return doc.set_parent(obj.uid, None, keep_world=True)
 
     return run_object_op(ctx, doc, one)
 
@@ -1144,12 +1308,12 @@ def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> bool:
     """
     from ....kernels.mesh import ops as clay_ops_geom
 
-    def one(doc: Any, obj: Any) -> None:
+    def one(doc: Any, obj: Any) -> bool:
         box = clay_ops_geom.world_box(obj, world=doc.world_matrix(obj.uid))
         if box is None:
-            return
+            return False
         lo, hi = box
-        doc.set_origin(obj.uid, (lo + hi) * 0.5)
+        return doc.set_origin(obj.uid, (lo + hi) * 0.5)
 
     return run_object_op(ctx, doc, one)
 
@@ -1162,12 +1326,12 @@ def _origin_to_base(ctx: Any, doc: Any, **_: Any) -> bool:
     """
     from ....kernels.mesh import ops as clay_ops_geom
 
-    def one(doc: Any, obj: Any) -> None:
+    def one(doc: Any, obj: Any) -> bool:
         box = clay_ops_geom.world_box(obj, world=doc.world_matrix(obj.uid))
         if box is None:
-            return
+            return False
         lo, hi = box
-        doc.set_origin(obj.uid, [(lo[0] + hi[0]) * 0.5, lo[1], (lo[2] + hi[2]) * 0.5])
+        return doc.set_origin(obj.uid, [(lo[0] + hi[0]) * 0.5, lo[1], (lo[2] + hi[2]) * 0.5])
 
     return run_object_op(ctx, doc, one)
 
@@ -1183,14 +1347,14 @@ def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> bool:
     """
     from ....kernels.mesh import elements as el
 
-    def one(doc: Any, obj: Any) -> None:
+    def one(doc: Any, obj: Any) -> bool:
         verts = el.affected_verts(obj.mesh, doc.element_sel_of(obj.uid))
         if len(verts) == 0:
-            return
+            return False
         local = np.asarray(obj.mesh.positions, dtype="f8")[verts].mean(axis=0)
         homogeneous = np.array([local[0], local[1], local[2], 1.0], dtype="f8")
         point = (doc.world_matrix(obj.uid) @ homogeneous)[:3]
-        doc.set_origin(obj.uid, point)
+        return doc.set_origin(obj.uid, point)
 
     return run_object_op(ctx, doc, one)
 
@@ -1199,8 +1363,8 @@ def _origin_to_world(ctx: Any, doc: Any, **_: Any) -> bool:
     """Move each selected object's origin to the world origin -- the one
     origin-* row that needs no measurement at all."""
 
-    def one(doc: Any, obj: Any) -> None:
-        doc.set_origin(obj.uid, [0.0, 0.0, 0.0])
+    def one(doc: Any, obj: Any) -> bool:
+        return doc.set_origin(obj.uid, [0.0, 0.0, 0.0])
 
     return run_object_op(ctx, doc, one)
 
@@ -1323,10 +1487,11 @@ def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> bool:
     """
     from ....kernels.mesh import ops_clean
 
-    def one(doc: Any, obj: Any) -> None:
+    def one(doc: Any, obj: Any) -> bool:
         mesh = ops_clean.recalc_outside(obj.mesh)
-        if mesh is not obj.mesh:
-            doc.set_mesh(obj.uid, mesh)
+        # ``set_mesh`` answers False for the identical mesh -- the common case,
+        # since every generator already emits outward winding.
+        return mesh is not obj.mesh and doc.set_mesh(obj.uid, mesh)
 
     return run_object_op(ctx, doc, one)
 
@@ -1360,10 +1525,15 @@ def _shade(smooth: bool) -> Callable[..., bool | None]:
     return run
 
 
-def _frame(ctx: Any, doc: Any, **_: Any) -> None:
+def _frame(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Frame the selection in the viewport. -> whether there was a viewport to
+    frame in: an agent's tab has none, and ``ran: true`` for a camera that did
+    not move is the 2026-10-07 audit's clay-41."""
     view = getattr(ctx, "clay_view", None)
-    if view is not None:
-        view.frame_selection(doc)
+    if view is None:
+        return False
+    view.frame_selection(doc)
+    return True
 
 
 def _select_all(ctx: Any, doc: Any, **_: Any) -> None:
@@ -1504,7 +1674,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_selection_op(_verb_linked),
             enabled=has_elements,
-            reason=_has_elements_reason,
+            reason=_element_only_reason,
             key="L",
             hint="Everything joined to what is selected. Two shapes welded into "
             "one mesh are separable again by it.",
@@ -1606,6 +1776,7 @@ def _register_defaults() -> None:
                     1e-4,
                     1e-4,
                     low=0.0,
+                    high=MAX_WELD_DISTANCE,
                     warn="0 keeps the shapes as separate shells inside one object.",
                 ),
             ),
@@ -1661,7 +1832,7 @@ def _register_defaults() -> None:
             run=_snap_to_grid,
             enabled=has_objects,
             reason=_has_objects_reason,
-            hint="Snaps every selected object's translation onto a grid of "
+            hint="Snaps every selected object's world position onto a grid of "
             "the given step, one axis at a time.",
             params=(Param("step", "grid step (m)", 1.0, 0.1, low=0.0),),
         )
@@ -1710,8 +1881,8 @@ def _register_defaults() -> None:
             reason=_has_two_or_more_selected_reason,
             hint="Parents every other selected object onto the topmost one "
             "in the outliner, keeping world placement -- Clay has no "
-            "'active object', so document order stands in for it, the same "
-            "rule Merge Objects uses for its own target.",
+            "'active object', so the outliner's order stands in for it, the "
+            "same rule Merge Objects uses for its own target.",
         )
     )
     register(
@@ -1786,7 +1957,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_origin_to_selection,
             enabled=has_elements,
-            reason=_has_elements_reason,
+            reason=_element_only_reason,
             hint="Moves each selected object's origin to its own element "
             "selection's centroid.",
         )
@@ -1810,7 +1981,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_extrude,
             enabled=has_elements,
-            reason=_has_elements_reason,
+            reason=_element_only_reason,
             key="E",
         )
     )
@@ -1873,10 +2044,12 @@ def _register_defaults() -> None:
             name="weld",
             label="Weld...",
             modes=("vertex",),
-            run=_element("ops_topo.weld"),
+            run=_weld,
             enabled=in_mode("vertex"),
             reason=_in_mode_reason("vertex"),
-            params=(Param("eps", "distance (m)", 1e-4, 1e-4, low=1e-9),),
+            params=(
+                Param("eps", "distance (m)", 1e-4, 1e-4, low=1e-9, high=MAX_WELD_DISTANCE),
+            ),
         )
     )
     register(

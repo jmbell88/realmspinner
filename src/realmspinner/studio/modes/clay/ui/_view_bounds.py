@@ -25,6 +25,22 @@ CLOSEST_ZOOM = 0.02
 class BoundsOps:
     """``ClayView``'s centres, bounds and framing. See the module docstring."""
 
+    @staticmethod
+    def _ancestor_uids(index: dict[int, Any], obj: Any) -> list[int]:
+        """``doc.ancestors(obj.uid)`` read through *index* -- the same walk
+        (nearest first; a dangling parent or a revisit ends it), no scan."""
+        out: list[int] = []
+        seen = {obj.uid}
+        current = obj.parent
+        while current is not None and current not in seen:
+            parent = index.get(current)
+            if parent is None:
+                break
+            out.append(current)
+            seen.add(current)
+            current = parent.parent
+        return out
+
     # -- selection and framing ---------------------------------------------
 
     def selection_centre(self: ClayView, doc: Any) -> np.ndarray | None:
@@ -160,11 +176,12 @@ class BoundsOps:
         # The pin: see ``element_centre``. Every object whose ids the key names
         # is held alive for as long as the memo can match on them.
         pins: list[Any] = [doc]
+        index = self._uid_index(doc)
         for obj in doc.objects:
             pins.extend((obj.mesh, obj.translation, obj.rotation, obj.scale))
             if not obj.visible or (selected_only and obj.uid not in doc.selection):
                 continue
-            box = self._object_world_box(doc, obj)
+            box = self._object_world_box(doc, obj, index)
             if box is None:
                 continue
             lo = np.minimum(lo, box[0])
@@ -174,7 +191,9 @@ class BoundsOps:
         self._bounds_memo[selected_only] = (key, out, tuple(pins))
         return out
 
-    def _object_world_box(self: ClayView, doc: Any, obj: Any) -> tuple[Any, Any] | None:
+    def _object_world_box(
+        self: ClayView, doc: Any, obj: Any, index: dict[int, Any] | None = None
+    ) -> tuple[Any, Any] | None:
         """``ops.world_box`` over the object's mesh, and deliberately nothing else.
 
         It used to be a second copy of the same eight corners, which is how the
@@ -189,10 +208,13 @@ class BoundsOps:
         actually is. A root's world matrix is exactly its own local TRS (see
         ``document.py``'s module docstring), so an unparented document is
         measured exactly as it always was.
+
+        ``index`` is :meth:`_uid_index`'s map, so a pass over every object
+        resolves each ancestor chain without a document scan (clay-21).
         """
         from .....kernels.mesh import ops as bops
 
-        return bops.world_box(obj, obj.mesh, world=self._world(doc, obj))
+        return bops.world_box(obj, obj.mesh, world=self._world(doc, obj, index))
 
     def frame_selection(self: ClayView, doc: Any) -> float:
         """Put the selection -- or the whole document -- on screen.

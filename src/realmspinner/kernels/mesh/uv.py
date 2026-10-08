@@ -24,6 +24,16 @@ shared squares. (The 2026-10-07 audit's clay-52: this paragraph used to say a
 box's six faces are laid out in a cross by its own generator; it has not been
 since the box began calling the cube projection.)
 
+**v runs down the image (glTF's convention), the one convention ``Mesh.uv`` has.**
+Row 0 of a texture is v = 0, which is what the viewport's sampler, the GLB
+writer, the NEAREST export and the OBJ importer/exporter already read, so a wall
+whose top edge is at the top of the model has the *smaller* v there. The
+2026-10-07 audit's clay-03: this module and the generators in
+:mod:`.primitives` wrote v as model height (v up), so a picture painted
+top-red in Inker rendered top-blue on every box wall. A face seen from outside
+and reading upright in a v-down image therefore has a *negative* signed uv area
+in plain (u, v) axes; that sign is the convention, not a mirrored face.
+
 Everything here is pure: numpy and :mod:`~.mesh`, nothing from ``service``,
 ``queue`` or ``studio``, so every rule about where a corner lands is assertable
 from a hand-built mesh.
@@ -48,9 +58,11 @@ __all__ = ["box_unwrap"]
 # the *negative* way has its u mirrored within the object's own footprint, which
 # is what keeps lettering on the far side of a box the right way round.
 _AXES: tuple[tuple[int, int], ...] = (
-    # clay-11: the right-handed cyclic pairs, so a face pointing the + way has
-    # positive signed uv area seen from outside (the old (Z,Y) and (X,Z) pairs
-    # mirrored every X and Y face); the negative way flips u below.
+    # clay-11: the right-handed cyclic pairs, so every face reads the same way
+    # round seen from outside (the old (Z,Y) and (X,Z) pairs mirrored every X and
+    # Y face); the negative way flips u below. ``v`` is written as ``1 - height``
+    # (see the module docstring), which turns that handedness's signed uv area
+    # negative for every face -- the sign of an upright, unmirrored v-down face.
     (1, 2),  # X-facing: u from Y, v from Z
     (2, 0),  # Y-facing: u from Z, v from X
     (0, 1),  # Z-facing: u from X, v from Y
@@ -130,7 +142,8 @@ def _projected(mesh: Mesh, axes: np.ndarray, *, normals: np.ndarray | None = Non
         # square and without it one of the pair reads mirrored.
         facing = normals[face_of[which], axis] < 0.0
         uv[which, 0] = np.where(facing, extent[u_axis] - u, u)
-        uv[which, 1] = corner_pos[which, v_axis]
+        # v down the image: the top of the model is the small v (clay-03).
+        uv[which, 1] = 1.0 - corner_pos[which, v_axis]
 
     from dataclasses import replace
 

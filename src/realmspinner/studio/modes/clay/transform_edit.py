@@ -21,7 +21,7 @@ which is why that stays a read-only line underneath.)
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Hashable, Sequence
 from typing import Any
 
 import numpy as np
@@ -29,8 +29,10 @@ import numpy as np
 from ....kernels.geom3d import math3d as m3
 from ....kernels.mesh import mesh as bm
 
-#: ``uid -> (quaternion the angles were made from, the angles)``.
-EulerCache = dict[int, tuple[tuple[float, ...], tuple[float, float, float]]]
+#: ``key -> (quaternion the angles were made from, the angles)``. The key is
+#: ``(tab uid, object uid)`` in the panel (``props.euler_key``): object uids are
+#: only unique within one document, and the cache is shared by every tab.
+EulerCache = dict[Hashable, tuple[tuple[float, ...], tuple[float, float, float]]]
 
 #: A mesh flatter than this on an axis has nothing to scale a size *from*.
 FLAT_EXTENT = 1e-9
@@ -42,7 +44,7 @@ _SAME_QUAT = 1e-9
 
 
 def displayed_euler(
-    cache: EulerCache, uid: int, quat: Sequence[float]
+    cache: EulerCache, uid: Hashable, quat: Sequence[float]
 ) -> tuple[float, float, float]:
     """The angles to show for *uid*'s rotation, stable while it has not moved."""
     q = tuple(float(v) for v in quat)
@@ -55,7 +57,7 @@ def displayed_euler(
 
 
 def remember_euler(
-    cache: EulerCache, uid: int, quat: Sequence[float], euler: Sequence[float]
+    cache: EulerCache, uid: Hashable, quat: Sequence[float], euler: Sequence[float]
 ) -> None:
     """Pin what was just typed against the quaternion it produced."""
     x, y, z = (float(v) for v in euler)

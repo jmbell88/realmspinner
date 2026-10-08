@@ -108,15 +108,28 @@ def axis_matrix(*, scale: float, up: str) -> np.ndarray:
     Z-up file into glTF's Y up / Z toward viewer. That matrix's determinant is
     +1 -- a rotation, not a mirror -- so :func:`~.mesh.transformed` (what
     :mod:`.meshimport` runs this through for STL/PLY/GLB) never has to reverse a
-    winding on its account; ``scale`` alone would only ever be non-negative in
-    practice, but a caller who passes one is not refused here.
+    winding on its account.
+
+    **``scale`` must be finite and positive.** The 2026-10-07 audit's clay-59:
+    only the GLB route refused a zero scale (by way of a singular inverse), so
+    OBJ, STL and PLY imported every vertex at the origin, and a negative scale
+    mirrored the model without reversing its winding -- an inside-out mesh. A
+    mirror on import is not something the UI offers (it has unit scales only),
+    so it is refused rather than made winding-correct; one door, one rule,
+    for every format.
     """
     if up not in ("y", "z"):
         raise OpError(f"Unknown up-axis {up!r}; import expects 'y' or 'z'.")
+    try:
+        factor = float(scale)
+    except (TypeError, ValueError) as exc:
+        raise OpError(f"Import scale {scale!r} is not a number.") from exc
+    if not math.isfinite(factor) or factor <= 0.0:
+        raise OpError(f"Import scale must be a positive, finite number, not {scale!r}.")
     m = np.eye(4, dtype="f8")
     if up == "z":
         m[:3, :3] = [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]
-    m[:3, :3] *= float(scale)
+    m[:3, :3] *= factor
     return m
 
 
@@ -356,21 +369,36 @@ def obj_to_claydoc(
     # how many of them the file declared.
     tri_budget = 0
     object_budget = 1  # the implicit first object, before any "o"/"g" line
-    vertex_budget = 0
+    v_lines = 0
+    vt_lines = 0
+    corner_lines = 0
     material_names: set[str] = {""}  # the implicit unnamed material
     for line in lines:
         head = line.split(None, 1)[0]
         if head == "f":
             corners = len(line.split()) - 1
             tri_budget += max(0, corners - 2)
+            corner_lines += max(0, corners)
         elif head in ("o", "g"):
             object_budget += 1
-        elif head in ("v", "vt"):
-            vertex_budget += 1
+        elif head == "v":
+            v_lines += 1
+        elif head == "vt":
+            vt_lines += 1
         elif head == "usemtl":
             parts = line.split(None, 1)
             if len(parts) > 1:
                 material_names.add(parts[1].strip())
+    # The 2026-10-07 audit's clay-27: this counted every ``v`` and ``vt`` line
+    # against the one ceiling, but the ceiling bounds *unreferenced* data (see
+    # ``MAX_VERTEX_LINES``) and Clay's own export writes one ``vt`` per face
+    # corner -- a UV-mapped mesh of 768,800 triangles exported 2.3 million of
+    # them and Clay refused to reopen its own file, blaming unreferenced data.
+    # A ``vt`` line a face corner could reference is not unreferenced data, so
+    # the allowance for them is the file's own face-corner count (parsed
+    # regardless, and bounded for triangles by the triangle budget below):
+    # only the ``vt`` lines beyond one per corner count against the ceiling.
+    vertex_budget = v_lines + max(0, vt_lines - corner_lines)
     if tri_budget > MAX_TRIANGLES:
         raise OpError(
             f"This OBJ has {tri_budget:,} triangles (n-gons counted by corners "
@@ -502,6 +530,18 @@ def obj_to_claydoc(
                 raise OpError(f"OBJ has a non-numeric 'vt' line: {line!r}") from exc
             if not math.isfinite(u) or not math.isfinite(v):
                 raise OpError(f"OBJ has a non-finite 'vt' line: {line!r}")
+            # The 2026-10-07 audit's clay-29: the finite check above is float64
+            # and ``flush`` stores float32, so ``vt 1e39 0`` became an infinite
+            # uv in a document that opened fine, whose own OBJ export wrote
+            # ``vt inf 0`` -- a line this importer then refused. Measured after
+            # the same cast and the same v flip, as the ``v`` door above does.
+            with np.errstate(over="ignore"):
+                uv_fits = bool(np.isfinite(np.array([u, 1.0 - v], dtype="f4")).all())
+            if not uv_fits:
+                raise OpError(
+                    f"OBJ has a 'vt' line too large for Clay's float32 texture "
+                    f"coordinates: {line!r}"
+                )
             texcoords_all.append((u, 1.0 - v))  # OBJ v-up -> glTF v-down
         elif head == "vn":
             continue  # read for nothing; see the module docstring

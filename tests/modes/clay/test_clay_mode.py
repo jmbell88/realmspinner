@@ -1183,6 +1183,7 @@ def test_closing_a_tab_clears_a_live_familiar_preview(svc) -> None:
     clay_mode.ensure(ctx)
     ctx.clay_view = SimpleNamespace(
         cleared=0, grabbing=False, dragging=False, clear=lambda: None,
+        cancel_marquee=lambda: False,  # close_tab now drops a live marquee (clay-85)
     )
     ctx.clay_view.clear_preview = lambda: setattr(
         ctx.clay_view, "cleared", ctx.clay_view.cleared + 1

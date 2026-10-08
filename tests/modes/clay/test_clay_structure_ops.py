@@ -251,25 +251,26 @@ def test_parent_to_last_parents_the_rest_onto_the_topmost_selected_object() -> N
     assert np.allclose(doc.world_matrix(bottom.uid), bottom_world_before)
 
 
-def test_parent_to_last_refuses_a_cycle_with_a_toast() -> None:
+def test_parent_to_last_refuses_a_parenting_the_document_refuses_with_a_toast() -> None:
     doc = bd.ClayDoc()
-    # Child is added first, so it is topmost in document order and becomes
-    # the target ``parent-to-last`` would parent everything else onto --
-    # including its own actual parent, Grandparent, which is exactly the
-    # cycle ``set_parent`` exists to refuse.
+    # The outliner draws Par first, so it is the target. Its zero scale means
+    # nothing can be placed relative to it, which ``set_parent`` refuses. (This
+    # test used to build a cycle -- child added first, so topmost in *document*
+    # order -- but the target is the outliner's topmost, which a selected
+    # ancestor always precedes, so that cycle is no longer reachable through the
+    # op: the 2026-10-07 audit's clay-08.)
+    par = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Par", mesh=bp.box()))
     child = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Child", mesh=bp.box()))
-    grandparent = doc.add_object(bd.Obj(uid=bd.new_uid(), name="GP", mesh=bp.box()))
-    doc.set_parent(child.uid, grandparent.uid, keep_world=False)
-    doc.select([child.uid, grandparent.uid])
+    doc.set_transform(par.uid, scale=[0.0, 1.0, 1.0])
+    doc.select([child.uid, par.uid])
     depth = len(doc.history)
     ctx = _Ctx()
 
     clay_ops.run(ctx, doc, clay_ops.get("parent-to-last"))
 
-    assert ctx.toasts.errors, "the document's own cycle refusal reached the toast"
-    assert "descendant" in ctx.toasts.errors[0] or "itself" in ctx.toasts.errors[0]
-    assert doc.by_uid(child.uid).parent == grandparent.uid, "unchanged"
-    assert doc.by_uid(grandparent.uid).parent is None, "unchanged"
+    assert ctx.toasts.errors, "the document's own refusal reached the toast"
+    assert "zero scale" in ctx.toasts.errors[0]
+    assert doc.by_uid(child.uid).parent is None, "unchanged"
     assert len(doc.history) == depth, "the refused reparent pushed nothing"
 
 

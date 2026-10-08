@@ -37,7 +37,29 @@ class PickOps:
 
     # -- picking -----------------------------------------------------------
 
-    def pick_face(self: ClayView, doc: Any, local: tuple[float, float]) -> Hit | None:
+    @staticmethod
+    def _uid_index(doc: Any) -> dict[int, Any]:
+        """One uid -> object map for one event or frame, first-seen winning as
+        ``by_uid`` would answer.
+
+        The 2026-10-07 audit's clay-21: the clay-27 fix gave ``_composite`` this
+        map and left every other ``_world`` caller on ``doc.by_uid`` /
+        ``doc.ancestors``, each a linear ``index_of`` scan -- so a hover pick,
+        a ``world_bounds`` per drag frame and an element-mode overlay pass were
+        still N scans of N (520 ms a pick, 918 ms a drag frame at 4,096
+        objects). Built once per call by the entry points and handed down.
+        """
+        index: dict[int, Any] = {}
+        for obj in doc.objects:
+            index.setdefault(obj.uid, obj)
+        return index
+
+    def pick_face(
+        self: ClayView,
+        doc: Any,
+        local: tuple[float, float],
+        index: dict[int, Any] | None = None,
+    ) -> Hit | None:
         """What a click lands on: which object, how far, and which *face*.
 
         Object space per object, with the AABB prefilter, so the ray goes
@@ -50,19 +72,31 @@ class PickOps:
         cannot possibly have moved a triangle. That cache is finally what makes
         ``tri_face`` earn its place: it maps the triangle the ray hit back to
         the n-gon the user thinks they clicked.
+
+        ``index`` is :meth:`_uid_index`'s map for this event; one is built here
+        when the caller has none, so no per-object ``_world`` scans the document
+        (the 2026-10-07 audit's clay-21: a hover pick at 4,096 objects cost
+        520 ms).
         """
         origin, direction = self._ray(local)
+        if index is None:
+            index = self._uid_index(doc)
         best: Hit | None = None
         for obj in doc.objects:
             if not obj.visible:
                 continue
-            hit = self._pick_face_on(doc, obj, origin, direction)
+            hit = self._pick_face_on(doc, obj, origin, direction, index)
             if hit is not None and (best is None or hit.t < best.t):
                 best = hit
         return best
 
     def _pick_face_on(
-        self: ClayView, doc: Any, obj: Any, origin: Any, direction: Any
+        self: ClayView,
+        doc: Any,
+        obj: Any,
+        origin: Any,
+        direction: Any,
+        index: dict[int, Any] | None = None,
     ) -> Hit | None:
         """One object's own nearest face hit, ignoring every other object.
 
@@ -82,7 +116,7 @@ class PickOps:
         hit = picking.ray_object(
             origin,
             direction,
-            self._world(doc, obj),
+            self._world(doc, obj, index),
             positions,
             tris,
             # Positions and tree both come from the same frozen mesh, so
@@ -105,7 +139,9 @@ class PickOps:
         hit = self.pick_face(doc, local)
         return None if hit is None else hit.uid
 
-    def screen_of(self: ClayView, doc: Any, uid: int) -> Any:
+    def screen_of(
+        self: ClayView, doc: Any, uid: int, index: dict[int, Any] | None = None
+    ) -> Any:
         """One object's vertices projected into the viewport, for element picking.
 
         Built here rather than in ``clay/pick.py`` because it is the only step
@@ -117,13 +153,18 @@ class PickOps:
         200k-vertex import reprojected per move is the difference between a
         viewport and a slideshow -- while a camera that has not moved makes the
         key hit and the whole thing free.
+
+        ``index`` is :meth:`_uid_index`'s map: a caller projecting every object
+        (element pick, the marquee) passes one so neither the object lookup nor
+        the world matrix scans the document (clay-21). ``KeyError`` for an
+        unknown uid either way, as ``by_uid`` raises.
         """
         from .....kernels.mesh import pick as bp
 
-        obj = doc.by_uid(uid)
+        obj = doc.by_uid(uid) if index is None else index[uid]
         width, height = int(max(self._rect[2], 1)), int(max(self._rect[3], 1))
         self.camera.aspect = width / max(height, 1)
-        matrix = self._world(doc, obj)
+        matrix = self._world(doc, obj, index)
         key = (
             id(obj.mesh),
             matrix.tobytes(),
@@ -174,8 +215,11 @@ class PickOps:
         if mode == "object":
             return None
         xray = getattr(self, "xray", False)
+        # One map for the whole pick (clay-21), shared by the surface cast, the
+        # per-object projection and the X-ray face recast below.
+        index = self._uid_index(doc)
         if hit is None:
-            hit = self.pick_face(doc, local)
+            hit = self.pick_face(doc, local, index)
         # X-ray is see-through for the pick as well as the draw: with no
         # surface depth the nearest element wins wherever it sits, which is
         # what ``clay_state.xray`` and the Clay chapter say it does.
@@ -193,30 +237,30 @@ class PickOps:
         for obj in doc.objects:
             if not obj.visible:
                 continue
-            screen = self.screen_of(doc, obj.uid)
+            screen = self.screen_of(doc, obj.uid, index)
             if mode == "vertex":
-                index = bp.nearest_vertex(screen, local, surface_depth=depth)
+                found = bp.nearest_vertex(screen, local, surface_depth=depth)
             elif mode == "edge":
-                index = bp.nearest_edge(
+                found = bp.nearest_edge(
                     screen, adjacency(obj.mesh).edge_verts, local, surface_depth=depth
                 )
             elif xray:
-                face_hit = self._pick_face_on(doc, obj, origin, direction)
-                index = None if face_hit is None or face_hit.face < 0 else face_hit.face
+                face_hit = self._pick_face_on(doc, obj, origin, direction, index)
+                found = None if face_hit is None or face_hit.face < 0 else face_hit.face
             else:
-                index = hit.face if hit is not None and hit.uid == obj.uid else None
-                index = None if index is not None and index < 0 else index
-            if index is None:
+                found = hit.face if hit is not None and hit.uid == obj.uid else None
+                found = None if found is not None and found < 0 else found
+            if found is None:
                 continue
             if mode == "vertex":
-                key = float(screen.depth[index])
+                key = float(screen.depth[found])
             elif mode == "edge":
                 # The mean of the endpoints' depths -- the same reading
                 # ``nearest_edge`` compared against the surface. This was a
                 # constant 0.0, so with two objects' edges under the cursor
                 # the earlier one in ``doc.objects`` always won regardless of
                 # which edge was nearer the camera.
-                a, b = adjacency(obj.mesh).edge_verts[index]
+                a, b = adjacency(obj.mesh).edge_verts[found]
                 key = 0.5 * (float(screen.depth[a]) + float(screen.depth[b]))
             elif xray:
                 # Multiple objects can each have a face candidate under
@@ -228,7 +272,7 @@ class PickOps:
                 # only it ever reaches here with a face index.
                 key = 0.0
             if best is None or key < best[0]:
-                best = (key, obj.uid, int(index))
+                best = (key, obj.uid, int(found))
         return None if best is None else (best[1], best[2])
 
     def element_sel_for(self: ClayView, doc: Any, uid: int, index: int) -> Any:

@@ -408,8 +408,9 @@ class RblkSnapshot:
     either.
 
     ``meshes`` holds each object's mesh **by reference**, paired with the uid
-    that names its archive member. That is sound under INVARIANTS 312: a
-    ``Mesh`` is an immutable CSR array -- every array is copied and frozen at
+    that names its archive member. That is sound under the INVARIANTS paragraph
+    that opens "A mesh is an immutable CSR array": a ``Mesh`` is that -- every
+    array is copied and frozen at
     construction, and every op is ``Mesh -> Mesh`` -- so a reference taken here
     keeps meaning exactly what it meant when the snapshot was built, however
     many edits land on the *live* document before the task thread gets to it.
@@ -518,6 +519,19 @@ def _refuse_unreadable(snap: RblkSnapshot) -> None:
     for uid, mesh in snap.meshes:
         label = names.get(uid, f"uid {uid}")
         _refuse_non_finite(mesh, f"the mesh of the object {label!r}")
+        # The 2026-10-07 audit's clay-25: ``npyguard.read_array`` refuses one
+        # array over ``MAX_ARRAY_BYTES`` and this writer checked no such thing,
+        # so a mesh the legacy bake (or an import) had grown past it saved and
+        # then could never be reopened. Same number, read at call time.
+        for field_name in (*_MESH_FIELDS, "uv"):
+            array = getattr(mesh, field_name)
+            if array is not None and array.nbytes > npyguard.MAX_ARRAY_BYTES:
+                raise ValueError(
+                    f"the mesh of the object {label!r} has a {field_name} array of "
+                    f"{array.nbytes:,} bytes, past the {npyguard.MAX_ARRAY_BYTES:,} "
+                    "this build will read back; saving it would write a file it "
+                    "cannot open again"
+                )
 
 
 def snapshot_bytes(snap: RblkSnapshot) -> bytes:
@@ -734,6 +748,16 @@ def _vector(entry: dict[str, Any], key: str, default: tuple[float, ...]) -> Any:
     if key in ("rotation", "scale") and not np.any(value):
         noun = "the zero quaternion, not a rotation at all" if key == "rotation" else "zero"
         raise ValueError(f"an object in this clay document has a {key} that is {noun}")
+    # The 2026-10-07 audit's clay-69: a finite, non-zero but non-unit
+    # quaternion read as it stood, and ``quat_to_mat4`` does not normalise,
+    # so Clay drew a scaled and sheared object while the exported node
+    # carried the same four numbers and every engine normalised them. Only
+    # a quaternion off unit length is touched, so a unit one keeps its
+    # exact bits through a round trip. Divided by its largest component
+    # first: squaring 1e200 overflows the norm to ``inf``.
+    if key == "rotation" and abs(float(np.linalg.norm(value)) - 1.0) > 1e-6:
+        value = value / np.abs(value).max()
+        value = value / np.linalg.norm(value)
     return value
 
 
@@ -775,7 +799,7 @@ def _material_index(entry: dict[str, Any]) -> int:
     """
     material = entry.get("material", 0)
     try:
-        return int(material)
+        index = int(material)
     except (TypeError, ValueError, OverflowError) as exc:
         # clay-document-07, the 2026-09-26 audit: ``int(float("inf"))`` raises
         # ``OverflowError`` rather than ``ValueError`` -- and Python's own
@@ -785,6 +809,15 @@ def _material_index(entry: dict[str, Any]) -> int:
         raise ValueError(
             "an object in this clay document has a material that is not a number"
         ) from exc
+    # The 2026-10-07 audit's clay-70: ``regen`` stamps this into an i4 array on
+    # the first rebuild that changes a face count, and 5,000,000,000 raised
+    # ``OverflowError`` on the frame thread -- a mesh's own material array is i4,
+    # so a default outside it names nothing a face could carry.
+    if not -(2**31) <= index < 2**31:
+        raise ValueError(
+            "an object in this clay document has a material outside the range Clay stores"
+        )
+    return index
 
 
 def _generator(entry: dict[str, Any]) -> str | None:

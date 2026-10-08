@@ -59,7 +59,10 @@ def _doc(ctx: _Ctx, session: agent_clay.Session) -> Any:
 def test_clay_separate_reply_stays_under_the_frame_budget_for_the_most_pieces_the_kernel_allows() -> None:  # noqa: E501
     ctx = _Ctx()
     session = agent_clay.Session()
-    n = 9000
+    # The largest split a document can hold and save: the pieces replace their
+    # source, so the most is the object ceiling (the 2026-10-07 audit's clay-13
+    # lowered ``MAX_SEPARATE_PIECES`` to it; 9,000 used to be allowed).
+    n = 4096
     positions = []
     faces = []
     for i in range(n):

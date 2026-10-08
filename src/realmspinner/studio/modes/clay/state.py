@@ -16,6 +16,7 @@ the user should have to redo on every tab switch.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Hashable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -96,6 +97,10 @@ class ClayTab(docmodes.HistoryTab):
     # raster editor's sense: a built asset is a *snapshot*, and editing the
     # document afterwards does not change the mesh already on disk.
     job_id: str = ""
+    # The last plain mesh file or screenshot this tab wrote (Export GLB/OBJ, Save
+    # screenshot): the Document tab names it under the export buttons. Session
+    # state like ``job_id``; a saved ``.rblk`` carries neither.
+    exported_path: str = ""
 
     # Tranche 6: the UV pane's own pan/zoom and island selection. See
     # ``UvPaneState``'s own docstring (``ui/panes/uv.py``) for why it is a
@@ -297,15 +302,19 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # tab, ``tool``'s reason: they are how the user is *looking*.
     #
     # ``euler_cache`` is what makes a typed rotation survive its own frame:
-    # see ``transform_edit``'s module docstring. Keyed by uid, like every
-    # address here, and tiny (one entry per object whose rotation was shown).
+    # see ``transform_edit``'s module docstring. Keyed by ``(tab uid, object
+    # uid)`` (``props.euler_key``) and tiny (one entry per object whose rotation
+    # was shown). The 2026-10-07 audit's clay-23: it was keyed on the bare object
+    # uid while this state is shared by every tab, and two separately authored
+    # files both carry uids 1 and 2, so a rotation typed into one tab's object
+    # was shown for the other's.
     length_unit: str = "m"
     # Why the adjust card's last re-run was refused ("" when it was not), kept
     # here so the card can print it on the frames after the refusal. Cleared
     # by the card itself the moment the recent op stops being live.
     adjust_message: str = ""
     size_lock_aspect: bool = False
-    euler_cache: dict[int, tuple[tuple[float, ...], tuple[float, float, float]]] = field(
+    euler_cache: dict[Hashable, tuple[tuple[float, ...], tuple[float, float, float]]] = field(
         default_factory=dict
     )
 

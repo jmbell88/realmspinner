@@ -94,6 +94,10 @@ OUTWARD_IMPORTS = {
     # the one quaternion convention ``ops.py`` already uses); only
     # ``serialize`` may import it, so a version-3 file still opens.
     ("legacy.py", "realmspinner.kernels.geom3d"),
+    # The 2026-10-07 audit's clay-25: the bake's vertex-growth guard asks the
+    # same ``npyguard.MAX_ARRAY_BYTES`` the reader and the writer hold an array
+    # to, so a mesh it hands back is one ``serialize`` can both save and reopen.
+    ("legacy.py", "realmspinner.core.safeio"),
 }
 
 #: Which modules of ``kernels.geom3d``, since the entry above is recorded at

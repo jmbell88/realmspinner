@@ -74,6 +74,7 @@ from .validate import (
     _tab,
     _validate_query_arg,
     _validate_unit,
+    _whole_number,
     fail,
     image_png,
     ok,
@@ -139,6 +140,10 @@ def _h_element_mode(ctx: Any, session: Session, args: dict) -> dict:
     return _json({"mode": doc.element_mode, "objects": objects})
 
 
+_KIND_OF_MODE = {"vertex": "verts", "edge": "edges", "face": "faces"}
+_MODE_OF_KIND = {kind: mode for mode, kind in _KIND_OF_MODE.items()}
+
+
 def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     """Select vertices, edges or faces of one object by explicit index. See
     the tool's own description in ``agent_clay.tools`` for the full contract
@@ -157,6 +162,33 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
     mode = args.get("mode")
     if mode is not None and mode not in el.MODES:
         return fail(f"mode must be one of {', '.join(el.MODES)}.", field="mode")
+
+    # The 2026-10-07 audit's clay-36: with no ``mode`` in object mode this wrote
+    # ``doc.element_sel`` while the document stayed "object" -- a state the
+    # document never otherwise holds (entering object mode clears it) -- and in
+    # face mode ``verts=[...]`` was stored as a vertex selection, so ``clay_op
+    # extrude`` said "Select at least one face" while ``clay_elements`` reported
+    # vertices. The selection's kind must be the effective mode's currency.
+    effective = mode if mode is not None else doc.element_mode
+    currency = _KIND_OF_MODE.get(effective)
+    if currency is None:
+        who = "this document is in object mode" if mode is None else "mode 'object'"
+        return fail(
+            f"{who}, which selects whole objects (clay_select), not elements "
+            "-- give mode='vertex', 'edge' or 'face' to select elements.",
+            field="mode",
+            recovery="switch_mode",
+        )
+    for kind, kind_mode in _MODE_OF_KIND.items():
+        given = args.get(kind)
+        # An empty list names nothing, so it is harmless in any mode.
+        if kind != currency and given is not None and given != []:
+            return fail(
+                f"{kind} cannot be selected in {effective} mode, which selects "
+                f"{currency}; give {currency}, or mode={kind_mode!r}.",
+                field=kind,
+                recovery="fix_arguments",
+            )
 
     how = args.get("how", "replace")
     if how not in ("replace", "add", "subtract"):
@@ -179,7 +211,7 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
         try:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
             # ``int(float("inf"))`` raises it, uncaught here before this fix.
-            vert_arr = [int(v) for v in verts_arg]
+            vert_arr = [_whole_number(v) for v in verts_arg]
         except (TypeError, ValueError, OverflowError):
             return fail("verts must be a list of integers.", field="verts")
         bad = [v for v in vert_arr if not (0 <= v < n_verts)]
@@ -198,7 +230,7 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
         try:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
             # ``int(float("inf"))`` raises it, uncaught here before this fix.
-            face_arr = [int(f) for f in faces_arg]
+            face_arr = [_whole_number(f) for f in faces_arg]
         except (TypeError, ValueError, OverflowError):
             return fail("faces must be a list of integers.", field="faces")
         bad = [f for f in face_arr if not (0 <= f < n_faces)]
@@ -218,7 +250,7 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
         try:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
             # ``int(float("inf"))`` raises it, uncaught here before this fix.
-            pairs = [[int(a), int(b)] for a, b in edges_arg]
+            pairs = [[_whole_number(a), _whole_number(b)] for a, b in edges_arg]
         except (TypeError, ValueError, OverflowError):
             return fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
         # The 2026-10-03 audit's agents-15: an integer past int32 (a bare
@@ -275,7 +307,8 @@ def _check_expect_stamp(
     :func:`_h_select_elements` and :func:`_h_select_by`, both of which refuse
     a stale stamp before touching the mode or the selection."""
     try:
-        expect_stamp = int(expect_stamp)
+        # ``_whole_number``: the 2026-10-07 audit's clay-35.
+        expect_stamp = _whole_number(expect_stamp)
     except (TypeError, ValueError, OverflowError):
         return None, fail("expect_stamp must be an integer.", field="expect_stamp")
     current = doc.mesh_stamp(uid)
@@ -359,6 +392,17 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
             return failure
         values[arg_name] = value
 
+    if name == "bounds" and any(
+        lo > hi for lo, hi in zip(values["min"], values["max"], strict=True)
+    ):
+        # The 2026-10-07 audit's clay-74: an inverted box contains nothing, and
+        # the call answered success with zero elements selected.
+        return fail(
+            "min must not be above max on any axis -- the box would be empty.",
+            field="min",
+            recovery="fix_arguments",
+        )
+
     if "direction" in values:
         # An agent reads translation/rotation/scale off clay_scene in world
         # space, so a direction it names ("up", "the way this object is
@@ -375,8 +419,8 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
         space = args.get("space", "world")
         if space not in ("world", "local"):
             return fail("space must be 'world' or 'local'.", field="space")
-        lo = np.asarray(values["min"], dtype="f8")
-        hi = np.asarray(values["max"], dtype="f8")
+        lo = values["min"]
+        hi = values["max"]
         # ``_q_bounds`` (this query's own ``run``) always measures against
         # the mesh's own local positions -- it has no ``positions=`` hook to
         # ask it for anything else -- so "world" is resolved here instead,
@@ -389,11 +433,17 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
             if space == "world"
             else None
         )
-        pts = np.asarray(obj.mesh.positions if positions is None else positions, dtype="f8")
+        pts = np.asarray(obj.mesh.positions if positions is None else positions)
         if len(pts) == 0:
             sel = el.empty()
         else:
-            inside = np.all((pts >= lo) & (pts <= hi), axis=1)
+            # ``select.points_in_box`` compares in float32, the precision the
+            # positions are stored in. The 2026-10-07 audit's clay-17: this
+            # inline test widened them to float64 against an exact box, so a
+            # box equal to the object's own extent (``box(0.6)`` stores 0.3 as
+            # a float32 above 0.3) selected nothing and an agent copying bounds
+            # from ``clay_scene`` got an empty or partial selection.
+            inside = bsel.points_in_box(pts, lo, hi)
             sel = el.ElementSel(
                 verts=np.flatnonzero(inside).astype("i4"),
                 faces=bsel.faces_in_bounds(obj.mesh, lo, hi, positions=positions),
@@ -430,7 +480,7 @@ def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
 
     offset = args.get("offset", 0)
     try:
-        offset = int(offset)
+        offset = _whole_number(offset)
     except (TypeError, ValueError, OverflowError):
         return fail("offset must be an integer.", field="offset")
     if offset < 0:
@@ -438,7 +488,7 @@ def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
 
     limit = args.get("limit", ELEMENT_PAGE_DEFAULT)
     try:
-        limit = int(limit)
+        limit = _whole_number(limit)
     except (TypeError, ValueError, OverflowError):
         return fail("limit must be an integer.", field="limit")
     if not (1 <= limit <= ELEMENT_PAGE_MAX):
@@ -653,7 +703,7 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
         size = 1024
     else:
         try:
-            size = int(size_arg)
+            size = _whole_number(size_arg)
         except (TypeError, ValueError, OverflowError):
             return fail("size must be an integer.", field="size")
         # Refused, not clamped: the schema declares ``minimum: 64, maximum:

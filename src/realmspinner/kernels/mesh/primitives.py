@@ -113,7 +113,7 @@ import numpy as np
 
 from . import curves as _curves
 from .mesh import Mesh
-from .mesh import from_faces as _mesh
+from .mesh import from_faces as _from_faces
 
 # The low-end clamps. A slider dragged to zero must not be able to produce a
 # mesh ``validate`` rejects, and clamping is the right shape for a control that
@@ -760,6 +760,31 @@ def _is_non_finite(value: Any, depth: int = 0) -> bool:
     return False
 
 
+#: The largest magnitude a float32 position holds. ``Mesh.positions`` is f4, so a
+#: parameter past it builds a mesh of ``inf`` however finite it is as a float64.
+F4_MAX = float(np.finfo("f4").max)
+
+
+def _exceeds_float32(value: Any, depth: int = 0) -> bool:
+    """Whether *value* is, or holds at any depth, a number float32 cannot hold.
+
+    The companion of :func:`_is_non_finite` for the range the built mesh stores
+    its coordinates in. It runs on the numbers as given, before any clamp, so a
+    count of ``1e39`` is refused too rather than quietly clamped to a ceiling
+    nobody asked for.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        try:
+            return abs(float(value)) > F4_MAX
+        except OverflowError:
+            return True
+    if isinstance(value, (list, tuple, np.ndarray)) and depth < 4:
+        return any(_exceeds_float32(v, depth + 1) for v in value)
+    return False
+
+
 def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     """The values ``GENERATORS[generator][1]`` will actually build from ``params``.
 
@@ -812,6 +837,18 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     for key, value in params.items():
         if _is_non_finite(value):
             raise ValueError(f"{generator} {key} must be finite numbers.")
+        # The 2026-10-07 audit's clay-04: the test above is float64's, but the
+        # built positions are float32. A cylinder radius of 1e39 is finite and
+        # came through, built a mesh of ``inf``, and was recorded as the
+        # object's params -- a document that could then not be saved, journalled
+        # or exported (about 56 generator/parameter pairs, all reachable from the
+        # Properties panel as well as the agent). Refused here by name, before
+        # any mesh exists.
+        if _exceeds_float32(value):
+            raise ValueError(
+                f"{generator} {key} is too large: a coordinate cannot pass "
+                f"{F4_MAX:.3e} (float32)."
+            )
     out = dict(params)
     for key, clamp in _KEY_CLAMPS.items():
         if key in out:
@@ -896,12 +933,26 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-# ``_mesh`` is ``mesh.from_faces`` (imported above under this name) --
+# ``_mesh`` is :func:`.mesh.from_faces` (imported above as ``_from_faces``) --
 # promoted there so ``studio/modes/clay/agent/dispatch.py``'s ``clay_add_mesh`` can build a CSR
 # mesh from agent-supplied corner loops without a second copy of this exact
 # assembly. Kept under the original name here rather than renamed at each of
 # the fifteen call sites below, which cost nothing to leave alone; see
 # :func:`.mesh.from_faces` for the real docstring.
+#
+# **It also turns v over, and that is the only thing it adds.** ``Mesh.uv`` is
+# glTF's convention, v down the image (row 0 of a texture is v = 0), and the
+# generators below were written with v as height -- v = 0 at the bottom, a
+# sphere's v = 1 at the north pole. The 2026-10-07 audit's clay-03 found every
+# picture painted in Inker rendering upside down on them for that reason. The
+# arithmetic in each generator stays as it was written, a layout in a
+# bottom-left-origin square, and ``1 - v`` happens once, here, on the way into
+# the mesh. ``from_faces`` itself does not flip: ``clay_add_mesh`` hands it
+# an agent's own uv, which is already in the mesh convention.
+def _mesh(positions: Any, faces: Sequence[Sequence[int]], uv: Any = None) -> Mesh:
+    if uv is not None:
+        uv = [[(float(u), 1.0 - float(v)) for u, v in face] for face in uv]
+    return _from_faces(positions, faces, uv)
 
 
 def _disc_uv(segments: int, centre: tuple[float, float], radius: float, reverse: bool = False):
@@ -2884,8 +2935,10 @@ once check in ``tests/modes/clay/test_primitives.py``) assert exactly that over
 every generator this set does not name.
 
 It is registry data, not test data, for the same reason :data:`CATEGORIES` is:
-a thirteenth generator that is legitimately open -- a ribbon, a fan, anything
-else with a boundary -- has to be able to say so where the shape is defined,
+a further generator that is legitimately open -- a ribbon, a fan, anything
+else with a boundary (the registry already holds twenty-one; this sentence
+once counted the thirteenth, which the 2026-10-07 audit's clay-72 found stale)
+-- has to be able to say so where the shape is defined,
 not by editing a set two directories away that the shape itself never sees.
 Before this constant existed, that set was ``OPEN`` in
 ``tests/modes/clay/test_primitives.py`` itself, which is the thing the tests using

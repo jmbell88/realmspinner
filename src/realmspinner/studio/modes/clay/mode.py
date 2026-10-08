@@ -23,6 +23,12 @@ encodes both moved into ``build_asset`` (2026-09-09), called from ``run()``,
 so the same one chain also serves the agent's synchronous export -- see its
 docstring.
 
+**The screenshot was the last holdout** (the 2026-10-07 audit's clay-49):
+``save_screenshot`` drew *and* PNG-encoded 2048x2048 on the frame thread through
+``ClayView.render_png``. The GL draw and readback still have to run there -- one
+context -- but only the readback: ``_raw_capture`` makes that one call return the
+pixels, and ``_encode_png`` deflates them inside ``run()``.
+
 Two consequences follow, and both were bugs in the raster editor before they
 were rules here.
 
@@ -127,7 +133,15 @@ def _settle_drag_on_tab_switch(ctx: Any, state: ClayState, old_uid: str) -> None
     if uv_view is not None and uv_view.drag_mode in ("rotate", "scale"):
         _settle_uv_gesture(tab.doc, uv_view, commit=True)
     view = getattr(ctx, "clay_view", None)
-    if view is None or not getattr(view, "dragging", False):
+    if view is None:
+        return
+    # The 2026-10-07 audit's clay-85: a marquee is a grab but not a transform
+    # drag, so the ``dragging`` gate below never saw it and its release swept the
+    # old rectangle into whichever document had become active. A rectangle is a
+    # gesture, not an edit -- dropped, not committed -- and it is dropped here
+    # unconditionally because the gate cannot know about it.
+    view.cancel_marquee()
+    if not getattr(view, "dragging", False):
         return
     view.settle_drag(tab.doc)
 
@@ -421,6 +435,20 @@ def open_path(ctx: Any, path: Path) -> None:
 SLOW_TRIANGLES = 200_000
 
 
+def _triangles_of(doc: Any) -> int:
+    """The triangles a document fans into -- the unit :data:`SLOW_TRIANGLES`, the
+    dialog and the manual all name.
+
+    The 2026-10-07 audit's clay-50: this was ``len(mesh.starts) - 1``, which is
+    *faces*, so a quad-heavy hand-built mesh (two triangles a face) crossed the
+    manual's "about 200,000 triangles" at half that. ``serialize.triangle_count``
+    is the one count the reader and the writer charge against their own ceiling.
+    """
+    from ....kernels.mesh import serialize
+
+    return sum(serialize.triangle_count(obj.mesh) for obj in doc.objects)
+
+
 #: A material library is a few lines per material; anything this large is
 #: not one, and reading it would only feed the parser noise.
 MAX_MTL_BYTES = 4 * 1024 * 1024
@@ -494,11 +522,16 @@ def import_mesh_path(
 
         data = _within_mesh_ceiling(path)
         mtl = _sibling_mtl(path, data) if path.suffix.lower() == ".obj" else None
-        doc = meshimport.import_file(
+        doc, skipped = meshimport.import_file_report(
             data, path.suffix, path.stem, scale=use_scale, up=use_up, mtl=mtl
         )
-        triangles = sum(max(len(obj.mesh.starts) - 1, 0) for obj in doc.objects)
-        return {"doc": doc, "title": path.stem, "triangles": triangles}
+        triangles = _triangles_of(doc)
+        return {
+            "doc": doc,
+            "title": path.stem,
+            "triangles": triangles,
+            "skipped_textures": skipped,
+        }
 
     ctx.submit(f"clay-import:{_path_key(path)}", run)
 
@@ -538,11 +571,16 @@ def ask_import_mesh(ctx: Any) -> None:
         # called ``_sibling_mtl``) got the colours right. Same file, same
         # lookup, so the two routes agree.
         mtl = _sibling_mtl(path, data) if path.suffix.lower() == ".obj" else None
-        doc = meshimport.import_file(
+        doc, skipped = meshimport.import_file_report(
             data, path.suffix, path.stem, scale=use_scale, up=use_up, mtl=mtl
         )
-        triangles = sum(max(len(obj.mesh.starts) - 1, 0) for obj in doc.objects)
-        return {"doc": doc, "title": path.stem, "triangles": triangles}
+        triangles = _triangles_of(doc)
+        return {
+            "doc": doc,
+            "title": path.stem,
+            "triangles": triangles,
+            "skipped_textures": skipped,
+        }
 
     ctx.submit("clay-import", run)
 
@@ -589,11 +627,9 @@ def _parse_glb(data: bytes, name: str) -> dict[str, Any]:
     """Blocking; task thread only. Raises rather than returning a broken tab."""
     from ....kernels.mesh import glbimport
 
-    doc = glbimport.glb_to_claydoc(data, name=name)
-    triangles = sum(
-        max(len(obj.mesh.starts) - 1, 0) for obj in doc.objects
-    )
-    return {"doc": doc, "title": name, "triangles": triangles}
+    doc, skipped = glbimport.glb_to_claydoc_report(data, name=name)
+    triangles = _triangles_of(doc)
+    return {"doc": doc, "title": name, "triangles": triangles, "skipped_textures": skipped}
 
 
 def _adopt_import(ctx: Any, result: dict[str, Any]) -> None:
@@ -602,28 +638,47 @@ def _adopt_import(ctx: Any, result: dict[str, Any]) -> None:
     # A ``.rblk`` sidecar carries a camera; a GLB does not, and ``None`` is
     # simply "frame it", which is what an import has always done.
     view = result.get("view")
+    skipped = int(result.get("skipped_textures", 0) or 0)
     if int(result.get("triangles", 0)) <= SLOW_TRIANGLES:
-        adopt(ctx, doc, title=title, view=view)
-        _enter_clay(ctx)
+        _adopt_now(ctx, doc, title, view, skipped)
         return
     ctx.confirms.ask(
         dialogs.Confirm(
             title="Edit this mesh in Clay?",
             message=(
-                f"{int(result['triangles']):,} faces. Editing will be slow -- "
+                f"{int(result['triangles']):,} triangles. Editing will be slow -- "
                 "every edit rebuilds the whole mesh, and the undo history holds "
                 "two copies per step."
             ),
             confirm_label="Edit anyway",
             cancel_label="Cancel",
-            on_confirm=lambda: _adopt_now(ctx, doc, title, view),
+            on_confirm=lambda: _adopt_now(ctx, doc, title, view, skipped),
         )
     )
 
 
-def _adopt_now(ctx: Any, doc: Any, title: str, view: dict[str, Any] | None = None) -> None:
+def _adopt_now(
+    ctx: Any,
+    doc: Any,
+    title: str,
+    view: dict[str, Any] | None = None,
+    skipped_textures: int = 0,
+) -> None:
+    """Land an import on the frame thread, and say so when a texture was lost.
+
+    The 2026-10-07 audit's clay-07: the loader has always counted the images it
+    could not use, but the import returned only a document, so a textured model
+    arrived grey with no hint why. The count rides the task half's result and
+    the toast is raised here -- the task thread publishes, the frame thread
+    speaks. ``warn``, not ``info``: the model is not what the file described.
+    """
+    from ....kernels.mesh import glbimport
+
     adopt(ctx, doc, title=title, view=view)
     _enter_clay(ctx)
+    notice = glbimport.skipped_textures_notice(skipped_textures)
+    if notice is not None:
+        ctx.toast(notice, "warn")
 
 
 # --- saving -----------------------------------------------------------------
@@ -836,9 +891,14 @@ def build_asset(
     model = bd.to_model(doc)
     snap = serialize.snapshot(doc, view=view)
     glb = glbwrite.write_glb(model)
+    # Encoded *before* the row is minted (the 2026-10-07 audit's clay-13):
+    # ``snapshot_bytes`` refuses a document past the object or triangle ceilings,
+    # and doing it after ``import_mesh`` left a finished Library row with no
+    # ``.rblk`` sidecar behind a refused export.
+    source = serialize.snapshot_bytes(snap)
     result = svc_jobs.import_mesh(svc, glb, name=title, prompt=prompt or title)
     job_id = result["id"]
-    svc_files.save_clay_source(svc, job_id, serialize.snapshot_bytes(snap))
+    svc_files.save_clay_source(svc, job_id, source)
     return job_id
 
 
@@ -925,6 +985,41 @@ def _refuse_foreign_sidecars(targets: dict[Path, bytes], primary: Path) -> None:
             )
 
 
+def retarget_export_names(
+    obj_text: str, mtl_text: str, *, title: str, stem: str, indices: list[int]
+) -> tuple[str, str]:
+    """Rewrite the file names ``claydoc_to_obj`` wrote against the tab's *title*
+    so they name the files actually written under the dialog's *stem*.
+
+    **Line-anchored, never a substring replace.** The 2026-10-07 audit's clay-64:
+    this was ``str.replace(old, new, 1)`` over the finished text, and the ``.mtl``
+    carries a ``# Clay material name: <name>`` comment ahead of each ``map_Kd``
+    line -- a material named ``map_Kd Scene_1.png`` put the old text first, so the
+    replace edited the comment and the real line kept naming a file that was never
+    written. Only a whole ``mtllib`` / ``map_Kd`` line is rewritten, the first of
+    each, so a comment or an ``o`` line can never match.
+    """
+    from ....kernels.mesh import objexport
+
+    def retarget(text: str, old: str, new: str) -> str:
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            if line == old:
+                lines[i] = new
+                break
+        return "\n".join(lines)
+
+    safe_title, safe_stem = objexport.safe_name(title), objexport.safe_name(stem)
+    obj_text = retarget(obj_text, f"mtllib {safe_title}.mtl", f"mtllib {safe_stem}.mtl")
+    for index in indices:
+        mtl_text = retarget(
+            mtl_text,
+            f"map_Kd {objexport.texture_name(title, index)}",
+            f"map_Kd {objexport.texture_name(stem, index)}",
+        )
+    return obj_text, mtl_text
+
+
 def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
     """Save the document as a plain mesh file on disk -- GLB or OBJ+MTL --
     beside :func:`export_asset`'s library export.
@@ -989,16 +1084,10 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
             # carries (a ``#`` or a trailing backslash is neutralised there), and
             # the ``.mtl`` and PNGs are written under that same form: a name the
             # OBJ line holds and no file answers to is a grey import.
-            safe_title, safe_stem = objexport.safe_name(title), objexport.safe_name(stem)
-            text = obj_text.replace(f"mtllib {safe_title}.mtl", f"mtllib {safe_stem}.mtl", 1)
-            # The same rename for every ``map_Kd``: a texture is written as
-            # ``<stem>_<index>.png`` so the .mtl names the files actually beside it.
-            for index in pngs:
-                mtl_text = mtl_text.replace(
-                    f"map_Kd {objexport.texture_name(title, index)}",
-                    f"map_Kd {objexport.texture_name(stem, index)}",
-                    1,
-                )
+            safe_stem = objexport.safe_name(stem)
+            text, mtl_text = retarget_export_names(
+                obj_text, mtl_text, title=title, stem=stem, indices=list(pngs)
+            )
             # One set, staged whole (the 2026-10-07 audit's clay-07). Four
             # separate ``write_bytes`` calls put the ``.obj`` on disk first, so a
             # PNG that then failed left an ``.obj``/``.mtl`` naming a texture that
@@ -1022,14 +1111,60 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
     _start(ctx, tab, f"clay-exportfile:{tab.uid}", run)
 
 
+def _raw_capture() -> Any:
+    """A context manager that makes ``capture.png_bytes`` hand back the RGB pixels
+    as a PIL image instead of PNG bytes -- the GL readback and nothing else.
+
+    The 2026-10-07 audit's clay-49: ``ClayView.render_png`` ends in
+    ``capture.png_bytes``, which reads the framebuffer *and* deflates a
+    2048x2048 PNG (0.2 s of PIL encode alone), all on the frame thread, against
+    this module's rule that no encode runs there. The readback must stay on the
+    frame thread (the one GL context); the encode does not. Swapped for the
+    duration of one ``render_png`` call, on the frame thread, where every other
+    capture (thumbnails, agent renders) is also taken, and put back in the
+    ``finally``.
+    """
+    import contextlib
+
+    from ...viewer import capture
+
+    @contextlib.contextmanager
+    def manager() -> Any:
+        real = capture.png_bytes
+
+        def pixels(viewport: Any, *, opaque: bool = True) -> Any:
+            image = capture.image(viewport)
+            return image.convert("RGB") if opaque else image
+
+        capture.png_bytes = pixels
+        try:
+            yield
+        finally:
+            capture.png_bytes = real
+
+    return manager()
+
+
+def _encode_png(picture: Any) -> bytes:
+    """PNG bytes for what :func:`_raw_capture` handed over (task thread). A fake
+    or older view that already returned bytes passes straight through."""
+    if isinstance(picture, bytes):
+        return picture
+    import io
+
+    buffer = io.BytesIO()
+    picture.save(buffer, "PNG")
+    return buffer.getvalue()
+
+
 def save_screenshot(ctx: Any, tab: ClayTab | None = None) -> None:
     """Save a still of the document, as the user has it posed and framed.
 
     Drawn offscreen through the live camera (``frame=False``: the picture is
     the angle the user chose, not one this call picks), lit, with no gizmos,
     overlays or grid -- a picture of the subject, not of the editor. The GL
-    draw and the PNG encode happen here on the frame thread; only the dialog
-    and the write go to a task.
+    draw and its readback happen here on the frame thread (the one context);
+    the PNG encode, the dialog and the write go to a task.
     """
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -1042,7 +1177,10 @@ def save_screenshot(ctx: Any, tab: ClayTab | None = None) -> None:
         ctx.toast("This window has no viewport to take a screenshot from.", "error")
         return
     try:
-        png = view.render_png(tab.doc, size=SCREENSHOT_SIZE, frame=False, shading="lit")
+        with _raw_capture():
+            picture = view.render_png(
+                tab.doc, size=SCREENSHOT_SIZE, frame=False, shading="lit"
+            )
     except Exception:
         log.exception("could not render a Clay screenshot")
         ctx.toast("That document could not be rendered.", "error", "log")
@@ -1054,7 +1192,7 @@ def save_screenshot(ctx: Any, tab: ClayTab | None = None) -> None:
         if path is None:
             return None
         path = _with_extension(path, ".png")
-        atomic.write_bytes(path, png)
+        atomic.write_bytes(path, _encode_png(picture))
         return {"path": str(path), "exported_file": True}
 
     _start(ctx, tab, f"clay-exportfile:{tab.uid}", run)
@@ -1139,6 +1277,10 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # clean -- unlike ``exported`` (the library asset) and the save
         # branch below, this touches neither ``mark_saved`` nor the journal:
         # the document itself is exactly as saved or dirty as it was before.
+        # The path goes on the tab so the Document tab can name it under the export
+        # buttons (the 2026-10-07 audit's clay-09): the manual promised a line naming
+        # the last file written and the toast was the only trace of it.
+        tab.exported_path = str(result["path"])
         ctx.toast(f"Exported to {result['path']}.")
         return
 
@@ -1231,6 +1373,9 @@ def close_tab(ctx: Any, uid: str) -> None:
             # every close costs nothing.
             view.clear_preview()
         if view is not None and tab.uid == state.active_uid:
+            # The marquee belongs to the tab being drawn, and ``clear`` below
+            # does not reach it (the 2026-10-07 audit's clay-85).
+            view.cancel_marquee()
             if getattr(view, "dragging", False):
                 # Before the clear, and against the document it was started on:
                 # a drag holds the mesh it is moving.
@@ -1304,14 +1449,39 @@ _DRAG_BLOCKED_CTRL = frozenset({"z", "y", "n", "o", "tab", "w", "s"})
 # keyboard.
 
 
-def undo(ctx: Any, tab: Any) -> None:
-    """One step back, whichever surface asked for it."""
-    tab.doc.undo()
+def _gesture_live(ctx: Any, tab: Any) -> bool:
+    """Whether a live gesture is writing into the document right now: a 3-D
+    G/R/S or gizmo drag, or the UV pane's armed live rotate/scale.
 
+    Both mutate the geometry in place and commit (or cancel) against the history
+    head they started from, so anything that moves that head underneath them
+    loses a step. Duck-typed on ``ctx.clay_view`` and ``tab.uv_view`` (the mode
+    root may not import ``ui/``); ``None`` for either reads as "no gesture".
+    """
+    if getattr(getattr(ctx, "clay_view", None), "dragging", False):
+        return True
+    uv_view = getattr(tab, "uv_view", None)
+    return uv_view is not None and uv_view.drag_mode in ("rotate", "scale")
+
+
+def undo(ctx: Any, tab: Any) -> None:
+    """One step back, whichever surface asked for it.
+
+    Refused while a live gesture is under way (the 2026-10-07 audit's clay-12):
+    only the Ctrl+Z chord was gated, so the header's Undo button, which a mouse
+    can still reach mid-G/R/S, rewound the history under a drag whose ``was``
+    snapshot predated it and the commit then left a state no history position
+    held -- a user step silently lost.
+    """
+    if _gesture_live(ctx, tab):
+        return
+    tab.doc.undo()
 
 
 def redo(ctx: Any, tab: Any) -> None:
     """One step forward. :func:`undo`'s twin, and its reasoning."""
+    if _gesture_live(ctx, tab):
+        return
     tab.doc.redo()
 
 
@@ -1329,9 +1499,12 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     no bookkeeping for the recent op (``ClayDoc.recent_op``): the adjust card
     is live only while the history head is the step the op pushed, so moving
     the head hides it by itself.
+
+    Refused (-> ``False``) under a live gesture, for :func:`undo`'s reason.
     """
 
-    del ctx
+    if _gesture_live(ctx, tab):
+        return False
     return tab.doc.step_history(index)
 
 
@@ -1534,6 +1707,14 @@ def handle_key(ctx: Any, event: Any) -> bool:
         state.xray = not state.xray
         return True
 
+    if alt:
+        # The 2026-10-07 audit's clay-46: ``alt`` was read for H and Z and then
+        # ignored, so Alt+E extruded, Alt+G set the Move tool and Alt+1 set vertex
+        # mode -- chords the manual never gives a meaning (Alt is the mode switch's
+        # modifier). Consumed, not acted on: falling through would let the bare
+        # binding below fire, and returning False would hand the key to a pane.
+        return True
+
     if name in ELEMENT_KEYS and not shift:
         if not tab.saving:
             doc.set_element_mode(ELEMENT_KEYS[name])
@@ -1721,13 +1902,16 @@ def _ctrl_key(
     if docmodes.blocked_while_writing(tab, name, _MUTATING_CTRL):
         return True
     view = getattr(ctx, "clay_view", None)
-    if getattr(view, "dragging", False) and name in _DRAG_BLOCKED_CTRL:
+    if _gesture_live(ctx, tab) and name in _DRAG_BLOCKED_CTRL:
         # A live gizmo drag mutates the geometry in place and commits on
         # release. Ctrl+Z under it undid a step the release then re-applied;
         # Ctrl+N/Tab/O/W swapped the tab out from under the grab and left the
         # moved vertices with no edit and ``dirty`` false. The chords that
         # change history or the tab wait for the release; the view chords and
-        # the object ops go on working.
+        # the object ops go on working. The 2026-10-07 audit's clay-47: the UV
+        # pane's armed live rotate/scale is the same kind of gesture and was not
+        # covered -- three Ctrl+Z took a head three steps back to nothing with
+        # the preview still armed, and Ctrl+Y was the only way back.
         return True
     if name in AXIS_VIEW_KEYS or name == "5":
         view = getattr(ctx, "clay_view", None)

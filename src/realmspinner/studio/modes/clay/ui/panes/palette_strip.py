@@ -59,19 +59,28 @@ def click_hint(doc: Any) -> str:
     """
     mode = doc.element_mode
     one = swatches.single_selected(doc) is not None
+    # The 2026-10-07 audit's clay-38: the Ctrl+click clause and the vertex/edge
+    # "picks the slot" sentence were shown for any number of objects, but
+    # ``swatches.click_slot`` retargets Properties only with exactly one object
+    # selected -- with none or several the press does nothing of the sort.
+    edit = (
+        "Ctrl+click edits this slot in Properties."
+        if one
+        else "Select one object to edit its slot."
+    )
     if mode == "face":
         if clay_ops.get("assign-material").enabled(doc):
-            return "Click paints the selected faces. Ctrl+click edits this slot in Properties."
-        return "Select faces to paint them. Ctrl+click edits this slot in Properties."
+            return f"Click paints the selected faces. {edit}"
+        return f"Select faces to paint them. {edit}"
     if mode == "object":
         if not doc.selection:
             return "Select an object to repaint it with a swatch."
-        return (
-            "Click repaints the selected object. Ctrl+click edits this slot in Properties."
-            if one
-            else "Click repaints every selected object."
-        )
-    return "Click picks the slot Properties edits. Switch to face mode (3) to paint faces."
+        if one:
+            return f"Click repaints the selected object. {edit}"
+        return f"Click repaints every selected object. {edit}"
+    if one:
+        return "Click picks the slot Properties edits. Switch to face mode (3) to paint faces."
+    return f"{edit} Switch to face mode (3) to paint faces."
 
 
 def slot_label(doc: Any, index: int) -> str:

@@ -246,9 +246,13 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         if b.parent != s.parent:
             parent_changed[uid] = s.parent
 
-    order_changed = [u for u in base_uids if u in common] != [
-        u for u in scratch_uids if u in common
-    ]
+    # The 2026-10-07 audit's clay-24: this compared the common uids only, so an
+    # object the scratch inserted mid-list (``separate`` puts its pieces where
+    # the source stood) never set it and ``transplant`` appended them. What
+    # transplant produces without a reorder is the common objects in base
+    # order, then the added ones; the preview's order is what the user approved.
+    produced = [u for u in base_uids if u in common] + [u for u in scratch_uids if u in added]
+    order_changed = produced != scratch_uids
     materials_changed = len(base.materials) != len(scratch.materials) or any(
         a is not b for a, b in zip(base.materials, scratch.materials, strict=False)
     )
@@ -360,7 +364,22 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
             # order. The document's object order is what the outliner, the
             # exports and ``order_changed`` below all read.
             added_objs = [o for o in scratch.objects if o.uid in diff_.added]
-            doc.add_objects(added_objs)
+            try:
+                doc.add_objects(added_objs)
+            except el.OpError:
+                # ``add_objects`` refuses a batch that would take the document
+                # past the object or triangle ceiling the writer enforces, and
+                # the base may have grown since the preview was built (or the
+                # removals above may have failed). The refusal arrives after
+                # the removals above were already pushed, so an Apply that let
+                # it propagate left half of itself on the undo stack. Apply
+                # lands whole or not at all: whatever this call pushed is
+                # reversed and forgotten (no redo of a half-apply), and the
+                # caller sees the same ``False`` as for a preview with nothing
+                # to apply.
+                while doc.history.head != mark and doc.undo_unrecorded():
+                    pass
+                return False
 
         for uid, new_parent in diff_.parent_changed.items():
             if uid in diff_.added:
@@ -383,7 +402,9 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
             # object is elsewhere in this function: the base object, or the
             # intended new parent, may have been removed since the preview
             # was shown.
-            with contextlib.suppress(el.OpError):
+            # ``KeyError`` too (the 2026-10-07 audit's clay-55): the document's
+            # doors raise it, not an OpError, for a uid that vanished.
+            with contextlib.suppress(el.OpError, KeyError):
                 doc.set_parent(uid, new_parent, keep_world=False)
 
         touched = (diff_.mesh_changed | set(diff_.props_changed)) - diff_.added
@@ -395,11 +416,12 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                 # the whole transplant against this docstring's own "the
                 # rest of the transplant still lands" -- so it is
                 # tolerated, and the loop moves on.
-                with contextlib.suppress(el.OpError):
+                with contextlib.suppress(el.OpError, KeyError):
                     doc.set_mesh(uid, s.mesh, keep_generator=True)
             fields = diff_.props_changed.get(uid)
             if fields:
-                doc.set_props(uid, **{f: getattr(s, f) for f in fields})
+                with contextlib.suppress(KeyError):
+                    doc.set_props(uid, **{f: getattr(s, f) for f in fields})
 
         for uid in diff_.transform_changed - diff_.added:
             s = scratch.by_uid(uid)
@@ -407,7 +429,7 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
             # clay-13 incident: an uncaught refusal here aborted every
             # transform still queued behind it in this loop, not just this
             # object's own.
-            with contextlib.suppress(el.OpError):
+            with contextlib.suppress(el.OpError, KeyError):
                 doc.set_transform(
                     uid, translation=s.translation, rotation=s.rotation, scale=s.scale
                 )
@@ -425,6 +447,11 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
     finally:
         doc.history.collapse_since(mark)
 
+    # The 2026-10-07 audit's clay-55: when every door was a no-op nothing was
+    # pushed, ``top`` was the user's own previous step, and it was relabelled
+    # as the agent's. Only a head that actually moved past the mark is ours.
+    if doc.history.head == mark:
+        return TransplantResult(kept_materials=kept_materials) if kept_materials else False
     top = doc.history.top
     if top is not None:
         top.label = "Familiar: agent preview applied"

@@ -111,8 +111,13 @@ def _add_source(ctx: Any, state: Any, tab: Any, section: Any) -> None:
                 if not opened:
                     continue
                 for name in names:
-                    if controls.menu_item(f"{clay_tools.display_name(name)}##{BAR}/add/{name}")[0]:
-                        clay_tools.add_primitive(ctx, doc, name)
+                    # The refusing door (the 2026-10-07 audit's clay-13): a full
+                    # document is a toast, and the remembered shape moves only
+                    # for a shape that was placed.
+                    clicked = controls.menu_item(
+                        f"{clay_tools.display_name(name)}##{BAR}/add/{name}"
+                    )[0]
+                    if clicked and clay_tools.place_primitive(ctx, doc, name) is not None:
                         state.generator = name
     elif section.source == "import":
         controls.menu_separator()

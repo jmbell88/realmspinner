@@ -31,7 +31,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from . import mesh as bm
-from .adjacency import check_manifold
+from .adjacency import cached_triangulation, closed_facts
 
 __all__ = [
     "angle",
@@ -86,7 +86,12 @@ def face_area(
     )
     if len(face_idx) == 0:
         return 0.0
-    tri_corners, tri_face = bm.triangulate(mesh)
+    # Cached against the mesh (the 2026-10-07 audit's clay-18): the Properties
+    # pane asks for the area of the same selection every frame, and the uncached
+    # ``bm.triangulate`` re-fanned the whole mesh each time (194 ms at 200k
+    # triangles) for a mesh that is immutable and was already triangulated for
+    # the picker.
+    tri_corners, tri_face = cached_triangulation(mesh)
     if len(tri_corners) == 0:
         return 0.0
     mask = np.isin(tri_face, face_idx)
@@ -103,7 +108,7 @@ def volume(mesh: bm.Mesh, world: np.ndarray | None = None) -> float:
     """The divergence-theorem volume enclosed by every triangle of *mesh*, in
     world space when *world* is given. See the module docstring for why this
     does not itself check that the mesh is closed."""
-    tri_corners, _tri_face = bm.triangulate(mesh)
+    tri_corners, _tri_face = cached_triangulation(mesh)
     if len(tri_corners) == 0:
         return 0.0
     positions = _world_positions(mesh, world)
@@ -117,10 +122,7 @@ def is_closed(mesh: bm.Mesh) -> bool:
     """No hole and no non-manifold edge -- the reading ``clay_add_mesh``'s own
     ``closed`` uses, so a volume gate here agrees with it. An empty or
     single-face-less mesh is not closed."""
-    if len(mesh.starts) <= 1:
-        return False
-    report = check_manifold(mesh)
-    return len(report.boundary_edges) == 0 and len(report.nonmanifold_edges) == 0
+    return closed_facts(mesh)[0]
 
 
 def volume_if_closed(mesh: bm.Mesh, world: np.ndarray | None = None) -> float | None:
@@ -135,7 +137,8 @@ def volume_if_closed(mesh: bm.Mesh, world: np.ndarray | None = None) -> float | 
     document may want the raw sum); a caller that answers a person or an
     agent with the number goes through this.
     """
-    if not is_closed(mesh):
+    closed, flipped = closed_facts(mesh)
+    if not closed:
         return None
     # The 2026-10-07 audit's clay-14: ``is_closed`` counts only boundary and
     # non-manifold edges, so a cube with one face wound the wrong way is
@@ -143,6 +146,6 @@ def volume_if_closed(mesh: bm.Mesh, world: np.ndarray | None = None) -> float | 
     # confident wrong number, the failure this gate exists to prevent. A
     # flipped edge (two faces traversing it the same way) means the shell has
     # no consistent outside, so the signed sum is not a volume either.
-    if len(check_manifold(mesh).flipped_edges):
+    if flipped:
         return None
     return volume(mesh, world)

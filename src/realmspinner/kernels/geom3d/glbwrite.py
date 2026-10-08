@@ -529,4 +529,13 @@ def write_glb(model: gltf.Model) -> bytes:
     # whole reason the writer goes through it rather than packing its own
     # header: one place decides how a GLB of ours is framed.
     header = struct.pack("<III", _GLB_MAGIC, 2, 0)
-    return rebuild_glb(header, doc, chunk)
+    try:
+        return rebuild_glb(header, doc, chunk)
+    except ValueError as exc:
+        # The 2026-10-07 audit's clay-62: material factors and POSITION bounds
+        # are refused by name above, but a node's translation / rotation /
+        # scale, a camera or a light was written as a bare ``NaN`` token.
+        # ``rebuild_glb`` now refuses any such number; this names the writer.
+        raise ValueError(
+            "write_glb refuses a non-finite number in a node transform, camera or light"
+        ) from exc

@@ -2828,7 +2828,7 @@ def test_the_clay_outliner_builds_with_a_rename_in_flight(app_ctx, imgui_ctx):
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 
     tab = _clay_tab(app_ctx)
-    clay_mode.ensure(app_ctx).renaming = tab.doc.objects[0].uid
+    clay_mode.ensure(app_ctx).renaming = (tab.uid, tab.doc.objects[0].uid)
     _frame(imgui_ctx, lambda: clay_outliner.draw(app_ctx))
 
 
@@ -4062,7 +4062,9 @@ def test_editing_a_big_mesh_in_clay_still_asks_first(app_ctx):
     asked: list = []
     app_ctx.confirms = SimpleNamespace(ask=asked.append)
     clay_mode._adopt_import(app_ctx, {"doc": None, "title": "big", "triangles": 250_000})
-    assert asked and "250,000 faces" in asked[0].message
+    # The prompt counts real triangles (the 2026-10-07 audit's clay-50), and the
+    # fixture hands it exactly 250,000 of them, so the figure is asserted whole.
+    assert asked and "250,000 triangles." in asked[0].message
 
 
 # --- section I: the palette, the library keyboard and the drop target --------

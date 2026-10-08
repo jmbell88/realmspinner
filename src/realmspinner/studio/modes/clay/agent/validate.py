@@ -40,6 +40,9 @@ imported here.
 from __future__ import annotations
 
 import math
+import threading
+import weakref
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -483,6 +486,28 @@ as ``1e-320`` is finite and nonzero, so it passed every check, and a later
 clay-24). A scale of exactly zero on an axis is still allowed -- it flattens
 the object -- so only the band between zero and this is refused."""
 
+PARAM_MAX = TRANSLATION_MAX
+"""The largest magnitude a generator parameter (a length, a count) or a
+hand-built mesh coordinate may have. The 2026-10-07 audit's clay-01 and
+clay-04: ``Mesh.positions`` and ``Mesh.uv`` are float32, so ``size=[1e300, 1,
+1]`` (finite as a float64) built a mesh of ``inf``; the same call's
+``clay_scene`` row then ran the uv-overlap bucketing over the garbage and the
+frame thread never returned, and a position that survived by a hair
+(``3e38``) made every bounding box and ``size`` infinite. The ceiling is the
+translation ceiling, so a mesh coordinate can never be further out than an
+object can be placed, and a world position (translation plus coordinate times
+a scale of at most :data:`SCALE_MAX`) is far inside float32. Not a corpus-keyed
+constant -- nothing stored depends on it."""
+
+UV_MAX = 1e6
+"""The largest magnitude a hand-built uv coordinate may have (see
+:data:`PARAM_MAX` for the incident). A tiled texture wants tens; a million
+repeats is past anything a pixel-art texture can show."""
+
+F4_MAX = float(np.finfo("f4").max)
+"""The largest finite float32, for the belt-and-braces check on a built mesh
+and for narrowing a query box without overflowing."""
+
 
 def _validate_vec3(
     value: Any,
@@ -680,12 +705,53 @@ def _validate_params_values(params: dict, field: str) -> dict | None:
     """
     messages = []
     for key in sorted(params):
-        _, failure = _validate_number_or_vec(params[key], f"{field}.{key}")
+        value, failure = _validate_number_or_vec(params[key], f"{field}.{key}")
         if failure:
             messages.append(failure["content"][0]["text"])
+            continue
+        # The 2026-10-07 audit's clay-01/clay-04: finite as a float64 is not
+        # finite as the float32 the mesh is stored in -- see :data:`PARAM_MAX`.
+        parts = value if isinstance(value, list) else [value]
+        if any(abs(v) > PARAM_MAX for v in parts):
+            messages.append(
+                f"{field}.{key} must be no larger than {PARAM_MAX:g} in magnitude."
+            )
     if not messages:
         return None
     return fail(" ".join(messages), field=field)
+
+
+def _non_finite_mesh_refusal(
+    mesh: Any, *, positions_field: str = "params", uv_field: str = "uv"
+) -> dict | None:
+    """A refusal when *mesh* (just built, not yet added) holds a position or a
+    uv that is not finite, else ``None``.
+
+    The belt behind :data:`PARAM_MAX`/:data:`UV_MAX`: whatever a generator
+    computes from bounded numbers, and whatever the float32 narrowing of a
+    hand-built coordinate does, an object whose positions are ``inf`` or ``NaN``
+    never reaches the document -- it would make every later ``clay_scene``
+    bounding box ``Infinity`` (not strict JSON), and ``serialize`` refuses a
+    document holding it, so it could not be saved, journalled or exported
+    (the 2026-10-07 audit's clay-04). *positions_field* names what the caller
+    can change to fix the positions (``params`` for a generator, ``positions``
+    for a hand-built mesh).
+    """
+    if not np.isfinite(mesh.positions).all():
+        return fail(
+            f"this would build a mesh whose positions are not finite once stored "
+            f"as float32 (past {F4_MAX:.3e}); use smaller numbers.",
+            field=positions_field,
+            recovery="fix_arguments",
+        )
+    if mesh.uv is not None and not np.isfinite(mesh.uv).all():
+        return fail(
+            "this would build a mesh whose uv is not finite once stored as "
+            f"float32 (past {F4_MAX:.3e}); use smaller numbers.",
+            field=uv_field,
+            recovery="fix_arguments",
+        )
+    return None
 
 
 def _params_shape_refusal(params: dict, defaults: dict, field: str, subject: str) -> dict | None:
@@ -791,7 +857,10 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
     """
     if name == "slot":
         try:
-            slot = int(value)
+            # ``_whole_number``: the 2026-10-07 audit's clay-35 -- ``int(0.9)``
+            # is 0 and ``int(True)`` is 1, so a malformed slot selected the
+            # faces of a palette entry the agent never named.
+            slot = _whole_number(value)
         except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{name} must be an integer.", field=name, recovery="fix_arguments"
@@ -805,7 +874,19 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
                 f"{name} must be a non-negative integer.", field=name, recovery="fix_arguments"
             )
         return slot, None
-    if name in ("direction", "min", "max"):
+    if name == "direction":
+        out, failure = _validate_vec3(value, name)
+        if failure:
+            return None, failure
+        # The 2026-10-07 audit's clay-74: a zero direction has no angle to any
+        # face normal, so the query answered success with nothing selected --
+        # an agent that meant "up" and typed [0, 0, 0] was told it worked.
+        if math.hypot(*out) < 1e-12:
+            return None, fail(
+                f"{name} must not be the zero vector.", field=name, recovery="fix_arguments"
+            )
+        return out, None
+    if name in ("min", "max"):
         return _validate_vec3(value, name)
     if name == "max_angle":
         # ``_QUERY_ARG_SCHEMAS["max_angle"]`` declares ``minimum: 0.0,
@@ -885,6 +966,13 @@ def _sel_counts(sel: el.ElementSel) -> dict:
     return {"verts": len(sel.verts), "edges": len(sel.edges), "faces": len(sel.faces)}
 
 
+UV_FACTS_MEMO_MAX = 256
+"""How many meshes' uv facts :func:`_uv_facts` remembers at once."""
+
+_UV_FACTS_MEMO: OrderedDict[int, tuple[weakref.ref, dict]] = OrderedDict()
+_UV_FACTS_LOCK = threading.RLock()  # reentrant: a weakref callback can fire mid-section
+
+
 def _uv_facts(mesh: Any) -> dict | None:
     """The two uv measurements :data:`~.schema._object_row_output_schema`'s
     own ``uv`` block declares, off *mesh*'s own already-assigned uv -- or
@@ -898,16 +986,61 @@ def _uv_facts(mesh: Any) -> dict | None:
     reads *every* visible object's row on every call it answers, so a single
     dense, uv'd mesh must not turn a read into a refusal for the rest of the
     document.
+
+    **A uv that is not entirely finite is never measured.** The 2026-10-07
+    audit's clay-01: a uv of ``1e300`` narrows to float32 ``inf``, and
+    ``overlap_faces`` bucketed it through int64-cast garbage and did not
+    finish -- on the frame thread, from one agent call. The doors now refuse
+    such a uv, so this is the backstop for a mesh that got in by any other
+    route (an old file, another door): the overlap reads ``None``, the same
+    answer a refused measurement gives.
+
+    **Memoised on the mesh object.** The 2026-10-07 audit's clay-20: every
+    ``clay_scene`` re-ran ``islands`` and ``overlap_faces`` for every uv'd
+    object (805 ms for a 16,200-face mesh, 12 s for 4,000 default boxes), on
+    the frame thread, with no memo on a mesh that is immutable by contract
+    (``Mesh`` is ``eq=False`` and every edit builds a new one -- the rule
+    ``document.mesh_stamp`` relies on). Keyed on the mesh's identity, with a
+    weak reference to prove the id still means the mesh it was taken from, and
+    bounded at :data:`UV_FACTS_MEMO_MAX` entries, oldest read dropped first.
+    A mesh that is not the same object recomputes. A copy is returned, so a
+    caller adding to the row cannot corrupt the memo.
     """
     if mesh.uv is None:
         return None
+    key = id(mesh)
+    with _UV_FACTS_LOCK:
+        hit = _UV_FACTS_MEMO.get(key)
+        if hit is not None and hit[0]() is mesh:
+            _UV_FACTS_MEMO.move_to_end(key)
+            return dict(hit[1])
     ids = uvtools.islands(mesh)
     n_islands = int(ids.max()) + 1 if len(ids) else 0
-    try:
-        overlapping = int(uvtools.overlap_faces(mesh).sum())
-    except OpError:
+    if not np.isfinite(mesh.uv).all():
         overlapping = None
-    return {"islands": n_islands, "overlapping_faces": overlapping}
+    else:
+        try:
+            overlapping = int(uvtools.overlap_faces(mesh).sum())
+        except OpError:
+            overlapping = None
+    facts = {"islands": n_islands, "overlapping_faces": overlapping}
+
+    def _forget(_ref: weakref.ref, key: int = key) -> None:
+        with _UV_FACTS_LOCK:
+            entry = _UV_FACTS_MEMO.get(key)
+            if entry is not None and entry[0] is _ref:
+                del _UV_FACTS_MEMO[key]
+
+    try:
+        ref = weakref.ref(mesh, _forget)
+    except TypeError:  # pragma: no cover -- a Mesh subclass with __slots__
+        return facts
+    with _UV_FACTS_LOCK:
+        _UV_FACTS_MEMO[key] = (ref, facts)
+        _UV_FACTS_MEMO.move_to_end(key)
+        while len(_UV_FACTS_MEMO) > UV_FACTS_MEMO_MAX:
+            _UV_FACTS_MEMO.popitem(last=False)
+    return dict(facts)
 
 
 def _scene_row(doc: Any, obj: Any) -> dict:

@@ -1,4 +1,4 @@
-"""Selection verbs: linked, grow, and the by-property queries.
+"""Selection verbs: linked, and the by-property queries.
 
 Pure, and over the adjacency. Nothing here touches a document, a selection
 object or a view: each takes a mesh and a set of indices and returns a set of
@@ -68,28 +68,6 @@ def linked(mesh: Mesh, verts: np.ndarray) -> np.ndarray:
     return np.flatnonzero(inside).astype("i4")
 
 
-def grow(mesh: Mesh, verts: np.ndarray) -> np.ndarray:
-    """One ring outward. -> vertex indices."""
-    seeds = np.unique(np.asarray(verts, dtype="i8").reshape(-1))
-    count = len(mesh.positions)
-    if not len(seeds) or count == 0:
-        return np.zeros(0, dtype="i4")
-    a = adjacency(mesh)
-    inside = np.zeros(count, dtype=bool)
-    inside[seeds[(seeds >= 0) & (seeds < count)]] = True
-    if a.n_edges:
-        lo = a.edge_verts[:, 0].astype("i8")
-        hi = a.edge_verts[:, 1].astype("i8")
-        # Both passes read a snapshot taken before either writes, so a vertex
-        # can only join ``inside`` for being adjacent to a vertex that was
-        # *already* selected, never to one this same call just added (the
-        # 2026-09-26 audit's clay-mesh-core-03: one ring came back as two).
-        base = inside.copy()
-        inside[lo[base[hi]]] = True
-        inside[hi[base[lo]]] = True
-    return np.flatnonzero(inside).astype("i4")
-
-
 def by_material(mesh: Mesh, slot: int) -> np.ndarray:
     """Every face using palette slot ``slot``. -> face indices.
 
@@ -113,7 +91,7 @@ def by_material(mesh: Mesh, slot: int) -> np.ndarray:
 # layer, which is the reach that said "this function is sitting one level too
 # high" as plainly as the lazy ``from .clay import elements as el`` /
 # ``from .clay.adjacency import adjacency`` imports it needed to get there did.
-# ``clay_ops``'s five ``_verb_*`` wrappers now import these from here instead.
+# ``studio/modes/clay/ops.py``'s five ``_verb_*`` wrappers now import these from here instead.
 
 
 def verts_of(mesh: Mesh, sel: el.ElementSel, mode: str) -> np.ndarray:
@@ -172,7 +150,7 @@ def sel_from_verts(mesh: Mesh, verts: np.ndarray, mode: str) -> el.ElementSel:
 
 # --- selecting by a property of the geometry, not by a walk over it ----------
 #
-# ``linked`` and ``grow`` above walk the adjacency graph outward from a seed. The
+# ``linked`` above walks the adjacency graph outward from a seed. The
 # two below ask a different kind of question -- "which faces face roughly this
 # way" and "which faces sit inside this box" -- that is answered from a face's
 # own geometry rather than from its neighbours, but it is the same vocabulary
@@ -221,6 +199,26 @@ def faces_by_normal(
     return np.flatnonzero(valid & (cos >= limit)).astype("i4")
 
 
+def points_in_box(pts: np.ndarray, lo: Sequence[float], hi: Sequence[float]) -> np.ndarray:
+    """Which rows of *pts* lie in the inclusive box ``[lo, hi]``. -> ``(n,)`` bool.
+
+    **Compared in float32, the precision positions are stored in.** The
+    2026-10-07 audit's clay-17: positions were widened to float64 and compared
+    with an exact float64 box, so a box an agent copied from ``clay_scene``'s
+    bounds (or typed as the object's extent) missed the object for any size that
+    is not float32-exact -- ``box(0.6)`` stores 0.3 as float32 0.30000001192...,
+    which is greater than the float64 0.3, so the box selected 0 of 8 vertices.
+    Rounding the box to float32 the same way the positions were rounded makes a
+    box equal to the extent contain it. Both ``faces_in_bounds`` and the
+    ``bounds`` query go through here so they cannot disagree about it.
+    """
+    with np.errstate(over="ignore", invalid="ignore"):
+        lo_arr = np.asarray(lo, dtype="f4")
+        hi_arr = np.asarray(hi, dtype="f4")
+        pts32 = np.asarray(pts, dtype="f4")
+    return np.all((pts32 >= lo_arr) & (pts32 <= hi_arr), axis=1)
+
+
 def faces_in_bounds(
     mesh: Mesh,
     lo: Sequence[float],
@@ -248,10 +246,8 @@ def faces_in_bounds(
     n_faces = bm.face_count(mesh)
     if n_faces == 0:
         return np.zeros(0, dtype="i4")
-    pts = np.asarray(mesh.positions if positions is None else positions, dtype="f8")
-    lo_arr = np.asarray(lo, dtype="f8")
-    hi_arr = np.asarray(hi, dtype="f8")
-    inside = np.all((pts >= lo_arr) & (pts <= hi_arr), axis=1)
+    pts = mesh.positions if positions is None else positions
+    inside = points_in_box(pts, lo, hi)
     starts = np.asarray(mesh.starts, dtype="i8")
     mask = np.minimum.reduceat(inside[mesh.loops].astype("i1"), starts[:-1]) > 0
     return np.flatnonzero(mask).astype("i4")
@@ -307,15 +303,12 @@ def _q_bounds(mesh: Mesh, lo: Sequence[float], hi: Sequence[float]) -> el.Elemen
     """Both currencies at once: every vertex in the box, and every face all of
     whose corners are (:func:`faces_in_bounds`) -- the two things "select
     what's in this box" can honestly mean, computed from the one scan."""
-    pts = np.asarray(mesh.positions, dtype="f8")
-    lo_arr = np.asarray(lo, dtype="f8")
-    hi_arr = np.asarray(hi, dtype="f8")
-    if len(pts) == 0:
+    if len(mesh.positions) == 0:
         return el.ElementSel()
-    inside = np.all((pts >= lo_arr) & (pts <= hi_arr), axis=1)
+    inside = points_in_box(mesh.positions, lo, hi)
     return el.ElementSel(
         verts=np.flatnonzero(inside).astype("i4"),
-        faces=faces_in_bounds(mesh, lo_arr, hi_arr),
+        faces=faces_in_bounds(mesh, lo, hi),
     )
 
 

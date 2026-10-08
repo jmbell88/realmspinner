@@ -69,7 +69,6 @@ from .validate import (
     _scene_row,
     _tab,
     _validate_translation,
-    _validate_vec3,
     _whole_number,
     fail,
 )
@@ -361,7 +360,10 @@ def _resolve_point(doc: Any, value: Any, field: str) -> tuple[np.ndarray | None,
     agent just selected can be measured from directly).
     """
     if isinstance(value, list):
-        return _validate_vec3(value, field)
+        # Bounded like every other world point an agent names: the 2026-10-07
+        # audit's clay-73 -- two points 1e300 apart answered ``Infinity`` (not
+        # strict JSON), because ``1e300 - -1e300`` overflows even in float64.
+        return _validate_translation(value, field)
     if isinstance(value, dict):
         uid_val = value.get("uid")
         if uid_val is None:
@@ -447,6 +449,16 @@ def _h_measure(ctx: Any, session: Session, args: dict) -> dict:
         c, failure = _resolve_point(doc, args.get("c"), "c")
         if failure:
             return failure
+        # The 2026-10-07 audit's clay-73: ``angle`` answers 0.0 for a ray of
+        # zero length, which an agent reads as "the rays coincide" when there
+        # is no angle at all. Refused, naming the point that sits on ``b``.
+        for label, point in (("a", a), ("c", c)):
+            if float(np.linalg.norm(np.asarray(point, "f8") - np.asarray(b, "f8"))) <= 1e-12:
+                return fail(
+                    f"{label} is at the same point as b, so the ray from b to {label} "
+                    "has no direction and there is no angle to measure.",
+                    field=label,
+                )
         value = clay_measure.angle(a, b, c)
         return _json({"kind": kind, "value": _round(value)})
 
@@ -473,7 +485,13 @@ def _h_measure(ctx: Any, session: Session, args: dict) -> dict:
     faces_arg = args.get("faces")
     if faces_arg is not None:
         try:
-            faces = [int(f) for f in faces_arg]
+            # A real list only (``"123"`` is iterable and used to read as faces
+            # 1, 2 and 3), whole numbers only (``int(1.9)`` is 1, ``int(True)``
+            # is 1), each face once (``[0, 0]`` reported ``faces: 2`` beside one
+            # face's area) -- the 2026-10-07 audit's clay-35.
+            if not isinstance(faces_arg, (list, tuple)):
+                raise TypeError("faces is not a list")
+            faces = list(dict.fromkeys(_whole_number(f) for f in faces_arg))
         except (TypeError, ValueError, OverflowError):
             return fail("faces must be a list of integers.", field="faces")
         n_faces = bm.face_count(obj.mesh)

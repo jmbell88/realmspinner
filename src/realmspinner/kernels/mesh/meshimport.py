@@ -42,7 +42,7 @@ from .elements import OpError
 from .glbimport import FLAT_COSINE, MAX_OBJECTS, MAX_TRIANGLES, _unit
 from .objimport import axis_matrix
 
-__all__ = ["SUPPORTED_SUFFIXES", "import_file", "mesh_file_to_claydoc"]
+__all__ = ["SUPPORTED_SUFFIXES", "import_file", "import_file_report", "mesh_file_to_claydoc"]
 
 #: Every suffix :func:`import_file` will route somewhere. ``.glb`` goes to
 #: :mod:`.glbimport`, ``.obj`` to :mod:`.objimport`, the other two here.
@@ -200,6 +200,11 @@ def mesh_file_to_claydoc(
             f"meshimport does not read {suffix!r} files; it reads "
             + ", ".join(sorted(_TRIMESH_TYPE))
         )
+    # The 2026-10-07 audit's clay-59: a zero, negative or non-finite scale is
+    # refused here, before the parse, by the one function every format's scale
+    # goes through (it used to be refused for GLB alone).
+    matrix = axis_matrix(scale=scale, up=up)
+
     # clay-18: checked before trimesh.load below -- the full parse and
     # allocation -- rather than only after it, the way objimport's text
     # pre-pass and glbimport's _declared_budget both refuse an oversized file
@@ -227,8 +232,6 @@ def mesh_file_to_claydoc(
 
     geoms = list(loaded.geometry.items()) if hasattr(loaded, "geometry") else [(name, loaded)]
 
-    matrix = axis_matrix(scale=scale, up=up)
-
     tri_total = 0
     for _, geom in geoms:
         tri_total += len(getattr(geom, "faces", ()))
@@ -246,6 +249,17 @@ def mesh_file_to_claydoc(
     objects: list[Obj] = []
     taken: set[str] = set()
     for geom_name, geom in geoms:
+        # The 2026-10-07 audit's clay-58: a face index outside the vertex list
+        # reached ``merge_vertices`` as a raw numpy IndexError (a negative one
+        # imported silently, wrapping to the wrong vertex). Both are a corrupt
+        # file, refused by name before anything is merged.
+        faces = np.asarray(getattr(geom, "faces", ()))
+        vertex_count = len(getattr(geom, "vertices", ()))
+        if faces.size and (int(faces.min()) < 0 or int(faces.max()) >= vertex_count):
+            raise OpError(
+                f"This {suffix.upper()} has a face that names a vertex index outside "
+                f"its {vertex_count:,} vertices, so it is not a valid mesh."
+            )
         geom.merge_vertices()
         geom.apply_transform(matrix)
         mesh = _geometry_mesh(geom)
@@ -269,7 +283,25 @@ def import_file(
     up: str = "y",
     mtl: str | None = None,
 ) -> ClayDoc:
-    """Route *data* to the importer for *suffix*. -> a fresh :class:`~.document.ClayDoc`.
+    """:func:`import_file_report` without the lost-texture count."""
+    return import_file_report(data, suffix, name, scale=scale, up=up, mtl=mtl)[0]
+
+
+def import_file_report(
+    data: bytes,
+    suffix: str,
+    name: str = "Imported",
+    *,
+    scale: float = 1.0,
+    up: str = "y",
+    mtl: str | None = None,
+) -> tuple[ClayDoc, int]:
+    """Route *data* to the importer for *suffix*. -> ``(document, skipped_textures)``.
+
+    ``skipped_textures`` is how many of a GLB's textures the loader could not
+    use (always 0 for the other formats, whose textures are not read); show it
+    with :func:`~.glbimport.skipped_textures_notice` (the 2026-10-07 audit's
+    clay-07).
 
     The one door a drop handler or an import dialog needs: it does not have to
     know that a GLB, an OBJ and an STL are read by three different modules with
@@ -292,17 +324,20 @@ def import_file(
     other format.
     """
     suf = suffix.lower()
+    # The scale is checked for every format up front (clay-59), so a GLB is not
+    # parsed in full only to be refused at the end.
+    axis_matrix(scale=scale, up=up)
     if suf == ".obj":
         # ``utf-8-sig``: the 2026-10-07 audit's clay-15 -- a BOM that survives
         # the decode hides the file's first line (the first ``v``).
         text = data.decode("utf-8-sig", errors="replace")
-        return objimport.obj_to_claydoc(text, name, mtl=mtl, scale=scale, up=up)
+        return objimport.obj_to_claydoc(text, name, mtl=mtl, scale=scale, up=up), 0
     if suf in (".stl", ".ply"):
-        return mesh_file_to_claydoc(data, suf, name, scale=scale, up=up)
+        return mesh_file_to_claydoc(data, suf, name, scale=scale, up=up), 0
     if suf == ".glb":
         from . import glbimport
 
-        doc = glbimport.glb_to_claydoc(data, name)
+        doc, skipped = glbimport.glb_to_claydoc_report(data, name)
         if scale != 1.0 or up != "y":
             from ..geom3d import math3d as m3
 
@@ -349,7 +384,7 @@ def import_file(
                 local = m3.compose(obj.translation, obj.rotation, obj.scale)
                 t, r, s = m3.decompose(matrix @ local @ inverse)
                 obj.translation, obj.rotation, obj.scale = t, r, s
-        return doc
+        return doc, skipped
     raise OpError(
         f"Clay does not import {suffix!r} files. It reads "
         + ", ".join(SUPPORTED_SUFFIXES) + "."

@@ -164,7 +164,40 @@ def mirror_world(
     reflect[axis, 3] = 2.0 * float(offset)
     new_world = reflect @ np.asarray(world, dtype="f8") @ local_reflect
     translation, rotation, scale = m3.decompose(new_world)
-    return replace(mirror(obj, axis), translation=translation, rotation=rotation, scale=scale)
+    mirrored = mirror(obj, axis)
+    # The 2026-10-07 audit's clay-30: ``decompose`` assumes no shear, and a
+    # rotated child under a non-uniformly scaled parent has a world basis whose
+    # columns are not orthogonal -- the copy then came back off by up to 0.84 m
+    # with no refusal. What a translation, rotation and scale cannot hold is
+    # whatever is left of ``new_world`` once they are taken out, and that
+    # residual is a plain linear map in the copy's own frame, so it is baked
+    # into the copy's mesh and the copy is exact. A clean chain leaves the
+    # residual at the identity (to rounding) and the mesh is left untouched.
+    residual = _non_trs_residual(new_world, translation, rotation, scale)
+    if residual is not None:
+        mirrored = replace(mirrored, mesh=bm.transformed(mirrored.mesh, residual))
+    return replace(mirrored, translation=translation, rotation=rotation, scale=scale)
+
+
+def _non_trs_residual(
+    matrix: np.ndarray, translation: np.ndarray, rotation: np.ndarray, scale: np.ndarray
+) -> np.ndarray | None:
+    """``inv(compose(t, r, s)) @ matrix``, or ``None`` when it is the identity.
+
+    ``None`` as well when the composed matrix is singular or the residual is not
+    finite: a collapsed axis has no inverse to take, and that case keeps the
+    behaviour it always had rather than baking NaN into a mesh.
+    """
+    composed = m3.compose(translation, rotation, scale)
+    try:
+        residual = np.linalg.inv(composed) @ np.asarray(matrix, dtype="f8")
+    except np.linalg.LinAlgError:
+        return None
+    if not np.all(np.isfinite(residual)):
+        return None
+    if np.allclose(residual, np.eye(4), rtol=0.0, atol=1e-9):
+        return None
+    return residual
 
 
 def world_box(
@@ -473,6 +506,15 @@ def duplicate(obj: Obj, uid: int, *, taken: Iterable[str] = ()) -> Obj:
 #: ``MAX_BOOLEAN_TRIANGLES``: a join is a concatenation and a weld, cheaper per
 #: corner than a boolean's arrangement, but with no cap it is still an
 #: unbounded frame-thread allocation.
+#:
+#: **Measured against its clock by the 2026-10-07 audit's clay-33**, which found
+#: 1.7-2.0 s at the ceiling (two 250,000-quad grids, 2,000,000 corners, welded
+#: at 1e-4): the weld's ``np.unique`` calls took the hash path on numpy 2.5.1
+#: (1.07 s of that in ``merge_vertices``'s per-face distinct count alone). With
+#: the sort-and-mask unique in ``ops_topo`` the same join takes, best of three
+#: on a machine shared with other work, 468 ms without uvs and 484 ms with
+#: (1,280,000 corners: 266 / 283 ms; 720,000: 155 / 168 ms), so the ceiling
+#: stays where it was.
 MAX_JOINED_CORNERS = 2_000_000
 
 
@@ -547,6 +589,11 @@ def join(
 
     if len(objs) < 2:
         raise OpError("Select at least two objects to merge.")
+    # The 2026-10-07 audit's clay-65: two objects with no geometry between them
+    # fell through to ``weld`` and refused "Select at least two vertices to
+    # weld.", which names a control the Merge Objects dialog does not have.
+    if sum(len(o.mesh.positions) for o in objs) < 2:
+        raise OpError("There is nothing to merge: these objects have fewer than two vertices.")
     total_corners = sum(len(o.mesh.loops) for o in objs)
     if total_corners > MAX_JOINED_CORNERS:
         raise OpError(

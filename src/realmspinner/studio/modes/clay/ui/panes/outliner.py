@@ -185,6 +185,123 @@ def _tree_rows(doc: Any) -> list[tuple[Any, int, bool]]:
     return rows
 
 
+# --- per-tab keys for the app-level outliner state ---------------------------
+#
+# The 2026-10-07 audit's clay-23: ``ClayState.outliner_collapsed``,
+# ``outliner_anchor`` and ``renaming`` belong to the app, not to a tab, yet were
+# keyed on a bare object uid -- and a uid is only unique inside one document:
+# two files authored in separate sessions both carry uids 1 and 2. Collapsing a
+# parent in one tab collapsed the same uid in another, a Shift-click ranged from
+# another document's anchor and a rename followed the user to the next tab. The
+# stored values are now ``(tab uid, object uid)`` pairs. ``state.py`` still
+# annotates them as plain ints; a bare int left there (an old value) never
+# equals a pair, so it simply reads as "nothing".
+
+
+def is_collapsed(state: Any, tab_uid: str, uid: int) -> bool:
+    return (tab_uid, uid) in state.outliner_collapsed
+
+
+def set_collapsed(state: Any, tab_uid: str, uid: int, collapsed: bool) -> None:
+    if collapsed:
+        state.outliner_collapsed.add((tab_uid, uid))
+    else:
+        state.outliner_collapsed.discard((tab_uid, uid))
+
+
+def anchor_uid(state: Any, tab_uid: str) -> int:
+    """The Shift-click anchor's uid if it was set in *tab_uid*, else 0."""
+    anchor = state.outliner_anchor
+    if isinstance(anchor, tuple) and anchor[0] == tab_uid:
+        return int(anchor[1])
+    return 0
+
+
+def renaming_uid(state: Any, tab_uid: str) -> int:
+    """The uid being renamed in *tab_uid*, else 0."""
+    current = state.renaming
+    if isinstance(current, tuple) and current[0] == tab_uid:
+        return int(current[1])
+    return 0
+
+
+def begin_rename(state: Any, tab_uid: str, uid: int) -> None:
+    state.renaming = (tab_uid, uid)
+
+
+def end_rename(state: Any) -> None:
+    """Nothing is being renamed, and the next rename asks for focus afresh."""
+    state.renaming = 0
+    vars(state).pop("_rename_focused", None)
+
+
+def settle_rename(state: Any, tab_uid: str) -> None:
+    """End a rename that belongs to a tab other than the one being drawn."""
+    current = state.renaming
+    if current and not (isinstance(current, tuple) and current[0] == tab_uid):
+        end_rename(state)
+
+
+def _first_rename_frame(state: Any, key: tuple[str, int]) -> bool:
+    """Whether this is the first frame the rename field for *key* is drawn.
+
+    The 2026-10-07 audit's clay-37: the field swapped in for a double-clicked
+    row was never given keyboard focus, so only ``is_item_deactivated`` could
+    end the rename -- which cannot fire for a field that was never entered --
+    and Escape and click-away did nothing. The caller asks for focus on the one
+    frame this is true (Plotter's layer rename is the model).
+    """
+    if vars(state).get("_rename_focused") == key:
+        return False
+    vars(state)["_rename_focused"] = key
+    return True
+
+
+def _rename_outcome(
+    typed: str, current: str, *, escaped: bool, deactivated: bool
+) -> tuple[str | None, bool]:
+    """*(name to commit or None, whether the rename is over)* for one frame.
+
+    Escape ends it and commits nothing, whatever was typed; leaving the field
+    (Enter, a click elsewhere) after an edit commits; leaving it untouched just
+    ends it.
+    """
+    if escaped:
+        return None, True
+    if typed != current:
+        return typed, True
+    return None, bool(deactivated)
+
+
+def _visible_rows(
+    state: Any, tab_uid: str, doc: Any, needle: str
+) -> list[tuple[Any, int, bool]]:
+    """The rows the pane can show: filtered by name, minus collapsed subtrees.
+
+    Collapsed subtrees are skipped by depth: once a collapsed row is drawn,
+    every following row deeper than it belongs to its own (hidden) subtree,
+    until a row at or above its depth -- a sibling, or an uncle -- ends it.
+    Suspended outright while filtered, the same "flat list of matches" rule
+    Mason's outliner states for its own indent: a filtered list is not the
+    tree, and a match nested three deep under a collapsed group must still
+    be found.
+    """
+    filtered = bool(needle)
+    skip_below: int | None = None
+    visible: list[tuple[Any, int, bool]] = []
+    for obj, depth, has_children in _tree_rows(doc):
+        if not filtered and skip_below is not None:
+            if depth > skip_below:
+                continue
+            skip_below = None
+        if needle and needle not in (obj.name or "").lower():
+            continue
+        visible.append((obj, depth, has_children))
+        if not filtered and has_children and is_collapsed(state, tab_uid, obj.uid):
+            skip_below = depth
+    return visible
+
+
 def _body(ctx: Any) -> None:
     state = clay_mode.ensure(ctx)
     tab = state.active
@@ -215,15 +332,8 @@ def _body(ctx: Any) -> None:
     needle = widgets.list_filter(ctx, "clay-outliner", len(doc.objects))
     _visibility_row(doc)
     filtered = bool(needle)
-    shown = 0
-    # Collapsed subtrees are skipped by depth: once a collapsed row is drawn,
-    # every following row deeper than it belongs to its own (hidden) subtree,
-    # until a row at or above its depth -- a sibling, or an uncle -- ends it.
-    # Suspended outright while filtered, the same "flat list of matches" rule
-    # Mason's outliner states for its own indent: a filtered list is not the
-    # tree, and a match nested three deep under a collapsed group must still
-    # be found.
-    skip_below: int | None = None
+    # A rename belongs to the tab it began in (clay-23, above).
+    settle_rename(state, tab.uid)
     # The 2026-09-26 audit's clay-panes-05: every one of these rows used to be
     # submitted to imgui whether or not the pane could show it -- a thousand
     # selectables, drag-drop sources/targets and context-menu registrations a
@@ -233,17 +343,7 @@ def _body(ctx: Any) -> None:
     # -- only the resulting list is clipped, the same split
     # ``packwright/ui/panes/sources.py`` already draws between "what matches"
     # and "what is drawn".
-    visible: list[tuple[Any, int, bool]] = []
-    for obj, depth, has_children in _tree_rows(doc):
-        if not filtered and skip_below is not None:
-            if depth > skip_below:
-                continue
-            skip_below = None
-        if needle and needle not in (obj.name or "").lower():
-            continue
-        visible.append((obj, depth, has_children))
-        if not filtered and has_children and obj.uid in state.outliner_collapsed:
-            skip_below = depth
+    visible = _visible_rows(state, tab.uid, doc, needle)
     shown = len(visible)
     clipper = imgui.ListClipper()
     clipper.begin(len(visible))
@@ -252,7 +352,7 @@ def _body(ctx: Any) -> None:
             obj, depth, has_children = visible[index]
             _row(
                 ctx, state, doc, obj, depth, has_children,
-                filtered=filtered, saving=bool(tab.saving),
+                filtered=filtered, saving=bool(tab.saving), tab_uid=tab.uid,
             )
     clipper.end()
     widgets.no_matches(needle, shown)
@@ -317,12 +417,16 @@ def _leave_element_mode(doc: Any) -> None:
         doc.set_element_mode("object")
 
 
-def _click(state: Any, doc: Any, obj: Any) -> None:
-    """Apply one row click, honouring Ctrl (toggle) and Shift (range)."""
+def _click(state: Any, doc: Any, obj: Any, tab_uid: str = "") -> None:
+    """Apply one row click, honouring Ctrl (toggle) and Shift (range).
+
+    *tab_uid* scopes the anchor to the document it was set in (clay-23).
+    """
     _leave_element_mode(doc)
     io = imgui.get_io()
-    if io.key_shift and state.outliner_anchor:
-        range_uids = _range(doc, state.outliner_anchor, obj.uid)
+    anchor = anchor_uid(state, tab_uid)
+    if io.key_shift and anchor:
+        range_uids = _range(doc, anchor, obj.uid)
         doc.select(range_uids)
         return
     if io.key_ctrl:
@@ -330,7 +434,7 @@ def _click(state: Any, doc: Any, obj: Any) -> None:
         doc.select(chosen_uids)
     else:
         doc.select([obj.uid])
-    state.outliner_anchor = obj.uid
+    state.outliner_anchor = (tab_uid, obj.uid)
 
 
 def _range(doc: Any, anchor: int, uid: int) -> list[int]:
@@ -386,9 +490,16 @@ def _apply_drop(ctx: Any, doc: Any, dropped_uid: int, target: Any, index: int, z
     left to raise on the frame thread, through :func:`~.clay.ops.toast` --
     the one door every other refusal in this mode already goes through.
 
-    ``"before"``/``"after"`` reorder exactly as every drop in this pane did
-    before parenting existed: ``move_object`` to the target row's own index
-    (or the index just after it), touching no object's ``parent`` at all.
+    ``"before"``/``"after"`` place the dropped object beside the target:
+    ``move_object`` to the target row's own index (or the index just after it).
+    The 2026-10-07 audit's clay-80: that used to touch only the flat list, which
+    the tree draws no part of, so a drop beside a child row of another parent
+    changed nothing on screen yet dirtied the document and reordered the export.
+    The drop now also adopts the target's parent (Blender's behaviour -- a row
+    dropped beside a sibling is a sibling), through ``set_parent`` with
+    ``keep_world``, and the reparent plus the reorder fold into one undo step.
+    A refusal (the target sits inside the dropped object's own subtree) is
+    toasted and pushes nothing.
     """
     if dropped_uid == target.uid:
         return
@@ -404,8 +515,23 @@ def _apply_drop(ctx: Any, doc: Any, dropped_uid: int, target: Any, index: int, z
         except KeyError:
             pass  # the dropped object was deleted between the pick-up and the drop
         return
-    with contextlib.suppress(KeyError):
-        doc.move_object(dropped_uid, index if zone == "before" else index + 1)
+    from ......kernels.mesh.elements import OpError
+
+    mark = doc.history.mark()
+    try:
+        try:
+            doc.set_parent(dropped_uid, target.parent, keep_world=True)
+        except OpError as error:
+            from ... import ops as clay_ops
+
+            clay_ops.toast(ctx, str(error))
+            return
+        except KeyError:
+            return  # the dropped object was deleted between the pick-up and the drop
+        with contextlib.suppress(KeyError):
+            doc.move_object(dropped_uid, index if zone == "before" else index + 1)
+    finally:
+        doc.history.collapse_since(mark)
 
 
 def _reorder(
@@ -465,14 +591,79 @@ def _remove_object(ctx: Any, doc: Any, obj: Any) -> None:
     doc.remove_object(obj.uid)
 
 
-def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
-    """Rename, duplicate and delete on the row itself.
+def _menu_targets(doc: Any, obj: Any) -> list[int]:
+    """The uids the row menu's Delete and Solo act on.
+
+    The 2026-10-07 audit's clay-81: with several rows selected, Duplicate acted
+    on the selection while Delete (labelled "Del") and Solo acted on the clicked
+    row alone. A right-clicked row that is part of the selection means the
+    selection, as Duplicate and the Del key already do; any other row means
+    itself.
+    """
+    if obj.uid in doc.selection:
+        return sorted(int(u) for u in doc.selection)
+    return [obj.uid]
+
+
+def _delete_hint(doc: Any, targets: list[int]) -> str:
+    """``"Del"`` only when the key would delete exactly *targets*, else ``""``.
+
+    The key runs the delete op: in an element mode it deletes elements, and in
+    object mode it leaves hidden objects alone (clay-41, 2026-10-03).
+    """
+    if doc.element_mode != "object" or set(targets) != set(doc.selection):
+        return ""
+    try:
+        if not all(doc.by_uid(u).visible for u in targets):
+            return ""
+    except KeyError:
+        return ""
+    return "Del"
+
+
+def _remove_objects(ctx: Any, doc: Any, uids: list[int]) -> list[str]:
+    """Remove *uids* as one undo step. -> the refusals, which are toasted.
+
+    Highest list index first, for the reason ``selection.delete_selected``
+    gives (a compound undoes in reverse and every recorded index must still be
+    right), and one refusal does not abandon the rest. Unlike the Del key this
+    removes a hidden object too: the user named it from the menu.
+    """
+    from ......kernels.mesh.elements import OpError
+
+    refusals: list[str] = []
+    doomed = []
+    for uid in uids:
+        try:
+            doomed.append((doc.index_of(uid), uid))
+        except KeyError:
+            continue
+    mark = doc.history.mark()
+    try:
+        for _index, uid in sorted(doomed, reverse=True):
+            try:
+                doc.remove_object(uid)
+            except OpError as error:
+                refusals.append(str(error))
+    finally:
+        doc.history.collapse_since(mark)
+    if refusals:
+        from ... import ops as clay_ops
+
+        for message in refusals:
+            clay_ops.toast(ctx, message)
+    return refusals
+
+
+def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any, tab_uid: str = "") -> None:
+    """Rename, duplicate, solo and delete on the row itself.
 
     Duplicate is here rather than only on Ctrl+J because the keyboard version
     acts on the *selection*, and the thing a user right-clicks is one row --
-    which is why it selects the row first: a menu item that operated on
-    something other than what was clicked would be the sharpest possible
-    misreading of a right-click.
+    which is why it selects the row first (when it is not already selected): a
+    menu item that operated on something other than what was clicked would be
+    the sharpest possible misreading of a right-click. Delete and Solo follow
+    :func:`_menu_targets`, so all three act on the same set.
     """
     if not imgui.begin_popup_context_item(f"clayrow{obj.uid}"):
         return
@@ -481,16 +672,17 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
         _leave_element_mode(doc)
         doc.select([obj.uid])
     if controls.menu_item(f"{icons.PENCIL} Rename", "", False)[0]:
-        state.renaming = obj.uid
+        begin_rename(state, tab_uid, obj.uid)
     if controls.menu_item(f"{icons.COPY} Duplicate", "Ctrl+J", False)[0]:
         from ... import mode as clay_mode
 
         clay_mode._duplicate_selection(ctx, state, doc)
+    targets = _menu_targets(doc, obj)
     if controls.menu_item(f"{icons.EYE} Solo", "", False)[0]:
-        doc.isolate([obj.uid])
+        doc.isolate(targets)
     widgets.divider()
-    if controls.menu_item(f"{icons.TRASH} Delete", "Del", False)[0]:
-        _remove_object(ctx, doc, obj)
+    if controls.menu_item(f"{icons.TRASH} Delete", _delete_hint(doc, targets), False)[0]:
+        _remove_objects(ctx, doc, targets)
     imgui.end_popup()
 
 
@@ -505,7 +697,7 @@ _EXPANDER_W = ROW_HEIGHT * 0.7
 
 def _row(
     ctx: Any, state: Any, doc: Any, obj: Any, depth: int, has_children: bool,
-    *, filtered: bool, saving: bool,
+    *, filtered: bool, saving: bool, tab_uid: str = "",
 ) -> None:
     selected = obj.uid in doc.selection
     imgui.push_id(str(obj.uid))
@@ -518,7 +710,7 @@ def _row(
         imgui.dummy((sp(INDENT) * depth, 1))
         imgui.same_line()
     if not filtered and has_children:
-        collapsed = obj.uid in state.outliner_collapsed
+        collapsed = is_collapsed(state, tab_uid, obj.uid)
         glyph = icons.CHEVRON_RIGHT if collapsed else icons.CHEVRON_DOWN
         if controls.button(
             f"{glyph}##expand",
@@ -527,10 +719,7 @@ def _row(
                 "Show this object's children." if collapsed else "Hide this object's children."
             ),
         ):
-            if collapsed:
-                state.outliner_collapsed.discard(obj.uid)
-            else:
-                state.outliner_collapsed.add(obj.uid)
+            set_collapsed(state, tab_uid, obj.uid, not collapsed)
         imgui.same_line()
     elif not filtered:
         imgui.dummy((sp(_EXPANDER_W), 1))
@@ -548,17 +737,25 @@ def _row(
     # already a pixel short of sp(28) + spacing at scale 1.0, and at 1.6 it
     # reserved 32 for 58 and clipped the trash button off the pane.
     width = imgui.get_content_region_avail().x - sp(28) - imgui.get_style().item_spacing.x
-    if state.renaming == obj.uid:
+    if renaming_uid(state, tab_uid) == obj.uid:
         imgui.set_next_item_width(width)
+        if _first_rename_frame(state, (tab_uid, obj.uid)):
+            imgui.set_keyboard_focus_here()
         # commit=True: the 2026-09-06 audit's clay-02 found this field
         # reporting a change on every keystroke, so ``set_props`` -- an
         # unconditional ``history.push`` -- fired once per letter typed and a
         # lone Ctrl+Z after a rename undid one character instead of the name.
         name = widgets.input_text("##rename", obj.name, max_length=120, commit=True)
-        if name != obj.name:
-            doc.set_props(obj.uid, name=name)
-        if imgui.is_item_deactivated():
-            state.renaming = 0
+        commit, finished = _rename_outcome(
+            name,
+            obj.name,
+            escaped=bool(imgui.is_key_pressed(imgui.Key.escape)),
+            deactivated=bool(imgui.is_item_deactivated()),
+        )
+        if commit is not None:
+            doc.set_props(obj.uid, name=commit)
+        if finished:
+            end_rename(state)
     else:
         label = obj.name or f"object {obj.uid}"
         # A hidden object's name is drawn muted. It used to be a
@@ -573,22 +770,22 @@ def _row(
         if controls.selectable(
             f"{label}##row", selected, imgui.SelectableFlags_.none, (width, 0)
         )[0]:
-            _click(state, doc, obj)
+            _click(state, doc, obj, tab_uid)
         if hidden:
             imgui.pop_style_color()
         # Both hang off the selectable, which is the item the user aims at --
         # the eye and the trash button are their own targets and must keep
         # doing only what they say.
         _reorder(ctx, doc, obj, filtered=filtered, saving=saving)
-        _context_menu(ctx, state, doc, obj)
+        _context_menu(ctx, state, doc, obj, tab_uid)
         if imgui.is_item_hovered() and imgui.is_mouse_double_clicked(0):
-            state.renaming = obj.uid
+            begin_rename(state, tab_uid, obj.uid)
 
     imgui.same_line()
     if controls.button(
         f"{icons.TRASH}##del",
         (sp(28), sp(ROW_HEIGHT)),
-        tooltip="Delete this object (Del). One undo step brings it back.",
+        tooltip="Delete this object. One undo step brings it back.",
     ):
         _remove_object(ctx, doc, obj)
     imgui.pop_id()

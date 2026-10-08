@@ -86,15 +86,18 @@ def test_snap_to_grid_with_a_zero_step_is_refused_with_a_sentence() -> None:
 
 def test_parent_to_last_reports_false_when_every_parenting_was_refused() -> None:
     doc = bd.ClayDoc()
-    child = _box(doc, "Child")
     par = _box(doc, "Par")
-    doc.set_parent(child.uid, par.uid)
+    child = _box(doc, "Child")
+    # The outliner draws Par first, so it is the target. Its zero scale means
+    # nothing can be placed relative to it, so the one parenting is refused.
+    # (A cycle used to be the refusal here, reached only because the target was
+    # picked in document order; the outliner's order makes that unreachable --
+    # the 2026-10-07 audit's clay-08.)
+    doc.set_transform(par.uid, scale=[0.0, 1.0, 1.0])
     doc.select([child.uid, par.uid])
     head = doc.history.head
     ctx = _Ctx()
 
-    # Child sits first in the outliner, so it is the target and its own
-    # parent is the object asked to hang under it: a cycle, refused.
     assert clay_ops.run(ctx, doc, clay_ops.get("parent-to-last")) is False
     assert doc.history.head == head
     assert ctx.log and ctx.log[0][0] == "error"

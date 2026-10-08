@@ -33,13 +33,17 @@ from .....kernels.mesh import mesh as bm
 from .....kernels.mesh import ops as clay_geom_ops
 from .....kernels.mesh import primitives as bp
 from .....kernels.mesh import regen, shading
+from .....kernels.mesh.elements import OpError
 from ..ui.panes import tools as pane_clay_tools
 from .schema import MAX_MESH_FACES, MAX_MESH_VERTICES, MAX_NAME_LENGTH, MAX_PALETTE
 from .validate import (
+    PARAM_MAX,
+    UV_MAX,
     Session,
     _json,
     _label_top,
     _name_length_refusal,
+    _non_finite_mesh_refusal,
     _over_frame_budget,
     _params_shape_refusal,
     _quat_from_euler_xyz,
@@ -70,7 +74,10 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
     # visible object), so a page reads like the whole answer with fewer rows.
     offset = args.get("offset", 0)
     try:
-        offset = int(offset)
+        # ``_whole_number`` for every integer argument, not only the uids: the
+        # 2026-10-07 audit's clay-35 -- ``int(0.9)`` is 0 and ``int(True)`` is
+        # 1, so a malformed index acted on an element the agent never named.
+        offset = _whole_number(offset)
     except (TypeError, ValueError, OverflowError):
         return fail("offset must be an integer.", field="offset")
     if offset < 0:
@@ -78,7 +85,7 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
     limit = args.get("limit")
     if limit is not None:
         try:
-            limit = int(limit)
+            limit = _whole_number(limit)
         except (TypeError, ValueError, OverflowError):
             return fail("limit must be an integer.", field="limit")
         if limit < 1:
@@ -233,11 +240,19 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
     # nothing downstream ever reached ``collapse_since`` to close it.
     merged = mesh = None
     if params:
-        merged = bp.clamp_params(generator, {**defaults, **params})
+        # ``clamp_params`` inside the ``try``: it raises ``ValueError`` for a
+        # number it refuses (non-finite, or past float32), and outside this
+        # block that escaped as a field-blind message from ``call()``.
         try:
+            merged = bp.clamp_params(generator, {**defaults, **params})
             mesh = shading.auto_smooth(bp.GENERATORS[generator][1](**merged))
         except (ValueError, ArithmeticError) as error:
             return fail(str(error), field="params")
+        # The 2026-10-07 audit's clay-04: the built float32 positions are the
+        # last word on whether the numbers fit -- see ``PARAM_MAX``.
+        failure = _non_finite_mesh_refusal(mesh)
+        if failure:
+            return failure
 
     translation = rotation_deg = scale = None
     if args.get("translation") is not None:
@@ -286,8 +301,8 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
             # ``int(float("inf"))`` raises it, and this tuple did not name
             # it, so an infinite ``material`` reached ``call()``'s generic
-            # backstop instead of this refusal.
-            material_index = int(material_index)
+            # backstop instead of this refusal. ``_whole_number``: clay-35.
+            material_index = _whole_number(material_index)
         except (TypeError, ValueError, OverflowError):
             return fail("material must be a palette index.", field="material")
         if not (0 <= material_index < len(doc.materials)):
@@ -297,7 +312,16 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
             )
 
     mark = doc.history.mark()
-    obj = pane_clay_tools.add_primitive(ctx, doc, generator)
+    try:
+        obj = pane_clay_tools.add_primitive(ctx, doc, generator)
+    except OpError as error:
+        # The document is full (``add_object`` refuses past the object and
+        # triangle ceilings the saver holds it to): nothing was pushed, but
+        # ``mark()`` opened a gesture, and one left open defers the undo
+        # stack's eviction for the rest of the session. Closed here, then
+        # refused as the tool error it is.
+        doc.history.collapse_since(mark)
+        return fail(str(error))
     if params:
         # ``merged``/``mesh`` were already built (and any refusal already
         # returned) above, before this gesture opened -- see this
@@ -362,7 +386,10 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
         )
     positions: list[list[float]] = []
     for row in positions_arg:
-        vec, failure = _validate_vec3(row, "positions")
+        # Bounded, not just finite: the 2026-10-07 audit's clay-01/clay-04 --
+        # ``1e300`` is finite as a float64 and ``inf`` as the float32 the mesh
+        # stores; see ``PARAM_MAX``.
+        vec, failure = _validate_vec3(row, "positions", max_abs=PARAM_MAX)
         if failure:
             return failure
         positions.append(vec)
@@ -391,7 +418,10 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
                 # OverflowError: the 2026-09-26 audit's clay-agent-tools-09 --
                 # ``int(float("inf"))`` raises it, uncaught here before this
                 # fix, past this refusal into ``call()``'s generic backstop.
-                vi = int(idx)
+                # ``_whole_number``: clay-35 -- ``int(1.9)`` is 1 and
+                # ``int(True)`` is 1, so ``[0, 1.9, true]`` built the loop
+                # [0, 1, 1].
+                vi = _whole_number(idx)
             except (TypeError, ValueError, OverflowError):
                 return fail(
                     f"face {fi} corner {ci} is {idx!r}, not a vertex index.", field="faces"
@@ -443,6 +473,11 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
                     )
                 if not (math.isfinite(u) and math.isfinite(v)):
                     return fail(f"uv[{fi}][{ci}] must be finite numbers.", field="uv")
+                if abs(u) > UV_MAX or abs(v) > UV_MAX:
+                    return fail(
+                        f"uv[{fi}][{ci}] must be no larger than {UV_MAX:g} in magnitude.",
+                        field="uv",
+                    )
                 corners_uv.append([u, v])
             uv.append(corners_uv)
 
@@ -461,6 +496,9 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
             return failure
 
     mesh = bm.from_faces(positions, faces, uv)
+    failure = _non_finite_mesh_refusal(mesh, positions_field="positions")
+    if failure:
+        return failure
     try:
         bm.validate(mesh)
     except ValueError as error:
@@ -490,8 +528,8 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
             # OverflowError: the 2026-09-26 audit's clay-agent-tools-09, the
             # same fix as ``_h_add_primitive``'s identical ``material``
             # conversion above in this file -- ``int(float("inf"))`` raises
-            # it, uncaught here before this fix.
-            material_index = int(material_index)
+            # it, uncaught here before this fix. ``_whole_number``: clay-35.
+            material_index = _whole_number(material_index)
         except (TypeError, ValueError, OverflowError):
             return fail("material must be a palette index.", field="material")
         if not (0 <= material_index < len(doc.materials)):
@@ -510,7 +548,13 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
 
     mark = doc.history.mark()
     obj = bd.Obj(uid=bd.new_uid(), name=obj_name, mesh=mesh, generator=None, params={})
-    doc.add_object(obj)
+    try:
+        doc.add_object(obj)
+    except OpError as error:
+        # See ``_h_add_primitive``: a full document refuses, and the gesture
+        # ``mark()`` opened is closed first.
+        doc.history.collapse_since(mark)
+        return fail(str(error))
     # Object mode only (the 2026-09-13 audit's clay-03) -- see
     # ``ClayDoc.add_objects``'s own comment for why selecting unconditionally
     # leaves the Properties panel naming one object while editing another.
@@ -713,11 +757,18 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # other check in this function to.
     built: list[tuple[Any, dict, Any]] = []
     for obj in objects:
-        merged = bp.clamp_params(obj.generator, {**obj.params, **params})
         try:
+            merged = bp.clamp_params(obj.generator, {**obj.params, **params})
             new_mesh = bp.GENERATORS[obj.generator][1](**merged)
         except (ValueError, ArithmeticError) as error:
             return fail(str(error), field="params", uids=[obj.uid])
+        # The 2026-10-07 audit's clay-04: refused here, before pass 2 rebuilds
+        # anything, if the float32 positions are not finite -- all-or-nothing.
+        failure = _non_finite_mesh_refusal(new_mesh)
+        if failure:
+            return fail(
+                failure["content"][0]["text"], field="params", uids=[obj.uid]
+            )
         built.append((obj, merged, new_mesh))
 
     # Pass 2: nothing above can refuse anymore, so every object is rebuilt.

@@ -176,9 +176,17 @@ def claydoc_to_obj(
             obj_lines.append(f"v {_num(x)} {_num(y)} {_num(z)}")
 
         has_uv = mesh.uv is not None
+        corner_vt: np.ndarray | None = None
         if has_uv:
             assert mesh.uv is not None
-            for u, v in mesh.uv.tolist():
+            # The 2026-10-07 audit's clay-27: one ``vt`` per face corner made a
+            # UV-mapped mesh of 768,800 triangles write 2.3 million of them,
+            # past what Clay's own importer will parse. Identical (u, v) pairs
+            # share one line instead -- first occurrence first, so a mesh whose
+            # corners are all distinct writes exactly what it always did -- and
+            # each face corner names the shared line.
+            corner_vt, vt_rows = _shared_texcoords(mesh.uv)
+            for u, v in vt_rows.tolist():
                 obj_lines.append(f"vt {_num(u)} {_num(1.0 - v)}")
 
         last_material: int | None = None
@@ -197,16 +205,15 @@ def claydoc_to_obj(
             corners = []
             for corner in range(lo, hi):
                 v = v_offset + int(mesh.loops[corner]) + 1
-                if has_uv:
-                    corners.append(f"{v}/{vt_offset + corner + 1}")
+                if corner_vt is not None:
+                    corners.append(f"{v}/{vt_offset + int(corner_vt[corner]) + 1}")
                 else:
                     corners.append(str(v))
             obj_lines.append("f " + " ".join(corners))
 
         v_offset += len(mesh.positions)
-        if has_uv:
-            assert mesh.uv is not None
-            vt_offset += len(mesh.uv)
+        if corner_vt is not None:
+            vt_offset += int(corner_vt.max()) + 1 if len(corner_vt) else 0
 
     mtl_lines = ["# Written by Realmspinner's Clay"]
     for index in sorted(used_materials):
@@ -216,6 +223,22 @@ def claydoc_to_obj(
         _write_material(mtl_lines, index, material, name)
 
     return "\n".join(obj_lines) + "\n", "\n".join(mtl_lines) + "\n"
+
+
+def _shared_texcoords(uv: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``(per-corner index, distinct rows)`` of a per-corner uv array.
+
+    Distinct rows in order of first appearance, so ``rows[index[c]]`` is
+    ``uv[c]`` for every corner and the result is deterministic.
+    """
+    arr = np.ascontiguousarray(uv, dtype="f4").reshape(-1, 2)
+    if len(arr) == 0:
+        return np.zeros(0, dtype="i8"), arr
+    _rows, first, inverse = np.unique(arr, axis=0, return_index=True, return_inverse=True)
+    order = np.argsort(first, kind="stable")
+    rank = np.empty(len(order), dtype="i8")
+    rank[order] = np.arange(len(order))
+    return rank[np.asarray(inverse).reshape(-1)], arr[first[order]]
 
 
 def _exported(doc: ClayDoc, visible_only: bool) -> list[Any]:

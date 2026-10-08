@@ -39,6 +39,7 @@ from ..geom3d import math3d as m3
 
 __all__ = [
     "AXES",
+    "MAX_TYPED",
     "DragInput",
     "constrain_rotation",
     "constrain_scale",
@@ -52,6 +53,14 @@ AXES: tuple[str, str, str] = ("x", "y", "z")
 #: nothing and is *kept*, because both are states a half-typed number passes
 #: through and discarding them would make the minus sign unreachable.
 _NUMERIC = set("0123456789.-")
+
+#: The longest typed string. The 2026-10-07 audit's clay-14: the string had no
+#: cap, so forty ``9``s parsed to 1e40, which the element move cast to float32
+#: (``inf``) and committed as an undo step the document could not save. Twelve
+#: characters is more than any distance, angle or factor a person types (a
+#: millimetre-precise value in the thousands of kilometres) and keeps the
+#: largest parseable value, 999999999999, well inside float32.
+MAX_TYPED = 12
 
 
 def _index(axis: str) -> int | None:
@@ -109,7 +118,10 @@ class DragInput:
             self.typed = self.typed[:-1]
             return True
         if len(name) == 1 and name in _NUMERIC:
-            self.typed += name
+            # Consumed even at the cap: a digit that is dropped silently is
+            # better than one that falls through to some other binding.
+            if len(self.typed) < MAX_TYPED:
+                self.typed += name
             return True
         return False
 

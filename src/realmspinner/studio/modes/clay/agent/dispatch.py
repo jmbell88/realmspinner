@@ -177,9 +177,10 @@ replacement for it.** Because the whole run already folds into one step,
 backing a kept prefix out is already a single ``clay_undo`` -- but an agent
 that would rather the partial work never have existed can pass
 ``rollback_on_error=True``, and when the batch stops at a refusal
-``_h_batch`` reverses the folded step with ``history.undo(doc,
-redoable=False)`` before it returns (see that method's own docstring in
-``undo.py`` for the cancelled-lift incident ``redoable=False`` exists for --
+``_h_batch`` reverses the folded step with ``ClayDoc.undo_unrecorded()``
+before it returns (that door runs ``history.undo(doc, redoable=False)`` and
+then drops the element selection the step described; see ``undo.py`` for the
+cancelled-lift incident ``redoable=False`` exists for --
 ``redoable=True`` here would leave the abandoned batch on the redo stack for
 a later ``clay_redo`` to bring back, exactly the outcome the agent asked to
 avoid). This is **not** a third exception to "one tool call is one undo
@@ -1284,8 +1285,9 @@ def tools() -> list[Any]:
                 "everything else is still drawn, since the renderer has no "
                 "per-object alpha. Refused, before any GPU work, when the "
                 f"requested views would exceed the {RENDER_PIXEL_BUDGET:,}"
-                "-pixel render budget or would not fit in one reply frame "
-                "once encoded -- ask for fewer or smaller views instead. "
+                "-pixel render budget. A render whose encoded pictures then "
+                "turn out not to fit in one reply frame is refused after it "
+                "has been drawn. Ask for fewer or smaller views either way. "
                 "Pass 'compare' (a stored reference's name) to render "
                 "exactly one view beside it or blended over it instead of "
                 "the normal multi-view result -- see clay_reference_add; "
@@ -1867,7 +1869,7 @@ def _allowed_argument_names() -> dict[str, frozenset[str]]:
     table.
 
     **Memoised, and safe to memoise for a reason worth being precise about.**
-    :func:`tools` is rebuilt from scratch on every call -- 25 ``Tool`` objects
+    :func:`tools` is rebuilt from scratch on every call -- 34 ``Tool`` objects
     with full description strings, cheap enough for one ``tools/list`` request
     but not for a cost paid again on *every* :func:`call`, which runs on the
     frame thread and, through ``clay_batch``, potentially several dozen times

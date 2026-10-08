@@ -149,11 +149,12 @@ element mode you are in, which transform tool you are holding, whether snapping 
 viewport is drawing. All four used to be blocks down a tool panel on the far side of the window from the
 model — a reach away from the thing every one of them is about.
 
-**Mode** and **tool** are the two pill groups. The mode pills read **V**, **E**, **F** and **Obj** —
-vertex, edge, face and object, in the order of the keys `1`, `2`, `3` and `4`. The tool pills are the
-rail's four tools again, so either one lights the same tool. They never fold away, whatever the window
-is doing; everything else on the row gives up its label before it gives up its control, and if the
-window is narrow enough the rightmost group moves into a `…` menu with the full words back.
+The header holds the **mode** field and the buttons beside it. The mode field reads **Verts**, **Edges**,
+**Faces** and **Object** — vertex, edge, face and object, in the order of the keys `1`, `2`, `3` and `4` —
+and shortens to **V**, **E**, **F** and **Obj** when the window is narrow. The tools (Select, Move, Rotate,
+Scale) live on the rail beside the viewport and nowhere else. Everything else on the row gives up its label
+before it gives up its control, and if the window is narrow enough the rightmost group moves into a `…`
+menu with the full words back.
 
 **Undo** and **Redo** are two buttons on the header. Each is greyed when there is nothing to take back or
 put back, and hovering it says why; they do exactly what `Ctrl+Z` and `Ctrl+Y` do. The history behind
@@ -241,7 +242,8 @@ the object but missing everything on it clears that object; clicking empty space
 tool (`Q`) starts a marquee, and a marquee that ends where it started clears everything. A marquee
 takes a vertex inside the rectangle, an edge only when *both* ends are inside, and a face only when
 *all* its corners are — and it selects through the mesh, back face included, because that is what a
-rectangle dragged over a blockout means.
+rectangle dragged over a blockout means. The marquee belongs to the Select tool: under Move, Rotate or Scale a
+drag in empty space orbits the view, and the hint line under the viewport only names the marquee under Select.
 
 `Alt`+drag always orbits, in every mode. That is the one gesture that is never reinterpreted, since
 it is how you look at what you are about to click.
@@ -285,13 +287,13 @@ a marquee and `L` between them reach what a low-poly model needs.
 | Mode | Operation | What it does |
 | --- | --- | --- |
 | Any | Extrude (`E`) | Pulls the selection off the surface and walls in the gap, then starts dragging what it made — along the face normal in face mode, free in edge and vertex mode. |
-| Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. |
+| Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. With *treat selection as one region* on, the cap's texture shrinks with the geometry and the rim gets the band of texture between the old edge and the new one, as a per-face inset always did. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number along the palette strip, and leaves the object's default slot alone. See [Texturing](#texturing). |
 | Faces | Triangulate Faces (`T`) | Replaces each selected face with its own triangles. |
 | Faces | Merge Faces | Merges a connected block of selected faces into one n-gon. |
-| Verts | Weld | Merges vertices closer together than a distance you give. A vertex joins a group only if it is within that distance of the group's first vertex, so a long run of closely spaced points is not collapsed into one. |
+| Verts | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. |
 
 An operation that cannot do what you asked says so in a toast naming the element and what to do
 instead, and changes nothing. Those are refusals, not failures: the alternative is geometry that
@@ -476,21 +478,29 @@ be clicked in the viewport. **Solo** above the list hides everything *except* wh
 
 All three are on the keyboard too: `H` hides the selection, `Shift`+`H` isolates it (the same as Solo)
 and `Alt`+`H` shows everything again. Hiding clears the selection, since a hidden object is no longer
-something you can act on.
+something you can act on. Hiding through the eye or the visibility box leaves the selection alone, but a
+hidden object is skipped by drags and by element operations all the same. `Alt` plus any other letter,
+digit or `Delete` does nothing in Clay: only `Alt`+`H` and `Alt`+`Z` (X-ray) are bound, and `Alt`+drag orbits.
 
 Rows are dragged to reorder them, which matters because display order is the order the objects come
 out in an exported GLB. Reordering is switched off while the filter box has something in it: the
 rows on screen are then a subset, so there is no honest answer for where a drop between two of them
 lands in the real list.
 
-Right-clicking a row selects it and offers **Rename**, **Duplicate**, **Solo** and **Delete**.
-Double-clicking a name renames it in place.
+Right-clicking a row that is not selected selects it; the menu offers **Rename**, **Duplicate**, **Solo** and
+**Delete**. When the row is part of the selection, Duplicate, Solo and Delete all act on the whole selection
+(Delete is one undo step); otherwise on that row alone. The row's own trash button always deletes only that
+row. Double-clicking a name renames it in place. The name box takes the keyboard straight away; **Enter** or a
+click elsewhere keeps the new name, **Esc** leaves the old one. Which groups are collapsed, the Shift-click
+anchor and a rename in progress belong to the document they were made in, not to every open Clay tab.
 
 The list is a tree. An object with children is indented under its parent and has an expander beside
 it; collapsing one hides its subtree, except while the filter box is in use, where a match buried
 under a collapsed group still has to be findable. Where a row is dropped decides what the drop
-means: onto the middle of a row makes the dragged object that row's child, while between two rows
-reorders as before.
+means: onto the middle of a row makes the dragged object that row's child, while between two rows places
+the dragged object beside that row, as a sibling under the same parent (a row dropped beside a child becomes
+that parent's child; beside a root it becomes a root), in one undo step. A drop that would put an object
+inside its own subtree is refused and says so.
 
 ## The Properties tabs
 
@@ -581,7 +591,9 @@ that are merged into one at their centroid, which is what makes two shapes that 
 a single continuous surface rather than as two shells sharing a plane. Setting it to zero keeps
 every vertex, which is the honest answer for parts that are meant to stay separate inside one
 object. The distance means the same thing whatever the survivor is scaled to: 1 mm is 1 mm on the
-ruler, not 1 mm in whatever units the survivor's own transform happens to work in.
+ruler, not 1 mm in whatever units the survivor's own transform happens to work in. The distance is limited
+to 50 m, and a distance big enough to leave the merged object with no faces at all is refused, naming the
+distance. Merging objects that have no geometry is refused with "There is nothing to merge".
 
 The weld is applied to the **whole merged result**, not only where the shapes meet. That is what
 lets three objects touching at one point come out joined, and it costs nothing for ordinary work —
@@ -668,7 +680,9 @@ began off the grid is pulled onto it. Rotation snaps the angle.
 
 Snapping applies to gizmo and keyboard drags. A number typed into the properties panel is used exactly
 as typed, because you already said what you meant, and so is a number typed during a drag, because at
-that point you have said where the thing goes. A drag locked to an axis is not snapped either. The
+that point you have said where the thing goes. A drag locked to an axis is not snapped either, and the drag
+an Extrude hands over to is locked to the face's normal, so it is not snapped: type a distance, or let go and
+move the result. The
 grid is the only thing there is to snap to: Clay has no snap to another object's vertex, edge or face,
 and no proportional falloff. To make two things touch, set their positions, or snap both to the same
 grid.
@@ -691,8 +705,12 @@ organic surface and the wrong one for a shape made of flat panels.
 
 Two things follow from it being a *projection*. Faces pointing opposite ways share the same square,
 so a texture applied to a box appears on both the front and the back (mirrored, so lettering reads
-the right way round on each). And unwrapping does not freeze a generator: coordinates are not
-geometry, so an unwrapped box is still a box and editing its size still rebuilds it.
+the right way round on each). Texture coordinates follow the glTF convention: the first row of your
+picture is the top of the texture (v = 0), so a picture painted with red along its top edge has red along
+the top of every upright wall. Documents saved before this was settled keep the layout they were saved with;
+Box Unwrap, or rebuilding a generated shape, writes the current one. And unwrapping does not freeze a
+generator: coordinates are not geometry, so an unwrapped box is still a box and editing its size still
+rebuilds it.
 
 Clay does not paint a texture itself. The layout is for a picture you draw in [Inker](28-inker.md)
 and lay on the object's material (see [Texturing](#texturing)).
@@ -792,9 +810,10 @@ is the slot the Material tab's fields edit, which is also the object's default s
 slots shows only the **+**; a new document is not given a palette it did not ask for. What a click does
 depends on the mode:
 
-- **Object mode, one object selected** — a click repaints the object: its default slot and every one of
-  its faces move to that slot, as one undo step. With nothing or several objects selected the strip
-  paints nothing.
+- **Object mode, objects selected** — a click repaints each selected object: its default slot and every
+  one of its faces move to that slot, as one undo step however many objects are selected. With nothing
+  selected the strip paints nothing. **Ctrl**+click, which edits the slot in Properties, needs exactly one
+  object selected; with several it does nothing, and the tooltip says "Select one object to edit its slot."
 - **Face mode, faces selected** — a click paints *those faces* with the slot and leaves the object's
   default slot alone. The Mesh menu's **Assign Material...** does the same from the menu: it asks for
   the slot's number, counting from 0 along the strip. It has no key.
@@ -914,8 +933,8 @@ those builds (format 3) still opens. What the new Clay does with the parts it no
 - **A shape Clay no longer builds** — a pyramid, an arch, a column, a lathe, a sweep or a tube — keeps its
   mesh and loses its parameters, so it is an ordinary editable mesh from then on.
 - **Materials are reduced** to a name, a colour, a base-colour texture (and whether it is sampled
-  crisp), double-sided and cutout. Metallic, roughness, emissive, normal and occlusion are set to
-  plain defaults.
+  crisp), double-sided and cutout (a cutout keeps its own cutoff threshold). Metallic, roughness,
+  emissive, normal and occlusion are set to plain defaults.
 
 Whenever any of that happened, Clay says so once, in one toast. When something was dropped or
 removed it is a warning you can read and close, listing those sentences first and at most three in
@@ -1009,6 +1028,8 @@ one vertex, which is exactly what the exporter split produced. Smoothing is a he
 corner normals agree with its own geometric normal was flat-shaded, and one where they do not was
 smooth. A material that arrives with an imported asset keeps its colour and its base-colour texture
 (crisp if the file's sampler says NEAREST) and nothing else; the other maps are dropped on the way in.
+A texture Clay cannot use (unreadable, not PNG, JPEG or WebP, or larger than 4096 × 4096) is skipped, and
+the import says how many. An import scale must be a positive number.
 
 Two things are refused rather than half-done. A **rigged** GLB, because Clay has no skinning and
 editing it would drop the rig; open it in Create instead. And a mesh past two million triangles,

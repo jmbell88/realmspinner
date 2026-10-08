@@ -130,5 +130,13 @@ class CacheOps:
             entry.gpu.release()
         self._cache.clear()
         self._screens.clear()
+        # The offscreen renders' caches ride the same lifetime: they hold GPU
+        # uploads too (``ClayView._offscreen_cache``).
+        offscreen = getattr(self, "_offscreen_caches", None)
+        if offscreen:
+            for _doc_ref, cache, _screens in offscreen.values():
+                for entry in cache.values():
+                    entry.gpu.release()
+            offscreen.clear()
         self.hover_object = None
         self._hover_pick_at = None

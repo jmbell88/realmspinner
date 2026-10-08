@@ -717,23 +717,35 @@ def _b_select_elements(
     del monkeypatch, svc
     ctx, session, uid1, _uid2 = _new_world()
     stamp = _stamp(ctx, session, uid1)
-    # verts/edges/faces are independently validated against this object's
-    # own mesh regardless of 'mode' (which only decides what gets combined
-    # into the selection at the end) -- all three given at once so each of
-    # them, and each's own nested item shape, is reachable by this file's
-    # per-property violation walk. (0, 1) is a real edge and 0 a real face
-    # of a fresh box -- verified once, directly against the generator,
-    # rather than assumed.
+    # Only the kind that is the mode's currency: the 2026-10-07 audit's
+    # clay-36 made a vertex-mode call that also names edges or faces a refusal
+    # (it stored a selection kind the document's mode does not hold), so the
+    # other two kinds get their own baselines in ``_SELECT_ELEMENTS_BASELINES``.
     args = {
         "uid": uid1,
         "mode": "vertex",
         "verts": [0],
-        "edges": [[0, 1]],
-        "faces": [0],
         "how": "replace",
         "expect_stamp": stamp,
     }
     return ctx, session, args
+
+
+def _select_elements_baseline(mode: str, kind: str, value: Any) -> BaselineFactory:
+    def build(monkeypatch: Any = None, svc: Any = None) -> tuple[Any, agent_clay.Session, Args]:
+        ctx, session, args = _b_select_elements(monkeypatch, svc)
+        args = {k: v for k, v in args.items() if k != "verts"}
+        return ctx, session, {**args, "mode": mode, kind: value}
+
+    return build
+
+
+# (0, 1) is a real edge and 0 a real face of a fresh box -- verified once,
+# directly against the generator, rather than assumed.
+_SELECT_ELEMENTS_BASELINES: dict[str, BaselineFactory] = {
+    "edges": _select_elements_baseline("edge", "edges", [[0, 1]]),
+    "faces": _select_elements_baseline("face", "faces", [0]),
+}
 
 
 def _select_by_call(
@@ -1216,6 +1228,7 @@ _PROPERTY_OVERRIDES: dict[str, dict[str, BaselineFactory]] = {
     "clay_render": _RENDER_BASELINES,
     "clay_reference_add": _REFERENCE_ADD_BASELINES,
     "clay_set_params": {"uids": _b_set_params_uids},
+    "clay_select_elements": _SELECT_ELEMENTS_BASELINES,
     "clay_set_origin": _SET_ORIGIN_BASELINES,
     "clay_uv": _UV_BASELINES,
 }

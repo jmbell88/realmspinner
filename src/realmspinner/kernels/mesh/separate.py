@@ -77,7 +77,17 @@ __all__ = ["by_loose_parts", "by_selection"]
 #: Set well under the ~30,000-piece point where that curve crosses a second,
 #: the same "well under a second" bar every sibling ceiling in this package
 #: uses.
-MAX_SEPARATE_PIECES = 20_000
+#:
+#: **Then lowered to the document's object ceiling.** The 2026-10-07 audit's
+#: clay-13: 20,000 was reconciled with nothing, but a document holds at most
+#: ``glbimport.MAX_OBJECTS`` objects (4,096) -- the writer and the reader both
+#: refuse more -- so a split into 4,097 or more pieces built a mesh per piece
+#: only for :meth:`~.document.ClayDoc.separate` (which now refuses a split past
+#: that ceiling, by name) to throw it all away. Not a measured performance
+#: number any more, and not keyed on any stored data; a test pins it equal to
+#: ``glbimport.MAX_OBJECTS``, which this module cannot import (``glbimport``
+#: imports the document, which imports this package's ops).
+MAX_SEPARATE_PIECES = 4_096
 
 
 def _refuse_piece_count(n_pieces: int) -> None:
@@ -88,8 +98,8 @@ def _refuse_piece_count(n_pieces: int) -> None:
     if n_pieces > MAX_SEPARATE_PIECES:
         raise el.OpError(
             f"Separating this mesh would build {n_pieces:,} pieces, past the "
-            f"{MAX_SEPARATE_PIECES:,} Separate works with before it would "
-            "stall the frame it runs on. Separate a mesh with fewer pieces."
+            f"{MAX_SEPARATE_PIECES:,} Separate works with (the most objects a Clay "
+            "document can hold and save). Separate a mesh with fewer pieces."
         )
 
 

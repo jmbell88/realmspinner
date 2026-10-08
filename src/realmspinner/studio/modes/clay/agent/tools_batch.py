@@ -50,6 +50,7 @@ from .validate import (
     _protocol,
     _quat_from_euler_xyz,
     _tab,
+    _whole_number,
     fail,
     image_png,
     ok,
@@ -88,7 +89,8 @@ def _move_history(ctx: Any, session: Session, args: dict, *, redo: bool) -> dict
     doc = tab.doc
     steps = args.get("steps", 1)
     try:
-        steps = int(steps)
+        # ``_whole_number``: the 2026-10-07 audit's clay-35 (``int(1.9)`` is 1).
+        steps = _whole_number(steps)
     except (TypeError, ValueError, OverflowError):
         return fail("steps must be an integer.", field="steps")
     if not (1 <= steps <= 64):
@@ -263,7 +265,8 @@ def _fold_run(
     branch hand-setting it.
 
     ``rollback``: when true and the run stops at a refusal, the folded step
-    is undone with ``history.undo(doc, redoable=False)`` before this
+    is undone with ``doc.undo_unrecorded()`` (``history.undo(redoable=False)``
+    plus the element-selection forget) before this
     returns -- not left for a later ``clay_undo``, and not redoable, because
     the whole point of asking for this is that the partial work should never
     have existed. ``redoable=True`` (the default ``undo()`` a human's Ctrl+Z
@@ -305,13 +308,17 @@ def _fold_run(
         # audit, agents-06).
         doc.history.collapse_since(mark)
         if rollback and doc.history.head != mark:
-            doc.history.undo(doc, redoable=False)
+            # ``undo_unrecorded``, not ``history.undo(redoable=False)``: the
+            # 2026-10-07 audit's clay-05 -- the direct stack undo skipped
+            # ``_forget_elements`` and left a face selection past the restored
+            # mesh's face count.
+            doc.undo_unrecorded()
         raise
     doc.history.collapse_since(mark)
 
     rolled_back = False
     if rollback and stopped_at is not None and doc.history.head != mark:
-        doc.history.undo(doc, redoable=False)
+        doc.undo_unrecorded()  # not history.undo: see the except arm above
         rolled_back = True
 
     if not rolled_back:
@@ -367,7 +374,7 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     contract above is unchanged and this argument does not touch it -- what
     changes is what happens to that kept prefix once the batch has already
     stopped. Default false leaves today's behaviour exactly alone. True
-    reverses the folded step with ``doc.history.undo(doc, redoable=False)``
+    reverses the folded step with ``doc.undo_unrecorded()``
     -- see ``studio/modes/clay/agent/dispatch.py``'s own module docstring's paragraph on this
     argument for why ``redoable=False`` and for what a rollback does and
     does not reach.
@@ -863,7 +870,7 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
             objects_out.append({"id": pid, "name": wire_name, "uid": obj.uid})
 
     if dry_run and not rolled_back and changed:
-        doc.history.undo(doc, redoable=False)
+        doc.undo_unrecorded()  # the clay-05 door: drops the element selection too
         rolled_back = True
         changed = False
 

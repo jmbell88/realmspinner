@@ -59,9 +59,11 @@ narrowing site, in ``_view_drag``) still holds of it.
 
 from __future__ import annotations
 
-import colorsys
+import contextlib
+import functools
 import logging
 import weakref
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -152,32 +154,55 @@ _SHADING_DRAW_KWARGS: dict[str, dict[str, Any]] = {
 }
 
 
-#: The golden-ratio conjugate, for ``_id_color``'s hue stepping.
-_GOLDEN_RATIO_CONJUGATE = 0.6180339887498949
+#: The id pass's clear colour, as ``Renderer.draw_ids`` paints it: white. No
+#: object may be given it, or that object would be indistinguishable from
+#: background.
+_ID_CLEAR = (255, 255, 255)
 
 
-def _id_color(uid: int) -> tuple[int, int, int]:
-    """A deterministic, well-separated 8-bit RGB triple for one uid.
+def _id_color(index: int) -> tuple[int, int, int]:
+    """The 8-bit RGB triple for the *index*-th drawn object: the index itself,
+    packed into 24 bits (red the high byte).
 
-    Golden-ratio hue stepping is the standard answer to "N distinct colours,
-    N unknown in advance": stepping the hue by the golden ratio's conjugate
-    each time spreads points evenly around the circle with no clustering,
-    however many are drawn. Keyed on the uid itself, not a position in some
-    ordering, so an object's colour is stable across calls and independent of
-    which other objects happen to be visible in any one of them -- which is
-    what lets a multi-view ``clay_render`` call share one map across views
-    rather than reassigning colours per view.
-
-    Saturation and value are both held comfortably below 1.0 (0.85, 0.95) so
-    the brightest channel a colour can ever produce is ``round(0.95 * 255) ==
-    242`` -- never 255. ``Renderer.draw_ids`` clears to white, so "never
-    white" is what keeps the clear colour unambiguous background rather than
-    a collision with whatever uid the golden-ratio sequence happened to land
-    on.
+    The 2026-10-07 audit's clay-22: this used to step a hue by the golden
+    ratio's conjugate and quantise it to 8 bits, which is not injective --
+    959 distinct colours for 1,000 uids, 1,235 for 4,096 -- so ``clay_render``'s
+    ``object_id`` table could report one hex for two objects and sum their
+    pixel and occlusion counts, against a docstring promising "well-separated"
+    colours. The decode here is an exact match on the pixel (``_count_colors``:
+    no blending, no MSAA, no tone map), so what it needs is *distinct*, not
+    pretty, and a packed integer is distinct by construction for every index a
+    document can hold (``glbimport.MAX_OBJECTS`` is 4,096, against 16.7
+    million). The caller numbers from one: black stays "nothing", and the
+    largest index, 0xFFFFFF, is the clear colour and is refused.
     """
-    hue = (uid * _GOLDEN_RATIO_CONJUGATE) % 1.0
-    r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.95)
-    return (round(r * 255), round(g * 255), round(b * 255))
+    if not 0 <= index < 0xFFFFFF:
+        raise ValueError(f"object id index {index} does not fit below the clear colour")
+    return ((index >> 16) & 255, (index >> 8) & 255, index & 255)
+
+
+def _id_colors(uids: Iterable[int]) -> dict[int, tuple[int, int, int]]:
+    """``{uid: colour}`` for the objects of one id pass, numbered from one in
+    the order given (the document's draw order), each uid once.
+
+    Stable across the views of a single ``clay_render`` call, which is what
+    lets them share one map: they walk the same document, so the same objects
+    get the same numbers. Not stable across edits that add, remove or hide an
+    object -- the colour names a position in *this* picture, and the table
+    returned beside it is what maps it back.
+    """
+    out: dict[int, tuple[int, int, int]] = {}
+    for uid in uids:
+        if uid not in out:
+            out[uid] = _id_color(len(out) + 1)
+    return out
+
+
+def _uid_of_colors(
+    colors: dict[int, tuple[int, int, int]],
+) -> dict[tuple[int, int, int], int]:
+    """The inverse of :func:`_id_colors`' table: pixel colour -> uid."""
+    return {color: uid for uid, color in colors.items()}
 
 
 def _hex_color(color: tuple[int, int, int]) -> str:
@@ -209,6 +234,19 @@ def _count_colors(
         uid: by_packed.get((color[0] << 16) | (color[1] << 8) | color[2], 0)
         for uid, color in colors.items()
     }
+
+
+def _offscreen_render(method: Any) -> Any:
+    """Run an offscreen render (``render_png``/``render_ids``) over
+    :meth:`ClayView._offscreen_cache`, keeping the method's own signature and
+    docstring."""
+
+    @functools.wraps(method)
+    def wrapper(self: Any, doc: Any, *args: Any, **kwargs: Any) -> Any:
+        with self._offscreen_cache(doc):
+            return method(self, doc, *args, **kwargs)
+
+    return wrapper
 
 
 @dataclass(frozen=True)
@@ -279,6 +317,13 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.scale_gizmo = ScaleGizmo(ctx, self.renderer.programs)
 
         self._cache: dict[int, _Entry] = {}
+        # The offscreen renders' own caches, one per other document, so
+        # rendering an agent's tab or the Familiar ghost clone does not evict
+        # the displayed document's uploads (:meth:`_offscreen_cache`).
+        # ``id(doc) -> (weakref to doc, cache, screens)``, oldest first.
+        self._offscreen_caches: dict[
+            int, tuple[weakref.ReferenceType[Any], dict[int, _Entry], dict[int, Any]]
+        ] = {}
         # One texture cache for every object's model (the 2026-10-07 audit's
         # clay-28): reference-counted, so it frees a texture on the last
         # object's release rather than the creator's.
@@ -311,6 +356,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         # -- a hover that recomputed every frame would reproject every vertex
         # of every object while the scene sits perfectly still.
         self.hover_element: tuple[int, int] | None = None
+        # The element mode ``hover_element`` was read in: the
+        # index means a vertex, an edge or a face by the mode, so a switch
+        # must drop it (the 2026-10-07 audit's clay-83).
+        self._hover_mode: str | None = None
         # ``(key, screen, mesh)`` -- the mesh pinned so the id in the key stays
         # sound; see ``screen_of``.
         self._screens: dict[int, tuple[Any, Any, Any]] = {}
@@ -427,13 +476,29 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         """
         self._rect = rect
         width, height = int(max(rect[2], 1)), int(max(rect[3], 1))
+        # The 2026-10-07 audit's clay-83: ``hover_element`` is an index in the
+        # current mode's space and was cleared only on a mesh replacement or a
+        # mouse move, so the 1/2/3 key (the mouse still) lit vertex 5 as face 5.
+        # Cleared here, where every frame passes, when the document drawn last
+        # frame has changed mode. Another document is left alone: a hover is
+        # ``(uid, index)`` and uids are unique across documents, so a hover left
+        # by a tab switch names nothing in the new one.
+        if (
+            doc is self._last_doc
+            and self._hover_mode is not None
+            and doc.element_mode != self._hover_mode
+            and self.hover_element is not None
+        ):
+            self.hover_element = None
+            self._render_dirty = True
+        self._hover_mode = doc.element_mode
         key = (
             width, height, bool(self.wireframe), bool(self.show_grid),
             # Every view setting that changes the picture has to be in the key,
             # or the frame that turns one on is skipped as "nothing moved" and
             # the switch reads as broken until something else forces a redraw.
             bool(self.flat), bool(self.wire_overlay), bool(self.xray),
-            id(doc), doc.rev, getattr(self.state, "tool", "select"),
+            id(doc), doc.rev, doc.element_mode, getattr(self.state, "tool", "select"),
             float(self.grid_size), bool(self.god_light),
             # A Familiar preview change is not a document edit -- ``doc.rev``
             # does not move for it, on purpose, since nothing has actually
@@ -772,6 +837,14 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             return None
         if doc.element_mode != "object" and not doc.element_sel:
             return None
+        # The 2026-10-07 audit's clay-06: a hidden object stays selected, and a
+        # selection of nothing visible has no centre to place a gizmo at -- but
+        # the handle was still grabbable from where it was last drawn, and the
+        # drag it began moved the hidden object unseen.
+        if doc.element_mode == "object" and not any(
+            obj.visible and obj.uid in doc.selection for obj in doc.objects
+        ):
+            return None
         return {
             "translate": self.translate_gizmo,
             "rotate": self.rotate_gizmo,
@@ -876,6 +949,57 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             self.camera.look_along(view)
         return saved, lo, hi
 
+    #: How many other documents' offscreen caches the view keeps warm. An agent
+    #: working in one tab re-renders it every call; the Familiar's ghost clone
+    #: is a fresh document each time and its cache is never hit again, so the
+    #: bound is what keeps the clones from piling up on the GPU.
+    OFFSCREEN_CACHES = 2
+
+    @contextlib.contextmanager
+    def _offscreen_cache(self, doc: Any):
+        """Point ``sync``/``_composite`` at a cache that belongs to *doc* for the
+        length of an offscreen render, when *doc* is not the displayed one.
+
+        The 2026-10-07 audit's clay-84: ``_cache`` is keyed on uid alone, so
+        ``render_png``/``render_ids`` of an agent's tab or the Familiar ghost
+        clone ``sync``ed the displayed document's entries away (50 objects, 50
+        rebuilds on the next frame, and a live drag's previewed buffers
+        discarded for a frame). The displayed document -- ``_last_doc``, or
+        anything when nothing has been drawn yet -- keeps the main cache, so a
+        screenshot still reuses what the viewport uploaded.
+        """
+        shown = self._last_doc
+        if shown is None or doc is shown:
+            yield
+            return
+        slot = self._offscreen_caches.pop(id(doc), None)
+        if slot is not None and slot[0]() is not doc:
+            # The address was reissued to a different document: not ours.
+            self._release_entries(slot[1])
+            slot = None
+        if slot is None:
+            slot = (weakref.ref(doc), {}, {})
+        main = (self._cache, self._screens, self.hover_element)
+        self._cache, self._screens = slot[1], slot[2]
+        self.hover_element = None
+        try:
+            yield
+        finally:
+            self._cache, self._screens, self.hover_element = main
+            self._offscreen_caches[id(doc)] = slot
+            for key in [k for k, v in self._offscreen_caches.items() if v[0]() is None]:
+                self._release_entries(self._offscreen_caches.pop(key)[1])
+            while len(self._offscreen_caches) > self.OFFSCREEN_CACHES:
+                oldest = next(iter(self._offscreen_caches))
+                self._release_entries(self._offscreen_caches.pop(oldest)[1])
+
+    @staticmethod
+    def _release_entries(cache: dict[int, _Entry]) -> None:
+        for entry in cache.values():
+            entry.gpu.release()
+        cache.clear()
+
+    @_offscreen_render
     def render_png(
         self,
         doc: Any,
@@ -1042,6 +1166,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             self.renderer.grid.set_span(saved_grid[0], divisions=saved_grid[1])
             self.renderer.light_override = None
 
+    @_offscreen_render
     def render_ids(
         self,
         doc: Any,
@@ -1053,7 +1178,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         bounds: tuple[Any, Any] | None = None,
     ) -> tuple[bytes, list[tuple[int, str, int]]]:
         """The object-id picture ``shading="object_id"`` answers with: every
-        visible object flat-coloured by :func:`_id_color`, no lighting, no
+        visible object flat-coloured by :func:`_id_colors`, no lighting, no
         grid, no gizmos, as PNG bytes plus a per-uid pixel count.
 
         Deliberately **not** ``render_png(shading="object_id")`` even though
@@ -1084,11 +1209,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         )
         target = glctx.Viewport(self.ctx, (size, size), samples=1)
         try:
-            colors = {
-                obj.uid: _id_color(obj.uid)
-                for obj in doc.objects
-                if obj.visible
-            }
+            colors = _id_colors(obj.uid for obj in doc.objects if obj.visible)
             self.renderer.draw_ids(
                 target, self.camera, self._composite(doc, hide_removed=False), id_colors=colors
             )

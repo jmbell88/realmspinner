@@ -69,8 +69,10 @@ def test_a_cylinders_caps_do_not_overlap_its_sides():
     mesh = prim.cylinder(segments=8)
     islands = _faces(mesh)
     sides, caps = islands[:8], islands[8:]
-    assert min(float(i[:, 1].min()) for i in sides) >= 0.5 - 1e-5
-    assert max(float(i[:, 1].max()) for i in caps) <= 0.5 - 1e-5
+    # v runs down the image (the 2026-10-07 audit's clay-03), so the sides that
+    # used to sit in the top half of a v-up square are the small v now.
+    assert max(float(i[:, 1].max()) for i in sides) <= 0.5 + 1e-5
+    assert min(float(i[:, 1].min()) for i in caps) >= 0.5 + 1e-5
 
 
 def test_a_cylinders_two_caps_do_not_overlap_each_other():
@@ -270,18 +272,20 @@ def test_the_unwrap_op_is_one_undo_step_per_object():
     assert doc.by_uid(obj.uid).mesh.uv is None
 
 
-def test_box_unwrap_gives_every_face_of_a_box_positive_uv_winding():
-    """clay-11: X and Y faces came out mirrored (negative signed uv area seen
-    from outside) while only the Z pair read the right way round."""
+def test_box_unwrap_gives_every_face_of_a_box_the_same_uv_winding():
+    """clay-11: X and Y faces came out mirrored (the opposite signed uv area
+    seen from outside) while only the Z pair read the right way round. Since the
+    2026-10-07 audit's clay-03 v runs down the image, so the one winding an
+    upright, unmirrored face has is a *negative* signed area in plain (u, v)."""
     box = prim.box((1.0, 2.0, 3.0))
     out = uv_mod.box_unwrap(box)
     for face in range(len(out.starts) - 1):
         corners = np.arange(int(out.starts[face]), int(out.starts[face + 1]))
         u, v = out.uv[corners, 0].astype("f8"), out.uv[corners, 1].astype("f8")
-        # Shoelace: a positive signed area is the counter-clockwise winding every
-        # unwrap in this package produces.
+        # Shoelace: with v down the image, counter-clockwise on the model reads
+        # clockwise in (u, v), which is a negative signed area.
         area = 0.5 * float(np.sum(u * np.roll(v, -1) - np.roll(u, -1) * v))
-        assert area > 0.0, f"face {face} reads mirrored"
+        assert area < 0.0, f"face {face} reads mirrored"
 
 
 def test_every_primitive_the_manual_says_has_no_overlapping_uv_has_none():

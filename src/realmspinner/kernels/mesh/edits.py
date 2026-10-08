@@ -71,10 +71,11 @@ def _own(value: Any) -> Any:
     return np.array(value, dtype="f8", copy=True)
 
 
-#: Every texture slot a :class:`~..viewer.gltf.Material` can carry. Clay
-#: itself never fills one in (the document module's own docstring says so),
-#: but ``MaterialEdit``/``MaterialListEdit`` are the general replace door and
-#: an imported mesh's material can arrive through it fully textured.
+#: Every texture slot a :class:`~..viewer.gltf.Material` can carry. Clay keeps
+#: only the base-colour one (``document.reduce_material`` strips the rest on
+#: every way in, and the 2026-10-07 audit's clay-72 found this comment still
+#: saying Clay never fills any), but ``MaterialEdit``/``MaterialListEdit`` are
+#: the general replace door, so the cost of an edit is counted over all five.
 _TEXTURE_SLOTS = ("base_color", "metallic_roughness", "normal", "emissive", "occlusion")
 
 
@@ -406,12 +407,15 @@ def _shift_materials(
     that ``ObjectAddEdit``'s docstring says is the whole reason it holds the
     object rather than a copy.
 
-    **Everything the history is holding, as well as everything in the
-    document.** An undone add and a done remove both keep an object alive in no
-    document at all, and a renumbering that walked ``doc.objects`` alone left
-    those naming the palette as it stood before it. Deduplicated by identity,
-    because an object that is both in the document and named by a step on the
-    stack is one object and must shift once.
+    **Everything the steps below it are holding, as well as everything in the
+    document.** A done remove keeps an object alive in no document at all, and a
+    renumbering that walked ``doc.objects`` alone left it naming the palette as
+    it stood before. Not the redo list -- an object that only a later, undone
+    step brings in is numbered for the palette *that* step saw, and visiting it
+    here shifted it a second time (the 2026-10-07 audit's clay-02; see
+    :func:`_material_holders`). Deduplicated by identity, because an object that
+    is both in the document and named by a step on the stack is one object and
+    must shift once.
 
     ``restore`` is :attr:`MaterialListEdit.boundary`, threaded through only
     from that edit's own undo of a removal. The 2026-09-08 audit's clay-06:
@@ -457,34 +461,66 @@ def _shift_materials(
             obj.material = max(0, int(obj.material) + delta)
 
 
-def _material_holders(doc: Any) -> Any:
-    """Every ``Obj`` this document's state space contains, each exactly once.
+def _held_by(edits: Any) -> Any:
+    """Every object a list of steps holds, compounds opened, in order."""
+    for edit in edits:
+        children = getattr(edit, "edits", None)
+        if isinstance(children, list):
+            yield from _held_by(children)
+            continue
+        obj = getattr(edit, "obj", None)
+        # ``hasattr(obj, "mesh")`` rather than an isinstance check, because the
+        # shared history engine carries edits from three other packages and this
+        # asks only whether the thing it holds has materials to renumber.
+        if obj is not None and hasattr(obj, "mesh"):
+            yield obj
 
-    The objects in the document, and the ones a step on the undo stack could put
-    back into it -- an undone add, a done remove. Deduplicated by identity,
-    which is not a tidiness measure in either caller: one object is routinely
-    named by the document *and* by an add step still on the stack, and counting
-    it twice overstates a slot's users while shifting it twice moves its faces
-    two slots instead of one.
+
+def _material_holders(doc: Any, *, redoable: bool = False) -> Any:
+    """Every ``Obj`` a palette renumbering must visit, each exactly once.
+
+    The objects in the document, and the ones a step *below* it on the done list
+    holds out of it -- a done remove. Deduplicated by identity, which is not a
+    tidiness measure in either caller: one object is routinely named by the
+    document *and* by an add step still on the stack, and counting it twice
+    overstates a slot's users while shifting it twice moves its faces two slots
+    instead of one.
+
+    **Never the redo list, when renumbering.** The 2026-10-07 audit's clay-02:
+    an object that only a later, undone step brings in (a Duplicate or a
+    Separate recorded after the palette change) is held by that step in the redo
+    list in the numbering of *its own* moment -- the palette as the later step
+    saw it. Undoing the palette change and redoing it again must leave that
+    object alone, because redoing the later step puts it back into a palette
+    that is, by then, exactly the one it was numbered for. Visiting it shifted it
+    twice (or onto slot -1 after a removal). A step is applied after the steps
+    below it and before the ones above it, and the stack pops it out of the done
+    list while its ``undo``/``redo`` runs, so the done list *is* "the steps
+    below" and the redo list *is* "the steps above" in both directions.
+
+    ``redoable=True`` is :meth:`~.document.ClayDoc.material_users`' question
+    instead -- everything an undo or a redo can reach -- where the safe answer is
+    the larger set.
     """
     seen: set[int] = set()
     for obj in doc.objects:
         seen.add(id(obj))
         yield obj
-    for edit in doc.history.edits():
-        obj = getattr(edit, "obj", None)
-        # ``hasattr(obj, "mesh")`` rather than an isinstance check, because the
-        # shared history engine carries edits from three other packages and this
-        # asks only whether the thing it holds has materials to renumber.
-        if obj is not None and hasattr(obj, "mesh") and id(obj) not in seen:
-            seen.add(id(obj))
-            yield obj
+    # ``_done`` and ``_undone`` are the stack's own lists: its public ``edits()``
+    # flattens both into one sequence and so cannot say which side of the head
+    # an object sits on, which is exactly what this renumbering needs.
+    lists = (doc.history._done, doc.history._undone) if redoable else (doc.history._done,)
+    for held in lists:
+        for obj in _held_by(held):
+            if id(obj) not in seen:
+                seen.add(id(obj))
+                yield obj
 
 
 def _boundary_uids(doc: Any, index: int) -> tuple[int, ...]:
     """The uids ``_shift_materials`` will lose track of if *index* is removed.
 
-    Every object, over the same state space ``_material_holders`` walks, whose
+    Every object, over the same objects ``_shift_materials`` is about to visit, whose
     *default* ``material`` field names ``index`` exactly, right now -- read
     before ``ClayDoc.remove_material`` deletes the slot and shifts everything
     down. The 2026-09-08 audit's clay-06: past this point that fact is gone

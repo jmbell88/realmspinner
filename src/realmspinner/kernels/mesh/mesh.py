@@ -381,8 +381,9 @@ def accumulate(loops: np.ndarray, values: np.ndarray, n_verts: int) -> np.ndarra
     ``np.bincount`` rather than ``np.add.at``: the latter is numpy's unbuffered
     ufunc path, which is an order of magnitude slower and is the single slowest
     primitive in Clay's rebuild-on-every-mesh-edit path
-    (``clay_view.ClayView.sync`` keys its GPU cache on ``id(obj.mesh)``, so
-    every extrude, inset and element-drag commit pays this).
+    (``ClayView.sync`` in ``studio/modes/clay/ui/_view_cache.py`` keys its GPU
+    cache on ``id(obj.mesh)``, so every extrude, inset and element-drag commit
+    pays this).
 
     Both accumulate in *input* order, so the float sum order -- and therefore
     the result, bit for bit -- is unchanged. That is asserted rather than
@@ -414,7 +415,7 @@ def render_arrays(
 
     ``positions`` is ``(N, 3)`` f4, ``normals`` ``(N, 3)`` f4, ``uvs``
     ``(N, 2)`` f4 or ``None``, and ``indices`` a flat ``(T * 3,)`` u4 -- the
-    same shapes ``viewer.gltf.Primitive`` uses, so the viewport's existing
+    same shapes ``kernels.geom3d.gltf.Primitive`` uses, so the viewport's existing
     upload path takes them unchanged.
 
     **A flat face splits a vertex per corner; a smooth face shares one.** A
@@ -814,7 +815,7 @@ def raw_face_normals(
 def transformed(mesh: Mesh, matrix: np.ndarray) -> Mesh:
     """The mesh through a 4x4, as a new :class:`Mesh`.
 
-    Column-vector convention, ``M @ v``, the same one ``viewer.math3d`` uses.
+    Column-vector convention, ``M @ v``, the same one ``kernels.geom3d.math3d`` uses.
 
     **A mirroring matrix reverses every face's loop.** If the linear part's
     determinant is negative the transform swaps handedness, so a loop that was

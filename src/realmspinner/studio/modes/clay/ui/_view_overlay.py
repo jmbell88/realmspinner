@@ -206,6 +206,10 @@ class OverlayOps:
         items: list[Any] = []
         live: set[int] = set()
         previewing = self._op_drag.bases if self._grab == "opdrag" else ()
+        # One uid -> object map for the pass, so ``_world`` never scans the
+        # document per object (the 2026-10-07 audit's clay-21: 177 ms a hover
+        # frame at 1,500 objects against a composite's 3 ms).
+        index = self._uid_index(doc)
         for obj in doc.objects:
             if not obj.visible or len(obj.mesh.positions) == 0:
                 continue
@@ -246,7 +250,7 @@ class OverlayOps:
                 # invisible, the failure the key's own comment describes.
                 overlay.pins = (obj.mesh, stored)
                 self._overlays[obj.uid] = overlay
-            world = self._world(doc, obj)
+            world = self._world(doc, obj, index)
             items.extend(
                 self._overlay_items(obj, overlay, world, mode, sel, hover_index)
             )
@@ -396,6 +400,7 @@ class OverlayOps:
                 wanted[obj.uid] = selected
         previewing = self._op_drag.bases if self._grab == "opdrag" else ()
         items: list[Any] = []
+        index = self._uid_index(doc) if wanted else {}
         for obj in doc.objects:
             selected = wanted.get(obj.uid)
             if selected is None or obj.uid in previewing:
@@ -428,7 +433,7 @@ class OverlayOps:
                     add(adjacency(obj.mesh).edge_verts, moderngl.LINES, HOVER_COLOR,
                         depth=True, biased=True)
                     overlay.hover_specs = specs
-            world = self._world(doc, obj)
+            world = self._world(doc, obj, index)
             for vao, gl_mode, color, depth, size, biased in [*overlay.specs, *overlay.hover_specs]:
                 items.append(
                     DrawItem(

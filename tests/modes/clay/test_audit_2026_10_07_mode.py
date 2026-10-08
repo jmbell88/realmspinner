@@ -479,7 +479,9 @@ def test_quit_releases_every_tab_texture_family_including_clays_uv_texture(monke
 
 def test_apply_scale_and_apply_rotate_explain_why_they_are_greyed() -> None:
     for fn in (clay_uv.apply_rotate_reason, clay_uv.apply_scale_reason):
-        assert fn(saving=False, live=False, selected=1, pending_scale=1.0) == ""
+        # 2.0, not 1.0: a scale of exactly 1 is the identity and is now greyed too
+        # (the 2026-10-07 audit's clay-79).
+        assert fn(saving=False, live=False, selected=1, pending_scale=2.0) == ""
         assert fn(saving=True, live=False, selected=1, pending_scale=1.0)
         assert fn(saving=False, live=True, selected=1, pending_scale=1.0)
         assert fn(saving=False, live=False, selected=0, pending_scale=1.0)

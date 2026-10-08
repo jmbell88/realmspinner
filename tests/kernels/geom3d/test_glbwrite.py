@@ -475,7 +475,10 @@ def _clay_document():
 # unwrap now uses the right-handed cyclic axis pairs, so every X- and Y-facing
 # face's UVs are un-mirrored. Verified: restoring the old pairs reproduces the
 # previous digest exactly, so this is the only byte that moved. Not a writer change.
-_CLAY_GLB_SHA256 = "beb197d6cdde3529482440fdd6bd091787ae90a4ae233cb29f68ee83e3578091"
+# Re-pinned 2026-10-07 for the audit's clay-03 (``kernels/mesh/uv.py``, ``primitives._mesh``):
+# Mesh.uv is v-down now, so every uv's v in this document is ``1 - v`` of what it was.
+# Positions, indices and the writer did not move.
+_CLAY_GLB_SHA256 = "ed3e75245bf1d6d2812da38877090a337df20e2e7af486c05a55ac9a7886d581"
 
 
 def test_an_existing_clay_document_writes_the_same_bytes_as_before_lights_arrived() -> None:

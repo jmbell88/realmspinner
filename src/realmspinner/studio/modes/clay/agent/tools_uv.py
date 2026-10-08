@@ -31,6 +31,7 @@ from .validate import (
     _scene_row,
     _tab,
     _validate_range,
+    _whole_number,
     fail,
 )
 
@@ -83,7 +84,9 @@ def _uv_transform(doc: Any, obj: Any, args: dict) -> dict:
         if not isinstance(islands_arg, list) or not islands_arg:
             return fail("islands must be a non-empty list of island ids.", field="islands")
         try:
-            wanted = [int(i) for i in islands_arg]
+            # ``_whole_number``: the 2026-10-07 audit's clay-35 -- ``int(1.9)``
+            # transformed island 1.
+            wanted = [_whole_number(i) for i in islands_arg]
         except (TypeError, ValueError, OverflowError):
             return fail("islands must be a list of integers.", field="islands")
         known = set(np.unique(ids).tolist())

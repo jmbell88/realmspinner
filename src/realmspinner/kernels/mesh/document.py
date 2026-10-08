@@ -41,8 +41,10 @@ with, so the properties panel shows "Cylinder: radius, height, segments" and a
 change regenerates the mesh as one :class:`~.edits.MeshEdit`. The first
 topology edit clears it -- an extruded box is not describable as "box, size 1",
 and a panel still offering a size field would discard the edit the moment it
-was touched. ``clay_ops`` does that in one place for every op, so no op has to
-remember to.
+was touched. :meth:`ClayDoc.set_mesh` (and :meth:`ClayDoc.join_objects` and
+:meth:`ClayDoc.set_origin`) does that in one place for every op, so no op has to
+remember to; the op layer used to, and the 2026-10-07 audit's clay-72 found this
+paragraph still crediting it.
 
 **A document's materials are Clay's reduced subset**: a name, a colour, a
 base-colour texture, double-sided and cutout (:func:`reduce_material`). The
@@ -196,6 +198,26 @@ def _flat_rgba(factor: Sequence[float], size: int) -> bytes:
     return texel * (size * size)
 
 
+_TRIANGLES: weakref.WeakKeyDictionary[bm.Mesh, int] = weakref.WeakKeyDictionary()
+_TRIANGLES_LOCK = threading.Lock()
+
+
+def _triangles_of(mesh: bm.Mesh) -> int:
+    """The triangles ``mesh.triangulate`` fans *mesh* into (a face of ``n``
+    corners is ``n - 2``, a degenerate one 0) -- the same count
+    ``serialize.triangle_count`` gives the writer and the reader, memoised on the
+    mesh object because a ``Mesh`` is immutable and the ceiling check below sums
+    it over every object in the document each time one is added."""
+    with _TRIANGLES_LOCK:
+        got = _TRIANGLES.get(mesh)
+    if got is None:
+        counts = np.diff(mesh.starts).astype("i8") - 2
+        got = int(np.clip(counts, 0, None).sum())
+        with _TRIANGLES_LOCK:
+            _TRIANGLES[mesh] = got
+    return got
+
+
 def _empty_mesh() -> bm.Mesh:
     """A mesh with zero vertices and zero faces -- what :meth:`ClayDoc.group`
     gives its new empty object. Draws nothing (:func:`to_primitives` already
@@ -220,7 +242,11 @@ def reduce_material(material: gltf.Material) -> gltf.Material:
     Idempotent, and it returns *material* itself when nothing would change, so
     the identity de-duplication ``GpuMaterial`` and the writers lean on survives
     a pass through here. A cutout is ``alpha_mode == "MASK"``; ``BLEND`` has no
-    place in a picoCAD-level tool and reads as opaque.
+    place in a picoCAD-level tool and reads as opaque. A cutout keeps its own
+    ``alpha_cutoff`` (the 2026-10-07 audit's clay-56: it used to be reset to 0.5
+    here, so a leaf cut at 0.2 came back from an import or a v3 migration
+    cutting at 0.5 and nothing said so); an opaque material carries the spec
+    default, because the number means nothing there.
 
     ``nearest`` (crisp texel sampling) is kept: it is Clay's own flag, set on
     every texture it makes or pulls from Inker, and stripping it would turn a
@@ -234,7 +260,7 @@ def reduce_material(material: gltf.Material) -> gltf.Material:
         roughness_factor=0.6,
         double_sided=bool(material.double_sided),
         alpha_mode="MASK" if cutout else "OPAQUE",
-        alpha_cutoff=0.5,
+        alpha_cutoff=float(material.alpha_cutoff) if cutout else 0.5,
         base_color=material.base_color,
         nearest=bool(material.nearest),
     )
@@ -327,6 +353,42 @@ class ClayDoc:
 
     # -- lookup ------------------------------------------------------------
 
+    def _refuse_past_ceilings(self, incoming: Sequence[Obj], outgoing: Sequence[Obj] = ()) -> None:
+        """Refuse -- :class:`~.elements.OpError`, nothing changed -- a document
+        that would pass the object or triangle ceiling the writer enforces.
+
+        The 2026-10-07 audit's clay-13: Mirror Copy, Duplicate, Separate, Group
+        and every agent creator made objects without looking at
+        ``glbimport.MAX_OBJECTS`` (4,096) or ``MAX_TRIANGLES`` (2,000,000), the
+        two numbers ``serialize.rblk_bytes`` and ``read_rblk`` both hold a
+        document to. Thirteen Mirror Copy presses reached 8,192 objects, and the
+        user learned at Ctrl+S (or the autosave) that the document they had
+        built could not be saved. The ceilings are read from ``glbimport`` at
+        call time -- the one place the writer and the reader already take them
+        from -- by a function-scope import, because ``glbimport`` imports this
+        module. *outgoing* is what the same step removes (Separate's source).
+        """
+        from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
+
+        objects = len(self.objects) - len(outgoing) + len(incoming)
+        if objects > MAX_OBJECTS:
+            raise el.OpError(
+                f"That would make {objects:,} objects, past the {MAX_OBJECTS:,} a Clay "
+                "document can hold and save. Delete or join some objects first."
+            )
+        added = sum(_triangles_of(o.mesh) for o in incoming)
+        if added:
+            triangles = (
+                sum(_triangles_of(o.mesh) for o in self.objects)
+                - sum(_triangles_of(o.mesh) for o in outgoing)
+                + added
+            )
+            if triangles > MAX_TRIANGLES:
+                raise el.OpError(
+                    f"That would make {triangles:,} triangles, past the {MAX_TRIANGLES:,} "
+                    "a Clay document can hold and save."
+                )
+
     def index_of(self, uid: int) -> int:
         for i, obj in enumerate(self.objects):
             if obj.uid == uid:
@@ -398,6 +460,39 @@ class ClayDoc:
         """*uid*'s direct children, in document order."""
         return [obj.uid for obj in self.objects if obj.parent == uid]
 
+    def _uid_map(self) -> dict[int, Obj]:
+        """uid -> object, built in one pass. First-seen wins on a duplicate uid,
+        which is what :meth:`index_of`'s front-to-back scan has always answered.
+
+        The 2026-10-07 audit's clay-71: :meth:`ancestors`, :meth:`descendants`
+        and :meth:`world_matrix` reached every hop through ``index_of``/
+        ``by_uid`` (a linear scan) or ``children_of`` (another), so one call on a
+        4,000-deep chain -- legal, well inside ``glbimport.MAX_OBJECTS`` -- cost
+        about half a second, and the viewport and Properties make that call per
+        selected object per frame. Same shape the 2026-10-03 audit's clay-85
+        gave :func:`kept_objects`: one map per call.
+        """
+        by_uid: dict[int, Obj] = {}
+        for obj in self.objects:
+            by_uid.setdefault(obj.uid, obj)
+        return by_uid
+
+    @staticmethod
+    def _ancestors_in(uid: int, by_uid: dict[int, Obj]) -> list[int]:
+        if uid not in by_uid:
+            raise KeyError(f"no object with uid {uid}")
+        out: list[int] = []
+        seen = {uid}
+        current = by_uid[uid].parent
+        while current is not None and current not in seen:
+            obj = by_uid.get(current)
+            if obj is None:
+                break
+            out.append(current)
+            seen.add(current)
+            current = obj.parent
+        return out
+
     def ancestors(self, uid: int) -> list[int]:
         """*uid*'s parent, grandparent, and so on -- nearest first.
 
@@ -408,18 +503,7 @@ class ClayDoc:
         in-memory document (a test, a script) gets a bounded answer rather
         than an infinite loop if it does.
         """
-        out: list[int] = []
-        seen = {uid}
-        current = self.by_uid(uid).parent
-        while current is not None and current not in seen:
-            try:
-                obj = self.by_uid(current)
-            except KeyError:
-                break
-            out.append(current)
-            seen.add(current)
-            current = obj.parent
-        return out
+        return self._ancestors_in(uid, self._uid_map())
 
     def descendants(self, uid: int) -> list[int]:
         """Every uid under *uid*, depth-first, document order per level.
@@ -434,15 +518,24 @@ class ClayDoc:
         pops them in document order, one root's whole subtree finished before
         its next sibling starts -- exactly what the old recursive ``walk``
         produced.
+
+        One parent -> children map for the whole walk (the 2026-10-07 audit's
+        clay-71), not a :meth:`children_of` scan per node, and a set for the
+        visited test rather than a list.
         """
+        kids: dict[int | None, list[int]] = {}
+        for obj in self.objects:
+            kids.setdefault(obj.parent, []).append(obj.uid)
         out: list[int] = []
-        stack = list(reversed(self.children_of(uid)))
+        visited: set[int] = set()
+        stack = list(reversed(kids.get(uid, ())))
         while stack:
             u = stack.pop()
-            if u in out:  # cycle guard; see ancestors()'s own
+            if u in visited:  # cycle guard; see ancestors()'s own
                 continue
+            visited.add(u)
             out.append(u)
-            stack.extend(reversed(self.children_of(u)))
+            stack.extend(reversed(kids.get(u, ())))
         return out
 
     def roots(self) -> list[int]:
@@ -453,10 +546,15 @@ class ClayDoc:
         """*uid*'s world transform: its own local TRS, composed through every
         ancestor's -- ancestor-first, so a root's own local TRS *is* its
         world matrix (``ancestors`` gives nothing to compose through)."""
-        chain = [uid, *self.ancestors(uid)]
+        return self._world_in(uid, self._uid_map())
+
+    def _world_in(self, uid: int, by_uid: dict[int, Obj]) -> np.ndarray:
+        """:meth:`world_matrix` over a map the caller built once -- for a loop
+        that asks for many objects' worlds before changing anything."""
+        chain = [uid, *self._ancestors_in(uid, by_uid)]
         matrix = m3.identity()
         for u in reversed(chain):
-            obj = self.by_uid(u)
+            obj = by_uid[u]
             matrix = matrix @ m3.compose(obj.translation, obj.rotation, obj.scale)
         return matrix
 
@@ -614,7 +712,8 @@ class ClayDoc:
             raise el.OpError(f"{obj.name} has a zero scale, so its origin cannot move.") from error
 
         children = self.children_of(uid)
-        child_worlds_old = {c: self.world_matrix(c) for c in children}
+        by_uid = self._uid_map()
+        child_worlds_old = {c: self._world_in(c, by_uid) for c in children}
         try:
             world_new_inv = np.linalg.inv(world_new)
         except np.linalg.LinAlgError as error:
@@ -633,8 +732,19 @@ class ClayDoc:
             for c in children
         }
 
+        # The 2026-10-07 audit's clay-68: only the children's placements were
+        # checked, and an object whose scale is tiny (``set_transform`` accepts
+        # 1e-40) has a shift of ~1e40 that the float32 mesh cast to inf. Checked
+        # before the first assignment, like the children above.
+        with np.errstate(over="ignore", invalid="ignore"):
+            shifted = bm.transformed(obj.mesh, shift)
+        if not np.isfinite(shifted.positions).all():
+            raise el.OpError(
+                f"{obj.name} cannot move its origin there: re-basing its mesh is not "
+                "finite (an extreme scale)."
+            )
         edits: list[Any] = []
-        before_mesh, obj.mesh = obj.mesh, bm.transformed(obj.mesh, shift)
+        before_mesh, obj.mesh = obj.mesh, shifted
         edits.append(MeshEdit(uid, before_mesh, obj.mesh))
         if obj.generator is not None:
             was_gen = {"generator": obj.generator, "params": obj.params}
@@ -755,6 +865,25 @@ class ClayDoc:
         self._forget_elements(edit)
         return True
 
+    def undo_unrecorded(self) -> bool:
+        """Reverse the newest step and forget it: no redo, element selection
+        dropped exactly as :meth:`undo` drops it. -> whether there was a step.
+
+        The door for a caller that wants a step to have *not happened* -- a
+        rolled-back batch or program, a dry run. They used to call
+        ``history.undo(doc, redoable=False)`` directly, which reverses the step
+        and never runs :meth:`_forget_elements`: the 2026-10-07 audit's clay-05
+        found a face-mode subdivide rolled back that way leaving 24 face indices
+        selected on the 6-face mesh it had restored, and ``delete_faces`` then
+        raised ``IndexError`` on them. Routing it here keeps the one rule (a
+        selection describing geometry that is gone is dropped) in one place.
+        """
+        edit = self.history.top
+        if not self.history.undo(self, redoable=False):
+            return False
+        self._forget_elements(edit)
+        return True
+
     def redo(self) -> bool:
         edit = self.history.redo_top
         if not self.history.redo(self):
@@ -800,7 +929,12 @@ class ClayDoc:
 
     def add_object(self, obj: Obj, index: int | None = None) -> Obj:
         """Insert an object and record the step. Returns the object it was given
-        so a caller can place and keep hold of one in a single expression."""
+        so a caller can place and keep hold of one in a single expression.
+
+        Refuses (:class:`~.elements.OpError`, nothing pushed) an object that
+        would take the document past what it can save; see
+        :meth:`_refuse_past_ceilings`."""
+        self._refuse_past_ceilings([obj])
         at = len(self.objects) if index is None else index
         self.objects.insert(at, obj)
         self.history.push(ObjectAddEdit(at, obj))
@@ -826,10 +960,15 @@ class ClayDoc:
         Empty is a no-op that pushes nothing at all, for ``set_visibility``'s
         reason: a step that changes nothing makes a saved document ask to be
         saved again.
+
+        Refuses (:class:`~.elements.OpError`, nothing pushed) a batch that would
+        take the document past what it can save; see
+        :meth:`_refuse_past_ceilings`.
         """
         added = list(objs)
         if not added:
             return []
+        self._refuse_past_ceilings(added)
         edits: list[Any] = []
         for obj in added:
             at = len(self.objects)
@@ -868,7 +1007,8 @@ class ClayDoc:
         obj = self.by_uid(uid)
         new_parent = obj.parent
         children = self.children_of(uid)
-        child_worlds = {c: self.world_matrix(c) for c in children}
+        by_uid = self._uid_map()
+        child_worlds = {c: self._world_in(c, by_uid) for c in children}
 
         # Every child's new local TRS is computed, and checked finite, before the
         # first assignment (the 2026-10-07 audit's clay-04): a refusal part-way
@@ -1006,6 +1146,19 @@ class ClayDoc:
         obj = self.by_uid(uid)
         if mesh is obj.mesh:
             return False
+        # The 2026-10-07 audit's clay-14: a typed 40-digit move (and a UV
+        # transform of the same size) cast to float32 as inf and arrived here
+        # with nothing to look at it, pushing a step whose positions the writer
+        # refuses -- a document that cannot be saved until the step is undone.
+        # The op layers clamp what they can; this is the backstop for any
+        # caller, present and future, and it refuses before anything changes.
+        if not np.isfinite(mesh.positions).all() or (
+            mesh.uv is not None and not np.isfinite(mesh.uv).all()
+        ):
+            raise el.OpError(
+                f"{obj.name!r} cannot take that change: it makes a position or a UV "
+                "too large to store (past about 3e38)."
+            )
         before, obj.mesh = obj.mesh, mesh
         edits: list[Any] = [MeshEdit(uid, before, mesh)]
         if not keep_generator and obj.generator is not None:
@@ -1179,6 +1332,22 @@ class ClayDoc:
                     else "A rotation of (0, 0, 0, 0) is not a rotation."
                 )
         before = tuple(np.array(v, dtype="f8", copy=True) for v in (was or obj.trs()))
+        if rotation is not None:
+            # The 2026-10-07 audit's clay-69: ``[0, .5, 0, .5]`` was accepted as
+            # given, ``quat_to_mat4`` does not normalise, so Clay drew a
+            # non-orthonormal matrix while the exported node carried the raw
+            # quaternion that every engine normalises -- two different poses.
+            # Normalised here, divided by the largest component first so a
+            # finite 1e200 cannot overflow the norm. A quaternion already unit
+            # to within 1e-9 is left bit-for-bit alone: re-dividing it would
+            # move it by an ulp and turn "set the value already there" into a
+            # step. (A zero quaternion was refused above.)
+            quat = np.array(rotation, dtype="f8", copy=True)
+            with np.errstate(over="ignore", under="ignore"):
+                if abs(float(np.linalg.norm(quat)) - 1.0) > 1e-9:
+                    quat /= np.abs(quat).max()
+                    quat /= np.linalg.norm(quat)
+            rotation = quat
         after = tuple(
             obj.trs()[i] if new is None else np.array(new, dtype="f8", copy=True)
             for i, new in enumerate((translation, rotation, scale))
@@ -1352,6 +1521,11 @@ class ClayDoc:
                     parent=obj.parent,
                 )
             )
+        # The 2026-10-07 audit's clay-13: a split that takes the document past
+        # the object ceiling builds a file the writer refuses (the pieces
+        # replace the source, hence ``outgoing``). Checked before the first
+        # assignment, so a refusal changes nothing.
+        self._refuse_past_ceilings(new_objs, [obj])
 
         index = self.index_of(uid)
         edits: list[Any] = []
@@ -1364,7 +1538,8 @@ class ClayDoc:
         # source is popped, exactly as remove_object does.
         new_parent = obj.parent
         children = self.children_of(uid)
-        child_worlds = {c: self.world_matrix(c) for c in children}
+        by_uid = self._uid_map()
+        child_worlds = {c: self._world_in(c, by_uid) for c in children}
         # Computed, and checked finite, before the first assignment (the
         # 2026-10-07 audit's clay-04).
         kept = {
@@ -1510,7 +1685,8 @@ class ClayDoc:
         counting defaults would disable the only control that reaches this.
         """
         return sum(
-            int((obj.mesh.material == index).sum()) for obj in _material_holders(self)
+            int((obj.mesh.material == index).sum())
+            for obj in _material_holders(self, redoable=True)
         )
 
     def remove_material(self, index: int) -> bool:

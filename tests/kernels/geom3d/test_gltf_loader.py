@@ -36,7 +36,10 @@ def _glb(gltf_json: dict, binary: bytes) -> bytes:
     binary += b"\x00" * (-len(binary) % 4)
     chunk = struct.pack("<II", len(binary), 0x004E4942) + binary
     header = struct.pack("<III", 0x46546C67, 2, 0)
-    return rebuild_glb(header, gltf_json, chunk)
+    # ``allow_nan``: several tests here hand the loader a deliberately
+    # malformed document (an ``Infinity`` yfov, a ``1e400`` znear) to prove it
+    # falls back; the production writer refuses to emit one (clay-62).
+    return rebuild_glb(header, gltf_json, chunk, allow_nan=True)
 
 
 @pytest.fixture

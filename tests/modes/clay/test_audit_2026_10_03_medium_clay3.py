@@ -24,7 +24,9 @@ def _glb(doc: dict, binary: bytes = b"") -> bytes:
     binary += b"\x00" * (-len(binary) % 4)
     chunk = struct.pack("<II", len(binary), 0x004E4942) + binary
     header = struct.pack("<III", 0x46546C67, 2, 0)
-    return rebuild_glb(header, doc, chunk)
+    # ``allow_nan``: this file hands the importer deliberately non-finite
+    # documents; the production writer refuses to emit one (clay-62).
+    return rebuild_glb(header, doc, chunk, allow_nan=True)
 
 
 def _tri_doc(nodes: list[dict], scenes: list[dict], binary_len: int = 36) -> dict:

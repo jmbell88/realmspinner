@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -104,6 +105,36 @@ MAX_SKINS = 100_000
 #: Mirrors ``service.validation.MAX_IMAGE_PIXELS`` without importing service
 #: into the viewer (the viewer imports no business-logic layer).
 MAX_TEXTURE_PIXELS = 16_000_000
+#: The material texture slots, by the ``Material`` field each fills. ``load``'s
+#: ``texture_slots`` names a subset of these to decode (the 2026-10-07 audit's
+#: clay-28: Clay keeps only the base colour but the loader decoded -- and
+#: charged against ``MAX_TOTAL_BYTES`` -- all five, so a PBR file of a few
+#: megabytes was refused for maps nobody was going to look at).
+TEXTURE_SLOTS: tuple[str, ...] = (
+    "base_color",
+    "metallic_roughness",
+    "normal",
+    "emissive",
+    "occlusion",
+)
+#: The image formats a glTF texture may be, by Pillow's own plugin name. glTF
+#: allows PNG and JPEG (WebP through ``EXT_texture_webp``); Pillow's default
+#: ``Image.open`` instead sniffs the bytes across every plugin it carries, EPS
+#: and WMF among them, and EPS spawns Ghostscript on load -- a child process
+#: outside the kill-on-close job, started because a hostile file's bytes said
+#: so (the 2026-10-07 audit's clay-61).
+TEXTURE_FORMATS: tuple[str, ...] = ("PNG", "JPEG", "WEBP")
+
+
+class _BudgetRefusal(ValueError):
+    """The document-wide ``MAX_TOTAL_BYTES`` refusal, and only that.
+
+    Its own type because the texture decode wraps Pillow, whose errors (a PNG
+    text chunk past ``MAX_TEXT_CHUNK``, say) are also ``ValueError``: the
+    handler used to re-raise every ``ValueError`` to let this one through, so a
+    texture Pillow rejected refused the whole file where a corrupt one was only
+    skipped (the 2026-10-07 audit's clay-60).
+    """
 #: What one accessor may decode to. Every *other* accessor path is bounded by
 #: the BIN chunk it reads out of -- ``_check_span`` refuses a span past the end
 #: of it, so a 400-byte GLB cannot ask for more than 400 bytes of geometry. The
@@ -518,7 +549,27 @@ class Model:
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({"KHR_lights_punctual"})
 
 
-def load(path: Path | bytes) -> Model:
+def load(
+    path: Path | bytes,
+    *,
+    max_texture_pixels: int | None = None,
+    texture_slots: Iterable[str] | None = None,
+) -> Model:
+    """Parse a GLB into a :class:`Model`.
+
+    ``max_texture_pixels`` and ``texture_slots`` are the two knobs a caller
+    that is not the viewer may turn (the 2026-10-07 audit's clay-07 and
+    clay-28): the default pixel ceiling is the viewer's GPU-upload limit, which
+    is not Clay's, and the default slot set is every slot, which is more than
+    Clay keeps. A texture over the ceiling is skipped and counted in
+    ``Model.skipped_textures``; the decoded bytes of every texture that *is*
+    decoded are still charged against ``MAX_TOTAL_BYTES``, whatever ceiling is
+    asked for. ``None`` slots means all of them, and ``None`` pixels means
+    ``MAX_TEXTURE_PIXELS`` as it stands when the file is loaded.
+    """
+    wanted = _texture_slot_set(texture_slots)
+    if max_texture_pixels is None:
+        max_texture_pixels = MAX_TEXTURE_PIXELS
     gltf, buffer = read_glb(path)
     # Refused rather than misread. KHR_mesh_quantization is the one that will
     # arrive first -- gltfpack -c writes it -- and a quantized position stream
@@ -606,7 +657,13 @@ def load(path: Path | bytes) -> Model:
         raise ValueError(
             f"this GLB declares {len(punctual)} lights, more than this viewer will load"
         )
-    reader = _Reader(gltf, buffer, n_lights=len(punctual))
+    reader = _Reader(
+        gltf,
+        buffer,
+        n_lights=len(punctual),
+        max_texture_pixels=max_texture_pixels,
+        texture_slots=wanted,
+    )
     materials = [reader.material(m) for m in gltf.get("materials", [])]
     meshes = []
     for mesh in gltf.get("meshes", []):
@@ -638,6 +695,22 @@ def load(path: Path | bytes) -> Model:
         cameras=[reader.camera(c) for c in gltf.get("cameras", [])],
         lights=[reader.light(light) for light in punctual],
     )
+
+
+def _texture_slot_set(slots: Iterable[str] | None) -> frozenset[str]:
+    """*slots* as a set, every slot when ``None``, or a named refusal."""
+    if slots is None:
+        return frozenset(TEXTURE_SLOTS)
+    if isinstance(slots, str):
+        slots = (slots,)
+    chosen = frozenset(slots)
+    unknown = chosen - set(TEXTURE_SLOTS)
+    if unknown:
+        raise ValueError(
+            f"unknown texture slot {sorted(unknown)[0]!r}; the slots are "
+            + ", ".join(TEXTURE_SLOTS)
+        )
+    return chosen
 
 
 def _check_joint_indices(
@@ -908,9 +981,19 @@ def _trs(
 
 
 class _Reader:
-    def __init__(self, gltf: dict, buffer: bytes, n_lights: int | None = None) -> None:
+    def __init__(
+        self,
+        gltf: dict,
+        buffer: bytes,
+        n_lights: int | None = None,
+        *,
+        max_texture_pixels: int = MAX_TEXTURE_PIXELS,
+        texture_slots: frozenset[str] | None = None,
+    ) -> None:
         self.gltf = gltf
         self.buffer = buffer
+        self.max_texture_pixels = max_texture_pixels
+        self.texture_slots = frozenset(TEXTURE_SLOTS) if texture_slots is None else texture_slots
         # The 2026-10-03 audit, finding clay-35: ``node()`` used to rebuild the
         # whole light list (``list(lights)``) for every node that names a
         # light, so load cost was nodes x lights -- 20,000 nodes against
@@ -962,7 +1045,7 @@ class _Reader:
         """
         self._spent += nbytes
         if self._spent > MAX_TOTAL_BYTES:
-            raise ValueError(
+            raise _BudgetRefusal(
                 f"this GLB's decoded geometry and textures pass the "
                 f"{MAX_TOTAL_BYTES:,} byte budget this viewer holds open at once"
             )
@@ -1529,12 +1612,22 @@ class _Reader:
             alpha_mode=_alpha_mode(mat.get("alphaMode", "OPAQUE")),
             alpha_cutoff=_number(mat.get("alphaCutoff", 0.5), 0.5),
         )
-        out.base_color = self.texture(pbr.get("baseColorTexture"))
-        out.nearest = out.base_color is not None and self._nearest(pbr.get("baseColorTexture"))
-        out.metallic_roughness = self.texture(pbr.get("metallicRoughnessTexture"))
-        out.normal = self.texture(mat.get("normalTexture"))
-        out.emissive = self.texture(mat.get("emissiveTexture"))
-        out.occlusion = self.texture(mat.get("occlusionTexture"))
+        # Only the slots the caller asked for are looked at, so a slot it will
+        # discard neither decodes nor spends the byte budget (clay-28).
+        wanted = self.texture_slots
+        if "base_color" in wanted:
+            out.base_color = self.texture(pbr.get("baseColorTexture"))
+            out.nearest = out.base_color is not None and self._nearest(
+                pbr.get("baseColorTexture")
+            )
+        if "metallic_roughness" in wanted:
+            out.metallic_roughness = self.texture(pbr.get("metallicRoughnessTexture"))
+        if "normal" in wanted:
+            out.normal = self.texture(mat.get("normalTexture"))
+        if "emissive" in wanted:
+            out.emissive = self.texture(mat.get("emissiveTexture"))
+        if "occlusion" in wanted:
+            out.occlusion = self.texture(mat.get("occlusionTexture"))
         return out
 
     def _nearest(self, ref: Any) -> bool:
@@ -1735,16 +1828,20 @@ class _Reader:
             self._images[source] = None
             return None
         try:
-            with Image.open(io.BytesIO(data)) as im:
+            # ``formats=``: the container's declared type is never consulted,
+            # so without it the bytes alone pick the decoder (clay-61, see
+            # ``TEXTURE_FORMATS``). A format outside the list raises
+            # ``UnidentifiedImageError`` and is skipped like any unreadable map.
+            with Image.open(io.BytesIO(data), formats=TEXTURE_FORMATS) as im:
                 # ``open`` is lazy, so the size is known before any pixel is
                 # decoded: an absurd one costs a log line rather than the RAM.
                 # Same policy as a corrupt map -- the texture, not the model.
-                if im.width * im.height > MAX_TEXTURE_PIXELS:
+                if im.width * im.height > self.max_texture_pixels:
                     log.warning(
-                        "skipping a %dx%d texture: over this viewer's %d-pixel ceiling",
+                        "skipping a %dx%d texture: over this loader's %d-pixel ceiling",
                         im.width,
                         im.height,
-                        MAX_TEXTURE_PIXELS,
+                        self.max_texture_pixels,
                     )
                     self.skipped += 1
                     self._images[source] = None
@@ -1758,7 +1855,7 @@ class _Reader:
                 self._charge(im.width * im.height * 4)
                 rgba = im.convert("RGBA")
                 decoded = rgba.width, rgba.height, rgba.tobytes()
-        except ValueError:
+        except _BudgetRefusal:
             raise
         except Exception:
             # The stated policy for images, applied to the decode as well as to

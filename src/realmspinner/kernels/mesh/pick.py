@@ -1,7 +1,7 @@
 """Picking elements on screen: projection, nearest-hit and marquee masks.
 
 Pure numpy, and that is the point. The obvious way to pick a vertex in a 3D
-viewport is to render an id buffer and read the pixel back, and ``viewer/
+viewport is to render an id buffer and read the pixel back, and ``studio/viewer/
 picking.py``'s own docstring already rejects that for the gizmo: a readback
 cannot be asserted without a GL context, so every behaviour it encodes becomes
 untestable at exactly the moment it is most fiddly. Everything here is a matmul

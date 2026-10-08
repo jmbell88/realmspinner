@@ -66,9 +66,24 @@ def split_glb(data: bytes) -> tuple[bytes, dict, bytes]:
     return data[:12], doc, data[start + chunk_len :]
 
 
-def rebuild_glb(header: bytes, gltf: dict, rest: bytes) -> bytes:
+def rebuild_glb(header: bytes, gltf: dict, rest: bytes, *, allow_nan: bool = False) -> bytes:
     # The JSON chunk pads with spaces (0x20) per the glTF spec, not zeros.
-    payload = json.dumps(gltf, separators=(",", ":")).encode()
+    #
+    # ``allow_nan=False``: the 2026-10-07 audit's clay-62. ``json.dumps``
+    # defaults to writing a bare ``NaN`` / ``Infinity`` token, which is not
+    # JSON, so a node translation, camera or light carrying one produced a
+    # file every strict reader refuses (and no value is checked on the way in
+    # except the material factors and the POSITION bounds). Refused here, at
+    # the one place every GLB of ours is framed. ``allow_nan=True`` exists for
+    # the tests that build a deliberately malformed file to prove a reader
+    # refuses (or tolerates) one; no production caller passes it.
+    try:
+        payload = json.dumps(gltf, separators=(",", ":"), allow_nan=allow_nan).encode()
+    except ValueError as exc:
+        raise ValueError(
+            "cannot write a GLB whose JSON holds a non-finite number "
+            "(NaN or infinity is not valid JSON)"
+        ) from exc
     payload += b" " * (-len(payload) % 4)
     total = len(header) + 8 + len(payload) + len(rest)
     return (

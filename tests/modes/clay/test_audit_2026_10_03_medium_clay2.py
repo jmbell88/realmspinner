@@ -19,11 +19,13 @@ from realmspinner.kernels.mesh import separate as sep
 
 
 def _doc_with(n: int, mesh=None) -> bd.ClayDoc:
-    doc = bd.ClayDoc()
+    # Through the constructor, not ``add_object``: since the 2026-10-07 audit's
+    # clay-13 the document refuses to grow past the ceilings itself, and these
+    # tests need the document the *writer* must still refuse (a hand-built one).
     mesh = mesh if mesh is not None else bp.box()
-    for i in range(n):
-        doc.add_object(bd.Obj(uid=bd.new_uid(), name=f"O{i}", mesh=mesh))
-    return doc
+    return bd.ClayDoc(
+        [bd.Obj(uid=bd.new_uid(), name=f"O{i}", mesh=mesh) for i in range(n)]
+    )
 
 
 def _with_scene(data: bytes, edit) -> bytes:

@@ -122,8 +122,8 @@ def draw_add_menu(ctx: Any, state: Any, tab: Any) -> None:
                 reason=reason,
                 tooltip=_defaults_tooltip(name),
             )
-            if bool(hit[0] if isinstance(hit, tuple) else hit) and tab is not None:
-                add_primitive(ctx, tab.doc, name)
+            clicked = bool(hit[0] if isinstance(hit, tuple) else hit)
+            if clicked and tab is not None and place_primitive(ctx, tab.doc, name) is not None:
                 state.generator = name
 
 
@@ -216,6 +216,34 @@ def add_primitive(ctx: Any, doc: Any, name: str) -> Any:
         doc.select([obj.uid])
     del ctx
     return obj
+
+
+def place_primitive(ctx: Any, doc: Any, name: str) -> Any:
+    """:func:`add_primitive` for a click: a refusal is a toast, never a raise.
+
+    -> the placed object, or ``None`` when the document refused it.
+
+    The 2026-10-07 audit's clay-13: ``ClayDoc.add_object`` now refuses a shape
+    that would take the document past the object or triangle ceiling the saver
+    holds it to (``OpError``, nothing pushed), and the Add buttons called
+    ``add_primitive`` bare -- a click on a full document would have raised out of
+    the draw call and into the pane's guard instead of telling the user why
+    nothing appeared. Kept apart from :func:`add_primitive` because the agent's
+    ``clay_add_primitive`` calls that and turns the same ``OpError`` into its own
+    tool refusal with a gesture to close; this is the human door, and the
+    decision lives here beside the draw call so it can be tested without a GL
+    context. The refused click leaves no undo step and no open gesture: the
+    document raises before it pushes.
+    """
+    from ......kernels.mesh.elements import OpError
+
+    try:
+        return add_primitive(ctx, doc, name)
+    except OpError as error:
+        from ... import ops as clay_ops
+
+        clay_ops.toast(ctx, str(error))
+        return None
 
 
 def _unique_name(doc: Any, base: str) -> str:

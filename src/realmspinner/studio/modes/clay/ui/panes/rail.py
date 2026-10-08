@@ -99,14 +99,17 @@ def _body(ctx: Any, state: Any, tab: Any) -> None:
     reason = _NO_DOC if tab is None else _SAVING
     for name in clay_tools.QUICK_SHAPES:
         glyph = tool_palette.PRIMITIVE_ICONS.get(name, icons.BOX)
-        if controls.button(
+        clicked = controls.button(
             f"{glyph}##clay-rail/add/{name}",
             (side, side),
             enabled=not blocked,
             reason=reason,
             tooltip=f"Add a {clay_tools.display_name(name)}",
-        ):
-            clay_tools.add_primitive(ctx, tab.doc, name)
+        )
+        # The refusing door, not ``add_primitive``: a full document would raise
+        # out of this draw (the 2026-10-07 audit's clay-13 missed this button).
+        # The remembered shape moves only for a shape that was placed.
+        if clicked and clay_tools.place_primitive(ctx, tab.doc, name) is not None:
             state.generator = name
     if controls.button(
         f"{icons.PLUS}##clay-rail/more",

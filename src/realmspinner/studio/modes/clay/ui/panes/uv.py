@@ -240,6 +240,9 @@ class UvPaneState:
     # The frame serial ``_body`` read for this frame, for ``_canvas`` to stamp
     # with: ``_canvas`` is handed no ``ctx`` by its headless tests.
     frame_seen: int = 0
+    # What the press hit-test found, for the release to reuse (clay-78); ``None``
+    # when no press is waiting on a release.
+    press_hit: frozenset[int] | None = None
 
 #: The uv unit square is treated as a texture this many pixels on a side, for
 #: :mod:`~.shell.paintview`'s pan/zoom arithmetic alone -- it never appears in
@@ -304,7 +307,11 @@ def islands_in_rect(
     which the corner test alone cannot do: it falls back to a proper
     point-in-face test (:func:`_point_in_face`) over every face, run only
     when the cheap corner test caught nothing, so an ordinary drag never
-    pays for it.
+    pays for it. **The polygon test runs only on the faces whose uv bounding box
+    holds the point** (the 2026-10-07 audit's clay-78: it used to run in pure
+    Python over every face on every press and release -- 28.7 ms at 4,096 faces,
+    137 ms at 19,600, twice a click); the boxes are one ``reduceat`` over the
+    corners, so a click on empty space costs numpy and no Python loop.
     """
     if mesh.uv is None or len(ids) == 0:
         return set()
@@ -320,9 +327,18 @@ def islands_in_rect(
         return set()  # a real, empty box: nothing to fall back to
     starts = mesh.starts.astype("i8")
     n_faces = len(starts) - 1
-    for face in range(n_faces):
-        lo, hi = starts[face], starts[face + 1]
-        if hi - lo >= 3 and _point_in_face((u0, v0), uv[lo:hi]):
+    if n_faces <= 0 or len(uv) == 0:
+        return set()
+    first = np.minimum(starts[:-1], len(uv) - 1)  # an empty trailing face reads a valid row
+    lows = np.minimum.reduceat(uv, first, axis=0)
+    highs = np.maximum.reduceat(uv, first, axis=0)
+    near = (
+        (np.diff(starts) >= 3)
+        & (lows[:, 0] <= u0) & (u0 <= highs[:, 0])
+        & (lows[:, 1] <= v0) & (v0 <= highs[:, 1])
+    )
+    for face in np.flatnonzero(near).tolist():  # ascending: the lowest face wins, as before
+        if _point_in_face((u0, v0), uv[starts[face] : starts[face + 1]]):
             return {int(ids[face])}
     return set()
 
@@ -340,9 +356,16 @@ def finish_click(view_state: UvPaneState, mesh: Any, ids: np.ndarray) -> bool:
     alone. -> whether the selection was set by a click.
     """
     if view_state.drag_mode not in ("box", "move") or view_state.dragged:
+        view_state.press_hit = None
         return False
-    x, y = view_state.drag_start
-    view_state.selected_islands = frozenset(islands_in_rect(mesh, ids, (x, y, x, y)))
+    # The press already answered this (a press that never dragged has not touched
+    # the mesh since), so the release does not ask again -- the 2026-10-07 audit's
+    # clay-78 measured the question at two full passes per click.
+    hit, view_state.press_hit = view_state.press_hit, None
+    if hit is None:
+        x, y = view_state.drag_start
+        hit = islands_in_rect(mesh, ids, (x, y, x, y))
+    view_state.selected_islands = frozenset(hit)
     return True
 
 
@@ -473,12 +496,31 @@ def _set_mesh_or_toast(doc: Any, uid: int, mesh: Any, *, ctx: Any = None) -> boo
         return False
 
 
+def _refused(ctx: Any, error: Exception) -> bool:
+    """A kernel refusal (``transform_islands``/``pack_islands``) at an apply door.
+
+    The 2026-10-07 audit's clay-16: ``_set_mesh_or_toast`` guarded only the
+    document's own refusal, so a transform past the island ceiling (about 334
+    joined boxes reach it) raised straight out of the pane and, in a live drag,
+    out of every frame of it. The same rule as that helper: toast when there is
+    a ``ctx`` to toast through, and re-raise for a headless caller, which has
+    nothing else to learn it from. -> ``False`` (nothing applied).
+    """
+    if ctx is None:
+        raise error
+    clay_ops.toast(ctx, str(error))
+    return False
+
+
 def apply_translate(
     doc: Any, uid: int, island_ids: Any, translate: tuple[float, float], *, ctx: Any = None
 ) -> bool:
     """Slide the chosen islands by *translate*, as one step. -> whether it moved."""
     obj = doc.by_uid(uid)
-    mesh = uvtools.transform_islands(obj.mesh, list(island_ids), translate=translate)
+    try:
+        mesh = uvtools.transform_islands(obj.mesh, list(island_ids), translate=translate)
+    except el.OpError as error:
+        return _refused(ctx, error)
     return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
@@ -496,7 +538,10 @@ def apply_rotate(
     """
     obj = doc.by_uid(uid)
     source = obj.mesh if base is None else base
-    mesh = uvtools.transform_islands(source, list(island_ids), rotate_deg=degrees)
+    try:
+        mesh = uvtools.transform_islands(source, list(island_ids), rotate_deg=degrees)
+    except el.OpError as error:
+        return _refused(ctx, error)
     return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
@@ -509,7 +554,10 @@ def apply_scale(
     """
     obj = doc.by_uid(uid)
     source = obj.mesh if base is None else base
-    mesh = uvtools.transform_islands(source, list(island_ids), scale=factor)
+    try:
+        mesh = uvtools.transform_islands(source, list(island_ids), scale=factor)
+    except el.OpError as error:
+        return _refused(ctx, error)
     return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
@@ -518,7 +566,10 @@ def apply_pack(
 ) -> bool:
     """Pack every island of *uid*'s mesh into the unit square, as one step."""
     obj = doc.by_uid(uid)
-    mesh = uvtools.pack_islands(obj.mesh, margin=margin, rotate=rotate)
+    try:
+        mesh = uvtools.pack_islands(obj.mesh, margin=margin, rotate=rotate)
+    except el.OpError as error:
+        return _refused(ctx, error)
     return _set_mesh_or_toast(doc, uid, mesh, ctx=ctx)
 
 
@@ -580,26 +631,38 @@ def update_live_transform(
     # before any frame has) changes nothing, so it must push nothing -- see
     # ``UvPaneState.drag_applied`` for the incident. Returning to the zero
     # reading *after* moving still writes: the base has to come back.
-    if view_state.drag_mode == "rotate":
-        degrees = drag_angle(view_state.drag_pivot, view_state.drag_start, now)
-        if degrees == (0.0 if view_state.drag_applied is None else view_state.drag_applied):
-            return False
-        moved = apply_rotate(
-            doc, uid, view_state.drag_islands, degrees, base=view_state.drag_base, ctx=ctx
-        )
-        if moved:
-            view_state.drag_applied = degrees
-        return moved
-    if view_state.drag_mode == "scale":
-        factor = drag_scale(view_state.drag_pivot, view_state.drag_start, now)
-        if factor == (1.0 if view_state.drag_applied is None else view_state.drag_applied):
-            return False
-        moved = apply_scale(
-            doc, uid, view_state.drag_islands, factor, base=view_state.drag_base, ctx=ctx
-        )
-        if moved:
-            view_state.drag_applied = factor
-        return moved
+    #
+    # A refusal ends the gesture (the 2026-10-07 audit's clay-16): the same
+    # drag would be refused again on the next frame and toast every 16 ms, so
+    # it is told once and the mesh put back exactly as it began. The doors are
+    # called with no ``ctx`` so every refusal -- the kernel's or the document's
+    # -- reaches this one handler; with no ``ctx`` here either it still raises.
+    try:
+        if view_state.drag_mode == "rotate":
+            degrees = drag_angle(view_state.drag_pivot, view_state.drag_start, now)
+            if degrees == (0.0 if view_state.drag_applied is None else view_state.drag_applied):
+                return False
+            moved = apply_rotate(
+                doc, uid, view_state.drag_islands, degrees, base=view_state.drag_base
+            )
+            if moved:
+                view_state.drag_applied = degrees
+            return moved
+        if view_state.drag_mode == "scale":
+            factor = drag_scale(view_state.drag_pivot, view_state.drag_start, now)
+            if factor == (1.0 if view_state.drag_applied is None else view_state.drag_applied):
+                return False
+            moved = apply_scale(
+                doc, uid, view_state.drag_islands, factor, base=view_state.drag_base
+            )
+            if moved:
+                view_state.drag_applied = factor
+            return moved
+    except el.OpError as error:
+        if ctx is None:
+            raise
+        clay_ops.toast(ctx, str(error))
+        cancel_live_transform(doc, view_state)
     return False
 
 
@@ -799,7 +862,12 @@ def _body(ctx: Any, *, heading: bool = True) -> None:
 
 
 def apply_rotate_reason(
-    *, saving: bool, live: bool, selected: int, pending_scale: float = 1.0
+    *,
+    saving: bool,
+    live: bool,
+    selected: int,
+    pending_scale: float = 1.0,
+    pending_rotate: float | None = None,
 ) -> str:
     """Why "Apply" under the rotate field is greyed, or ``""`` when it is live.
 
@@ -807,6 +875,11 @@ def apply_rotate_reason(
     dead control with nothing on screen to say what to do about it. Pure, so the
     sentence is testable without a frame. ``pending_scale`` is accepted and unused
     so the pair share one call shape.
+
+    ``pending_rotate`` is the typed value (``None`` when the caller has none to
+    judge): the 2026-10-07 audit's clay-79 found Apply enabled with no reason at
+    0 degrees, where the handler does nothing, and clay-15 a NaN reaching the
+    kernel. Both are greyed with a sentence instead.
     """
     del pending_scale
     if saving:
@@ -815,6 +888,11 @@ def apply_rotate_reason(
         return "Finish the live rotate or scale first (click to commit, Esc to cancel)."
     if selected <= 0:
         return "Box one or more islands first."
+    if pending_rotate is not None:
+        if not math.isfinite(pending_rotate):
+            return "Rotation must be a finite number of degrees."
+        if pending_rotate == 0.0:
+            return "Type a rotation other than 0 degrees first."
     return ""
 
 
@@ -826,8 +904,14 @@ def apply_scale_reason(
     why = apply_rotate_reason(saving=saving, live=live, selected=selected)
     if why:
         return why
+    # NaN passes every ordering test (the 2026-10-07 audit's clay-15), so
+    # finiteness is asked first.
+    if not math.isfinite(pending_scale):
+        return "Scale must be a finite number."
     if pending_scale <= 0.0:
         return "Scale must be above 0."
+    if pending_scale == 1.0:
+        return "Type a scale other than 1 first."
     return ""
 
 
@@ -889,7 +973,12 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
     # "compares against the current value first" check the move gesture just
     # below already makes (``delta != (0.0, 0.0)``) before calling
     # ``apply_translate``.
-    rotate_why = apply_rotate_reason(saving=bool(tab.saving), live=live, selected=count)
+    rotate_why = apply_rotate_reason(
+        saving=bool(tab.saving),
+        live=live,
+        selected=count,
+        pending_rotate=view_state.pending_rotate,
+    )
     if (
         widgets.disabled_button(
             "Apply##uvrotate",
@@ -1051,11 +1140,16 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
         # and never while a text field (the rotate/scale spinners just
         # above, in ``_toolbar``) is the one taking keystrokes, or typing
         # "-45" into the degrees box would also arm a rotate underneath it.
+        # Bare keys only (the 2026-10-07 audit's clay-77): the key layer hands the
+        # pane R and S only when no Ctrl/Alt/Shift is down, so Shift+R is Repeat
+        # Last. Arming here on any press of R made that one chord do both.
+        io = imgui.get_io()
         if (
             hovered
             and not imgui.is_item_active()
             and view_state.selected_islands
-            and not imgui.get_io().want_text_input
+            and not io.want_text_input
+            and not (io.key_ctrl or io.key_alt or io.key_shift)
         ):
             if imgui.is_key_pressed(imgui.Key.r):
                 begin_live_transform(doc, view_state, "rotate", mesh, ids, uv_here)
@@ -1064,6 +1158,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
 
         if view_state.drag_mode not in ("rotate", "scale") and imgui.is_item_activated():
             hit = islands_in_rect(mesh, ids, (uv_here[0], uv_here[1], uv_here[0], uv_here[1]))
+            view_state.press_hit = frozenset(hit)
             view_state.drag_mode = "move" if hit & view_state.selected_islands else "box"
             view_state.drag_start = uv_here
             view_state.drag_last = uv_here

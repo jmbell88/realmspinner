@@ -66,7 +66,7 @@ def test_face_mode_pick_reaches_an_occluded_object_under_xray():
 
     calls = []
 
-    def fake_pick_face_on(self, doc, obj, origin, direction):
+    def fake_pick_face_on(self, doc, obj, origin, direction, index=None):
         calls.append(obj.name)
         # "Near" hits at t=0 (closer), "Far" hits at t=5 (farther), each on
         # its own object -- exactly what a real per-object raycast returns.
@@ -76,14 +76,14 @@ def test_face_mode_pick_reaches_an_occluded_object_under_xray():
     class Picker(_view_pick.PickOps):
         xray = True
 
-        def pick_face(self, doc, local):
+        def pick_face(self, doc, local, index=None):
             # The frontmost-only hit a real ``pick_face`` would return.
             return _view_pick.Hit(uid=near.uid, t=0.0, face=0)
 
         def _ray(self, local):
             return (0.0, 0.0, 0.0), (0.0, 0.0, -1.0)
 
-        def screen_of(self, doc, uid):
+        def screen_of(self, doc, uid, index=None):
             return None  # face mode ranks by ray distance, not screen depth
 
     Picker._pick_face_on = fake_pick_face_on  # type: ignore[assignment]

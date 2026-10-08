@@ -15,8 +15,8 @@ this module either removes faces or grows new ones outward from the ones it was
 given, and neither needs to walk across the mesh to do it -- so a stray extra
 face hinged on a selected edge changes what the result looks like without
 making the op meaningless. The walking ops (dissolve, fill hole, bevel) are the
-ones that refuse, because a walk across a non-manifold edge has no defined next
-step.
+ones that refuse when the shape they walk has no defined next step (dissolve:
+an annulus or a bowtie ring; bevel: a boundary, or an edge with three faces).
 """
 
 from __future__ import annotations
@@ -50,6 +50,77 @@ def _require_faces(sel: ElementSel, what: str) -> np.ndarray:
     if len(sel.faces) == 0:
         raise OpError(f"Select at least one face to {what}.")
     return sel.faces.astype("i8")
+
+
+def _unique_sorted(values: np.ndarray) -> np.ndarray:
+    """``np.unique(values)`` for a 1-D integer array, by sort and neighbour mask.
+
+    The 2026-10-07 audit's clay-33 and clay-34: on numpy 2.5.1 ``np.unique``
+    takes its ``_unique_hash`` path for a plain unique and spent about 0.5 s of
+    Merge Objects' weld, extrude-with-an-offset and region inset at their
+    ceilings in it (300 ms against 19 ms for 800k integers). Sorting and
+    keeping each element that differs from its left neighbour returns the same
+    sorted, same-dtype array; the audit's regression tests pin the equality on
+    random inputs.
+    """
+    values = np.asarray(values).reshape(-1)
+    if len(values) < 2:
+        return values.copy()
+    ordered = np.sort(values)
+    keep = np.empty(len(ordered), dtype=bool)
+    keep[0] = True
+    np.not_equal(ordered[1:], ordered[:-1], out=keep[1:])
+    return ordered[keep]
+
+
+def _unique_inverse(values: np.ndarray) -> np.ndarray:
+    """``np.unique(values, return_inverse=True)[1].reshape(-1)``, sort-based.
+
+    Each element's rank among the distinct values -- the dense label ``np.unique``
+    gives -- without its hash path (see :func:`_unique_sorted`).
+    """
+    values = np.asarray(values).reshape(-1)
+    if len(values) == 0:
+        return np.zeros(0, dtype="i8")
+    order = np.argsort(values)
+    ordered = values[order]
+    step = np.zeros(len(ordered), dtype="i8")
+    np.not_equal(ordered[1:], ordered[:-1], out=step[1:])
+    labels = np.empty(len(ordered), dtype="i8")
+    labels[order] = np.cumsum(step)
+    return labels
+
+
+def _unique_rows_inverse(rows: np.ndarray) -> np.ndarray:
+    """``np.unique(rows, axis=0, return_inverse=True)[1].reshape(-1)`` for an
+    ``(n, k)`` integer array: the label is the row's rank in lexicographic order.
+
+    The rows are packed into one scalar per row when their ranges allow it (the
+    packing is order-preserving, like :func:`_region_offsets`'s vertex/region
+    key), which turns the lexicographic sort into a 1-D one; a range too wide
+    for 63 bits falls back to ``lexsort``.
+    """
+    rows = np.asarray(rows)
+    if len(rows) == 0:
+        return np.zeros(0, dtype="i8")
+    lo = [int(c) for c in rows.min(axis=0)]
+    hi = [int(c) for c in rows.max(axis=0)]
+    spans = [h - low + 1 for low, h in zip(lo, hi, strict=True)]
+    total = 1
+    for span in spans:
+        total *= span
+    if total < 2**62:
+        key = np.zeros(len(rows), dtype="i8")
+        for column, low, span in zip(rows.T, lo, spans, strict=True):
+            key = key * span + (column.astype("i8") - low)
+        return _unique_inverse(key)
+    order = np.lexsort(rows.T[::-1])
+    ordered = rows[order]
+    step = np.zeros(len(ordered), dtype="i8")
+    step[1:] = np.any(ordered[1:] != ordered[:-1], axis=1)
+    labels = np.empty(len(ordered), dtype="i8")
+    labels[order] = np.cumsum(step)
+    return labels
 
 
 def _unit(v: np.ndarray) -> np.ndarray:
@@ -195,11 +266,11 @@ def _region_offsets(
     graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
     labels = connected_components(graph, directed=False)[1]
     region_of = labels[faces]
-    _roots, region_id = np.unique(region_of, return_inverse=True)
-    region_id = region_id.reshape(-1)
+    region_id = _unique_inverse(region_of)
+    n_regions = int(region_id.max()) + 1
 
     normals = _face_normals_subset(mesh, faces)
-    sums = np.zeros((len(_roots), 3))
+    sums = np.zeros((n_regions, 3))
     np.add.at(sums, region_id, normals)
     directions = _unit(sums) * offset
 
@@ -225,8 +296,11 @@ def _region_offsets(
     # so sorting the packed key sorts by ``(vertex, region)`` lexicographically
     # too, and ``np.unique`` over a 1-D array of scalars needs no structured
     # view at all.
-    n_regions = len(_roots)
-    pair_keys = np.unique(corner_vertex * n_regions + corner_region)
+    #
+    # The 2026-10-07 audit's clay-34: that 1-D ``np.unique`` is itself the
+    # hash path on numpy 2.5.1 (~0.2 s of the 1.2 s extrude at the ceiling), so
+    # it is the sort-and-mask :func:`_unique_sorted` now.
+    pair_keys = _unique_sorted(corner_vertex * n_regions + corner_region)
     pair_vertex = pair_keys // n_regions
     pair_region = pair_keys % n_regions
     n_verts = len(mesh.positions)
@@ -261,11 +335,15 @@ def _region_offsets(
 #: |  3,240,000 |         2,412 ms |
 #:
 #: ...close to linear, about 0.6-0.9us/corner, matching the audit's own
-#: figures (0.63us/corner at 800k, 0.83us/corner at 3.2M) almost exactly. Set
-#: at the same value as ``MAX_INSET_CORNERS`` -- the two ops cost about the
-#: same per corner and inset's own table already establishes 800,000 as
-#: comfortably under the point (~1.6M here) where "well under a second" stops
-#: being true.
+#: figures (0.63us/corner at 800k, 0.83us/corner at 3.2M) almost exactly.
+#:
+#: **Re-measured by the 2026-10-07 audit's clay-34**, which found the table
+#: above wrong for the shipped code: at 800,000 corners the offset path took
+#: 1.2-1.3 s, about 0.6 s of it numpy 2.5.1's hash-path ``np.unique`` (the
+#: sort-and-mask :func:`_unique_sorted` replaced it). Best of five on the
+#: independent-quads grid, 800,000 corners: offset 0 -- 271 ms (567 ms
+#: before); offset 0.1 -- 433 ms (1,222 ms before), 489 ms with uvs. So the
+#: ceiling stays where it was and now actually meets its bar.
 MAX_EXTRUDE_CORNERS = 800_000
 
 
@@ -322,17 +400,31 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
     grew from rather than with garbage.
     """
     faces = _require_faces(sel, "extrude")
+    out, _border, _next = _extrude(mesh, faces, float(offset))
+    return out, ElementSel(faces=faces)
+
+
+def _extrude(mesh: Mesh, faces: np.ndarray, offset: float) -> tuple[Mesh, np.ndarray, np.ndarray]:
+    """:func:`extrude_faces`'s work, and the region's border it walled.
+
+    Returns ``(mesh, border, next)``: the border corners (indices into *mesh*'s
+    own corners, which the result keeps) and each one's next corner in its
+    face. Wall *k* is then the result's corners ``len(mesh.loops) + 4 * k``
+    onward, laid out ``[a, b, new_b, new_a]`` -- which is what lets
+    :func:`_inset_region` give the rim its UVs without walking the mesh a
+    second time.
+    """
     face_starts = mesh.starts.astype("i8")
     _refuse_extrude_size(int((face_starts[faces + 1] - face_starts[faces]).sum()))
     a = adjacency(mesh)
     n_verts = len(mesh.positions)
 
     cap_corners = topo.corner_spans(mesh.starts, faces)
-    used = np.unique(mesh.loops[cap_corners])
+    used = _unique_sorted(mesh.loops[cap_corners])
     new_index = np.full(n_verts, -1, dtype="i8")
     new_index[used] = n_verts + np.arange(len(used), dtype="i8")
 
-    displacement = _region_offsets(mesh, a, faces, cap_corners, used, float(offset))
+    displacement = _region_offsets(mesh, a, faces, cap_corners, used, offset)
     positions = np.concatenate(
         [
             mesh.positions.astype("f8"),
@@ -372,7 +464,7 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
             uv=uv,
         )
     )
-    return out, ElementSel(faces=faces)
+    return out, border, nxt
 
 
 # --- inset ------------------------------------------------------------------
@@ -406,7 +498,26 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
 #: million corners for the region path) where "well under a second" stops
 #: being true, the same margin ``ops_topo.MAX_BRIDGED_RING`` keeps under its
 #: own measured stall point.
-MAX_INSET_CORNERS = 800_000
+#:
+#: **Re-measured by the 2026-10-07 audit's clay-34, and lowered from 800,000.**
+#: The table above was for a region inset with no uvs and no depth. The shipped
+#: ``region=True`` also builds the whole-mesh adjacency for a depth and (since
+#: clay-31) remaps the cap's uvs and gives the rim its own, and at 800,000
+#: corners it measured 1.5 s bare, 2.2 s with uvs and 2.5 s with a depth before
+#: the sort-based unique and the source-mesh offsets landed. Best of five,
+#: independent quads, after:
+#:
+#: | corners | per-face | per-face+uv | region | region+uv | region+uv+depth |
+#: |--------:|---------:|------------:|-------:|----------:|----------------:|
+#: | 800,000 |   379 ms |      409 ms | 480 ms |    719 ms |        1,114 ms |
+#: | 600,000 |   279 ms |      382 ms | 430 ms |    647 ms |          856 ms |
+#: | 400,000 |   179 ms |      257 ms | 279 ms |    422 ms |          542 ms |
+#:
+#: The worst shape (region, textured, with a depth) crosses a second just
+#: past 800,000 and is not "well under" it at 600,000 on a loaded machine, so
+#: the ceiling is 500,000 (about 700 ms for that shape, ~300 ms for the plain
+#: per-face inset).
+MAX_INSET_CORNERS = 500_000
 
 
 def _refuse_inset_size(n_corners: int) -> None:
@@ -540,7 +651,8 @@ def _inset_region(
     mesh: Mesh, faces: np.ndarray, *, thickness: float, depth: float
 ) -> tuple[Mesh, ElementSel]:
     """Extrude at zero, then pull each new cap vert toward its local centroid."""
-    out, sel = extrude_faces(mesh, ElementSel(faces=faces), offset=0.0)
+    out, border, border_next = _extrude(mesh, faces, 0.0)
+    sel = ElementSel(faces=faces)
     starts = out.starts.astype("i8")
     corners = topo.corner_spans(out.starts, faces)
     counts = starts[faces + 1] - starts[faces]
@@ -572,11 +684,109 @@ def _inset_region(
     # `depth` silently moved neither cap. `_region_offsets` groups by
     # connected region the same way `extrude_faces` already does, so each
     # disjoint block gets its own depth direction.
-    a = adjacency(out)
-    depth_disp = _region_offsets(out, a, faces, corners, touched, float(depth))
+    #
+    #
+    # The offsets are asked of the *source* mesh, not of the extruded one (the
+    # 2026-10-07 audit's clay-34 re-measured this path at 2.5 s with a depth):
+    # the caps keep their corner indices and the extrude put each new cap
+    # vertex exactly on the vertex it copied, so the cap faces' normals and
+    # shared edges -- all `_region_offsets` reads -- are the source's own, the
+    # source's adjacency is already cached from the extrude above, and
+    # `used` (the sorted source vertices) lines up one for one with `touched`
+    # (the sorted new ones). A zero depth returns before the adjacency is read.
+    depth = float(depth)
+    used = _unique_sorted(mesh.loops[corners])
+    depth_disp = _region_offsets(
+        mesh, adjacency(mesh) if depth != 0.0 else None, faces, corners, used, depth
+    )
     positions[touched] += (target - positions[touched]) * t + depth_disp
 
-    return topo.rebuild(positions, out.loops, out.starts, out.material, out.smooth, uv=out.uv), sel
+    uv = out.uv
+    if uv is not None:
+        fraction = np.zeros(n_verts)
+        fraction[touched] = t[:, 0]
+        uv = _inset_region_uv(
+            out,
+            corners,
+            counts,
+            offsets,
+            verts,
+            border,
+            border_next,
+            fraction=fraction[verts],
+            wall_start=len(mesh.loops),
+        )
+    return topo.rebuild(positions, out.loops, out.starts, out.material, out.smooth, uv=uv), sel
+
+
+def _inset_region_uv(
+    out: Mesh,
+    corners: np.ndarray,
+    counts: np.ndarray,
+    offsets: np.ndarray,
+    verts: np.ndarray,
+    border: np.ndarray,
+    border_next: np.ndarray,
+    *,
+    fraction: np.ndarray,
+    wall_start: int,
+) -> np.ndarray:
+    """The UVs of a region inset: a shrunk cap and a rim that shows the band.
+
+    The 2026-10-07 audit's clay-31: the cap kept the full original face's UVs
+    while its geometry shrank (the texture squeezed onto the smaller cap) and
+    the rim quads kept the extrude's ``[a, b, b, a]``, a zero-area strip that
+    streaks one texel row across the whole band -- 0.0 of UV area against 0.58
+    for per-face inset on the same square.
+
+    A cap corner moves the same fraction of the way the position moved, toward
+    the mean UV centroid of the cap faces meeting at its vertex **that share its
+    UV there**: a texture seam through the region (one vertex, two UVs) is two
+    targets rather than one averaged across the cut. Each rim quad then runs
+    from the border corner's original UV to the moved cap UV, ``[a, b, inner_b,
+    inner_a]``, which is what per-face inset gives its rim.
+    """
+    uv = out.uv.astype("f8")
+    cap_uv = uv[corners]
+    face_centroid = np.add.reduceat(cap_uv, offsets[:-1], axis=0) / counts[:, None]
+    corner_centroid = np.repeat(face_centroid, counts, axis=0)
+
+    # Corners at one vertex with one UV are one group. Nearly every corner
+    # agrees with the vertex's representative UV (the last one written), so
+    # those are grouped by vertex outright; only the corners of a seam vertex
+    # that disagree are grouped by (vertex, UV), which keeps the sort off the
+    # hot path.
+    n_verts = len(out.positions)
+    representative = np.zeros((n_verts, 2))
+    representative[verts] = cap_uv
+    group = verts.copy()
+    odd = np.flatnonzero(np.any(np.abs(cap_uv - representative[verts]) > 1e-6, axis=1))
+    if len(odd):
+        key = np.stack(
+            [verts[odd], *np.round(cap_uv[odd].T * 1e6).astype("i8")], axis=1
+        )
+        group[odd] = n_verts + _unique_rows_inverse(key)
+    n_groups = int(group.max()) + 1 if len(group) else 0
+    members = np.bincount(group, minlength=n_groups).astype("f8")
+    target = (
+        np.stack(
+            [
+                np.bincount(group, weights=corner_centroid[:, k], minlength=n_groups)
+                for k in range(2)
+            ],
+            axis=1,
+        )[group]
+        / members[group][:, None]
+    )
+
+    uv[corners] = cap_uv + (target - cap_uv) * fraction[:, None]
+    # Rim k is corners ``wall_start + 4k`` onward: [a, b, inner_b, inner_a]; a
+    # and b keep the original UVs the extrude copied, the inner pair is the
+    # cap's own corners, now moved.
+    rim = wall_start + 4 * np.arange(len(border), dtype="i8")
+    uv[rim + 2] = uv[border_next]
+    uv[rim + 3] = uv[border]
+    return uv
 
 
 # --- merging vertices -------------------------------------------------------
@@ -666,7 +876,7 @@ def merge_vertices(mesh: Mesh, remap: np.ndarray, positions: np.ndarray) -> Mesh
     face_idx = np.repeat(np.arange(len(kept_counts), dtype="i8"), kept_counts)
     width = int(kept_loops.max()) + 1 if len(kept_loops) else 1
     distinct = np.bincount(
-        np.unique(face_idx * width + kept_loops) // width, minlength=len(kept_counts)
+        _unique_sorted(face_idx * width + kept_loops) // width, minlength=len(kept_counts)
     )
     if np.any(distinct < kept_counts):
         rows_c: list[int] = []  # indices into `corners`
@@ -732,7 +942,7 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
         return np.zeros(0, dtype="i8")
     cells = np.floor(points / eps).astype("i8")
     if len(points) > WELD_SEARCH_LIMIT:
-        raw = np.unique(cells, axis=0, return_inverse=True)[1].reshape(-1)
+        raw = _unique_rows_inverse(cells)
         n_raw = int(raw.max()) + 1 if len(raw) else 0
         sums = accumulate(raw, points, n_raw)
         counts = np.zeros(n_raw)
@@ -749,7 +959,7 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
         bad = np.flatnonzero(dist > eps / 2.0)
         out = raw.copy()
         out[bad] = n_raw + np.arange(len(bad), dtype="i8")
-        return np.unique(out, return_inverse=True)[1].reshape(-1).astype("i8")
+        return _unique_inverse(out)
 
     # A Python dict spatial hash plus a hand-rolled union-find was the whole of
     # this, and every part of it -- the 27-cell neighbourhood walk, the pair
@@ -797,7 +1007,7 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
         shape=(count, count),
     )
     _n, labels = connected_components(graph, directed=False)
-    labels = np.unique(labels, return_inverse=True)[1].reshape(-1).astype("i8")
+    labels = _unique_inverse(labels)
 
     # A component fits inside one eps ball only if its box does; the rest are
     # chains, and are split by the leader pass (members only within eps / 2 of
@@ -818,7 +1028,7 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
         local = _leader_labels(points[member], eps)
         out[member] = next_label + local
         next_label += int(local.max()) + 1
-    return np.unique(out, return_inverse=True)[1].reshape(-1).astype("i8")
+    return _unique_inverse(out)
 
 
 #: The most within-eps vertex pairs the exact arm of :func:`_clusters` will
@@ -1537,6 +1747,24 @@ def _new_face_starts(starts: np.ndarray, n_new: int, arity: int) -> np.ndarray:
 # --- triangulate ----------------------------------------------------------
 
 
+#: The largest selected-corner count :func:`triangulate_faces` will earclip.
+#: The 2026-10-07 audit's clay-32 found Triangulate Faces had no ceiling and
+#: ran the corner triangulation over every face of the mesh even for one
+#: selected face (639 ms for one face on a 360k-quad mesh), so it now reads only
+#: the selected faces' corners and, like its sibling growth ops, refuses from
+#: that count before anything is built.
+#:
+#: Measured, best of five on a machine shared with other work, the whole mesh
+#: selected: independent quads (with uvs) cost 104 ms at 200,000 corners and
+#: 225 ms at 400,000 -- about 0.55us/corner. A concave face is what costs: the
+#: L-shaped hexagons Merge Faces produces ran 461 ms at 120,000 corners
+#: (20,000 faces), 791 ms at 200,000, 944 ms at 240,000, 1.16 s at 300,000,
+#: and flatten near 1.7 s from 600,000 up, where earclip's own work budget
+#: (``earclip.MAX_EARCLIP_TOTAL_WORK``) starts leaving faces as fans. The
+#: ceiling sits where the concave worst case is still under a second.
+MAX_TRIANGULATED_CORNERS = 200_000
+
+
 def triangulate_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """Replace the selected faces (or all of them) with their own triangles.
 
@@ -1550,20 +1778,44 @@ def triangulate_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     An already-triangular face still costs one earclip pass and produces the
     same single triangle back, which is the idempotent case rather than a
     special one to detect.
+
+    **Only the selected faces are triangulated.** Their corners are gathered
+    (``corner_spans``, the pattern :func:`_face_normals_subset` uses) and
+    handed to earclip as a small mesh of their own, so the cost follows the
+    selection and not the model; the triangles come back as indices into the
+    gathered corners and are mapped to the source's. Faces are visited in
+    ascending order, which is the order the whole-mesh pass produced them in.
     """
-    faces = sel.faces if len(sel.faces) else np.arange(face_count(mesh), dtype="i4")
-    if face_count(mesh) == 0:
+    n_faces = face_count(mesh)
+    if n_faces == 0:
         raise OpError("This object has no faces to triangulate.")
-    chosen = np.zeros(face_count(mesh), dtype=bool)
+    faces = sel.faces if len(sel.faces) else np.arange(n_faces, dtype="i4")
+    chosen = np.zeros(n_faces, dtype=bool)
     chosen[faces] = True
+    selected = np.flatnonzero(chosen)
+    sel_starts = mesh.starts.astype("i8")
+    sel_counts = sel_starts[selected + 1] - sel_starts[selected]
+    n_corners = int(sel_counts.sum())
+    if n_corners > MAX_TRIANGULATED_CORNERS:
+        raise OpError(
+            f"Triangulating this selection means working through {n_corners:,} "
+            f"corners, past the {MAX_TRIANGULATED_CORNERS:,} Triangulate Faces "
+            "handles before it would stall the frame it runs on. Triangulate "
+            "a smaller selection."
+        )
 
     from .earclip import corner_triangles
 
-    normals = face_normals(mesh)
-    tri_corners, tri_face = corner_triangles(mesh.positions, mesh.loops, mesh.starts, normals)
-    keep = chosen[tri_face]
-    new_tri_corners = tri_corners[keep]
-    new_tri_face = tri_face[keep]
+    gathered = topo.corner_spans(mesh.starts, selected)
+    sub_starts = np.concatenate([[0], np.cumsum(sel_counts)]).astype("i8")
+    sub_tri_corners, sub_tri_face = corner_triangles(
+        mesh.positions,
+        mesh.loops[gathered],
+        sub_starts,
+        _face_normals_subset(mesh, selected),
+    )
+    new_tri_corners = gathered[sub_tri_corners]
+    new_tri_face = selected[sub_tri_face]
 
     unselected = np.flatnonzero(~chosen)
     base = topo.take_faces(mesh, unselected)

@@ -128,10 +128,17 @@ def axis_layout(view_matrix: Any, size: float) -> list[AxisBall]:
 # line now names those instead.
 _PICK = {
     "object": "LMB select . Shift extend . 1/2/3 edit",
-    "vertex": "LMB pick . drag marquee . L linked . 4 object",
-    "edge": "LMB pick . drag marquee . L linked . 4 object",
-    "face": "LMB pick . drag marquee . L linked . 4 object",
+    "vertex": "LMB pick . L linked . 4 object",
+    "edge": "LMB pick . L linked . 4 object",
+    "face": "LMB pick . L linked . 4 object",
 }
+
+#: The element modes' marquee clause. Only the Select tool sweeps one: under
+#: Move, Rotate and Scale a drag in empty space orbits (``_press_element``), so
+#: the 2026-10-07 audit's clay-86 -- a line that said "drag marquee" under all
+#: four tools -- promised a gesture three of them do not have. Spliced in after
+#: the pick clause, only for ``tool == "select"``.
+_MARQUEE = "drag marquee"
 
 #: What the tool in hand adds. Keyed on the tool rather than folded into the
 #: mode line because the two vary independently: Move in face mode and Move in
@@ -168,7 +175,11 @@ def hint(mode: str, tool: str) -> str:
     was deleted rather than kept in step with a line nobody draws.
     """
 
-    parts = [_PICK.get(mode, _PICK["object"])]
+    pick = _PICK.get(mode, _PICK["object"])
+    if tool == "select" and mode in _PICK and mode != "object":
+        head, _, rest = pick.partition(" . ")
+        pick = f"{head} . {_MARQUEE} . {rest}"
+    parts = [pick]
     extra = _TOOL.get(tool, "")
     if extra:
         parts.append(extra)

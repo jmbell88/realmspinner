@@ -49,7 +49,29 @@ from . import topo
 from .document import ClayDoc, Obj, new_uid, reduce_material
 from .elements import OpError
 
-__all__ = ["MAX_OBJECTS", "MAX_TRIANGLES", "MAX_VERTICES", "glb_to_claydoc"]
+__all__ = [
+    "CLAY_MAX_TEXTURE_PIXELS",
+    "MAX_OBJECTS",
+    "MAX_TRIANGLES",
+    "MAX_VERTICES",
+    "glb_to_claydoc",
+    "glb_to_claydoc_report",
+    "skipped_textures_notice",
+]
+
+# The 2026-10-07 audit's clay-07: the loader's default texture ceiling is the
+# viewer's GPU-upload limit (16,000,000 pixels), copied there from a service
+# constant, and 4096 x 4096 is 16,777,216 -- so every 4K base-colour map, the
+# commonest size a game asset ships, was dropped with nothing said. Clay's own
+# readers and writers hold up to 8192 squared (``pixelguard``), so the Clay
+# import asks the loader for a ceiling that fits a 4K map. Still charged,
+# texture by texture, against ``gltf.MAX_TOTAL_BYTES``; one over it is skipped
+# and counted like any other loss.
+CLAY_MAX_TEXTURE_PIXELS = 4096 * 4096
+
+# The only slot a Clay palette entry keeps (``document.reduce_material``): the
+# others are neither decoded nor charged (clay-28).
+_KEPT_TEXTURE_SLOTS = ("base_color",)
 
 # Above this an import is refused rather than attempted. A Clay document holds
 # every mesh in memory twice per undo step, and the rebuild-per-edit cost is
@@ -231,7 +253,15 @@ def _declared_counts(data: bytes) -> tuple[int, int, int]:
     if not isinstance(nodes, list):
         nodes = []
     if len(nodes) > gltf.MAX_NODES:
-        return 0, MAX_OBJECTS + 1, 0
+        # The 2026-10-07 audit's clay-63: this used to return a sentinel
+        # object count (``MAX_OBJECTS + 1``) for the caller to refuse, so a
+        # file of 100,001 nodes placing one object was told it "declares
+        # placing 4,097 objects". The refusal is about nodes; it says so.
+        raise OpError(
+            f"This GLB declares {len(nodes):,} nodes, past the {gltf.MAX_NODES:,} "
+            "Clay will read. It is a scene rather than a model -- import the "
+            "part you mean to edit."
+        )
     accessors = doc.get("accessors") or []
     if not isinstance(accessors, list):
         accessors = []
@@ -310,13 +340,38 @@ def _declared_counts(data: bytes) -> tuple[int, int, int]:
     return tris, objects, vertices
 
 
+def skipped_textures_notice(skipped: int) -> str | None:
+    """The sentence a caller shows for *skipped* lost textures, or ``None``."""
+    if skipped <= 0:
+        return None
+    noun = "texture" if skipped == 1 else "textures"
+    return (
+        f"{skipped} {noun} in this GLB could not be used (unreadable, an "
+        "unsupported image format or too large) and came in without it."
+    )
+
+
 def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
     """Parse GLB bytes into a fresh :class:`~.document.ClayDoc`.
 
     The document comes back with a clean history and nothing selected: it has
     just been opened, so it is not unsaved, and the objects are placed by
     construction rather than through ``add_object``, which would push a step
-    apiece.
+    apiece. A caller that wants to tell the user about textures the loader had
+    to drop calls :func:`glb_to_claydoc_report` instead.
+    """
+    return glb_to_claydoc_report(data, name)[0]
+
+
+def glb_to_claydoc_report(data: bytes, name: str = "Imported") -> tuple[ClayDoc, int]:
+    """:func:`glb_to_claydoc`, and how many of the file's textures were lost.
+
+    -> ``(document, skipped_textures)``. The 2026-10-07 audit's clay-07: the
+    loader has always counted the images it could not use
+    (``Model.skipped_textures``) but this module returned only the document, so
+    an import that came in untextured gave no hint why. The count is of image
+    *sources* the base-colour slot (the only one Clay keeps) tried and could
+    not use; show it with :func:`skipped_textures_notice`.
     """
     # Checked from the file's own declared numbers before a single accessor is
     # decoded (H01): the budget below re-checks the *real* counts after
@@ -346,7 +401,11 @@ def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
         )
 
     try:
-        model = gltf.load(data)
+        model = gltf.load(
+            data,
+            max_texture_pixels=CLAY_MAX_TEXTURE_PIXELS,
+            texture_slots=_KEPT_TEXTURE_SLOTS,
+        )
     except Exception as exc:  # noqa: BLE001 - the loader raises several types
         raise OpError(f"This file could not be read as a GLB. {exc}") from exc
 
@@ -395,7 +454,7 @@ def glb_to_claydoc(data: bytes, name: str = "Imported") -> ClayDoc:
 
     if not objects:
         raise OpError("This GLB has no meshes in it.")
-    return ClayDoc(objects=objects, materials=materials or None)
+    return ClayDoc(objects=objects, materials=materials or None), int(model.skipped_textures)
 
 
 def _object_for(

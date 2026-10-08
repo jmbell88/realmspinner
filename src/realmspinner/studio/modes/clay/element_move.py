@@ -70,6 +70,28 @@ def moved_local(
     return apply_affine(inverse @ step @ matrix, local)
 
 
+def _storable(final: np.ndarray) -> np.ndarray:
+    """*final* as the float32 the mesh stores, or ``OpError`` when it cannot be.
+
+    The 2026-10-07 audit's clay-14: a 40-digit typed move reached this cast as
+    1e40, which float32 turns into ``inf``, and the step went onto the undo stack
+    carrying a position the document could not save until it was undone. The
+    refusal is checked *after* the cast, because that is the value that would be
+    stored (a float64 just under the float32 maximum can still round to ``inf``),
+    and it is an ``OpError`` because that is the refusal both callers already
+    handle -- the drag toasts it and restores the overlays, the typed door leaves
+    the object where it was.
+    """
+    with np.errstate(over="ignore", invalid="ignore"):
+        out = np.asarray(final, dtype="f4")
+    if not np.isfinite(out).all():
+        raise el.OpError(
+            "That move is too large for the model to store, so nothing moved. "
+            "Use a smaller distance."
+        )
+    return out
+
+
 def commit_positions(
     doc: Any, changes: dict[int, tuple[Any, np.ndarray]]
 ) -> tuple[bool, list[int], list[tuple[int, Exception]]]:
@@ -103,7 +125,7 @@ def commit_positions(
             try:
                 doc.set_mesh(
                     uid,
-                    replace(before, positions=np.asarray(final, dtype="f4")),
+                    replace(before, positions=_storable(final)),
                     select=doc.element_sel_of(uid),
                 )
             except el.OpError as error:
@@ -143,13 +165,16 @@ def move_elements(doc: Any, delta_world: Any, *, snap_step: float = 0.0) -> bool
         except np.linalg.LinAlgError:
             continue
         positions = np.array(obj.mesh.positions, dtype="f4")
-        positions[verts] = moved_local(
-            obj.mesh.positions[verts].astype("f8"),
-            matrix,
-            inverse,
-            shift,
-            snap_step=snap_step,
-        )
+        # An over-large shift overflows this float32 store to ``inf``; that is
+        # ``commit_positions``' refusal to make, not a warning to print.
+        with np.errstate(over="ignore", invalid="ignore"):
+            positions[verts] = moved_local(
+                obj.mesh.positions[verts].astype("f8"),
+                matrix,
+                inverse,
+                shift,
+                snap_step=snap_step,
+            )
         changes[uid] = (obj.mesh, positions)
     pushed, _unchanged, _refused = commit_positions(doc, changes)
     return pushed

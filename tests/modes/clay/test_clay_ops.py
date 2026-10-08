@@ -137,13 +137,25 @@ def test_the_registry_imports_no_gui() -> None:
     assert source is not None
     tree = ast.parse(Path(source).read_text(encoding="utf-8"))
     imported = set()
+    sibling_reach = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported |= {alias.name.split(".")[0] for alias in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
-    assert "imgui_bundle" not in imported
-    assert "imgui" not in imported
+            # Level 2 from ``studio/modes/clay/ops.py`` is ``studio/modes``: a
+            # sibling mode.
+            if node.level == 2:
+                sibling_reach.add(node.module)
+    # The same roots ``test_clay_imports.BANNED_ROOTS`` bans for the mesh
+    # package (the 2026-10-07 audit's clay-45: this pin named imgui alone), plus
+    # the service layer, which the registry reaches for through ``ctx`` and
+    # never by import.
+    for banned in ("imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw", "service"):
+        assert banned not in imported, banned
+    # The one function-scope reach into a sibling mode: Drop to Ground borrows
+    # Mason's pure box arithmetic. A second one is a deliberate decision.
+    assert sibling_reach == {"mason.engine"}
 
 
 # --- enablement -------------------------------------------------------------

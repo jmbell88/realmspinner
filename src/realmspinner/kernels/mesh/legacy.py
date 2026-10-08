@@ -42,6 +42,7 @@ from typing import Any
 
 import numpy as np
 
+from ...core.safeio import npyguard
 from ..geom3d import math3d as m3
 from . import elements as el
 from . import mesh as bm
@@ -102,6 +103,45 @@ def _refuse_growth(verb: str, predicted: int, limit: int | None = None) -> None:
             f"{verb} would make {predicted:,} triangles, past the {max(ceiling, 0):,} "
             f"this model has room for ({MAX_TRIANGLES:,} is the most Clay works with "
             "in all)."
+        )
+
+
+def _largest_array_bytes(vertices: int, corners: int, has_uv: bool) -> int:
+    """The byte size of the biggest array a mesh of this shape stores: positions
+    are ``(V, 3)`` f4, a corner array is i4 (or ``(L, 2)`` f4 for the uv)."""
+    return max(vertices * 12, corners * (8 if has_uv else 4))
+
+
+def _refuse_vertex_growth(verb: str, mesh: Mesh, vertices: int, corners: int) -> None:
+    """Refuse a result of *vertices* and *corners* that Clay cannot hold or save.
+
+    The 2026-10-07 audit's clay-25: the guard above counts triangles only, and a
+    triangle ceiling says nothing about the vertices a mesh carries without
+    referencing them -- one triangle over 100,000 unreferenced vertices times an
+    array count of 200 became 20,000,000 vertices with no refusal, and a smaller
+    multiple could bake a positions array past ``npyguard.MAX_ARRAY_BYTES``,
+    which the writer accepted and the reader then refused to reopen. Called
+    *before* any copy is built (the array kinds) and again on every result
+    (:func:`_bake`). A mesh that is already over a ceiling when it arrives is
+    not charged for staying that size, only for growing.
+    """
+    from .glbimport import MAX_VERTICES
+
+    had = len(mesh.positions)
+    if vertices > MAX_VERTICES and vertices > had:
+        raise el.OpError(
+            f"{verb} would make {vertices:,} vertices, past the "
+            f"{MAX_VERTICES:,} Clay works with."
+        )
+    has_uv = mesh.uv is not None
+    ceiling = npyguard.MAX_ARRAY_BYTES
+    if _largest_array_bytes(vertices, corners, has_uv) > ceiling and (
+        _largest_array_bytes(vertices, corners, has_uv)
+        > _largest_array_bytes(had, len(mesh.loops), has_uv)
+    ):
+        raise el.OpError(
+            f"{verb} would make a mesh array past the {ceiling:,} bytes a saved "
+            "document may hold."
         )
 
 
@@ -184,6 +224,9 @@ def array_linear(mesh: Mesh, params: dict, limit: int | None = None) -> Mesh:
     )
     weld_distance = float(params.get("weld", 0.0))
     _refuse_growth("Arraying this object", _triangle_count(mesh) * count, limit)
+    _refuse_vertex_growth(
+        "Arraying this object", mesh, len(mesh.positions) * count, len(mesh.loops) * count
+    )
     copies = [
         mesh if k == 0 else replace(mesh, positions=mesh.positions.astype("f8") + offset * k)
         for k in range(count)
@@ -213,6 +256,9 @@ def array_radial(mesh: Mesh, params: dict, limit: int | None = None) -> Mesh:
     angle = float(params.get("angle", 360.0))
     axis = int(params.get("axis", 1))
     _refuse_growth("Arraying this object", _triangle_count(mesh) * count, limit)
+    _refuse_vertex_growth(
+        "Arraying this object", mesh, len(mesh.positions) * count, len(mesh.loops) * count
+    )
     if count <= 1:
         return mesh
     divisor = count if _closes_a_ring(angle) else count - 1
@@ -606,7 +652,12 @@ def _coerce(p: _Param, raw: Any) -> float | int | bool:
         if not 0 <= idx < len(p.choices):
             raise ValueError(f"{p.name} index {idx} is out of range")
         return idx
-    value = max(p.low, min(p.high, float(raw)))
+    number = float(raw)
+    if not math.isfinite(number):
+        # The 2026-10-07 audit's clay-54: ``max(low, min(high, nan))`` is the
+        # maximum, so a stored NaN loaded silently at the top of the range.
+        raise ValueError(f"{p.name} is not a finite number")
+    value = max(p.low, min(p.high, number))
     return int(round(value)) if p.integer else value
 
 
@@ -688,6 +739,17 @@ def read_fields(entry: dict[str, Any]) -> LegacyFields:
 # --- the bake ----------------------------------------------------------------
 
 
+#: The most work the bake spends on one file, in triangle passes: each modifier
+#: costs the triangles it runs over (times its iterations, for a smooth).
+#: Measured with the 2026-10-07 audit's probe: a 50-iteration smooth over 90,000
+#: quads (180,000 triangles, 9M passes) took 1.3 s, about 0.15 us a pass, so
+#: 10,000,000 is on the order of a second and a half -- the "well under a few
+#: seconds" bar the sibling ceilings in this module use. A new refusal, not a
+#: constant any stored file is keyed on: the v3 fixtures under
+#: ``tests/modes/clay/data`` still convert with no budget notice.
+MAX_BAKE_WORK = 10_000_000
+
+
 def _bake(
     doc: ClayDoc, stacks: dict[int, tuple[_Modifier, ...]]
 ) -> tuple[dict[int, Mesh], dict[int, list[str]]]:
@@ -754,6 +816,7 @@ def _bake(
 
     counts = {o.uid: _triangle_count(o.mesh) for o in doc.objects}
     total = sum(counts.values())
+    spent = 0
     for uid in order:
         stack = stacks.get(uid, ())
         if not any(m.enabled for m in stack):
@@ -765,7 +828,22 @@ def _bake(
                 continue
             label = _KINDS[mod.kind][0]
             room = MAX_TRIANGLES - (total - counts[uid])
+            # The 2026-10-07 audit's clay-53: size is bounded, time was not --
+            # a few KB of ``scene.json`` held fifty-iteration smooths in a
+            # stack as long as the file allowed, each a full pass over a
+            # 90,000-face mesh (1.3 s apiece, linear in stack length), and the
+            # bake has no cancel. A running budget over the whole file, charged
+            # before the modifier runs, in triangle passes.
+            cost = max(1, counts[uid]) * (
+                int(mod.get("iterations", 1)) if mod.kind == "smooth" else 1
+            )
             try:
+                if spent + cost > MAX_BAKE_WORK:
+                    raise el.OpError(
+                        "this file's modifiers are past the "
+                        f"{MAX_BAKE_WORK:,} triangle passes Clay spends opening one"
+                    )
+                spent += cost
                 if mod.kind == "boolean":
                     target = int(mod.get("target", 0))
                     if target == 0:
@@ -788,6 +866,9 @@ def _bake(
                     grown = _KINDS[mod.kind][2](mesh, mod.as_dict())
                 grown_count = _triangle_count(grown)
                 _refuse_growth("This modifier", grown_count, room)
+                _refuse_vertex_growth(
+                    "This modifier", mesh, len(grown.positions), len(grown.loops)
+                )
             except el.OpError as error:
                 errors.setdefault(uid, []).append(f"the {label} modifier could not run ({error})")
                 continue
@@ -903,7 +984,11 @@ def _drop(doc: ClayDoc, doomed: list[Obj]) -> None:
         if uid in gone:
             continue
         child = doc.by_uid(uid)
+        # ``_kept_place``, not ``_local_relative``: the 2026-10-07 audit's
+        # clay-26 found a surviving ancestor of denormal scale (finite, so past
+        # the singular test) inverted to ``inf`` here and wrote NaN onto the
+        # child, a migrated document that could never be saved or journalled.
         with contextlib.suppress(el.OpError):
-            child.translation, child.rotation, child.scale = doc._local_relative(
-                world, child.parent
+            child.translation, child.rotation, child.scale = doc._kept_place(
+                child.name, world, child.parent
             )

@@ -17,8 +17,10 @@ splits, so rather than guessing it names the element and stops:
   bridge it with a slit) are both worse than saying so.
 * A **bowtie ring** -- a border that visits one vertex twice. The n-gon would
   self-intersect.
-* A **non-manifold edge**, anywhere: three faces meet, so "the other side" is
-  not a single face.
+
+Dissolve does not refuse a non-manifold input: the walk only follows a group's
+border, and the result is a valid n-gon. This docstring used to promise
+otherwise (the 2026-10-07 audit's clay-67).
 
 **Results are routinely concave**, and that is the first real consumer of
 :mod:`.earclip` -- merging the two triangles of an L gives a polygon a fan

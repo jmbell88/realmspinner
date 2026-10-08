@@ -441,6 +441,8 @@ def test_declared_budget_does_not_crash_on_an_infinite_accessor_count() -> None:
         {"componentType": 5126, "count": 3, "type": "VEC3"},
         {"componentType": 5126, "count": float("inf"), "type": "VEC3"},
     ]
-    data = glbio.rebuild_glb(header, mutated, rest)
+    # ``allow_nan``: the document is deliberately malformed (clay-62 made the
+    # production writer refuse to emit an ``Infinity``).
+    data = glbio.rebuild_glb(header, mutated, rest, allow_nan=True)
     with pytest.raises(OpError):
         glbimport.glb_to_claydoc(data)

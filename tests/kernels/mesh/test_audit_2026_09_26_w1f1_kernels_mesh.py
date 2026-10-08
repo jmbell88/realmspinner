@@ -19,10 +19,6 @@ profile ends at radius 0, which ``_revolve`` reads as poles -- a shape
 clay-io-01: GLB import's ``scale``/``up`` remap rescaled only each object's
 mesh, never its translation/rotation, so a placed child detached from the
 shape it used to sit on.
-
-clay-mesh-core-03: ``select.grow`` computed its two adjacency passes off the
-same mutating array, so a vertex adjacent to one of this call's own
-additions grew a second ring.
 """
 
 from __future__ import annotations
@@ -31,7 +27,7 @@ import numpy as np
 import pytest
 
 from realmspinner.kernels.mesh import document as bd
-from realmspinner.kernels.mesh import glbimport, meshimport, select, selection
+from realmspinner.kernels.mesh import glbimport, meshimport, selection
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh import serialize as ser
 from realmspinner.kernels.mesh.mesh import validate
@@ -114,13 +110,15 @@ def test_a_column_at_zero_radius_builds_a_mesh_that_validates_and_round_trips_th
 def test_glb_import_scale_moves_object_translations_along_with_their_meshes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _fake_glb_to_claydoc(data: bytes, name: str) -> bd.ClayDoc:
+    # ``import_file`` reads a GLB through ``glb_to_claydoc_report`` (the
+    # 2026-10-07 audit's clay-07), which is what is stubbed here.
+    def _fake_glb_to_claydoc(data: bytes, name: str) -> tuple[bd.ClayDoc, int]:
         del data, name
         doc = bd.ClayDoc()
         doc.add_object(_obj("Root", translation=(10.0, 0.0, 0.0)))
-        return doc
+        return doc, 0
 
-    monkeypatch.setattr(glbimport, "glb_to_claydoc", _fake_glb_to_claydoc)
+    monkeypatch.setattr(glbimport, "glb_to_claydoc_report", _fake_glb_to_claydoc)
 
     doc = meshimport.import_file(b"", ".glb", scale=0.01)
 
@@ -130,37 +128,3 @@ def test_glb_import_scale_moves_object_translations_along_with_their_meshes(
     # shrank, so the object jumped away from where its now-tiny mesh sits.
     assert np.allclose(obj.translation, (0.1, 0.0, 0.0)), obj.translation
     assert np.allclose(np.abs(obj.mesh.positions).max(), 0.005)
-
-
-# --- clay-mesh-core-03 -------------------------------------------------------
-
-
-def _grid_mesh(n: int = 5) -> bd.Obj:
-    """An *n* x *n* grid of quads in the XZ plane, one vertex per grid point,
-    row-major -- enough rings around an interior vertex to tell "one ring"
-    from "two" apart."""
-    xs, zs = np.meshgrid(np.arange(n, dtype="f8"), np.arange(n, dtype="f8"))
-    positions = np.stack([xs.ravel(), np.zeros(n * n), zs.ravel()], axis=1)
-    faces = []
-    for row in range(n - 1):
-        for col in range(n - 1):
-            a = row * n + col
-            b = a + 1
-            c = a + n + 1
-            d = a + n
-            faces.append([a, b, c, d])
-    from realmspinner.kernels.mesh.mesh import from_faces
-
-    return from_faces(positions, faces)
-
-
-def test_grow_from_an_interior_vertex_takes_exactly_its_edge_neighbours() -> None:
-    mesh = _grid_mesh(5)
-    # Vertex 12 is the exact centre of the 5x5 grid (row 2, col 2): its four
-    # edge neighbours are 7, 11, 13, 17.
-    grown = select.grow(mesh, np.array([12], dtype="i4"))
-
-    # The 2026-09-26 audit, finding clay-mesh-core-03: the unfixed code
-    # returned [7, 8, 11, 12, 13, 16, 17] -- two rings, because the second
-    # adjacency pass read the first pass's own in-place writes.
-    assert sorted(grown.tolist()) == [7, 11, 12, 13, 17]

@@ -10,9 +10,9 @@ other lazily inside function bodies.
 
 They are here instead, in the headless package, where the rest of this
 vocabulary already is. The mode layer keeps same-signature wrappers (its
-privates are what the panes and the tests call), and ``clay_ops`` now calls
-straight through to this module -- which is what makes ``clay_ops`` free of any
-reference to ``clay_mode`` at all.
+privates are what the panes and the tests call), and ``studio/modes/clay/ops.py``
+now calls straight through to this module -- which is what makes that module free
+of any reference to ``studio/modes/clay/mode.py`` at all.
 
 **Nothing here toasts.** A refusal is a string handed back to the caller, and
 the caller decides what a refusal looks like -- the mode layer shows a toast,
@@ -105,8 +105,9 @@ def delete_selected(doc: Any) -> list[str]:
     and every face selected, one Delete pushed three of those steps and one
     Ctrl+Z restored one box while leaving two empty -- the direct-call twin of
     clay-01, reachable from ``tests/modes/clay/test_select.py`` and any other
-    caller that reaches this function without going through ``clay_ops.run``
-    (which already folds everything an op pushes, but only for callers that go
+    caller that reaches this function without going through
+    ``studio/modes/clay/ops.py``'s ``run`` (which already folds
+    everything an op pushes, but only for callers that go
     through it -- see the 2026-09-07 audit's clay-02 in
     ``studio/modes/clay/mode.py``). ``mark``/``collapse_since`` is the
     primitive built for exactly this composed-op shape (its own docstring in

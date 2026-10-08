@@ -265,7 +265,13 @@ def pull_all(ctx: Any) -> None:
     if state is None:
         return
     for tab in state.docs:
-        if _links(tab):
+        # The 2026-10-07 audit's clay-48: a landing is ``set_material`` on the
+        # document, and a save/export task reads that same live document on a
+        # worker thread -- so a pull mid-save could mix pre- and post-pull
+        # pictures in one file. ``saving`` is the lock every other control that
+        # edits the document honours; the link keeps its old ``pulled_rev``, so
+        # the same pull simply lands on the first frame after the save.
+        if _links(tab) and not getattr(tab, "saving", False):
             pull(ctx, tab)
 
 
