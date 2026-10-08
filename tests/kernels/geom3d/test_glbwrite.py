@@ -478,7 +478,10 @@ def _clay_document():
 # Re-pinned 2026-10-07 for the audit's clay-03 (``kernels/mesh/uv.py``, ``primitives._mesh``):
 # Mesh.uv is v-down now, so every uv's v in this document is ``1 - v`` of what it was.
 # Positions, indices and the writer did not move.
-_CLAY_GLB_SHA256 = "ed3e75245bf1d6d2812da38877090a337df20e2e7af486c05a55ac9a7886d581"
+# Re-pinned 2026-10-08 for the audit's clay-03 leftover (``kernels/mesh/uv.py`` ``_AXES``): the
+# box's X-facing walls read u from Z and v from Y now. Verified: restoring the old X pair
+# reproduces the previous digest exactly. Positions, indices and the writer did not move.
+_CLAY_GLB_SHA256 = "8b9222bc92331783c3bab3b6a0901c034526254c5c598205fd2107790e5c2540"
 
 
 def test_an_existing_clay_document_writes_the_same_bytes_as_before_lights_arrived() -> None:

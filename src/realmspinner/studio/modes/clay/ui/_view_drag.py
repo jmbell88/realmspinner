@@ -982,6 +982,33 @@ class DragOps:
         self._hover_pick_at = local
         self.hover_object = self.pick(doc, local)
 
+    def clear_hover(self: ClayView, doc: Any) -> bool:
+        """Drop every hover highlight; -> whether any was lit.
+
+        The 2026-10-07 audit's clay-83: the shell delivers a mouse move only to
+        the viewport it is over, so a pointer that left for a panel never sent
+        the motion that clears the highlight and the last element or object
+        stayed lit. The viewport pane calls this on a frame where the image is
+        not hovered. Left alone mid-grab: that owns the highlight itself.
+        """
+        if self._grab is not None:
+            return False
+        gizmo = self.active_gizmo(doc)
+        lit = (
+            self.hover_element is not None
+            or self.hover_object is not None
+            or (gizmo is not None and gizmo.hover is not None)
+        )
+        if not lit:
+            return False
+        if gizmo is not None:
+            gizmo.hover = None
+        self.hover_element = None
+        self.hover_object = None
+        self._hover_pick_at = None
+        self._render_dirty = True
+        return True
+
     def _begin_element_drag(self: ClayView, doc: Any) -> None:
         """Snapshot every selected object's affected vertices at the press."""
         from .....kernels.mesh import elements as el

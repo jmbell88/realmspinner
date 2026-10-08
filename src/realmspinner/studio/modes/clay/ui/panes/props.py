@@ -162,7 +162,7 @@ def _body(ctx: Any) -> None:
         # selection is not an element selection.
         clay_uv.draw_embedded(ctx)
         return
-    _element_summary(doc, state)
+    _element_summary(doc, state, ctx)
     obj = _selected(doc)
     if obj is None:
         # Two sentences, because ``_selected`` returns None for two different
@@ -363,7 +363,7 @@ def export_lines(tab: Any) -> list[str]:
     return lines
 
 
-def _element_summary(doc: Any, state: Any = None) -> None:
+def _element_summary(doc: Any, state: Any = None, ctx: Any = None) -> None:
     """What is selected inside the objects, in element modes: a line, the
     median as three editable numbers, and a measurement.
 
@@ -385,7 +385,7 @@ def _element_summary(doc: Any, state: Any = None) -> None:
         return
     widgets.muted(text)
     imgui.dummy((0, sp(tokens.SP_1)))
-    _element_median(doc, state)
+    _element_median(doc, state, ctx)
     line = element_measure_text(doc, _unit_of(state))
     if line:
         widgets.muted(line)
@@ -398,7 +398,7 @@ def _unit_of(state: ClayState | None) -> str:
     return ui.length_unit if ui.length_unit in dict(units.LENGTH_UNITS) else units.DEFAULT_UNIT
 
 
-def _element_median(doc: Any, state: ClayState | None) -> None:
+def _element_median(doc: Any, state: ClayState | None, ctx: Any = None) -> None:
     """The selection's world median as three numbers you can type into.
 
     ``commit=True``: the field reports on Enter or on leaving it, so typing
@@ -425,7 +425,11 @@ def _element_median(doc: Any, state: ClayState | None) -> None:
     )
     controls.fold_undo(doc.history)
     if edited:
-        commit_median(doc, median, shown, typed, unit)
+        refused: list[Exception] = []
+        commit_median(doc, median, shown, typed, unit, refused)
+        if ctx is not None:
+            for error in refused:
+                clay_ops.toast(ctx, str(error))
 
 
 #: ``doc -> {readout name: (key, value)}``, one slot per readout. A weak key, so
@@ -476,12 +480,21 @@ def element_median_cached(doc: Any) -> Any:
     return _memoised(doc, "median", None, lambda: element_move.element_median_world(doc))
 
 
-def commit_median(doc: Any, median: Any, shown: Any, typed: Any, unit: str) -> bool:
+def commit_median(
+    doc: Any,
+    median: Any,
+    shown: Any,
+    typed: Any,
+    unit: str,
+    refused: list[Exception] | None = None,
+) -> bool:
     """Move the selection so its median is where the user typed. -> whether it moved.
 
     Only the axes that were typed into go back through the unit: converting an
     untouched axis out and back would let a unit's rounding nudge it, and a
     centimetre display of 0.0125 m must not turn a Y-only edit into an X move.
+    Each object the document refused leaves its error in *refused*, for the
+    caller to toast (the 2026-10-07 audit's clay-14).
     """
     delta = [
         0.0
@@ -489,7 +502,7 @@ def commit_median(doc: Any, median: Any, shown: Any, typed: Any, unit: str) -> b
         else units.from_display(typed[i], unit) - float(median[i])
         for i in range(3)
     ]
-    return element_move.move_elements(doc, delta)
+    return element_move.move_elements(doc, delta, refused=refused)
 
 
 def element_measure_text(doc: Any, unit: str = units.DEFAULT_UNIT) -> str | None:

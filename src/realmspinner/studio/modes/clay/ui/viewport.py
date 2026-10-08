@@ -219,6 +219,10 @@ class ClayViewport:
         if clay_adjust.draw(ctx, rect):
             self._build_hovered = False
         clay_menu.draw(ctx, view)
+        if not self._build_hovered:
+            # clay-83: the pointer is on a panel, a card or a control, and no
+            # mouse move will reach the view to say so.
+            view.clear_hover(tab.doc)
         # Under the render and the rail both, the full width of the centre: the
         # palette is the document's, not the viewport's.
         imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3]))

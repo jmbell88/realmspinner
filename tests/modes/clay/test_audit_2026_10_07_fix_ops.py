@@ -217,7 +217,10 @@ def test_an_element_op_leaves_a_hidden_object_with_a_stale_selection_untouched()
     doc.set_element_mode("face")
     doc.set_element_sel(a.uid, el.select_all(a.mesh, "face"))
     doc.set_element_sel(b.uid, el.select_all(b.mesh, "face"))
-    doc.set_visibility({b.uid: False})  # what H does; the element selection stays
+    # Set directly: ``set_visibility`` (H, the eye) now deselects what it hides
+    # (clay-06), so the stale selection this test is about is reached the way
+    # an undone Show reaches it -- visibility flipped under a live selection.
+    doc.by_uid(b.uid).visible = False
     hidden_mesh = doc.by_uid(b.uid).mesh
     assert clay_ops.run(_Ctx(), doc, clay_ops.get("inset"), thickness=0.1)
     assert doc.by_uid(b.uid).mesh is hidden_mesh, "a hidden object was rewritten"
@@ -229,7 +232,7 @@ def test_an_element_op_with_only_hidden_objects_selected_reports_it_did_not_run(
     a = _box(doc, "a")
     doc.set_element_mode("face")
     doc.set_element_sel(a.uid, el.select_all(a.mesh, "face"))
-    doc.set_visibility({a.uid: False})
+    doc.by_uid(a.uid).visible = False  # see the test above: a stale selection
     head = doc.history.head
     assert clay_ops.run(_Ctx(), doc, clay_ops.get("inset"), thickness=0.1) is False
     assert doc.history.head == head

@@ -136,14 +136,23 @@ def commit_positions(
     return (history is not None and history.head != head, unchanged, refused)
 
 
-def move_elements(doc: Any, delta_world: Any, *, snap_step: float = 0.0) -> bool:
+def move_elements(
+    doc: Any,
+    delta_world: Any,
+    *,
+    snap_step: float = 0.0,
+    refused: list[Exception] | None = None,
+) -> bool:
     """Shift every object's selected elements by *delta_world*. -> whether anything moved.
 
     One undo step however many objects hold a selection. A zero shift records
     nothing and an object whose elements are all hidden is skipped, as are the
     ones the document refuses (an ``OpError`` leaves that object where it was).
     ``snap_step`` snaps each moved vertex to the world grid; zero leaves them
-    exactly where the shift puts them.
+    exactly where the shift puts them. The 2026-10-07 audit's clay-14: a caller
+    with somewhere to say so passes a list as *refused* and finds each refusal's
+    error in it afterwards; without one the refusal is still silent, as the G
+    drag's own door (``commit_positions``) reports its refusals itself.
     """
     shift = np.asarray(delta_world, dtype="f8").reshape(3)
     if not np.any(shift):
@@ -176,7 +185,9 @@ def move_elements(doc: Any, delta_world: Any, *, snap_step: float = 0.0) -> bool
                 snap_step=snap_step,
             )
         changes[uid] = (obj.mesh, positions)
-    pushed, _unchanged, _refused = commit_positions(doc, changes)
+    pushed, _unchanged, failed = commit_positions(doc, changes)
+    if refused is not None:
+        refused.extend(error for _uid, error in failed)
     return pushed
 
 

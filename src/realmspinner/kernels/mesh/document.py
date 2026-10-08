@@ -1092,6 +1092,17 @@ class ClayDoc:
         if not edits:
             return False
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
+        # The 2026-10-07 audit's clay-06: hiding through the eye left the object
+        # selected, so the gizmo, the Properties readouts and every object op
+        # still addressed a thing the user could not see. Hiding deselects, as
+        # in Blender; the element selection goes with it because in an element
+        # mode the object selection *is* the set of objects holding one.
+        # Selection is not undoable, so Ctrl+Z shows the object but does not
+        # re-select it.
+        hidden = {uid for uid, visible in wanted.items() if not visible}
+        self.selection -= hidden
+        for uid in hidden:
+            self.element_sel.pop(uid, None)
         self.touch()
         return True
 

@@ -457,6 +457,19 @@ def _arity_ok(name: str, lo: int, hi: int | None, n: int) -> bool:
     return n >= lo and (hi is None or n <= hi)
 
 
+def _whole_digits(n: float) -> int:
+    """``round``'s digit count as an int, refusing one that is not whole.
+
+    The 2026-10-07 audit's clay-35: ``int(2.7)`` is 2, so ``round(x, 2.7)`` rounded
+    to two places without a word. ``ValueError`` is what the evaluator already
+    maps to a refusal with a position; ``inf``/``nan`` fail ``is_integer`` the
+    same way (``int(inf)`` would have been an ``OverflowError``).
+    """
+    if not float(n).is_integer():
+        raise ValueError(f"round's digit count must be a whole number, got {n!r}")
+    return int(n)
+
+
 _FUNCTIONS: dict[str, tuple[int, int | None, Any]] = {
     "sin": (1, 1, lambda x: math.sin(math.radians(x))),
     "cos": (1, 1, lambda x: math.cos(math.radians(x))),
@@ -472,7 +485,7 @@ _FUNCTIONS: dict[str, tuple[int, int | None, Any]] = {
     "ceil": (1, 1, lambda x: float(math.ceil(x))),
     "clamp": (3, 3, lambda x, lo, hi: min(max(x, lo), hi)),
     "lerp": (3, 3, lambda a, b, t: a + (b - a) * t),
-    "round": (1, 2, lambda x, n=0.0: float(round(x, int(n)))),
+    "round": (1, 2, lambda x, n=0.0: float(round(x, _whole_digits(n)))),
 }
 """``sin``/``cos``/``tan`` take degrees; ``asin``/``acos``/``atan2`` return
 degrees, matching every rotation field in this program grammar -- an

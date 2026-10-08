@@ -1169,9 +1169,19 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
             if view_state.drag_mode == "move" and view_state.selected_islands:
                 delta = (uv_here[0] - view_state.drag_last[0], uv_here[1] - view_state.drag_last[1])
                 if delta != (0.0, 0.0):
-                    apply_translate(doc, obj.uid, view_state.selected_islands, delta, ctx=ctx)
+                    # The 2026-10-07 audit's clay-16: with ``ctx`` passed, a
+                    # refusal (past ``uvtools.MAX_UV_ISLANDS`` selected islands)
+                    # toasted on every frame of the drag. Called without it the
+                    # door re-raises, so the first refusal is toasted once and
+                    # ends the gesture -- "refused" is inert below, where the
+                    # rectangle select would otherwise take the drag over.
+                    try:
+                        apply_translate(doc, obj.uid, view_state.selected_islands, delta)
+                    except el.OpError as error:
+                        clay_ops.toast(ctx, str(error))
+                        view_state.drag_mode = "refused"
                 view_state.drag_last = uv_here
-            else:
+            elif view_state.drag_mode != "refused":
                 rect = (view_state.drag_start[0], view_state.drag_start[1], uv_here[0], uv_here[1])
                 view_state.selected_islands = frozenset(islands_in_rect(mesh, ids, rect))
         elif imgui.is_item_deactivated():

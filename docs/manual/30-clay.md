@@ -478,9 +478,10 @@ be clicked in the viewport. **Solo** above the list hides everything *except* wh
 
 All three are on the keyboard too: `H` hides the selection, `Shift`+`H` isolates it (the same as Solo)
 and `Alt`+`H` shows everything again. Hiding clears the selection, since a hidden object is no longer
-something you can act on. Hiding through the eye or the visibility box leaves the selection alone, but a
-hidden object is skipped by drags and by element operations all the same. `Alt` plus any other letter,
-digit or `Delete` does nothing in Clay: only `Alt`+`H` and `Alt`+`Z` (X-ray) are bound, and `Alt`+drag orbits.
+something you can act on; the eye and the visibility box do the same, and `Ctrl+Z` on a hide shows the object
+again without selecting it. A hidden object is skipped by drags and by element operations all the same.
+`Alt` plus any other letter, digit or `Delete` does nothing in Clay: only `Alt`+`H` and `Alt`+`Z` (X-ray) are
+bound, and `Alt`+drag orbits.
 
 Rows are dragged to reorder them, which matters because display order is the order the objects come
 out in an exported GLB. Reordering is switched off while the filter box has something in it: the
@@ -707,10 +708,10 @@ Two things follow from it being a *projection*. Faces pointing opposite ways sha
 so a texture applied to a box appears on both the front and the back (mirrored, so lettering reads
 the right way round on each). Texture coordinates follow the glTF convention: the first row of your
 picture is the top of the texture (v = 0), so a picture painted with red along its top edge has red along
-the top of every upright wall. Documents saved before this was settled keep the layout they were saved with;
-Box Unwrap, or rebuilding a generated shape, writes the current one. And unwrapping does not freeze a
-generator: coordinates are not geometry, so an unwrapped box is still a box and editing its size still
-rebuilds it.
+the top of every upright wall, the two side walls included. Documents saved before this was settled keep
+the layout they were saved with; Box Unwrap, or rebuilding a generated shape, writes the current one.
+And unwrapping does not freeze a generator: coordinates are not geometry, so an unwrapped box is still a
+box and editing its size still rebuilds it.
 
 Clay does not paint a texture itself. The layout is for a picture you draw in [Inker](28-inker.md)
 and lay on the object's material (see [Texturing](#texturing)).

@@ -1434,6 +1434,7 @@ def _assign_material(ctx: Any, doc: Any, index: int = 0, **_: Any) -> bool:
     object's ``paint_faces`` into one undo step.
     """
     from ....kernels.mesh import elements as el
+    from ....kernels.mesh import selection
 
     count = len(doc.materials)
     if not 0 <= index < count:
@@ -1446,6 +1447,10 @@ def _assign_material(ctx: Any, doc: Any, index: int = 0, **_: Any) -> bool:
         try:
             obj = doc.by_uid(uid)
         except KeyError:
+            continue
+        # clay-11 again: an object hidden after it was picked keeps its element
+        # selection, and every other element door skips it.
+        if not selection._element_pickable(obj):
             continue
         faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face").faces
         if len(faces) and doc.paint_faces(uid, faces, index):
@@ -1517,9 +1522,17 @@ def _shade(smooth: bool) -> Callable[..., bool | None]:
                 ctx, doc, lambda doc, obj: doc.set_shading(obj.uid, None, smooth)
             )
         from ....kernels.mesh import elements as el
+        from ....kernels.mesh import selection
 
         for uid in list(doc.element_sel):
-            faces = el.convert(doc.by_uid(uid).mesh, doc.element_sel_of(uid), "face")
+            try:
+                obj = doc.by_uid(uid)
+            except KeyError:
+                continue
+            # clay-11: a hidden object keeps its element selection; skip it.
+            if not selection._element_pickable(obj):
+                continue
+            faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face")
             doc.set_shading(uid, faces.faces, smooth)
 
     return run
@@ -1573,6 +1586,7 @@ def _selection_op(verb: Any) -> Any:
     """
 
     def run(ctx: Any, doc: Any, **params: Any) -> bool:
+        from ....kernels.mesh import selection
 
         del ctx
         mode = doc.element_mode
@@ -1581,6 +1595,10 @@ def _selection_op(verb: Any) -> Any:
             try:
                 obj = doc.by_uid(uid)
             except KeyError:
+                continue
+            # clay-11: grow/shrink/linked must not rewrite what a hidden object
+            # holds -- the user cannot see the result.
+            if not selection._element_pickable(obj):
                 continue
             sel = doc.element_sel_of(uid)
             wanted = verb(obj.mesh, sel, mode, **params)

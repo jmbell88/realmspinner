@@ -305,7 +305,7 @@ def test_move_elements_skips_a_hidden_object() -> None:
     doc = _two_boxes()
     _face_selected(doc, doc.objects)
     hidden = doc.objects[1]
-    doc.set_visibility({hidden.uid: False})
+    hidden.visible = False  # under a live selection; set_visibility would deselect it (clay-06)
     old = hidden.mesh.positions.copy()
     element_move.move_elements(doc, np.array([0.0, 1.0, 0.0]))
     assert np.allclose(hidden.mesh.positions, old)

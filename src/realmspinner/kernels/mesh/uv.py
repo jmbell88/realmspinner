@@ -63,10 +63,20 @@ _AXES: tuple[tuple[int, int], ...] = (
     # Y face); the negative way flips u below. ``v`` is written as ``1 - height``
     # (see the module docstring), which turns that handedness's signed uv area
     # negative for every face -- the sign of an upright, unmirrored v-down face.
-    (1, 2),  # X-facing: u from Y, v from Z
+    # clay-03, found by its fixer and closed 2026-10-08: the X walls used to read
+    # u from Y and v from Z, which stands a picture on its side (Y is up, so Z is
+    # a horizontal there). v has to come from Y; u from Z then runs the wrong
+    # handedness for that axis alone, so X is the one axis whose *positive* side
+    # is flipped (``_FLIPPED_WHEN`` below).
+    (2, 1),  # X-facing: u from Z, v from Y
     (2, 0),  # Y-facing: u from Z, v from X
     (0, 1),  # Z-facing: u from X, v from Y
 )
+
+#: The sign of the normal along the dominant axis that has its u mirrored: the
+#: negative side for Y and Z (their (u, v) pairs are right-handed about the axis),
+#: the positive side for X (see ``_AXES``).
+_FLIPPED_WHEN: tuple[float, ...] = (1.0, -1.0, -1.0)
 
 
 def dominant_axis(normals: np.ndarray) -> np.ndarray:
@@ -140,7 +150,7 @@ def _projected(mesh: Mesh, axes: np.ndarray, *, normals: np.ndarray | None = Non
         # island off its own geometry. The flip is per corner, taken from the
         # sign of its own face's normal, because opposite faces share the
         # square and without it one of the pair reads mirrored.
-        facing = normals[face_of[which], axis] < 0.0
+        facing = normals[face_of[which], axis] * _FLIPPED_WHEN[axis] > 0.0
         uv[which, 0] = np.where(facing, extent[u_axis] - u, u)
         # v down the image: the top of the model is the small v (clay-03).
         uv[which, 1] = 1.0 - corner_pos[which, v_axis]

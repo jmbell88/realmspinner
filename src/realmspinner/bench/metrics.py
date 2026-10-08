@@ -623,9 +623,9 @@ def render_ids_mask(png: bytes) -> Any:
 
     An exact match against ``(255, 255, 255)``, not a tolerance -- there is
     no antialiasing to guard against here, since ``Renderer.draw_ids`` runs
-    with blending and MSAA both off, and ``_id_color`` keeps every object's
-    flat colour's brightest channel at 242, never 255, precisely so "white"
-    is unambiguous background rather than a near-miss an object could win.
+    with blending and MSAA both off, and ``_id_color`` packs the index into 24
+    bits and refuses 0xFFFFFF, so no object is ever drawn exactly white and
+    "white" is unambiguous background rather than a colour an object could win.
     """
     import io
 
