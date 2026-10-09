@@ -347,7 +347,11 @@ def _clay_file_specs(
     if tab is None:
         why = "Open or start a document first."
     else:
-        why = doc_io.outputs_why(tab.doc, bool(tab.saving)) if evaluate else ""
+        why = (
+            doc_io.outputs_why(tab.doc, bool(tab.saving), clay_mode._gesture_live(ctx, tab))
+            if evaluate
+            else ""
+        )
     exits = (
         ("clay:export-glb", "Export GLB...", lambda: clay_mode.export_mesh_file(ctx, tab, "glb")),
         ("clay:export-obj", "Export OBJ...", lambda: clay_mode.export_mesh_file(ctx, tab, "obj")),

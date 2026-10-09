@@ -518,6 +518,19 @@ def _refuse_unreadable(snap: RblkSnapshot) -> None:
                 ) from exc
     for uid, mesh in snap.meshes:
         label = names.get(uid, f"uid {uid}")
+        # The 2026-10-09 second audit's clay-82: ``read_rblk`` runs
+        # ``bm.validate`` on every mesh it reads and this writer ran nothing, so
+        # a fill-hole that left a one-corner face saved (and autosaved, and
+        # journalled) a file that refused to reopen -- "face 2 has fewer than 3
+        # corners", with no name to say whose. The same call, here, before the
+        # encode, naming the object.
+        try:
+            bm.validate(mesh)
+        except ValueError as exc:
+            raise ValueError(
+                f"the mesh of the object {label!r} is not valid ({exc}); saving it "
+                "would write a file this build cannot open again"
+            ) from exc
         _refuse_non_finite(mesh, f"the mesh of the object {label!r}")
         # The 2026-10-07 audit's clay-25: ``npyguard.read_array`` refuses one
         # array over ``MAX_ARRAY_BYTES`` and this writer checked no such thing,

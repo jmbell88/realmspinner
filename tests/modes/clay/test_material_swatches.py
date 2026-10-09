@@ -204,8 +204,12 @@ def test_the_agent_reaches_assign_material_through_clay_op_and_a_bad_slot_is_a_m
     result = agent_clay.call(
         ctx, session, "clay_op", {"name": "assign-material", "params": {"index": 7}}
     )
-    body = _payload(result)
-    assert body["ran"] is False and "no palette entry 7" in body["messages"][0]
+    # The 2026-10-09 audit's clay-09: a refused run is an error reply now, the
+    # reason still reaching the agent as a message (not a toast).
+    assert result["isError"] is True, result
+    assert "no palette entry 7" in result["structuredContent"]["messages"][0]
+    assert "no palette entry 7" in result["content"][0]["text"]
+    assert ctx.toasts == []
 
 
 # --- the palette row of the Colour card ---------------------------------------
@@ -334,10 +338,19 @@ def test_ctrl_click_in_face_mode_picks_the_slot_without_painting(
     _select_faces(doc, uid, 0, 1)
     monkeypatch.setattr(clay_props.imgui, "get_io", lambda: SimpleNamespace(key_ctrl=True))
 
-    clay_props._pick_slot(_Ctx(), doc, doc.by_uid(uid), 1)
+    from realmspinner.studio.modes.clay.state import ClayState, ClayTab
+
+    # The picked slot is the Colours & textures page's, held on the tab -- not the
+    # object's own slot (the 2026-10-09 audit's clay-16).
+    state = ClayState()
+    tab = state.add(ClayTab(doc=doc))
+    ctx = _Ctx()
+    ctx.state = SimpleNamespace(clay=state)
+    clay_props._pick_slot(ctx, doc, doc.by_uid(uid), 1)
 
     obj = doc.by_uid(uid)
-    assert obj.material == 1
+    assert tab.edit_slot(doc, obj) == 1
+    assert obj.material == 0, "the object's own slot is what a rebuild stamps"
     assert not obj.mesh.material.any()
 
 

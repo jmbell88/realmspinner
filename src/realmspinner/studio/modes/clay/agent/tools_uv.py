@@ -23,9 +23,11 @@ import numpy as np
 from .....kernels.mesh import uv as uv_mod
 from .....kernels.mesh import uvtools
 from .....kernels.mesh.elements import OpError
-from .schema import UV_ACTIONS
+from .schema import UV_ACTION_ARGS, UV_ACTIONS
 from .validate import (
+    UV_MAX,
     Session,
+    _as_float,
     _json,
     _resolve_uid,
     _scene_row,
@@ -36,11 +38,15 @@ from .validate import (
 )
 
 
-def _set_uv_mesh(doc: Any, obj: Any, mesh: Any, action: str) -> dict:
+def _set_uv_mesh(doc: Any, obj: Any, mesh: Any, action: str, field: str = "uid") -> dict:
     try:
         changed = doc.set_mesh(obj.uid, mesh, keep_generator=True)
     except OpError as error:
-        return fail(str(error), field="uid")
+        # *field* defaults to the uid (unwrap and pack take no number that could
+        # have caused a refusal); transform names the number it was handed --
+        # the 2026-10-09 second audit's clay-133 found a float32 overflow from
+        # a ``translate`` blamed on ``uid``.
+        return fail(str(error), field=field)
     return _json({"action": action, "changed": changed, **_scene_row(doc, obj)})
 
 
@@ -101,11 +107,20 @@ def _uv_transform(doc: Any, obj: Any, args: dict) -> dict:
     if not isinstance(translate, list) or len(translate) != 2:
         return fail("translate must be [u, v].", field="translate")
     try:
-        du, dv = float(translate[0]), float(translate[1])
+        du, dv = _as_float(translate[0]), _as_float(translate[1])
     except (TypeError, ValueError, OverflowError):
         return fail("translate must be [u, v].", field="translate")
     if not (math.isfinite(du) and math.isfinite(dv)):
         return fail("translate must be finite numbers.", field="translate")
+    # The 2026-10-09 second audit's clay-133: finiteness was the only bound, so a
+    # 1e30 shift was stored and every later ``clay_scene`` row ran its overlap
+    # bucketing over it. ``UV_MAX`` is the bound ``clay_add_mesh`` already holds
+    # a uv to; a second call could still walk past it, which is the kernel's
+    # float32 check below.
+    if abs(du) > UV_MAX or abs(dv) > UV_MAX:
+        return fail(
+            f"translate must be no larger than {UV_MAX:g} in magnitude.", field="translate"
+        )
     rotate_deg, failure = _validate_range(args.get("rotate_deg", 0.0), "rotate_deg", -360.0, 360.0)
     if failure:
         return failure
@@ -113,6 +128,11 @@ def _uv_transform(doc: Any, obj: Any, args: dict) -> dict:
     if failure:
         return failure
 
+    # What a kernel refusal is about: too many islands is the ``islands``
+    # argument; anything else is a float32 overflow, which ``translate`` is
+    # bounded against above, so only a ``scale`` (or, at scale 1, a run of
+    # translates) can have caused it. Named for that argument, never the uid.
+    overflow_field = "scale" if scale != 1.0 else "translate"
     try:
         mesh = uvtools.transform_islands(
             obj.mesh,
@@ -123,8 +143,9 @@ def _uv_transform(doc: Any, obj: Any, args: dict) -> dict:
             ids=ids,
         )
     except OpError as error:
-        return fail(str(error), field="islands")
-    return _set_uv_mesh(doc, obj, mesh, "transform")
+        too_many = len(wanted) > uvtools.MAX_UV_ISLANDS
+        return fail(str(error), field="islands" if too_many else overflow_field)
+    return _set_uv_mesh(doc, obj, mesh, "transform", field=overflow_field)
 
 
 _UV_ACTION_HANDLERS: dict[str, Any] = {
@@ -156,4 +177,15 @@ def _h_uv(ctx: Any, session: Session, args: dict) -> dict:
     # "failed unexpectedly" backstop caught, instead of this refusal.
     if not isinstance(action, str) or action not in UV_ACTIONS:
         return fail(f"action must be one of {', '.join(sorted(UV_ACTIONS))}.", field="action")
+    # The 2026-10-09 second audit's clay-134: ``translate`` with ``action:
+    # "pack"`` was read and dropped, so an agent that meant a transform was told
+    # it had succeeded. Refused against ``UV_ACTION_ARGS``, the action's own set.
+    allowed = {"uid", "action", *UV_ACTION_ARGS[action]}
+    stray = next((k for k in args if k not in allowed), None)
+    if stray is not None:
+        return fail(
+            f"{stray!r} is not an argument of the {action!r} action "
+            f"(it takes {', '.join(UV_ACTION_ARGS[action]) or 'no further arguments'}).",
+            field=stray,
+        )
     return _UV_ACTION_HANDLERS[action](doc, obj, args)

@@ -44,12 +44,19 @@ no-op edit looks like.
 already picked, and any generator or op the scratch ran already built
 the mesh it built. Replaying the tool call would mint a *different* uid for
 the same "add a box" and run the heavy op (a subdivide) a second
-time for nothing. Transplant instead moves the *scratch's own objects and
-edits* onto the real document through the document's ordinary doors --
+time for nothing. Transplant instead carries the scratch's result onto the
+real document through the document's ordinary doors --
 ``add_objects``, ``remove_object``, ``set_mesh``, ``set_props``,
-``set_transform`` -- so every rule those doors already enforce (the generator
-freeze, the undo bookkeeping, the material-user refusal) applies to a
-transplanted edit exactly as it would to a person's.
+``set_visibility``, ``set_transform`` -- so every rule those doors already
+enforce (the generator freeze, the undo bookkeeping, the material-user refusal,
+hiding deselects) applies to a transplanted edit exactly as it would to a person's.
+
+What it carries is a *copy*, not the scratch's own objects: the new objects are
+rebuilt and the changed props deep-copied, so an in-place edit on either side
+never moves the other (the 2026-10-09 second audit's clay-93 found this
+paragraph saying transplant "moves" them, and the code handing the scratch's
+``params`` dict to the document). Meshes and materials are shared by identity,
+as :func:`clone` shares them, because both are immutable.
 
 **Objects transplant before materials, not after.** A first draft of
 :func:`transplant` copied ``document.py``'s own rule for a *live* edit --
@@ -70,6 +77,7 @@ regression.
 from __future__ import annotations
 
 import contextlib
+import copy
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -363,7 +371,27 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
             # 126, 127 -- while the preview showed them in ``scratch.objects``
             # order. The document's object order is what the outliner, the
             # exports and ``order_changed`` below all read.
-            added_objs = [o for o in scratch.objects if o.uid in diff_.added]
+            # The 2026-10-09 audit's clay-37: these were the scratch's own
+            # ``Obj`` instances, so the document and the scratch shared TRS
+            # arrays and the params dict -- an in-place edit on one moved the
+            # other. ``clone`` copies the same fields for the same reason.
+            added_objs = [
+                bd.Obj(
+                    uid=o.uid,
+                    name=o.name,
+                    mesh=o.mesh,
+                    translation=np.array(o.translation, dtype="f8", copy=True),
+                    rotation=np.array(o.rotation, dtype="f8", copy=True),
+                    scale=np.array(o.scale, dtype="f8", copy=True),
+                    generator=o.generator,
+                    params=dict(o.params),
+                    visible=o.visible,
+                    material=o.material,
+                    parent=o.parent,
+                )
+                for o in scratch.objects
+                if o.uid in diff_.added
+            ]
             try:
                 doc.add_objects(added_objs)
             except el.OpError:
@@ -420,8 +448,23 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                     doc.set_mesh(uid, s.mesh, keep_generator=True)
             fields = diff_.props_changed.get(uid)
             if fields:
+                # The 2026-10-09 second audit's clay-86 and clay-93.  ``visible``
+                # goes through ``set_visibility`` -- the door every hide in Clay
+                # uses, and the only one that deselects what it hides -- because
+                # ``set_props`` left a selected hidden object that
+                # ``selection_problems`` flags.  The calls sit inside this
+                # transplant's own gesture, so Apply is still one undo step.
+                # And every other prop is a *copy*: the scratch's ``params`` dict
+                # (and any list inside it) used to become the document object's,
+                # the aliasing clay-37 fixed for added objects and missed here.
                 with contextlib.suppress(KeyError):
-                    doc.set_props(uid, **{f: getattr(s, f) for f in fields})
+                    if "visible" in fields:
+                        doc.set_visibility({uid: s.visible})
+                    others = {
+                        f: copy.deepcopy(getattr(s, f)) for f in fields if f != "visible"
+                    }
+                    if others:
+                        doc.set_props(uid, **others)
 
         for uid in diff_.transform_changed - diff_.added:
             s = scratch.by_uid(uid)

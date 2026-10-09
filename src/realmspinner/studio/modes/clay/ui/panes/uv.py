@@ -19,11 +19,11 @@ unmodified instead of a second, uv-flavoured copy of the same maths.
 ``keep_generator=True``, as one undo step.** A uv change is not geometry --
 the object's generator (if it has one) still describes exactly the same
 vertices and faces after its islands are moved around the square, which is
-why this is the one caller in the pane layer besides the properties panel's
-own generator-parameter rebuild that is allowed to pass that flag. Move
+why this is the one caller in the pane layer besides the Inspector's own
+generator-parameter rebuild that is allowed to pass that flag. Move
 (a canvas drag) folds every frame of the gesture into one step through
-``controls.fold_undo``, the same "draw, fold, act" pattern the properties
-panel's transform and material fields already use; Pack is a single button
+``controls.fold_undo``, the same "draw, fold, act" pattern the Inspector's
+transform and material fields already use; Pack is a single button
 press, so it needs no folding at all.
 
 **Rotate and scale are live drags too, armed by R and S** -- the same letters
@@ -126,9 +126,16 @@ class UvPaneState:
     something against the mesh that minted it (``uvtools.islands`` numbers
     islands ``0..k-1`` fresh on every call, off whatever uv the mesh
     currently carries), so a selection made on one object must not go on
-    highlighting "island 2" once the properties selection moves to a
+    highlighting "island 2" once the selection moves to a
     different object with a completely different layout. The pane clears
     both together the moment the selected object changes (see :func:`_body`).
+
+    **It names the layout too** (the 2026-10-09 second audit's clay-78): the ids
+    are renumbered from the lowest face on every topology change, so deleting a
+    face in the 3-D view, or an undo, left the highlight -- or a move or rotate --
+    on a different island or none. ``selection_ids`` remembers the island map the
+    selection was made against and :func:`drop_stale_selection` clears the
+    selection when that map changes.
 
     Lives here rather than in ``state.py``: it is this pane's own drawing
     state (pan, zoom, a live drag's gesture) rather than anything about the
@@ -152,8 +159,8 @@ class UvPaneState:
     pending_scale: float = 1.0
     # Which gesture is in flight -- "" (none), "box" (a marquee, replacing
     # ``selected_islands``), "move" (dragging the current selection with the
-    # mouse held), or "rotate"/"scale" (a buttonless keyboard drag armed by E
-    # or R, see the module docstring). "box"/"move" are decided once, on the
+    # mouse held), or "rotate"/"scale" (a buttonless keyboard drag armed by R
+    # or S, see the module docstring). "box"/"move" are decided once, on the
     # frame a mouse drag starts (see :func:`_canvas`), by whether the click
     # landed on an island already in ``selected_islands``; "rotate"/"scale"
     # are set by :func:`begin_live_transform` and cleared by
@@ -200,22 +207,24 @@ class UvPaneState:
     # deferred for the open gesture. A frame that would write the value already
     # written is skipped instead.
     drag_applied: float | None = None
-    # :func:`_measurements`'s own cache -- keyed on mesh *identity*, not a
-    # counter: ``Mesh`` is immutable (see its own docstring), so holding the
-    # exact object this last measured is already an exact revision check,
-    # the same reasoning ``document.ClayDoc.mesh_stamp``'s own docstring
-    # gives for why identity already is a mesh's revision. Held as a strong
-    # reference (never an ``id()``) so the address-reuse trap that method's
-    # docstring warns about cannot apply here -- this keeps the very object
-    # alive that it compares against. The 2026-09-19 audit's clay-12 found
-    # ``_measurements`` re-running ``uvtools.overlap_faces``
-    # every single frame the pane was open, including every frame nothing
-    # about the mesh had changed at all (panning, zooming, hovering).
-    # ``None`` before anything has been measured.
+    # :func:`_measurements`'s own cache. Its fast path is the identity of the
+    # last ``Mesh`` measured (``Mesh`` is immutable, so holding the exact object
+    # is an exact revision check, the reasoning ``document.ClayDoc.mesh_stamp``'s
+    # docstring gives); the exact key is ``measured_key`` below, because the
+    # 2026-10-09 audit's clay-21 found a 3-D drag replacing ``obj.mesh`` every
+    # frame while changing only positions. Held as a strong reference (never an
+    # ``id()``) so the address-reuse trap that method's docstring warns about
+    # cannot apply. The 2026-09-19 audit's clay-12 found ``_measurements``
+    # re-running ``uvtools.overlap_faces`` every single frame the pane was open,
+    # including every frame nothing about the mesh had changed at all (panning,
+    # zooming, hovering). ``None`` before anything has been measured.
     measured_mesh: Any = None
+    # ``(uv, loops, starts)`` of the mesh last measured -- what islands and overlap
+    # are really a function of, and so the memo's key (see ``_measurements``).
+    measured_key: tuple[Any, Any, Any] | None = None
     # Island ids share this cache (``_measurements``'s own docstring) rather
     # than a second, unmemoised ``uvtools.islands(mesh)`` call in ``_canvas``
-    # -- both are exactly as much a pure function of mesh identity.
+    # -- both are functions of the same ``uv``/``loops``/``starts`` key.
     measured_result: tuple[np.ndarray, np.ndarray | None, str] = field(
         default_factory=lambda: (np.empty(0, dtype=np.int64), None, "")
     )
@@ -240,6 +249,10 @@ class UvPaneState:
     # The frame serial ``_body`` read for this frame, for ``_canvas`` to stamp
     # with: ``_canvas`` is handed no ``ctx`` by its headless tests.
     frame_seen: int = 0
+    # The island map (``uvtools.islands``) ``selected_islands`` was last checked
+    # against -- see :func:`drop_stale_selection`. ``None`` before the first check
+    # and after the selected object changes.
+    selection_ids: np.ndarray | None = None
     # What the press hit-test found, for the release to reuse (clay-78); ``None``
     # when no press is waiting on a release.
     press_hit: frozenset[int] | None = None
@@ -249,6 +262,61 @@ class UvPaneState:
 #: anything written to the document. A 1K reference, so "100%" in this pane is
 #: a familiar scale rather than an arbitrary number.
 REF_PX = 1024.0
+
+#: The 2026-10-09 second audit's clay-80: the canvas made two Python imgui calls
+#: per face on every frame with no ceiling. Measured the same day against a real
+#: draw list (``_faces`` with its screen-space memo warm): about 3 ms per 1,000
+#: faces -- 5 ms at 2,025, 29 ms at 10,000, 147 ms at 52,900 -- so a mesh of
+#: 200,000 faces would cost over half a second a frame. Past this many faces the
+#: canvas draws island outlines only. 2,000 faces is about 5 ms, and about 10 ms
+#: with every face boxed (each boxed edge is one more call): inside the
+#: frame this pane may spend, and picoCAD-level models sit far under it. The
+#: outline view measured 0.06 ms a frame at 99,856 faces (12 ms once, to group
+#: the corners, again only when the island map changes).
+FACE_DETAIL_CEILING = 2_000
+#: Corners are the other axis of the per-face cost (every selected face's edges
+#: are one ``add_line`` each), so a mesh of fat n-gons falls back to outlines
+#: sooner than its face count alone would say. Four per face at the face ceiling.
+CORNER_DETAIL_CEILING = 4 * FACE_DETAIL_CEILING
+#: Island outlines drawn in the outline view: one rectangle per island, thinned
+#: evenly past this many (a mesh of 100,000 one-face islands is the worst case).
+OUTLINE_RECT_CEILING = 1_500
+#: ...and one accent rectangle per boxed or touched island, thinned the same way.
+ACCENT_RECT_CEILING = 500
+#: The most primitives one frame of the canvas can submit, whatever the mesh.
+CANVAS_PRIMITIVE_CEILING = 2 * FACE_DETAIL_CEILING + CORNER_DETAIL_CEILING
+
+
+@dataclass(frozen=True)
+class CanvasPlan:
+    """How the canvas draws this frame: per face, or island outlines only."""
+
+    per_face: bool
+    primitives: int
+    note: str
+
+
+def draws_per_face(n_faces: int, n_corners: int) -> bool:
+    """Is this mesh small enough for the per-face canvas? (See the ceilings above.)"""
+    return n_faces <= FACE_DETAIL_CEILING and n_corners <= CORNER_DETAIL_CEILING
+
+
+def canvas_plan(n_faces: int, n_corners: int, n_islands: int, n_wanted: int) -> CanvasPlan:
+    """The pure decision: how many primitives will the canvas draw, and how.
+
+    *n_wanted* is the number of islands boxed or touched by the element
+    selection. Pure so the bound is testable on a 100,000-face mesh without a
+    draw list; ``_faces`` and ``_island_outlines`` take the same branch.
+    """
+    if draws_per_face(n_faces, n_corners):
+        return CanvasPlan(True, 2 * n_faces + (n_corners if n_wanted else 0), "")
+    count = min(n_islands, OUTLINE_RECT_CEILING) + min(n_wanted, ACCENT_RECT_CEILING)
+    return CanvasPlan(
+        False,
+        count,
+        f"{n_faces:,} faces: drawing island outlines only. Picking and boxing "
+        "work as usual.",
+    )
 
 # --- pure maths: island hit-testing and selection --------------------------
 
@@ -286,6 +354,45 @@ def _point_in_face(point: tuple[float, float], corners: np.ndarray) -> bool:
     return inside
 
 
+def _face_meets_rect(
+    corners: np.ndarray, lo_u: float, lo_v: float, hi_u: float, hi_v: float
+) -> bool:
+    """Does the polygon of *corners* share any area or boundary with the rect?
+
+    A corner inside the rect, a rect corner inside the polygon, or an edge
+    crossing the rect (Liang-Barsky clip) -- the three ways two convex shapes
+    meet. Called only for the few faces whose bounding box meets the marquee.
+    """
+    if (
+        (corners[:, 0] >= lo_u) & (corners[:, 0] <= hi_u)
+        & (corners[:, 1] >= lo_v) & (corners[:, 1] <= hi_v)
+    ).any():
+        return True
+    for pt in ((lo_u, lo_v), (hi_u, lo_v), (hi_u, hi_v), (lo_u, hi_v)):
+        if _point_in_face(pt, corners):
+            return True
+    n = len(corners)
+    for i in range(n):
+        x1, y1 = float(corners[i][0]), float(corners[i][1])
+        x2, y2 = float(corners[(i + 1) % n][0]), float(corners[(i + 1) % n][1])
+        t0, t1 = 0.0, 1.0
+        dx, dy = x2 - x1, y2 - y1
+        for p, q in ((-dx, x1 - lo_u), (dx, hi_u - x1), (-dy, y1 - lo_v), (dy, hi_v - y1)):
+            if p == 0.0:
+                if q < 0.0:
+                    t0, t1 = 1.0, 0.0
+                    break
+                continue
+            r = q / p
+            if p < 0.0:
+                t0 = max(t0, r)
+            else:
+                t1 = min(t1, r)
+        if t0 <= t1:
+            return True
+    return False
+
+
 def islands_in_rect(
     mesh: Any, ids: np.ndarray, rect: tuple[float, float, float, float]
 ) -> set[int]:
@@ -296,9 +403,11 @@ def islands_in_rect(
     live drag) hands over whichever corner the pointer is at this frame
     without knowing which way is "forward".
 
-    **A real box** (``u0 != u1`` or ``v0 != v1``) catches every island with
-    at least one uv corner inside it -- not "every corner", so a box only
-    partly overlapping an island still catches it, the ordinary box-select
+    **A real box** (``u0 != u1`` or ``v0 != v1``) catches every island it
+    overlaps: one with a uv corner inside it, one whose face the box lies inside,
+    and one whose face an edge of the box crosses with every corner of that
+    face outside it (the 2026-10-09 audit's clay-30). "Overlaps", not "covers", so
+    a box only partly over an island still catches it, the ordinary box-select
     feel of every 2-D editor and Wings3D's own "going down is a union"
     reasoning (``elements.convert``'s docstring) restated for islands.
 
@@ -320,11 +429,36 @@ def islands_in_rect(
     lo_v, hi_v = (v0, v1) if v0 <= v1 else (v1, v0)
     uv = mesh.uv
     inside = (uv[:, 0] >= lo_u) & (uv[:, 0] <= hi_u) & (uv[:, 1] >= lo_v) & (uv[:, 1] <= hi_v)
+    found: set[int] = set()
     if inside.any():
         foc = _face_of_corner(mesh)
-        return {int(i) for i in np.unique(ids[foc[inside]])}
+        found = {int(i) for i in np.unique(ids[foc[inside]])}
     if u0 != u1 or v0 != v1:
-        return set()  # a real, empty box: nothing to fall back to
+        # The 2026-10-09 audit's clay-30: a corner inside was the only test, so a
+        # box wholly inside one face, or crossing an edge with every corner of
+        # the face outside it, caught nothing -- against this docstring's "overlaps
+        # an island". Faces whose uv bounding box meets the box are the only
+        # candidates, and a face that already has a corner inside has its island.
+        starts_r = mesh.starts.astype("i8")
+        n_r = len(starts_r) - 1
+        if n_r <= 0 or len(uv) == 0:
+            return found
+        first_r = np.minimum(starts_r[:-1], len(uv) - 1)
+        lows_r = np.minimum.reduceat(uv, first_r, axis=0)
+        highs_r = np.maximum.reduceat(uv, first_r, axis=0)
+        cand = (
+            (np.diff(starts_r) >= 3)
+            & (lows_r[:, 0] <= hi_u) & (highs_r[:, 0] >= lo_u)
+            & (lows_r[:, 1] <= hi_v) & (highs_r[:, 1] >= lo_v)
+        )
+        for face in np.flatnonzero(cand).tolist():
+            if int(ids[face]) in found:
+                continue
+            if _face_meets_rect(uv[starts_r[face] : starts_r[face + 1]], lo_u, lo_v, hi_u, hi_v):
+                found.add(int(ids[face]))
+        return found
+    if found:
+        return found
     starts = mesh.starts.astype("i8")
     n_faces = len(starts) - 1
     if n_faces <= 0 or len(uv) == 0:
@@ -735,15 +869,27 @@ def _measurements(
     refusal (a mesh past ``uvtools.MAX_OVERLAP_TRIANGLES``) and the ordinary
     answer share one call site. ``refusal`` is ``""`` on success.
 
-    Memoised on *view_state* keyed by ``mesh`` identity (see
-    :attr:`UvPaneState.measured_mesh`): the overlap check was once recomputed
-    on every single frame the pane was open, including every frame that
-    panned, zoomed or merely hovered with the mesh completely unchanged -- only
-    an actual edit replaces ``obj.mesh`` with a new object. Island ids are
-    exactly as much a function of mesh identity as overlap is, so they share
-    the cache.
+    Memoised on *view_state*, keyed on the mesh's ``uv``, ``loops`` and ``starts``
+    (see :attr:`UvPaneState.measured_mesh`) with the ``Mesh`` identity as the fast
+    path: the overlap check was once recomputed on every single frame the pane
+    was open, including every frame that panned, zoomed or merely hovered with the
+    mesh completely unchanged, and then on every frame of a 3-D drag that changed
+    only positions. Island ids are exactly as much a function of that key as
+    overlap is, so they share the cache.
     """
     if view_state.measured_mesh is mesh:
+        return view_state.measured_result
+    # The 2026-10-09 audit's clay-21: keyed on the Mesh alone, a 3-D element drag
+    # (which replaces ``obj.mesh`` every frame while changing only positions)
+    # reran islands and overlap each frame -- 88 ms at 2k faces, 959 ms at 20k.
+    # Both are functions of ``uv``, ``loops`` and ``starts`` only. ``Mesh.__post_init__``
+    # copies every array it is handed, so those arrays are fresh objects even when
+    # unchanged; identity is the fast path and an array comparison (O(corners),
+    # a few hundred microseconds at 20k faces) the exact one.
+    key = view_state.measured_key
+    if key is not None and mesh.uv is not None and _same_layout(key, mesh):
+        view_state.measured_mesh = mesh
+        view_state.measured_key = (mesh.uv, mesh.loops, mesh.starts)
         return view_state.measured_result
     ids = uvtools.islands(mesh)
     try:
@@ -760,8 +906,69 @@ def _measurements(
     else:
         result = (ids, overlap, "")
     view_state.measured_mesh = mesh
+    view_state.measured_key = (mesh.uv, mesh.loops, mesh.starts) if mesh.uv is not None else None
     view_state.measured_result = result
     return result
+
+
+def _same_topology(old: Any, new: Any) -> bool:
+    """Do two meshes have the same ``loops`` and ``starts`` (so the same faces)?"""
+    for a, b in ((old.loops, new.loops), (old.starts, new.starts)):
+        if a is b:
+            continue
+        if a.shape != b.shape or not np.array_equal(a, b):
+            return False
+    return True
+
+
+def drop_stale_selection(doc: Any, view_state: UvPaneState, mesh: Any) -> bool:
+    """Clear ``selected_islands`` when the island map it was made against is gone.
+
+    The 2026-10-09 second audit's clay-78: the selection was keyed on the
+    object's uid alone, and ``uvtools.islands`` numbers islands from the lowest
+    face on every topology change, so a face deleted in the 3-D view (or an undo
+    that brought one back) left the highlight, a move or a rotate on a different
+    island, or on none while the toolbar still said "1 island(s) selected".
+
+    The key is the island map itself: a position-only edit (a 3-D drag, which
+    replaces ``mesh`` every frame) leaves it equal and keeps the selection, and a
+    Pack leaves it equal too, since it moves islands whole. A live rotate/scale
+    is judged on its own base mesh's topology and settled through
+    :func:`commit_live_transform` (the path ``_body`` already takes when the
+    object changes), so the undo gesture it opened closes with its preview
+    folded into one step. A mouse move or marquee in flight is left alone: its
+    own uv edits change the layout every frame and the next frame re-asks.
+    -> whether a selection was cleared.
+    """
+    mode = view_state.drag_mode
+    if mode in ("rotate", "scale") and view_state.drag_base is not None:
+        if _same_topology(view_state.drag_base, mesh):
+            return False
+        commit_live_transform(doc, view_state)
+        view_state.selected_islands = frozenset()
+        view_state.selection_ids = None
+        return True
+    if mode in ("move", "box", "refused"):
+        return False
+    ids = _measurements(view_state, mesh)[0]
+    previous = view_state.selection_ids
+    view_state.selection_ids = ids
+    if previous is None or previous is ids or not view_state.selected_islands:
+        return False
+    if previous.shape == ids.shape and np.array_equal(previous, ids):
+        return False
+    view_state.selected_islands = frozenset()
+    return True
+
+
+def _same_layout(key: tuple[Any, Any, Any], mesh: Any) -> bool:
+    """Are *mesh*'s ``uv``/``loops``/``starts`` equal to the remembered ones?"""
+    for old, new in zip(key, (mesh.uv, mesh.loops, mesh.starts), strict=True):
+        if old is new:
+            continue
+        if old.shape != new.shape or not np.array_equal(old, new):
+            return False
+    return True
 
 
 # --- drawing ------------------------------------------------------------------
@@ -775,12 +982,12 @@ def draw(ctx: Any) -> None:
 
 
 def draw_embedded(ctx: Any) -> None:
-    """The same body as a tab of the Properties pane.
+    """The same body as the Inspector's Unwrap page.
 
-    No section heading of its own: the tab strip above already says "UV", and
-    two headings stacked is a pane announcing itself twice. The (?) stays -- it
-    is the manual's door into "The UV view", and the Properties pane's own (?)
-    points at Materials. Everything else is :func:`draw`'s, including the two
+    No section heading of its own: the page title above already says "Unwrap",
+    and two headings stacked is a pane announcing itself twice. The (?) stays --
+    it is the manual's door into "The UV view", and the Inspector draws none of
+    its own on this page (``inspector._page``). Everything else is :func:`draw`'s, including the two
     stamps ``_body`` leaves for ``clay_mode.handle_key`` (``key_hover_at`` and
     ``frame_seen``): the shell routes a keypress without asking which pane the
     pointer is over, and R/S over this canvas are the pane's, not the 3-D
@@ -831,7 +1038,7 @@ def _body(ctx: Any, *, heading: bool = True) -> None:
 
     view_state: UvPaneState = tab.uv_view
     if view_state.for_uid != obj.uid:
-        # The 2026-09-19 audit's clay-16: the properties panel (or the
+        # The 2026-09-19 audit's clay-16: the Inspector (or the
         # outliner) can move the selection out from under an armed live
         # rotate/scale with no release and no Escape to route through --
         # exactly the gap ``ClayView.settle_drag`` exists to close for the
@@ -854,7 +1061,9 @@ def _body(ctx: Any, *, heading: bool = True) -> None:
         # A fresh object: island ids from a previous mesh mean nothing here.
         view_state.for_uid = obj.uid
         view_state.selected_islands = frozenset()
+        view_state.selection_ids = None
         view_state.drag_mode = ""
+    drop_stale_selection(doc, view_state, obj.mesh)
 
     _toolbar(ctx, tab, doc, obj, view_state)
     _canvas(ctx, tab, doc, obj, view_state)
@@ -1069,13 +1278,12 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     from imgui_bundle import imgui
 
     avail = imgui.get_content_region_avail()
-    # This pane's own dockable slot, not the whole window (``skeletons.clay``
-    # gives it a SHARE-sized region beside the outliner and the properties
-    # panel) -- ``avail`` is already bounded to it. A fixed reservation below
-    # the canvas for the legend's five rows, floored so a very short slot
+    # The Inspector's Unwrap page gives this canvas the pane's whole height,
+    # so ``avail`` is already bounded to the page. A fixed reservation below
+    # the canvas for the legend's rows, floored so a very short window
     # still gets a usable square to drag in; the legend itself simply draws
-    # under whatever is left, and a slot too short for both scrolls, the same
-    # as every other pane in this dock column.
+    # under whatever is left, and a window too short for both scrolls, the same
+    # as every other Inspector page.
     region = (max(float(avail.x), 1.0), max(float(avail.y) - sp(130), sp(200)))
     view = view_state.view
     size_px = (REF_PX, REF_PX)
@@ -1102,16 +1310,15 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     # :func:`_measurements`'s own docstring), rather than a second, unmemoised
     # ``uvtools.islands(mesh)`` call here.
     #
-    # ``_measurements``'s memo is keyed
-    # on mesh *identity*, but ``apply_translate``/``apply_rotate``/
-    # ``apply_scale`` each call ``doc.set_mesh`` every single frame a
-    # move/rotate/scale drag is live, so the memo missed on every frame of
-    # the drag instead of only on the frames that actually changed the mesh
-    # -- measured at 0.19 s/400 faces up to 4.95 s/10k, on the frame thread,
+    # ``_measurements``'s memo is keyed on ``uv``, ``loops`` and ``starts``, and
+    # ``apply_translate``/``apply_rotate``/``apply_scale`` change ``uv`` on
+    # every single frame a move/rotate/scale drag is live, so the memo missed on
+    # every frame of the drag instead of only on the frames that changed the
+    # layout -- measured at 0.19 s/400 faces up to 4.95 s/10k, on the frame thread,
     # for every pixel the mouse moved. A drag's own island topology never
     # changes (only UV positions do), so the pre-drag measurement is reused
     # verbatim while ``drag_mode`` says a drag is live, and the real memo
-    # (keyed on the settled mesh) takes back over the moment it ends --
+    # takes back over the moment it ends --
     # ``measured_mesh`` starts ``None`` and this branch never fires before
     # anything has been measured at least once.
     if view_state.drag_mode in ("move", "rotate", "scale") and view_state.measured_mesh is not None:
@@ -1164,7 +1371,11 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
             view_state.drag_last = uv_here
             view_state.dragged = False
 
-        if imgui.is_item_active() and imgui.is_mouse_dragging(0):
+        if (
+            imgui.is_item_active()
+            and imgui.is_mouse_dragging(0)
+            and _active_drag_applies(view_state.drag_mode)
+        ):
             view_state.dragged = True
             if view_state.drag_mode == "move" and view_state.selected_islands:
                 delta = (uv_here[0] - view_state.drag_last[0], uv_here[1] - view_state.drag_last[1])
@@ -1181,7 +1392,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
                         clay_ops.toast(ctx, str(error))
                         view_state.drag_mode = "refused"
                 view_state.drag_last = uv_here
-            elif view_state.drag_mode != "refused":
+            else:
                 rect = (view_state.drag_start[0], view_state.drag_start[1], uv_here[0], uv_here[1])
                 view_state.selected_islands = frozenset(islands_in_rect(mesh, ids, rect))
         elif imgui.is_item_deactivated():
@@ -1211,13 +1422,20 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     _backdrop(draw_list, view, origin, texture)
     covered = _covered_islands(view_state.geo, mesh, ids, doc.element_sel.get(obj.uid))
     geo = view_state.geo
-    _faces(draw_list, view, origin, mesh, overlap, geo)
-    _island_outlines(
-        draw_list, view, origin, mesh, ids, view_state.selected_islands | covered, geo
-    )
+    wanted = view_state.selected_islands | covered
+    _faces(draw_list, view, origin, mesh, overlap, geo, ids)
+    _island_outlines(draw_list, view, origin, mesh, ids, wanted, geo)
     draw_list.pop_clip_rect()
     if refusal:
         widgets.muted(f"overlap not shown: {refusal}")
+    plan = canvas_plan(
+        len(mesh.starts) - 1,
+        len(mesh.loops),
+        int(ids.max()) + 1 if len(ids) else 0,
+        len(wanted),
+    )
+    if not plan.per_face:
+        widgets.muted(plan.note)
 
 
 def _covered_islands(
@@ -1239,6 +1457,19 @@ def _covered_islands(
     covered = touched_islands(mesh, ids, sel)
     cache["covered"] = (mesh, ids, sel, covered)
     return covered
+
+
+def _active_drag_applies(drag_mode: str) -> bool:
+    """Does a held, dragging left button belong to a press this canvas armed?
+
+    Only "move" and "box" are armed by a press on the canvas (``is_item_activated``).
+    The 2026-10-09 audit's clay-31: the click that commits or cancels a live
+    rotate/scale clears ``drag_mode`` to "" while that same button is still down,
+    and the drag branch treated anything but "move"/"refused" as a marquee, so
+    holding the committing click past the drag threshold swept a rectangle from a
+    stale ``drag_start``. "refused" stays inert, as before.
+    """
+    return drag_mode in ("move", "box")
 
 
 def _drive_live_transform(
@@ -1426,6 +1657,7 @@ def _faces(
     mesh: Any,
     overlap: np.ndarray | None,
     cache: dict[str, Any] | None = None,
+    ids: np.ndarray | None = None,
 ) -> None:
     """Every face, filled -- plain where nothing is wrong with it, tinted
     where :func:`_face_fill` has something to say -- and outlined, so the
@@ -1437,6 +1669,12 @@ def _faces(
     slightly wrong here rather than triangulated, which this pane accepts as
     a known, cosmetic-only limit rather than paying a triangulation pass on
     every frame for a shape blockout geometry does not produce.
+
+    **Past** :data:`FACE_DETAIL_CEILING` faces this draws one rectangle per
+    island instead (:func:`_island_rects`; the 2026-10-09 second audit's clay-80),
+    red where the island holds an overlapping face, so the frame costs a bounded
+    number of primitives whatever the mesh. *ids* is the island map, computed
+    here when a caller has none to hand.
     """
     from imgui_bundle import imgui
 
@@ -1444,6 +1682,11 @@ def _faces(
         return
     if cache is None:
         cache = {}
+    if not draws_per_face(len(mesh.starts) - 1, len(mesh.loops)):
+        if ids is None:
+            ids = uvtools.islands(mesh)
+        _island_rects(draw_list, view, origin, mesh, ids, overlap, cache)
+        return
     neutral = imgui.get_color_u32(theme.rgba(theme.ELEV_2, 0.18))
     starts = mesh.starts.astype("i8").tolist()
     n_faces = len(starts) - 1
@@ -1481,6 +1724,9 @@ def _island_outlines(
     if cache is None:
         cache = {}
     accent = imgui.get_color_u32(theme.rgba(theme.ACCENT))
+    if not draws_per_face(len(mesh.starts) - 1, len(mesh.loops)):
+        _accent_rects(draw_list, view, origin, mesh, ids, wanted, accent, cache)
+        return
     starts = mesh.starts.astype("i8").tolist()
     corners = _screen_corners(cache, view, origin, mesh)
     wanted_ids = np.fromiter(wanted, dtype="i8", count=len(wanted))
@@ -1492,6 +1738,106 @@ def _island_outlines(
         for k in range(count):
             c0, c1 = lo + k, lo + (k + 1) % count
             draw_list.add_line(corners[c0], corners[c1], accent, 2.0)
+
+
+def _island_boxes(
+    cache: dict[str, Any], mesh: Any, ids: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(labels, boxes)``: each island's id and its uv bounding box
+    ``(lo_u, lo_v, hi_u, hi_v)``, memoised for the outline view.
+
+    The corner order that groups corners by island depends on *ids* alone, and a
+    live drag keeps handing the same frozen *ids*, so only the two ``reduceat``
+    passes rerun when a drag changes ``uv`` -- never the sort.
+    """
+    sort = cache.get("island_sort")
+    if sort is None or sort[0] is not ids or len(sort[1]) != len(mesh.uv):
+        owner = ids[_face_of_corner(mesh)] if len(ids) else np.empty(0, dtype="i8")
+        order = np.argsort(owner, kind="stable")
+        owner = owner[order]
+        first = np.flatnonzero(np.r_[True, owner[1:] != owner[:-1]]) if len(owner) else owner
+        sort = (ids, order, first, owner[first])
+        cache["island_sort"] = sort
+    hit = cache.get("island_boxes")
+    if hit is not None and hit[0] is mesh.uv and hit[1] is ids:
+        return hit[2]
+    _, order, first, labels = sort
+    if len(first) == 0:
+        result = (labels, np.empty((0, 4), dtype="f8"))
+    else:
+        uv = np.asarray(mesh.uv, dtype="f8")[order]
+        lows = np.minimum.reduceat(uv, first, axis=0)
+        highs = np.maximum.reduceat(uv, first, axis=0)
+        result = (labels, np.concatenate([lows, highs], axis=1))
+    cache["island_boxes"] = (mesh.uv, ids, result)
+    return result
+
+
+def _thin(count: int, ceiling: int) -> np.ndarray:
+    """Evenly spaced indices into *count* items, at most *ceiling* of them."""
+    if count <= ceiling:
+        return np.arange(count)
+    return np.arange(0, count, -(-count // ceiling))
+
+
+def _screen_rects(view: Any, origin: tuple[float, float], boxes: np.ndarray) -> np.ndarray:
+    """``(n, 4)`` screen rectangles ``(x0, y0, x1, y1)`` for uv boxes.
+
+    The same affine-from-three-points shortcut :func:`_screen_corners` takes; the
+    view is scale-and-translate only, so a box maps to a box.
+    """
+    o = np.asarray(_to_screen(view, origin, 0.0, 0.0), dtype="f8")
+    ax = np.asarray(_to_screen(view, origin, 1.0, 0.0), dtype="f8") - o
+    ay = np.asarray(_to_screen(view, origin, 0.0, 1.0), dtype="f8") - o
+    p0 = o + boxes[:, 0:1] * ax + boxes[:, 1:2] * ay
+    p1 = o + boxes[:, 2:3] * ax + boxes[:, 3:4] * ay
+    return np.concatenate([np.minimum(p0, p1), np.maximum(p0, p1)], axis=1)
+
+
+def _island_rects(
+    draw_list: Any,
+    view: Any,
+    origin: tuple[float, float],
+    mesh: Any,
+    ids: np.ndarray,
+    overlap: np.ndarray | None,
+    cache: dict[str, Any],
+) -> None:
+    """The outline view's body: one rectangle per island, at most
+    :data:`OUTLINE_RECT_CEILING` of them, red for an island with an overlapping face."""
+    from imgui_bundle import imgui
+
+    labels, boxes = _island_boxes(cache, mesh, ids)
+    keep = _thin(len(labels), OUTLINE_RECT_CEILING)
+    if len(keep) == 0:
+        return
+    bad = np.zeros(len(labels), dtype=bool)
+    if overlap is not None and overlap.any():
+        bad = np.isin(labels, np.unique(ids[np.asarray(overlap, dtype=bool)]))
+    err = imgui.get_color_u32(theme.rgba(theme.ERR, 0.9))
+    edge = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.8))
+    rects = _screen_rects(view, origin, boxes[keep]).tolist()
+    for rect, is_bad in zip(rects, bad[keep].tolist(), strict=True):
+        draw_list.add_rect((rect[0], rect[1]), (rect[2], rect[3]), err if is_bad else edge)
+
+
+def _accent_rects(
+    draw_list: Any,
+    view: Any,
+    origin: tuple[float, float],
+    mesh: Any,
+    ids: np.ndarray,
+    wanted: set,
+    accent: int,
+    cache: dict[str, Any],
+) -> None:
+    """The outline view's selection: a thick accent rectangle per boxed or
+    touched island, at most :data:`ACCENT_RECT_CEILING` of them."""
+    labels, boxes = _island_boxes(cache, mesh, ids)
+    chosen = np.flatnonzero(np.isin(labels, np.fromiter(wanted, dtype="i8", count=len(wanted))))
+    chosen = chosen[_thin(len(chosen), ACCENT_RECT_CEILING)]
+    for rect in _screen_rects(view, origin, boxes[chosen]).tolist():
+        draw_list.add_rect((rect[0], rect[1]), (rect[2], rect[3]), accent, 0.0, 2.0)
 
 
 def _legend() -> None:

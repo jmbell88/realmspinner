@@ -7,20 +7,20 @@ mode mention the loop shortcut" and "does the +X ball sit on the right when the
 camera is at the front" are questions a headless test can ask, and they are
 exactly the questions a screenshot cannot be made to fail on.
 
-Nothing here imports outward *at module scope*. ``studio/modes/clay/ui/
-hud.py`` draws it. The one exception is :func:`measure_line`'s own local
+Nothing here imports outward *at module scope*. ``studio/modes/clay/ui/panes/hud.py``
+draws it. The one exception is :func:`measure_line`'s own local
 import of ``kernels.mesh.measure`` for its arithmetic (the 2026-09-26 audit's
 clay-view-06: this docstring used to claim "nothing here imports outward"
 outright, which a local import inside a function is still a real outward
 edge from -- every other duck-typed ``getattr`` read in this module exists
 *because* of that same constraint, so the claim being wrong was worth fixing
-rather than restating). No import-pin test covers this module the way
-``tests/_pure_packages.py`` covers the kernel packages and each mode's
-``engine/`` (CLAUDE.md's own list) -- ``studio/viewport_hints.py`` was never
-one of those, so this paragraph is the whole of what holds the line, and it
-is a claim about *outward* imports specifically, not a promise this module
-never imports anything at all (:mod:`numpy` is a dependency, not an outward
-edge in the sense this file's pins mean).
+rather than restating). ``tests/modes/clay/test_clay_imports.py`` pins the
+window and service roots out of this module (the 2026-10-09 second audit's
+clay-126: it enrolled only ``gestures.py`` and ``element_move.py`` until
+then), but not the *kernel* edges, which is why this paragraph still has to be
+precise. It is a claim about *outward* imports specifically, not a promise this
+module never imports anything at all (:mod:`numpy` is a dependency, not an
+outward edge in the sense this file's pins mean).
 """
 
 from __future__ import annotations
@@ -178,7 +178,7 @@ def hint(mode: str, tool: str) -> str:
     be offer-then-refuse; tests/modes/clay/test_clay_hints.py pins that.)
 
     Nothing here speaks for a live G/R/S drag: that line is :func:`drag_readout`'s,
-    chosen by ``hud.hint_line`` ahead of this one. A ``dragging`` branch used to
+    chosen by ``hint_line`` in ``panes/hud.py`` ahead of this one. A ``dragging`` branch used to
     live here with no caller, and its legend promised that a second press of the
     locked axis switches to a local space when ``DragInput`` has none -- the
     second press only clears the lock (the 2026-10-07 audit's clay-63) -- so it
@@ -232,7 +232,7 @@ def drag_readout(kind: str, axis: str, space: str, amount: str) -> str:
 def resolve_hint(*, measure: str, default: str) -> str:
     """Which of the hint line's two non-drag candidates wins: a live
     measurement, then the ordinary mode/tool legend. A live keyboard/gizmo drag
-    is decided separately, by ``hud.hint_line``, ahead of both."""
+    is decided separately, by ``hint_line`` in ``panes/hud.py``, ahead of both."""
     return measure or default
 
 
@@ -381,9 +381,20 @@ def _unique_edges(mesh: Any) -> int:
     # a face's last corner, where it wraps to that face's first.
     nxt = np.arange(1, len(loops) + 1, dtype="i8")
     nxt[starts[1:] - 1] = starts[:-1]
-    pairs = np.stack([loops, loops[nxt]], axis=1)
-    pairs = np.sort(pairs, axis=1)
-    count = int(len(np.unique(pairs, axis=0)))
+    # The 2026-10-09 audit's clay-28: ``np.unique(pairs, axis=0)`` sorts rows
+    # through a structured view and cost 0.34 s per mesh replacement at 200k
+    # triangles with Statistics on -- a hitch on every edit. Each sorted pair is
+    # one int64 (low * span + high), so the distinct count is a plain 1-D
+    # sort: the same number, a fraction of the time.
+    nxt_loops = loops[nxt].astype("i8")
+    here = loops.astype("i8")
+    low = np.minimum(here, nxt_loops)
+    high = np.maximum(here, nxt_loops)
+    span = int(high.max()) + 1
+    keys = np.sort(low * span + high)
+    # A plain sort-and-compare: this numpy's ``np.unique`` on the same 1-D keys
+    # took 0.32 s at 800k corners where the sort takes 0.015 s.
+    count = int(1 + np.count_nonzero(keys[1:] != keys[:-1]))
     _EDGE_CACHE[mesh] = count
     return count
 
@@ -392,7 +403,7 @@ def _faces_of(mesh: Any) -> int:
     """How many faces a mesh has, off its CSR offsets.
 
     ``starts`` is ``(F+1,)`` -- one offset per face plus the terminator -- which
-    is the shape every op in ``clay/`` reads it as.
+    is the shape every op in ``kernels/mesh/`` reads it as.
     """
     starts = getattr(mesh, "starts", None)
     if starts is None:
@@ -464,11 +475,12 @@ _MEASURE_CACHE: weakref.WeakKeyDictionary[Any, tuple[int, str]] = weakref.WeakKe
 
 
 def measure_line(doc: Any) -> str:
-    """A live readout for the four selection shapes :mod:`~.kernels.mesh.
-    measure` answers: two selected vertices, three, a face selection, or a
-    plain object selection -- distance, angle, area and volume in turn.
+    """A live readout for the four selection shapes
+    :mod:`~realmspinner.kernels.mesh.measure` answers: two selected vertices,
+    three, a face selection, or a plain object selection -- distance, angle,
+    area and volume in turn.
     ``""`` for anything else (an edge selection, an empty one, more than
-    three vertices...), which :func:`~.clay.ui.hud.hint_line` reads as "show
+    three vertices...), which ``hint_line`` in ``panes/hud.py`` reads as "show
     the ordinary hint instead."
 
     World-space throughout, through ``doc.world_matrix`` -- see
@@ -476,7 +488,7 @@ def measure_line(doc: Any) -> str:
     a named import.
 
     Memoised on ``doc.rev`` (the 2026-09-26 audit's clay-panes-03/clay-
-    view-04): ``hud.hint_line`` called this once a frame with no gate at all,
+    view-04): ``hint_line`` in ``panes/hud.py`` called this once a frame with no gate at all,
     including every frame a selection sat still doing nothing -- 0.47 s at
     262k faces, 24 ms at 20k, measured, entirely for a volume nothing had
     asked to see recomputed. ``rev`` already covers a changed *selection* and

@@ -17,9 +17,10 @@ unwrap Clay offers.
 +X and -X land in the same square, because the projection is by axis *pair*
 rather than by direction -- which is what Blender's Cube Projection does and
 what a user asking for a box unwrap is asking for. A layout with no overlap at
-all is a packing problem, and this module does not solve it: the round primitives
-lay themselves out without overlap in their own generators, and the flat-panelled
-ones -- the box included, whose generator calls :func:`box_unwrap` -- keep the
+all is a packing problem, and this module does not solve it: the cylinder, cone, UV sphere,
+torus and capsule lay themselves out without overlap in their own generators (the
+icosphere does not: its lat/long layout leaves 42 of 320 faces overlapping), and the
+flat-panelled ones -- the box included, whose generator calls :func:`box_unwrap` -- keep the
 shared squares. (The 2026-10-07 audit's clay-52: this paragraph used to say a
 box's six faces are laid out in a cross by its own generator; it has not been
 since the box began calling the cube projection.)

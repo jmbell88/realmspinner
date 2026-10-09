@@ -27,6 +27,7 @@ from ..... import controls, icons, probe, theme, widgets
 from .....tokens import sp
 from ... import mode as clay_mode
 from ... import ops as clay_ops
+from ...state import tab_over
 
 #: A palette swatch's side, in design px -- the size Inker's own palette uses.
 SWATCH = 22.0
@@ -120,8 +121,9 @@ def _pick_slot(ctx: Any, doc: Any, obj: Any, index: int) -> None:
     slot **and every face** go to the slot (the 2026-10-03 audit's clay-17).
     In face mode with faces selected the click paints those faces through the
     ``assign-material`` op and leaves the object's default slot alone; Ctrl
-    (or no faces selected) only makes it the slot the Material tab edits, the
-    one way to reach another slot's colour and texture from a selection.
+    (or no faces selected) only makes it the slot the Colours & textures page edits
+    (``ClayTab.edit_slots`` -- not the object's own slot, the 2026-10-09 audit's
+    clay-16), the one way to reach another slot's colour and texture from a selection.
 
     Ctrl does the same in object mode now. It used to be ignored there, which
     left the strip with a swatch that could only ever repaint: reaching a slot's
@@ -136,21 +138,43 @@ def _pick_slot(ctx: Any, doc: Any, obj: Any, index: int) -> None:
     mode = doc.element_mode
     if mode in ("vertex", "edge"):
         # Ctrl is moot: there is no face named to paint, so the press only picks.
-        if index != obj.material:
-            doc.set_props(obj.uid, material=index)
+        _edit_slot_of(ctx, doc, obj, index)
         return
     ctrl = _ctrl_held()
     if not ctrl:
         clay_mode.remember_slot(ctx, doc, index)
     if mode == "object" and not ctrl:
         doc.repaint_object(obj.uid, index)
+        tab = _tab_for(ctx, doc)
+        if tab is not None:
+            # The paint made it the object's slot, so the page follows it.
+            tab.forget_edit_slot(obj.uid)
         return
     op = clay_ops.get("assign-material")
     if mode != "face" or ctrl or not op.enabled(doc):
-        if index != obj.material:
-            doc.set_props(obj.uid, material=index)
+        _edit_slot_of(ctx, doc, obj, index)
         return
     clay_ops.run(ctx, doc, op, index=index)
+
+
+def _tab_for(ctx: Any, doc: Any) -> Any:
+    """The tab over *doc*, or ``None`` (a headless ctx): ``state.tab_over``."""
+    return tab_over(ctx, doc)
+
+
+def _edit_slot_of(ctx: Any, doc: Any, obj: Any, index: int) -> None:
+    """Make *index* the slot the Colours & textures page edits for *obj*.
+
+    Pane state on the tab, **not** ``set_props(material=...)``: the 2026-10-09
+    audit's clay-16. ``Obj.material`` is what a rebuilt shape's faces are stamped
+    with, so a Ctrl+click "only to edit" recoloured the whole shape the next time
+    a segment count changed. ``choose_edit_slot`` records what the shape wore when it was
+    chosen, so the choice lapses once a repaint, an Add or an undo changes that (the
+    2026-10-09 second audit's clay-66).
+    """
+    tab = _tab_for(ctx, doc)
+    if tab is not None:
+        tab.choose_edit_slot(doc, obj, index)
 
 
 def _ctrl_held() -> bool:
@@ -197,19 +221,6 @@ def click_slot(ctx: Any, doc: Any, index: int) -> None:
                 doc.repaint_object(uid, index)
         finally:
             doc.history.collapse_since(mark)
-
-
-def current_slot(doc: Any) -> int | None:
-    """The slot the Material tab is editing, or ``None`` with no single object.
-
-    What the strip outlines. It is the one selected object's default slot -- the
-    same index ``props._material`` reads -- so the outline and the fields below
-    it name one slot.
-    """
-    obj = single_selected(doc)
-    if obj is None or not doc.materials:
-        return None
-    return min(max(int(obj.material), 0), len(doc.materials) - 1)
 
 
 #: ``doc -> (rev, sentence)``. The sentence asks the registry whether faces can be
@@ -299,7 +310,9 @@ def add_slot_and_paint(ctx: Any, doc: Any) -> int:
     return index
 
 
-def draw_slots(ctx: Any, doc: Any, *, current: int | None, saving: bool) -> None:
+def draw_slots(
+    ctx: Any, doc: Any, *, current: int | None, saving: bool, mixed: bool = False
+) -> None:
     """The document's slots as one wrapped grid of swatches, then a ``+``.
 
     The slots are the document's, and only the document's: a new model keeps the
@@ -309,7 +322,8 @@ def draw_slots(ctx: Any, doc: Any, *, current: int | None, saving: bool) -> None
     starters, so a control found by label is never the wrong row's. A press goes to
     :func:`click_slot`, which paints, retargets (Ctrl) or remembers by what is
     selected; the line under the grid names the slot under the pointer, else the
-    one in use.
+    one in use -- or says "Mixed" when *mixed* (the shape's faces wear more than one
+    slot, so none is "the" one: the 2026-10-09 second audit's clay-67).
     """
     side = sp(SWATCH)
     gap = imgui.get_style().item_spacing.x
@@ -358,4 +372,7 @@ def draw_slots(ctx: Any, doc: Any, *, current: int | None, saving: bool) -> None
     elif clicked is not None:
         click_slot(ctx, doc, clicked)
     shown = hovered if hovered is not None else current
-    widgets.muted("Palette" if shown is None else slot_label(doc, shown))
+    if shown is None:
+        widgets.muted("Mixed: faces differ" if mixed else "Palette")
+    else:
+        widgets.muted(slot_label(doc, shown))

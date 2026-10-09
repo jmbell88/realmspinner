@@ -22,9 +22,13 @@ invalid one they do not raise, they quietly produce wrong answers -- a face
 with fewer than three corners makes ``np.add.reduceat`` hand back a bare row
 instead of a sum, and makes ``_next_corner`` write its wrap index into the
 previous face's span. A primitive generator or an element op that builds a
-``Mesh`` by hand should therefore run :func:`validate` in its tests -- and
-every one of them funnels through :func:`~.topo.rebuild` for exactly that
-reason.
+``Mesh`` by hand should therefore run :func:`validate` in its tests.
+:func:`~.topo.rebuild` only assembles the arrays and checks nothing (the
+2026-10-09 second audit's clay-82 found this sentence crediting it with the
+check); the doors that *adopt* a mesh do the checking instead --
+``ClayDoc.set_mesh`` and ``set_generator_params`` refuse an invalid one, and the
+``.rblk`` writer (``serialize._refuse_unreadable``) refuses to encode one,
+exactly as ``read_rblk`` refuses to read it.
 
 **Every array is a copy, and every copy is read-only.** ``Mesh`` is a frozen
 dataclass, but ``frozen=True`` only stops the *fields* being reassigned; a

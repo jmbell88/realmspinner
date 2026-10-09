@@ -928,7 +928,16 @@ def _num(value: Any, scope: dict[str, float], path: str, field_name: str) -> flo
             "expected a number or expression string, got a boolean.", field=field_name, path=path
         )
     if isinstance(value, (int, float)):
-        v = float(value)
+        try:
+            v = float(value)
+        except OverflowError:
+            # The 2026-10-09 second audit's clay-132: ``float(10**400)`` raises
+            # rather than answering ``inf``, and the raise escaped past the
+            # finiteness check below into ``call()``'s "failed unexpectedly"
+            # backstop with no field. An integer past float range is the same
+            # refusal an ``inf`` already gets. Every program number (steps and
+            # ``variables``) reaches this function.
+            raise _err("must be finite.", field=field_name, path=path) from None
         if not math.isfinite(v):
             raise _err("must be finite.", field=field_name, path=path)
         return v

@@ -88,10 +88,6 @@ class DragInput:
     #: viewport when an Extrude begins its drag on faces (the average face
     #: normal, in world space); meaningless for any other axis value.
     normal: np.ndarray | None = field(default=None, repr=False, compare=False)
-    #: Set once a number has been typed *and* is parseable, so a caller can tell
-    #: "the user is typing" from "the user has typed a value", which read the
-    #: same on the string alone at the moment it holds only ``-``.
-    _cache: dict[str, float] = field(default_factory=dict, repr=False)
 
     @property
     def active(self) -> bool:

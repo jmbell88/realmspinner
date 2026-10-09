@@ -31,7 +31,7 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
     against run A's own on-disk card lives in ``dev/tests/familiar/test_contract.py``
     where ``dev/measurements`` exists; it does not apply to ``clay-2``.
     """
-    expected = "53fd8891daa6903b60bf1d9a3c2ada0dd443cc26ab8293853518a0c2e105a01b"
+    expected = "e42cf6b751be8826af8eee66ef608d970a1475e80f23b1a8d7c27549f130fb10"
     assert contract.card_sha("clay") == expected
 
 

@@ -72,8 +72,13 @@ class BoundsOps:
         # selection leaves the gizmo, and the pivot a rotate or scale turns
         # about, off the vertices that actually move. The eligibility is in the
         # key as well so hiding or un-hiding misses the memo.
+        # The 2026-10-09 audit's clay-22: the key used to resolve each picked
+        # object through ``doc.by_uid`` and ``doc.ancestors``, each a linear
+        # scan, on every frame a gizmo is up -- picked x objects. One map per
+        # call, as ``world_bounds`` builds, makes it one pass.
+        index = self._uid_index(doc)
         key = (id(doc), tuple(
-            (uid, id(sel), self._pickable(doc, uid), *self._obj_key(doc, uid))
+            (uid, id(sel), self._pickable(doc, uid, index), *self._obj_key(doc, uid, index))
             for uid, sel in doc.element_sel.items()
         ))
         memo = self._centre_memo
@@ -89,9 +94,8 @@ class BoundsOps:
         pins: list[Any] = [doc]
         for uid, sel in doc.element_sel.items():
             pins.append(sel)
-            try:
-                obj = doc.by_uid(uid)
-            except KeyError:
+            obj = index.get(uid)
+            if obj is None:
                 continue
             pins.append(obj.mesh)
             if not _element_pickable(obj):
@@ -101,12 +105,12 @@ class BoundsOps:
             # names is alive, and nothing else holds an ancestor's arrays
             # alive on this memo's behalf (the same reason ``view._world``
             # pins its own ancestor chain).
-            for ancestor in (obj, *(doc.by_uid(u) for u in doc.ancestors(uid))):
+            for ancestor in (obj, *(index[u] for u in self._ancestor_uids(index, obj))):
                 pins.extend((ancestor.translation, ancestor.rotation, ancestor.scale))
             verts = el.affected_verts(obj.mesh, sel)
             if not len(verts):
                 continue
-            matrix = self._world(doc, obj)
+            matrix = self._world(doc, obj, index)
             local = obj.mesh.positions[verts].astype("f8")
             world = (matrix @ np.hstack([local, np.ones((len(local), 1))]).T).T[:, :3]
             total += world.sum(axis=0)
@@ -116,18 +120,21 @@ class BoundsOps:
         return centre
 
     @staticmethod
-    def _pickable(doc: Any, uid: int) -> bool:
+    def _pickable(doc: Any, uid: int, index: dict[int, Any] | None = None) -> bool:
         """Whether *uid*'s elements are the drag's to move -- ``selection``'s
         one eligibility. A missing uid is not."""
         from .....kernels.mesh.selection import _element_pickable
 
+        if index is not None:
+            obj = index.get(uid)
+            return obj is not None and _element_pickable(obj)
         try:
             return _element_pickable(doc.by_uid(uid))
         except KeyError:
             return False
 
     @staticmethod
-    def _obj_key(doc: Any, uid: int) -> tuple:
+    def _obj_key(doc: Any, uid: int, index: dict[int, Any] | None = None) -> tuple:
         """The identity triple-plus-mesh that pins one object's geometry --
         **and every ancestor's own transform triple**, ``view._world``'s own
         reason exactly (that method's docstring): an object's ``translation``/
@@ -139,6 +146,15 @@ class BoundsOps:
         with the gizmo and the drag pivot for a selected child both reading
         it.
         """
+        if index is not None:
+            obj = index.get(uid)
+            if obj is None:
+                return ()
+            chain = [obj, *(index[u] for u in BoundsOps._ancestor_uids(index, obj))]
+            return (
+                id(obj.mesh),
+                *(id(v) for o in chain for v in (o.translation, o.rotation, o.scale)),
+            )
         try:
             obj = doc.by_uid(uid)
         except KeyError:

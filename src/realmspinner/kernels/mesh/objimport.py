@@ -70,7 +70,19 @@ from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
 #: vertices are actually referenced by that many triangles, so this bounds
 #: only the unreferenced-vertex case the audit found, at the measured 446 MB
 #: worst case, without moving the ceiling any file this pipeline already
-#: accepts relies on. Counting itself stays cheap regardless of file size --
+#: accepts relies on.
+#:
+#: The 2026-10-09 second audit's clay-113: *referenced* ``v`` lines are not part
+#: of that bound (``vertex_budget`` credits one per face corner, as it does for
+#: ``vt``), so the ceiling now bounds only the excess no face can reference.
+#: What the referenced ones cost was measured with the same tracemalloc probe
+#: pattern: a 700,000-triangle unwelded soup (2,100,000 ``v`` lines, 71 MB of
+#: source, every vertex referenced once) peaks at 876 MB traced and keeps 38 MB
+#: -- about 417 B per ``v`` line, so the 2,000,000-triangle ceiling's 6,000,000
+#: corners extrapolate to ~2.5 GB for an unwelded soup of that size, on top of
+#: the 446 MB per 2M excess lines.
+#:
+#: Counting itself stays cheap regardless of file size --
 #: measured at 2.6 s for the full pre-pass (line join plus counting, no float
 #: parsing) at 7,500,000 lines, comfortably inside the 100 MiB door -- which is
 #: the whole point: the expensive part (pass 2, below) never starts for a file
@@ -368,7 +380,14 @@ def obj_to_claydoc(
     # lines were counted nowhere here, so they reached pass 2 regardless of
     # how many of them the file declared.
     tri_budget = 0
-    object_budget = 1  # the implicit first object, before any "o"/"g" line
+    # The 2026-10-09 audit's clay-25: this counted every ``o`` and ``g`` line,
+    # but pass 2 builds an object only for a group a face follows, and an
+    # exporter that writes both an ``o`` and a ``g`` per part (a common shape)
+    # had 3,000 parts refused as 6,001. ``awaiting_face`` is true from the
+    # file's start (the implicit first object) and after each ``o``/``g``; the
+    # next face turns it into one counted object.
+    object_budget = 0
+    awaiting_face = True
     v_lines = 0
     vt_lines = 0
     corner_lines = 0
@@ -378,9 +397,18 @@ def obj_to_claydoc(
         if head == "f":
             corners = len(line.split()) - 1
             tri_budget += max(0, corners - 2)
-            corner_lines += max(0, corners)
+            # Only a face that can make a triangle has corners worth crediting:
+            # pass 2 refuses a one- or two-corner ``f`` line, but only after it
+            # has parsed every ``v`` before it, and crediting those corners
+            # would let a file of 4-byte ``f 1`` lines buy unbounded ``v``
+            # allowance (see ``vertex_budget`` below).
+            if corners >= 3:
+                corner_lines += corners
+            if awaiting_face:
+                object_budget += 1
+                awaiting_face = False
         elif head in ("o", "g"):
-            object_budget += 1
+            awaiting_face = True
         elif head == "v":
             v_lines += 1
         elif head == "vt":
@@ -398,7 +426,20 @@ def obj_to_claydoc(
     # the allowance for them is the file's own face-corner count (parsed
     # regardless, and bounded for triangles by the triangle budget below):
     # only the ``vt`` lines beyond one per corner count against the ceiling.
-    vertex_budget = v_lines + max(0, vt_lines - corner_lines)
+    #
+    # The 2026-10-09 second audit's clay-113: the ``v`` lines got no such
+    # allowance, so an unwelded triangle soup (three ``v`` lines per triangle,
+    # every one referenced -- what an STL-to-OBJ or a faceted export writes)
+    # hit the ceiling at a third of the triangle count and was refused for
+    # "unreferenced" data it did not have; 700,000 triangles is 2,100,000
+    # ``v`` lines against a 2,000,000 ceiling. Same rule as ``vt`` now: the
+    # ``v`` lines a face corner could reference are the mesh itself, bounded by
+    # the triangle budget (corner credit is at most 3 x ``MAX_TRIANGLES``);
+    # only those beyond one per corner are the unreferenced excess the
+    # ceiling is for, so the 446 MB-per-2M-lines bound above still holds for
+    # it. The referenced vertices cost what any mesh of that many triangles
+    # costs (see the measurement in ``MAX_VERTEX_LINES``).
+    vertex_budget = max(0, v_lines - corner_lines) + max(0, vt_lines - corner_lines)
     if tri_budget > MAX_TRIANGLES:
         raise OpError(
             f"This OBJ has {tri_budget:,} triangles (n-gons counted by corners "
@@ -411,9 +452,10 @@ def obj_to_claydoc(
         )
     if vertex_budget > MAX_VERTEX_LINES:
         raise OpError(
-            f"This OBJ declares {vertex_budget:,} vertex/texture-coordinate "
-            f"lines, past the {MAX_VERTEX_LINES:,} Clay will parse before it "
-            "has seen how many of them a face actually uses."
+            f"This OBJ declares {v_lines + vt_lines:,} vertex/texture-coordinate "
+            f"lines ({v_lines:,} v, {vt_lines:,} vt) but its faces have only "
+            f"{corner_lines:,} corners to use them: {vertex_budget:,} lines no "
+            f"face can reference, past the {MAX_VERTEX_LINES:,} Clay will parse."
         )
     # clay-15 (the 2026-09-22 audit): usemtl names build an unbounded palette
     # in pass 2 (one entry per distinct name), the same gap clay-05 closed for

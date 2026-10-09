@@ -64,6 +64,7 @@ __all__ = [
     "ManifoldReport",
     "adjacency",
     "boundary_ring_from",
+    "ring_is_closed",
     "cached_triangulation",
     "check_manifold",
     "closed_facts",
@@ -413,6 +414,26 @@ def _outgoing_boundary_corners(mesh: Mesh, a: Adjacency, vertex: int) -> list[in
     return out
 
 
+def ring_is_closed(mesh: Mesh, ring: np.ndarray) -> bool:
+    """Whether a ring from :func:`boundary_ring_from` really comes back to its start.
+
+    The walk is wound in the hole direction, so ``ring[k + 1] -> ring[k]`` is a
+    boundary edge in its face's own direction and the ring closes exactly when
+    one more such edge, ``ring[0] -> ring[-1]``, exists. A chain that ended at
+    a flipped edge (the 2026-10-09 second audit's clay-88) has no such edge.
+    O(the degree of one vertex), so it is safe to ask of every ring in a call.
+    """
+    if len(ring) == 0:
+        return False
+    a = adjacency(mesh)
+    first, last = int(ring[0]), int(ring[-1])
+    for c in a.vertex_corners(last).tolist():
+        j = int(a.prev_corner[c])
+        if int(mesh.loops[j]) == first and int(a.edge_uses[a.corner_edge[j]]) == 1:
+            return True
+    return False
+
+
 def boundary_ring_from(
     mesh: Mesh, seed_edges: np.ndarray
 ) -> tuple[list[np.ndarray], np.ndarray]:
@@ -454,6 +475,16 @@ def boundary_ring_from(
     fact: a boundary edge (``edge_uses == 1``) has exactly one corner leaving
     along it, so ``owner[edge]`` names it in O(1) after one O(corners) build,
     shared across every seed in the call.
+
+    **A walk that does not come back to where it started is not a ring**, and
+    the 2026-10-09 second audit's clay-88 found it was returned as one: two
+    triangles wound the same way over their shared diagonal leave that edge
+    flipped (``edge_uses == 2`` but no twin), so a walk that reaches it has no
+    outgoing candidate, ends on a vertex other than its first, and hands back
+    the 1- or 2-vertex chain as a "ring" -- which ``fill_hole`` then wrote as a
+    face ``bm.validate`` refuses to reopen. The return shape is unchanged
+    (callers unpack the pair); :func:`ring_is_closed` is the question to put to
+    each returned ring before building a face from it.
     """
     a = adjacency(mesh)
     ids = a.edge_ids(seed_edges)

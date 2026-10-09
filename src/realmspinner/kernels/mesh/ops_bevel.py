@@ -101,6 +101,14 @@ def _refuse_size(mesh: Mesh) -> None:
         )
 
 
+# The 2026-10-09 audit's clay-11: a slide used to clamp at exactly half its
+# edge, and two bevelled edges meeting the two ends of one unbevelled edge each
+# slid to 0.5 -- onto the same point, a pair of coincident vertices and a
+# zero-length edge. Every slide stays strictly short of the midpoint, so the
+# two slides that can share an edge (one from each end) never meet.
+_MAX_SLIDE = 0.49
+
+
 def bevel_edges(
     mesh: Mesh, sel: ElementSel, *, width: float = 0.05
 ) -> tuple[Mesh, ElementSel]:
@@ -133,8 +141,9 @@ def bevel_edges(
     Then a **bevel quad per edge**, wound from the traversal of the face that
     reads the edge forwards, and a **vertex polygon** wherever three or more
     distinct new vertices land on one original vertex -- which is exactly the
-    textbook result: bevel one edge of a cube and the opposite face becomes a
-    pentagon with no polygon at the corner (only two new vertices there); bevel
+    textbook result: bevel one edge of a cube and the two faces at the edge's
+    ends become pentagons, with no polygon at the corner (only two new vertices
+    there); bevel
     all three edges at a corner and you get a miter triangle; bevel all twelve
     and the cube becomes 6 + 12 + 8 = 26 faces.
 
@@ -144,8 +153,9 @@ def bevel_edges(
     forks -- all named, all with a reason.
 
     **Stated limits**, none of them bugs: a single segment (no rounded profile);
-    the width clamped per edge rather than solved globally, so a bevel wider
-    than a feature flattens it instead of self-intersecting; the miter along the
+    the width clamped per edge rather than solved globally (a slide stops
+    just short of the middle of its edge, so two slides on one edge never meet),
+    so a bevel wider than a feature flattens it instead of self-intersecting; the miter along the
     in-face bisector rather than the true intersection of the two offset planes,
     which drifts on a strongly non-planar corner; and no self-intersection guard
     at all.
@@ -224,7 +234,7 @@ def bevel_edges(
             far = int(ends[1]) if int(ends[0]) == vertex else int(ends[0])
             delta = positions[far] - positions[vertex]
             length = float(np.linalg.norm(delta))
-            s = 0.5 if length == 0.0 else min(abs(float(width)) / length, 0.5)
+            s = _MAX_SLIDE if length == 0.0 else min(abs(float(width)) / length, _MAX_SLIDE)
             slides[key] = (mint(positions[vertex] + delta * s), s)
         return slides[key]
 

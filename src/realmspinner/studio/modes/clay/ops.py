@@ -1,23 +1,26 @@
 """One registry of everything Clay can *do*, and no imgui anywhere in it.
 
-Three surfaces invoke Clay's operations -- the right-mouse context menu, the
-buttons in the tools pane, and ``clay_mode.handle_key`` -- and before this
-module they each had their own list. Three lists means three answers to "is
-Extrude available in vertex mode", and the interesting one is always the one
-nobody updated: a key that fires an op the menu greys out, or a menu row for an
-op the key path never learned about.
+Several surfaces invoke Clay's operations -- the right-click context menu, the
+Inspector's cards, the Ctrl+K command palette, ``clay_mode.handle_key`` and the
+agent's ``clay_op`` -- and before this module they each had their own list.
+Several lists means several answers to "is Extrude available in vertex mode", and
+the interesting one is always the one nobody updated: a key that fires an op the
+menu greys out, or a menu row for an op the key path never learned about. (The
+2026-10-09 second audit's clay-110: this paragraph still named a pane of buttons
+that the 2026-10 Clay UI rebuild deleted.)
 
 So there is one list. :data:`OPS` is the whole of what is invocable, each entry
 carrying the modes it applies to, whether it is enabled right now and the key
-that fires it; how it groups in a menu is :mod:`.menutree`'s table. The menu
-renders it, the pane renders a subset of it, and the key handler looks up by
+that fires it; how it groups in a menu is :mod:`.menutree`'s table. The menu and
+the Inspector render it, the palette lists it, and the key handler looks up by
 key -- and none of them decides anything.
 
 **Nothing here imports imgui**, which is what keeps the registry testable: an
 ``Op``'s ``enabled`` predicate is a function of a document, so "Flip Normals is
 greyed out with an edge selected" is a plain assertion rather than a screenshot.
-The pane layer (``studio/modes/clay/ui/panes/menu.py``) is the only thing that knows a popup
-exists.
+The panes that draw a parameter popup (``studio/modes/clay/ui/panes/menu.py``,
+the Inspector's cards) and the key layer that asks for one by state
+(``mode.py``'s ``open_op_popup``) are what know a popup exists.
 
 **An op that changes geometry freezes the object's generator.** A box whose
 faces have been extruded is no longer describable by "box, size 1" -- the
@@ -64,7 +67,7 @@ __all__ = [
 
 # The element modes an op can appear in. "object" is the fourth and is not an
 # element mode; ops that name it are the object-level ones (duplicate, mirror,
-# group, origin) that were previously hardcoded in the tools pane. (The 2026-10-07
+# group, origin) that were once hardcoded in a pane's button grid. (The 2026-10-07
 # audit's clay-42: this named a bake op that Clay no longer has.)
 ALL_MODES: tuple[str, ...] = ("object", "vertex", "edge", "face")
 ELEMENT_MODES: tuple[str, ...] = ("vertex", "edge", "face")
@@ -109,6 +112,15 @@ class Param:
     boolean: bool = False
     choices: tuple[str, ...] = ()
     warn: str = ""
+    refuse_below: bool = False
+    """Refuse a value under ``low`` with a sentence instead of clamping it up to it.
+
+    For a floor that is a *meaning* rather than a comfort: Snap to Grid's step of
+    0 was a refusal ("a grid of no size is not a grid", the 2026-10-07 audit's
+    clay-37) before the 2026-10-09 second audit's clay-108 gave the field a
+    positive floor, and a clamp would have turned that refusal into a quiet snap
+    onto a different grid than the one asked for.
+    """
 
     def __post_init__(self) -> None:
         if self.boolean and self.choices:
@@ -199,11 +211,20 @@ class Op:
     """Why ``enabled(doc)`` is refused right now, or ``""`` when it is not.
 
     The 2026-09-06 audit's clay-07: every refused op greyed out in the context
-    menu, the tools pane and the Delete button with nothing anywhere naming the
+    menu, the Inspector and the Delete button with nothing anywhere naming the
     gate that refused it -- ``hint`` describes what an op *does*, not why it is
     currently unavailable. Called only through :func:`reason_for`, which is the
     one place that decides *whether* to call it, so a ``reason`` never needs to
     re-check ``enabled`` itself and cannot disagree with it about that.
+    """
+    check: Callable[[dict[str, Any]], None] | None = None
+    """A refusal the *numbers* alone decide, raised as :class:`OpError` or ``None``.
+
+    Called by :func:`run` on the resolved (defaulted, clamped) values, and by the
+    viewport's op-drag preview on the value under the pointer, so the picture a
+    drag shows and the press that commits it cannot disagree about whether the
+    pair of numbers is legal. ``Param``'s per-field ``low``/``high`` cannot say
+    "these two fields are not both zero" (the 2026-10-09 second audit's clay-64).
     """
 
 
@@ -313,6 +334,8 @@ def resolve_params(op: Op, params: dict[str, Any]) -> dict[str, Any]:
         # other op refusal uses, so ``run`` toasts it and records no edit.
         if not math.isfinite(value):
             raise OpError(f"{param.label} must be a finite number.")
+        if param.refuse_below and value < param.low:
+            raise OpError(f"{param.label} must be at least {param.low:g}.")
         value = min(max(value, param.low), param.high)
         values[param.name] = int(value) if param.stores_int else value
     return values
@@ -326,7 +349,34 @@ def kernel_func(dotted: str) -> Callable[..., Any]:
     return getattr(importlib.import_module(f"realmspinner.kernels.mesh.{module}"), func)
 
 
-def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
+_GESTURE_SENTENCE = "Finish or cancel the drag first."
+
+#: Held in a constant, not written at the ``toast(ctx, ...)`` call: the
+#: toast-level scan in ``tests/test_ux_todo_fixes.py`` reads a *string literal* in
+#: a ``toast``'s second argument as a level, and this module's own ``toast`` takes
+#: a message there (the 2026-10-09 second audit's round-two repair).
+GROUP_HAS_NO_GEOMETRY = "A group has no geometry of its own; select its shapes."
+
+
+def gesture_live(ctx: Any) -> bool:
+    """Whether a live gesture is writing into the document right now: a 3-D
+    G/R/S, op or gizmo drag, or the UV pane's armed live rotate/scale.
+
+    The same question ``mode._gesture_live`` answers for the key layer, asked of a
+    ``ctx`` alone because ``run`` and ``recent_op.adjust`` have no tab. Duck-typed
+    (this module imports no ``ui/``): the agent's sandboxed ``_OpCtx`` has no
+    ``clay_view`` and a ``None`` state, so it reads as "no gesture" -- an agent
+    drives its own tab, never the one under the user's pointer. ``is True`` rather
+    than truthiness, so a double that answers every attribute never reads as a drag.
+    """
+    if getattr(getattr(ctx, "clay_view", None), "dragging", False) is True:
+        return True
+    clay = getattr(getattr(ctx, "state", None), "clay", None)
+    uv_view = getattr(getattr(clay, "active", None), "uv_view", None)
+    return getattr(uv_view, "drag_mode", "") in ("rotate", "scale")
+
+
+def run(ctx: Any, doc: Any, op: Op, *, during_gesture: bool = False, **params: Any) -> bool:
     """Invoke an op, turning a refusal into a toast. -> whether it ran.
 
     Missing parameters fall back to their declared defaults, so a caller that
@@ -335,21 +385,34 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
 
     **Declared parameters are clamped here.** The popup clamps its live fields
     too (``studio/modes/clay/ui/panes/menu.py``), but that is a UX affordance on one surface --
-    the key path, the tools pane and every test call arrive with whatever the
-    caller had remembered, and a subdivision at ``levels=99`` is not a refusal
-    an op should have to write for itself. ``run`` is the choke point all three
-    surfaces funnel through, so the range a ``Param`` declares is enforced once,
-    where it cannot be bypassed.
+    the key path, the Inspector, the palette, the agent and every test call arrive
+    with whatever the caller had remembered, and a subdivision at ``levels=99`` is
+    not a refusal an op should have to write for itself. ``run`` is the choke point
+    every surface funnels through, so the range a ``Param`` declares is enforced
+    once, where it cannot be bypassed.
+
+    **A live G/R/S, gizmo drag or armed UV rotate/scale shuts this door** (the
+    2026-10-09 second audit's clay-61). The first fix gated ``mode.fire_op`` only;
+    the right-click row, the parameter popup's Apply, the Inspector's Apply, the
+    Last action card, starter-colour paint and the swatch Assign all reach ``run``
+    directly, and an op that lands mid-gesture is reverted by the gesture's commit
+    against the history head it started from -- a user step silently lost.
+    ``during_gesture=True`` is the key layer's one opt-out: a Ctrl chord that is
+    pinned to keep working under a drag (Ctrl+J, Ctrl+M) says so; every other
+    caller gets the refusal.
     """
     from ....kernels.mesh.elements import OpError
 
+    if not during_gesture and gesture_live(ctx):
+        toast(ctx, _GESTURE_SENTENCE)
+        return False
     # The 2026-10-07 audit's clay-10: only ``enabled`` was consulted, so the
     # agent's ``clay_op`` (which has no menu to hide a row) ran Join, Group or
     # Mirror Copy while the document was in an element mode -- leaving
     # ``selection`` holding objects with no ``element_sel`` behind them, the
     # state ``Select None`` then greys out of and ``Delete`` answers ``ran``
     # for with nothing deleted. ``Op.modes`` is the declared set, so it is the
-    # gate, here, for every caller (menu, key, tools pane, agent) at once.
+    # gate, here, for every caller (menu, key, palette, Inspector, agent) at once.
     if doc.element_mode not in op.modes:
         toast(ctx, _wrong_mode_reason(op))
         return False
@@ -357,6 +420,8 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
         return False
     try:
         values = resolve_params(op, params)
+        if op.check is not None:
+            op.check(values)
     except OpError as error:
         toast(ctx, str(error))
         return False
@@ -450,8 +515,72 @@ def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
         top.label = op.label.rstrip(".")
 
 
+#: The metre-labelled distances each mesh kernel takes, by the dotted name
+#: ``DragSpec.kernel`` and ``_element`` already share. The 2026-10-09 second
+#: audit's clay-55: Inset, Weld, Bevel and Extrude-with-offset handed their
+#: field's number straight to a kernel that works in the mesh's *local* units, so
+#: "0.100 m" slid a rim 0.4 m on an object scaled 4x, and a 0.02 m weld welded
+#: nothing on a 1 cm box and answered ``ran``. Only Merge Objects converted
+#: (``ops._local_eps``). A name in this table is converted by
+#: :func:`run_mesh_op` and by the op-drag preview (:func:`localise`), so the
+#: dialog, the Inspector, the agent, the drag preview and the commit agree.
+METRE_PARAMS: dict[str, tuple[str, ...]] = {
+    "ops_topo.inset_faces": ("thickness", "depth"),
+    "ops_topo.extrude_faces": ("offset",),
+    "ops_topo.weld": ("eps",),
+    "ops_bevel.bevel_edges": ("width",),
+}
+
+
+def world_scale(doc: Any, uid: int) -> float:
+    """The uniform scale that stands for *uid*'s world scale: the geometric mean
+    of its three axes, ``|det(world 3x3)| ** (1/3)``.
+
+    A distance typed in metres has to become the mesh's local units, and an
+    object scaled ``(8, 1, 1)`` has no single answer; the geometric mean is the
+    scale that preserves volume, so a distance that is right on average is right
+    exactly on a uniformly scaled object (the common case) and a fair compromise
+    on a stretched one. The world matrix is used, not the object's own ``scale``,
+    because a parented object's TRS is relative to its parent.
+
+    A degenerate scale (``<= 1e-9``: an axis typed down to zero) has no inverse
+    and no meaning for "metres", so it is a refusal naming the cause.
+    """
+    from ....kernels.mesh.elements import OpError
+
+    matrix = np.asarray(doc.world_matrix(uid), dtype="f8")[:3, :3]
+    scale = abs(float(np.linalg.det(matrix))) ** (1.0 / 3.0)
+    if not math.isfinite(scale) or scale <= 1e-9:
+        raise OpError(
+            f"{doc.by_uid(uid).name!r} has a zero scale, so a distance in metres "
+            "means nothing on it; give it a size first."
+        )
+    return scale
+
+
+def localise(doc: Any, uid: int, kernel: str, params: dict[str, Any]) -> dict[str, Any]:
+    """*params* with *kernel*'s metre-labelled distances divided by *uid*'s world
+    scale -- the mesh's own units, which is what the kernel measures in.
+
+    The one helper :func:`run_mesh_op` and the viewport's op-drag preview both
+    call, so what the pointer shows is what Enter commits. A kernel not in
+    :data:`METRE_PARAMS` takes its numbers as they are.
+    """
+    names = [name for name in METRE_PARAMS.get(kernel, ()) if name in params]
+    if not names:
+        return params
+    scale = world_scale(doc, uid)
+    return {**params, **{name: float(params[name]) / scale for name in names}}
+
+
 def run_mesh_op(
-    ctx: Any, doc: Any, func: Callable[..., Any], /, **params: Any
+    ctx: Any,
+    doc: Any,
+    func: Callable[..., Any],
+    /,
+    *,
+    kernel: str = "",
+    **params: Any,
 ) -> bool:
     """Apply a ``(mesh, sel) -> (mesh, sel)`` op to every object with a selection.
 
@@ -460,11 +589,24 @@ def run_mesh_op(
     again -- and a refusal on one object does not abandon the others, which is
     what a user selecting faces across two objects means by pressing the button
     once.
+
+    **Two phases.** Every object's new mesh is computed first and nothing is
+    written; only then is the result checked against what the document may hold,
+    and only then are the ``set_mesh`` calls made. The 2026-10-09 second audit's
+    clay-59: ``set_mesh`` refuses a mesh that takes the document past
+    ``MAX_TRIANGLES``, the loop did not anticipate it, and a run that crossed the
+    ceiling part-way left the earlier objects rewritten, toasted "refused" and
+    kept an undo step. Now a refused run changes no object and pushes no step.
+
+    **Distances are world metres** (clay-55): *kernel* names the mesh kernel
+    (``"ops_topo.inset_faces"``) so :func:`localise` can divide its metre-labelled
+    numbers by each object's own world scale, per object.
     """
+    from ....kernels.mesh import document as bd
     from ....kernels.mesh import selection
     from ....kernels.mesh.elements import OpError
 
-    ran = False
+    built: list[tuple[int, Any, Any, Any]] = []
     for uid in list(doc.element_sel):
         try:
             obj = doc.by_uid(uid)
@@ -478,17 +620,67 @@ def run_mesh_op(
         if not selection._element_pickable(obj):
             continue
         try:
-            mesh, sel = func(obj.mesh, doc.element_sel_of(uid), **params)
+            local = localise(doc, uid, kernel, params)
+            mesh, sel = func(obj.mesh, doc.element_sel_of(uid), **local)
+            # A position past float32 is ``set_mesh``'s refusal too; taken here, as
+            # this object's own, so it cannot surface half way through phase two.
+            doc._refuse_unstorable(obj.name, mesh)
         except OpError as error:
             toast(ctx, str(error))
             continue
+        built.append((uid, obj, mesh, sel))
+    if not built:
+        return False
+    # Only a run that adds triangles can cross the ceiling; one that shrinks or
+    # holds a document somehow already over the line stays possible, as in
+    # ``ClayDoc._refuse_past_triangle_ceiling``.
+    if sum(bd._triangles_of(m) for _, _, m, _ in built) > sum(
+        bd._triangles_of(o.mesh) for _, o, _, _ in built
+    ):
+        try:
+            doc._refuse_past_ceilings(
+                [bd.Obj(uid=uid, name=obj.name, mesh=mesh) for uid, obj, mesh, _ in built],
+                [obj for _, obj, _, _ in built],
+            )
+        except OpError as error:
+            toast(ctx, str(error))
+            return False
+    for uid, _, mesh, sel in built:
         doc.set_mesh(uid, mesh, select=sel)
-        ran = True
-    return ran
+    return True
+
+
+def refuse_if_no_geometry(ctx: Any, doc: Any, uids: Iterable[int]) -> bool:
+    """Toast and answer ``True`` when *uids* name objects and not one has a vertex.
+
+    The 2026-10-09 second audit's clay-62: with a group (an empty that has
+    children) selected, Drop to Ground, Origin to Bounds/Base, Mirror, Box Unwrap,
+    Recalculate Normals and Shade Smooth/Flat were enabled, ran, pushed no step and
+    said nothing -- they measure or rewrite a mesh, and a group has none. The
+    truthful sentence is cheaper than inventing a descendants-box meaning for ten
+    ops. Only when *every* object lacks geometry: a mixed selection still acts on
+    its shapes, and the group in it is skipped as before.
+    """
+    objs = []
+    for uid in uids:
+        try:
+            objs.append(doc.by_uid(uid))
+        except KeyError:
+            continue
+    if objs and not any(len(obj.mesh.positions) for obj in objs):
+        toast(ctx, GROUP_HAS_NO_GEOMETRY)
+        return True
+    return False
 
 
 def run_object_op(
-    ctx: Any, doc: Any, func: Callable[[Any, Any], Any], /, *, uids: Iterable[int] | None = None
+    ctx: Any,
+    doc: Any,
+    func: Callable[[Any, Any], Any],
+    /,
+    *,
+    uids: Iterable[int] | None = None,
+    needs_geometry: bool = False,
 ) -> bool:
     """Apply ``func(doc, obj)`` to every selected object. -> whether any ran.
 
@@ -511,11 +703,18 @@ def run_object_op(
     these closures end in already answers "did anything change", so a closure
     returns that. Any other return (``None``, ``True``) still counts as ran, so
     a closure that has no way to be a no-op needs no change.
+
+    **``needs_geometry``** marks an op that measures or rewrites a mesh: when
+    every object in the batch is a group's empty, it refuses with a sentence
+    (:func:`refuse_if_no_geometry`) instead of running silently over nothing.
     """
     from ....kernels.mesh.elements import OpError
 
     ran = False
-    for uid in list(doc.selection if uids is None else uids):
+    batch = list(doc.selection if uids is None else uids)
+    if needs_geometry and refuse_if_no_geometry(ctx, doc, batch):
+        return False
+    for uid in batch:
         try:
             obj = doc.by_uid(uid)
         except KeyError:
@@ -706,7 +905,7 @@ def _in_mode_reason(*modes: str) -> Callable[[Any], str]:
     return reason
 
 
-# --- the object-level ops (moved out of the tools pane) ---------------------
+# --- the object-level ops (once a pane's hardcoded buttons) -----------------
 
 
 def _element(dotted: str) -> Callable[..., None]:
@@ -728,7 +927,7 @@ def _element(dotted: str) -> Callable[..., None]:
         import importlib
 
         target = getattr(importlib.import_module(f"realmspinner.kernels.mesh.{module}"), func)
-        return run_mesh_op(ctx, doc, target, **params)
+        return run_mesh_op(ctx, doc, target, kernel=dotted, **params)
 
     # What ``DragSpec.kernel`` is held equal to, so a drag preview and the
     # committed run cannot name two different functions.
@@ -748,11 +947,11 @@ def _extrude(ctx: Any, doc: Any, **params: Any) -> bool:
     from ....kernels.mesh import ops_topo
 
     which = {
-        "vertex": ops_topo.extrude_verts,
-        "edge": ops_topo.extrude_edges,
-        "face": ops_topo.extrude_faces,
+        "vertex": (ops_topo.extrude_verts, "ops_topo.extrude_verts"),
+        "edge": (ops_topo.extrude_edges, "ops_topo.extrude_edges"),
+        "face": (ops_topo.extrude_faces, "ops_topo.extrude_faces"),
     }.get(doc.element_mode)
-    return which is not None and run_mesh_op(ctx, doc, which, **params)
+    return which is not None and run_mesh_op(ctx, doc, which[0], kernel=which[1], **params)
 
 
 #: The largest weld distance Weld and Merge Objects accept, in metres. The
@@ -792,10 +991,27 @@ def _weld(ctx: Any, doc: Any, **params: Any) -> bool:
             raise OpError(_collapse_sentence(distance, "this object"))
         return out
 
-    return run_mesh_op(ctx, doc, guarded, **params)
+    return run_mesh_op(ctx, doc, guarded, kernel="ops_topo.weld", **params)
 
 
 _weld.kernel = "ops_topo.weld"  # type: ignore[attr-defined]
+
+
+def _inset_check(values: dict[str, Any]) -> None:
+    """Inset needs a thickness or a depth: both zero builds a rim of zero-area faces.
+
+    The 2026-10-09 second audit's clay-64: thickness 0 and depth 0 reported
+    success and left a ring of degenerate faces, and ``I`` then Enter -- the drag
+    starts at 0 -- committed exactly that. A depth-only inset (thickness 0, a
+    non-zero depth) is a legitimate extrusion-without-growth and stays legal.
+    """
+    from ....kernels.mesh.elements import OpError
+
+    if float(values.get("thickness", 0.0)) == 0.0 and float(values.get("depth", 0.0)) == 0.0:
+        raise OpError(
+            "Inset needs a thickness or a depth: both are 0, which would leave "
+            "zero-area faces. Set the thickness above 0, or give it a depth."
+        )
 
 
 def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
@@ -871,7 +1087,7 @@ def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> bool:
         doc.set_mesh(obj.uid, clay_ops_geom.mirror(obj, axis).mesh)
         mirrored.append(obj.uid)
 
-    return run_object_op(ctx, doc, one) and bool(mirrored)
+    return run_object_op(ctx, doc, one, needs_geometry=True) and bool(mirrored)
 
 
 def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_: Any) -> bool:
@@ -906,6 +1122,7 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     from ....kernels.geom3d import math3d as m3
     from ....kernels.mesh import document as bd
     from ....kernels.mesh import ops as clay_ops_geom
+    from ....kernels.mesh import selection as selection_mod
 
     del ctx
     taken = clay_ops_geom.UsedNames(obj.name for obj in doc.objects)
@@ -920,8 +1137,16 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     # Delete leave a hidden selected object alone (``visible=False`` means it
     # does not render, export or pick), and Mirror Copy used to copy it into a
     # scene the user could not see the original in.
+    #
+    # The 2026-10-09 second audit's clay-63: a selected group is an empty, so
+    # copying "the selection" mirrored an empty and left every child behind.
+    # A selected shape takes its descendants with it (``with_descendants``), so
+    # the parents-first order below also puts each child's copy under its
+    # parent's copy. ``chosen`` is what the user picked; only it and its copies
+    # are selected afterwards, never a child riding inside a picked group.
+    chosen = [u for u in doc.selection if doc.by_uid(u).visible]
     originals = sorted(
-        (u for u in doc.selection if doc.by_uid(u).visible),
+        selection_mod.with_descendants(doc, chosen),
         key=lambda u: (len(doc.ancestors(u)), doc.index_of(u)),
     )
     fresh = {uid: bd.new_uid() for uid in originals}
@@ -969,7 +1194,10 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     # -- four table legs from one -- silently produce three, because the
     # second press saw only the original and re-mirrored it over a leg that
     # was already there (found by the furniture author, 2026-09-12).
-    doc.select(originals + [obj.uid for obj in made])
+    chosen_set = set(chosen)
+    doc.select(
+        chosen + [obj.uid for uid, obj in zip(originals, made, strict=True) if uid in chosen_set]
+    )
     return bool(made)
 
 
@@ -1078,9 +1306,17 @@ def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
     """
     from ..mason.engine import ops as mason_ops
 
+    # The 2026-10-09 second audit's clay-62: a selected group has no box, so the
+    # op was enabled, found nothing to drop and said nothing.
+    if refuse_if_no_geometry(ctx, doc, list(doc.selection)):
+        return False
     boxes = _world_boxes(doc, doc.selection)
     deltas = mason_ops.drop_to_ground(boxes, ground=0.0)
     return _apply_deltas(ctx, doc, deltas)
+
+
+#: The finest grid Snap to Grid offers, in metres.
+SNAP_MIN_STEP = 0.001
 
 
 def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> bool:
@@ -1109,12 +1345,26 @@ def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> bool:
     if not step > 0.0:
         raise el.OpError("The grid step must be above zero; a step of 0 has no grid to snap to.")
 
+    def on_grid(position: Any) -> Any:
+        # The 2026-10-09 second audit's clay-108: a denormal step made
+        # ``position / step`` infinite and ``snap_translation`` raised a bare
+        # ``OverflowError`` out of ``run``. The ``Param`` floor keeps the dialog
+        # clear of it; this is the backstop for a caller that skips the clamp.
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            quotient = np.asarray(position, dtype="f8") / step
+        if not np.isfinite(quotient).all():
+            raise el.OpError(
+                f"A grid step of {step:g} m is too small to snap to; use a step of "
+                f"at least {SNAP_MIN_STEP:g} m."
+            )
+        return clay_ops_geom.snap_translation(position, step)
+
     def one(doc: Any, obj: Any) -> bool:
         if obj.parent is None:
-            snapped = clay_ops_geom.snap_translation(obj.translation, step)
+            snapped = on_grid(obj.translation)
         else:
             world = np.array(doc.world_matrix(obj.uid), dtype="f8", copy=True)
-            world[:3, 3] = clay_ops_geom.snap_translation(world[:3, 3], step)
+            world[:3, 3] = on_grid(world[:3, 3])
             snapped = doc.local_from_world(obj.uid, world)[0]
         # The 2026-10-07 audit's clay-41: ``set_transform`` pushes nothing for a
         # position already on the grid, and says so.
@@ -1267,6 +1517,28 @@ def _separate_loose(ctx: Any, doc: Any, **_: Any) -> bool:
     return run_object_op(ctx, doc, one)
 
 
+def _pickable_uids(doc: Any) -> list[int]:
+    """The uids with something picked that an element op may act on.
+
+    The 2026-10-09 audit's clay-07: an object hidden after it was picked keeps
+    its element selection, and Origin to Selection and Separate Selection walked
+    ``doc.element_sel`` unfiltered -- moving the pivot of, and splitting, a
+    shape the user could not see -- while ``run_mesh_op`` and Assign Material
+    skipped it through the same ``_element_pickable`` rule used here.
+    """
+    from ....kernels.mesh import selection
+
+    out: list[int] = []
+    for uid in list(doc.element_sel):
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            continue
+        if selection._element_pickable(obj):
+            out.append(uid)
+    return out
+
+
 def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
     """Split every selected object's own face selection out as a new
     object, leaving the rest of it behind.
@@ -1290,7 +1562,7 @@ def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
         # derived from the picks).
         doc.separate(obj.uid, sep.by_selection(obj.mesh, doc.element_sel_of(obj.uid)))
 
-    return run_object_op(ctx, doc, one, uids=list(doc.element_sel))
+    return run_object_op(ctx, doc, one, uids=_pickable_uids(doc))
 
 
 def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1311,7 +1583,7 @@ def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> bool:
         lo, hi = box
         return doc.set_origin(obj.uid, (lo + hi) * 0.5)
 
-    return run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one, needs_geometry=True)
 
 
 def _origin_to_base(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1329,7 +1601,7 @@ def _origin_to_base(ctx: Any, doc: Any, **_: Any) -> bool:
         lo, hi = box
         return doc.set_origin(obj.uid, [(lo[0] + hi[0]) * 0.5, lo[1], (lo[2] + hi[2]) * 0.5])
 
-    return run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one, needs_geometry=True)
 
 
 def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1352,7 +1624,7 @@ def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> bool:
         point = (doc.world_matrix(obj.uid) @ homogeneous)[:3]
         return doc.set_origin(obj.uid, point)
 
-    return run_object_op(ctx, doc, one, uids=list(doc.element_sel))
+    return run_object_op(ctx, doc, one, uids=_pickable_uids(doc))
 
 
 def _origin_to_world(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1406,7 +1678,10 @@ def _unwrap(ctx: Any, doc: Any, **_: Any) -> bool:
     It does **not** freeze the generator. UVs are not geometry -- the positions,
     the topology and the parameters are all untouched -- so a box that has been
     unwrapped is still describable as "box, size 1", and re-editing the size
-    correctly rebuilds it with the generator's own canonical coordinates.
+    keeps the unwrapped layout: ``regen.carry_over`` carries ``uv`` across a
+    rebuild whose face count is unchanged (a segment-count change, which makes
+    new faces, is the one edit that re-derives them). The 2026-10-09 audit's
+    clay-32 found this paragraph still promising the canonical coordinates.
     """
     from ....kernels.mesh import uv as uv_mod
 
@@ -1415,7 +1690,7 @@ def _unwrap(ctx: Any, doc: Any, **_: Any) -> bool:
         # report ``ran`` (found by the selection fuzz test, clay-41's rule).
         return doc.set_mesh(obj.uid, uv_mod.box_unwrap(obj.mesh), keep_generator=True)
 
-    return run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one, needs_geometry=True)
 
 
 def _assign_material(ctx: Any, doc: Any, index: int = 0, **_: Any) -> bool:
@@ -1441,6 +1716,7 @@ def _assign_material(ctx: Any, doc: Any, index: int = 0, **_: Any) -> bool:
             f" (0 to {count - 1})."
         )
     painted = 0
+    hidden = 0
     for uid in list(doc.element_sel):
         try:
             obj = doc.by_uid(uid)
@@ -1449,11 +1725,17 @@ def _assign_material(ctx: Any, doc: Any, index: int = 0, **_: Any) -> bool:
         # clay-11 again: an object hidden after it was picked keeps its element
         # selection, and every other element door skips it.
         if not selection._element_pickable(obj):
+            hidden += 1
             continue
         faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face").faces
         if len(faces) and doc.paint_faces(uid, faces, index):
             painted += len(faces)
     name = doc.materials[index].name or f"slot {index}"
+    if not painted and hidden and hidden == len(doc.element_sel):
+        # The 2026-10-09 audit's clay-07: every pick was on a hidden object, and
+        # "already use" told the user a falsehood about faces nothing touched.
+        ctx.toast("The picked faces are on hidden objects; show them first.", "info")
+        return False
     if not painted:
         # Pushed nothing: say so rather than let a click on the slot the faces
         # already wear look dead. ``False`` keeps it out of Repeat Last.
@@ -1489,6 +1771,22 @@ def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> bool:
     all.
     """
     from ....kernels.mesh import ops_clean
+    from ....kernels.mesh.elements import OpError
+
+    # The 2026-10-09 second audit's clay-96: ``MAX_CLEAN_CORNERS`` bounded each
+    # object, not the press -- thirteen maximal spheres selected together passed
+    # it object by object and stalled the frame thread for about 3 s. The corners
+    # are charged across the whole selection, before anything is touched. (One
+    # object over the ceiling keeps the kernel's own sentence.)
+    by_uid = {obj.uid: obj for obj in doc.objects}
+    chosen = [by_uid[uid] for uid in doc.selection if uid in by_uid]
+    total = sum(len(obj.mesh.loops) for obj in chosen)
+    if len(chosen) > 1 and total > ops_clean.MAX_CLEAN_CORNERS:
+        raise OpError(
+            f"These {len(chosen)} objects have {total:,} corners between them, past the "
+            f"{ops_clean.MAX_CLEAN_CORNERS:,} Recalculate Normals can process in one press "
+            "without stalling. Select fewer objects."
+        )
 
     def one(doc: Any, obj: Any) -> bool:
         mesh = ops_clean.recalc_outside(obj.mesh)
@@ -1496,7 +1794,7 @@ def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> bool:
         # since every generator already emits outward winding.
         return mesh is not obj.mesh and doc.set_mesh(obj.uid, mesh)
 
-    return run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one, needs_geometry=True)
 
 
 # --- shading, selection, frame ------------------------------------------------
@@ -1517,7 +1815,10 @@ def _shade(smooth: bool) -> Callable[..., bool | None]:
             # is what tells ``run`` that every object refused; dropping it
             # made ``run`` report True for a press that changed nothing.
             return run_object_op(
-                ctx, doc, lambda doc, obj: doc.set_shading(obj.uid, None, smooth)
+                ctx,
+                doc,
+                lambda doc, obj: doc.set_shading(obj.uid, None, smooth),
+                needs_geometry=True,
             )
         from ....kernels.mesh import elements as el
         from ....kernels.mesh import selection
@@ -1855,7 +2156,12 @@ def _register_defaults() -> None:
             reason=_has_objects_reason,
             hint="Snaps every selected object's world position onto a grid of "
             "the given step, one axis at a time.",
-            params=(Param("step", "grid step (m)", 1.0, 0.1, low=0.0),),
+            # The 2026-10-09 second audit's clay-108: ``low=0.0`` is a value the op
+            # itself refuses (clay-37) and a denormal one overflowed. A millimetre
+            # is the finest grid worth snapping to, as Bevel's width floor is.
+            params=(
+                Param("step", "grid step (m)", 1.0, 0.1, low=SNAP_MIN_STEP, refuse_below=True),
+            ),
         )
     )
 
@@ -2014,6 +2320,7 @@ def _register_defaults() -> None:
             run=_element("ops_topo.inset_faces"),
             key="I",
             drag=DragSpec("thickness", "distance", "ops_topo.inset_faces"),
+            check=_inset_check,
             enabled=in_mode("face"),
             reason=_in_mode_reason("face"),
             # The 2026-09-11 audit's clay-08: ``ops_topo.inset_faces`` has
@@ -2058,15 +2365,15 @@ def _register_defaults() -> None:
             drag=DragSpec("width", "distance", "ops_bevel.bevel_edges"),
             enabled=in_mode("edge"),
             reason=_in_mode_reason("edge"),
-            params=(Param("width", "width (m)", 0.05, 0.01),),
+            params=(Param("width", "width (m)", 0.05, 0.01, low=0.001),),
         )
     )
     # ``ops_dissolve.dissolve_faces`` merges a connected block of faces into
     # one n-gon; "Merge Faces" is the word a user searches for.
     #
-    # Registering it (rather than adding a button) is what gets it into all
-    # three surfaces at once: the Clay menu, the tools pane and the bare-letter
-    # keys all read this table.
+    # Registering it (rather than adding a button) is what gets it into every
+    # surface at once: the right-click menu, the Inspector, Ctrl+K and the
+    # bare-letter keys all read this table.
     register(
         Op(
             name="merge_faces",

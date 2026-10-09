@@ -5,9 +5,11 @@ nothing to fix** -- returning the exact same object, not an equal one. The
 viewport's GPU cache and the undo mechanism both key on `id(mesh)` (see
 `mesh.py`'s own docstring), so a repair that rebuilt an already-clean mesh
 byte-for-byte would still evict every cached buffer and push an undo step for
-an edit that changed nothing. Every internal helper below therefore returns
-`(mesh_or_same_object, count_fixed)`, and the public op is a thin wrapper that
-drops the count.
+an edit that changed nothing. The two op bodies below (`_recalc` and
+`_merge_by_distance`) therefore return `(mesh_or_same_object, count_fixed)`,
+and the public op is a thin wrapper that drops the count; the measuring
+helpers (`_shell_and_flip`, `_minority_mask`, `_shell_closed`, ...) return
+arrays, not meshes.
 
 **What each op reuses rather than reimplements.** :func:`merge_by_distance`
 calls :func:`~.ops_topo.weld` for the actual merge -- it does not walk vertices
@@ -38,10 +40,15 @@ pointing away from its centroid, the closest an open sheet has to "outward".
 The walk is over faces of one shell with a queue, never a face pair matched
 against every other face, so it is linear in the mesh rather than quadratic.
 
-**MAX_CLEAN_CORNERS**, below, is the ceiling every Clay walking op carries,
-chosen the same way theirs were: measured from what the operation actually
-grows, with a margin under the point a single press stops being well under a
-second. `MAX_CLEAN_CORNERS` exists for `recalc_outside`'s outer
+**MAX_CLEAN_CORNERS**, below, gates Recalculate Normals alone
+(`recalc_outside`); `merge_by_distance` is not refused by it and is `weld`'s own
+cost. It was chosen the way the walking ops' ceilings elsewhere in Clay were:
+measured from what the operation actually grows, with a margin under the point
+a single press stops being well under a second. (The 2026-10-09 second audit's
+clay-99: this paragraph used to call it a ceiling shared by all of Clay's
+walking ops, which a `clean()` that ran both once made true and its removal did
+not.) It exists
+for `recalc_outside`'s outer
 `for seed in range(n_faces)` restarting its BFS once per shell, and an imported
 mesh with many small separate shells (a decal, a kitbash, a scene flattened to
 one mesh) pays that restart far more often than one sphere does. Measured on
@@ -63,6 +70,7 @@ set well below that crossing rather than at it.
 
 from __future__ import annotations
 
+import math
 from collections import deque
 
 import numpy as np
@@ -264,6 +272,13 @@ def _coincident_count(mesh: Mesh, distance: float) -> int:
 
 
 def _merge_by_distance(mesh: Mesh, distance: float) -> tuple[Mesh, int]:
+    # The 2026-10-09 second audit's clay-100: the distance was never validated, so
+    # 0 and -1 gave content-dependent answers (a refusal from `weld` on a mesh with
+    # coincident vertices, a silent no-op on one without), NaN returned the mesh as
+    # clean and +inf collapsed a box to no vertices. Refused before any clustering,
+    # whatever the mesh holds.
+    if not (math.isfinite(distance) and distance > 0.0):
+        raise OpError(f"Merge distance must be a positive, finite number, not {distance!r}.")
     n_verts = len(mesh.positions)
     if n_verts < 2:
         return mesh, 0
@@ -292,6 +307,111 @@ def merge_by_distance(mesh: Mesh, distance: float) -> Mesh:
     return _merge_by_distance(mesh, distance)[0]
 
 
+#: The most (cavity candidate x closed shell) pairs :func:`_cavity_shells` will
+#: test for containment; past it a mesh keeps the plain "volume decides" rule.
+#: Candidates are the closed shells that are wound inward, so this only bites a
+#: mesh with thousands of inside-out closed shells *and* thousands of others.
+MAX_CAVITY_PAIRS = 4_000_000
+
+#: Not along an axis: an axis-aligned ray from a vertex of a box-like shell runs
+#: along coincident faces, and its parity count is then a coin toss.
+_RAY = np.array([0.5773502691896258, 0.3719341103420411, 0.7241543960115787])
+
+
+def _inside(points: np.ndarray, tri0: np.ndarray, edge1: np.ndarray, edge2: np.ndarray) -> int:
+    """How many of *points* lie inside the closed surface made of the triangles
+    ``(tri0, tri0 + edge1, tri0 + edge2)``, by the parity of the ray crossings
+    (Moller-Trumbore). Parity, not signed winding: it does not care which way
+    the surface is wound, which is the very thing being decided around it."""
+    h = np.cross(_RAY, edge2)
+    det = np.einsum("ij,ij->i", edge1, h)
+    ok = np.abs(det) > 1e-14
+    inv = np.zeros_like(det)
+    inv[ok] = 1.0 / det[ok]
+    inside = 0
+    for p in points:
+        s = p - tri0
+        u = inv * np.einsum("ij,ij->i", s, h)
+        q = np.cross(s, edge1)
+        v = inv * (q @ _RAY)
+        t = inv * np.einsum("ij,ij->i", edge2, q)
+        hit = ok & (u >= 0.0) & (v >= 0.0) & (u + v <= 1.0) & (t > 1e-12)
+        inside += int(hit.sum()) % 2
+    return inside
+
+
+def _cavity_shells(
+    mesh: Mesh, a, shell: np.ndarray, closed: np.ndarray, volume: np.ndarray, n_shells: int
+) -> np.ndarray:
+    """Per shell: whether it is the wall of a cavity -- a closed shell wound
+    inward (negative volume) that lies inside another closed shell whose own
+    volume is positive. The wall of a hollow part is *correctly* wound when its
+    normals point into the hollow, which is what a negative volume reads as, so
+    orienting every closed shell by its own volume reversed it (the 2026-10-09
+    second audit's clay-95).
+
+    *Inside* is the innermost closed shell whose bounding box holds this one and
+    that encloses it by ray-crossing parity from three of its vertices, two of
+    three agreeing, so a shell that merely touches another, or sits in the
+    bounding box of a concave one but outside the volume, is not a cavity. The
+    innermost container must itself have positive volume: a solid floating in the
+    hollow has the cavity's negative wall as its container, so it is turned
+    outward like any other inside-out shell. Bounded by :data:`MAX_CAVITY_PAIRS`.
+    """
+    wall = np.zeros(n_shells, dtype=bool)
+    candidates = np.flatnonzero(closed & (volume < 0.0))
+    containers = np.flatnonzero(closed & (volume != 0.0))
+    if len(candidates) == 0 or len(containers) < 2:
+        return wall
+    if len(candidates) * len(containers) > MAX_CAVITY_PAIRS:
+        return wall
+    pos = mesh.positions.astype("f8")
+    corner_pos = pos[mesh.loops]
+    corner_shell = shell[a.corner_face]
+    lo = np.full((n_shells, 3), np.inf)
+    hi = np.full((n_shells, 3), -np.inf)
+    np.minimum.at(lo, corner_shell, corner_pos)
+    np.maximum.at(hi, corner_shell, corner_pos)
+    # The fan triangles of every face, grouped by shell, built once on first use.
+    tris: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None
+    for s in candidates:
+        holds = (
+            (lo[containers] <= lo[s]).all(axis=1) & (hi[containers] >= hi[s]).all(axis=1)
+        ) & (containers != s)
+        found = containers[holds]
+        if len(found) == 0:
+            continue
+        verts = np.unique(mesh.loops[corner_shell == s])
+        picks = pos[verts[[0, len(verts) // 2, len(verts) - 1]]]
+        if tris is None:
+            tris = _fan_triangles(mesh, shell)
+        tri_shell, tri0, edge1, edge2 = tris
+        around = []
+        for t in found[np.argsort(np.abs(volume[found]))]:
+            pick = tri_shell == t
+            if _inside(picks, tri0[pick], edge1[pick], edge2[pick]) >= 2:
+                around.append(t)
+                break
+        if around:
+            wall[s] = volume[around[0]] > 0.0
+    return wall
+
+
+def _fan_triangles(mesh: Mesh, shell: np.ndarray):
+    """``(shell_of_triangle, v0, v1 - v0, v2 - v0)`` for every fan triangle."""
+    starts = mesh.starts.astype("i8")
+    n_tri = np.maximum(np.diff(starts) - 2, 0)
+    tri_face = np.repeat(np.arange(len(n_tri), dtype="i8"), n_tri)
+    offsets = np.concatenate([[0], np.cumsum(n_tri)])[:-1]
+    local = np.arange(int(n_tri.sum()), dtype="i8") - np.repeat(offsets, n_tri)
+    c0 = starts[tri_face]
+    pos = mesh.positions.astype("f8")
+    v0 = pos[mesh.loops[c0]]
+    v1 = pos[mesh.loops[c0 + 1 + local]]
+    v2 = pos[mesh.loops[c0 + 2 + local]]
+    return shell[tri_face], v0, v1 - v0, v2 - v0
+
+
 def _recalc(mesh: Mesh) -> tuple[Mesh, int]:
     n_faces = face_count(mesh)
     if n_faces == 0:
@@ -303,7 +423,10 @@ def _recalc(mesh: Mesh) -> tuple[Mesh, int]:
     closed = _shell_closed(mesh, a, shell, n_shells)
     contrib = _face_fan_volume(mesh)
     volume = _shell_volume(contrib, shell, to_flip, n_shells)
-    shell_global_flip = closed & (volume < 0.0)
+    # A closed shell is oriented by the sign of its volume -- except the wall of a
+    # cavity, whose correct winding reads as negative (clay-95).
+    cavity = _cavity_shells(mesh, a, shell, closed, volume, n_shells)
+    shell_global_flip = closed & (volume < 0.0) & ~cavity
 
     # Open shells: after the same minority correction, orient the whole shell
     # by which way most of its own faces already point relative to its own

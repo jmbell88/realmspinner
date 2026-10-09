@@ -304,11 +304,18 @@ def test_a_swatch_click_in_vertex_mode_does_not_repaint_faces_outside_the_select
     doc.set_element_sel(obj.uid, sel)
     before = list(doc.by_uid(obj.uid).mesh.material)
 
-    clay_props._pick_slot(_Ctx(), doc, doc.by_uid(obj.uid), 1)
+    state = ClayState()
+    tab = state.add(ClayTab(doc=doc))
+    ctx = _Ctx()
+    ctx.state = SimpleNamespace(clay=state)
+    clay_props._pick_slot(ctx, doc, doc.by_uid(obj.uid), 1)
 
     after = doc.by_uid(obj.uid)
     assert list(after.mesh.material) == before, "no face outside the selection was repainted"
-    assert after.material == 1, "the click picked the slot the fields edit"
+    # The pick is the Colours & textures page's slot, held on the tab; the object's
+    # own slot is what a rebuild stamps (the 2026-10-09 audit's clay-16).
+    assert tab.edit_slot(doc, after) == 1, "the click picked the slot the fields edit"
+    assert after.material == 0
 
 
 # --- clay-74 -----------------------------------------------------------------

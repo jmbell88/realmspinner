@@ -686,12 +686,21 @@ def load(
     skins = [reader.skin(s) for s in gltf.get("skins", [])]
     nodes = [reader.node(n) for n in gltf.get("nodes", [])]
     _check_joint_indices(nodes, meshes, skins)
+    # The 2026-10-09 second audit's clay-112: the lost textures are those of the
+    # materials some primitive places, as distinct image sources. A material
+    # nothing uses costs the model nothing it could have shown, and two
+    # materials behind one unusable atlas lose one texture between them.
+    placed = {id(prim.material) for prim_list in meshes for prim in prim_list}
+    lost: set = set()
+    for material, lost_here in zip(materials, reader.lost_by_material, strict=True):
+        if id(material) in placed:
+            lost |= lost_here
     return Model(
         nodes,
         _roots(gltf, nodes),
         meshes,
         skins,
-        skipped_textures=reader.skipped,
+        skipped_textures=len(lost),
         cameras=[reader.camera(c) for c in gltf.get("cameras", [])],
         lights=[reader.light(light) for light in punctual],
     )
@@ -776,7 +785,10 @@ def _roots(gltf: dict, nodes: list[Node]) -> list[int]:
     so anything parented renders in the wrong place and ``joint_palette``
     inverts a matrix that was never right.
     """
-    scenes = gltf.get("scenes") or []
+    # The 2026-10-09 audit's clay-40: a present-but-wrong-shape ``scenes`` (an
+    # object, a string) was truthy, reached ``scenes[index]`` and raised a bare
+    # KeyError/TypeError instead of the named refusal every sibling array gets.
+    scenes = _check_list_field(gltf.get("scenes") or [], 'this GLB\'s "scenes" field')
     index = gltf.get("scene", 0)
     if scenes:
         # The 2026-09-11 audit, finding create-01 (merged): range-checked
@@ -828,6 +840,21 @@ def _check_int_index(value: Any, what: str) -> None:
     """
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{what} must be a whole number, got {value!r}")
+
+
+def recomposes_without_shear(recomposed: np.ndarray, original: np.ndarray) -> bool:
+    """Whether ``decompose`` then ``compose`` gave *original* back, shear aside.
+
+    The 2026-10-09 audit's clay-24: this comparison used a flat ``atol=1e-4``,
+    but a shear's size scales with the matrix's own basis, so under a parent
+    scaled to 1e-4 a whole 45-degree shear sat below the tolerance and
+    ``decompose`` dropped it silently. The tolerance now shrinks with a basis
+    smaller than one; at unit scale and above it is the old ``1e-4``, so every
+    ordinary asset decides exactly as before.
+    """
+    basis = float(np.max(np.linalg.norm(np.asarray(original)[:3, :3], axis=0)))
+    atol = 1e-4 * min(1.0, basis)
+    return bool(np.allclose(recomposed, original, atol=atol, rtol=1e-4))
 
 
 def _check_list_field(value: Any, what: str) -> list:
@@ -1012,6 +1039,15 @@ class _Reader:
         # one unreadable atlas shared by six primitives is one loss, and
         # counting references would report six.
         self.skipped = 0
+        # The 2026-10-09 second audit's clay-112: ``skipped`` counts a lost
+        # image wherever it is first met, which is every declared material --
+        # including one no primitive uses -- and a base-colour reference on
+        # another UV set was counted per *reference*, not per image. So each
+        # material also records the image *sources* it tried and could not use
+        # (``lost_by_material``, in ``materials`` order), and ``load`` reports
+        # the union over the materials a primitive actually places.
+        self.lost_by_material: list[frozenset] = []
+        self._lost_now: set = set()
         # Decoded accessor arrays, by accessor index (H01). Two or more
         # primitives naming the same accessor -- an instanced mesh's shared
         # POSITION stream is the ordinary case -- used to decode it once per
@@ -1311,16 +1347,17 @@ class _Reader:
             return cached
         info = np.iinfo(raw.dtype)
         converted = self._astype(raw, "f4")
-        if raw.dtype.kind == "u":
-            out = converted / float(info.max)
-        else:
+        # The division builds a second same-size array beyond the one
+        # ``_astype`` just charged -- the same doubling create-05 (2026-09-13)
+        # found in the WEIGHTS_0 path below. The 2026-10-09 second audit
+        # (clay-76) found it charged *after* it existed (``_divided`` charges
+        # first, as ``_astype`` does since clay-33): a 588-byte GLB peaked at
+        # 1,373 MiB against a 768 MiB ceiling before the refusal.
+        out = self._divided(converted, float(info.max))
+        if raw.dtype.kind != "u":
             # Signed: the spec's own formula, which clamps -128 and -32768 to -1.
-            out = np.maximum(converted / float(info.max), -1.0)
-        # The division (and, for signed, the ``maximum`` on top of it) builds a
-        # second same-size array beyond the one ``_astype`` just charged --
-        # the same doubling create-05 (2026-09-13) found and charged in the
-        # WEIGHTS_0 path below.
-        self._charge(out.nbytes)
+            # In place, so it is not a third array and needs no third charge.
+            np.maximum(out, -1.0, out=out)
         self._normalized_cache[index] = out
         return out
 
@@ -1359,6 +1396,14 @@ class _Reader:
         # target dtype, so the charge goes first.
         self._charge(arr.size * np.dtype(dtype).itemsize)
         return arr.astype(dtype)
+
+    def _divided(self, arr: np.ndarray, divisor: Any) -> np.ndarray:
+        """``arr / divisor`` -- a fresh same-size array -- charged *before* it
+        is built, the way :meth:`_astype` charges its copy (the 2026-10-09
+        second audit's clay-76: the arithmetic on ``_astype``'s result was
+        charged after the allocation had already landed)."""
+        self._charge(arr.nbytes)
+        return arr / divisor
 
     def _typed(self, key: Any, raw: np.ndarray, dtype: str) -> np.ndarray:
         """A converted array, shared by every primitive asking for the same
@@ -1481,12 +1526,13 @@ class _Reader:
             # division a few lines down builds a third -- none of them
             # charged, so a skinned mesh's peak allocation was undercounted
             # against MAX_TOTAL_BYTES by up to 2x its weights array alone.
+            # clay-76 (the 2026-10-09 second audit): charged *before* each of
+            # these arrays exists (``_divided``), not after -- the refusal
+            # lands before the bytes do.
             if raw.dtype == np.uint8:
-                weights = self._astype(raw, "f4") / 255.0
-                self._charge(weights.nbytes)
+                weights = self._divided(self._astype(raw, "f4"), 255.0)
             elif raw.dtype == np.uint16:
-                weights = self._astype(raw, "f4") / 65535.0
-                self._charge(weights.nbytes)
+                weights = self._divided(self._astype(raw, "f4"), 65535.0)
             else:
                 weights = self._astype(raw, "f4")
             # **Renormalised, and a zero-sum vertex pinned to its first joint.**
@@ -1505,11 +1551,11 @@ class _Reader:
                 weights[dead] = 0.0
                 weights[dead, 0] = 1.0
                 total = weights.sum(axis=1, keepdims=True)
-            out.weights = weights / total
             # create-05 again: the renormalising division itself, run for
             # every vertex regardless of whether the dead-vertex branch above
-            # fired -- the second (or third) uncharged same-size copy.
-            self._charge(out.weights.nbytes)
+            # fired -- the second (or third) same-size copy (``weights / total``),
+            # charged first.
+            out.weights = self._divided(weights, total)
         # The 2026-09-26 audit, finding create-viewer-02 (+clay-io-03): a
         # glTF's accessor counts and component types are read on trust from
         # the file's own JSON. A NORMAL/TEXCOORD_0/JOINTS_0/WEIGHTS_0
@@ -1587,6 +1633,7 @@ class _Reader:
         # ``camera()``/``light()`` already do for their own sub-blocks.
         pbr = mat.get("pbrMetallicRoughness", {})
         pbr = pbr if isinstance(pbr, dict) else {}
+        self._lost_now = set()
         out = Material(
             name=_name(mat.get("name")),
             base_color_factor=_factor(
@@ -1616,7 +1663,22 @@ class _Reader:
         # discard neither decodes nor spends the byte budget (clay-28).
         wanted = self.texture_slots
         if "base_color" in wanted:
-            out.base_color = self.texture(pbr.get("baseColorTexture"))
+            # The 2026-10-09 audit's clay-39: the base-colour map is sampled
+            # through TEXCOORD_0 untransformed, so a reference on another UV
+            # set, or one carrying ``KHR_texture_transform``, drew its image
+            # on the wrong texels with no word. Counted as skipped, the same
+            # honest loss an unreadable image is.
+            base_ref = pbr.get("baseColorTexture")
+            if self._texture_needs_unsupported_mapping(base_ref):
+                # clay-112: counted by the image it would have drawn, so three
+                # materials asking for one atlas on another UV set are one
+                # lost texture, and ``skipped`` keeps its per-source meaning.
+                source = self._texture_source(base_ref)
+                key = source if source is not None else ("reference", len(self.lost_by_material))
+                self._lost_now.add(key)
+                out.base_color = None
+            else:
+                out.base_color = self.texture(base_ref)
             out.nearest = out.base_color is not None and self._nearest(
                 pbr.get("baseColorTexture")
             )
@@ -1628,7 +1690,42 @@ class _Reader:
             out.emissive = self.texture(mat.get("emissiveTexture"))
         if "occlusion" in wanted:
             out.occlusion = self.texture(mat.get("occlusionTexture"))
+        self.lost_by_material.append(frozenset(self._lost_now))
         return out
+
+    def _texture_source(self, ref: Any) -> int | None:
+        """The image source a texture reference points at, or ``None`` when the
+        reference is too malformed to say (read defensively: this runs for a
+        reference ``texture()`` is never going to be asked about)."""
+        if not isinstance(ref, dict):
+            return None
+        textures = self.gltf.get("textures")
+        index = ref.get("index")
+        if not isinstance(textures, list) or isinstance(index, bool):
+            return None
+        if not isinstance(index, int) or not 0 <= index < len(textures):
+            return None
+        tex = textures[index]
+        source = tex.get("source") if isinstance(tex, dict) else None
+        if isinstance(source, bool) or not isinstance(source, int):
+            return None
+        return source
+
+    @staticmethod
+    def _texture_needs_unsupported_mapping(ref: Any) -> bool:
+        """Whether a texture reference asks for a UV set or transform we ignore."""
+        if not isinstance(ref, dict):
+            return False
+        # The 2026-10-09 second audit's clay-112: a ``texCoord`` that is not an
+        # int (``0.0``, ``false``) returned from here before ``extensions`` was
+        # ever looked at, so a transformed map slipped through untransformed.
+        # Another UV set answers yes at once; whatever the value's type, the
+        # extension test below always runs.
+        coord = ref.get("texCoord", 0)
+        if isinstance(coord, (int, float)) and coord != 0:
+            return True
+        extensions = ref.get("extensions")
+        return isinstance(extensions, dict) and "KHR_texture_transform" in extensions
 
     def _nearest(self, ref: Any) -> bool:
         """Whether a base-colour texture reference points at a NEAREST sampler.
@@ -1759,7 +1856,6 @@ class _Reader:
         # truthy but not an object (``"normalTexture": 5``) reached
         # ``ref.get("index")`` as a bare AttributeError.
         _check_dict_entry(ref, "a material's texture reference")
-        from PIL import Image
 
         # The 2026-09-06 audit, finding clay-09: both lookups below indexed
         # straight into the file's own arrays with no bounds check, so a
@@ -1815,7 +1911,20 @@ class _Reader:
                 f"declares {len(images)} image(s)"
             )
         if source in self._images:
-            return self._images[source]
+            result = self._images[source]
+        else:
+            result = self._decode_image(source, images)
+        if result is None:
+            # See ``lost_by_material``: this material tried this source and
+            # could not use it, whether it was first lost here or earlier.
+            self._lost_now.add(source)
+        return result
+
+    def _decode_image(self, source: int, images: list) -> tuple[int, int, bytes] | None:
+        """Decode image *source* once (the body of :meth:`texture` past its
+        cache); a cosmetic loss is ``None`` and is counted in ``skipped``."""
+        from PIL import Image
+
         image = images[source]
         # The 2026-09-23 audit's clay-09: a non-dict ``images`` entry reached
         # ``_image_bytes``'s ``"bufferView" in image``/``.get(...)`` reads as
@@ -2097,7 +2206,7 @@ class _Reader:
             # compare against the original matrix: if a shear made the round
             # trip disagree, refuse the node instead of drawing it wrong.
             recomposed = m3.compose(t, rot, s)
-            if not np.allclose(recomposed, mat, atol=1e-4, rtol=1e-4):
+            if not recomposes_without_shear(recomposed, mat):
                 raise ValueError(
                     f"node {name!r} has a sheared matrix, which this viewer cannot "
                     "represent without silently distorting it"

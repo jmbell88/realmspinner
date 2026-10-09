@@ -127,6 +127,12 @@ def adjust(ctx: Any, doc: Any, **changes: float) -> AdjustResult:
     """
     from . import ops as clay_ops
 
+    # The 2026-10-09 second audit's clay-61: the Last action card undoes the op's
+    # step and re-runs it, which under a live G/R/S moves the history head out
+    # from under the gesture -- and ``run``'s own gate would only refuse the
+    # re-run *after* the undo had already happened. Shut before touching anything.
+    if clay_ops.gesture_live(ctx):
+        return AdjustResult(False, "Finish or cancel the drag first.")
     recent = doc.recent_op
     if recent is None or not recent.live(doc):
         return AdjustResult(False, "The model has changed since; run the operation again.")

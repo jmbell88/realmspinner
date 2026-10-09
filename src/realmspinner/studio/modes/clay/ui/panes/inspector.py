@@ -63,6 +63,7 @@ from .....tokens import sp
 from ... import doc_io, starter_colours
 from ... import mode as clay_mode
 from ... import ops as clay_ops
+from ...state import worn_slot
 from .. import inspector_actions, inspector_elements, inspector_size
 from . import outliner as clay_outliner
 from . import props, rail, swatches
@@ -425,7 +426,7 @@ def _model_card(ctx: Any, tab: Any, doc: Any) -> None:
 def _one(ctx: Any, state: Any, tab: Any, doc: Any, obj: Any) -> None:
     _title(ctx, "Selected shape")
     imgui.begin_disabled(bool(tab.saving))
-    _header_row(doc, obj)
+    _header_row(doc, obj, tab)
     inspector_size.draw(ctx, state, doc, obj)
     _settings(ctx, state, doc, obj)
     _colour_card(ctx, state, tab, doc, [obj.uid])
@@ -452,13 +453,28 @@ def _one(ctx: Any, state: Any, tab: Any, doc: Any, obj: Any) -> None:
     _more_actions(ctx, state, tab, doc, persist_key="clay/insp/more", default_open=False)
 
 
-def _header_row(doc: Any, obj: Any) -> None:
+def _dot_slot(doc: Any, obj: Any, tab: Any = None) -> int:
+    """The palette slot the header dot is filled with: the slot the Colours & textures
+    page edits (``ClayTab.edit_slot``), so the dot, the Colour card's outline and the
+    page name one slot (the 2026-10-09 second audit's clay-65 and clay-67). ``-1``
+    for an empty palette. A *tab* without the method (a test's stand-in) falls back to
+    what the faces wear."""
+    if not doc.materials:
+        return -1
+    pick = getattr(tab, "edit_slot", None)
+    if pick is not None:
+        return int(pick(doc, obj))
+    worn = worn_slot(doc, obj)
+    return worn if worn is not None else min(max(int(obj.material), 0), len(doc.materials) - 1)
+
+
+def _header_row(doc: Any, obj: Any, tab: Any = None) -> None:
     """The colour dot and the name, which is a field (rename in place).
 
     ``commit=True`` for the reason ``props._identity`` states: a rename is an undo
     step, and a step per letter is not a rename.
     """
-    slot = min(max(int(obj.material), 0), len(doc.materials) - 1) if doc.materials else -1
+    slot = _dot_slot(doc, obj, tab)
     colour = swatches._swatch_colour(doc.materials[slot]) if slot >= 0 else (0.5, 0.5, 0.5, 1.0)
     radius = sp(7.0)
     height = imgui.get_frame_height()
@@ -514,7 +530,10 @@ def _colour_card(
     the document's slot for it (``starter_colours.paint``); in Faces mode it paints
     the picked faces instead (``starter_colours.paint_faces``), and in Points and
     Edges mode, which have nothing to paint, the starters are not drawn at all. The
-    swatch the shapes already wear is outlined; a colour that is none of the eight
+    swatch the shape wears is outlined -- the one **every face** names, or the slot a
+    Ctrl+click chose to edit while that still holds (``ClayTab.shown_slot``; the
+    2026-10-09 second audit's clay-65 and clay-67) -- and nothing, with "Mixed" under
+    the grid, when its faces wear different slots; a colour that is none of the eight
     (an edited slot, a textured one) outlines a ninth, "custom" swatch instead, so
     the card never shows no answer to "what colour is it now?".
 
@@ -532,8 +551,10 @@ def _colour_card(
     mode = doc.element_mode
     saving = bool(tab.saving)
     imgui.begin_group()
+    mixed = False
     if uids:
-        current = _shared_slot(doc, uids)
+        current = _shared_slot(doc, uids, tab)
+        mixed = current is None and bool(doc.materials)
     else:
         current = (clay_mode.remembered_slot(ctx, doc) or 0) if doc.materials else None
     if mode in ("object", "face"):
@@ -541,7 +562,7 @@ def _colour_card(
     else:
         widgets.muted_wrapped(swatches.click_hint(doc))
     widgets.field_label("palette")
-    swatches.draw_slots(ctx, doc, current=current, saving=saving)
+    swatches.draw_slots(ctx, doc, current=current, saving=saving, mixed=mixed)
     imgui.end_group()
     anchors.mark("clay/palette")
     if edit_row:
@@ -592,8 +613,14 @@ def _starters(ctx: Any, tab: Any, doc: Any, uids: list[int], current: int | None
         )
 
 
-def _shared_slot(doc: Any, uids: list[int]) -> int | None:
-    """The one palette slot every shape in *uids* wears as its default, else ``None``.
+def _shared_slot(doc: Any, uids: list[int], tab: Any = None) -> int | None:
+    """The one palette slot every shape in *uids* wears, else ``None`` ("mixed").
+
+    A shape wears the slot **all its faces** name (``state.worn_slot``) -- not
+    ``Obj.material``, the default for the next face, which a face-painted shape does
+    not share (the 2026-10-09 second audit's clay-67). For exactly one shape, *tab*'s
+    live Ctrl+clicked slot wins (``ClayTab.shown_slot``), because that is the slot the
+    page edits and the card has to name the same one (clay-65).
 
     One pass over the document with the uids as a set. ``ClayDoc.by_uid`` is a
     linear scan, so asking it once per selected shape made this quadratic: a frame
@@ -602,9 +629,15 @@ def _shared_slot(doc: Any, uids: list[int]) -> int | None:
     if not doc.materials:
         return None
     wanted = set(uids)
-    top = len(doc.materials) - 1
-    slots = {min(max(int(obj.material), 0), top) for obj in doc.objects if obj.uid in wanted}
-    return next(iter(slots)) if len(slots) == 1 else None
+    shown = getattr(tab, "shown_slot", None) if len(wanted) == 1 else None
+    slots: set[int | None] = set()
+    for obj in doc.objects:
+        if obj.uid not in wanted:
+            continue
+        slots.add(shown(doc, obj) if shown is not None else worn_slot(doc, obj))
+        if len(slots) > 1:
+            return None
+    return next(iter(slots), None)
 
 
 def _action_row(ctx: Any, tab: Any, doc: Any) -> None:

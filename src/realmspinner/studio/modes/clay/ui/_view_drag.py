@@ -65,6 +65,34 @@ def _about(centre: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return back @ matrix @ to
 
 
+def _world_scale_on_local_axes(rotation: Any, factors: Any) -> np.ndarray | None:
+    """Per-world-axis scale *factors* as the object's own per-local-axis factors.
+
+    The 2026-10-09 second audit's clay-58: the gizmo and the HUD say ``X
+    (global)``, but the factor was multiplied straight into the object's local
+    scale, so a shape turned a quarter about Z stretched along world Y when
+    world X was asked for. A scale about a world axis is ``diag(f) @ R @ S``,
+    which is still a rotation times a scale only when ``R`` sends every local
+    axis onto a world axis -- a multiple of 90 degrees about each -- and then
+    the factor of the world axis a local axis lies along is that local axis's
+    factor, exactly. Any other turn makes it a shear a TRS cannot hold, so
+    this returns ``None`` and the caller refuses. A uniform factor commutes
+    with every rotation and is returned as it came.
+    """
+    f = np.asarray(factors, dtype="f8").reshape(3)
+    if float(np.ptp(f)) <= 1e-12:
+        return f
+    matrix = m3.quat_to_mat4(rotation)[:3, :3]
+    out = np.empty(3)
+    for local in range(3):
+        column = np.abs(matrix[:, local])
+        world = int(column.argmax())
+        if float(column[world]) < 1.0 - 1e-4:
+            return None
+        out[local] = f[world]
+    return out
+
+
 def _rotation_hud(quat: Any, entry: Any) -> str:
     """The angle a rotation drag currently amounts to, in degrees.
 
@@ -334,6 +362,7 @@ class DragOps:
             for uid in self._drag_uids
         }
         self._drag_quat = m3.quat_identity()
+        self._scale_axis_refused = False
         gizmo = self.active_gizmo(doc)
         origin = None if gizmo is None else getattr(gizmo, "origin", None)
         self._drag_origin = np.zeros(3) if origin is None else np.array(origin, dtype="f8")
@@ -353,7 +382,7 @@ class DragOps:
         ``self.app_ctx`` is optional (a headless view, which is most of this
         package's own test suite -- ``ClayView.state``'s own docstring states
         the same tolerance), so this checks for a ``toast`` method rather
-        than assuming one. Routed through :func:`~.clay.ops.toast` rather
+        than assuming one. Routed through :func:`~realmspinner.studio.modes.clay.ops.toast` rather
         than a bare ``ctx.toast(message, "error")`` written out here, since
         that is the one function every other refusal in this mode already
         goes through -- a second copy here is a second place its shape
@@ -547,11 +576,30 @@ class DragOps:
         parent's world matrix and its local placement by linear scans.
         """
         index = self._uid_index(doc)
+        refused = False
         for uid, was in self._drag_start.items():
             obj = index.get(uid)
             if obj is None:
                 continue  # deleted mid-drag
-            self._apply(doc, obj, was, delta, state, index)
+            if not self._apply(doc, obj, was, delta, state, index):
+                refused = True
+        if refused:
+            # All or none: a selection half-scaled because one member was
+            # turned off-axis is a document the user never asked for. Put
+            # every object back where the press found it, and say why once
+            # per drag rather than on every mouse-move.
+            for uid, was in self._drag_start.items():
+                obj = index.get(uid)
+                if obj is not None:
+                    obj.translation, obj.rotation, obj.scale = (
+                        np.array(v, copy=True) for v in was
+                    )
+            if not self._scale_axis_refused:
+                self._scale_axis_refused = True
+                self._toast(
+                    "Scale along a world axis needs an unrotated shape; use the Size "
+                    "card or unlock the axis."
+                )
         doc.touch()
 
     def _press_element(
@@ -805,6 +853,12 @@ class DragOps:
             drag.preview = None
             self._preview_positions(doc, uid, np.array(drag.before.positions, dtype="f4"))
         self._key_kind = kind
+        # The 2026-10-09 second audit's clay-123: a refused typed scale is a
+        # fact about the *scale* that was running, and S, a typed -1, then G
+        # committed the move with its "scaling refused" toast because nothing
+        # here cleared it. Whatever the new transform is, it starts unrefused.
+        self._element_scale_refused = False
+        self._scale_axis_refused = False
         self._key_anchor = self._view_plane_point(self._last_mouse, self._drag_origin)
         self._clear_drag_input()
         doc.touch()
@@ -942,7 +996,7 @@ class DragOps:
         worse than the extra presses: some parts moved and some not, a
         document the user never made. That is exactly the failure
         ``test_one_ctrl_z_puts_all_three_objects_back`` exists to prevent, and
-        ``clay_ops.run`` already answers it for ops with ``mark()`` /
+        ``run`` in ``studio/modes/clay/ops.py`` already answers it for ops with ``mark()`` /
         ``collapse_since()``. A drag is the same gesture and gets the same
         shape, labelled after the tool that made it.
 
@@ -1111,6 +1165,7 @@ class DragOps:
         from .....kernels.mesh.selection import _element_pickable
 
         self._element_drags = {}
+        self._element_scale_refused = False
         centre = self.element_centre(doc)
         self._element_centre = np.zeros(3) if centre is None else centre
         index = self._uid_index(doc)
@@ -1154,6 +1209,10 @@ class DragOps:
         # grid afterwards would move it off the answer the user just gave.
         snap = bool(getattr(state, "snap", False)) and not self.drag_input.active
         world = m3.identity()
+        # Refusal is a property of *this* frame's scale factors (clay-123): a
+        # move or rotate frame, and a scale frame that is positive again, must
+        # not inherit it.
+        self._element_scale_refused = False
         if isinstance(delta, np.ndarray) and delta.shape == (4,):
             if snap:
                 delta = ops.snap_rotation(delta, getattr(state, "snap_rotate", 0.0))
@@ -1161,6 +1220,18 @@ class DragOps:
             world = _about(centre, rotation)
         elif self._is_scale(state):
             factors = np.asarray(delta, dtype="f8").reshape(3)
+            # The 2026-10-09 audit's clay-10: a typed -1 on selected elements
+            # moved the positions but not the winding, so every face came out
+            # inside-out with no word said. The element path stands down for
+            # a negative factor -- the preview holds the shape as it began and
+            # the commit toasts -- and Mirror is the verb for a flip. Zero is
+            # *not* refused (the second audit's clay-81): it flattens the
+            # picked elements onto a plane and inverts nothing. (An object's
+            # own scale may go negative by design: that is a transform, not a
+            # mesh edit.)
+            self._element_scale_refused = bool((factors < 0.0).any())
+            if self._element_scale_refused:
+                factors = np.ones(3)
             scale = np.diag(np.append(factors, 1.0))
             world = _about(centre, scale)
         else:
@@ -1257,7 +1328,7 @@ class DragOps:
         object with no fold around the loop -- unlike ``_commit_drag``, its
         sibling on the object-transform path, which was given exactly this
         wrap for the same reason (see that method's docstring), and unlike
-        ``clay_ops.run_mesh_op``. A marquee or gizmo grab spanning several
+        ``run_mesh_op`` in ``studio/modes/clay/ops.py``. A marquee or gizmo grab spanning several
         visible objects otherwise cost one Ctrl+Z per object, with the same
         "some limbs moved and some not" state in between that the other two
         paths were fixed to prevent.
@@ -1275,6 +1346,12 @@ class DragOps:
         from .. import element_move
 
         drags, self._element_drags = self._element_drags, {}
+        if getattr(self, "_element_scale_refused", False):
+            self._element_scale_refused = False
+            self._toast(
+                "Scaling selected elements by a negative factor would turn their faces "
+                "inside out, so they were left as they were. Use Mirror to flip them."
+            )
         # ``commit_positions`` owns the fold and its ``try/finally`` (an
         # ``OpError`` escaping a ``set_mesh`` must not leave the undo stack's
         # gesture counter open); what stays here is the view's half -- evicting
@@ -1393,7 +1470,7 @@ class DragOps:
         delta: Any,
         state: Any,
         index: dict[int, Any] | None = None,
-    ) -> None:
+    ) -> bool:
         """One object's transform under the live drag, written in **local** space.
 
         **A rotate and a scale orbit the pivot, not the object's own origin**,
@@ -1455,7 +1532,13 @@ class DragOps:
         before_t, before_r, before_s = m3.decompose(before_world)
 
         if isinstance(delta, np.ndarray) and delta.shape == (3,) and self._is_scale(state):
-            world_s = before_s * delta
+            # The 2026-10-09 second audit's clay-58: the factors are per *world*
+            # axis; see :func:`_world_scale_on_local_axes`. -> ``False`` (and
+            # nothing written) for a turn that cannot express them.
+            local = _world_scale_on_local_axes(before_r, delta)
+            if local is None:
+                return False
+            world_s = before_s * local
             world_t = pivot + (before_t - pivot) * np.asarray(delta, dtype="f8")
             world_r = before_r
         elif isinstance(delta, np.ndarray) and delta.shape == (4,):
@@ -1491,6 +1574,7 @@ class DragOps:
             else:
                 t, r, s = m3.decompose(inverse @ world_target)
         obj.translation, obj.rotation, obj.scale = t, r, s
+        return True
 
     def _is_scale(self: ClayView, state: Any) -> bool:
         # The 2026-10-03 audit's clay-19: a keyboard drag is what its *key*

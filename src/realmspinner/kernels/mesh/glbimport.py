@@ -38,13 +38,13 @@ will do with it.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 import numpy as np
 
 from ..geom3d import glbio, gltf
 from ..geom3d import math3d as m3
+from . import mesh as bm
 from . import topo
 from .document import ClayDoc, Obj, new_uid, reduce_material
 from .elements import OpError
@@ -345,9 +345,14 @@ def skipped_textures_notice(skipped: int) -> str | None:
     if skipped <= 0:
         return None
     noun = "texture" if skipped == 1 else "textures"
+    # The 2026-10-09 second audit's clay-112: since the 2026-10-09 audit's
+    # clay-39 a base-colour map on another UV set or under a
+    # KHR_texture_transform is counted too, and this sentence still blamed only
+    # the image.
     return (
         f"{skipped} {noun} in this GLB could not be used (unreadable, an "
-        "unsupported image format or too large) and came in without it."
+        "unsupported image format, too large, on a second UV set or with a "
+        "texture transform) and came in without it."
     )
 
 
@@ -371,7 +376,9 @@ def glb_to_claydoc_report(data: bytes, name: str = "Imported") -> tuple[ClayDoc,
     (``Model.skipped_textures``) but this module returned only the document, so
     an import that came in untextured gave no hint why. The count is of image
     *sources* the base-colour slot (the only one Clay keeps) tried and could
-    not use; show it with :func:`skipped_textures_notice`.
+    not use; show it with :func:`skipped_textures_notice`. Only materials some
+    primitive places are counted, and an image shared by several of them is one
+    lost texture (the 2026-10-09 second audit's clay-112).
     """
     # Checked from the file's own declared numbers before a single accessor is
     # decoded (H01): the budget below re-checks the *real* counts after
@@ -508,8 +515,18 @@ def _object_for(
     # the real matrix straight into the mesh's own vertices instead, which
     # loses nothing: this module stores no per-vertex normal for a transform
     # to invalidate, and every reader derives one from the baked geometry.
-    if not np.allclose(m3.compose(translation, rotation, scale), node.world, atol=1e-4, rtol=1e-4):
-        mesh = replace(mesh, positions=np.ascontiguousarray(placed, dtype="f4"))
+    # clay-24 (the 2026-10-09 audit): the tolerance follows the matrix's own basis,
+    # so a shear composed under a tiny parent scale is baked, not dropped.
+    #
+    # The 2026-10-09 second audit's clay-75: the bake used to be a hand-made
+    # ``replace(mesh, positions=...)``, which never reversed the loops, so a
+    # node whose composed world matrix had shear *and* a negative determinant
+    # (a mirrored child under a non-uniformly scaled parent) came in with every
+    # face inside-out. ``bm.transformed`` is the one bake: positions through the
+    # matrix in float64 and, on a negative determinant, the loops (and their
+    # UVs) reversed -- the rule ``ops.bake_transform`` already follows.
+    if not gltf.recomposes_without_shear(m3.compose(translation, rotation, scale), node.world):
+        mesh = bm.transformed(mesh, node.world)
         translation, rotation, scale = m3.vec3(), m3.quat_identity(), m3.vec3(1.0, 1.0, 1.0)
     elif not np.any(scale):
         # The 2026-10-07 audit's clay-01: a node whose world scale is zero --

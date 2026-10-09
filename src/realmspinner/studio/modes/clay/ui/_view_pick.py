@@ -144,7 +144,7 @@ class PickOps:
     ) -> Any:
         """One object's vertices projected into the viewport, for element picking.
 
-        Built here rather than in ``clay/pick.py`` because it is the only step
+        Built here rather than in ``kernels/mesh/pick.py`` because it is the only step
         that needs the camera; everything the picking rules actually decide is
         pure numpy over what this returns.
 
@@ -276,7 +276,7 @@ class PickOps:
         return None if best is None else (best[1], best[2])
 
     def element_sel_for(self: ClayView, doc: Any, uid: int, index: int) -> Any:
-        """One picked element as an :class:`~.clay.elements.ElementSel`."""
+        """One picked element as an :class:`~realmspinner.kernels.mesh.elements.ElementSel`."""
         from .....kernels.mesh import elements as el
         from .....kernels.mesh.adjacency import adjacency
 

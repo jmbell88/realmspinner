@@ -132,11 +132,11 @@ Every operation Clay has is in three places, and all three are drawn from one ta
 greyed-out reason or a dialog of numbers cannot differ between them:
 
 - **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in
-  groups — Transform, Set Origin, Mirror, Parent, Shading, Separate, UV — with **Duplicate** and **Delete** as rows
-  of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None, Invert Selection and
-  Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset, bevel, merge faces,
-  weld, flip, triangulate, subdivide and Delete, with Set Origin to Selection and, in face mode, Shading and Separate
-  Selection behind folds of their own. See [The inspector](#the-inspector).
+  groups — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Separate, UV — with **Duplicate**
+  and **Delete** as rows of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None,
+  Invert Selection and Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset,
+  bevel, merge faces, weld, flip, triangulate, subdivide and Delete, with Set Origin to Selection and, in face mode,
+  Shading and Separate Selection behind folds of their own. See [The inspector](#the-inspector).
 - **The right-click menu** in the viewport lists exactly the operations that apply in the current mode, in the
   same order, with the groups separated by rules.
 - **`Ctrl`+`K`**, the command palette, lists all of them under a **Clay** heading (below).
@@ -150,8 +150,8 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has thirty-nine operations, and every one is in the right-click menu except Frame
-Selection, which lives in the toolbar's View popover:
+That is the whole list. Clay has thirty-nine operations, and every one is in the right-click menu, Frame
+Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
 | --- | --- |
@@ -310,9 +310,15 @@ mode has no box select.
 
 Right-click opens the context menu, listing exactly the operations that apply in the current mode
 with the ones that cannot run greyed out. The same table drives the Inspector's action buttons and the
-palette's rows, so none of them can offer something another refuses. Operations that take a number — inset, weld, assign
-material, merge objects, snap to grid, mirror copy, pack islands — open a small dialog with the fields and an
-**Apply** button, and remember what you last used.
+palette's rows, so none of them can offer something another refuses. Operations that take a number — inset, bevel,
+weld, assign material, merge objects, snap to grid, mirror copy, pack islands — open a small dialog with the fields
+and an **Apply** button, and remember what you last used.
+
+Distances in the Inset, Weld, Bevel and Extrude-offset fields are world metres. Clay divides them by the object's own
+scale before applying them, so `0.1 m` is 10 cm on screen whatever the object's scale. For a non-uniform scale the
+geometric mean of the three axes is used. An object with a zero scale refuses the distance. An element operation
+on several objects that would take the document past its size ceilings is refused as a whole: no object is changed and
+no undo step is recorded.
 
 `Ctrl+A` selects everything in the current mode's sense of everything, `Ctrl+Shift+I` inverts it, and
 `Esc` steps back: first it closes an Inspector page if one is open, then it drops the picks, then it leaves
@@ -352,13 +358,13 @@ a box and `L` between them reach what a low-poly model needs.
 | --- | --- | --- |
 | Any | Extrude (`E`) | Pulls the selection off the surface and walls in the gap, then starts dragging what it made — along the face normal in face mode, free in edge and vertex mode. |
 | Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. With *treat selection as one region* on, the cap's texture shrinks with the geometry and the rim gets the band of texture between the old edge and the new one, as a per-face inset always did. |
-| Edges | Bevel Edges... (`Ctrl+B`) | Replaces each selected edge with a flat strip the width you give and rebuilds the corners where beveled edges meet: bevel one edge of a box and the face opposite becomes a pentagon, bevel all twelve and the box has 26 faces. One flat segment, not a rounded profile, and a bevel wider than the feature it sits on is clamped rather than turned inside out. The key starts a drag for the width. An edge on a boundary, or one that three faces share, is refused with the reason, and so is a width of zero or less; so is a selection that touches more than 10,000 corners (half that on a mesh with UVs), which would freeze the window. |
+| Edges | Bevel Edges... (`Ctrl+B`) | Replaces each selected edge with a flat strip the width you give and rebuilds the corners where beveled edges meet: bevel one edge of a box and the two faces at that edge's ends become pentagons, bevel all twelve and the box has 26 faces. One flat segment, not a rounded profile, and a bevel wider than the feature it sits on stops just short of the middle of each edge it slides along, so it flattens the feature without folding it or leaving two corners on one point. The key starts a drag for the width; a width typed below 0.001 m is raised to 0.001 m. An edge on a boundary, or one that three faces share, is refused with the reason; so is a selection that touches more than 10,000 corners (half that on a mesh with UVs), which would freeze the window. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
 | Faces | Triangulate Faces (`T`) | Replaces each selected face with its own triangles. |
 | Faces | Merge Faces | Merges a connected block of selected faces into one n-gon. |
-| Points | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. |
+| Points | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. A weld of more than 20,000 vertices at once (a big mesh with every point selected) takes a faster, rougher pass. It sorts the points into cells the size of the distance and keeps a point only if it is within half the distance of its cell's centre. It never welds a pair farther apart than the distance, but it can leave a closer pair apart: in a test, 792 of 2,000 pairs at half the distance welded, against all 2,000 below the limit. Weld a smaller selection to get the exact search. |
 
 An operation that cannot do what you asked says so in a toast naming the element and what to do
 instead, and changes nothing. Those are refusals, not failures: the alternative is geometry that
@@ -382,7 +388,8 @@ the dialog at that value, and the **Last action** card appears afterwards so the
 `Esc` or a right-click cancels, and since nothing is written until the commit the document is exactly as
 it was — not even a redraw's worth of change in the history. **Type a number** (`0.1`, then `Enter`) and
 the pointer stops mattering: the value is exactly what you typed. A value the operation refuses is
-named beside the cursor and the last good picture stays on screen.
+named beside the cursor, and an object that refuses the value is drawn as it is in the document, so the picture always
+matches what `Enter` would commit. Inset needs a thickness or a depth; both zero is refused.
 
 A click on the same row in the right-click menu or the palette still opens the dialog, which is the way to give
 several numbers at once or to pick a value you would rather not find with the mouse.
@@ -491,9 +498,15 @@ Model & history page are the same table.
 ### Moving without a handle
 
 `G` moves the selection, `R` rotates it and `S` scales it, with no handle grabbed: the drag follows the
-pointer until you click to commit or press `Esc` to put it back. Every transform in Clay used to go
+pointer until you click to commit or press `Esc` to put it back. In Points, Edges or Faces a negative scale
+factor (a typed `-1`) is refused, because it would turn the picked faces inside out; use Mirror to flip
+them. A typed `0` is allowed and flattens the picked elements onto a plane. Every transform in Clay used to go
 through grabbing a coloured arrow, which means finding it, which means never moving an object without
 first looking at the gizmo rather than at the model.
+
+Scaling a whole object along one axis (a handle, or `X`/`Y`/`Z` then a number) scales along that world axis. For a
+shape turned in whole quarter-turns that is exact; for any other turn Clay refuses with a message, so use the Size
+card or unlock the axis. A uniform scale always works.
 
 `G`, `R` and `S` also switch which transform a *running* drag is doing — "move it; no, turn it" is one
 gesture rather than a cancel and a restart. The objects go back to where they started first, so a
@@ -530,20 +543,22 @@ already dragging, and the size of a uniform scale.
 
 Several operations act on the whole selection at once, and all of them are one undo step however
 many objects or copies they touch. **Duplicate** (`Ctrl+J`) makes a copy under a new name, counting
-up — `Box`, `Box.001`, `Box.002`.
+up — `Box`, `Box.001`, `Box.002`. Duplicating or mirror-copying a group copies its children too; the copies sit under
+the copied group.
 
 **Drop to Ground** rests each selected object's own world box on `y=0`, one at a time rather than as a
 group, so an object already on the ground and one floating three metres up both land correctly in the
 same press. It reads the geometry's box, not the pivot, so a barrel authored with its pivot at the
 middle no longer floats half its height in the air. **Snap to Grid...** rounds every selected
-object's world position onto a grid of the given step, each axis independently — unlike **Snap**
-below, this acts once on whatever is already selected rather than following a live gizmo drag.
+object's world position onto a grid of the given step (at least 0.001 m; a smaller value is refused), each axis
+independently — unlike **Snap** below, this acts once on whatever is already selected rather than following a live
+gizmo drag.
 
 ## The outliner
 
 The outliner is **All shapes (N)**, the section docked at the foot of the [Inspector](#the-inspector), with the
 number of shapes in the document in its name. Closed, it is a single header row; click the row to open it, and
-click it again to close it. Open, it takes a fixed share of the column (about two fifths, never fewer than five
+click it again to close it. Open, it takes a fixed share of the column (about a quarter, never fewer than four
 rows, and never so much that the Inspector above it is squeezed past a few cards), and the Inspector's own body
 scrolls in what is left. The list does not move or change size when you pick a different shape or the Inspector
 changes what it shows, so the row under the pointer is the row you clicked: that is what makes `Ctrl`-click and
@@ -563,7 +578,9 @@ be clicked in the viewport. **Solo** above the list hides everything *except* wh
 All three are on the keyboard too: `H` hides the selection, `Shift`+`H` isolates it (the same as Solo)
 and `Alt`+`H` shows everything again. Hiding clears the selection, since a hidden object is no longer
 something you can act on; the eye and the visibility box do the same, and `Ctrl+Z` on a hide shows the object
-again without selecting it. A hidden object is skipped by drags and by element operations all the same.
+again without selecting it. A hidden row in the outliner cannot be selected: clicking or right-clicking it leaves the
+current selection as it is, and its Duplicate is greyed. Show the object with the eye first. A hidden object is skipped
+by drags and by element operations all the same.
 In an element mode `H` hides the shape being edited and leaves the mode on with nothing being edited, until
 you click an element of another shape.
 `Alt` plus any other letter, digit or `Delete` does nothing in Clay: only `Alt`+`H` and `Alt`+`Z` (X-ray) are
@@ -602,7 +619,7 @@ so what you can do to the thing in front of you is always in front of you. Its b
 | Nothing | **What do you want to make?**: four shape cards, a **More shapes** list, **Next shape's colour**, and the **Model** card |
 | One shape | Its name and colour, then **Size**, **Shape settings** (when it has any), **Colour**, **Duplicate** and **Delete**, and three closed folds |
 | Several shapes | **Colour**, **Duplicate** and **Delete**, and the actions for several shapes; no size |
-| Points, edges or faces | **Editing points** (or edges, or faces) with a **Done** button, then a **Select** row, what is picked and its median, **Shape it**, and, right after an operation with numbers, **Last action** |
+| Points, edges or faces | **Editing points** (or edges, or faces) with a **Done** button, then a **Select** row, what is picked and its median, **Shape it**, right after an operation with numbers **Last action**, and the **Colour** card |
 
 **With nothing selected** the panel is the first screen of a model. The four cards place a Box, Cylinder, Sphere or
 Cone exactly as the rail's buttons do, **More shapes** lists every other shape, **Next shape's colour** is the
@@ -625,7 +642,9 @@ press `Enter`), and the colour it wears. Under that:
   paints the shape (or every selected shape) in that colour, **finding the slot in the document's palette that
   already holds the colour or adding one named after it**, all as one undo step. The eight exist only in the
   panel: a new document still has exactly one grey slot, and a slot appears in the palette only when a
-  click asks for it. The swatch the shape already wears is outlined, and a colour that is none of the
+  click asks for it. The swatch the shape wears is outlined: the slot every face of it names, or the one you last
+  Ctrl+clicked while the shape still wears what it did then. A shape whose faces wear different slots outlines
+  nothing, and the line under the palette says Mixed. A colour that is none of the
   eight (one you edited, or a textured slot) outlines a ninth swatch in its own colour instead. Under the
   eight is **the palette itself**: every slot of the document, in order, the ones the eight made among
   them, and a **+** that adds a grey slot and paints the shape with it (see
@@ -691,6 +710,8 @@ so the three never disagree:
   right under its button with an **Apply**, remembers the values for next time, and counts as one undo step.
 - **Last action**, described under [Adjusting the last operation](#adjusting-the-last-operation-and-repeating-it),
   appears under **Shape it** while an operation's numbers are still live.
+- **Colour** is the same card as in Shape mode, under Last action: in Faces mode a swatch paints the picked
+  faces, and in Points and Edges mode it holds only the palette.
 
 Below them, **Colours & textures** and **Texture mapping** open those pages for the shape being edited: painting a
 face and laying out an island are what an element mode is for.
@@ -712,8 +733,9 @@ make a loop is refused and says so.
 what you selected, with everything parented to it. If you select an object and something already
 parented to it, only the topmost of them is parented to the empty, so the hierarchy below it stays as
 it was. The empty has no geometry of its own — it draws
-nothing and exports as a bare node — so it is purely a handle for moving a set of things as one.
-**Ungroup** dissolves it and leaves the children where they stand.
+nothing and exports as a bare node — so it is purely a handle for moving a set of things as one. Drop to Ground,
+Mirror, Origin to Bounds or Base, Box Unwrap, Recalculate Normals and Shade Smooth or Flat tell you so when only groups
+are selected. **Ungroup** dissolves it and leaves the children where they stand.
 
 Deleting a parent never takes its children with it: they attach to the parent's own parent, keeping
 their place in the world.
@@ -760,7 +782,9 @@ every vertex, which is the honest answer for parts that are meant to stay separa
 object. The distance means the same thing whatever the survivor is scaled to: 1 mm is 1 mm on the
 ruler, not 1 mm in whatever units the survivor's own transform happens to work in. The distance is limited
 to 50 m, and a distance big enough to leave the merged object with no faces at all is refused, naming the
-distance. Merging objects that have no geometry is refused with "There is nothing to merge".
+distance. When the merged object has more than 20,000 vertices the weld uses the same faster pass as Weld in
+Points mode: it never joins vertices farther apart than the distance, but it can leave some closer pairs apart.
+Merging objects that have no geometry is refused with "There is nothing to merge".
 
 The weld is applied to the **whole merged result**, not only where the shapes meet. That is what
 lets three objects touching at one point come out joined, and it costs nothing for ordinary work —
@@ -859,8 +883,9 @@ grid.
 Every primitive comes with texture coordinates already on it — a box's six faces projected onto one
 square, a cylinder's band with its two caps tucked into the corners, a sphere laid out pole to pole,
 a torus wrapped both ways. The round shapes (cylinder, cone, sphere, torus, capsule and the like) are laid out so that
-no two parts of one shape sit on top of each other in the square. The flat-panelled ones — box,
-wedge, ramp, rounded box, stairs, wall and doorway — and the icosphere are box-projected instead:
+no two parts of one shape sit on top of each other in the square. The icosphere is laid out pole to pole
+too, but a few of its triangles near the poles and the seam do overlap. The flat-panelled ones — box,
+wedge, ramp, rounded box, stairs, wall and doorway — are box-projected instead:
 faces that point opposite ways share the same square on purpose, which paints well and is what a
 picoCAD-style texture wants.
 
@@ -875,8 +900,10 @@ so a texture applied to a box appears on both the front and the back (mirrored, 
 the right way round on each). Texture coordinates follow the glTF convention: the first row of your
 picture is the top of the texture (v = 0), so a picture painted with red along its top edge has red along
 the top of every upright wall, the two side walls included. Documents saved before this was settled keep
-the layout they were saved with; Box Unwrap, or rebuilding a generated shape, writes the current one.
-And unwrapping does not freeze a generator: coordinates are not geometry, so an unwrapped box is still a
+the layout they were saved with; Box Unwrap writes the current one. A generated shape keeps its stored layout when you
+edit its settings without changing its face count, so after resizing a textured box press Box Unwrap again to restore
+an even texel density; a settings change that adds or removes faces (more segments, say) writes the shape's own
+current layout. And unwrapping does not freeze a generator: coordinates are not geometry, so an unwrapped box is still a
 box and editing its size still rebuilds it.
 
 Clay does not paint a texture itself. The layout is for a picture you draw in [Inker](28-inker.md)
@@ -914,7 +941,11 @@ with the same filtering as in the viewport: hard texels for a crisp texture.
 outward. It works on whole objects rather than selected faces, because which way a face should point is
 a property of the shell it belongs to, and a handful of selected faces is not a shell. It is for
 imported meshes and hand-edited ones; every primitive already comes out facing outward, and an object
-that needs nothing is left exactly as it was, generator and all, and nothing is said about it. For a
+that needs nothing is left exactly as it was, generator and all, and nothing is said about it. A closed
+shell wound inward that sits inside another closed shell is read as the wall of a hollow and left facing into the
+hollow; the one thing this cannot tell apart is an inside-out shell that touches the wall that encloses it, so use
+**Flip Normals** there. A selection with more corners than one press can process without stalling is refused, and that
+corner ceiling applies to the whole selection, not each object. For a
 few faces that are wrong, **Flip Normals** in face mode is the sharper tool.
 
 ![The Colours & textures page: the Stone slot with its base colour, flags and texture](img/30-clay-material.png)
@@ -934,7 +965,9 @@ normal or occlusion map to set.
 one — but only a slot no face is using, and the panel says how many faces are in the way when it will not.
 Reassigning those faces to some other slot is the alternative, and it is a silent change to how part of the model
 looks. A slot is an index that every face names, so adding always appends rather than inserting; removing one
-renumbers the slots above it, and an undo puts the numbering back.
+renumbers the slots above it, and an undo puts the numbering back. Removing a colour you Ctrl+clicked, which the
+shape does not wear, leaves the shape's own default colour alone; only removing the colour it wears points it at the
+nearest one left.
 
 **Double-sided** is for a surface an engine should not cull from behind, and **cutout** makes the
 texture's transparent pixels see-through. The base-colour texture is made, painted and cleared as
@@ -976,10 +1009,12 @@ The **Colour** card in the Inspector is where you paint, in every state the Insp
 one swatch per slot of the document's palette, wrapped to the width of the column, a textured slot marked by a
 small triangle in its corner, and the slot's number and name on hover and on the line beneath. The **+** after
 the last swatch adds a grey slot and uses it, as one undo step: it paints what a click would paint, and **Edit
-colour** below it changes the grey. The outlined swatch is the slot the Colours & textures page edits, which is
-also the object's default slot. A palette longer than three rows scrolls inside the card rather than pushing the
-cards below it away; a new document is not given a palette it did not ask for. What a click does depends on
-the mode:
+colour** below it changes the grey. The outlined swatch is the slot the Colours & textures page edits: the one every
+face of the shape wears, or the one you last Ctrl+clicked until you paint the shape, add or remove a slot or undo a
+repaint, which hands the page back to what the shape wears. A shape whose faces wear different slots outlines nothing
+and says Mixed under the grid; the page then edits the slot its next face would get. A palette longer than three rows
+scrolls inside the card rather than pushing the cards below it away; a new document is not given a palette it did not
+ask for. What a click does depends on the mode:
 
 - **Object mode, objects selected** — a click repaints each selected object: its default slot and every
   one of its faces move to that slot, as one undo step however many objects are selected. **Ctrl**+click, which
@@ -992,7 +1027,8 @@ the mode:
   step). The right-click menu's **Assign Material...** (the Mesh group) does the same from the menu: it asks for
   the slot's number, counting from 0 along the palette. It has no key.
 - **`Ctrl`+click**, in any mode, paints nothing. It only makes that slot the one the Colours & textures page
-  edits, which is the way to reach another slot's colour and texture while a face selection is up. A
+  edits until the shape is repainted, which is the way to reach another slot's colour and texture while a face
+  selection is up. A
   plain click with no face selected in face mode does the same.
 - **Vertex and edge mode** — the eight named swatches are not drawn, because there is nothing to paint. A click
   on a slot only makes it the one the fields edit; switch to face mode to paint faces.
@@ -1083,7 +1119,8 @@ the file.
 `Ctrl+S` saves the document as a `.rblk` — a zip holding `scene.json` (the objects, their
 transforms, their generator parameters and the palette) plus one compressed mesh per object. The
 JSON half is sorted and indented so it is readable and diffable, and two saves of an unchanged
-document produce byte-identical files.
+document produce byte-identical files. Save and Save As wait while a move, rotate or scale is still live; finish or
+cancel it first.
 
 A saved document keeps every object's identity, so a reopened or crash-recovered document never
 reissues an object's id; its undo history is not saved, and a reopened document starts with none. It
@@ -1130,19 +1167,26 @@ too), with a line naming the last file written. There is no separate file panel.
 **Export to the library** puts the *exact* geometry in the library as an ordinary asset. It is a
 finished model row from the moment it lands, so it inherits everything the rest of the app does to a
 mesh: rigging, posing, sprite sheets, the triangle retarget, and the STL, OBJ, FBX, collision and
-texture exports. Use it when the shape you modelled is the shape you meant.
+texture exports. Use it when the shape you modelled is the shape you meant. If you switch to another tab while an
+Export to library is running, the new card appears without a thumbnail.
 
 **Export GLB** and **Export OBJ** write the document straight to a file you choose, for handing to
 another tool. OBJ writes a `.mtl` of the same name beside it with each material's colour and, for
 each used material that has a base-colour texture, a `map_Kd` line naming a PNG the export writes
 next to the `.obj` and `.mtl`, named after the OBJ with the slot's number added (`barrel_2.png`, so two
 materials never collide). The name is a bare file name, like the `.mtl`'s own, so the three files move
-together as long as they stay in one folder. A textured material's `Kd` is white, since its colour is
-in the picture. The OBJ is in Clay's own axes and metres — a plain OBJ, with no engine profile and no
+together as long as they stay in one folder. A textured material's `Kd` is still its colour tint, which a
+viewer multiplies with the picture. An OBJ carries each material's colour and base-colour picture and nothing else: a
+cutout (alpha-tested) or double-sided material leaves as a plain opaque, single-sided one, so export a GLB to keep
+those. The OBJ is in Clay's own axes and metres — a plain OBJ, with no engine profile and no
 axis or scale conversion — and a GLB is likewise written as it is, carrying the textures inside it.
-An OBJ export writes its `.obj`, `.mtl` and PNGs together or not at all, and it never replaces a file
-it did not write: if `barrel.mtl` or `barrel_2.png` already exists beside the `.obj` and is not a
-previous Clay export, the export is refused by name before anything is written.
+An OBJ export prepares every file before it replaces any, so a failure while encoding leaves your
+folder untouched; the files are then put in place one at a time, PNGs first and the `.obj` last, so a
+crash or a full disk in that last moment can leave some of them written and others not. It never
+replaces a file it did not write: if `barrel.mtl` or `barrel_2.png` already exists beside the `.obj` and is not a
+previous Clay export, the export is refused by name before anything is written. Exporting an OBJ again under the same
+name removes the texture files the earlier export wrote and the new one no longer needs; it never touches a file Clay
+did not name in its own material library.
 None of them touches the library, and none counts as saving the document. There is no `.blend` export:
 Clay no longer hands anything to Blender.
 
@@ -1203,8 +1247,9 @@ one vertex, which is exactly what the exporter split produced. Smoothing is a he
 corner normals agree with its own geometric normal was flat-shaded, and one where they do not was
 smooth. A material that arrives with an imported asset keeps its colour and its base-colour texture
 (crisp if the file's sampler says NEAREST) and nothing else; the other maps are dropped on the way in.
-A texture Clay cannot use (unreadable, not PNG, JPEG or WebP, or larger than 4096 × 4096) is skipped, and
-the import says how many. An import scale must be a positive number.
+A texture Clay cannot use (unreadable, not PNG, JPEG or WebP, larger than 4096 × 4096, on a second UV set, or
+carrying a texture transform) is skipped, and the import says how many; a picture shared by several materials counts
+once, and a material nothing in the file uses counts for nothing. An import scale must be a positive number.
 
 Two things are refused rather than half-done. A **rigged** GLB, because Clay has no skinning and
 editing it would drop the rig; open it in Create instead. And a mesh past two million triangles,

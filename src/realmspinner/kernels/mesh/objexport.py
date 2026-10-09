@@ -167,6 +167,15 @@ def claydoc_to_obj(
         # this format cannot express.
         baked = ops.bake_transform(obj, world=doc.world_matrix(obj.uid))
         mesh = baked.mesh
+        # The 2026-10-09 audit's clay-26: an object placed past float32's range
+        # baked to ``inf``, and ``%.9g`` wrote it as ``v inf`` -- a file Clay's
+        # own importer refuses. Refused by name here, as ``write_glb`` refuses
+        # a non-finite vertex bound.
+        if not np.isfinite(np.asarray(mesh.positions)).all():
+            raise ValueError(
+                f"OBJ export refuses object {obj.name!r}: its placement bakes to a "
+                "non-finite position (too large for float32)."
+            )
         n_faces = bm.face_count(mesh)
         if n_faces == 0:
             continue

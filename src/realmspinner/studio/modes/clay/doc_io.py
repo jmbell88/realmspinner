@@ -1,4 +1,4 @@
-"""What the Document tab says about a document, and what it may send out.
+"""What the Inspector's Model & history page says about a document, and what it may send out.
 
 The facts, the import choices and the export sentences that the old bridge pane
 held when the right column had a third pane for them. The pane is gone (the
@@ -6,8 +6,8 @@ column is the Inspector alone now, with the outliner docked in it, and these are
 drawn by the Inspector's Model card and Model & history page); the **data and the
 pure functions** came here, to the mode root, because they are not drawing -- they
 are claims a test can check without a frame (a count is a number, an export refusal
-is a sentence), and the Document tab, the File menu and the tests all read them from
-one place.
+is a sentence), and that page, the header, the File menu and the tests all read them
+from one place.
 
 No imgui, no GL: ``tests/test_layering.py`` keeps the mode root free of both.
 """
@@ -21,8 +21,8 @@ from ....kernels.geom3d import units
 #: Scale choices for "Import Mesh...", key is the multiplier ``import_file``
 #: takes -- a unit a modeller actually authors in, never a bare number a user
 #: would have to already know the conversion for.
-#: Keys are ``f"{value:g}"`` of the multiplier itself -- what the Document tab
-#: formats ``state.import_scale`` as to look the option up, so the two can
+#: Keys are ``f"{value:g}"`` of the multiplier itself -- what the Model & history
+#: page formats ``state.import_scale`` as to look the option up, so the two can
 #: never drift into two different spellings of the same number.
 IMPORT_SCALE_OPTIONS = units.scale_options()
 IMPORT_UP_OPTIONS = (("y", "Y up"), ("z", "Z up"))
@@ -118,17 +118,30 @@ def model_counts_line(doc: Any) -> str:
     )
 
 
-def outputs_why(doc: Any, saving: bool) -> str:
+#: The sentence for a live G/R/S, gizmo or UV drag. One string for the palette
+#: rows (``palette._CLAY_GESTURE_WHY`` says the same words) and the buttons.
+GESTURE_WHY = "Finish the drag in progress first (Enter or click to commit, Esc to cancel)."
+
+
+def outputs_why(doc: Any, saving: bool, gesture: bool = False) -> str:
     """Why the output buttons are refused right now, or ``""`` when they are not.
 
     One sentence for every output button, because they are refused for the
-    same two reasons and a user reading two different explanations of one state
-    would look for two different problems. A plain function of a document and a
-    bool so it can be asserted without imgui -- panes cannot be driven
+    same few reasons and a user reading two different explanations of one state
+    would look for two different problems. A plain function of a document and
+    two bools so it can be asserted without imgui -- panes cannot be driven
     headlessly, but the sentence a button greys with can still be a pure answer.
+
+    ``gesture`` is ``clay_mode._gesture_live(ctx, tab)``: the 2026-10-09 second
+    audit's clay-120 -- the first audit's clay-13 made every export door refuse
+    under a live drag, but this function had no arm for it, so the Inspector's
+    and the header's buttons stayed enabled and did nothing when pressed. It
+    defaults to ``False`` so a caller that has no gesture to report keeps working.
     """
     if saving:
         return "Saving..."
+    if gesture:
+        return GESTURE_WHY
     if not any(obj.visible for obj in doc.objects):
         return "Nothing visible to send -- every object is hidden."
     return ""

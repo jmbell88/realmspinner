@@ -128,8 +128,14 @@ def test_uv_pane_does_not_recompute_overlap_on_every_frame_of_a_drag(
             f"it was called {len(calls)} times across 1 pre-drag + 3 drag frames"
         )
 
+        # The move wrote new uv, so measuring resumes. (Since the 2026-10-09 audit's
+        # clay-21 the memo keys on uv/loops/starts, so a fresh mesh object with the
+        # *same* layout is rightly reused; what must re-measure is a uv edit.)
         view_state.drag_mode = ""
-        obj.mesh = _two_island_mesh()
+        base = _two_island_mesh()
+        obj.mesh = bm.Mesh(
+            base.positions, base.loops, base.starts, base.material, base.smooth, base.uv * 0.5
+        )
         frame()
         assert len(calls) == 2, "and resumes once the drag ends"
 

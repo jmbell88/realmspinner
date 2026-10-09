@@ -656,7 +656,16 @@ class TasksMixin:
             from ..modes.clay import mode as clay_mode
 
             clay_mode.on_task_done(ctx, done)
-            if isinstance(done.result, dict) and done.result.get("exported"):
+            if (
+                isinstance(done.result, dict)
+                and done.result.get("exported")
+                # The 2026-10-09 second audit's clay-77, Mason's mason-29 over
+                # again: the capture reads whatever the viewport drew last, and
+                # a tab switch or close while the export ran made the card a
+                # picture of another document. Skipped (the card keeps its
+                # placeholder) unless the exported tab is the one drawn.
+                and clay_mode.shows_exported_tab(ctx, key)
+            ):
                 # The card appears in the library like any other asset, so it
                 # needs the thumbnail every other asset gets -- and that is an
                 # offscreen GL draw, which belongs on the frame thread rather

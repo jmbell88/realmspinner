@@ -182,28 +182,27 @@ def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
     rings.
     """
     budget = MAX_CONCAVE_DISSOLVE_RING * MAX_CONCAVE_DISSOLVE_RING
-    for ring in vertex_rings:
-        n = len(ring)
-        if n < 3:
-            continue
-        # The 2026-10-07 audit's clay-26: this used to build a throwaway
-        # single-face ``Mesh`` over ``mesh.positions`` to ask the question, and
-        # ``Mesh.__post_init__`` copies every array it is given, so each ring
-        # paid a copy of the whole position array -- rings x mesh vertices,
-        # 5.3 s for 2,000 rings on an 832k-vertex mesh, and Fill Hole's call
-        # here 6.4 s against the 0.83 s written beside its ceiling. The ring's
-        # own points are all the question reads, so they are gathered once and
-        # the same two kernels (``_newell``, ``concave_faces``) run over the
-        # ring-local array: the answer is the same, the cost is the ring's.
-        ring_ids = np.asarray(ring, dtype="i8")
-        local = np.arange(n, dtype="i8")
-        points = mesh.positions[ring_ids]
-        normals = _newell(points, local, np.roll(local, -1), np.zeros(1, dtype="i8"))
-        is_concave = earclip.concave_faces(
-            points, local, np.array([0, n], dtype="i8"), normals
-        )[0]
-        if not is_concave:
-            continue
+    rings = [np.asarray(r, dtype="i8") for r in vertex_rings if len(r) >= 3]
+    if not rings:
+        return
+    # The 2026-10-09 second audit's clay-84: this ran the two kernels below once
+    # per ring, with a dozen numpy dispatches each, so 20,000 two-quad groups
+    # froze the frame thread for 1.8 s (3.0 s of a 3.4 s profile was this loop)
+    # while every ring was four corners. The kernels are already per-face over
+    # a CSR, so all the rings are laid end to end as one polygon soup and asked
+    # once. Elementwise the arithmetic is the same operations on the same
+    # numbers -- the 2026-10-09 test compares the answer against the per-ring
+    # original on random rings -- and the budget below is charged in the
+    # callers' ring order exactly as before.
+    counts = np.array([len(r) for r in rings], dtype="i8")
+    ids = np.concatenate(rings)
+    starts = np.concatenate([[0], np.cumsum(counts)])
+    nxt = np.arange(1, len(ids) + 1, dtype="i8")
+    nxt[starts[1:] - 1] = starts[:-1]
+    normals = _newell(mesh.positions, ids, ids[nxt], starts[:-1])
+    concave = earclip.concave_faces(mesh.positions, ids, starts, normals)
+    for k in np.flatnonzero(concave).tolist():
+        n = int(counts[k])
         if n > MAX_CONCAVE_DISSOLVE_RING:
             raise OpError(
                 f"That merge would make a concave face with {n:,} corners, "

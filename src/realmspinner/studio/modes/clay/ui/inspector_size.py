@@ -79,8 +79,6 @@ def resize(ctx: Any, doc: Any, obj: Any, new_scale: Any, was: Any = None) -> boo
 
 def draw(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
     """The card: heading with the unit chooser, W/H/D, Lock aspect, the box."""
-    from .....kernels.mesh import ops as bops
-
     ui = props._display_state(state)
     unit = props._unit_of(state)
     widgets.section("Size")
@@ -97,12 +95,13 @@ def draw(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
     if picked != unit:
         ui.length_unit = unit = picked
 
-    mesh = obj.mesh
-    box = bops.world_box(obj, mesh, world=doc.world_matrix(obj.uid))
-    if box is None:
+    # ``props.measured`` memoises the local bounds on the mesh: the 2026-10-09 second
+    # audit's clay-68 found this card walking every vertex twice per frame.
+    measure = props.measured(obj, obj.mesh, doc.world_matrix(obj.uid))
+    if measure is None:
         widgets.muted("This shape has no mesh to size.")
         return
-    extent = transform_edit.local_extent(mesh)
+    box, extent = measure
     shown = units.vec_to_display(transform_edit.size_of(extent, obj.scale), unit)
     was = tuple(v.copy() for v in obj.trs())
 

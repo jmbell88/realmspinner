@@ -35,6 +35,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from ....kernels.mesh import document as clay_document
+from .state import tab_over
 
 
 @dataclass(frozen=True)
@@ -130,17 +131,26 @@ def paint(ctx: Any, doc: Any, uids: Iterable[int], colour: StarterColour) -> int
     """
     from . import mode as clay_mode
 
+    picked = sorted(uids)
     mark = doc.history.mark()
     try:
         index = find_slot(doc, colour)
         if index is None:
             fresh = clay_document.default_material(colour.name)
             index = doc.add_material(replace(fresh, base_color_factor=colour.factor))
-        for uid in sorted(uids):
+        for uid in picked:
             doc.repaint_object(uid, index)
     finally:
         doc.history.collapse_since(mark)
     clay_mode.remember_slot(ctx, doc, index)
+    # The 2026-10-09 second audit's clay-66: a Ctrl+clicked slot is dropped for the
+    # shapes this click painted, so the page follows the paint. ``ClayTab`` would
+    # drop it anyway once the default slot moved; this covers the click that paints
+    # the colour the shape already wore, which moves nothing.
+    tab = tab_over(ctx, doc)
+    if tab is not None:
+        for uid in picked:
+            tab.forget_edit_slot(uid)
     return index
 
 

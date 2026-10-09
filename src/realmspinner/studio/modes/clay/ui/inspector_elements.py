@@ -82,14 +82,22 @@ def element_counts(doc: Any) -> tuple[int, int]:
     them (``selection._element_pickable``), so "N selected" must not promise elements
     the next move would leave where they were.
     """
+    # Memoised on the readout key, as the median line beside it is: the
+    # 2026-10-09 audit's clay-23 found this scanning ``doc.objects`` once per
+    # picked shape on every frame (61 ms at 2,000 picked), though nothing it reads
+    # moves without ``rev`` moving.
+    return props._memoised(doc, "element_counts", None, lambda: _count_elements(doc))
+
+
+def _count_elements(doc: Any) -> tuple[int, int]:
     from .....kernels.mesh.selection import _element_pickable
 
+    # One pass for a uid index: ``ClayDoc.by_uid`` is a linear scan.
+    by_uid = {obj.uid: obj for obj in doc.objects}
     total = shapes = 0
     for uid, sel in doc.element_sel.items():
-        try:
-            if not _element_pickable(doc.by_uid(uid)):
-                continue
-        except KeyError:
+        obj = by_uid.get(uid)
+        if obj is None or not _element_pickable(obj):
             continue
         count = sel.count(doc.element_mode)
         if count:

@@ -15,6 +15,7 @@ import pytest
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
+from realmspinner.kernels.mesh import ops_bevel
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio.modes.clay import menutree
 from realmspinner.studio.modes.clay import mode as clay_mode
@@ -99,13 +100,17 @@ def test_bevel_at_005_on_a_box_edge_adds_faces_and_is_one_undo_step() -> None:
     assert bm.face_count(doc.by_uid(uid).mesh) == before
 
 
-def test_bevel_with_a_width_of_zero_is_refused_with_a_toast_and_pushes_nothing() -> None:
+def test_bevel_with_a_width_of_zero_is_clamped_by_the_op_and_refused_by_the_kernel() -> None:
+    # The 2026-10-09 audit's clay-50: the op's width Param now floors at 0.001, so
+    # ``run`` clamps a typed zero into a real bevel; the kernel still refuses a
+    # zero width handed to it directly (the 2026-10-03 audit's clay-93).
     doc, uid = _edge_doc()
-    steps = len(doc.history)
-    ctx = _Ctx()
-    clay_ops.run(ctx, doc, clay_ops.get("bevel"), width=0.0)
-    assert len(doc.history) == steps
-    assert ctx.toasts and "width" in ctx.toasts[0][0].lower()
+    before = bm.face_count(doc.by_uid(uid).mesh)
+    mesh, sel = doc.by_uid(uid).mesh, doc.element_sel_of(uid)
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("bevel"), width=0.0)
+    assert bm.face_count(doc.by_uid(uid).mesh) > before
+    with pytest.raises(el.OpError, match="width"):
+        ops_bevel.bevel_edges(mesh, sel, width=0.0)
 
 
 def test_ctrl_b_in_edge_mode_reaches_bevel_and_opens_its_dialog_without_a_viewport() -> None:

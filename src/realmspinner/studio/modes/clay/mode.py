@@ -49,9 +49,12 @@ prefix: a key without one is a result delivered nowhere.
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import hashlib
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -401,6 +404,11 @@ def _load(path: Path) -> dict[str, Any]:
         # docstring for why the camera is not a second return value from
         # ``read_rblk``. It parses one small JSON member of an in-memory zip.
         "view": serialize.read_view(data),
+        # The 2026-10-09 audit's clay-15: the sidecar route of Open in Clay adopts
+        # through ``_adopt_import``, which asks "Editing will be slow" off this
+        # count; without it a 300k-triangle build.rblk skipped the confirm that
+        # a GLB of the same size got.
+        "triangles": _triangles_of(doc),
     }
 
 
@@ -465,6 +473,8 @@ def _sibling_mtl(path: Path, data: bytes) -> str | None:
     read a file somewhere else on the disk. A missing, oversized or unreadable
     library is not an error: the OBJ still imports, just without its colours.
     """
+    from ....service.errors import TooLarge
+
     # ``utf-8-sig`` on both reads (the 2026-10-07 audit's clay-15): a BOM at the
     # head of the OBJ hid a first-line ``mtllib`` from the ``startswith`` below, and
     # one at the head of the ``.mtl`` made its first ``newmtl`` unrecognisable --
@@ -473,15 +483,28 @@ def _sibling_mtl(path: Path, data: bytes) -> str | None:
         line = raw.strip()
         if not line.startswith("mtllib"):
             continue
-        name = line[len("mtllib"):].strip()
+        # The 2026-10-09 audit's clay-42: a trailing ``# comment`` stayed in the
+        # name, so the library was looked up under a file that does not exist and
+        # the colours went grey.
+        #
+        # The second audit's clay-118: the cut was at the *first* ``#``, so a library
+        # called ``Level#2.mtl`` (valid on Windows, and found before clay-42) was no
+        # longer found. A comment starts at a ``#`` that opens the remainder or
+        # follows whitespace; one inside a file name does not.
+        name = re.split(r"(?:^|\s)#", line[len("mtllib"):], maxsplit=1)[0].strip()
         if not name or Path(name).name != name:
             return None
         candidate = path.with_name(name)
         try:
-            if not candidate.is_file() or candidate.stat().st_size > MAX_MTL_BYTES:
+            if not candidate.is_file():
                 return None
-            return candidate.read_text(encoding="utf-8-sig", errors="replace")
-        except OSError:
+            # The 2026-10-09 audit's clay-43: stat-then-read is the pair
+            # ``sizeguard`` replaced; a library that grows between the two is
+            # still bounded when the read itself carries the ceiling. Too large
+            # raises ``TooLarge`` (not an ``OSError``): same outcome as missing.
+            raw = sizeguard.read_bytes_within_ceiling(candidate, MAX_MTL_BYTES)
+            return raw.decode("utf-8-sig", errors="replace")
+        except (OSError, TooLarge):
             return None
     return None
 
@@ -504,8 +527,8 @@ def import_mesh_path(
     ``scale``/``up`` default to whatever the tab last remembered
     (``ClayState.import_scale``/``import_up``), so a session importing a batch
     of same-convention files sets them once. An explicit value updates that
-    memory for the *next* import too, which is what makes the bridge's own
-    combo -- read the state, not passed a value -- and a caller that always
+    memory for the *next* import too, which is what makes the Model & history
+    page's own combo -- read the state, not passed a value -- and a caller that always
     wants exactly 1.0/"y" (there is none today) behave the same way.
     """
     state = ensure(ctx)
@@ -615,7 +638,12 @@ def edit_asset_in_clay(ctx: Any, job: Any) -> None:
         # like a sidecar that never existed.
         sidecar = svc_files.clay_source_path(ctx.svc, job_id)
         if sidecar.is_file():
-            return _load(sidecar)
+            # The 2026-10-09 audit's clay-03: ``_load`` titles a document by its
+            # file, and every sidecar is called ``build.rblk``, so the tab read
+            # "build". An opened asset is named for the asset.
+            loaded = _load(sidecar)
+            loaded["title"] = name
+            return loaded
         mesh = ctx.svc.config.job_dir(job_id) / "model.glb"
         if not mesh.is_file():
             raise FileNotFoundError(f"{job_id} has no mesh to edit")
@@ -844,6 +872,24 @@ def frame_after_add(ctx: Any, doc: Any, obj: Any, *, first: bool) -> None:
 _start = docmodes.start_save
 
 
+def _save_waits_for_gesture(ctx: Any, tab: ClayTab | None) -> bool:
+    """Whether a save must wait because a live gesture is writing the document.
+
+    The 2026-10-09 second audit's clay-60: only Ctrl+S was drag-gated, so the
+    File menu, the palette row and the Model-file buttons -- which call
+    :func:`save` / :func:`save_as` directly -- snapshotted half-dragged transforms
+    (a drag writes TRS in place with no history step) and then marked the tab
+    clean, so an Esc that cancelled the drag left a file nobody had asked for.
+    Refused with a sentence, at the two doors every surface reaches, rather than
+    silently the way :func:`export_asset` is: a save is the one verb a user
+    presses expecting a "Saved." back.
+    """
+    if tab is None or not _gesture_live(ctx, tab):
+        return False
+    _toast(ctx, "Finish or cancel the move first.")
+    return True
+
+
 def save_to(ctx: Any, tab: ClayTab, path: Path) -> None:
     """Write the document to a known path.
 
@@ -859,6 +905,8 @@ def save_to(ctx: Any, tab: ClayTab, path: Path) -> None:
     """
     from ....kernels.mesh import serialize
 
+    if _save_waits_for_gesture(ctx, tab):
+        return
     path = Path(path)
     doc = tab.doc
     rev = doc.history.head
@@ -911,7 +959,7 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
     from ....kernels.mesh import serialize
 
     tab = tab or active(ctx)
-    if tab is None or tab.saving:
+    if tab is None or tab.saving or _save_waits_for_gesture(ctx, tab):
         return
     doc, title = tab.doc, tab.title
     rev = doc.history.head
@@ -1006,7 +1054,9 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
     inside ``run()``, off the frame thread entirely.
     """
     tab = tab or active(ctx)
-    if tab is None or tab.saving:
+    # The 2026-10-09 audit's clay-13: an export reads the transforms on a task
+    # thread; a live drag rewrites them on the frame thread.
+    if tab is None or tab.saving or _gesture_live(ctx, tab):
         return
     doc, title = tab.doc, tab.title
     if not any(obj.visible for obj in doc.objects):
@@ -1016,7 +1066,12 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
         ctx.toast("There is nothing visible to export.", "error")
         return
 
-    view = camera_of(ctx, tab)
+    # A *copy*, taken here on the frame thread (the 2026-10-09 second audit's
+    # clay-119): ``camera_of`` returns ``tab.view`` itself, which
+    # ``sync_active_camera`` rewrites every frame, so the task thread would have
+    # serialised whatever the camera had become by the time it ran -- or a
+    # half-written yaw/pitch/target. ``CameraView`` is four floats and a tuple.
+    view = copy.copy(camera_of(ctx, tab))
 
     def run() -> dict[str, Any]:
         job_id = build_asset(ctx.svc, doc, title=title, view=view)
@@ -1071,6 +1126,34 @@ def _refuse_foreign_sidecars(targets: dict[Path, bytes], primary: Path) -> None:
                 "or move it first.",
                 field="export",
             )
+
+
+def _previous_textures(obj_path: Path, safe_stem: str) -> set[str]:
+    """The ``<stem>_<n>.png`` names the existing Clay ``.mtl`` beside *obj_path*
+    points at, or an empty set.
+
+    Empty when there is no ``.mtl``, it is not one of ours (no export header), it is
+    unreadable or oversized, or a ``map_Kd`` names anything but a bare
+    ``<stem>_<n>.png`` -- the caller deletes exactly what this returns, so every
+    doubt answers "nothing". Blocking; task thread only.
+    """
+    from ....service.errors import TooLarge
+
+    mtl = obj_path.with_name(f"{safe_stem}.mtl")
+    try:
+        raw = sizeguard.read_bytes_within_ceiling(mtl, MAX_MTL_BYTES)
+    except (OSError, TooLarge):
+        return set()
+    if not raw.startswith(_EXPORT_HEADER):
+        return set()
+    shape = re.compile(re.escape(safe_stem) + r"_\d+\.png")
+    names: set[str] = set()
+    for line in raw.decode("utf-8-sig", errors="replace").splitlines():
+        if line.startswith("map_Kd "):
+            name = line[len("map_Kd "):].strip()
+            if shape.fullmatch(name):
+                names.add(name)
+    return names
 
 
 def retarget_export_names(
@@ -1128,7 +1211,9 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
     the encode.
     """
     tab = tab or active(ctx)
-    if tab is None or tab.saving:
+    # The 2026-10-09 audit's clay-13: an export reads the transforms on a task
+    # thread; a live drag rewrites them on the frame thread.
+    if tab is None or tab.saving or _gesture_live(ctx, tab):
         return
     doc, title = tab.doc, tab.title
     if not any(obj.visible for obj in doc.objects):
@@ -1190,7 +1275,16 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
             targets[path.with_name(f"{safe_stem}.mtl")] = mtl_text.encode("utf-8")
             targets[path] = text.encode("utf-8")
             _refuse_foreign_sidecars(targets, path)
+            # Read before the set replaces it: what the previous Clay export named.
+            stale = _previous_textures(path, safe_stem) - {t.name for t in targets}
             atomic.staged_set(targets)
+            # The 2026-10-09 second audit's clay-115: a texture removed since the
+            # last export left its ``<stem>_<n>.png`` beside the new set, looking
+            # like part of it. Only a file the old ``.mtl`` named, after the new
+            # set is safely down, and never one that ``.mtl`` did not name.
+            for name in stale:
+                with contextlib.suppress(OSError):
+                    path.with_name(name).unlink(missing_ok=True)
             return {"path": str(path), "exported_file": True}
 
     else:
@@ -1255,7 +1349,7 @@ def save_screenshot(ctx: Any, tab: ClayTab | None = None) -> None:
     the PNG encode, the dialog and the write go to a task.
     """
     tab = tab or active(ctx)
-    if tab is None or tab.saving:
+    if tab is None or tab.saving or _gesture_live(ctx, tab):
         return
     if not any(obj.visible for obj in tab.doc.objects):
         ctx.toast("There is nothing visible to photograph.", "error")
@@ -1365,9 +1459,10 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # clean -- unlike ``exported`` (the library asset) and the save
         # branch below, this touches neither ``mark_saved`` nor the journal:
         # the document itself is exactly as saved or dirty as it was before.
-        # The path goes on the tab so the Document tab can name it under the export
-        # buttons (the 2026-10-07 audit's clay-09): the manual promised a line naming
-        # the last file written and the toast was the only trace of it.
+        # The path goes on the tab so the Inspector's Model & history page can name
+        # it under the export buttons (the 2026-10-07 audit's clay-09): the manual
+        # promised a line naming the last file written and the toast was the only
+        # trace of it.
         tab.exported_path = str(result["path"])
         ctx.toast(f"Exported to {result['path']}.")
         return
@@ -1382,6 +1477,28 @@ def on_task_done(ctx: Any, done: Any) -> None:
         remember_path(ctx, tab.path)
         persist(ctx)
     ctx.toast("Saved.")
+
+
+def shows_exported_tab(ctx: Any, key: str) -> bool:
+    """Whether ``key`` (``clay-export:{tab uid}``) names the tab the viewport drew last.
+
+    The 2026-10-09 second audit's clay-77: the library card's thumbnail is read
+    from the viewport's framebuffer when the export task lands, which is a
+    picture of the exported document only while that tab is still the one being
+    drawn -- a tab switch meanwhile made the card a picture of the wrong model.
+    Skipped otherwise, and the card keeps its placeholder (a card with no
+    thumbnail is the ordinary state of every Plotter and Packwright export), the
+    way Mason's ``shows_exported_tab`` does it. ``state.camera_tab`` is what the
+    viewport drew, not ``active_uid``, which an event-layer switch moves first.
+    """
+    state = getattr(ctx.state, "clay", None)
+    uid = key.split(":", 1)[1] if ":" in key else ""
+    return (
+        state is not None
+        and bool(uid)
+        and getattr(state, "camera_tab", None) == uid
+        and state.get(uid) is not None
+    )
 
 
 def on_task_failed(ctx: Any, done: Any) -> None:
@@ -1521,15 +1638,18 @@ ELEMENT_KEYS = {"1": "vertex", "2": "edge", "3": "face", "4": "object"}
 # the save captured waits for the save, exactly as a gizmo drag does.
 _MUTATING_CTRL = docmodes.WRITE_CHORDS | frozenset({"a", "i", "j", "m"})
 #: The chords a live drag swallows -- history and the tab; see ``_ctrl_key``.
+#: "e" (export) joined in the 2026-10-09 audit's clay-13: an export reads the
+#: transforms on a task thread while the drag rewrites them on the frame thread.
 #: Deliberately *not* the whole of ``_MUTATING_CTRL``: Ctrl+J under a drag is a
 #: pinned behaviour (``test_ctrl_chords_still_reach_their_ops_during_a_drag``).
-_DRAG_BLOCKED_CTRL = frozenset({"z", "y", "n", "o", "tab", "w", "s"})
+_DRAG_BLOCKED_CTRL = frozenset({"z", "y", "n", "o", "tab", "w", "s", "e"})
 
 
 # --- history ------------------------------------------------------------------
 #
 # One call per direction, rather than two lines under the key handler, because
-# the header and the Properties pane draw the same Undo/Redo pair Inker's does.
+# the header and the Inspector's Model & history page draw the same Undo/Redo pair
+# Inker's does.
 # Clay, Plotter and Packwright each had a full undo stack and no on-screen
 # control at all, so the feature existed only for a user who already knew the
 # chord -- and every
@@ -1582,8 +1702,8 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     has the same three, for the same reason written out there.
 
     ``ctx`` is taken and dropped: the parameter stays so the sibling editors'
-    ``step_history(ctx, tab, index)`` and this one's one caller
-    (the Properties pane's Document tab) share a signature. A jump needs
+    ``step_history(ctx, tab, index)`` and this one's callers (the Inspector's
+    Model & history page and the header's history popover) share a signature. A jump needs
     no bookkeeping for the recent op (``ClayDoc.recent_op``): the Last action card
     is live only while the history head is the step the op pushed, so moving
     the head hides it by itself.
@@ -1926,7 +2046,11 @@ def _fire_op(ctx: Any, doc: Any, op: Any, *, interactive: bool = False) -> bool:
         # event layer.
         state.open_op_popup = True
         return True
-    return clay_ops.run(ctx, doc, op)
+    # The key layer is the one door allowed to run an op mid-gesture (the Ctrl
+    # chords pinned by ``test_ctrl_chords_still_reach_their_ops_during_a_drag``);
+    # ``fire_op`` has already shut the palette and the panes. The 2026-10-09
+    # second audit's clay-61 moved the refusal to ``ops.run`` itself.
+    return clay_ops.run(ctx, doc, op, during_gesture=True)
 
 
 def _extrude_and_drag(ctx: Any, doc: Any, op: Any) -> bool:
@@ -1955,11 +2079,25 @@ def _extrude_and_drag(ctx: Any, doc: Any, op: Any) -> bool:
     return ran
 
 
-fire_op = _fire_op
-"""The same door, named for the surfaces with no window of their own to open a popup in
-(Ctrl+K's rows): a row asks for its dialog by state (``open_op_popup``) exactly as a
-key does, because an ``imgui.open_popup`` made there would name the popup in the wrong
-id stack."""
+def fire_op(ctx: Any, doc: Any, op: Any, *, interactive: bool = False) -> bool:
+    """:func:`_fire_op`, shut while a live gesture is writing the document.
+
+    The 2026-10-09 audit's clay-14: Ctrl+K's op rows (and the panes' buttons) ran
+    an op mid-G/R/S and the drag's commit then reverted it against the head it
+    started from. The Ctrl chords keep reaching ``_fire_op`` directly -- that is
+    a pinned behaviour -- so the refusal lives on this door alone.
+
+    The same door, named for the surfaces with no window of their own to open a
+    popup in (Ctrl+K's rows): a row asks for its dialog by state
+    (``open_op_popup``) exactly as a key does, because an ``imgui.open_popup`` made
+    there would name the popup in the wrong id stack. (The 2026-10-09 second
+    audit's clay-121: this sentence sat after the function as a bare string
+    statement, which no tool reads as documentation.)
+    """
+    if _gesture_live(ctx, active(ctx)):
+        return False
+    return _fire_op(ctx, doc, op, interactive=interactive)
+
 
 
 def _escape(state: ClayState, tab: ClayTab, doc: Any) -> None:
@@ -2003,7 +2141,6 @@ def _ctrl_key(
 ) -> bool:
     if docmodes.blocked_while_writing(tab, name, _MUTATING_CTRL):
         return True
-    view = getattr(ctx, "clay_view", None)
     if _gesture_live(ctx, tab) and name in _DRAG_BLOCKED_CTRL:
         # A live gizmo drag mutates the geometry in place and commits on
         # release. Ctrl+Z under it undid a step the release then re-applied;
@@ -2077,10 +2214,13 @@ def _ctrl_key(
             doc.select([])
     elif name == "tab":
         state.cycle(-1 if shift else 1)
-    elif not tab.saving and not getattr(view, "dragging", False):
+    elif not tab.saving and not _gesture_live(ctx, tab):
         # A registry op bound to a Ctrl chord the cases above do not own. Last,
         # so an existing chord can never be taken by a later registration, and
-        # not under a live drag, which swallows the keys it does not know.
+        # not under a live gesture, which swallows the keys it does not know. The
+        # 2026-10-09 second audit's clay-117: this read only ``view.dragging``, so
+        # Ctrl+B started a bevel drag under the UV pane's armed live rotate/scale
+        # -- a gesture ``_gesture_live`` counts everywhere else.
         from . import ops as clay_ops
 
         label = ("Ctrl+Shift+" if shift else "Ctrl+") + name.upper()

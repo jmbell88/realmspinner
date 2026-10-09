@@ -1,4 +1,9 @@
-"""The twenty-one shapes a user can place, and the registry the panel is built from.
+"""The shapes the generators build, and the registry the panel is built from.
+
+:data:`GENERATORS` holds twenty-one shapes, the whole set Mason can place and a
+saved Mason scene can name; Clay offers fifteen of those
+(:data:`CLAY_GENERATORS`), and the other six (``lathe``, ``sweep``, ``tube``,
+``pyramid``, ``arch``, ``column``) survive only for scenes that already name them.
 
 Each generator is a plain function of its parameters returning a :class:`Mesh`,
 and :data:`GENERATORS` maps a name to ``(defaults, builder)``. The registry is
@@ -10,7 +15,7 @@ skeleton by adding a JSON file, never by hardcoding bones in
 would be a second place that has to know what a cylinder's parameters are, and
 the two would drift the first time a parameter was renamed.
 
-Four rules hold across all twenty-one, and each of them is pinned by a test:
+Four rules hold across all twenty-one registry shapes, and each of them is pinned by a test:
 
 **Every primitive is built centred on the origin.** ``Obj`` carries the
 translation, so geometry that baked its placement in would make the numeric TRS
@@ -52,7 +57,7 @@ cap cannot keep the second half of that claim**, and says so as registry data
 rather than by weakening it: ``sweep``'s cap is an arbitrary user-supplied
 outline, an L-bracket by default, and a reflex corner is exactly what "sweep"
 is for. See :data:`CONCAVE_GENERATORS` for the exemption and
-``clay/earclip.py``'s own docstring for why the fan-then-ear-clip triangulator
+``kernels/mesh/earclip.py``'s own docstring for why the fan-then-ear-clip triangulator
 that already existed for dissolve results and imports is what makes the
 exemption safe rather than merely tolerated.
 
@@ -128,7 +133,7 @@ MIN_RINGS = 2
 # of these counts had a floor and no ceiling, so ``clamp_params("cylinder",
 # {"segments": 50_000_000})`` was accepted unchanged and the generator itself
 # had not returned after 30 s -- the pygame frame thread stalls inside
-# ``studio/modes/clay/ui/props.py``'s draw-time rebuild, and the agent surface's
+# ``studio/modes/clay/ui/panes/props.py``'s draw-time rebuild, and the agent surface's
 # ``_h_add_primitive``/``_h_set_params`` pass a number through with no refusal
 # in between. Each ceiling is picked so that the *pair* of counts a two-count
 # generator multiplies together (``torus``'s segments*sides, ``uv_sphere`` and
@@ -785,6 +790,55 @@ def _exceeds_float32(value: Any, depth: int = 0) -> bool:
     return False
 
 
+#: Each generator's extents -- the parameters its builder takes ``abs()`` of --
+#: with the floor the builder then raises a smaller magnitude to (0.0 where it
+#: has none), read off the builders themselves. The 2026-10-09 second audit's
+#: clay-103: :func:`clamp_params` documents that it returns "the values the
+#: generator will actually build from", but stored a stairs ``total_height`` of 0
+#: as 0 (built from 1e-4) and a cylinder radius of -0.5 as -0.5 (built from 0.5),
+#: so a saved document's params still disagreed with the geometry beside them --
+#: the clay-04/clay-05 class this function exists to close. The relational
+#: clamps below (torus tube, column ends, arch thickness and height, rounded_box
+#: radius, doorway opening) read these already-normalised values.
+_EXTENTS: dict[str, dict[str, float]] = {
+    "box": {"size": 0.0},
+    "plane": {"size": 0.0},
+    "cylinder": {"radius": 0.0, "height": 0.0},
+    "cone": {"radius": 0.0, "height": 0.0},
+    "uv_sphere": {"radius": 0.0},
+    "torus": {"radius": 0.0, "tube": 0.0},
+    "grid": {"size": 0.0},
+    "capsule": {"radius": 0.0, "height": 0.0},
+    "icosphere": {"radius": 0.0},
+    "pyramid": {"base": 0.0, "height": 0.0},
+    # ``arch`` floors its half-width at 1e-4 (so the width at 2e-4) and its depth
+    # at 1e-4; its height and thickness are relational (below).
+    "arch": {"width": 2e-4, "depth": 1e-4},
+    "column": {"radius": MIN_PROFILE_RADIUS, "height": 0.0, "base": 0.0, "capital": 0.0},
+    "sweep": {"depth": 0.0},
+    "tube": {"radius": 0.0},
+    "wedge": {"width": 0.0, "height": 0.0, "depth": 0.0},
+    "ramp": {"width": 0.0, "length": 0.0, "height": 0.0},
+    "rounded_box": {"size": 0.0},
+    "stairs": {"width": 0.0, "total_height": 1e-4, "total_depth": 1e-4},
+    "wall": {"length": 0.0, "height": 0.0, "thickness": 0.0},
+    "doorway": {"wall_length": 1e-4, "wall_height": 1e-4, "wall_thickness": 0.0},
+}
+
+
+def _clamp_extent(value: Any, floor: float) -> Any:
+    """*value* as the magnitude its builder uses, raised to *floor*; a sequence
+    (``size``) element by element, keeping its list or tuple type. A value that
+    is not a number is returned as given -- the builder names that refusal."""
+    if isinstance(value, (list, tuple)):
+        made = [_clamp_extent(v, floor) for v in value]
+        return made if isinstance(value, list) else tuple(made)
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        return value
+    magnitude = abs(value)
+    return floor if float(magnitude) < floor else magnitude
+
+
 def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     """The values ``GENERATORS[generator][1]`` will actually build from ``params``.
 
@@ -850,6 +904,9 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
                 f"{F4_MAX:.3e} (float32)."
             )
     out = dict(params)
+    for key, floor in _EXTENTS.get(generator, {}).items():
+        if key in out:
+            out[key] = _clamp_extent(out[key], floor)
     for key, clamp in _KEY_CLAMPS.items():
         if key in out:
             out[key] = clamp(out[key])
@@ -2821,18 +2878,33 @@ def doorway(
     hb, ht = -height_ * 0.5, height_ * 0.5
     op_l, op_r, op_t = ox - ow * 0.5, ox + ow * 0.5, hb + oh
 
-    profile = _dedup_closed(
-        [
-            (hl, hb),
-            (hl, ht),
-            (hr, ht),
-            (hr, hb),
-            (op_r, hb),
-            (op_r, op_t),
-            (op_l, op_t),
-            (op_l, hb),
-        ]
-    )
+    # The 2026-10-09 second audit's clay-87: a pillar of zero width (the offset
+    # at its clamp) or an opening of zero width left the floor corners in the
+    # profile, and the walk went down a wall's edge and straight back up it --
+    # a zero-width spike whose extrusion is a pair of coincident, opposite-facing
+    # quads. ``_dedup_closed`` only drops *consecutive equal* points, which a
+    # spike is not. A pillar (or the whole opening) that is no wider than float32
+    # can place is dropped with the two floor corners it would have stood on, so
+    # the profile is an L (or a plain rectangle) and keeps no vertex it backs onto.
+    tol = length_ * 1e-6
+    if op_r - op_l <= tol:
+        outline = [(hl, hb), (hl, ht), (hr, ht), (hr, hb)]
+    else:
+        left_gone, right_gone = op_l - hl <= tol, hr - op_r <= tol
+        if left_gone:
+            op_l = hl
+        if right_gone:
+            op_r = hr
+        outline = []
+        if not left_gone:
+            outline.append((hl, hb))
+        outline += [(hl, ht), (hr, ht)]
+        if not right_gone:
+            outline += [(hr, hb), (op_r, hb)]
+        outline += [(op_r, op_t), (op_l, op_t)]
+        if not left_gone:
+            outline.append((op_l, hb))
+    profile = _dedup_closed(outline)
     positions, faces = _extrude_profile(profile, axis=2, extent=thickness_)
     from .uv import box_unwrap
 
@@ -2955,7 +3027,7 @@ this set with a **replacement** claim rather than dropping the check: for a
 generator named here, ``mesh.triangulate``'s ``n - 2`` triangles must still
 sum to the polygon's own *unsigned* area
 (``test_every_concave_generators_faces_still_triangulate_to_the_right_area``),
-which is the claim that ear-clipping (``clay/earclip.py``) got the shape
+which is the claim that ear-clipping (``kernels/mesh/earclip.py``) got the shape
 right even though a plain fan would not have.
 
 It is registry data for the same reason :data:`OPEN_GENERATORS` is: a fact

@@ -20,7 +20,7 @@ pins that the two building paths -- ``to_model``'s per-object
 objects get a node/entry and what each one draws, since nothing enforces
 that agreement structurally.
 
-**Materials are ``viewer.gltf.Material`` objects, not a new type.** They are
+**Materials are ``kernels.geom3d.gltf.Material`` objects, not a new type.** They are
 already pure data, they already carry ``base_color_factor`` /
 ``double_sided`` / ``alpha_mode`` and the base-colour texture, and a parallel
 Clay-only material type would have bought nothing but a conversion function
@@ -31,7 +31,7 @@ objects share one material uploads one material. Clay uses only the subset
 :func:`reduce_material` keeps; every other slot is ``None`` or a fixed default,
 and a slot that is ``None`` is a slot the renderer skips.
 
-**Rotation is XYZW**, matching ``viewer.math3d``, ``viewer.gltf``, the pose
+**Rotation is XYZW**, matching ``kernels.geom3d.math3d``, ``kernels.geom3d.gltf``, the pose
 files on disk and glTF itself. There is no other quaternion order anywhere in
 this project and this is not the place to introduce one.
 
@@ -79,11 +79,15 @@ all checked by :meth:`ClayDoc.selection_problems`:
   work with no per-mode branch;
 * **``selection`` is written only by** :meth:`select` (which, in an element
   mode, drops the picks of what it deselects), :meth:`set_element_sel` (which
-  adds the object and never removes it), :meth:`separate` (which swaps the source
-  for its pieces in every mode) and the sites that make an object stop
-  existing or stop being visible (``remove_object``, ``join_objects``,
-  ``set_visibility`` and an undo or redo that does either). The mode switch,
-  :meth:`clear_element_sel` and the picks half of ``_forget_elements`` never touch it.
+  adds the object and never removes it), :meth:`set_element_mode` (which only
+  ever *adds*: picks that convert to something non-empty put their objects into
+  it, and nothing is taken out -- the 2026-10-09 second audit's clay-105 found
+  this paragraph still saying the mode switch never touches it), :meth:`separate`
+  (which swaps the source for its pieces in every mode) and the sites that make
+  an object stop existing or stop being visible (``remove_object``,
+  ``join_objects``, ``set_visibility`` and an undo or redo that does either).
+  :meth:`clear_element_sel` and the picks half of ``_forget_elements`` never
+  touch it.
 
 This replaces the Wings3D model in which the object selection was *derived*
 from the picks, which meant entering an element mode deselected everything and
@@ -213,6 +217,18 @@ def _flat_rgba(factor: Sequence[float], size: int) -> bytes:
     srgb = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1.0 / 2.4) - 0.055)
     texel = bytes([*np.rint(np.clip(srgb, 0.0, 1.0) * 255.0).astype("u1").tolist(), 255])
     return texel * (size * size)
+
+
+def _same_geometry(a: bm.Mesh, b: bm.Mesh) -> bool:
+    """Whether two meshes hold equal arrays in every field -- the comparison the
+    identity test in ``set_mesh`` cannot make, for a door whose caller rebuilds
+    the mesh from numbers (``set_generator_params``)."""
+    for name in ("positions", "loops", "starts", "material", "smooth"):
+        if not np.array_equal(getattr(a, name), getattr(b, name)):
+            return False
+    if (a.uv is None) != (b.uv is None):
+        return False
+    return a.uv is None or np.array_equal(a.uv, b.uv)
 
 
 _TRIANGLES: weakref.WeakKeyDictionary[bm.Mesh, int] = weakref.WeakKeyDictionary()
@@ -396,15 +412,98 @@ class ClayDoc:
         added = sum(_triangles_of(o.mesh) for o in incoming)
         if added:
             triangles = (
-                sum(_triangles_of(o.mesh) for o in self.objects)
-                - sum(_triangles_of(o.mesh) for o in outgoing)
-                + added
+                self._triangle_total() - sum(_triangles_of(o.mesh) for o in outgoing) + added
             )
             if triangles > MAX_TRIANGLES:
                 raise el.OpError(
                     f"That would make {triangles:,} triangles, past the {MAX_TRIANGLES:,} "
                     "a Clay document can hold and save."
                 )
+
+    def _triangle_key(self) -> tuple[int, int, int]:
+        """What the cached triangle total is valid for: the change counter, the
+        history position and the object count. ``rev`` alone would do for every
+        door in this class; the other two are the belt for a caller that drives
+        ``history.undo`` directly (it moves ``head`` and replaces meshes without
+        a ``touch``)."""
+        return (self.rev, self.history.head, len(self.objects))
+
+    def _triangle_total(self) -> int:
+        """The triangles over every object in the document, summed once per
+        change rather than once per ceiling check.
+
+        The 2026-10-09 second audit's clay-104: every growing ``set_mesh`` and
+        ``set_generator_params`` summed ``_triangles_of`` over the whole document
+        (1.24 ms at 4,000 objects, so a fifteen-second op over all of them) for a
+        number only the previous step could have changed. The sum is memoised
+        against :meth:`_triangle_key`, and the two doors that replace a mesh
+        carry it forward by their own delta (:meth:`_carry_triangle_total`)
+        instead of dropping it, which is what keeps a loop of ``set_mesh`` calls
+        from re-summing on every iteration. Any other writer bumps ``rev`` or
+        moves ``head``, so the next call re-sums: stale in the safe direction.
+        """
+        key = self._triangle_key()
+        cached = self.__dict__.get("_tri_cache")
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        total = sum(_triangles_of(o.mesh) for o in self.objects)
+        self._tri_cache = (key, total)
+        return total
+
+    def _carry_triangle_total(self, was: tuple[int, int, int], delta: int) -> None:
+        """Re-key the cached total after a door changed the document by *delta*
+        triangles -- only when it was valid for the state *was* the door started
+        from, so a cache that was already stale stays stale."""
+        cached = self.__dict__.get("_tri_cache")
+        if cached is not None and cached[0] == was:
+            self._tri_cache = (self._triangle_key(), cached[1] + delta)
+
+    @staticmethod
+    def _refuse_invalid(name: str, mesh: bm.Mesh) -> None:
+        """OpError when *mesh* is not a valid CSR (:func:`~.mesh.validate`).
+
+        The 2026-10-09 second audit's clay-82: nothing on the adopt path looked,
+        so a fill-hole that produced a one-corner face was adopted, saved, and
+        then refused by ``read_rblk`` on reopen -- crash recovery included. The
+        writer now refuses the same mesh (``serialize._refuse_unreadable``);
+        this is the door that says so at the edit, naming the object, while
+        Ctrl+Z is still one press away. ``validate`` is a handful of vectorised
+        reductions (about 0.1 ms on a 200,000-triangle mesh, measured), so it
+        costs nothing per drag frame.
+        """
+        try:
+            bm.validate(mesh)
+        except ValueError as error:
+            raise el.OpError(
+                f"{name!r} cannot take that change: it makes a mesh that is not valid ({error})."
+            ) from error
+
+    @staticmethod
+    def _refuse_unstorable(name: str, mesh: bm.Mesh) -> None:
+        """OpError when *mesh* has a position or UV past float32 (``inf``/NaN),
+        which the writer refuses -- the one wording ``set_mesh`` and every other
+        door that adopts a whole mesh share."""
+        if not np.isfinite(mesh.positions).all() or (
+            mesh.uv is not None and not np.isfinite(mesh.uv).all()
+        ):
+            raise el.OpError(
+                f"{name!r} cannot take that change: it makes a position or a UV "
+                "too large to store (past about 3e38)."
+            )
+
+    def _refuse_past_triangle_ceiling(self, obj: Obj, mesh: bm.Mesh) -> None:
+        """OpError when swapping *obj*'s mesh for *mesh* takes the document past
+        ``MAX_TRIANGLES`` -- but only when it adds triangles, so shrinking or
+        holding a document that is somehow already over the line stays possible.
+
+        The 2026-10-09 audit's clay-02: ``set_generator_params`` and ``set_mesh``
+        swapped meshes with no look at the ceiling the add doors enforce, so
+        raising segments on a few torus objects built a document Ctrl+S refused.
+        """
+        if _triangles_of(mesh) <= _triangles_of(obj.mesh):
+            return
+        probe = Obj(uid=obj.uid, name=obj.name, mesh=mesh)
+        self._refuse_past_ceilings([probe], [obj])
 
     def index_of(self, uid: int) -> int:
         for i, obj in enumerate(self.objects):
@@ -417,6 +516,27 @@ class ClayDoc:
 
     def touch(self) -> None:
         self.rev += 1
+
+    def _is_hidden(self, uid: int) -> bool:
+        """True when *uid* names a hidden object, without a linear scan per call.
+
+        A marquee release calls :meth:`set_element_sel` once per object in a
+        document of up to 4,096, and ``by_uid`` there made it quadratic (the
+        2026-10-07 audit's clay-71 counts ``index_of`` calls on that path). The
+        uid -> position map is rebuilt only when a remembered position stops
+        holding that uid, so objects added, removed or reordered are never
+        read stale; visibility is read live off the object.
+        """
+        cache: dict[int, int] = self.__dict__.setdefault("_pos_cache", {})
+        pos = cache.get(uid, -1)
+        if not (0 <= pos < len(self.objects) and self.objects[pos].uid == uid):
+            cache.clear()
+            for i in range(len(self.objects) - 1, -1, -1):
+                cache[self.objects[i].uid] = i  # first-seen wins, as index_of does
+            pos = cache.get(uid, -1)
+            if pos < 0:
+                raise KeyError(f"no object with uid {uid}")
+        return not self.objects[pos].visible
 
     def mesh_stamp(self, uid: int) -> int:
         """A wire-safe revision number for one object's current mesh.
@@ -587,7 +707,7 @@ class ClayDoc:
 
     def _local_relative(self, world: np.ndarray, parent: int | None) -> tuple[Any, Any, Any]:
         """*world* re-expressed as local TRS relative to *parent* (or as-is
-        for a root) -- ``(t, r, s)``, via :func:`~.viewer.math3d.decompose`.
+        for a root) -- ``(t, r, s)``, via :func:`~..geom3d.math3d.decompose`.
 
         Shared by :meth:`set_parent` (the new parent), :meth:`local_from_world`
         (the object's own current parent) and :meth:`remove_object` (the
@@ -718,6 +838,10 @@ class ClayDoc:
                 f"{obj.name}'s parent has a zero scale, so its origin cannot move."
             ) from error
         new_translation = (parent_inv @ np.array([point[0], point[1], point[2], 1.0]))[:3]
+        # The 2026-10-09 audit's clay-18: only the children and the mesh were
+        # checked, so a vertexless object under a denormal parent took a NaN
+        # translation of its own.
+        self._finite_place(obj.name, (new_translation, obj.rotation, obj.scale))
         if np.array_equal(new_translation, obj.translation):
             return False
 
@@ -1186,13 +1310,10 @@ class ClayDoc:
         # refuses -- a document that cannot be saved until the step is undone.
         # The op layers clamp what they can; this is the backstop for any
         # caller, present and future, and it refuses before anything changes.
-        if not np.isfinite(mesh.positions).all() or (
-            mesh.uv is not None and not np.isfinite(mesh.uv).all()
-        ):
-            raise el.OpError(
-                f"{obj.name!r} cannot take that change: it makes a position or a UV "
-                "too large to store (past about 3e38)."
-            )
+        self._refuse_invalid(obj.name, mesh)
+        self._refuse_unstorable(obj.name, mesh)
+        self._refuse_past_triangle_ceiling(obj, mesh)
+        keyed = self._triangle_key()
         before, obj.mesh = obj.mesh, mesh
         edits: list[Any] = [MeshEdit(uid, before, mesh)]
         if not keep_generator and obj.generator is not None:
@@ -1207,6 +1328,7 @@ class ClayDoc:
         if select is not None:
             self.set_element_sel(uid, select)
         self.touch()
+        self._carry_triangle_total(keyed, _triangles_of(mesh) - _triangles_of(before))
         return True
 
     def join_objects(
@@ -1246,6 +1368,11 @@ class ClayDoc:
         # here, before the first assignment. An ancestor's world matrix is
         # unchanged by re-parenting (world placement is kept), so checking the
         # current one is the same question the loop below asks.
+        # The 2026-10-09 audit's clay-17: the merged mesh was adopted with no
+        # finiteness check (a 1e-20 and a 1e20 scale joined to ``inf``), the one
+        # refusal ``set_mesh`` makes that this door skipped.
+        if mesh is not obj.mesh:
+            self._refuse_unstorable(obj.name, mesh)
         for uid in doomed:
             new_parent = self.by_uid(uid).parent
             if new_parent is not None and self.children_of(uid):
@@ -1450,6 +1577,24 @@ class ClayDoc:
         """
         obj = self.by_uid(uid)
         before = {"params": was.get("params", obj.params)}
+        # The 2026-10-09 second audit's clay-102: a rebuilt mesh is always a new
+        # object, so ``mesh is not obj.mesh`` was the only no-op test and typing
+        # the radius a field already held pushed a step and turned the document
+        # dirty. Equal numbers that build array-equal geometry change nothing,
+        # exactly as ``set_transform`` and ``set_props`` already answer.
+        if before == {"params": params} and (mesh is obj.mesh or _same_geometry(mesh, obj.mesh)):
+            return False
+        # The 2026-10-09 audit's clay-01 and clay-02: this door assigned the
+        # rebuilt mesh with neither of ``set_mesh``'s refusals, so a torus of
+        # radius 3e38 stored ``inf`` (every save then refused until undo) and a
+        # segment bump could take the document past the triangle ceiling.
+        # Checked before the first assignment, so a refusal changes nothing.
+        if mesh is not obj.mesh:
+            self._refuse_invalid(obj.name, mesh)
+            self._refuse_unstorable(obj.name, mesh)
+            self._refuse_past_triangle_ceiling(obj, mesh)
+        keyed = self._triangle_key()
+        old_mesh = obj.mesh
         edits: list[Any] = []
         if before != {"params": params}:
             obj.params = params
@@ -1508,6 +1653,7 @@ class ClayDoc:
             return False
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         self.touch()
+        self._carry_triangle_total(keyed, _triangles_of(obj.mesh) - _triangles_of(old_mesh))
         return True
 
     # -- separate ------------------------------------------------------------
@@ -1712,9 +1858,11 @@ class ClayDoc:
         it.
 
         It counts *faces*, deliberately, and not the ``Obj.material`` default:
-        the properties panel's Remove button offers exactly the selected
-        object's own default slot and re-points it immediately afterwards, so
-        counting defaults would disable the only control that reaches this.
+        the properties panel's Remove button acts on the slot the Colours page
+        is editing -- the selected object's own default, or one Ctrl+clicked in
+        the palette -- and :meth:`remove_material_and_reassign` re-points a
+        default that named the removed slot immediately afterwards, so counting
+        defaults would disable the only control that reaches this.
         """
         return sum(
             int((obj.mesh.material == index).sum())
@@ -1933,11 +2081,23 @@ class ClayDoc:
         outside a ``try`` here too, so the same bad-``uid`` failure that
         :meth:`add_material_and_assign` could hit left this gesture open as
         well. Wrapped in ``finally`` for the same reason.
+
+        **The default is repointed only when it named the removed slot.** The
+        2026-10-09 second audit's clay-57: the Remove button now acts on the
+        slot the Colours page edits, which a Ctrl+click can make a slot the
+        object does not wear at all, and this used to rewrite ``obj.material``
+        to ``min(index, last)`` regardless -- removing an unused slot 0 from a
+        shape wearing slot 2 left its faces renumbered to 1 and its default at
+        0, an unrelated neighbour. A default that did *not* name *index* is
+        already renumbered correctly by :func:`~.edits._shift_materials`, so it
+        is left to that. (An unknown *uid* is still a ``KeyError``, raised
+        before anything is removed.)
         """
         mark = self.history.mark()
         try:
+            wore_it = self.by_uid(uid).material == index
             removed = self.remove_material(index)
-            if removed:
+            if removed and wore_it:
                 self.set_props(uid, material=min(index, len(self.materials) - 1))
         finally:
             self.history.collapse_since(mark)
@@ -1975,7 +2135,12 @@ class ClayDoc:
         edited. Pushes no step, by design; see the module docstring. It still
         bumps ``rev``, because the viewport draws the selected object's outline
         and has to know to redraw it."""
-        self.selection = {int(u) for u in uids}
+        # The 2026-10-09 audit's clay-08: a hidden uid used to enter the
+        # selection (the agent's ``clay_select``), which ``selection_problems``
+        # then reported -- hiding deselects, so selecting a hidden object is
+        # skipped the same way. A uid the document does not carry is skipped too.
+        live = {o.uid for o in self.objects if o.visible}
+        self.selection = {int(u) for u in uids if int(u) in live}
         # In an element mode the picks follow the objects being edited: what is
         # no longer selected keeps no picks (I2). Object mode has none to drop.
         if self.element_sel:
@@ -1989,11 +2154,13 @@ class ClayDoc:
     def set_element_mode(self, mode: str) -> None:
         """Switch to object/vertex/edge/face mode, converting what is picked.
 
-        **Never touches ``selection``.** The shapes the user is working on stay
-        selected on the way in and on the way out: entering an element mode
-        from object mode picks nothing (there is nothing to convert) and the
-        first pick adds its own object if it is not already being edited.
-        Leaving drops the picks, which are meaningless in object mode.
+        **Removes nothing from ``selection``, and only ever adds.** The shapes
+        the user is working on stay selected on the way in and on the way out:
+        entering an element mode from object mode picks nothing (there is
+        nothing to convert) and the first pick adds its own object if it is not
+        already being edited; picks that convert to a non-empty result put their
+        objects into ``selection``. Leaving drops the picks, which are
+        meaningless in object mode.
         """
         if mode not in el.MODES:
             raise ValueError(f"unknown element mode {mode!r}")
@@ -2025,6 +2192,10 @@ class ClayDoc:
         the centroid of nothing.
         """
         if el.is_empty(sel):
+            self.element_sel.pop(uid, None)
+        elif self._is_hidden(uid):
+            # The 2026-10-09 audit's clay-08: a hidden object holds no picks,
+            # as ``set_visibility`` leaves it (``selection_problems``).
             self.element_sel.pop(uid, None)
         else:
             assert sel is not None

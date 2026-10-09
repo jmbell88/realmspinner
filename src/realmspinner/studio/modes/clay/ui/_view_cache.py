@@ -4,11 +4,17 @@ Split out of :mod:`~realmspinner.studio.modes.clay.ui.view` as pure code motion.
 argument is the viewport's own and is stated in its module docstring: an entry
 is keyed on ``(id(mesh), materials, obj.material)``, and that identity works
 precisely because ``Mesh`` is frozen and every op on it is ``Mesh -> Mesh``.
+``materials`` there is the identity of only the palette entries the object can
+draw with (:func:`_used_materials_key`), not the whole palette: the 2026-10-09
+second audit's clay-70 measured an edit to a slot *no* object used rebuilding
+every visible object (200 of 200, 123 ms).
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from .....kernels.geom3d import gltf
 from .....kernels.mesh import document as bd
@@ -21,12 +27,18 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class _Entry:
     """One object's GPU state, and the key that says whether it is still valid."""
 
-    __slots__ = ("key", "gpu", "model", "mesh")
+    __slots__ = ("key", "gpu", "model", "mesh", "slots")
 
     def __init__(self, key: Any, gpu: Any, model: Any, mesh: Any) -> None:
         self.key = key
         self.gpu = gpu
         self.model = model
+        # The palette slots ``mesh``'s faces use (``np.unique(mesh.material)``),
+        # memoised here because ``mesh`` is frozen: the answer cannot change
+        # while the entry holds it, and a 200k-face import should not pay a
+        # pass over its face array every frame to learn that. ``None`` for an
+        # entry built elsewhere (the op drag's rebuild), which ``sync`` fills.
+        self.slots: tuple[int, ...] | None = None
         # The Mesh whose id() the key carries, held so that id cannot be
         # recycled while the entry lives. Nothing in ``model`` keeps the Mesh
         # *instance* alive -- ``_submesh`` builds fresh arrays on the way to
@@ -49,9 +61,36 @@ def _materials_key(doc: Any) -> tuple[int, ...]:
     return tuple(id(m) for m in doc.materials)
 
 
+def _used_slots(mesh: Any) -> tuple[int, ...]:
+    """The palette indices *mesh*'s faces name, ascending and distinct."""
+    material = getattr(mesh, "material", None)
+    if material is None or not len(material):
+        return ()
+    return tuple(int(i) for i in np.unique(material))
+
+
+def _used_materials_key(doc: Any, slots: tuple[int, ...], default: int) -> tuple[int, ...]:
+    """Identity of only the palette entries one object draws with.
+
+    The 2026-10-09 second audit's clay-70: :func:`_materials_key` over the whole
+    palette meant recolouring any slot rebuilt the GPU model of every visible
+    object, however few used it. ``to_primitives`` reads the entry at each
+    index its faces name (an out-of-range index draws the fallback material,
+    which is the ``-1`` here, so the palette growing into it changes the key),
+    and ``default`` is the slot new faces are stamped with -- not drawn, but kept
+    in the key as it always was.
+    """
+    palette = doc.materials
+    count = len(palette)
+    return tuple(
+        id(palette[i]) if 0 <= i < count else -1 for i in sorted({*slots, int(default)})
+    )
+
+
 def _object_key(mesh: Any, materials: tuple[int, ...], material: int) -> tuple[Any, ...]:
     # The transform is deliberately *not* in the key: it is a uniform, not a
-    # buffer, so moving an object must not rebuild it.
+    # buffer, so moving an object must not rebuild it. ``materials`` is the
+    # identity of the entries this object uses (``_used_materials_key``).
     return (id(mesh), materials, material)
 
 
@@ -62,15 +101,20 @@ class CacheOps:
 
     def sync(self: ClayView, doc: Any) -> None:
         """Bring the GPU up to date with the document, rebuilding only what changed."""
-        materials = _materials_key(doc)
         live: set[int] = set()
         for obj in doc.objects:
             if not obj.visible:
                 continue
             live.add(obj.uid)
             mesh = obj.mesh
-            key = _object_key(mesh, materials, obj.material)
             entry = self._cache.get(obj.uid)
+            if entry is not None and entry.mesh is mesh and entry.slots is not None:
+                slots = entry.slots
+            else:
+                slots = _used_slots(mesh)
+                if entry is not None and entry.mesh is mesh:
+                    entry.slots = slots
+            key = _object_key(mesh, _used_materials_key(doc, slots, obj.material), obj.material)
             if entry is not None and entry.key == key:
                 continue
             if entry is not None:
@@ -93,7 +137,9 @@ class CacheOps:
                 # dropped out until the cursor moved again.
                 if self.hover_element is not None and self.hover_element[0] == obj.uid:
                     self.hover_element = None
-            self._cache[obj.uid] = self._build(obj, doc, key, mesh)
+            fresh = self._build(obj, doc, key, mesh)
+            fresh.slots = slots
+            self._cache[obj.uid] = fresh
             self.rebuilds += 1
         for uid in [u for u in self._cache if u not in live]:
             # A hidden object's buffers go too: ``visible=False`` means it does

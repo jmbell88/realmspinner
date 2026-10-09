@@ -123,39 +123,88 @@ def test_select_none_carries_no_key_that_by_key_can_never_resolve() -> None:
     assert clay_ops.get("select-none").key == ""
 
 
+CLAY_PACKAGE = "realmspinner.studio.modes.clay"
+#: The one function-scope reach into a sibling mode: Drop to Ground borrows
+#: Mason's pure box arithmetic. A second one is a deliberate decision.
+ALLOWED_SIBLING = ("realmspinner.studio.modes.mason.engine",)
+_BANNED_ROOTS = ("imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw")
+
+
+def _resolved_imports(source: str) -> set[str]:
+    """Every module (and every ``from X import name`` as ``X.name``) a source
+    imports, relative ones resolved against ``ops.py``'s own package.
+
+    The 2026-10-09 second audit's clay-109: the pin read only the first dotted
+    component of ``node.module`` and treated ``level == 2`` as the one way to reach
+    a sibling, so ``from .ui.panes import menu`` (level 1, first component
+    ``ui``) and ``from ...modes.poser import mode`` (level 3) both passed.
+    """
+    import ast
+
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                base = node.module or ""
+            else:
+                # Level 1 is the clay package itself; each further dot is a parent.
+                package = CLAY_PACKAGE.rsplit(".", node.level - 1)[0]
+                base = f"{package}.{node.module}" if node.module else package
+            found.add(base)
+            found.update(f"{base}.{alias.name}" for alias in node.names if alias.name != "*")
+    return found
+
+
+def ops_import_violations(source: str) -> list[str]:
+    """The absolute modules *source* imports that a headless registry may not."""
+    bad = []
+    for name in sorted(_resolved_imports(source)):
+        sibling = name.startswith("realmspinner.studio.modes.") and not (
+            name == CLAY_PACKAGE or name.startswith(CLAY_PACKAGE + ".")
+        )
+        allowed = any(
+            name == ok or name.startswith(ok + ".") or ok.startswith(name + ".")
+            for ok in ALLOWED_SIBLING
+        )
+        if (
+            name.split(".")[0] in _BANNED_ROOTS
+            or name == "realmspinner.service"
+            or name.startswith("realmspinner.service.")
+            or name == "realmspinner.studio.panes"
+            or name.startswith("realmspinner.studio.panes.")
+            or name == f"{CLAY_PACKAGE}.ui"
+            or name.startswith(f"{CLAY_PACKAGE}.ui.")
+            or (sibling and not allowed)
+        ):
+            bad.append(name)
+    return bad
+
+
 def test_the_registry_imports_no_gui() -> None:
     """``clay_ops`` is testable precisely because it draws nothing.
 
     The layering rule for the whole package: nothing under ``clay/`` and nothing
-    in the registry knows imgui exists; only panes and ``main`` draw.
+    in the registry knows imgui exists; only panes and ``main`` draw. Every
+    ``ImportFrom`` is resolved to an absolute module first (see
+    :func:`_resolved_imports`), function-scope imports included.
     """
-    import ast
     import importlib
     from pathlib import Path
 
     source = importlib.import_module("realmspinner.studio.modes.clay.ops").__file__
     assert source is not None
-    tree = ast.parse(Path(source).read_text(encoding="utf-8"))
-    imported = set()
-    sibling_reach = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported |= {alias.name.split(".")[0] for alias in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
-            # Level 2 from ``studio/modes/clay/ops.py`` is ``studio/modes``: a
-            # sibling mode.
-            if node.level == 2:
-                sibling_reach.add(node.module)
-    # The same roots ``test_clay_imports.BANNED_ROOTS`` bans for the mesh
-    # package (the 2026-10-07 audit's clay-45: this pin named imgui alone), plus
-    # the service layer, which the registry reaches for through ``ctx`` and
-    # never by import.
-    for banned in ("imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw", "service"):
-        assert banned not in imported, banned
-    # The one function-scope reach into a sibling mode: Drop to Ground borrows
-    # Mason's pure box arithmetic. A second one is a deliberate decision.
-    assert sibling_reach == {"mason.engine"}
+    text = Path(source).read_text(encoding="utf-8")
+    assert ops_import_violations(text) == []
+    # Exactly the one sibling reach, and it is Mason's engine.
+    siblings = {
+        name
+        for name in _resolved_imports(text)
+        if name.startswith("realmspinner.studio.modes.")
+        and not (name == CLAY_PACKAGE or name.startswith(CLAY_PACKAGE + "."))
+    }
+    assert siblings and all(name.startswith(ALLOWED_SIBLING[0]) for name in siblings), siblings
 
 
 # --- enablement -------------------------------------------------------------

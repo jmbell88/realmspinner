@@ -64,6 +64,7 @@ from .schema import (
 from .validate import (
     _OBJECT_SELECTION_ELEMENT_MODE_REFUSAL,
     Session,
+    _as_float,
     _json,
     _op_params_type_refusal,
     _over_frame_budget,
@@ -95,6 +96,29 @@ def _core() -> Any:
     return agent_clay
 
 
+def _hidden_refusal(doc: Any, uids: list[int], field_name: str) -> dict | None:
+    """A refusal naming every hidden object among *uids*, or ``None``.
+
+    The 2026-10-09 second audit's clay-130 (the agent half of clay-08): the
+    document skips a hidden uid when it selects (``ClayDoc.select``, and
+    ``set_element_sel`` for picks), so ``clay_select`` answered ``{"selection":
+    []}`` and ``clay_select_elements`` with a ``mode`` switched the document
+    into it and answered ``0/0/0`` -- success replies that selected nothing,
+    from a caller that cannot see the screen. Refused by name before anything
+    is switched or written. The agent has no tool that shows an object, so the
+    sentence says who can.
+    """
+    hidden = [u for u in uids if not doc.by_uid(u).visible]
+    if not hidden:
+        return None
+    return fail(
+        f"object(s) {hidden} are hidden and cannot be selected; show them in Clay's "
+        "outliner first.",
+        field=field_name,
+        uids=hidden,
+    )
+
+
 def _h_select(ctx: Any, session: Session, args: dict) -> dict:
     """Replace the *object* selection. Refused in an element mode -- see
     :data:`_OBJECT_SELECTION_ELEMENT_MODE_REFUSAL`: in an element mode
@@ -118,6 +142,9 @@ def _h_select(ctx: Any, session: Session, args: dict) -> dict:
             "give uids -- an empty list clears the selection.", field="uids"
         )
     uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
+    if failure:
+        return failure
+    failure = _hidden_refusal(doc, uids, "uids")
     if failure:
         return failure
     doc.select(set(uids))
@@ -161,6 +188,9 @@ def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     doc = tab.doc
     obj, failure = _resolve_uid(doc, args)
+    if failure:
+        return failure
+    failure = _hidden_refusal(doc, [obj.uid], "uid")
     if failure:
         return failure
 
@@ -348,6 +378,9 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
     obj, failure = _resolve_uid(doc, args)
     if failure:
         return failure
+    failure = _hidden_refusal(doc, [obj.uid], "uid")
+    if failure:
+        return failure
 
     name = args.get("query")
     # isinstance checked first: the 2026-09-26 audit's clay-agent-tools-06 --
@@ -358,6 +391,19 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
     if query is None:
         return fail(
             f"query must be one of {', '.join(sorted(bsel.QUERIES))}.", field="query"
+        )
+    # The 2026-10-09 second audit's clay-134: an argument another query takes
+    # (``direction`` with ``query: "material"``) was read and dropped, so the
+    # agent was told the selection it asked for had been made. The allowed set
+    # is ``Query.args`` itself, the table the loop below reads, so the two
+    # cannot drift; ``uid``/``query``/``how``/``expect_stamp`` are the tool's own.
+    allowed = {"uid", "query", "how", "expect_stamp", *query.args}
+    stray = next((k for k in args if k not in allowed), None)
+    if stray is not None:
+        return fail(
+            f"{stray!r} is not an argument of the {name!r} query "
+            f"(it takes {', '.join(query.args) or 'no further arguments'}).",
+            field=stray,
         )
     if doc.element_mode not in query.modes:
         # ``_in_mode_reason``'s own wording, not a paraphrase of it -- an
@@ -554,10 +600,16 @@ class _OpCtx:
 
     state: Any = None
     messages: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    """The error-level subset of :attr:`messages`. The 2026-10-09 second audit's
+    clay-71: this proxy used to discard the level, so "Those faces already use
+    Material." (an info toast from a click that had nothing to do) read as a
+    refusal and stopped a ``clay_batch`` -- only an error-level message is one."""
 
     def toast(self, message: str, level: str = "info") -> None:
-        del level
         self.messages.append(message)
+        if level == "error":
+            self.errors.append(message)
 
 
 def _h_op(ctx: Any, session: Session, args: dict) -> dict:
@@ -576,20 +628,33 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         op = clay_ops.get(name)
     except KeyError:
         return fail(f"no op named {name!r}.", field="name", recovery="fix_arguments", op=name)
+    # The 2026-10-09 audit's clay-09: ``enabled`` passes for Join in face mode
+    # (objects are selected) while ``run`` refuses on ``op.modes`` and only
+    # *toasts* -- so the agent got ``ran: false`` as a success, ``clay_batch``
+    # carried on and ``rollback_on_error`` never fired. The mode gate is the
+    # one place the recovery really is ``switch_mode``.
+    #
+    # Checked *before* ``enabled`` (the 2026-10-09 second audit's clay-73): most
+    # element ops test the mode inside ``enabled`` too, so with the order the
+    # other way round every one of them answered "Switch to edge mode first."
+    # from ``reason_for`` with no ``recovery`` at all -- only the ops whose
+    # ``enabled`` happened not to look at the mode got ``switch_mode``. The
+    # declared ``op.modes`` is the one gate that makes the recovery true.
+    if doc.element_mode not in op.modes:
+        return fail(
+            clay_ops.wrong_mode_reason(op),
+            op=op.name,
+            recovery="switch_mode",
+        )
     # ``run`` itself returns False, silently, for a disabled op -- exactly the
     # answer that is useless to an agent with no menu to look at and read the
     # greyed row's tooltip from. Checked here, once, so the refusal names the
     # gate (``reason_for`` is only ever consulted once ``enabled`` has already
     # said no, matching ``clay_ops``'s own rule for the two never disagreeing).
+    # No ``recovery``: past the mode gate above, ``op.reason`` covers unrelated
+    # predicates ("Select an object first." is not a mode problem), and this
+    # handler cannot tell which fired from the string alone.
     if not op.enabled(doc):
-        # Not always ``recovery="switch_mode"``: ``op.reason`` covers several
-        # unrelated gates (``_has_objects_reason``, ``_selection_reason``,
-        # ``_has_two_visible_reason`` and the rest, see ``studio/modes/clay/ops.py``'s own
-        # "reasons" section), and only some of them -- the ones built from
-        # ``_in_mode_reason`` -- are about element mode at all. This handler
-        # has no way to tell which gate fired from the string alone, so it
-        # names the op rather than guessing a recovery that would be wrong
-        # for "Select an object first."
         return fail(clay_ops.reason_for(op, doc), op=op.name)
     params = args.get("params")
     if params is None:
@@ -635,6 +700,31 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     before = {obj.uid: obj.mesh for obj in doc.objects}
     head = doc.history.head
     ran = clay_ops.run(proxy, doc, op, **params)
+    pushed = doc.history.head != head
+    if proxy.errors and not pushed:
+        # Same audit finding (clay-09): a ``run`` that says why it did nothing
+        # after every gate above passed was refused by the kernel (a bevel of
+        # width 0, an ``OpError``), and its reason went to ``proxy.messages`` --
+        # a success reply with the reason buried in it. Refused as the error it
+        # is, the messages still reaching the agent instead of a toast.
+        #
+        # Two corrections from the 2026-10-09 second audit. clay-71: only an
+        # *error-level* message is a refusal -- "Those faces already use
+        # Material." is an info toast from an op with nothing to do, and an
+        # idempotent paint must not stop a ``clay_batch`` or fire
+        # ``rollback_on_error``; it stays ``ran: false`` with the sentence in
+        # ``messages``. clay-72: the test is "an error and no step pushed",
+        # whatever ``run`` answered -- ``Delete`` returns ``None``, which
+        # ``run`` reports as ``True``, so a delete that converted to no face
+        # said ``ran: true, pushed: false`` with its refusal buried. A silent
+        # False (``frame`` has no viewport here, ``snap-to-grid`` on points
+        # already on the grid) toasted nothing and stays ``ran: false``.
+        return fail(
+            " ".join(proxy.errors),
+            op=op.name,
+            messages=list(proxy.messages),
+            changed=False,
+        )
     changed = [
         {
             "uid": obj.uid,
@@ -650,7 +740,7 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         {
             "op": op.name,
             "ran": ran,
-            "pushed": doc.history.head != head,
+            "pushed": pushed,
             "element_mode": doc.element_mode,
             "messages": proxy.messages,
             "params": used_params,
@@ -686,8 +776,8 @@ def _parse_view_entry(entry: Any, valid_views: set[str]) -> tuple[str, dict, dic
         return entry, {"view": entry}, None
     if isinstance(entry, dict) and set(entry) == {"yaw", "pitch"}:
         try:
-            yaw = float(entry["yaw"])
-            pitch = float(entry["pitch"])
+            yaw = _as_float(entry["yaw"])
+            pitch = _as_float(entry["pitch"])
         except (TypeError, ValueError, OverflowError):
             return "", {}, fail("yaw and pitch must be numbers.", field="views")
         if not math.isfinite(yaw) or not (-89.0 <= pitch <= 89.0):

@@ -432,6 +432,7 @@ from .schema import (
     MAX_MESH_FACES,
     MAX_MESH_VERTICES,
     MAX_REFERENCES,
+    MAX_RENDER_VIEWS,
     MEASURE_KINDS,
     MINTS_A_DOCUMENT,
     ORIGIN_MODES,
@@ -596,15 +597,18 @@ ceiling, never a default to fall back to.
   ``agent_clay_validate._OBJECT_SELECTION_ELEMENT_MODE_REFUSAL``, and at
   ``clay_select_by``'s own wrong-mode refusal (the 2026-10-07 audit's clay-84:
   it names ``field="query"``, which made ``fail`` derive ``fix_arguments``
-  for arguments that were fine). **Not** attached
-  to ``clay_op``'s own disabled-op refusal (``agent_clay_tools_ops._h_op``,
-  via ``clay_ops.reason_for``) even though its wording sometimes names a mode
-  gate -- ``op.reason`` covers several unrelated predicates
+  for arguments that were fine), and at every ``clay_op`` refusal for an op
+  asked to run in an element mode it does not declare: ``_h_op`` tests
+  ``op.modes`` *before* ``op.enabled`` (the 2026-10-09 second audit's clay-73
+  -- most element ops test the mode inside ``enabled`` as well, and used to
+  answer "Switch to edge mode first." with no recovery). **Not** attached to
+  ``clay_op``'s disabled-op refusal (via ``clay_ops.reason_for``) that follows
+  that gate -- ``op.reason`` covers several unrelated predicates
   (``_has_objects_reason``, ``_selection_reason``, ``_has_two_visible_reason``
-  among them, see ``studio/modes/clay/ops.py``'s own "reasons" section) and only some of
-  them are about element mode; ``_h_op`` has no way to tell which fired from
-  the string alone, so it names the op (``op=``) instead of guessing a
-  recovery that would be wrong for "Select an object first."
+  among them, see ``studio/modes/clay/ops.py``'s own "reasons" section) and
+  ``_h_op`` has no way to tell which fired from the string alone, so it names
+  the op (``op=``) instead of guessing a recovery that would be wrong for
+  "Select an object first."
 * ``"start_document"`` -- this session owns no document yet.
   ``clay_add_primitive`` or ``clay_add_mesh`` starts one. Attached in ``_tab``'s own refusal.
 * ``"retry"`` -- nothing ran; the identical call is safe to send again.
@@ -707,9 +711,9 @@ def instructions() -> str:
         "and select-linked need a pick); clay_select_by is the door for "
         "the rest of clay_op's element menu, "
         "the ones that need one (a material slot, a direction, a box). "
-        "clay_select and every tool that addresses a whole object want "
-        "object mode, and refuse by name rather than switch back for you "
-        "if the document is not in it.\n\n"
+        "clay_select, and clay_program, want object mode, and refuse by "
+        "name rather than switch back for you if the document is not in "
+        "it.\n\n"
         "A selection is indices into one mesh, and indices go stale the "
         "moment the mesh they describe is replaced: an undo drops it, a "
         "params rebuild that changes the face count restricts it to what "
@@ -859,7 +863,7 @@ def tools() -> list[Any]:
             name="clay_add_primitive",
             title="Add a primitive",
             description=(
-                "Place one primitive, selected, as one undo step. Starts "
+                "Place one primitive as one undo step, selected only in object mode. Starts "
                 "this session's document if it has none yet. 'generator' "
                 "picks the shape; 'params' overrides its own numbers "
                 "(radius, segments and so on); "
@@ -900,8 +904,8 @@ def tools() -> list[Any]:
             title="Add a hand-built mesh",
             description=(
                 "Place geometry an agent computed itself -- a shape none of "
-                "the generators expresses -- selected, as one undo "
-                "step. Starts this session's document if it has none yet. "
+                "the generators expresses -- as one undo step, selected only "
+                "in object mode. Starts this session's document if it has none yet. "
                 "'positions' is an array of [x, y, z]; 'faces' is an array "
                 "of vertex-index loops, three or more per face, wound "
                 "counter-clockwise seen from outside; 'uv', if given, is "
@@ -1288,8 +1292,9 @@ def tools() -> list[Any]:
                 "so one cell reads as span/16 metres. 'focus' points the "
                 "camera at the union of the named objects' boxes -- "
                 "everything else is still drawn, since the renderer has no "
-                "per-object alpha. Refused, before any GPU work, when the "
-                f"requested views would exceed the {RENDER_PIXEL_BUDGET:,}"
+                "per-object alpha. 'views' takes at most "
+                f"{MAX_RENDER_VIEWS} entries. Refused, before any GPU work, "
+                f"when the requested views would exceed the {RENDER_PIXEL_BUDGET:,}"
                 "-pixel render budget. A render whose encoded pictures then "
                 "turn out not to fit in one reply frame is refused after it "
                 "has been drawn. Ask for fewer or smaller views either way. "

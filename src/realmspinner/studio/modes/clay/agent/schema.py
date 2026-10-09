@@ -288,6 +288,20 @@ worded, not just its name, and writing that prose in two places would be the
 exact drift the catalogue-diet paragraph in ``studio/modes/clay/agent/dispatch.py``'s own module
 docstring rules out for everything else in this fold."""
 
+UV_ACTION_ARGS: dict[str, tuple[str, ...]] = {
+    "unwrap": (),
+    "pack": ("margin", "rotate"),
+    "transform": ("islands", "translate", "rotate_deg", "scale"),
+}
+"""The arguments each :data:`UV_ACTIONS` action takes beyond ``uid`` and
+``action`` -- what ``_h_uv`` refuses everything else against. The 2026-10-09
+second audit's clay-134: ``translate`` with ``action:"pack"`` was accepted and
+dropped, so an agent that meant a transform was told it had succeeded. The
+select-by half of the same rule needs no table of its own (``select.QUERIES``
+already carries ``Query.args``); this is the one place a per-action set had
+only prose, and ``tests/modes/clay/test_audit_2026_10_09_r2_agent.py`` gates the
+two against each other."""
+
 MAX_MESH_VERTICES = 50_000
 MAX_MESH_FACES = 50_000
 """The most vertices and faces one ``clay_add_mesh`` call may hand over,

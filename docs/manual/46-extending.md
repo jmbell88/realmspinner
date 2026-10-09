@@ -527,8 +527,16 @@ fits a float64 but not Clay's float32 positions once built an infinite mesh and 
 `clay_scene`. Every integer argument is a whole number (a fraction or a boolean is refused), `clay_select_elements`
 selects only the kind the document's element mode holds (give `mode`), `clay_select_by` refuses a zero
 `direction` and a `min` above `max`, and `clay_measure angle` refuses a zero-length ray instead of answering 0.
-`clay_op` run in the wrong element mode answers `ran: false` with "Switch to object mode first." (or the mode
-the op needs); `ran` is also false when an object-level op changed nothing.
+A number argument is a number: `true` or `"0.2"` is refused by name rather than read as 1 or 0.2.
+`clay_op` run in an element mode it does not work in is refused with "Switch to object mode first." (or the mode the
+op needs) and `recovery: "switch_mode"`, for every such op, since the mode is checked before the op's own enabled test.
+An op that pushed no step and gave an error-level reason (a Delete that converts to no face, a bevel of width 0) is
+refused with that reason, so a `clay_batch` stops there. An info-level message (`assign-material` onto the slot the
+faces already wear) or a silent no-op (Frame with no viewport, Snap to Grid on points already on it) is `ran: false`
+without an error, and a batch carries on. `clay_select`, `clay_select_elements` and `clay_select_by` refuse a hidden
+object by name (field `uids` or `uid`; show it in Clay's outliner first). `clay_select_by` and `clay_uv` refuse an
+argument the chosen query or action does not take, by field. `clay_uv transform` holds `translate` to 1e6, and
+`clay_delete` is all-or-nothing.
 `tests/test_agent_schemas.py` is what proves this half is actually done, tool by tool and
 constraint by constraint, discovered from the schemas themselves rather than a hand-written list of
 what to check.

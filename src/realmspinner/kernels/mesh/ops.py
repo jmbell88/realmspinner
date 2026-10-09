@@ -44,13 +44,21 @@ import numpy as np
 from ..geom3d import math3d as m3
 from . import mesh as bm
 from .document import Obj
+from .elements import OpError
 
 _AXIS_NAMES = ("x", "y", "z")
 
 # A duplicate's name counts up in a three-digit suffix, as Blender's does: the
 # outliner sorts alphabetically, and "Box.010" sorting between "Box.001" and
 # "Box.2" is the sort of thing nobody reports as a bug and everybody notices.
-_SUFFIX = re.compile(r"^(?P<base>.*)\.(?P<n>\d{3,})$")
+#
+# The suffix is at most nine digits. The 2026-10-09 second audit found
+# ``\d{3,}`` handed ``int()`` a run of any length, and a GLB or OBJ import keeps
+# node names verbatim, so a name ending ``.`` plus 4,301 digits raised
+# ``ValueError`` (Python's int-from-string limit) out of Duplicate and Mirror
+# Copy. A longer run is not a counter anybody typed; it stays part of the base
+# name and the copy is ``<name>.001``.
+_SUFFIX = re.compile(r"^(?P<base>.*)\.(?P<n>\d{3,9})$")
 
 
 def mirror(obj: Obj, axis: int) -> Obj:
@@ -264,7 +272,7 @@ def local_direction(
     the box that is stretched.
 
     Exact for the diagonal scale :class:`Obj` carries (no shear), the same
-    assumption :func:`~.viewer.math3d.decompose` states for the transforms this
+    assumption :func:`..geom3d.math3d.decompose` states for the transforms this
     package builds. Returns the zero vector for a *world_dir* with no length or
     a result that collapses to nothing (a zero or near-zero scale on the axis
     that carried all of it) -- a direction to test faces against is meaningless
@@ -272,7 +280,7 @@ def local_direction(
     to find that out.
 
     ``world`` overrides *obj*'s own rotation/scale with those of a *world*
-    matrix, decomposed (:func:`~.viewer.math3d.decompose`) -- pass
+    matrix, decomposed (:func:`..geom3d.math3d.decompose`) -- pass
     ``doc.world_matrix(obj.uid)`` for a parented object, whose own rotation
     and scale are local to its parent, not its world orientation. Left
     ``None``, this reads *obj*'s own fields exactly as it always has.
@@ -313,7 +321,7 @@ def world_positions(obj: Obj, world: np.ndarray | None = None) -> np.ndarray:
     arbitrary parallelepiped), so there is no ``lo, hi`` pair in local space
     that describes "inside this world box" for a rotated object. The
     positions have to move into world space instead, which is what this does,
-    at O(V) after :func:`~.viewer.math3d.compose` -- for
+    at O(V) after :func:`..geom3d.math3d.compose` -- for
     :func:`~.select.faces_in_bounds`, called with a world *lo*/*hi* and these
     as its *positions* argument.
 
@@ -344,7 +352,17 @@ def snap_value(value: float, step: float) -> float:
     step = abs(float(step))
     if step == 0.0:
         return float(value)
-    return math.copysign(math.floor(abs(value) / step + 0.5), value) * step
+    steps = abs(value) / step
+    if not math.isfinite(steps):
+        # The 2026-10-09 second audit found a denormal step (5e-324) made this
+        # quotient infinite and ``math.floor`` raised OverflowError past the
+        # op runner's OpError handler. A grid that fine is not a grid: refuse by
+        # name, with the same exception class every other refusal here raises.
+        raise OpError(
+            f"A snap step of {step:g} is too small to snap {value:g} to. "
+            "Use a larger grid size, or clear it to turn snapping off."
+        )
+    return math.copysign(math.floor(steps + 0.5), value) * step
 
 
 def snap_translation(vec: Iterable[float], step: float) -> np.ndarray:

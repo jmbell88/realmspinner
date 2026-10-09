@@ -26,7 +26,22 @@ from typing import Any
 
 from . import elements as el
 
-__all__ = ["delete_selected", "duplicate_selected", "invert", "select_all"]
+__all__ = ["delete_selected", "duplicate_selected", "invert", "select_all", "with_descendants"]
+
+
+def with_descendants(doc: Any, uids: Any) -> set[int]:
+    """*uids* and every object under any of them.
+
+    What "copy this" means for a group: the 2026-10-09 second audit's clay-63 found
+    Duplicate and Mirror Copy on a selected group copied only the empty, because
+    a group *is* an empty and its children are separate objects the selection
+    does not name. Copying a parent without its children is never what pressing
+    Duplicate on a group means.
+    """
+    out: set[int] = set(uids)
+    for uid in list(out):
+        out.update(doc.descendants(uid))
+    return out
 
 
 def select_all(doc: Any) -> None:
@@ -217,7 +232,8 @@ def delete_selected(doc: Any) -> list[str]:
 
 
 def duplicate_selected(doc: Any) -> list[int]:
-    """A copy of every selected object, selected in its place. -> the new uids.
+    """A copy of every selected object -- and of everything under a selected group --
+    with the copies of the selected ones selected in their place. -> the new uids.
 
     ``taken`` grows as it goes so two copies of one name in a single press do
     not both land on ``Box.001``.
@@ -243,12 +259,20 @@ def duplicate_selected(doc: Any) -> list[int]:
     # rather than the order the objects actually sit in the outliner --
     # sorting by ``doc.index_of`` restores the document's own order.
     old_to_new: dict[int, int] = {}
-    for uid in sorted(doc.selection, key=doc.index_of):
-        # The 2026-10-03 audit's clay-41: a hidden object stays untouched even
-        # when it is selected, and a copy of it would appear (selected) in a
-        # scene the user cannot see the original in.
-        if not doc.by_uid(uid).visible:
-            continue
+    # The 2026-10-09 second audit's clay-63: a selected group is an empty, and its
+    # children are other objects -- Duplicate copied the empty alone. A selected
+    # visible object now takes its descendants with it (the re-pointing below
+    # then hangs each child's copy off its parent's copy). Document order is
+    # kept rather than parents-first: the copies keep their local transforms, so
+    # nothing here needs a parent's copy to exist before its child's, and the
+    # outliner order (the 2026-09-14 audit's clay-07) is the one a user sees.
+    #
+    # The 2026-10-03 audit's clay-41: a *selected* hidden object stays untouched,
+    # since a copy of it would appear (selected) in a scene the user cannot see
+    # the original in -- hence ``chosen`` filters on ``visible``. A hidden child
+    # of a visible group is part of the group and its copy stays hidden, as it was.
+    chosen = [uid for uid in doc.selection if doc.by_uid(uid).visible]
+    for uid in sorted(with_descendants(doc, chosen), key=doc.index_of):
         copy = ops.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
         taken.add(copy.name)
         old_to_new[uid] = copy.uid
@@ -270,4 +294,10 @@ def duplicate_selected(doc: Any) -> list[int]:
         for copy in copies
     ]
     doc.add_objects(copies)
+    # Only the copies of what the user picked stay selected: ``add_objects``
+    # selected every copy, and a group's copied children riding inside the
+    # selection would be moved twice by the first gizmo drag (once with their
+    # parent, once on their own).
+    if chosen and doc.element_mode == "object":
+        doc.select([old_to_new[uid] for uid in chosen])
     return [copy.uid for copy in copies]

@@ -280,3 +280,90 @@ def test_the_package_imports_with_no_optional_dependency_present():
         if path.stem == "__init__":
             continue
         importlib.import_module(f"{PACKAGE}.{path.stem}")
+
+
+# --- the viewport-facing logic modules (the 2026-10-09 audit's clay-29) ---------
+#
+# ``studio/modes/clay/gestures.py`` and ``element_move.py`` both open with "no
+# imgui, no GL" and are what the headless tests drive, but nothing enrolled them
+# here: this file's ``_modules()`` only globs ``kernels/mesh``. A pygame import
+# in the press classifier would have passed every test.
+
+CLAY_MODE = (
+    Path(__file__).resolve().parents[3] / "src" / "realmspinner" / "studio" / "modes" / "clay"
+)
+CLAY_MODE_PACKAGE = "realmspinner.studio.modes.clay"
+HEADLESS_LOGIC = ("gestures.py", "element_move.py")
+FORBIDDEN_FOR_LOGIC = ("realmspinner.service", "realmspinner.queue", "realmspinner.pipelines")
+
+
+def _absolute_imports(source: str, package: str = CLAY_MODE_PACKAGE) -> set[str]:
+    """Every module a source imports, relative ones resolved against *package*
+    (the clay mode unless told otherwise), function-scope imports included."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                found.add(node.module or "")
+            else:
+                base = package.rsplit(".", node.level - 1)[0]
+                found.add(f"{base}.{node.module}" if node.module else base)
+    return found
+
+
+def _headless_violations(source: str, package: str = CLAY_MODE_PACKAGE) -> list[str]:
+    bad = []
+    for name in sorted(_absolute_imports(source, package)):
+        banned = name.split(".")[0] in BANNED_ROOTS
+        service = any(name == f or name.startswith(f + ".") for f in FORBIDDEN_FOR_LOGIC)
+        if banned or service:
+            bad.append(name)
+    return bad
+
+
+def test_gestures_and_element_move_import_no_imgui_moderngl_or_pygame() -> None:
+    for name in HEADLESS_LOGIC:
+        path = CLAY_MODE / name
+        assert path.is_file(), path
+        assert _headless_violations(path.read_text(encoding="utf-8")) == [], name
+
+
+def test_the_headless_logic_pin_catches_a_module_that_imports_a_window(tmp_path) -> None:
+    scratch = tmp_path / "element_move.py"
+    scratch.write_text(
+        (CLAY_MODE / "element_move.py").read_text(encoding="utf-8")
+        + "\nimport imgui\nfrom ....service import jobs\n",
+        encoding="utf-8",
+    )
+    assert _headless_violations(scratch.read_text(encoding="utf-8")) == [
+        "imgui",
+        "realmspinner.service",
+    ]
+
+
+# --- studio/viewport_hints.py (the 2026-10-09 second audit's clay-126) --------------
+#
+# ``viewport_hints.py`` opens by claiming it imports nothing outward, and the
+# pin above enrolled only the two modules under ``modes/clay``: a pygame or imgui
+# import in the hint line or the axis ball would have passed every test. It
+# lives one package up (``studio``), so its relative imports resolve against
+# that package. ``studio/_view_frame.py`` is deliberately *not* enrolled: it
+# imports pygame inside ``_mods`` on purpose (it is the one place the viewports
+# read the modifier keys), so a pin that banned pygame there would be wrong.
+
+STUDIO = CLAY_MODE.parents[1]
+STUDIO_PACKAGE = "realmspinner.studio"
+
+
+def test_viewport_hints_imports_no_imgui_moderngl_or_pygame() -> None:
+    path = STUDIO / "viewport_hints.py"
+    assert path.is_file(), path
+    assert _headless_violations(path.read_text(encoding="utf-8"), STUDIO_PACKAGE) == []
+
+
+def test_the_viewport_hints_pin_catches_a_module_that_imports_a_window() -> None:
+    source = (STUDIO / "viewport_hints.py").read_text(encoding="utf-8")
+    bad = source + "\nimport pygame\nfrom ..service import jobs\n"
+    assert _headless_violations(bad, STUDIO_PACKAGE) == ["pygame", "realmspinner.service"]

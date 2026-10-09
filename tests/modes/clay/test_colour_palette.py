@@ -180,7 +180,8 @@ def test_a_ctrl_click_on_a_slot_retargets_it_without_painting(imgui_ui, monkeypa
     monkeypatch.setattr(swatches, "_ctrl_held", lambda: True)
     rig = _rig(imgui_ui, ctx)
     rig.click(label="##slotsw/1")
-    assert obj.material == 1, "now the slot Edit colour edits"
+    assert tab.edit_slot(doc, obj) == 1, "now the slot Edit colour edits"
+    assert obj.material == 0, "not the object's own slot (clay-16)"
     assert set(obj.mesh.material.tolist()) == {0}, "and no face was repainted"
     assert tab.last_slot != 1, "Ctrl+click opens a slot, it does not choose a colour"
 

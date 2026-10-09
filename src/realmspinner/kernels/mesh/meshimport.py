@@ -312,11 +312,15 @@ def import_file_report(
     in this project's own convention and ordinarily needs neither: refusing a
     non-default request would be one more thing an import dialog has to explain,
     and applying it is exactly as well-defined here as for any other format.
-    Applied to each object's own mesh positions after the ordinary GLB import
-    (:func:`~.glbimport.glb_to_claydoc`) runs, rather than composed into the
-    object's transform -- the same "positions, not the node" choice
-    :func:`.objimport.axis_matrix`'s docstring makes for STL/PLY, so all three
-    formats agree about what the knob does.
+    Applied after the ordinary GLB import (:func:`~.glbimport.glb_to_claydoc`)
+    runs, to each object's mesh positions *and* its node transform together:
+    the positions go through the matrix ``M`` and the placement is conjugated
+    (``M @ local @ M^-1``), so each object's world placement is ``M`` times the
+    unscaled one and a node ten metres away stays in lockstep with its mesh.
+    (STL and PLY have no node transform, so for them ``M`` is applied to the
+    positions alone -- :func:`.objimport.axis_matrix`'s docstring.) The 2026-10-09
+    second audit's clay-116: this used to say the transform was left alone,
+    which is the bug the 2026-09-26 audit's clay-io-01 fixed.
 
     ``mtl`` is the text of the OBJ's material library, read by the caller: this
     module never opens a file, so finding the ``.mtl`` beside an ``.obj`` is
@@ -382,7 +386,21 @@ def import_file_report(
                         "float32 positions. Use a smaller scale."
                     )
                 local = m3.compose(obj.translation, obj.rotation, obj.scale)
-                t, r, s = m3.decompose(matrix @ local @ inverse)
+                # The 2026-10-09 audit's clay-26: only the positions were
+                # checked above, so a node translation near float32's ceiling
+                # times a large scale slipped through as an object placed at
+                # inf, which OBJ export then wrote as ``v inf``. The placement
+                # is refused by name the same way the positions are.
+                with np.errstate(over="ignore", invalid="ignore"):
+                    t, r, s = m3.decompose(matrix @ local @ inverse)
+                    fits = all(
+                        np.isfinite(np.asarray(part, dtype="f4")).all() for part in (t, r, s)
+                    )
+                if not fits:
+                    raise OpError(
+                        "The import scale moves a node too far for Clay's float32 "
+                        "positions. Use a smaller scale."
+                    )
                 obj.translation, obj.rotation, obj.scale = t, r, s
         return doc, skipped
     raise OpError(

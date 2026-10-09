@@ -590,7 +590,12 @@ def test_uv_pane_measurements_are_memoised_on_the_mesh_and_not_recomputed_every_
     clay_uv._measurements(view_state, mesh)
     assert len(calls) == 1, "the same mesh object must be measured once, not every call"
 
-    other = _two_island_mesh()
+    # A different uv layout: since the 2026-10-09 audit's clay-21 the memo keys on
+    # uv/loops/starts, so a mesh equal in all three is (rightly) the same measurement.
+    base = _two_island_mesh()
+    other = bm.Mesh(
+        base.positions, base.loops, base.starts, base.material, base.smooth, base.uv * 0.5
+    )
     clay_uv._measurements(view_state, other)
     assert len(calls) == 2, "a genuinely different mesh still gets measured"
 
@@ -622,7 +627,12 @@ def test_uv_pane_island_ids_are_memoised_on_the_mesh_and_not_recomputed_every_fr
     clay_uv._measurements(view_state, mesh)
     assert len(calls) == 1, "the same mesh object's islands must be computed once, not every call"
 
-    other = _two_island_mesh()
+    # A different uv layout: since the 2026-10-09 audit's clay-21 the memo keys on
+    # uv/loops/starts, so a mesh equal in all three is (rightly) the same measurement.
+    base = _two_island_mesh()
+    other = bm.Mesh(
+        base.positions, base.loops, base.starts, base.material, base.smooth, base.uv * 0.5
+    )
     clay_uv._measurements(view_state, other)
     assert len(calls) == 2, "a genuinely different mesh still gets its islands computed"
 

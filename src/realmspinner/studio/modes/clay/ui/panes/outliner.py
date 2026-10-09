@@ -356,6 +356,10 @@ def _body(ctx: Any, state: Any, tab: Any, height: float) -> None:
     filtered = bool(needle)
     # A rename belongs to the tab it began in (clay-23, above).
     settle_rename(state, tab.uid)
+    # Keys of tabs that have closed since (the 2026-10-09 audit's clay-44).
+    prune = getattr(state, "prune_outliner_keys", None)
+    if prune is not None:
+        prune()
     # The 2026-09-26 audit's clay-panes-05: every one of these rows used to be
     # submitted to imgui whether or not the pane could show it -- a thousand
     # selectables, drag-drop sources/targets and context-menu registrations a
@@ -502,7 +506,15 @@ def _click(state: Any, doc: Any, obj: Any, tab_uid: str = "") -> None:
     """Apply one row click, honouring Ctrl (toggle) and Shift (range).
 
     *tab_uid* scopes the anchor to the document it was set in (clay-23).
+
+    A hidden row is **not selectable** and a click on it changes nothing at all: the
+    2026-10-09 second audit's clay-129 found that, since ``ClayDoc.select`` skips a
+    hidden uid (clay-08), ``select([hidden])`` replaced the selection with nothing --
+    and ``_leave_element_mode`` first dropped the user out of the element mode they
+    were editing in. The eye shows the object again; then it can be clicked.
     """
+    if not obj.visible:
+        return
     _leave_element_mode(doc)
     io = imgui.get_io()
     anchor = anchor_uid(state, tab_uid)
@@ -610,7 +622,16 @@ def _apply_drop(ctx: Any, doc: Any, dropped_uid: int, target: Any, index: int, z
         except KeyError:
             return  # the dropped object was deleted between the pick-up and the drop
         with contextlib.suppress(KeyError):
-            doc.move_object(dropped_uid, index if zone == "before" else index + 1)
+            # The 2026-10-09 audit's clay-05: ``move_object`` pops the dragged
+            # object before it inserts, so the slot it wants is counted in the list
+            # *without* it. The caller's ``index`` counts the list with it, so a
+            # downward drop landed one slot late (A before C on [A, B, C] gave
+            # [B, C, A]). Read both positions after ``set_parent``, which may move.
+            at = doc.index_of(dropped_uid)
+            where = doc.index_of(target.uid)
+            if at < where:
+                where -= 1
+            doc.move_object(dropped_uid, where if zone == "before" else where + 1)
     finally:
         doc.history.collapse_since(mark)
 
@@ -727,12 +748,26 @@ def _remove_objects(ctx: Any, doc: Any, uids: list[int]) -> list[str]:
     return refusals
 
 
+def _duplicate_reason(doc: Any, obj: Any) -> str:
+    """Why the row menu's Duplicate is greyed for *obj*, or ``""``.
+
+    Duplicate copies the **selection** (``clay_mode._duplicate_selection``), and a
+    hidden row cannot be selected (the 2026-10-09 second audit's clay-129), so for a
+    hidden target it would copy whatever else was selected under the name of the row
+    that was right-clicked. Pure, beside the draw call, so the sentence is checkable.
+    """
+    if not obj.visible:
+        return "It is hidden: show it with the eye first, then it can be duplicated."
+    return ""
+
+
 def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any, tab_uid: str = "") -> None:
     """Rename, duplicate, solo and delete on the row itself.
 
     Duplicate is here rather than only on Ctrl+J because the keyboard version
     acts on the *selection*, and the thing a user right-clicks is one row --
-    which is why it selects the row first (when it is not already selected): a
+    which is why it selects the row first (when it is not already selected, and is
+    not hidden -- a hidden row cannot be selected, so its Duplicate is greyed): a
     menu item that operated on something other than what was clicked would be
     the sharpest possible misreading of a right-click. Delete and Solo follow
     :func:`_menu_targets`, so all three act on the same set.
@@ -740,12 +775,16 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any, tab_uid: str = "") -
     if not imgui.begin_popup_context_item(f"clayrow{obj.uid}"):
         return
     widgets.popup_chrome(_imgui=imgui)
-    if obj.uid not in doc.selection:
+    # Not for a hidden row: ``select`` would drop it and empty the selection (clay-129).
+    if obj.uid not in doc.selection and obj.visible:
         _leave_element_mode(doc)
         doc.select([obj.uid])
     if controls.menu_item(f"{icons.PENCIL} Rename", "", False)[0]:
         begin_rename(state, tab_uid, obj.uid)
-    if controls.menu_item(f"{icons.COPY} Duplicate", "Ctrl+J", False)[0]:
+    why_dup = _duplicate_reason(doc, obj)
+    if controls.menu_item(
+        f"{icons.COPY} Duplicate", "Ctrl+J", False, not why_dup, reason=why_dup
+    )[0]:
         from ... import mode as clay_mode
 
         clay_mode._duplicate_selection(ctx, state, doc)
@@ -799,7 +838,9 @@ def _row(
 
     eye = icons.EYE if obj.visible else icons.EYE_OFF
     if controls.button(f"{eye}##vis", (sp(28), sp(ROW_HEIGHT))):
-        doc.set_props(obj.uid, visible=not obj.visible)
+        # The 2026-10-09 audit's clay-04: ``set_props`` leaves a hidden object
+        # selected; ``set_visibility`` deselects it, as the H key does.
+        doc.set_visibility({obj.uid: not obj.visible})
     if imgui.is_item_hovered():
         imgui.set_tooltip("Hidden objects do not render, export or pick.")
     imgui.same_line()

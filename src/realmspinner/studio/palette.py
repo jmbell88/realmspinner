@@ -504,13 +504,20 @@ def _clay_has_view(ctx: Any) -> bool:
     return getattr(ctx, "clay_view", None) is not None
 
 
-def _clay_op_command(op: Any, doc: Any, tab: Any) -> Command:
+#: The 2026-10-09 audit's clay-13/14: a live G/R/S, gizmo or UV drag owns the
+#: document until it commits; a row that edits or exports it waits.
+_CLAY_GESTURE_WHY = "Finish the drag in progress first (Enter or click to commit, Esc to cancel)."
+
+
+def _clay_op_command(op: Any, doc: Any, tab: Any, gesture: bool = False) -> Command:
     from .modes.clay import mode as clay_mode
     from .modes.clay import ops as clay_ops
     from .modes.clay.ui.panes import header as clay_header
 
     if tab.saving:
         why = clay_header.SAVING_WHY
+    elif gesture:
+        why = _CLAY_GESTURE_WHY
     elif doc.element_mode not in op.modes:
         # Listed, not hidden: a user searching "Extrude" from Shape mode learns
         # which mode it lives in from the greyed row.
@@ -520,7 +527,7 @@ def _clay_op_command(op: Any, doc: Any, tab: Any) -> Command:
 
     def enabled(ctx: Any) -> bool:
         live = _clay_tab(ctx)
-        if live is None or live.saving:
+        if live is None or live.saving or clay_mode._gesture_live(ctx, live):
             return False
         return live.doc.element_mode in op.modes and bool(op.enabled(live.doc))
 
@@ -540,7 +547,7 @@ def _clay_op_command(op: Any, doc: Any, tab: Any) -> Command:
     )
 
 
-def _clay_build(doc: Any, tab: Any) -> list[Command]:
+def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
     from . import verbs
     from .modes.clay import doc_io
     from .modes.clay import mode as clay_mode
@@ -556,7 +563,7 @@ def _clay_build(doc: Any, tab: Any) -> list[Command]:
     # uses the header's own door; two rows for one camera move would be noise.
     for op in clay_ops.OPS:
         if op.name != "frame":
-            out.append(_clay_op_command(op, doc, tab))
+            out.append(_clay_op_command(op, doc, tab, gesture))
 
     # The four tools: the rail's words, the registry's keys and shortcuts.
     for key, label, shortcut in clay_state.TOOLS:
@@ -715,9 +722,15 @@ def _clay_build(doc: Any, tab: Any) -> list[Command]:
     # The ways out, greyed with the one sentence every output button uses.
     def can_export(ctx: Any) -> bool:
         live = _clay_tab(ctx)
-        return live is not None and not doc_io.outputs_why(live.doc, bool(live.saving))
+        return (
+            live is not None
+            and not clay_mode._gesture_live(ctx, live)
+            and not doc_io.outputs_why(live.doc, bool(live.saving))
+        )
 
-    export_why = doc_io.outputs_why(doc, bool(tab.saving)) or "Nothing to send yet."
+    # The one function the buttons use, so a row and a button greyed by the same
+    # state say the same sentence (saving outranks the drag, as it does there).
+    export_why = doc_io.outputs_why(doc, bool(tab.saving), gesture) or "Nothing to send yet."
 
     def export_library(ctx: Any, _state: Any, live: Any) -> None:
         clay_mode.export_asset(ctx, live)
@@ -757,18 +770,24 @@ def _clay_commands(ctx: Any) -> list[Command]:
     if tab is None:
         return []
     doc = tab.doc
+    from .modes.clay import mode as clay_mode
+
+    gesture = clay_mode._gesture_live(ctx, tab)
     key = (
         tab.uid,
         doc.rev,
         doc.element_mode,
         tuple(sorted(doc.selection)),
         bool(tab.saving),
+        # The greyed rows' reason differs while a drag is live, so the memo must
+        # not hand the idle build to a frame that is mid-drag.
+        gesture,
     )
     cache = _clay_cache
     held = cache.doc_ref() if cache.doc_ref is not None else None
     if cache.key == key and held is doc:
         return cache.commands
-    cache.commands = _clay_build(doc, tab)
+    cache.commands = _clay_build(doc, tab, gesture)
     cache.key = key
     cache.doc_ref = weakref.ref(doc)
     cache.builds += 1

@@ -38,6 +38,7 @@ import logging
 import weakref
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -55,7 +56,7 @@ from .....tokens import sp
 from ... import doc_io, element_move, transform_edit
 from ... import mode as clay_mode
 from ... import ops as clay_ops
-from ...state import ClayState
+from ...state import ClayState, worn_slot
 from . import outliner as clay_outliner
 
 # The swatch code left for ``swatches.py`` with the swatch row (it is the Inspector's
@@ -76,11 +77,9 @@ def _document(ctx: Any, tab: Any, doc: Any) -> None:
     """The document as a whole: its file, what is in it, the history, how the next
     import reads a file, and the ways out.
 
-    This is the tab that replaced ``bridge.py`` (the right column's third pane)
-    when the column became the outliner over the Inspector: everything that pane
-    drew is here, in the order it drew it, so nothing about a document went
-    unreachable -- the file row, the counts, Undo/Redo and the step popover, the
-    exports and the last export's id.
+    This is the Inspector's Model & history page (``inspector.py`` pushes it): the
+    file row, the counts, Undo/Redo and the step popover, the exports and the last
+    export's id.
 
     The counts are of what leaves the document -- visible objects only, the same
     set the exporters write -- so the triangle line is a promise about the
@@ -180,7 +179,7 @@ def _outputs(ctx: Any, tab: Any) -> None:
     # ``_pipeline`` for why the five of them agree on a name.
     widgets.section("Take it somewhere")
     doc = tab.doc
-    why = doc_io.outputs_why(doc, tab.saving)
+    why = doc_io.outputs_why(doc, tab.saving, clay_mode._gesture_live(ctx, tab))
     ready = not why
 
     if widgets.primary_button(
@@ -668,6 +667,49 @@ def scale_fields(doc: Any, obj: Any, *, ctx: Any = None) -> bool:
     return _apply_transform(doc, obj, ctx, scale=scale, was=was)
 
 
+#: *mesh* -> its local ``(lo, hi)``, weak on the mesh so a replaced or closed mesh takes
+#: its entry with it. ``Mesh`` is frozen and its arrays are read-only (``mesh.py``), so
+#: identity is the whole of the key: an edit builds a new ``Mesh`` and misses.
+_LOCAL_BOUNDS: weakref.WeakKeyDictionary[Any, tuple[np.ndarray, np.ndarray]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def local_bounds(mesh: Any) -> tuple[np.ndarray, np.ndarray]:
+    """``mesh.bounds`` memoised on the mesh's identity.
+
+    The 2026-10-09 second audit's clay-68: the Size card (and the Model page's size
+    row) ran two full ``positions.min``/``max`` passes per frame -- 7 ms on a 130k
+    vertex shape -- against ``world_box``'s own docstring, which promises O(1) "after
+    the local bounds". The bounds only change when the mesh does.
+    """
+    from ......kernels.mesh import mesh as bm
+
+    cached = _LOCAL_BOUNDS.get(mesh)
+    if cached is None:
+        cached = _LOCAL_BOUNDS[mesh] = bm.bounds(mesh)
+    return cached
+
+
+def measured(
+    obj: Any, mesh: Any, world: Any
+) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray] | None:
+    """``(world_box, local_extent)`` for the size rows, or ``None`` for an empty mesh.
+
+    The world box is :func:`~.ops.world_box`'s own answer (the camera's framing reads
+    it, and the two must not disagree), given a two-point stand-in for *mesh* whose
+    box is the cached local one, so it does not walk the positions again.
+    """
+    from ......kernels.mesh import ops as bops
+
+    if len(mesh.positions) == 0:
+        return None
+    lo, hi = local_bounds(mesh)
+    stand_in = SimpleNamespace(positions=np.array([lo, hi], dtype="f4"))
+    box = bops.world_box(obj, stand_in, world=world)  # type: ignore[arg-type]
+    return (box, hi - lo) if box is not None else None
+
+
 def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None = None) -> None:
     """How big the thing is -- editable -- and where its world box sits.
 
@@ -690,15 +732,13 @@ def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None 
     greyed-out box inside a three-box field is not something imgui offers, and a
     toast per keystroke is the failure a refusal would otherwise cause.
     """
-    from ......kernels.mesh import ops as bops
-
     ui = _display_state(state)
     unit = ui.length_unit if ui.length_unit in dict(units.LENGTH_UNITS) else units.DEFAULT_UNIT
     mesh = obj.mesh
-    box = bops.world_box(obj, mesh, world=doc.world_matrix(obj.uid))
-    if box is None:
+    measure = measured(obj, mesh, doc.world_matrix(obj.uid))
+    if measure is None:
         return
-    extent = transform_edit.local_extent(mesh)
+    box, extent = measure
     size = transform_edit.size_of(extent, obj.scale)
     shown = units.vec_to_display(size, unit)
     was = tuple(v.copy() for v in obj.trs())
@@ -931,9 +971,11 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
         "Pick or paint a slot in the Colour card "
         "(Ctrl+click a swatch to edit it here)."
     )
-    _palette_row(doc, obj)
+    # The slot this page edits: the Ctrl+clicked one if any (tab state, not
+    # ``obj.material`` -- the 2026-10-09 audit's clay-16), else the object's own.
+    index = _page_slot(tab, doc, obj)
+    _palette_row(doc, obj, index)
 
-    index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     material = doc.materials[index]
     widgets.muted_wrapped(_edit_slot_note(doc, obj, index))
     # Each a sub-field of the "slot" combo above, named on its own line
@@ -971,6 +1013,15 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
         material = fresh
 
     _texture_slots(ctx, tab, doc, index, material)
+
+
+def _page_slot(tab: Any, doc: Any, obj: Any) -> int:
+    """The palette slot the Colours & textures page edits for *obj*."""
+    pick = getattr(tab, "edit_slot", None)
+    if pick is not None:
+        return int(pick(doc, obj))
+    worn = worn_slot(doc, obj)
+    return worn if worn is not None else min(max(int(obj.material), 0), len(doc.materials) - 1)
 
 
 def _uv_view_slot(doc: Any, obj: Any) -> int | None:
@@ -1068,7 +1119,7 @@ def _material_users(doc: Any, index: int) -> int:
     return users
 
 
-def _palette_row(doc: Any, obj: Any) -> None:
+def _palette_row(doc: Any, obj: Any, index: int | None = None) -> None:
     """Add, rename and remove palette entries.
 
     Add appends -- never inserts -- because a slot *is* an index that every
@@ -1080,7 +1131,8 @@ def _palette_row(doc: Any, obj: Any) -> None:
     part of the model looks, which is exactly the kind of thing a user
     discovers three edits later with no idea what did it.
     """
-    index = min(max(int(obj.material), 0), len(doc.materials) - 1)
+    if index is None:
+        index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     users = _material_users(doc, index)
     if controls.small_button(
         f"{icons.PLUS} Add##matadd",

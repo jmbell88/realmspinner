@@ -7,7 +7,8 @@ Modelled on :mod:`~realmspinner.studio.viewer_embed` and reusing its parts whole
 each of which can change independently while the others do not.
 
 That difference is the whole design of the GPU cache. An entry is keyed on
-``(uid, id(obj.mesh), materials)``, and it is sound precisely because ``Mesh``
+``(uid, id(obj.mesh), materials)`` -- ``materials`` being only the palette entries
+that object's faces and default slot name -- and it is sound precisely because ``Mesh``
 is a frozen dataclass and every op on it is ``Mesh -> Mesh``: a changed mesh is
 a *different object*, so identity misses exactly when it should, and an
 unchanged one is the same object however many times the document around it was
@@ -262,7 +263,7 @@ class GizmoDragReadout:
     ("x"/"y"/"z"/""), ``space`` the frame the lock is read in, and ``amount``
     the typed buffer while one is being entered, else the drag's own live
     readout. The one shape :meth:`ClayView.gizmo_drag` hands the pane, so
-    ``studio/modes/clay/ui/hud.py`` never has to reach past it at ``_key_kind`` or
+    ``studio/modes/clay/ui/panes/hud.py`` never has to reach past it at ``_key_kind`` or
     ``drag_input`` directly -- see that property's docstring for why the old
     read of ``_key_kind`` alone went blank for a handle-grabbed drag.
     """
@@ -308,8 +309,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         # pane layer beside ``wireframe``, which already worked that way.
         self.show_grid = True
         # The grid's span, in metres, and the god-light toggle -- both pushed
-        # by the pane each frame beside ``show_grid`` (``clay_viewport.
-        # _clay_viewport``), from ``ClayState.grid_size``/``god_light``. Plain
+        # by the pane each frame beside ``show_grid`` (``ClayViewport.
+        # _clay_viewport`` in ``ui/viewport.py``), from ``ClayState.grid_size``/
+        # ``god_light``. Plain
         # fields rather than reads through ``self.state`` so a headless view
         # (every test in this file, ``render_png``) behaves the same with no
         # app state at all -- ``show_grid`` already works this way.
@@ -342,6 +344,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self._last_mouse = (0.0, 0.0)
         self._drag_uids: list[int] = []
         self._drag_start: dict[int, tuple[Any, Any, Any]] = {}
+        # Whether this drag has already told the user a world-axis scale of a
+        # rotated shape was refused (``_view_drag._apply_to_dragged``): once per
+        # drag, not once per mouse-move.
+        self._scale_axis_refused = False
         # The drag's *total* rotation, and the gizmo's origin at the press.
         # ``RotateGizmo.update`` hands back the increment since the last call
         # and ``TranslateGizmo.update`` the gizmo's new world position, so
@@ -442,7 +448,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.drag_hud: str = ""
 
         # The Familiar ghost preview: a scratch document (see
-        # ``clay.scratch``) and the diff it produced, or ``None`` between
+        # ``kernels/mesh/scratch.py``) and the diff it produced, or ``None`` between
         # previews. ``_preview_rev`` joins ``draw``'s own skip key -- see
         # ``set_preview``'s own docstring for why a plain field is not enough.
         self._preview: Any = None
@@ -729,7 +735,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
     # -- the Familiar ghost preview ------------------------------------------
 
     def set_preview(self, diff: Any, scratch: Any) -> None:
-        """Show a Familiar preview: ``diff`` (a ``clay.scratch.PreviewDiff``)
+        """Show a Familiar preview: ``diff`` (a ``realmspinner.kernels.mesh.scratch.PreviewDiff``)
         against ``scratch``, the cloned document it was computed from.
 
         Bumps ``_preview_rev`` so :meth:`draw`'s own skip key sees it -- a
@@ -874,7 +880,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         """The live G/R/S drag's axis lock, space and amount -- ``None``
         between drags. The one door the pane has onto ``_key_kind`` and
         ``drag_input``, so it stays private and the pane never reaches past it
-        (``clay_hud.hint_line`` used to read ``_key_kind`` directly, which is
+        (``hint_line`` in ``studio/modes/clay/ui/panes/hud.py`` used to read
+        ``_key_kind`` directly, which is
         set only by :meth:`_view_drag.DragOps.begin_keyboard_drag` -- so the
         line went blank for a drag started by grabbing a handle rather than
         pressing G/R/S. ``_key_kind or state.tool`` is the same fallback
@@ -892,10 +899,13 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             kind=kind,
             axis=entry.axis,
             # Clay has one transform frame today: every axis lock is a world
-            # axis (``clay.drag.constrain_translation`` et al build it from
-            # ``_unit(axis)`` in world space) -- ``studio/modes/clay/ui/header.py``
-            # notes the pivot/orientation menu is not built yet. This reports
-            # what is actually true rather than a toggle nothing sets.
+            # axis (``kernels/mesh/drag.py``'s ``constrain_translation`` et al
+            # build it from ``_unit(axis)`` in world space) --
+            # ``studio/modes/clay/ui/panes/header.py`` notes the pivot/orientation
+            # menu is not built yet. This reports what is actually true rather
+            # than a toggle nothing sets. (A scale about one of these axes is
+            # mapped onto the object's local axes, or refused when it cannot be:
+            # ``_view_drag._world_scale_on_local_axes``.)
             space="global",
             amount=self._drag_amount(),
         )
@@ -1094,9 +1104,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
 
         ``angles``, when given, is a free ``(theta, phi)`` pair in **radians**
         applied after framing, in place of ``view``. ``view`` is ignored
-        whenever ``angles`` is given -- ``agent_clay`` refuses a request that
-        supplies both, so this method is never the place that has to decide
-        which one wins.
+        whenever ``angles`` is given -- the Clay agent tools
+        (``studio/modes/clay/agent/``) refuse a request that supplies both, so
+        this method is never the place that has to decide which one wins.
 
         ``grid``, passed straight through as ``show_grid`` to
         ``Renderer.draw``, is the one exception to "a grid line is a subject
@@ -1130,7 +1140,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         ``god_light``, Task C's flat overhead light and ground plane, exists
         here so a test can exercise it through the same headless draw every
         other picture in this method goes through -- **it is not a parameter
-        ``agent_clay`` exposes**: an agent asking what an object looks like
+        the Clay agent tools (``studio/modes/clay/agent/``) expose**: an agent
+        asking what an object looks like
         wants the render it will actually be shown under, and a second
         lighting mode on the MCP surface is a second thing a client has to
         know exists before it can ask a useful question.
@@ -1201,7 +1212,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         optional tuple member it never uses. Same reasoning as the ``screenshot``/
         ``draw`` split already in this class.
 
-        No ``grid`` parameter at all: ``agent_clay`` refuses the combination
+        No ``grid`` parameter at all: the Clay agent tools
+        (``studio/modes/clay/agent/``) refuse the combination
         before this is ever reached (grid lines drawn through ``draw_ids``
         would be false colour with no uid behind them, corrupting the very
         pixel counts this method exists to produce), so there is no legal

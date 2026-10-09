@@ -4,7 +4,7 @@
 said how those operations *group*: the only signal was registration order
 (a row sat under whichever row was registered before it, so Shade Smooth sat
 under Duplicate), which both surfaces that listed the registry -- the
-right-click menu and the tools pane's button grid -- drew as one flat run.
+right-click menu and the Inspector's action cards -- drew as one flat run.
 (The 2026-10-07 audit's clay-42: this named an ``Op.separator_before`` field
 that no longer exists.)
 
@@ -226,7 +226,7 @@ def flat(mode: str) -> tuple[tuple[clay_ops.Op, ...], ...]:
     for group in GROUPS:
         if group in OFF_BAR_GROUPS:
             take(group)
-    # Delete last, as the old menu and the tools pane both drew it: it is the
+    # Delete last, as the old menu and the old button grid both drew it: it is the
     # one row whose neighbour must not be a thing you reach for by habit.
     take("delete")
     return tuple(runs)

@@ -163,6 +163,19 @@ def test_a_slot_click_paints_the_selected_faces_as_one_undo_step(monkeypatch):
     assert not doc.by_uid(uid).mesh.material.any()
 
 
+def _ctx_with_tab(doc):
+    """A ctx whose ``state.clay`` holds a tab over *doc* (where the page's slot lives)."""
+    from types import SimpleNamespace
+
+    from realmspinner.studio.modes.clay.state import ClayState, ClayTab
+
+    state = ClayState()
+    tab = state.add(ClayTab(doc=doc))
+    ctx = _Ctx()
+    ctx.state = SimpleNamespace(clay=state)
+    return ctx, tab
+
+
 def test_a_ctrl_click_on_a_slot_only_retargets_the_slot(monkeypatch):
     """Ctrl+click is how a slot's colour and texture are reached from a face
     selection. It must not paint: the user is going to edit the slot, not wear
@@ -171,13 +184,15 @@ def test_a_ctrl_click_on_a_slot_only_retargets_the_slot(monkeypatch):
     _select_faces(doc, uid, 2, 3)
     monkeypatch.setattr(clay_swatches, "_ctrl_held", lambda: True)
     before = len(doc.history)
+    ctx, tab = _ctx_with_tab(doc)
 
-    clay_swatches.click_slot(_Ctx(), doc, 1)
+    clay_swatches.click_slot(ctx, doc, 1)
 
     obj = doc.by_uid(uid)
-    assert obj.material == 1, "now the slot the Material tab edits"
+    assert tab.edit_slot(doc, obj) == 1, "now the slot the Colours & textures page edits"
+    assert obj.material == 0, "the object's own slot is what a rebuild stamps (clay-16)"
     assert not obj.mesh.material.any(), "and no face was painted"
-    assert len(doc.history) == before + 1
+    assert len(doc.history) == before, "pane state: not a document edit"
 
 
 def test_a_ctrl_click_in_object_mode_retargets_instead_of_repainting(monkeypatch):
@@ -185,10 +200,12 @@ def test_a_ctrl_click_in_object_mode_retargets_instead_of_repainting(monkeypatch
     doc.select([uid])
     monkeypatch.setattr(clay_swatches, "_ctrl_held", lambda: True)
 
-    clay_swatches.click_slot(_Ctx(), doc, 1)
+    ctx, tab = _ctx_with_tab(doc)
+    clay_swatches.click_slot(ctx, doc, 1)
 
     obj = doc.by_uid(uid)
-    assert obj.material == 1 and not obj.mesh.material.any()
+    assert tab.edit_slot(doc, obj) == 1
+    assert obj.material == 0 and not obj.mesh.material.any()
 
 
 def test_a_slot_click_in_object_mode_repaints_every_selected_object_as_one_step(monkeypatch):

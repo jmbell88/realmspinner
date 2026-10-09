@@ -40,6 +40,7 @@ from .validate import (
     PARAM_MAX,
     UV_MAX,
     Session,
+    _as_float,
     _json,
     _label_top,
     _name_length_refusal,
@@ -311,6 +312,7 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
                 field="material",
             )
 
+    head_before = doc.history.head
     mark = doc.history.mark()
     try:
         obj = pane_clay_tools.add_primitive(ctx, doc, generator)
@@ -327,7 +329,20 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
         # returned) above, before this gesture opened -- see this
         # function's own clay-document-02 comment for why.
         was = {"params": dict(obj.params)}
-        doc.set_generator_params(obj.uid, merged, mesh, was=was)
+        try:
+            doc.set_generator_params(obj.uid, merged, mesh, was=was)
+        except OpError as error:
+            # The 2026-10-09 audit's clay-01/02 follow-up: ``set_generator_params``
+            # now refuses a rebuild that is non-finite or past the triangle
+            # ceiling. The default-params object is already in the document
+            # and ``mark()`` opened a gesture, so a bare raise left both
+            # behind (and ``call()``'s backstop answered without a field).
+            # Close the gesture, take the half-made object back out, and name
+            # the argument that caused it.
+            doc.history.collapse_since(mark)
+            if doc.history.head != head_before:
+                doc.undo_unrecorded()
+            return fail(str(error), field="params", changed=False)
     if translation is not None or rotation_deg is not None or scale is not None:
         doc.set_transform(
             obj.uid,
@@ -466,7 +481,7 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
                 if not isinstance(corner, list) or len(corner) != 2:
                     return fail(f"uv[{fi}][{ci}] must be an array of 2 numbers.", field="uv")
                 try:
-                    u, v = float(corner[0]), float(corner[1])
+                    u, v = _as_float(corner[0]), _as_float(corner[1])
                 except (TypeError, ValueError, OverflowError):
                     return fail(
                         f"uv[{fi}][{ci}] must be an array of 2 numbers.", field="uv"
@@ -783,6 +798,7 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # unconditional label because it always pushes the same
     # ``add_material``/``_repaint`` pair regardless of how many uids it
     # paints; a single-uid ``clay_set_params`` has no such pair to fold.
+    head_before = doc.history.head
     mark = doc.history.mark() if len(objects) > 1 else None
     rows = []
     for obj, merged, new_mesh in built:
@@ -818,7 +834,19 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
             material=obj.material,
             changed_keys=params,
         )
-        changed = doc.set_generator_params(obj.uid, merged, mesh, was=was)
+        try:
+            changed = doc.set_generator_params(obj.uid, merged, mesh, was=was)
+        except OpError as error:
+            # The 2026-10-09 audit's clay-01/02 follow-up: the kernel now
+            # refuses a non-finite or past-ceiling rebuild by raising, and a
+            # raise here left the multi-object gesture open and the objects
+            # before this one rebuilt. All-or-nothing: close the gesture and
+            # take the folded step back, then name the object that refused.
+            if mark is not None:
+                doc.history.collapse_since(mark)
+                if doc.history.head != head_before:
+                    doc.undo_unrecorded()
+            return fail(str(error), field="params", uids=[obj.uid], changed=False)
         # Reported back rather than echoed: a caller that asked for
         # segments=2 learns here that clamp_params raised it to the
         # generator's own floor.
@@ -1025,9 +1053,28 @@ def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     if not uids:
         return fail("give at least one uid.", field="uids")
+    head_before = doc.history.head
     mark = doc.history.mark()
-    for uid in uids:
-        doc.remove_object(uid)
+    current = None
+    try:
+        for current in uids:
+            doc.remove_object(current)
+    except OpError as error:
+        # The 2026-10-09 second audit's clay-74: ``remove_object`` refuses a
+        # delete whose re-parented child could not keep its place (an extreme
+        # scale down a deep chain), and this loop had no ``try`` -- the uids
+        # before it stayed deleted, ``mark()``'s gesture stayed open (undo
+        # eviction off for the session) and ``call()``'s backstop answered
+        # ``changed: false`` over a document that had changed. All-or-nothing:
+        # close the gesture, take the folded step back, name the uid.
+        doc.history.collapse_since(mark)
+        if doc.history.head != head_before:
+            doc.undo_unrecorded()
+        return fail(str(error), field="uids", uids=[current], changed=False)
+    except BaseException:
+        # A bug (not a refusal) still must not leave the gesture open.
+        doc.history.collapse_since(mark)
+        raise
     doc.history.collapse_since(mark)
     _label_top(doc, mark, "Delete")
     return _json({"deleted": uids})

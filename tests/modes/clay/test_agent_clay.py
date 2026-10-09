@@ -890,12 +890,12 @@ def test_clay_set_params_uids_is_one_undo_step_and_one_undo_restores_every_objec
     before = _history_len(ctx, session)
 
     result = agent_clay.call(
-        ctx, session, "clay_set_params", {"uids": [uid1, uid2, uid3], "params": {"segments": 16}}
+        ctx, session, "clay_set_params", {"uids": [uid1, uid2, uid3], "params": {"segments": 24}}
     )
     assert result["isError"] is False, result
     assert _history_len(ctx, session) == before + 1, "three rebuilds must fold into one step"
     for uid in (uid1, uid2, uid3):
-        assert tab.doc.by_uid(uid).params["segments"] == 16
+        assert tab.doc.by_uid(uid).params["segments"] == 24
 
     undo = agent_clay.call(ctx, session, "clay_undo", {"steps": 1})
     assert undo["isError"] is False, undo
@@ -917,7 +917,7 @@ def test_clay_set_params_singular_uid_is_still_one_step_with_no_plural_label() -
     before = _history_len(ctx, session)
 
     result = agent_clay.call(
-        ctx, session, "clay_set_params", {"uid": uid, "params": {"segments": 16}}
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"segments": 24}}
     )
     assert result["isError"] is False, result
     assert _history_len(ctx, session) == before + 1
@@ -2966,10 +2966,12 @@ def test_clay_op_returns_refusal_messages_to_the_agent_instead_of_toasting_the_u
 
     monkeypatch.setattr(clay_ops, "run", fake_run)
     result = agent_clay.call(ctx, session, "clay_op", {"name": "duplicate"})
-    assert result["isError"] is False, result
-    payload = _payload(result)
-    assert payload["ran"] is False
-    assert "could not do the thing" in payload["messages"]
+    # The 2026-10-09 audit's clay-09: a refused run is an error result (so a
+    # batch stops and rolls back), but its messages still reach the agent in
+    # the reply rather than a toast to the user.
+    assert result["isError"] is True, result
+    assert "could not do the thing" in result["content"][0]["text"]
+    assert result["structuredContent"]["messages"] == ["could not do the thing"]
     assert ctx.toasts == []  # the real ctx never saw it
 
 

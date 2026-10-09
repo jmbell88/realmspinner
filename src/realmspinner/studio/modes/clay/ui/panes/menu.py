@@ -4,7 +4,7 @@ The Wings3D idea, and the reason the ops registry exists: the operations that
 apply to what is selected, under the cursor, at the moment the user wants them
 -- rather than in a toolbar the eye has to leave the model to find. Every row
 comes from :mod:`~realmspinner.studio.modes.clay.ops`, so the menu cannot offer an op the
-keyboard does not have or grey out one the tools pane would have run.
+keyboard does not have or grey out one the keyboard would have run.
 
 This is the only layer that knows imgui exists. The registry decides *what* is
 invocable and *whether*; this decides where the popup opens and what a row looks
@@ -160,10 +160,10 @@ def param_widget(op_name: str, param: Any, value: float) -> tuple[bool, float]:
 def params_popup(ctx: Any, state: Any, tab: Any) -> None:
     """The fields for a parameterised op, and its Apply button.
 
-    Called from *both* the viewport (for a menu row) and the tools pane (for a
-    button), because an imgui popup only renders inside the window whose id
-    stack opened it -- a single call site would leave whichever half did not
-    make it silently doing nothing when clicked.
+    Called from the viewport pane, after the context menu: an imgui popup only
+    renders inside the window whose id stack opened it, and the context menu's
+    rows are what open this one. (The tools pane that used to be a second caller
+    is gone.)
 
     Opened by name rather than by holding the ``Op``: the popup survives across
     frames and the registry is the only thing allowed to own that object.

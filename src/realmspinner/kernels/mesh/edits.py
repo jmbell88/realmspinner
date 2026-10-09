@@ -71,7 +71,7 @@ def _own(value: Any) -> Any:
     return np.array(value, dtype="f8", copy=True)
 
 
-#: Every texture slot a :class:`~..viewer.gltf.Material` can carry. Clay keeps
+#: Every texture slot a :class:`~..geom3d.gltf.Material` can carry. Clay keeps
 #: only the base-colour one (``document.reduce_material`` strips the rest on
 #: every way in, and the 2026-10-07 audit's clay-72 found this comment still
 #: saying Clay never fills any), but ``MaterialEdit``/``MaterialListEdit`` are

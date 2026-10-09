@@ -389,6 +389,13 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
     uv = _require_uv(mesh, "pack_islands")
     if not math.isfinite(float(margin)):
         raise OpError("The pack margin must be a finite number.")
+    # The 2026-10-09 second audit's clay-107: a negative margin packed islands
+    # *into* each other (uv min -2.6 on a cone, new overlaps on a cylinder that had
+    # none). The op's Param and the agent's validator already clamp to 0..0.5, so
+    # only a direct caller reached it; above 0.5 the gap would be shrunk anyway
+    # (see the docstring), so the range is the one every door states.
+    if not 0.0 <= float(margin) <= 0.5:
+        raise OpError("The pack margin must be between 0 and 0.5.")
     _require_finite_uv(uv, "pack_islands")
     n_faces = face_count(mesh)
     if n_faces == 0:

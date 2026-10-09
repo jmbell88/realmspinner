@@ -437,6 +437,10 @@ _PINNED_MODULE_IMPORTS = {
         ("__future__", "annotations"), ("typing", "Any"),
         (".....kernels.geom3d", "gltf"), (".....kernels.mesh", "document"),
         ("....viewer", "scene"),
+        # The 2026-10-09 second audit's clay-70 gave the cache numpy arrays to hold.
+        # numpy is a plain dependency every sibling mixin here already imports, and
+        # it is no window library, so the pin widens by exactly this one name.
+        ("numpy", None),
     },
     _UI / "_view_drag.py": {
         ("__future__", "annotations"), ("dataclasses", "dataclass"), ("typing", "Any"),

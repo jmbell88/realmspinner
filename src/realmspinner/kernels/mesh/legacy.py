@@ -51,7 +51,7 @@ from .adjacency import adjacency
 from .document import ClayDoc, Obj
 from .earclip import corner_triangles
 from .mesh import Mesh
-from .primitives import CLAY_GENERATOR_NAMES
+from .primitives import CLAY_GENERATOR_NAMES, F4_MAX, GENERATORS
 
 __all__ = ["LegacyFields", "freeze_unknown_generators", "migrate", "read_fields"]
 
@@ -739,15 +739,82 @@ def read_fields(entry: dict[str, Any]) -> LegacyFields:
 # --- the bake ----------------------------------------------------------------
 
 
-#: The most work the bake spends on one file, in triangle passes: each modifier
-#: costs the triangles it runs over (times its iterations, for a smooth).
-#: Measured with the 2026-10-07 audit's probe: a 50-iteration smooth over 90,000
-#: quads (180,000 triangles, 9M passes) took 1.3 s, about 0.15 us a pass, so
-#: 10,000,000 is on the order of a second and a half -- the "well under a few
-#: seconds" bar the sibling ceilings in this module use. A new refusal, not a
-#: constant any stored file is keyed on: the v3 fixtures under
-#: ``tests/modes/clay/data`` still convert with no budget notice.
+#: The most work the bake spends on one file, in *smooth passes*: one pass is
+#: the cost of one Laplacian-smooth iteration over one triangle, 0.15 us. The
+#: 2026-10-07 audit's probe: a 50-iteration smooth over 90,000 quads (180,000
+#: triangles, 9M passes) took 1.3 s, so 10,000,000 passes is on the order of a
+#: second and a half -- the "well under a few seconds" bar the sibling ceilings
+#: in this module use. A new refusal, not a constant any stored file is keyed on:
+#: the v3 fixtures under ``tests/modes/clay/data`` still convert with no budget
+#: notice.
+#:
+#: **The unit was calibrated on ``smooth`` alone, and every other kind was
+#: charged as if it cost the same.** The 2026-10-09 second audit's clay-85: forty
+#: tiny booleans against a 199k-triangle target took 21 s to open against the
+#: claimed second and a half, and mirror, array, solidify and subdivide run 5 to
+#: 300 times a smooth's cost per triangle. :data:`BAKE_WEIGHTS` charges each kind
+#: its measured cost in smooth passes per triangle, so the one budget really is
+#: about 1.5 s. Measured 2026-10-09 on this machine (the maintainer's, a warm
+#: process, best of three) over UV spheres of 1.1k to 261k triangles, the worst
+#: figure per kind in microseconds per input triangle, then divided by 0.15:
+#:
+#:   kind          worst us/triangle     charged, in passes per triangle
+#:   smooth         0.19 (1 iteration)    1.3 per iteration
+#:   radial-array   0.43 (count 6)        1 per copy
+#:   bevel          0.34                  3
+#:   solidify       0.57                  4
+#:   weld           0.61                  5
+#:   triangulate    0.81                  6
+#:   subdivide      2.0 / 8.8 / 47        14 / 60 / 320 for levels 1 / 2 / 3
+#:   mirror         3.1 (weld on)         20; 1 with no weld
+#:   array          4.4 (weld on)         30 + count; count with no weld
+#:   boolean        2.5 (owner + target)  18 per triangle of owner plus target
+#:
+#: (The charges sit at or just above the measurement everywhere: the small
+#: meshes run several times dearer per triangle than the large ones, so the
+#: table errs toward refusing a file early rather than holding the window open.)
 MAX_BAKE_WORK = 10_000_000
+
+#: Smooth passes charged per input triangle, by kind. ``smooth`` is per
+#: iteration; ``subdivide`` is by level (below); ``array``, ``radial-array`` and
+#: ``mirror`` have a cheaper weld-free row (see :func:`_bake_cost`).
+BAKE_WEIGHTS: dict[str, float] = {
+    "smooth": 1.3,
+    "radial-array": 1.0,
+    "bevel": 3.0,
+    "solidify": 4.0,
+    "weld": 5.0,
+    "triangulate": 6.0,
+    "mirror": 20.0,
+    "array": 30.0,
+    "boolean": 18.0,
+}
+#: ``subdivide`` costs more than linearly in its levels: each level quadruples
+#: the faces the next one runs over.
+SUBDIVIDE_WEIGHTS: dict[int, float] = {1: 14.0, 2: 60.0, 3: 320.0}
+
+
+def _bake_cost(mod: _Modifier, triangles: int, target_triangles: int = 0) -> float:
+    """What running *mod* over *triangles* (plus a boolean's *target_triangles*)
+    is charged against :data:`MAX_BAKE_WORK`, in smooth passes."""
+    base = max(1, triangles)
+    kind = mod.kind
+    if kind == "smooth":
+        return base * BAKE_WEIGHTS["smooth"] * int(mod.get("iterations", 1))
+    if kind == "subdivide":
+        levels = min(max(int(mod.get("levels", 1)), 1), max(SUBDIVIDE_WEIGHTS))
+        return base * SUBDIVIDE_WEIGHTS[levels]
+    if kind == "boolean":
+        return (base + target_triangles) * BAKE_WEIGHTS["boolean"]
+    if kind == "radial-array":
+        return base * BAKE_WEIGHTS["radial-array"] * max(1, int(mod.get("count", 1)))
+    welds = float(mod.get("weld", 0.0)) > 0.0
+    if kind == "mirror":
+        return base * (BAKE_WEIGHTS["mirror"] if welds else 1.0)
+    if kind == "array":
+        copies = max(1, int(mod.get("count", 1)))
+        return base * (copies + (BAKE_WEIGHTS["array"] if welds else 0.0))
+    return base * BAKE_WEIGHTS.get(kind, 1.0)
 
 
 def _bake(
@@ -834,8 +901,17 @@ def _bake(
             # 90,000-face mesh (1.3 s apiece, linear in stack length), and the
             # bake has no cancel. A running budget over the whole file, charged
             # before the modifier runs, in triangle passes.
-            cost = max(1, counts[uid]) * (
-                int(mod.get("iterations", 1)) if mod.kind == "smooth" else 1
+            #
+            # The 2026-10-09 audit's clay-20: a boolean works over its target
+            # as well as its owner, and charging only the owner let six tiny
+            # cutters against a 199k-triangle target run 13 s past the budget
+            # this exists to hold. The target is charged at its evaluated size.
+            # Its second run's clay-85: the unit was a smooth pass and every
+            # kind was charged one per triangle, so :func:`_bake_cost` prices
+            # each kind at what it measured.
+            tid = int(mod.get("target", 0)) if mod.kind == "boolean" else 0
+            cost = _bake_cost(
+                mod, counts[uid], counts[tid] if tid in present and tid != uid else 0
             )
             try:
                 if spent + cost > MAX_BAKE_WORK:
@@ -888,6 +964,25 @@ def _names(objs: Sequence[Obj], limit: int = 4) -> str:
     return shown + (f" and {len(objs) - limit} more" if len(objs) > limit else "")
 
 
+def _collider_targets(
+    kept: set[int], stacks: dict[int, tuple[_Modifier, ...]], colliding: set[int]
+) -> set[int]:
+    """The colliders (with a stack of their own) that an enabled boolean of a kept
+    object -- or of another such collider -- cuts with, so their stacks are
+    baked as targets. Transitive, and cycle-safe: each uid joins once."""
+    needed: set[int] = set()
+    todo = list(kept)
+    while todo:
+        for mod in stacks.get(todo.pop(), ()):
+            if not (mod.enabled and mod.kind == "boolean"):
+                continue
+            target = int(mod.get("target", 0))
+            if target in colliding and target not in needed and stacks.get(target):
+                needed.add(target)
+                todo.append(target)
+    return needed
+
+
 def migrate(doc: ClayDoc, fields: dict[int, LegacyFields]) -> list[str]:
     """Rewrite *doc* -- a freshly read format-3 document -- into the format-4 shape.
 
@@ -896,10 +991,25 @@ def migrate(doc: ClayDoc, fields: dict[int, LegacyFields]) -> list[str]:
     reader found nothing dead on may be absent.
     """
     notices: list[str] = []
-    stacks = {uid: f.modifiers for uid, f in fields.items() if f.modifiers}
+    # The 2026-10-09 audit's clay-36: a collider is dropped below, so baking its
+    # stack spent budget on a mesh nobody keeps and named it in the "applied to"
+    # sentence of a model it is not part of.
+    # The second audit's clay-97 settled what clay-36 left open: a collider's
+    # stack is still baked when a kept object's boolean cuts with it, because the
+    # old evaluator gave a boolean its target's *evaluated* mesh, collider or
+    # not -- but only as that target. Nothing of it is applied, and no sentence
+    # about it is written: the collider is removed below, and a notice that "the
+    # Weld modifier was dropped" from a shape the file no longer has is noise.
+    kept = {uid for uid, f in fields.items() if f.modifiers and f.role != "collider"}
+    colliding = {uid for uid, f in fields.items() if f.role == "collider"}
+    needed = _collider_targets(kept, {uid: f.modifiers for uid, f in fields.items()}, colliding)
+    baked_uids = kept | needed
+    stacks = {uid: f.modifiers for uid, f in fields.items() if uid in baked_uids}
 
     baked, errors = _bake(doc, stacks)
     for obj in doc.objects:
+        if obj.uid in colliding:
+            continue
         for sentence in fields.get(obj.uid, LegacyFields()).unreadable:
             notices.append(f'On "{obj.name}", {sentence}.')
         for sentence in errors.get(obj.uid, ()):
@@ -908,7 +1018,7 @@ def migrate(doc: ClayDoc, fields: dict[int, LegacyFields]) -> list[str]:
     changed: list[Obj] = []
     for obj in doc.objects:
         mesh = baked.get(obj.uid)
-        if mesh is not None:
+        if mesh is not None and obj.uid not in colliding:
             obj.mesh = mesh
             obj.generator, obj.params = None, {}
             changed.append(obj)
@@ -944,6 +1054,46 @@ def migrate(doc: ClayDoc, fields: dict[int, LegacyFields]) -> list[str]:
     return notices
 
 
+def _param_is_unusable(default: Any, value: Any) -> bool:
+    """Whether a stored generator param cannot stand in for its default's type."""
+
+    # The 2026-10-09 second audit's clay-94: ``math.isfinite`` raises
+    # ``OverflowError`` on an integer past float range (a 400-digit ``segments``
+    # escaped the reader as a crash, not a freeze), and a number that is finite
+    # but outside the range the Properties panel draws it in loaded as a live
+    # generator whose ``input_int`` raised every frame -- an int outside int32,
+    # a float outside float32, which is also the range ``clamp_params`` refuses.
+    def number(v: Any, low: float, high: float) -> bool:
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            return False
+        try:
+            return math.isfinite(v) and low <= v <= high
+        except OverflowError:
+            return False
+
+    int32 = (-(2.0**31), 2.0**31 - 1)
+    float32 = (-F4_MAX, F4_MAX)
+    if isinstance(default, bool):
+        return not isinstance(value, bool)
+    if isinstance(default, (tuple, list)):
+        return (
+            not isinstance(value, (tuple, list))
+            or len(value) != len(default)
+            or not all(number(v, *float32) for v in value)
+        )
+    return not number(value, *(int32 if isinstance(default, int) else float32))
+
+
+def _malformed_params(obj: Obj) -> bool:
+    """A Clay-offered generator whose stored params carry a value the Properties
+    panel cannot draw: a string, null or bool where a number goes, or a NaN."""
+    defaults = GENERATORS[obj.generator][0]
+    return any(
+        key in defaults and _param_is_unusable(defaults[key], value)
+        for key, value in obj.params.items()
+    )
+
+
 def freeze_unknown_generators(doc: ClayDoc) -> str | None:
     """Freeze every object whose generator Clay's Add palette no longer offers --
     the mesh stays, the generator and its params go -- and return the notice
@@ -953,20 +1103,37 @@ def freeze_unknown_generators(doc: ClayDoc) -> str | None:
     2026-10-07 audit's clay-43 found it ran only for format 3, so a version-4
     file naming ``lathe`` kept a live generator panel whose edits are refused.
     ``serialize.read_rblk`` calls it for every version.
+
+    The 2026-10-09 audit's clay-19 widened it to a Clay-offered generator whose
+    stored params are not numbers of the default's type: ``"segments": "x"``,
+    null or NaN loaded cleanly and then raised in the Properties panel every
+    frame, and this reader is also what crash recovery runs with no user to ask.
+    Freezing keeps the mesh the file carries, which is the part that is real.
     """
     unknown = [
         o
         for o in doc.objects
         if o.generator is not None and o.generator not in CLAY_GENERATOR_NAMES
     ]
-    for obj in unknown:
+    broken = [
+        o
+        for o in doc.objects
+        if o.generator in CLAY_GENERATOR_NAMES and _malformed_params(o)
+    ]
+    for obj in unknown + broken:
         obj.generator, obj.params = None, {}
-    if not unknown:
-        return None
-    return (
-        f"{_names(unknown)} used a shape Clay no longer builds; "
-        "the mesh is kept as a plain mesh."
-    )
+    notices = []
+    if unknown:
+        notices.append(
+            f"{_names(unknown)} used a shape Clay no longer builds; "
+            "the mesh is kept as a plain mesh."
+        )
+    if broken:
+        notices.append(
+            f"{_names(broken)} had shape settings that are not numbers; "
+            "the mesh is kept as a plain mesh."
+        )
+    return " ".join(notices) or None
 
 
 def _drop(doc: ClayDoc, doomed: list[Obj]) -> None:

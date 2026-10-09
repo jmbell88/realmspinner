@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 
 from . import ops_dissolve, topo
-from .adjacency import adjacency, boundary_ring_from
+from .adjacency import adjacency, boundary_ring_from, ring_is_closed
 from .elements import ElementSel, OpError, empty
 from .mesh import Mesh, _newell, accumulate, face_count, face_normals, reversed_corner_perm
 
@@ -1156,8 +1156,12 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
 
     Edges collapse by connected component, not one at a time: a chain of three
     selected edges becomes one vertex, because collapsing them in sequence would
-    give an answer that depends on the order they were visited. Faces collapse
-    to their own centroid.
+    give an answer that depends on the order they were visited. Faces are the
+    same: each face's corners join one component, so a lone face collapses to
+    its centroid -- but faces that **share a vertex** are one component and
+    collapse together to a single vertex at the mean of every vertex either
+    names, not each to its own centroid (the 2026-10-09 second audit's
+    clay-89; this used to promise the latter).
 
     A bare *vertex* selection is refused with a pointer at weld -- merging
     vertices that are not joined by anything selected is what weld does, and
@@ -1225,6 +1229,17 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
 
 #: The most boundary edges one ``fill_hole`` call will walk -- see the
 #: refusal inside the function for the measurements this sits under.
+#:
+#: The 2026-10-09 second audit's clay-89 found the figure this note used to
+#: carry (0.828 s at 50,000 seeds) measured 4.2-4.3 s on disjoint square frames
+#: with a 4-corner hole each and one seed per hole, the dearest way to spend a
+#: seed. The cost was ``ops_dissolve._refuse_concave_ring``, which this call
+#: shares and which ran its kernels once per ring (clay-84); laid end to end it
+#: is one call, and the same shape now measures 0.91 s at 50,000 seeds (0.36 s
+#: at 25,000, 0.23 s at 12,500) -- so the ceiling stays where it was and the
+#: figure beside it is the real one. (``fill_hole``, ``collapse`` and
+#: ``bridge_edges`` have no caller under ``src/`` since the picoCAD cut; the
+#: ceilings stay because the kernels do, and ``tests/modes/clay`` drives them.)
 MAX_FILL_HOLE_SEEDS = 50_000
 
 
@@ -1267,7 +1282,9 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     # "many small holes" shape the per-ring ceiling cannot see. Re-measured
     # after both fixes on a mesh of disjoint 4-corner holes: 0.685 s at 40,000
     # seeds, 0.828 s at 50,000, roughly linear -- this ceiling keeps one call
-    # under a second.
+    # under a second. The 2026-10-09 second audit's clay-89 found that figure
+    # had drifted to 4.2 s (the shared concavity test ran once per ring) and
+    # re-measured it at 0.91 s once that test was batched -- see the constant.
     if len(sel.edges) > MAX_FILL_HOLE_SEEDS:
         raise OpError(
             f"That selection touches {len(sel.edges):,} boundary edges, past the "
@@ -1293,10 +1310,25 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     chosen, pinched = boundary_ring_from(mesh, sel.edges)
     if not chosen:
         raise OpError("No boundary ring runs through the selected edge.")
+    # The 2026-10-09 second audit's clay-88: two triangles wound the same way
+    # over their shared diagonal leave a flipped edge, a walk that reaches it
+    # has nowhere to go, and `boundary_ring_from` returned the open chain as if
+    # it were a ring -- so this wrote a 1- or 2-corner face that `bm.validate`
+    # (and so `read_rblk`) refuses. An open chain is not a hole.
+    if not all(ring_is_closed(mesh, r) for r in chosen):
+        raise OpError(
+            "That boundary does not close into a ring -- it runs into an edge "
+            "whose two faces are wound the same way. Flip or fix that edge first."
+        )
 
     pinched_set = set(pinched.tolist())
     new_loops: list[np.ndarray] = []
     for ring in chosen:
+        if len(ring) < 3:
+            raise OpError(
+                f"That boundary has only {len(ring)} corner{'s' if len(ring) != 1 else ''}, "
+                "too few to make a face."
+            )
         hit = pinched_set & set(ring.tolist())
         if hit:
             raise OpError(

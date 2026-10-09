@@ -70,6 +70,9 @@ class _OpDrag:
     refused: str = ""
     cost: float = 0.0
     at: float = field(default=-1e9)
+    #: The uids whose cache entry currently shows a preview rather than the
+    #: document's mesh -- what a later refusal has to put back (clay-69).
+    drawn: set[int] = field(default_factory=set)
 
 
 class OpDragOps:
@@ -148,8 +151,19 @@ class OpDragOps:
         return min(max(float(value), param.low), param.high)
 
     def _metres_per_pixel(self: ClayView, point: np.ndarray) -> float:
-        """World metres one screen pixel spans at *point*'s depth."""
-        distance = float(np.linalg.norm(np.asarray(self.camera.position, dtype="f8") - point))
+        """World metres one screen pixel spans at *point*'s depth.
+
+        **Orthographic has no depth** (the 2026-10-09 second audit's clay-124): the
+        frustum is a box, so a pixel spans the same metres wherever the point is
+        -- the size the camera sized it to at its *target* distance
+        (``Camera.projection``). The perspective formula at the element's own
+        distance ran an inset or bevel drag fast or slow depending on how far the
+        selection sat from the eye.
+        """
+        if getattr(self.camera, "orthographic", False):
+            distance = float(self.camera.distance)
+        else:
+            distance = float(np.linalg.norm(np.asarray(self.camera.position, dtype="f8") - point))
         height = max(float(self._rect[3]), 1.0)
         return 2.0 * max(distance, 1e-6) * math.tan(math.radians(self.camera.fov * 0.5)) / height
 
@@ -190,6 +204,7 @@ class OpDragOps:
     def _op_drag_preview(self: ClayView, doc: Any, value: float) -> None:
         """Run the kernel over every base at *value* and draw the results."""
         from .....kernels.mesh.elements import OpError
+        from .. import ops as clay_ops
 
         od = self._op_drag
         started = _now()
@@ -197,22 +212,67 @@ class OpDragOps:
         params[od.op.drag.param] = value
         built: dict[int, Any] = {}
         refusal = ""
+        skipped: list[int] = []
+        # clay-64: the pair of numbers may be illegal as a whole (Inset at
+        # thickness 0 and depth 0), which the commit refuses in ``run``. The same
+        # check here keeps the picture and the press in agreement.
+        if od.op.check is not None:
+            try:
+                od.op.check(params)
+            except OpError as error:
+                od.refused = str(error)
+                self._op_drag_restore(doc, list(od.bases))
+                od.previewed = value
+                return
+        # The 2026-10-09 audit's clay-12: the loop used to stop at the first
+        # object the kernel refused and swap nothing, while the commit
+        # (``run_mesh_op``) applies the value to every object that accepts it.
+        # The picture the pointer was steering by then disagreed with what
+        # Enter would write. Each refusing object is skipped instead and the
+        # rest are drawn, so the preview is the commit.
         for uid, (mesh, sel) in od.bases.items():
             try:
-                built[uid], _ = od.kernel(mesh, sel, **params)
+                # The same conversion ``run_mesh_op`` makes (clay-55): the value
+                # on the HUD is world metres, the kernel measures in the mesh's own
+                # units, and a preview that skipped this would show 4x what Enter
+                # commits on an object scaled 4x.
+                local = clay_ops.localise(doc, uid, od.op.drag.kernel, params)
+                built[uid], _ = od.kernel(mesh, sel, **local)
             except OpError as error:
-                refusal = str(error)
-                break
+                refusal = refusal or str(error)
+                skipped.append(uid)
+        if skipped and built:
+            names = []
+            for uid in skipped:
+                try:
+                    names.append(doc.by_uid(uid).name)
+                except KeyError:
+                    continue
+            refusal = f"{refusal} Skipped: {', '.join(names)}" if names else refusal
         od.refused = refusal
-        if refusal:
-            # The last good picture stays; the HUD says why.
-            od.previewed = value
-            return
+        # The 2026-10-09 second audit's clay-69: an object that accepted a smaller
+        # value and then refuses a larger one kept showing the earlier preview,
+        # while Enter would leave it untouched. Every skipped object that is
+        # showing a preview goes back to the document's own mesh -- including when
+        # *every* object refuses, which the commit would leave untouched too.
+        self._op_drag_restore(doc, skipped)
         for uid, mesh in built.items():
             self._swap_preview(doc, uid, mesh)
+            od.drawn.add(uid)
         od.previewed = value
+        if not built:
+            return
         od.at = _now()
         od.cost = od.at - started
+
+    def _op_drag_restore(self: ClayView, doc: Any, uids: list[int]) -> None:
+        """Put the document's own mesh back on screen for each of *uids* that is
+        currently showing a preview. A uid never previewed is already the base."""
+        od = self._op_drag
+        for uid in uids:
+            if uid in od.drawn:
+                self._swap_preview(doc, uid, od.bases[uid][0])
+                od.drawn.discard(uid)
 
     def _swap_preview(self: ClayView, doc: Any, uid: int, mesh: Any) -> None:
         """Put *mesh* on screen for *uid* without telling the document.

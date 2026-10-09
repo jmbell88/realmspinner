@@ -509,6 +509,20 @@ F4_MAX = float(np.finfo("f4").max)
 and for narrowing a query box without overflowing."""
 
 
+def _as_float(value: Any) -> float:
+    """``float(value)`` for a JSON number only: a bool or a string raises ``TypeError``.
+
+    The 2026-10-09 audit's clay-52: every float validator here called bare
+    ``float()``, so JSON ``true`` became 1.0 and ``"0.2"`` became 0.2 -- an agent
+    that sent the wrong type was told it worked. The callers already catch
+    ``TypeError`` and refuse naming their field, so raising it is the whole
+    change.
+    """
+    if isinstance(value, bool | str):
+        raise TypeError(f"expected a number, not {type(value).__name__}")
+    return float(value)
+
+
 def _validate_vec3(
     value: Any,
     field: str,
@@ -533,7 +547,7 @@ def _validate_vec3(
             f"{field} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
         )
     try:
-        out = [float(v) for v in value]
+        out = [_as_float(v) for v in value]
     except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
@@ -578,7 +592,7 @@ def _validate_number(value: Any, field: str) -> tuple[float | None, dict | None]
     params value.
     """
     try:
-        out = float(value)
+        out = _as_float(value)
     except (TypeError, ValueError, OverflowError):
         return None, fail(f"{field} must be a number.", field=field, recovery="fix_arguments")
     if not math.isfinite(out):
@@ -596,7 +610,7 @@ def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
     then on.
     """
     try:
-        out = float(value)
+        out = _as_float(value)
     except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a number, 0..1.", field=field, recovery="fix_arguments"
@@ -619,7 +633,7 @@ def _validate_range(
     the schema and none of them 0..1.
     """
     try:
-        out = float(value)
+        out = _as_float(value)
     except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a number, {lo}..{hi}.", field=field, recovery="fix_arguments"
@@ -651,7 +665,7 @@ def _validate_number_or_vec(value: Any, field: str) -> tuple[Any, dict | None]:
     """
     if isinstance(value, list):
         try:
-            out = [float(v) for v in value]
+            out = [_as_float(v) for v in value]
         except (TypeError, ValueError, OverflowError):
             return None, fail(
                 f"{field} must be a number or an array of numbers.",
@@ -664,7 +678,7 @@ def _validate_number_or_vec(value: Any, field: str) -> tuple[Any, dict | None]:
             )
         return out, None
     try:
-        out = float(value)
+        out = _as_float(value)
     except (TypeError, ValueError, OverflowError):
         return None, fail(
             f"{field} must be a number or an array of numbers.",
@@ -837,7 +851,7 @@ def _op_params_type_refusal(op: Any, params: dict, field: str = "params") -> dic
             messages.append(f"{field}.{key} is not a parameter of {op.name!r}.")
             continue
         try:
-            value = float(params[key])
+            value = _as_float(params[key])
         except (TypeError, ValueError, OverflowError):
             messages.append(f"{field}.{key} must be a single number for op {op.name!r}.")
             continue

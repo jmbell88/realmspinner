@@ -87,6 +87,40 @@ def _new_uv_view() -> UvPaneState:
     return UvPaneState()
 
 
+def _clamp_slot(doc: Any, index: Any) -> int:
+    top = len(doc.materials) - 1
+    return min(max(int(index), 0), top) if top >= 0 else 0
+
+
+def worn_slot(doc: Any, obj: Any) -> int | None:
+    """The one palette slot every face of *obj* names, or ``None`` when they differ.
+
+    The 2026-10-09 second audit's clay-67: ``Obj.material`` is only the slot a new
+    face is stamped with; what renders is the per-face ``mesh.material``, so a shape
+    painted red in Faces mode showed grey in the header dot, the Colour card and the
+    page. A mesh with no faces wears its default.
+    """
+    faces = obj.mesh.material
+    if not faces.size:
+        return _clamp_slot(doc, obj.material)
+    first = int(faces.min())
+    return _clamp_slot(doc, first) if first == int(faces.max()) else None
+
+
+def tab_over(ctx: Any, doc: Any) -> Any:
+    """The Clay tab whose document is *doc*, or ``None`` (a headless ctx).
+
+    Found by document rather than "the active tab": a handler holds a document, and
+    the active tab is only the same one until a tab switch lands between the press
+    and the handler (``mode.remember_slot``'s reason).
+    """
+    state = getattr(getattr(ctx, "state", None), "clay", None)
+    for tab in getattr(state, "docs", ()):
+        if tab.doc is doc:
+            return tab
+    return None
+
+
 @dataclass
 class ClayTab(docmodes.HistoryTab):
     """One open document (``docmodes.DocTab`` holds the shared fields)."""
@@ -98,8 +132,9 @@ class ClayTab(docmodes.HistoryTab):
     # document afterwards does not change the mesh already on disk.
     job_id: str = ""
     # The last plain mesh file or screenshot this tab wrote (Export GLB/OBJ, Save
-    # screenshot): the Document tab names it under the export buttons. Session
-    # state like ``job_id``; a saved ``.rblk`` carries neither.
+    # screenshot): the Model & history page names it under the export buttons
+    # (the 2026-10-09 second audit's clay-122: this comment named a tab that was
+    # deleted). Session state like ``job_id``; a saved ``.rblk`` carries neither.
     exported_path: str = ""
     # The palette slot the user last picked a swatch for, or ``None`` before they
     # have. The next shape the Add door places is painted with it, so the colour
@@ -110,6 +145,65 @@ class ClayTab(docmodes.HistoryTab):
     # renumbers every slot above the one it drops, so a slot that was in range
     # when it was remembered can name nothing (or the wrong colour) later.
     last_slot: int | None = None
+    # The palette slot the Colours & textures page edits, per object uid, when
+    # the user Ctrl+clicked a swatch to edit it (or clicked one outside face
+    # mode with no face picked). Pane state, not ``Obj.material``: the 2026-10-09
+    # audit's clay-16 found that writing the slot onto the object made a later
+    # face-count-changing shape-settings edit restamp every face with it and
+    # recolour the shape. Absent means "what the shape wears" (:func:`worn_slot`,
+    # else its default slot).
+    #
+    # **It expires.** The 2026-10-09 second audit's clay-66: the override outlived a
+    # starter-colour click, the page's own Add and the undo of a repaint, so the
+    # page kept editing a slot the shape no longer wore. ``edit_bases`` holds, per
+    # uid, what the override was chosen against -- the object's default slot and
+    # the palette's length -- and :meth:`_override` drops the entry once either has
+    # moved (or the slot is gone). Every door that changes what an object wears
+    # moves the default, and ``remove_material`` shrinks the palette and renumbers
+    # the slots above it, so no door needs to remember to clear this. An entry
+    # written straight into ``edit_slots`` has no base and never expires (only a
+    # test does that); read clamped, as ``last_slot`` is.
+    edit_slots: dict[int, int] = field(default_factory=dict)
+    edit_bases: dict[int, tuple[int, int]] = field(default_factory=dict)
+
+    def choose_edit_slot(self, doc: Any, obj: Any, index: int) -> None:
+        """Make *index* the slot the page edits for *obj*, until what it wears moves."""
+        self.edit_slots[obj.uid] = int(index)
+        self.edit_bases[obj.uid] = (int(obj.material), len(doc.materials))
+
+    def forget_edit_slot(self, uid: int) -> None:
+        """Drop *uid*'s override: a door that repaints it knows the page should follow."""
+        self.edit_slots.pop(uid, None)
+        self.edit_bases.pop(uid, None)
+
+    def _override(self, doc: Any, obj: Any) -> int | None:
+        """The live Ctrl+clicked slot for *obj*, or ``None`` (dropping a dead one)."""
+        index = self.edit_slots.get(obj.uid)
+        if index is None:
+            return None
+        base = self.edit_bases.get(obj.uid)
+        count = len(doc.materials)
+        if base is not None and (
+            int(obj.material) != base[0] or count < base[1] or not 0 <= index < count
+        ):
+            self.forget_edit_slot(obj.uid)
+            return None
+        return min(max(int(index), 0), count - 1) if count else 0
+
+    def edit_slot(self, doc: Any, obj: Any) -> int:
+        """The slot the page edits for *obj* (and the header dot shows): the live
+        Ctrl+clicked one, else the one every face wears, else the default slot a
+        mixed shape's next face would get."""
+        override = self._override(doc, obj)
+        if override is not None:
+            return override
+        worn = worn_slot(doc, obj)
+        return worn if worn is not None else _clamp_slot(doc, obj.material)
+
+    def shown_slot(self, doc: Any, obj: Any) -> int | None:
+        """The slot the Colour card outlines for *obj*; ``None`` is a mixed shape."""
+        override = self._override(doc, obj)
+        return override if override is not None else worn_slot(doc, obj)
 
     # Tranche 6: the UV pane's own pan/zoom and island selection. See
     # ``UvPaneState``'s own docstring (``ui/panes/uv.py``) for why it is a
@@ -232,10 +326,13 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # "selected" highlight, ``clay_tools._options_for``) already treats it as
     # "select nothing" without needing to know it is special.
     generator: str = ""
-    # The object whose name is being edited in the outliner, or 0. A uid rather
-    # than an index, for the reason every address in this package is one: the
-    # outliner reorders and a rename in flight must not follow the position.
-    renaming: int = 0
+    # The object whose name is being edited in the outliner, as a
+    # ``(tab uid, object uid)`` pair, or 0. Uids rather than an index, for the
+    # reason every address in this package is one: the outliner reorders and a
+    # rename in flight must not follow the position. The tab uid is there
+    # because an object uid is only unique inside one document (the outliner's
+    # ``begin_rename`` writes the pair).
+    renaming: tuple[str, int] | int = 0
 
     # Drag state. ``ref`` is what the handle was grabbed at, so a drag is
     # measured against the press rather than against the previous frame --
@@ -295,17 +392,20 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # dialog over the thing it is beside.
     inspector_form: str = ""
 
-    # Where a Shift+click range in the outliner is measured from. A uid, for the
-    # reason every address in this package is one: the list reorders, and an
-    # anchor that was an index would silently point at a different row.
-    outliner_anchor: int = 0
+    # Where a Shift+click range in the outliner is measured from, as a
+    # ``(tab uid, object uid)`` pair or 0. Uids, for the reason every address in
+    # this package is one: the list reorders, and an anchor that was an index
+    # would silently point at a different row.
+    outliner_anchor: tuple[str, int] | int = 0
     # Tranche 3: scene structure. Which rows' subtrees the outliner's own
-    # expander has hidden, by uid -- the same address rule as the anchor
-    # above, and for the same reason: a set of *indices* would point at
-    # whatever now sits at that row once the tree reorders. Not persisted:
-    # a document reopened expanded is the same "nothing remembered" default
-    # every other transient view setting in this class gets.
-    outliner_collapsed: set[int] = field(default_factory=set)
+    # expander has hidden, as ``(tab uid, object uid)`` pairs -- the same
+    # address rule as the anchor above, and for the same reason: a set of
+    # *indices* would point at whatever now sits at that row once the tree
+    # reorders. Not persisted: a document reopened expanded is the same
+    # "nothing remembered" default every other transient view setting in this
+    # class gets. :meth:`prune_outliner_keys` drops a closed tab's pairs (the 2026-10-09
+    # audit's clay-44: they outlived the tab for the whole session).
+    outliner_collapsed: set[tuple[str, int]] = field(default_factory=set)
     # Whether the inspector's "All shapes" dock was open the last time it drew, or
     # ``None`` before it ever has. The dock's height is the column's arithmetic and
     # the body above it is sized before the header is drawn, so the header's own
@@ -371,6 +471,22 @@ class ClayState(docmodes.DocTabs[ClayTab]):
 
     def _closed(self, was_active: bool) -> None:
         self.clear_drag()
+
+    def prune_outliner_keys(self) -> None:
+        """Drop outliner keys whose tab is no longer open.
+
+        Lazy rather than a ``close`` override: no document mode may override
+        ``DocTabs.close``, and ``_closed`` is not told which tab went. The
+        outliner calls this each time it draws, so a closed tab's collapse
+        entries (the 2026-10-09 audit's clay-44) never outlive it by a frame.
+        """
+        open_uids = {tab.uid for tab in self.docs}
+        if any(k[0] not in open_uids for k in self.outliner_collapsed):
+            self.outliner_collapsed = {k for k in self.outliner_collapsed if k[0] in open_uids}
+        for name in ("outliner_anchor", "renaming"):
+            held = getattr(self, name)
+            if isinstance(held, tuple) and held[0] not in open_uids:
+                setattr(self, name, 0)
 
     # -- drag ---------------------------------------------------------------
 

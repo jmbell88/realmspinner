@@ -160,7 +160,7 @@ def _items(state: Any, tab: Any) -> list[Any]:
     All three are glyphs at every width (``icon_only``): the history is three
     squares, never three words, and the mode switch beside them is what the row
     spends its words on. Undo and Redo are pinned; the chevron is not, because
-    the same list is in Properties' Document tab.
+    the same list is on the Inspector's Model & history page.
     """
 
     del state
@@ -205,7 +205,7 @@ def _history_popup(ctx: Any, tab: Any) -> None:
 
     The mode's door, not ``doc.step_history``: it refuses under a live gesture
     (a jump mid-drag would undo the thing being dragged), which the pane must not
-    be able to bypass. Keyed apart from Properties' Document tab (``clay``), which
+    be able to bypass. Keyed apart from the Model & history page (``clay``), which
     draws the same list in the same window set -- two rows with one id would be
     one row that answers both.
     """
@@ -629,13 +629,13 @@ def _view_popup(ctx: Any, state: Any, view: Any) -> None:
 def _export_menu(ctx: Any, tab: Any) -> None:
     """The ways out under the Export chevron: the library, a mesh file, a picture.
 
-    The same four doors Properties' Document tab draws (``props._outputs``), each
+    The same four doors the Model & history page draws (``props._outputs``), each
     greyed with the one sentence ``doc_io.outputs_why`` gives for every output
     button -- a user reading two explanations of one state would look for two
     different problems.
     """
 
-    why = doc_io.outputs_why(tab.doc, bool(tab.saving))
+    why = doc_io.outputs_why(tab.doc, bool(tab.saving), clay_mode._gesture_live(ctx, tab))
     ready = not why
     with controls.menu_popup(EXPORT_POPUP) as opened:
         if not opened:
@@ -716,7 +716,7 @@ def _trailing(ctx: Any, tab: Any) -> Any:
             imgui.set_cursor_pos_x(imgui.get_cursor_pos_x() + spare)
         manual_render.help_button_inline(ctx, "clay-header")
         imgui.same_line()
-        why = doc_io.outputs_why(tab.doc, bool(tab.saving))
+        why = doc_io.outputs_why(tab.doc, bool(tab.saving), clay_mode._gesture_live(ctx, tab))
         if widgets.primary_button(
             (f"{icons.DOWNLOAD}" if tight else text) + f"##{BAR}/export",
             enabled=not why,

@@ -2,7 +2,8 @@
 
 Split out of :mod:`~realmspinner.studio.modes.clay.ui.view` as pure code motion. The overlay
 is its own small GL cache -- one position buffer and many index buffers per
-object, keyed on ``(id(mesh), id(sel), mode, hover)`` -- and it is the reason
+object, keyed on ``(id(mesh), id(sel), mode)`` (hover is held apart, so a cursor move
+rebuilds nothing) -- and it is the reason
 ``DrawItem`` carries a ``depth`` flag: guides are depth-tested so the far side
 of a closed mesh does not fog the near one, and the *selection* is not, so a
 vertex you have orbited behind the surface still says it is selected.
