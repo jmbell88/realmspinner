@@ -62,7 +62,7 @@ from .schema import (
     RENDER_SHADINGS,
 )
 from .validate import (
-    _OBJECT_SELECTION_DERIVED_REFUSAL,
+    _OBJECT_SELECTION_ELEMENT_MODE_REFUSAL,
     Session,
     _json,
     _op_params_type_refusal,
@@ -97,16 +97,16 @@ def _core() -> Any:
 
 def _h_select(ctx: Any, session: Session, args: dict) -> dict:
     """Replace the *object* selection. Refused in an element mode -- see
-    :data:`_OBJECT_SELECTION_DERIVED_REFUSAL`: writing object uids into
-    ``doc.selection`` in an element mode would manufacture "selected with
-    nothing selected inside it".
+    :data:`_OBJECT_SELECTION_ELEMENT_MODE_REFUSAL`: in an element mode
+    ``doc.selection`` is the shapes being edited and ``element_sel`` the picks
+    on them, so replacing it would swap a shape out from under its picks.
     """
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
     doc = tab.doc
     if doc.element_mode != "object":
-        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL, recovery="switch_mode")
+        return fail(_OBJECT_SELECTION_ELEMENT_MODE_REFUSAL, recovery="switch_mode")
     # The schema declares ``uids`` required, and ``_resolve_uids`` alone does
     # not enforce that: it treats a missing value the same as an explicit
     # empty list (``values or []``), because an empty list is this tool's own
@@ -137,7 +137,12 @@ def _h_element_mode(ctx: Any, session: Session, args: dict) -> dict:
         {"uid": uid, "stamp": doc.mesh_stamp(uid), "selected": _sel_counts(sel)}
         for uid, sel in doc.element_sel.items()
     ]
-    return _json({"mode": doc.element_mode, "objects": objects})
+    # ``editing``: the shapes being edited, picked inside or not. The selection
+    # rule keeps them selected on the way in, so an agent that selected a shape
+    # and switched mode reads it back here with ``objects`` still empty.
+    return _json(
+        {"mode": doc.element_mode, "editing": sorted(doc.selection), "objects": objects}
+    )
 
 
 _KIND_OF_MODE = {"vertex": "verts", "edge": "edges", "face": "faces"}

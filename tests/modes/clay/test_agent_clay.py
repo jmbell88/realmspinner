@@ -1842,7 +1842,7 @@ def test_clay_delete_still_works_in_an_element_mode() -> None:
     not given the same refusal -- it works from the uids given and only ever
     *removes* from ``selection``, which cannot manufacture that state -- so
     this extends the original face-mode delete test to also assert the
-    derived-selection invariant holds afterwards.
+    selection rule holds afterwards.
     """
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -1853,7 +1853,10 @@ def test_clay_delete_still_works_in_an_element_mode() -> None:
     result = agent_clay.call(ctx, session, "clay_delete", {"uids": [uid]})
     assert result["isError"] is False, result
     assert len(tab.doc.objects) == 0
-    assert all(u in tab.doc.element_sel for u in tab.doc.selection)
+    # (The old assertion, every selected uid has picks, was vacuous: the
+    # selection is empty after the delete. The rule now is the other way round.)
+    assert set(tab.doc.element_sel) <= tab.doc.selection
+    assert tab.doc.selection_problems() == []
 
 
 def test_clay_delete_of_several_objects_is_one_undo_step() -> None:

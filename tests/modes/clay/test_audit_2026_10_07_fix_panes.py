@@ -140,14 +140,16 @@ def test_the_palette_hint_does_not_promise_ctrl_click_editing_without_exactly_on
         doc.set_element_sel(o.uid, el.ElementSel(faces=np.array([0], dtype="i4")))
     assert "Ctrl+click" not in ps.click_hint(doc)
     assert "Select one object to edit its slot" in ps.click_hint(doc)
-    # Vertex mode, nothing selected: no "Click picks the slot" promise either.
+    # Vertex mode, nothing picked and both shapes still being edited: no
+    # "Click picks the slot" promise either.
     doc.set_element_mode("vertex")
     doc.clear_element_sel()
     hint = ps.click_hint(doc)
     assert "Click picks the slot" not in hint
     assert "Select one object to edit its slot" in hint
-    # Exactly one object keeps the promise.
-    doc.set_element_mode("vertex")
+    # Exactly one object keeps the promise. ``clear_element_sel`` no longer
+    # deselects, so narrow the edited set to the one shape first.
+    doc.select([a.uid])
     doc.set_element_sel(a.uid, el.ElementSel(verts=np.array([0], dtype="i4")))
     assert doc.selection == {a.uid}
     assert "Click picks the slot Properties edits" in ps.click_hint(doc)

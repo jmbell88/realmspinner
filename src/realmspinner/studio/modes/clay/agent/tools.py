@@ -1008,13 +1008,13 @@ def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
 
     **Deliberately not given the same element-mode refusal as ``clay_select``.**
     That tool *writes* object uids straight into ``doc.selection``, which in
-    an element mode can manufacture "selected with nothing selected inside
-    it" -- the state the derived-selection invariant forbids. This handler never does:
+    an element mode would swap the shape being edited out from under the picks
+    on it. This handler never does:
     :meth:`~.document.ClayDoc.remove_object` only ever *removes* a uid from ``selection`` (and from
     ``element_sel``, on the same line), and removing an entry from a set
-    cannot put it into the forbidden state that only a write can create.
-    Refusing here would be refusing a call that was never capable of the
-    defect the refusal exists to prevent.
+    cannot break the rule that every pick is on a selected object. Refusing
+    here would be refusing a call that was never capable of the defect the
+    refusal exists to prevent.
     """
     tab, failure = _tab(ctx, session)
     if failure:

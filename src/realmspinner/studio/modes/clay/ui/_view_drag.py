@@ -270,6 +270,8 @@ class DragOps:
             return
         if not in_elements:
             return
+        # The clears below drop *picks* only: the shape being edited stays
+        # selected, so a click on empty space no longer ends the edit.
         if kind == "clear-picks":
             doc.clear_element_sel()
         elif kind == "clear-surface":
@@ -303,7 +305,11 @@ class DragOps:
         # the ancestor test and the snapshot below each resolved every selected
         # uid with a linear ``index_of`` scan.
         index = self._uid_index(doc)
-        uids = [o.uid for o in doc.objects if o.uid in doc.selection]
+        # In an element mode the drag moves what is *picked*: the edited shape
+        # stays selected with nothing picked, and a drag keyed on ``selection``
+        # would have started over no elements at all.
+        held = doc.selection if doc.element_mode == "object" else doc.element_sel
+        uids = [o.uid for o in doc.objects if o.uid in held]
         if doc.element_mode == "object":
             # The 2026-10-07 audit's clay-06: hiding an object (the outliner's
             # eye, the Properties box) leaves it selected, and this moved it
@@ -579,7 +585,11 @@ class DragOps:
             from .....kernels.mesh import elements as el
 
             if how == "replace":
-                doc.clear_element_sel()
+                # A replace-click makes the picked object the one being edited:
+                # ``select`` drops every other object's picks (and the object
+                # itself, if another was being edited), where this used to
+                # clear the picks and leave ``selection`` to be re-derived.
+                doc.select([uid])
             doc.set_element_sel(uid, el.combine(doc.element_sel_of(uid), one, how))
         if plan.click == gestures.PICK:
             self._click = ("pick", uid, one, how)
@@ -889,8 +899,10 @@ class DragOps:
             return
 
         mode = doc.element_mode
-        if self._marquee_add == "replace":
+        replacing = self._marquee_add == "replace"
+        if replacing:
             doc.clear_element_sel()
+        received: list[int] = []
         index = self._uid_index(doc)
         for obj in doc.objects:
             if not obj.visible:
@@ -912,6 +924,12 @@ class DragOps:
             doc.set_element_sel(
                 obj.uid, el.combine(doc.element_sel_of(obj.uid), swept, how)
             )
+            received.append(obj.uid)
+        # A replace-sweep makes the objects that received picks the ones being
+        # edited, and leaves the edited set alone when it caught nothing (a
+        # sweep over empty space must not end the edit).
+        if replacing and received:
+            doc.select(received)
 
     def _commit_drag(self: ClayView, doc: Any) -> None:
         """**One drag, one Ctrl+Z**, recorded against where the drag began.

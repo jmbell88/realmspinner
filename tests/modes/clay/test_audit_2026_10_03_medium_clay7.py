@@ -114,10 +114,10 @@ def test_run_closes_its_history_gesture_when_an_op_raises_something_that_is_not_
     assert doc.history._open_gestures == 0, "a propagating bug must not wedge undo eviction"
 
 
-# --- clay-66: an outliner click in an element mode keeps selection derived --
+# --- clay-66: an outliner click in an element mode leaves it and selects the row --
 
 
-def test_an_outliner_click_in_an_element_mode_keeps_selection_derived_from_the_element_selection(
+def test_an_outliner_click_in_an_element_mode_leaves_the_mode_and_selects_exactly_the_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     doc = bd.ClayDoc()
@@ -133,11 +133,10 @@ def test_an_outliner_click_in_an_element_mode_keeps_selection_derived_from_the_e
     state = SimpleNamespace(outliner_anchor=0)
     clay_outliner._click(state, doc, b)
 
-    # The document invariant: in an element mode `selection` is exactly the
-    # uids with a non-empty element selection. Object mode owns it otherwise.
-    if doc.element_mode != "object":
-        assert doc.selection == set(doc.element_sel)
+    assert doc.element_mode == "object", "a row click leaves the element mode"
     assert doc.selection == {b.uid}, "the clicked row is what is selected now"
+    assert doc.element_sel == {}, "and the picks on the shape it replaced went with it"
+    assert doc.selection_problems() == []
 
 
 # --- clay-68: an idle armed live UV gesture pushes nothing ------------------

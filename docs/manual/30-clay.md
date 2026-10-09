@@ -247,6 +247,12 @@ highlight whichever mode the document is in.
 The mode belongs to the *document*, not to the app, so switching tabs does not reinterpret what you
 had selected in the other one.
 
+**The shape you are editing stays selected.** Pressing `1`, `2` or `3` with a shape selected keeps it
+selected, so the Properties pane and the Outliner still show it, and `4` brings you back to the same
+shape. With several shapes selected they are all edited together. With nothing selected the mode still
+turns on, and the first element you click makes its shape the one being edited. What you pick *inside*
+the shape is separate, and `Esc` drops it without ending the edit.
+
 In object mode a selected object is drawn with an **orange outline** along its edges, so you can tell
 what a transform or a delete will act on, and the object under the pointer lights up before you click
 it. In an element mode the selected elements are highlighted instead.
@@ -255,9 +261,11 @@ Going from one element mode to another carries the selection across. Down — fa
 vertices — takes everything the selection touches. Up takes a face only when *every* one of its
 edges (or corners) is selected, so two edges of a triangle do not select the triangle.
 
-Clicking replaces the selection, `Shift`+click adds to it and `Ctrl`+click removes from it. Clicking
-the object but missing everything on it clears that object; clicking empty space with the **Select**
-tool (`Q`) clears everything. **Dragging empty space looks around** (orbits the view), in every mode and
+Clicking replaces the picks, `Shift`+click adds to them and `Ctrl`+click removes from them. Clicking an
+element of a different shape makes that shape the one being edited (`Shift`+click adds it to the edit
+instead, and `Ctrl`+click never takes a shape out of it). Clicking the shape but missing everything on
+it clears that shape's picks; clicking empty space with the **Select** tool (`Q`) clears all the picks.
+Neither ends the edit. **Dragging empty space looks around** (orbits the view), in every mode and
 under every tool, and it never selects or deselects anything, so the first thing a newcomer tries does no
 harm. A click on empty space only counts as a click if the pointer stays within about four pixels of where
 it went down; drag farther than that, even if you come back, and it was a drag.
@@ -281,8 +289,11 @@ material, merge objects, snap to grid, mirror copy, pack islands — open a smal
 **Apply** button, and remember what you last used.
 
 `Ctrl+A` selects everything in the current mode's sense of everything, `Ctrl+Shift+I` inverts it, and
-`Esc` steps back: first it drops the element selection, then it leaves the element mode, then it
-clears the object selection. `Delete` in an element mode deletes *faces*, never the object. In object mode it
+`Esc` steps back: first it drops the picks, then it leaves the element mode (the shape stays selected),
+then it clears the object selection. In an element mode `Ctrl+A` and `Ctrl+Shift+I` work on the shape
+being edited, or on every visible shape when none is, so inverting never pulls in a shape behind it.
+`Delete` in an element mode deletes the picked *faces*, never the object, and is greyed until something
+is picked. In object mode it
 removes every selected object as **one** undo step rather than one per object, so a single `Ctrl+Z`
 brings the whole selection back. Neither
 `Ctrl+A` nor `Ctrl+Shift+I` reaches a **hidden** object, in either sense of everything: hiding
@@ -506,6 +517,8 @@ All three are on the keyboard too: `H` hides the selection, `Shift`+`H` isolates
 and `Alt`+`H` shows everything again. Hiding clears the selection, since a hidden object is no longer
 something you can act on; the eye and the visibility box do the same, and `Ctrl+Z` on a hide shows the object
 again without selecting it. A hidden object is skipped by drags and by element operations all the same.
+In an element mode `H` hides the shape being edited and leaves the mode on with nothing being edited, until
+you click an element of another shape.
 `Alt` plus any other letter, digit or `Delete` does nothing in Clay: only `Alt`+`H` and `Alt`+`Z` (X-ray) are
 bound, and `Alt`+drag orbits.
 

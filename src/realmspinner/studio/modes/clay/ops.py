@@ -678,10 +678,6 @@ def _has_two_visible_reason(doc: Any) -> str:
     return "" if has_two_visible(doc) else "Select two visible objects first."
 
 
-def _selection_reason(doc: Any) -> str:
-    return "" if doc.selection else "Select an object first."
-
-
 def _has_two_or_more_selected_reason(doc: Any) -> str:
     n = len(doc.selection)
     return "" if n >= 2 else f"Select at least two objects first -- {n} selected now."
@@ -1270,10 +1266,10 @@ def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
     object, leaving the rest of it behind.
 
     Face mode only, and reading ``doc.element_sel`` the way every element op
-    in this registry does (the invariant the module docstring states: in an
-    element mode, ``doc.selection`` already names exactly the objects with
-    something picked, so ``run_object_op``'s default selection is the right
-    one with no extra filtering). ``kernels.mesh.separate.by_selection``
+    in this registry does. It walks the objects with something *picked*, not
+    ``doc.selection``: the shape being edited stays selected with nothing
+    picked, and ``by_selection`` of nothing is a refusal, not a separation.
+    ``kernels.mesh.separate.by_selection``
     always answers with exactly two pieces and refuses -- a toast, not an
     abort of the rest of the selection -- a pick touching none of an
     object's faces or all of them.
@@ -1281,20 +1277,14 @@ def _separate_selection(ctx: Any, doc: Any, **_: Any) -> bool:
     from ....kernels.mesh import separate as sep
 
     def one(doc: Any, obj: Any) -> None:
-        pieces = doc.separate(obj.uid, sep.by_selection(obj.mesh, doc.element_sel_of(obj.uid)))
-        # The 2026-09-26 audit's clay-document-03: ``ClayDoc.separate`` adds
-        # every new piece to ``selection`` unconditionally, but a piece just
-        # split off has nothing selected inside it -- in face mode (the only
-        # mode this op runs in) that broke the module docstring's own
-        # invariant, "selection holds exactly the uids with a non-empty
-        # element_sel". ``set_element_sel`` is the one place that invariant
-        # is already kept by hand; handing it ``None`` for each new piece
-        # drops it from ``selection`` again the same way an ordinary empty
-        # pick would, with no direct reach into the document's own sets.
-        for piece in pieces:
-            doc.set_element_sel(piece.uid, None)
+        # ``ClayDoc.separate`` swaps the source for its pieces in ``selection``
+        # in every mode, and a piece just split off has nothing picked inside
+        # it, which is the state the rule allows (the 2026-09-26 audit's
+        # clay-document-03 had to repair it by hand while ``selection`` was
+        # derived from the picks).
+        doc.separate(obj.uid, sep.by_selection(obj.mesh, doc.element_sel_of(obj.uid)))
 
-    return run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one, uids=list(doc.element_sel))
 
 
 def _origin_to_bounds(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1356,7 +1346,7 @@ def _origin_to_selection(ctx: Any, doc: Any, **_: Any) -> bool:
         point = (doc.world_matrix(obj.uid) @ homogeneous)[:3]
         return doc.set_origin(obj.uid, point)
 
-    return run_object_op(ctx, doc, one)
+    return run_object_op(ctx, doc, one, uids=list(doc.element_sel))
 
 
 def _origin_to_world(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1414,8 +1404,10 @@ def _unwrap(ctx: Any, doc: Any, **_: Any) -> bool:
     """
     from ....kernels.mesh import uv as uv_mod
 
-    def one(doc: Any, obj: Any) -> None:
-        doc.set_mesh(obj.uid, uv_mod.box_unwrap(obj.mesh), keep_generator=True)
+    def one(doc: Any, obj: Any) -> bool:
+        # ``set_mesh``'s answer, so an object with nothing to unwrap does not
+        # report ``ran`` (found by the selection fuzz test, clay-41's rule).
+        return doc.set_mesh(obj.uid, uv_mod.box_unwrap(obj.mesh), keep_generator=True)
 
     return run_object_op(ctx, doc, one)
 
@@ -1524,6 +1516,10 @@ def _shade(smooth: bool) -> Callable[..., bool | None]:
         from ....kernels.mesh import elements as el
         from ....kernels.mesh import selection
 
+        # Whether any face actually changed, for the reason the object branch
+        # above returns it (found by the selection fuzz test): faces already
+        # shaded the way asked pushed no step and still answered ``ran``.
+        ran = False
         for uid in list(doc.element_sel):
             try:
                 obj = doc.by_uid(uid)
@@ -1533,7 +1529,8 @@ def _shade(smooth: bool) -> Callable[..., bool | None]:
             if not selection._element_pickable(obj):
                 continue
             faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face")
-            doc.set_shading(uid, faces.faces, smooth)
+            ran = doc.set_shading(uid, faces.faces, smooth) or ran
+        return ran
 
     return run
 
@@ -1633,9 +1630,9 @@ def _pack_uv(ctx: Any, doc: Any, margin: float = 0.005, rotate: float = 0.0, **_
     """
     from ....kernels.mesh import uvtools
 
-    def one(doc: Any, obj: Any) -> None:
+    def one(doc: Any, obj: Any) -> bool:
         packed = uvtools.pack_islands(obj.mesh, margin=float(margin), rotate=bool(rotate))
-        doc.set_mesh(obj.uid, packed, keep_generator=True)
+        return doc.set_mesh(obj.uid, packed, keep_generator=True)
 
     return run_object_op(ctx, doc, one)
 
@@ -2150,8 +2147,13 @@ def _register_defaults() -> None:
             label="Delete",
             modes=ALL_MODES,
             run=_delete,
-            enabled=lambda doc: bool(doc.selection),
-            reason=_selection_reason,
+            # ``has_any_selection``, not ``bool(doc.selection)``: in an element
+            # mode the edited shape stays selected with nothing picked, and
+            # Delete there deletes picks -- a gate on the object selection
+            # enabled it, ran over nothing and answered ``ran`` (found by the
+            # selection fuzz test).
+            enabled=has_any_selection,
+            reason=_has_any_selection_reason,
             key="Del",
         )
     )

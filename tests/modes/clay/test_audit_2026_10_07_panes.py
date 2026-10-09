@@ -316,9 +316,11 @@ def test_a_swatch_click_in_vertex_mode_does_not_repaint_faces_outside_the_select
 @pytest.mark.parametrize(
     ("mode", "noun"), [("face", "face"), ("vertex", "vertex"), ("edge", "edge")]
 )
-def test_properties_in_face_mode_with_nothing_selected_says_to_select_a_face(
+def test_properties_in_an_element_mode_with_no_shape_being_edited_says_to_pick_an_element(
     mode: str, noun: str
 ) -> None:
+    """Reached only with no shape selected (entering the mode keeps a selected
+    shape, which has its own panel): the hint names what the mode picks."""
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), generator="box", params={}))
     doc.set_element_mode(mode)

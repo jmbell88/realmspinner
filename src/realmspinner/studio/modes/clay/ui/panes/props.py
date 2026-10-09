@@ -200,11 +200,16 @@ def _body(ctx: Any) -> None:
 def _nothing_selected_text(doc: Any, tab: str = "object") -> tuple[str, str]:
     """The empty state's ``(title, hint)`` for a pane with no object to show.
 
-    The 2026-10-07 audit's clay-74: in an element mode an object is selected
-    *through* its elements (``ClayDoc.selection`` is exactly the uids with a
-    non-empty element selection), so "Click an object" asked for the one gesture
-    that mode does not make -- and the swatch row the manual describes for face
-    mode was unreachable behind it. The hint names what the mode picks.
+    The 2026-10-07 audit's clay-74: in an element mode the viewport picks
+    elements, not objects, so "Click an object" asked for the one gesture that
+    mode does not make -- and the swatch row the manual describes for face mode
+    was unreachable behind it. The hint names what the mode picks, and the first
+    pick makes its own object the one being edited.
+
+    Since the selection rule changed (the shape being edited stays selected in
+    an element mode) this is reached in an element mode only when *no* shape is
+    being edited -- the user entered the mode with nothing selected, or hid or
+    deleted the shape; several shapes have their own sentence above.
     """
     noun = {"vertex": "a vertex", "edge": "an edge", "face": "a face"}.get(doc.element_mode)
     if noun is None:

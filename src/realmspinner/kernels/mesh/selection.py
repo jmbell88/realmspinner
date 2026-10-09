@@ -39,13 +39,15 @@ def select_all(doc: Any) -> None:
     only showed once merge existed -- Ctrl+A then Ctrl+M pulled geometry the
     user could not see into the survivor -- but Delete and Duplicate were reading
     the same selection all along.
+
+    In an element mode it is every element of the shapes being edited
+    (:func:`_edited_objects`), or of every visible shape when none is.
     """
     if doc.element_mode == "object":
         doc.select([obj.uid for obj in doc.objects if obj.visible])
         return
-    for obj in doc.objects:
-        if _element_pickable(obj):
-            doc.set_element_sel(obj.uid, el.select_all(obj.mesh, doc.element_mode))
+    for obj in _edited_objects(doc):
+        doc.set_element_sel(obj.uid, el.select_all(obj.mesh, doc.element_mode))
 
 
 def _element_pickable(obj: Any) -> bool:
@@ -53,16 +55,31 @@ def _element_pickable(obj: Any) -> bool:
     return bool(obj.visible)
 
 
+def _edited_objects(doc: Any) -> list[Any]:
+    """The objects an element-mode "all" or "invert" works on.
+
+    The shapes being edited (``doc.selection``) when there are any, else every
+    visible object. The selection rule keeps the edited shape selected, so
+    Ctrl+Shift+I with one shape open used to pull every *other* object in the
+    scene into the edit -- inverting a shape you were not looking at. With no
+    shape being edited there is nothing to scope to, and "all" keeps its old
+    meaning, which is also how a first pick elsewhere would have chosen one.
+    """
+    pickable = [obj for obj in doc.objects if _element_pickable(obj)]
+    if not doc.selection:
+        return pickable
+    return [obj for obj in pickable if obj.uid in doc.selection]
+
+
 def invert(doc: Any) -> None:
-    """Ctrl+Shift+I. In object mode it inverts which objects are selected."""
+    """Ctrl+Shift+I. In object mode it inverts which objects are selected; in an
+    element mode, which elements are picked on the shapes being edited."""
     if doc.element_mode == "object":
         # Visible only, for ``select_all``'s reason: inverting into a hidden
         # object selects something the user cannot see or click back off.
         doc.select([o.uid for o in doc.objects if o.visible and o.uid not in doc.selection])
         return
-    for obj in doc.objects:
-        if not _element_pickable(obj):
-            continue
+    for obj in _edited_objects(doc):
         doc.set_element_sel(
             obj.uid,
             el.invert(obj.mesh, doc.element_sel_of(obj.uid), doc.element_mode),
@@ -79,8 +96,8 @@ def delete_selected(doc: Any) -> list[str]:
     in face mode pressing Delete means "get rid of these faces", and quietly
     deleting the whole object instead is the most destructive possible
     misreading of one keystroke -- the more so because the object selection in
-    an element mode is derived from the element selection, so every object with
-    anything selected inside it would go.
+    an element mode is the shape being edited, so the whole shape would go
+    whether or not anything was picked inside it.
 
     The object-mode branch folds one ``mark()``/``collapse_since()`` gesture
     (see below) around one ``remove_object`` call per selected uid, so the

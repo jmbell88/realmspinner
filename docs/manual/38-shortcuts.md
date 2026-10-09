@@ -202,7 +202,7 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Numpad 1 / 3 / 7 | Look along front / right / top, with no `Ctrl` — numpad 5 toggles orthographic and numpad `.` frames the selection |
 | Shift+drag / Ctrl+drag | Box-select, adding to / removing from the selection (element modes, under any tool) |
 | Alt+drag | Orbit, whatever mode you are in |
-| Esc | Cancel a drag; otherwise step back: element selection, then element mode, then object selection |
+| Esc | Cancel a drag; otherwise step back: the picks, then element mode (the shape stays selected), then the selection |
 
 **The mouse.** Left-drag in empty space orbits, in every mode and under every tool, and `Alt`+left-drag
 always orbits whatever mode you are in, even over the model. Middle-drag pans (`Shift`+middle-drag does

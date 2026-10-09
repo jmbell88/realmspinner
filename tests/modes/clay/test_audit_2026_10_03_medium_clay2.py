@@ -119,7 +119,7 @@ def test_read_view_answers_none_for_a_yaw_too_large_for_a_float() -> None:
 # --- clay-30 ---------------------------------------------------------------
 
 
-def test_separate_in_face_mode_keeps_selection_equal_to_the_uids_with_an_element_selection():
+def test_separate_in_face_mode_swaps_the_source_for_its_pieces_with_nothing_picked_inside_them():
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
     doc.select([obj.uid])
@@ -127,10 +127,11 @@ def test_separate_in_face_mode_keeps_selection_equal_to_the_uids_with_an_element
     doc.set_element_sel(obj.uid, el.ElementSel(faces=[0, 1]))
 
     pieces = sep.by_selection(obj.mesh, doc.element_sel_of(obj.uid))
-    doc.separate(obj.uid, pieces)
+    new = doc.separate(obj.uid, pieces)
 
-    assert doc.selection == {u for u, s in doc.element_sel.items() if not el.is_empty(s)}
-    assert doc.selection == set()
+    assert doc.selection == {o.uid for o in new}
+    assert doc.element_sel == {}
+    assert doc.selection_problems() == []
 
 
 def test_separate_in_object_mode_still_selects_the_new_pieces() -> None:

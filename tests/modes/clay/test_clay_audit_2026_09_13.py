@@ -103,10 +103,10 @@ def test_face_mode_pick_reaches_an_occluded_object_under_xray():
 
 def test_adding_a_primitive_in_an_element_mode_does_not_steal_the_properties_panels_selection():
     """``ClayDoc.add_objects`` used to call ``select`` unconditionally, which
-    in vertex/edge/face mode overwrote ``doc.selection`` with the new
-    object's uid while ``doc.element_sel`` still named the object being
-    edited -- the Properties panel would then describe one object while its
-    rows edited another."""
+    in vertex/edge/face mode overwrote ``doc.selection`` (the shapes being
+    edited) with the new object's uid while ``doc.element_sel`` still named
+    the object the picks were on -- the Properties panel would then describe
+    one object while its rows edited another."""
     doc = bd.ClayDoc()
     editing = doc.add_object(_obj("Editing"))
     doc.set_element_mode("vertex")

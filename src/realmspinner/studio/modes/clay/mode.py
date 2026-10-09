@@ -1646,7 +1646,9 @@ def _keypad(name: str) -> str | None:
 def _hide_keys(tab: ClayTab, doc: Any, *, shift: bool, alt: bool) -> None:
     """``H`` hides the selected objects, ``Shift+H`` isolates them, ``Alt+H`` shows all.
 
-    Blender's three, on the same chords. Hiding clears the selection afterwards:
+    Blender's three, on the same chords. In an element mode "the selected
+    objects" are the shapes being edited, picked inside or not; hiding them
+    leaves the mode on with nothing being edited. Hiding clears the selection afterwards:
     a hidden object that stays selected keeps its gizmo, its outline and its
     place in the next drag's set while being invisible, which reads as the
     editor acting on things that are not there. Refused while the tab is saving,
@@ -1959,10 +1961,13 @@ made inside a submenu names the popup in the submenu's own id stack."""
 
 
 def _escape(state: ClayState, tab: ClayTab, doc: Any) -> None:
-    """Esc, staged: the elements, then the mode, then the objects.
+    """Esc, staged: the picks, then the mode, then the shape.
 
     One key that undoes the last thing the user got into, in the order they got
-    into it. It **never leaves Clay mode**: Esc means "drop what I am doing",
+    into it. In an element mode the first press drops the picks (the shape stays
+    selected and the mode stays on), the second leaves the mode (the shape is
+    still selected, as it was when the mode was entered), and the third, in
+    object mode, deselects it. It **never leaves Clay mode**: Esc means "drop what I am doing",
     and losing a workspace full of tabs to a stray keypress is not that.
     """
     if not tab.saving:

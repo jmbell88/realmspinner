@@ -7,7 +7,7 @@ Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``de
 -- that module's own "# --- resolving the session's document", "# --- protocol
 glue", "# --- Euler XYZ" and "# --- shared validation and mutation helpers"
 sections, plus two members the brief's own section banners misfiled: the
-module docstring's ``_OBJECT_SELECTION_DERIVED_REFUSAL`` (banner-adjacent to
+module docstring's ``_OBJECT_SELECTION_ELEMENT_MODE_REFUSAL`` (banner-adjacent to
 the constants, but read as one of ``clay_select``'s own
 validation refusals, not dispatch state) and ``_validate_query_arg`` (living
 under the old file's "# --- output schemas" banner because it happened to be
@@ -1107,9 +1107,9 @@ def _scene_row(doc: Any, obj: Any) -> dict:
     return row
 
 
-_OBJECT_SELECTION_DERIVED_REFUSAL = (
-    "The object selection is derived from the element selection in "
-    "vertex/edge/face mode. Call clay_element_mode with mode='object' first."
+_OBJECT_SELECTION_ELEMENT_MODE_REFUSAL = (
+    "In vertex/edge/face mode the selected objects are the shapes being edited, "
+    "and their picks belong to them. Call clay_element_mode with mode='object' first."
 )
 """What ``clay_select`` says in an element mode -- see its handler's own
 docstring for why it refuses rather than guesses, and

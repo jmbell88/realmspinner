@@ -66,11 +66,28 @@ Neither the mode nor the selection is serialized: a stored element selection
 would describe indices into a mesh the file might reopen with, and a stored mode
 would put the user in a mode they did not choose.
 
-In an element mode ``selection`` is **derived**: it holds exactly the uids with
-a non-empty ``element_sel``, which is Wings3D's model (a body selection *is* a
-selection of everything in it). That invariant is what keeps
-``frame_selection``, the properties pane and ``world_bounds`` working with no
-per-mode branch anywhere in them.
+**The shape being edited stays selected in an element mode.** ``selection`` is
+the set of objects the user is working on and ``element_sel`` is only the picks
+inside them, so entering Points, Edges or Faces keeps the shape in the
+inspector and the outliner and leaving returns to the same shape. Three rules,
+all checked by :meth:`ClayDoc.selection_problems`:
+
+* **object mode holds no element picks** (``element_sel == {}``);
+* **in an element mode every pick is on a selected object** -- ``element_sel``
+  keys are a subset of ``selection``, each value non-empty and in range for its
+  mesh -- so ``frame_selection``, the properties pane and ``world_bounds`` still
+  work with no per-mode branch;
+* **``selection`` is written only by** :meth:`select` (which, in an element
+  mode, drops the picks of what it deselects), :meth:`set_element_sel` (which
+  adds the object and never removes it), :meth:`separate` (which swaps the source
+  for its pieces in every mode) and the sites that make an object stop
+  existing or stop being visible (``remove_object``, ``join_objects``,
+  ``set_visibility`` and an undo or redo that does either). The mode switch,
+  :meth:`clear_element_sel` and the picks half of ``_forget_elements`` never touch it.
+
+This replaces the Wings3D model in which the object selection was *derived*
+from the picks, which meant entering an element mode deselected everything and
+a shape with no picks yet was not "selected" at all.
 
 **Selection is not undoable.** The raster editor makes a selection undoable
 because a lasso around a character's hand is minutes of work that a stray click
@@ -919,10 +936,18 @@ class ClayDoc:
         return moved
 
     def _forget_elements(self, edit: Edit | None) -> None:
+        # Picks only: the object stays selected, because it is the shape being
+        # edited and a mesh edit does not end that.
         for uid in _geometry_uids(edit):
-            gone = self.element_sel.pop(uid, None) is not None
-            if gone and self.element_mode != "object":
-                self.selection.discard(uid)
+            self.element_sel.pop(uid, None)
+        # An undo of an add (or a redo of a remove) takes the object out of the
+        # document and an undo of a *show* hides it again (found by the
+        # selection fuzz test): neither a deleted nor a hidden object holds a
+        # selection or picks, whichever way it came to be so.
+        shown = {obj.uid for obj in self.objects if obj.visible}
+        self.selection &= shown
+        for uid in [u for u in self.element_sel if u not in shown]:
+            del self.element_sel[uid]
         self.touch()
 
     # -- objects -----------------------------------------------------------
@@ -978,14 +1003,12 @@ class ClayDoc:
         if label:
             edit.label = label
         self.history.push(edit)
-        # Object mode only (the 2026-09-13 audit's clay-03): ``select`` names
-        # only the *object* selection, but in an element mode the invariant
-        # (see ``set_element_mode``'s own docstring) is that ``selection`` is
-        # the set of objects with something selected inside ``element_sel`` --
-        # calling it unconditionally left ``selection`` naming the new object
-        # while ``element_sel`` still named whatever was being edited, so the
-        # Properties panel's summary line and its identity/transform/material
-        # rows disagreed about which object they were for.
+        # Object mode only (the 2026-09-13 audit's clay-03): in an element mode
+        # ``selection`` is the shape being *edited* and ``element_sel`` its
+        # picks -- selecting the new object there would pull the edit away from
+        # the shape the picks are on, so the Properties panel's summary line
+        # and its identity/transform/material rows disagreed about which
+        # object they were for.
         if self.element_mode == "object":
             self.select([obj.uid for obj in added])
         self.touch()
@@ -1095,8 +1118,8 @@ class ClayDoc:
         # The 2026-10-07 audit's clay-06: hiding through the eye left the object
         # selected, so the gizmo, the Properties readouts and every object op
         # still addressed a thing the user could not see. Hiding deselects, as
-        # in Blender; the element selection goes with it because in an element
-        # mode the object selection *is* the set of objects holding one.
+        # in Blender; its picks go with it, so the set of objects being edited
+        # may become empty while an element mode is on.
         # Selection is not undoable, so Ctrl+Z shows the object but does not
         # re-select it.
         hidden = {uid for uid, visible in wanted.items() if not visible}
@@ -1576,15 +1599,13 @@ class ClayDoc:
         removed_index = self.index_of(uid)
         removed = self.objects.pop(removed_index)
         self.selection.discard(uid)
-        # The 2026-10-03 audit's clay-30: the pieces joined ``selection`` in
-        # every mode, but in an element mode a piece has nothing selected
-        # inside it, so ``selection`` stopped being "exactly the uids with a
-        # non-empty element_sel" for any caller that did not repair it (the
-        # 2026-09-26 repair lived in ``ops._separate_selection`` only, and
-        # ``clay_separate by="selection"`` never made it). The document keeps
-        # its own invariant here, as ``set_element_sel`` does.
-        if self.element_mode == "object":
-            self.selection.update(o.uid for o in new_objs)
+        # The pieces replace the source in the selection in every mode (the
+        # 2026-10-03 audit's clay-30 kept them out of an element mode's
+        # ``selection``, which was derived then): in an element mode the pieces
+        # become the shapes being edited, with nothing picked inside them yet.
+        # Visible ones only -- a hidden source's pieces are hidden too, and a
+        # hidden object holds no selection (``selection_problems``).
+        self.selection.update(o.uid for o in new_objs if o.visible)
         self.element_sel.pop(uid, None)
         self._mesh_stamps.pop(uid, None)
         edits.append(ObjectRemoveEdit(removed_index, removed))
@@ -1950,22 +1971,29 @@ class ClayDoc:
     # -- selection (not undoable) ------------------------------------------
 
     def select(self, uids: Iterable[int]) -> None:
-        """Replace the selection. Pushes no step, by design; see the module
-        docstring. It still bumps ``rev``, because the viewport draws the
-        selected object's outline and has to know to redraw it."""
+        """Replace the selection -- in an element mode, the set of objects being
+        edited. Pushes no step, by design; see the module docstring. It still
+        bumps ``rev``, because the viewport draws the selected object's outline
+        and has to know to redraw it."""
         self.selection = {int(u) for u in uids}
+        # In an element mode the picks follow the objects being edited: what is
+        # no longer selected keeps no picks (I2). Object mode has none to drop.
+        if self.element_sel:
+            self.element_sel = {
+                uid: sel for uid, sel in self.element_sel.items() if uid in self.selection
+            }
         self.touch()
 
     # -- element mode (also not undoable) ----------------------------------
 
     def set_element_mode(self, mode: str) -> None:
-        """Switch to object/vertex/edge/face mode, converting what is selected.
+        """Switch to object/vertex/edge/face mode, converting what is picked.
 
-        Leaving an element mode keeps the objects selected -- the user was
-        working on those objects and is still working on them. *Entering* one
-        from object mode selects nothing, because there is nothing to convert
-        and the invariant says the object selection in an element mode is the
-        set of objects with something selected inside them.
+        **Never touches ``selection``.** The shapes the user is working on stay
+        selected on the way in and on the way out: entering an element mode
+        from object mode picks nothing (there is nothing to convert) and the
+        first pick adds its own object if it is not already being edited.
+        Leaving drops the picks, which are meaningless in object mode.
         """
         if mode not in el.MODES:
             raise ValueError(f"unknown element mode {mode!r}")
@@ -1980,22 +2008,24 @@ class ClayDoc:
                 if not el.is_empty(out):
                     converted[uid] = out
             self.element_sel = converted
-            self.selection = set(converted)
+            # Only a caller that set picks in object mode (no path does) can
+            # reach this with a pick on an unselected object; keep I2 anyway.
+            self.selection |= set(converted)
         self.element_mode = mode
         self.touch()
 
     def set_element_sel(self, uid: int, sel: el.ElementSel | None) -> None:
-        """Replace what is selected inside one object, keeping the invariant.
+        """Replace what is picked inside one object, keeping the invariant.
 
-        An empty selection removes the entry *and* the object from
-        ``selection``: "selected with nothing selected inside it" is a state the
-        invariant does not allow, and letting it exist is how a gizmo ends up
-        drawn at the centroid of nothing.
+        A non-empty pick makes the object one of those being edited (adds it to
+        ``selection``) and an empty one drops only the entry: the object stays
+        selected, because it is the shape being edited and "nothing picked yet"
+        is an ordinary state of that. Consumers that need the picks (the gizmo,
+        a mesh op) read ``element_sel``, which is why they cannot be drawn at
+        the centroid of nothing.
         """
         if el.is_empty(sel):
             self.element_sel.pop(uid, None)
-            if self.element_mode != "object":
-                self.selection.discard(uid)
         else:
             assert sel is not None
             self.element_sel[uid] = sel
@@ -2008,10 +2038,54 @@ class ClayDoc:
         return self.element_sel.get(uid) or el.empty()
 
     def clear_element_sel(self) -> None:
+        """Drop every pick. The objects being edited stay selected."""
         self.element_sel = {}
-        if self.element_mode != "object":
-            self.selection = set()
         self.touch()
+
+    def selection_problems(self) -> list[str]:
+        """Every way ``selection`` and ``element_sel`` disagree with the rules
+        the module docstring states -- ``[]`` when they hold. Pure: reads, never
+        repairs, so a test (or a debug assertion) can say *which* rule broke.
+
+        * ``selection`` names only live objects, and no hidden one holds a
+          selection or a pick (hiding deselects, and an undo that hides again
+          must too);
+        * object mode holds no element picks at all;
+        * in an element mode every picked object is one of the objects being
+          edited (``element_sel`` keys are a subset of ``selection``), and each
+          pick is non-empty and in range for that object's mesh.
+        """
+        problems: list[str] = []
+        live = {obj.uid: obj for obj in self.objects}
+        for uid in sorted(self.selection):
+            if uid not in live:
+                problems.append(f"selection names uid {uid}, which is not in the document")
+            elif not live[uid].visible:
+                problems.append(f"selection holds hidden object {uid}")
+        if self.element_mode == "object":
+            if self.element_sel:
+                problems.append(f"object mode holds element picks on {sorted(self.element_sel)}")
+            return problems
+        for uid, sel in sorted(self.element_sel.items()):
+            if uid not in live:
+                problems.append(f"element_sel names uid {uid}, which is not in the document")
+                continue
+            if uid not in self.selection:
+                problems.append(f"element_sel holds picks on {uid}, which is not selected")
+            if not live[uid].visible:
+                problems.append(f"element_sel holds picks on hidden object {uid}")
+            if el.is_empty(sel):
+                problems.append(f"element_sel holds an empty pick on {uid}")
+                continue
+            mesh = live[uid].mesh
+            n_verts, n_faces = len(mesh.positions), bm.face_count(mesh)
+            if len(sel.verts) and int(sel.verts.max()) >= n_verts:
+                problems.append(f"{uid}: a picked vertex is past the mesh's {n_verts}")
+            if len(sel.edges) and int(sel.edges.max()) >= n_verts:
+                problems.append(f"{uid}: a picked edge ends past the mesh's {n_verts} vertices")
+            if len(sel.faces) and int(sel.faces.max()) >= n_faces:
+                problems.append(f"{uid}: a picked face is past the mesh's {n_faces}")
+        return problems
 
 
 def _geometry_uids(edit: Edit | None) -> set[int]:

@@ -621,7 +621,7 @@ def test_a_params_edit_that_shrinks_a_mesh_restricts_the_element_selection_inste
     assert sel.faces.tolist() == list(range(new_face_count)), (
         "every surviving index is below the new face count, and no higher one lingers"
     )
-    assert obj.uid in doc.selection, "the derived-selection invariant: still selected"
+    assert obj.uid in doc.selection, "the edited shape stays selected"
 
 
 def test_a_radius_edit_with_same_topology_keeps_the_element_selection_as_the_manual_promises() -> None:  # noqa: E501
@@ -749,12 +749,12 @@ def test_setting_an_element_selection_selects_the_object_that_holds_it() -> None
     assert len(doc.history) == 1, "selection pushes no step"
 
 
-def test_emptying_an_element_selection_deselects_the_object() -> None:
+def test_emptying_an_element_selection_keeps_the_shape_being_edited_selected() -> None:
     doc, uid = _one_box()
     doc.set_element_mode("face")
     doc.set_element_sel(uid, el.ElementSel(faces=[0]))
     doc.set_element_sel(uid, el.empty())
-    assert doc.selection == set()
+    assert doc.selection == {uid}
     assert uid not in doc.element_sel
 
 
@@ -773,11 +773,14 @@ def test_switching_element_mode_converts_what_is_selected() -> None:
         doc.set_element_mode("nonsense")
 
 
-def test_entering_an_element_mode_from_object_mode_selects_nothing() -> None:
+def test_entering_an_element_mode_from_object_mode_keeps_the_shape_selected_with_nothing_picked() -> None:  # noqa: E501
     doc, uid = _one_box()
     doc.select([uid])
     doc.set_element_mode("vertex")
-    assert doc.selection == set(), "the invariant: no element selection, no object"
+    assert doc.selection == {uid}, "the shape being edited stays selected"
+    assert doc.element_sel == {}, "and nothing inside it is picked yet"
+    doc.set_element_mode("object")
+    assert doc.selection == {uid}, "leaving returns to the same shape"
 
 
 def test_set_mesh_can_hand_the_ui_the_selection_the_op_wants_shown() -> None:
@@ -799,7 +802,7 @@ def test_undoing_a_mesh_edit_drops_the_element_selection_over_it() -> None:
 
     doc.undo()
     assert uid not in doc.element_sel
-    assert doc.selection == set()
+    assert doc.selection == {uid}, "the picks go with the mesh they described, the shape stays"
 
     doc.set_element_sel(uid, el.ElementSel(faces=[2]))
     doc.redo()
@@ -854,13 +857,13 @@ def test_removing_an_object_takes_its_element_selection_with_it() -> None:
     assert doc.selection == set()
 
 
-def test_clearing_the_element_selection_clears_the_objects_too() -> None:
+def test_clearing_the_element_selection_clears_the_picks_and_not_the_objects() -> None:
     doc, uid = _one_box()
     doc.set_element_mode("edge")
     doc.set_element_sel(uid, el.ElementSel(edges=[[0, 1]]))
     doc.clear_element_sel()
     assert doc.element_sel == {}
-    assert doc.selection == set()
+    assert doc.selection == {uid}
 
 
 # --- join_objects -----------------------------------------------------------

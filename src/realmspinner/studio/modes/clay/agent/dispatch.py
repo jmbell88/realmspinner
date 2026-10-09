@@ -67,13 +67,15 @@ that selection exactly as the keyboard and the context menu do. Before this,
 nothing in this fold ever called ``ClayDoc.set_element_mode`` or
 ``set_element_sel``, so those rows refused unconditionally, forever, and an
 agent could place shapes but never touch a single face. **The
-derived-selection invariant is what makes ``clay_select`` refuse in an
-element mode instead of silently breaking it**: ``document.py``'s own module
-docstring says ``selection`` is *derived* from ``element_sel`` once the
-document leaves object mode, and that tool writes object uids straight into
-``selection`` -- so refusing by name, and pointing at
-``clay_element_mode``, is what keeps a still-truthy ``selection`` from ever
-naming an object with nothing selected inside it. An element selection is
+selection rule is what makes ``clay_select`` refuse in an element mode
+instead of silently breaking it**: ``document.py``'s own module docstring
+says that in an element mode ``selection`` is the set of shapes being
+*edited* and ``element_sel`` the picks inside them, and that tool would
+swap the edited shapes out from under picks already made -- so refusing by
+name, and pointing at ``clay_element_mode``, keeps an agent's edit and its
+picks on the same shapes. The shape an agent is editing stays selected on
+the way into an element mode and on the way out; ``clay_select_elements``
+and ``clay_select_by`` on a shape that is not being edited make it so. An element selection is
 indices into one mesh, and the document is what keeps it from going stale --
 dropped on an undo that changes geometry, restricted to what survives a
 params rebuild, replaced outright by whatever an op produces -- and
@@ -591,7 +593,7 @@ ceiling, never a default to fall back to.
 * ``"switch_mode"`` -- the document is in the wrong element mode for this
   call. ``clay_element_mode`` (or ``clay_select_elements``/``clay_select_by``'s
   own ``mode``) first, then repeat the call. Attached at the two sites using
-  ``agent_clay_validate._OBJECT_SELECTION_DERIVED_REFUSAL``, and at
+  ``agent_clay_validate._OBJECT_SELECTION_ELEMENT_MODE_REFUSAL``, and at
   ``clay_select_by``'s own wrong-mode refusal (the 2026-10-07 audit's clay-84:
   it names ``field="query"``, which made ``fail`` derive ``fix_arguments``
   for arguments that were fine). **Not** attached
@@ -698,10 +700,11 @@ def instructions() -> str:
         "name (\"Switch to face mode first.\") until it is set; "
         "clay_element_mode sets it on its own, and clay_select_elements and "
         "clay_select_by can set it in the same call as the selection they "
-        "make. Entering vertex/edge/face mode from object mode selects "
-        "nothing, which is what makes clay_op's seedless rows -- select-all "
+        "make. Entering vertex/edge/face mode from object mode keeps the "
+        "selected shapes selected and picks nothing inside them, which is "
+        "what makes clay_op's seedless rows -- select-all "
         "and select-invert -- reachable with no seed at all (select-none "
-        "and select-linked need a selection); clay_select_by is the door for "
+        "and select-linked need a pick); clay_select_by is the door for "
         "the rest of clay_op's element menu, "
         "the ones that need one (a material slot, a direction, a box). "
         "clay_select and every tool that addresses a whole object want "
@@ -1076,10 +1079,10 @@ def tools() -> list[Any]:
             description=(
                 "Replace the document's object selection. An empty list "
                 "clears it. "
-                "Refused in vertex/edge/face mode: the object selection is "
-                "derived from the element selection there, so this tool "
-                "would either be overwritten by it or manufacture an object "
-                "'selected' with nothing selected inside it. Call "
+                "Refused in vertex/edge/face mode: the selected objects "
+                "there are the shapes being edited and the picks belong to "
+                "them, so this tool would swap the shape out from under its "
+                "picks. Call "
                 "clay_element_mode with mode='object' first."
             ),
             schema={
@@ -1100,14 +1103,16 @@ def tools() -> list[Any]:
                 "down (face to edge to vertex) is everything touched; going "
                 "up, only an element every one of whose lower parts is "
                 "selected. Entering vertex/edge/face mode from object mode "
-                "selects nothing, which is what makes clay_op's seedless "
+                "keeps the selected shapes selected and picks nothing in "
+                "them, which is what makes clay_op's seedless "
                 "rows (select-all, select-invert) reachable "
-                "with no prior selection. Every element-gated clay_op row -- "
+                "with no prior pick. Every element-gated clay_op row -- "
                 "inset, extrude and the rest -- refuses by name until "
                 "this has been called at least once; clay_select_elements "
                 "and clay_select_by can switch mode in the same call "
                 "instead of a separate one. Not undoable -- element mode is "
-                "document state, never an edit. Returns the new mode plus, "
+                "document state, never an edit. Returns the new mode, the uids "
+                "being edited, plus, "
                 "per object that still has something selected, its uid, "
                 "stamp and per-kind counts."
             ),

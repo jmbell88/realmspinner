@@ -192,7 +192,7 @@ def test_a_rolled_back_batch_leaves_no_element_selection_on_the_restored_mesh() 
     assert doc.history.can_redo == redo_before  # forgotten, not redoable
     assert bm.face_count(o.mesh) == 6
     assert el.is_empty(doc.element_sel_of(o.uid))
-    assert o.uid not in doc.selection  # the derived-selection invariant holds
+    assert o.uid in doc.selection  # the shape being edited stays selected; only its picks go
 
 
 def test_undo_unrecorded_with_nothing_to_undo_is_false() -> None:

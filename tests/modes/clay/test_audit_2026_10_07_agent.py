@@ -318,7 +318,7 @@ def test_clay_select_by_in_the_wrong_element_mode_recovers_by_switching_mode() -
 
 def test_instructions_name_only_ops_that_run_with_nothing_selected_as_seedless() -> None:
     """``instructions()`` called select-none seedless, but it is disabled with
-    nothing selected (and entering an element mode selects nothing)."""
+    nothing picked (and entering an element mode picks nothing)."""
     ctx = _Ctx()
     session = agent_clay.Session()
     _new_agent_tab(ctx, session)

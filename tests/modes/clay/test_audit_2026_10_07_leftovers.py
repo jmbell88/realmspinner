@@ -117,7 +117,8 @@ def test_hiding_an_object_drops_its_element_selection_too() -> None:
     doc.set_element_sel(b.uid, el.select_all(b.mesh, "face"))
     doc.set_visibility({b.uid: False})
     assert set(doc.element_sel) == {a.uid}
-    assert doc.selection == set(doc.element_sel), "the element-mode invariant held"
+    assert doc.selection == {a.uid}, "the hidden shape is no longer one being edited"
+    assert doc.selection_problems() == []
 
 
 def test_isolating_deselects_everything_it_hid_and_keeps_what_it_kept() -> None:

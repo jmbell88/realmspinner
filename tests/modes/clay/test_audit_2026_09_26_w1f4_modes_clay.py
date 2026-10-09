@@ -219,12 +219,12 @@ def test_dragging_a_parent_and_its_selected_child_moves_the_child_by_the_drag_de
 # --- clay-document-03: separate-by-selection keeps the invariant -----------
 
 
-def test_separate_by_selection_in_face_mode_keeps_selection_equal_to_element_sel_keys() -> None:
+def test_separate_by_selection_in_face_mode_selects_the_pieces_with_nothing_picked() -> None:
     """The 2026-09-26 audit's clay-document-03: ``ClayDoc.separate`` adds
-    every new piece to ``selection`` unconditionally, but a piece just split
-    off has nothing selected inside it -- in face mode, the only mode
-    ``_separate_selection`` runs in, that broke the module's own invariant
-    ("selection holds exactly the uids with a non-empty element_sel").
+    every new piece to ``selection``, and a piece just split off has nothing
+    picked inside it. While ``selection`` was derived from the picks that broke
+    the invariant, so ``_separate_selection`` repaired it by hand; now the pieces
+    are the shapes being edited and ``element_sel`` is simply empty.
     """
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
@@ -236,10 +236,11 @@ def test_separate_by_selection_in_face_mode_keeps_selection_equal_to_element_sel
     ctx = _InlineCtx()
     assert clay_ops._separate_selection(ctx, doc) is True
 
-    assert doc.selection == set(doc.element_sel.keys()), (
-        f"selection {doc.selection} must equal element_sel's own keys "
-        f"{set(doc.element_sel.keys())}"
-    )
+    piece_uids = {o.uid for o in doc.objects}
+    assert len(piece_uids) == 2
+    assert doc.selection == piece_uids
+    assert doc.element_sel == {}
+    assert doc.selection_problems() == []
 
 
 # --- clay-document-05 (+clay-panes-04, -05): hierarchy queries are linear --
