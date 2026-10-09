@@ -68,7 +68,7 @@ def _rows(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
         widgets.secondary("Saving...")
         controls.menu_separator()
     for index, run in enumerate(clay_menutree.flat(doc.element_mode)):
-        # One run per group, in the menu strip's order: the separators are the
+        # One run per group, in the menu tree's bar order: the separators are the
         # group boundaries rather than a flag each op carried, which is what
         # put Shade Smooth under Duplicate.
         if index:

@@ -132,16 +132,30 @@ def _history(ctx: Any, tab: Any) -> None:
 
 
 def _import_settings(ctx: Any) -> None:
-    """The units and up-axis the next mesh import uses.
+    """Import Mesh... and the units and up-axis the import uses.
 
-    ``ClayState.import_scale``/``import_up`` are what the Add menu's "Import
-    Mesh..." row and a file dropped on the viewport both read
-    (``clay_mode.import_mesh_path``'s own defaults) -- set here and remembered
-    for the next import in either form. The row that *runs* the import is in
-    the menu strip; these two are settings, and the Document tab is where the
-    document-wide settings are.
+    **The row that runs the import lives here** (it was the Add menu's, in the menu
+    strip that is gone): the same picker as File > Import Mesh... and the Ctrl+K row,
+    ``clay_mode.ask_import_mesh``. It opens the file as a *new* document tab, as a file
+    dropped on the viewport does. It greys while this document is being written, as
+    every other control on the page does, and says so.
+
+    ``ClayState.import_scale``/``import_up`` are what the picker and a file dropped on
+    the viewport both read (``clay_mode.import_mesh_path``'s own defaults) -- set here
+    and remembered for the next import in either form.
     """
     state = clay_mode.ensure(ctx)
+    tab = state.active
+    saving = bool(tab is not None and tab.saving)
+    widgets.field_label("import a mesh")
+    if widgets.disabled_button(
+        f"{icons.FOLDER_OPEN} Import Mesh...",
+        not saving,
+        reason=widgets.DOCUMENT_SAVING_WHY,
+        tooltip="Open a .glb, .obj, .stl or .ply as a new document. Units and up axis "
+        "are set just below.",
+    ):
+        clay_mode.ask_import_mesh(ctx)
     widgets.field_label("import units")
     scale_key = f"{state.import_scale:g}"
     picked = widgets.combo(
@@ -1310,8 +1324,8 @@ def _texture_slots(ctx: Any, tab: Any, doc: Any, index: int, material: Any) -> N
             assign_tip = "Assign from a file..."
             # FOLDER_OPEN, not UPLOAD (icons.py's rule: UPLOAD reads backwards
             # for both import and export in an app with no remote server) --
-            # this button is "in from a file", the same reason bridge.py's
-            # "Import Mesh..." already uses it.
+            # this button is "in from a file", the same reason the Import Mesh...
+            # button above already uses it.
             if controls.small_button(f"{icons.FOLDER_OPEN}##texassign{slot}", tooltip=assign_tip):
                 _assign_texture(ctx, tab, index, slot, material)
             imgui.same_line()

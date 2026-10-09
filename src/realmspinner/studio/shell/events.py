@@ -929,8 +929,8 @@ class EventsMixin:
             elif path.suffix.lower() in meshimport.SUPPORTED_SUFFIXES:
                 # Every importable mesh suffix, not just GLB (Task 3):
                 # ``import_mesh_path`` is the one door for all four, and reads
-                # the tab's own remembered scale/up the same way the bridge's
-                # "Import Mesh..." button does.
+                # the tab's own remembered scale/up the same way the
+                # "Import Mesh..." picker does.
                 clay_mode.import_mesh_path(ctx, path)
             else:
                 ctx.toast(

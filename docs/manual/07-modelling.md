@@ -65,7 +65,7 @@ orthographic.
 
 ## Editing the mesh
 
-The mesh operations live in one registry, which is why the context menu, the menu strip and the
+The mesh operations live in one registry, which is why the context menu, the Inspector, `Ctrl+K` and the
 keyboard always offer exactly the same list. Right-click is the easiest way in.
 
 The ones you will use: **Extrude** (`E`), **Inset Faces** (`I`), **Subdivide**, **Merge Faces**,

@@ -317,7 +317,7 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # a drag whose source is not submitted that frame.
     outliner_drag: int = 0
 
-    # Units and up-axis for the next mesh import (the "Import Mesh..." button
+    # Units and up-axis for the next mesh import (the "Import Mesh..." picker
     # and a file dropped onto the viewport both read these), remembered across
     # imports the way a modelling package's own import dialog does -- a
     # session importing a batch of centimetre-scale, Z-up assets should not

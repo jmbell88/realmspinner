@@ -73,8 +73,7 @@ NO_HELP_BUTTON = {
     # pages are drawn from (``props._transform``, ``_material``, ``_document``...). The
     # (?) is the Inspector's own, on the ``clay-inspector`` target.
     "clay_props",
-    "clay_menu",  # a menu bar
-    "clay_strip",  # the menu names above the header; a menu bar
+    "clay_menu",  # the right-click menu
     # The tool rail at the viewport's left edge (2026-10-07): chrome drawn over the
     # render, like ``clay_hud``, with no heading to hang a (?) beside. The palette
     # strip that sat under it folded into the Inspector's Colour card (Landing 10),

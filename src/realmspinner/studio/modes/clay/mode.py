@@ -494,7 +494,7 @@ def import_mesh_path(
 
     The generalisation of what used to be ``import_glb_path`` (now a thin
     alias below): the drop handler (``studio/shell/events.py``'s Clay branch
-    of ``_on_drop``) and the bridge pane's "Import Mesh..." button both call
+    of ``_on_drop``) and the Model & history page's "Import Mesh..." button both call
     this rather than each knowing GLB is one format among four.
 
     The parse is O(triangles) and a ``model.glb`` is routinely a hundred
@@ -546,9 +546,10 @@ def import_glb_path(ctx: Any, path: Path) -> None:
 
 
 def ask_import_mesh(ctx: Any) -> None:
-    """The picker for the bridge's "Import Mesh..." button -- ``ask_open``'s
-    own shape (the picker and the parse, both on one task thread), pointed at
-    :data:`~.meshimport.SUPPORTED_SUFFIXES` instead of ``.rblk``.
+    """The picker for "Import Mesh..." (the Inspector's Model & history page, File and
+    Ctrl+K all call it) -- ``ask_open``'s own shape (the picker and the parse, both on
+    one task thread), pointed at :data:`~.meshimport.SUPPORTED_SUFFIXES` instead of
+    ``.rblk``.
 
     The bare ``clay-import`` key, not a path-keyed one: a picker's result is
     not known until it returns, so there is nothing to key on yet, the same
@@ -1904,9 +1905,9 @@ def _fire_op(ctx: Any, doc: Any, op: Any, *, interactive: bool = False) -> bool:
 
     ``interactive`` is the *keyboard's* door and nothing else's: an op with a
     ``drag`` spec starts the viewport's live op drag instead of the dialog, and
-    Extrude hands straight over to a move along the face normal. The menu strip
-    reaches this function too (``fire_op``) and passes nothing, so a menu click
-    keeps the dialog -- the path for an exact value.
+    Extrude hands straight over to a move along the face normal. Ctrl+K and the
+    Inspector reach this function too (``fire_op``) and pass nothing, so a palette
+    row keeps the dialog -- the path for an exact value.
     """
     from . import ops as clay_ops
 
@@ -1955,9 +1956,10 @@ def _extrude_and_drag(ctx: Any, doc: Any, op: Any) -> bool:
 
 
 fire_op = _fire_op
-"""The same door, named for the menu strip: a submenu row asks for its dialog by
-state (``open_op_popup``) exactly as a key does, because an ``imgui.open_popup``
-made inside a submenu names the popup in the submenu's own id stack."""
+"""The same door, named for the surfaces with no window of their own to open a popup in
+(Ctrl+K's rows): a row asks for its dialog by state (``open_op_popup``) exactly as a
+key does, because an ``imgui.open_popup`` made there would name the popup in the wrong
+id stack."""
 
 
 def _escape(state: ClayState, tab: ClayTab, doc: Any) -> None:

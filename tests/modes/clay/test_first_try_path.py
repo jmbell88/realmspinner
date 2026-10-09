@@ -42,7 +42,8 @@ from realmspinner.studio.modes.clay import placement
 #: and then the new swatch. **It may only decrease** -- raising it to fit a change is
 #: the one edit this number refuses. The redesign's mockup counts click-and-type as
 #: one gesture and says 4; the driver counts the click and the character apart, so 5
-#: is the same path.
+#: is the same path. Deleting the menu strip (Landing 11) left it at 5: nothing on this
+#: path was ever in a menu, so the strip cost the path no gesture, only a row of height.
 FIRST_TRY_BUDGET = 5
 
 
@@ -193,3 +194,33 @@ def test_start_with_a_box_is_the_primary_action_and_new_model_still_starts_empty
     tab = clay_mode.active(workspace.ctx)
     assert tab is not None and tab.doc.objects == [], "New model must stay an empty page"
     assert not workspace.ctx.state.clay.frame_pending
+
+
+def test_the_toolbar_is_the_first_row_above_the_viewport_now_the_menu_strip_is_gone(workspace):
+    """Old code drew the Select | Add | Object | Mesh | UV strip as a row of its own
+    *above* the toolbar, so the first row of controls over the render was menu names and
+    the render began a row lower. Now the topmost controls in the centre pane are the
+    toolbar's (Undo, the mode switch...) and the render starts one row under them."""
+    d = workspace.driver
+    tab, _obj = _start_with_a_box(workspace)
+    d.settle(3)
+    centre = [c for c in d.controls if c.visible and c.window == "##centre"]
+    top = min(c.rect[1] for c in centre)
+    first_row = [c for c in centre if abs(c.rect[1] - top) < 1.0]
+    assert first_row, "no controls in the centre pane"
+    toolbar_labels = ("##clay-header/", "##clay-mode/", "##clay-shading/", "help-clay-header")
+    assert all(any(mark in c.label for mark in toolbar_labels) for c in first_row), [
+        c.label for c in first_row
+    ]
+    undo = d.find(label=f"{icons.UNDO}##clay-header/undo")
+    assert undo.rect[1] == top, "Undo is on the first row"
+    assert not [c for c in centre if "clay-menu" in c.label], "a menu strip name is still drawn"
+
+    # And only that one row stands between the pane's top and the render: the render's
+    # top edge is under the toolbar by less than a second row's height. With the strip
+    # it was a whole row further down (the strip's frame height plus its spacing).
+    render_top = workspace.app.clay_view._rect[1]
+    assert render_top - top < 2.0 * undo.rect[3], (
+        f"the render starts {render_top - top:.0f} px under the first row; a second row "
+        f"of {undo.rect[3]:.0f} px is still above it"
+    )

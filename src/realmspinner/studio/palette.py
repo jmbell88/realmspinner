@@ -436,13 +436,14 @@ def _mode_commands(ctx: Any) -> list[Command]:
 # --- Clay's commands ---------------------------------------------------------
 #
 # A mode cannot hand the palette commands of its own, and Clay needs to: its
-# menu strip is going away and every tool on it has to stay one search from
-# the user ("Extrude", "Mirror", "Box Unwrap"), plus the view, mode, tool and
-# export controls that live on its header and rail. So the palette asks Clay
+# menu strip went away (Landing 11 of the Clay UI rebuild) and every tool on it
+# has to stay one search from the user ("Extrude", "Mirror", "Box Unwrap",
+# "Import Mesh..."), plus the view, mode, tool and export controls that live on its
+# toolbar and rail. So the palette asks Clay
 # for them here, **only in the Clay workspace and only with a document open**,
 # and every row is a thin door onto what the mode already does:
 #
-# * an op's row is ``clay_mode.fire_op`` -- the strip's own call, which opens the
+# * an op's row is ``clay_mode.fire_op`` -- the event layer's door, which opens the
 #   parameter popup next frame for an op with parameters and toasts a refusal;
 # * a view, mode or export row calls what the header's popover and Export menu
 #   call (``ui/panes/header.py``), so the two surfaces cannot drift;
@@ -689,6 +690,25 @@ def _clay_build(doc: Any, tab: Any) -> list[Command]:
             group=_CLAY_GROUP,
             run=_clay_run(frame),
             hint="F",
+        )
+    )
+
+    # The way in. Import Mesh... was a row of the Add menu in the menu strip; the
+    # strip is gone, and this is one of its three homes (the Inspector's Model &
+    # history page and File > Import Mesh... are the others). It opens the file as a
+    # new document tab, so it needs the viewport's tab to exist (this block only
+    # does) and no more.
+    def import_mesh(ctx: Any, _state: Any, _live: Any) -> None:
+        clay_mode.ask_import_mesh(ctx)
+
+    out.append(
+        Command(
+            key="clay-file:import-mesh",
+            label="Import Mesh...",
+            group=_CLAY_GROUP,
+            run=_clay_run(import_mesh),
+            enabled=can_switch,
+            why=clay_header.SAVING_WHY,
         )
     )
 

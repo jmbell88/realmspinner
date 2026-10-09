@@ -106,7 +106,7 @@ def test_assign_material_is_a_face_mode_op_in_the_mesh_menu_with_one_integer_par
     assert [p.name for p in op.params] == ["index"]
     assert op.params[0].integer
     assert "assign-material" in menutree.GROUPS["mesh"].ops
-    names = [o.name for menu in menutree.resolve("face") for s in menu.sections for o in s.ops]
+    names = [o.name for run in menutree.flat("face") for o in run]
     assert "assign-material" in names
     for mode in ("vertex", "edge", "object"):
         assert op not in clay_ops.menu(mode), f"face-only, but offered in {mode} mode"

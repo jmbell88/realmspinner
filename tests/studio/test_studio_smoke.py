@@ -3005,8 +3005,10 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
 
     assert seen, "an empty Clay scene must draw the centred empty state"
     assert seen["title"] == "Add a shape"
-    assert "Add" in seen["hint"], "the palette it points at is called Add now"
-    assert "Tools" not in seen["hint"]
+    # Old code said "Pick one from Add.", pointing at the menu strip's Add menu; the
+    # strip is gone, and the shapes are on the tool rail beside the render.
+    assert "rail" in seen["hint"], "the shapes are on the tool rail"
+    assert "Add." not in seen["hint"] and "Tools" not in seen["hint"]
 
 
 def test_the_clay_viewport_stacks_render_and_hint_with_the_rail_beside_the_render(
@@ -7168,58 +7170,35 @@ def _press(imgui_ctx, build, probe, pointer, text):
         _click(imgui_ctx, build, pointer.at)
 
 
-def test_the_clay_menu_strip_adds_a_box_when_pressed(app_ctx, imgui_ctx, monkeypatch):
-    """**Pressed, not called.** Add > Primitives > Box through the real strip.
-
-    The strip is generated from ``menutree`` and the generator registries, so
-    the unit tests prove what it would draw; this proves the wiring -- that a
-    submenu row inside a popup inside the strip reaches ``add_primitive`` and
-    that the document gains the object.
-    """
-    from realmspinner.studio import probe
-    from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
-
-    monkeypatch.setattr(probe, "ENABLED", True)
-    tab = _clay_tab(app_ctx, objects=0)
-    state = clay_mode.ensure(app_ctx)
-    assert not tab.doc.objects
-
-    def build():
-        clay_strip.draw(app_ctx, state, tab)
-
-    pointer = _Pointer()
-    _press(imgui_ctx, build, probe, pointer, "Add")
-    _press(imgui_ctx, build, probe, pointer, "Primitives")
-    _press(imgui_ctx, build, probe, pointer, "Box")
-    assert [obj.generator for obj in tab.doc.objects] == ["box"]
-    assert state.generator == "box"
-
-
-def test_the_clay_menu_strip_runs_an_op_and_asks_for_a_parameter_dialog(
+def test_the_clay_context_menu_runs_an_op_and_asks_for_its_dialog_when_pressed(
     app_ctx, imgui_ctx, monkeypatch
 ):
-    """An op row in a menu runs it; a parameterised one asks for its dialog by
-    state, because a popup opened from inside a menu is named in the menu's id
-    stack and the viewport's ``params_popup`` would never find it."""
+    """**Pressed, not called.** The right-click menu is the menu strip's other home:
+    the op rows are the same table (``menutree.flat``), so a row there reaches
+    ``Merge Objects...`` and a parameterised op opens its dialog (the popup the
+    viewport's ``params_popup`` renders) rather than running blind. Its sibling
+    surfaces are pressed in ``test_inspector.py`` (More actions) and run in
+    ``test_clay_palette.py`` (Ctrl+K, whose rows ask for the dialog by state)."""
+    from types import SimpleNamespace
+
     from realmspinner.studio import probe
     from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
+    from realmspinner.studio.modes.clay.ui.panes import menu as clay_menu
 
     monkeypatch.setattr(probe, "ENABLED", True)
     tab = _clay_tab(app_ctx, objects=2)
     state = clay_mode.ensure(app_ctx)
     tab.doc.set_element_mode("object")
     tab.doc.select([obj.uid for obj in tab.doc.objects])
+    view = SimpleNamespace(menu_request=(300.0, 300.0))
 
     def build():
-        clay_strip.draw(app_ctx, state, tab)
+        clay_menu.draw(app_ctx, view)
 
     pointer = _Pointer()
-    _press(imgui_ctx, build, probe, pointer, "Object")
+    pointer.at = (300.0, 300.0)
     _press(imgui_ctx, build, probe, pointer, "Merge Objects...")
     assert state.pending_op == "join"
-    assert state.open_op_popup is True
     assert len(tab.doc.objects) == 2, "the dialog's Apply runs it, not the row"
 
 
@@ -7336,25 +7315,3 @@ def test_leaving_the_unwrap_page_commits_an_armed_live_transform(app_ctx, imgui_
     _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
 
     assert tab.uv_view.drag_mode == ""
-
-
-def test_the_clay_add_menu_imports_a_mesh_when_pressed(app_ctx, imgui_ctx, monkeypatch):
-    """The row that moved out of the Document pane: Import Mesh... runs the
-    picker from the Add menu."""
-    from realmspinner.studio import probe
-    from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import strip as clay_strip
-
-    monkeypatch.setattr(probe, "ENABLED", True)
-    asked: list[bool] = []
-    monkeypatch.setattr(clay_mode, "ask_import_mesh", lambda ctx: asked.append(True))
-    tab = _clay_tab(app_ctx, objects=0)
-    state = clay_mode.ensure(app_ctx)
-
-    def build():
-        clay_strip.draw(app_ctx, state, tab)
-
-    pointer = _Pointer()
-    _press(imgui_ctx, build, probe, pointer, "Add")
-    _press(imgui_ctx, build, probe, pointer, "Import Mesh...")
-    assert asked == [True]

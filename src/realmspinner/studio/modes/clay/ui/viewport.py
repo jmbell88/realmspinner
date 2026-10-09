@@ -194,7 +194,7 @@ class ClayViewport:
             overlay.centred_empty(
                 icons.BOX,
                 "Add a shape",
-                "Pick one from Add.",
+                "Pick one from the tool rail.",
                 action=overlay.action_for(ctx, "clay"),
             )
         self._clay_marquee(imgui, view, rect)

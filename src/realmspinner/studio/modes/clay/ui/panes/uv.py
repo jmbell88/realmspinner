@@ -1015,7 +1015,7 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
         view_state.pending_scale = 1.0
 
     # Through the op, so the margin and the rotate switch are the same two
-    # numbers here as in the UV menu: this button used to call ``apply_pack``
+    # numbers here as in the right-click menu: this button used to call ``apply_pack``
     # with its own fixed defaults while ``pack-uv`` took both as parameters.
     pack = clay_ops.get("pack-uv")
     if controls.small_button(
@@ -1039,7 +1039,7 @@ def _unwrap_row(ctx: Any, tab: Any, doc: Any) -> None:
 
     The pane told you "unwrap it first" and then offered no way to: the op was a
     row in a flat object-mode list on the other side of the window. It is the
-    same registry op the UV menu in the viewport header runs, so gating,
+    same registry op the right-click menu and Ctrl+K run, so gating,
     reasons and parameter dialogs cannot differ.
     """
     from imgui_bundle import imgui

@@ -4,7 +4,9 @@
 the one the registry exists to remove -- a second list that nobody updates -- so
 the claims here are about *completeness in both directions*: no registered op
 missing from the tree, no name in the tree that is not an op, and no mode whose
-menu strip leaves an op unreachable.
+menu leaves an op unreachable. (The Select | Add | Object | Mesh | UV strip that
+drew the bars is gone; the right-click menu, the Inspector and Ctrl+K read them now,
+and ``test_clay_no_menu_strip.py`` checks every op is reachable from them.)
 """
 
 from __future__ import annotations
@@ -41,23 +43,28 @@ def test_every_registered_op_is_in_exactly_one_group() -> None:
     assert set(placed) == {op.name for op in clay_ops.OPS}
 
 
+def _bar_ops(mode: str) -> set[str]:
+    """Every op name the bar for *mode* names, as the Select/Object/Mesh/UV menus did."""
+    return {
+        op.name
+        for menu in menutree.BARS[mode]
+        for entry in menu.entries
+        for op in menutree.grouped_ops(entry.name, mode)
+    }
+
+
 def test_every_bar_entry_names_a_real_group() -> None:
     for mode, menus in menutree.BARS.items():
         assert mode in clay_ops.ALL_MODES
         for menu in menus:
             for entry in menu.entries:
-                if entry.kind != "add":
-                    assert entry.name in menutree.GROUPS, (mode, menu.title, entry)
+                assert entry.name in menutree.GROUPS, (mode, menu.title, entry)
+                assert entry.kind in ("sub", "inline"), (mode, menu.title, entry)
 
 
-def test_every_op_is_reachable_from_the_strip_or_an_off_bar_group_in_each_mode() -> None:
+def test_every_op_is_reachable_from_the_bar_or_an_off_bar_group_in_each_mode() -> None:
     for mode in clay_ops.ALL_MODES:
-        shown = {
-            op.name
-            for menu in menutree.resolve(mode)
-            for section in menu.sections
-            for op in section.ops
-        }
+        shown = _bar_ops(mode)
         off_bar = {
             op.name
             for group in menutree.OFF_BAR_GROUPS
@@ -77,17 +84,24 @@ def test_the_flat_context_list_is_exactly_the_modes_ops_with_delete_last() -> No
         assert all(run for run in menutree.flat(mode)), "an empty run draws a bare rule"
 
 
-def test_no_menu_in_a_resolved_strip_is_empty() -> None:
-    for mode in clay_ops.ALL_MODES:
-        for menu in menutree.resolve(mode):
-            assert menu.sections, (mode, menu.title)
+def test_no_menu_in_a_bar_is_empty_for_its_mode() -> None:
+    """A menu the bar names holds at least one op that works in that mode, so a
+    surface drawing the bar never draws a bare heading (the UV menu is simply not in
+    the element modes' bars, since both UV ops are object-level)."""
+    for mode, menus in menutree.BARS.items():
+        for menu in menus:
+            held = [
+                op
+                for entry in menu.entries
+                for op in menutree.grouped_ops(entry.name, mode)
+            ]
+            assert held, (mode, menu.title)
 
 
-def test_object_mode_gets_a_select_menu_and_vertex_mode_has_no_uv_menu() -> None:
-    object_titles = [menu.title for menu in menutree.resolve("object")]
-    assert object_titles[:2] == ["Select", "Add"]
-    assert "Object" in object_titles and "UV" in object_titles
-    vertex_titles = [menu.title for menu in menutree.resolve("vertex")]
+def test_object_mode_has_select_object_and_uv_and_vertex_mode_has_no_uv() -> None:
+    object_titles = [menu.title for menu in menutree.BARS["object"]]
+    assert object_titles == ["Select", "Object", "UV"]
+    vertex_titles = [menu.title for menu in menutree.BARS["vertex"]]
     assert "UV" not in vertex_titles, "vertex mode has no UV op to hold"
     assert "Mesh" in vertex_titles
     assert "Object" not in vertex_titles
@@ -95,8 +109,16 @@ def test_object_mode_gets_a_select_menu_and_vertex_mode_has_no_uv_menu() -> None
 
 def test_the_three_element_modes_share_one_mesh_menu_with_no_vertex_edge_or_face_menu() -> None:
     for mode in ("vertex", "edge", "face"):
-        titles = [menu.title for menu in menutree.resolve(mode)]
-        assert titles == ["Select", "Add", "Mesh"], mode
+        titles = [menu.title for menu in menutree.BARS[mode]]
+        assert titles == ["Select", "Mesh"], mode
+
+
+def test_the_add_menu_and_its_resolver_left_with_the_strip() -> None:
+    """Old code: ``BARS`` carried an Add menu whose ``Entry("add", ...)`` rows only the
+    deleted strip drew, and ``resolve`` existed to hand that strip its sections."""
+    assert not hasattr(menutree, "resolve") and not hasattr(menutree, "ADD_SOURCES")
+    for mode, menus in menutree.BARS.items():
+        assert "Add" not in [menu.title for menu in menus], mode
 
 
 def test_shading_is_under_object_and_under_face_never_next_to_duplicate() -> None:
@@ -105,12 +127,8 @@ def test_shading_is_under_object_and_under_face_never_next_to_duplicate() -> Non
     basic = menutree.GROUPS["basic"].ops
     assert "shade-smooth" not in basic
     assert menutree.GROUPS["shading"].ops[:2] == ("shade-smooth", "shade-flat")
-    face = {
-        s.label: s
-        for menu in menutree.resolve("face")
-        for s in menu.sections
-    }
-    assert "Shading" in face
+    face = {entry.name for menu in menutree.BARS["face"] for entry in menu.entries}
+    assert "shading" in face
 
 
 def test_box_unwrap_shares_the_uv_group_ahead_of_packing() -> None:

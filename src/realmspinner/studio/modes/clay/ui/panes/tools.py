@@ -11,11 +11,11 @@ learn its name; a labelled list does not.
 **What stays in this module is data and doors**, because other places reach
 for them: :func:`sections` (the shape registry, grouped), :func:`add_primitive`
 (the pure door -- the agent calls it, and a shape comes out at the origin) and
-:func:`place_primitive` (the human door: the rail, the Add menu and the
+:func:`place_primitive` (the human door: the rail, the flyout, the Inspector and the
 empty-state button call it, and a shape comes out on the ground, beside what
 is there, in the colour last picked), :func:`display_name` (the one
 spelling of a shape's name, so ``uv_sphere`` is "UV Sphere" in the rail, the
-Add menu and the flyout alike), and the tables the header reads.
+Inspector and the flyout alike), and the tables the header reads.
 
 **Every control that changes the document is disabled while a save is in
 flight**, as it is everywhere in Clay. Serialising reads the live document on a
@@ -23,9 +23,9 @@ task thread, so a control that restructured it mid-encode would write a file
 describing a document that never existed. Disabling says so on screen rather
 than swallowing the click.
 
-**The operations are not here** (the 2026-10-02 menu regrouping). They live in
-the header's menu strip (``strip.py``), grouped by ``menutree``, and in the
-right-click menu, which reads the same table.
+**The operations are not here** (the 2026-10-02 menu regrouping). They live in the
+Inspector's More actions and Shape it cards, the right-click menu and Ctrl+K, all
+grouped by ``menutree``. (The menu strip that listed them over the viewport is gone.)
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ _ACRONYMS = frozenset({"uv"})
 def display_name(name: str) -> str:
     """A shape's key as the words a person reads: ``uv_sphere`` -> ``UV Sphere``.
 
-    One function for the rail, the Add menu, the flyout and the tooltips, which
+    One function for the rail, the Inspector, the flyout and the tooltips, which
     each spelled it their own way (``name.replace("_", " ")`` in lower case in
     one place, ``.title()`` in another) and so disagreed about the same sphere.
     """

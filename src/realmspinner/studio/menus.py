@@ -251,8 +251,8 @@ CLAY_RECENT_MENU = "Open Recent"
 def _clay_file_specs(
     ctx: Any, commands: list[Any], *, evaluate: bool = True
 ) -> list[MenuSpec]:
-    """Clay's file verbs that have no generic command: Open, Open Recent and the
-    three ways out of a document that are not "Export to the library".
+    """Clay's file verbs that have no generic command: Open, Open Recent, Import Mesh
+    and the three ways out of a document that are not "Export to the library".
 
     New, Save, Save As, Export to the library, Undo and Redo are already File and
     Edit rows from the palette's generic commands (``_COMMAND_PATHS``), so they
@@ -328,6 +328,22 @@ def _clay_file_specs(
                 callback=lambda: None,
             )
         )
+    # The way in that is not Open: a .glb, .obj, .stl or .ply, as a new document. It was
+    # a row of the Add menu in the menu strip, which is gone. Like Open it needs no
+    # document (the import adopts a tab of its own), so it is never greyed.
+    out.append(
+        MenuSpec(
+            identity="clay:import-mesh",
+            path=("File",),
+            order=new_at,
+            label="Import Mesh...",
+            enabled=True,
+            checked=False,
+            shortcut="",
+            disabled_reason="",
+            callback=lambda: clay_mode.ask_import_mesh(ctx),
+        )
+    )
     if tab is None:
         why = "Open or start a document first."
     else:

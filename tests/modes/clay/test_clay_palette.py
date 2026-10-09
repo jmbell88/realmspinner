@@ -1,6 +1,6 @@
 """Clay's commands in the global Ctrl+K palette.
 
-The menu strip is going away, so every tool on it has to stay one search from the
+The menu strip is gone, so every tool that was on it has to stay one search from the
 user; these tests pin that the palette offers them, only in Clay, only with a
 document, as doors onto what the mode already does, and that building ~65 rows
 per frame is not done per frame.
@@ -142,7 +142,7 @@ def test_an_op_the_selection_refuses_is_greyed_with_the_ops_own_reason():
     assert command.why == clay_ops.reason_for(join, doc) != ""
 
 
-def test_running_an_op_row_calls_the_menu_strips_door(monkeypatch: pytest.MonkeyPatch):
+def test_running_an_op_row_calls_the_event_layers_op_door(monkeypatch: pytest.MonkeyPatch):
     ctx = _ctx()
     calls: list[tuple[Any, Any, str]] = []
     monkeypatch.setattr(
@@ -317,6 +317,34 @@ def test_the_export_rows_grey_with_the_sentence_every_output_button_uses():
         row = found[f"clay-export:{key}"]
         assert not row.enabled(ctx)
         assert row.why == "Nothing visible to send -- every object is hidden."
+
+
+# --- the way in -----------------------------------------------------------------------
+
+
+def test_the_import_mesh_row_calls_the_picker_the_model_page_and_the_file_menu_call(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Old code: Import Mesh... was a row of the Add menu in the deleted menu strip and
+    the palette had no row for it, so with the strip gone it was one search away from
+    nobody."""
+    ctx = _ctx()
+    asked: list[Any] = []
+    monkeypatch.setattr(clay_mode, "ask_import_mesh", lambda c: asked.append(c))
+    row = _clay(ctx)["clay-file:import-mesh"]
+    assert row.label == "Import Mesh..." and row.group == "Clay"
+    assert row.enabled(ctx)
+    row.run(ctx)
+    assert asked == [ctx]
+    assert _top(ctx, "import mesh", 1) == ["clay-file:import-mesh"]
+
+
+def test_the_import_mesh_row_is_shut_while_the_document_is_being_written():
+    ctx = _ctx()
+    ctx.state.clay.active.saving = True
+    row = _clay(ctx)["clay-file:import-mesh"]
+    assert not row.enabled(ctx)
+    assert row.why == clay_header.SAVING_WHY
 
 
 # --- the list itself --------------------------------------------------------------------

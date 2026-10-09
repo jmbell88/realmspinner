@@ -268,8 +268,7 @@ def ui(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch):
-    # The menu strip above the bar is not under test, and the recents read a store.
-    monkeypatch.setattr(clay_header.clay_strip, "draw", lambda *_a, **_k: None)
+    # The recents read a store.
     monkeypatch.setattr(clay_mode, "recent_paths", lambda ctx: [])
 
 

@@ -2,7 +2,8 @@
 
 The 2026-09-08 panel-grammar pass gave every add-tool one selection field
 (``state.generator``). The ops grid left for the header's menu strip on
-2026-10-02, and the sidebar's icon grid left for the tool rail's flyout on
+2026-10-02 (and the strip for the Inspector, the right-click menu and Ctrl+K in the
+2026-10 Clay rebuild), and the sidebar's icon grid left for the tool rail's flyout on
 2026-10-07: the same entries, listed by name instead of as a grid of
 near-identical silhouettes. Each test's name is the claim it makes, and each is
 checked to fail against the code as it stood before the change (never with git
@@ -194,12 +195,12 @@ def test_clicking_the_box_entry_selects_it_and_places_it(monkeypatch):
         assert doc.objects[0].generator == "box"
 
 
-# --- the operations left this pane for the menu strip ------------------------
+# --- the operations left this pane for the menus -----------------------------
 
 
 def test_the_add_flyout_draws_no_operation_buttons(monkeypatch):
     """The ~50-button op grid is gone from the sidebar: every operation is a
-    row in the header's menu strip and the right-click menu now, grouped by
+    row in the right-click menu, the Inspector and Ctrl+K now, grouped by
     ``menutree``. A flyout that drew them again would be a second list of what
     Clay can do -- the thing the registry exists to prevent."""
     with imgui_context(monkeypatch) as imgui:

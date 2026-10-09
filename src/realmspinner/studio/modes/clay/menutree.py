@@ -8,27 +8,31 @@ right-click menu and the tools pane's button grid -- drew as one flat run.
 (The 2026-10-07 audit's clay-42: this named an ``Op.separator_before`` field
 that no longer exists.)
 
-This module is the grouping. Three tables, each answering one question:
+This module is the grouping. Two tables and a set, each answering one question:
 
 * :data:`GROUPS` -- *which ops belong together*, and in what order. One group
   holds ops that a modeller thinks of as one family (Mirror, Origin, UV),
   whatever mode each op is registered for. Every registered op is in exactly one
   group, and ``tests/modes/clay/test_clay_menutree.py`` checks that in both
   directions, so an op registered tomorrow cannot be left out of every menu.
-* :data:`BARS` -- *which groups a mode's menu strip shows*, per element mode:
-  Select | Add | Object | UV in object mode, Select | Add | Mesh in the three
+* :data:`BARS` -- *which groups a mode's menus show and in what order*, per
+  element mode: Select | Object | UV in object mode, Select | Mesh in the three
   element modes (vertex, edge and face share the one Mesh menu). A group's ops are
-  filtered by ``op.modes`` when a bar is resolved, so one group can serve the
-  object bar (Origin to Bounds) and the element bars (Origin to Selection) at
-  once, and a group with nothing for the mode simply is not drawn.
-* :data:`ADD_SOURCES` -- *what the Add menu draws that is not an op*: the
-  generator categories and the import row. Named here so the header has one
-  place to read them from rather than a list of its own.
+  filtered by ``op.modes`` when a bar is read, so one group can serve the object
+  bar (Origin to Bounds) and the element bars (Origin to Selection) at once, and a
+  group with nothing for the mode simply is not drawn.
+
+The Select | Add | Object | Mesh | UV strip that used to draw :data:`BARS` over the
+viewport is gone (Landing 11 of the 2026-10 Clay UI rebuild), but the table is not:
+it is still *the order and the grouping* -- :func:`flat` reads it for the right-click
+menu, and the Inspector's More actions and Shape it cards group by :data:`GROUPS`.
+The Add menu's non-op rows went with the strip: the shapes are the rail's ``+`` and
+the Inspector's tiles and "More shapes", and Import Mesh is on the Inspector's Model &
+history page, in the File menu and in Ctrl+K.
 
 It holds op *names*, not ``Op`` objects, so it imports nothing but :mod:`ops`
-and stays a plain table; :func:`resolve` is the only function, and it is what
-the header strip and the context menu both call so they cannot disagree about
-what the Object menu contains.
+and stays a plain table; :func:`flat` is the one function surfaces call, so they
+cannot disagree about what the Object menu contains.
 
 Op ids are the MCP surface (``clay_op`` is derived from ``ops.OPS``), so nothing
 here renames one: a label or a menu may move, an id may not.
@@ -41,18 +45,14 @@ from dataclasses import dataclass
 from . import ops as clay_ops
 
 __all__ = [
-    "ADD_SOURCES",
     "BARS",
     "GROUPS",
     "OFF_BAR_GROUPS",
     "Entry",
     "Group",
     "Menu",
-    "ResolvedMenu",
-    "Section",
     "flat",
     "grouped_ops",
-    "resolve",
 ]
 
 
@@ -105,7 +105,7 @@ GROUPS: dict[str, Group] = {
         ),
     ),
     "delete": Group("Delete", ("delete",)),
-    # Frame Selection is drawn by the header's View popup, which owns the camera;
+    # Frame Selection is drawn by the toolbar's View popup, which owns the camera;
     # it is in the table so the coverage test can say "every op is in a group".
     "view": Group("View", ("frame",)),
 }
@@ -117,11 +117,10 @@ OFF_BAR_GROUPS = frozenset({"view"})
 
 @dataclass(frozen=True)
 class Entry:
-    """One line of a menu: a group as a submenu, a group inline, or a source.
+    """One line of a menu: a group as a submenu, or a group inline.
 
-    ``kind`` is ``"sub"`` (a submenu headed by the group's label), ``"inline"``
-    (its ops drawn straight into the menu) or ``"add"`` (the Add menu's own
-    non-op sources, which the header draws; ``name`` says which).
+    ``kind`` is ``"sub"`` (a submenu headed by the group's label) or ``"inline"``
+    (its ops drawn straight into the menu).
     """
 
     kind: str
@@ -142,19 +141,7 @@ class Menu:
     entries: tuple[Entry, ...]
 
 
-#: What the Add menu draws besides ops. The header reads these names; the
-#: generator categories come from ``primitives.CLAY_GENERATORS``, not from a
-#: list here, so a new Clay primitive appears in Add on its own.
-ADD_SOURCES: tuple[str, ...] = ("primitives", "import")
-
 _SELECT = Menu("Select", (_inline("select"),))
-_ADD = Menu(
-    "Add",
-    (
-        Entry("add", "primitives"),
-        Entry("add", "import"),
-    ),
-)
 _UV = Menu("UV", (_inline("uv"),))
 
 
@@ -180,7 +167,6 @@ def _mesh_menu(*extra: Entry) -> Menu:
 BARS: dict[str, tuple[Menu, ...]] = {
     "object": (
         _SELECT,
-        _ADD,
         Menu(
             "Object",
             (
@@ -198,31 +184,10 @@ BARS: dict[str, tuple[Menu, ...]] = {
         ),
         _UV,
     ),
-    "vertex": (_SELECT, _ADD, _mesh_menu()),
-    "edge": (_SELECT, _ADD, _mesh_menu()),
-    "face": (_SELECT, _ADD, _mesh_menu(_sub("shading"), _sub("separate"))),
+    "vertex": (_SELECT, _mesh_menu()),
+    "edge": (_SELECT, _mesh_menu()),
+    "face": (_SELECT, _mesh_menu(_sub("shading"), _sub("separate"))),
 }
-
-
-@dataclass(frozen=True)
-class Section:
-    """One resolved entry: a heading and the ops that are really in this mode.
-
-    ``submenu`` says whether the surface draws it as a nested menu (``True``) or
-    straight into its parent (``False``). ``source`` is non-empty only for an
-    Add-menu source the header draws itself, in which case ``ops`` is empty.
-    """
-
-    label: str
-    ops: tuple[clay_ops.Op, ...]
-    submenu: bool
-    source: str = ""
-
-
-@dataclass(frozen=True)
-class ResolvedMenu:
-    title: str
-    sections: tuple[Section, ...]
 
 
 def grouped_ops(group: str, mode: str) -> tuple[clay_ops.Op, ...]:
@@ -235,35 +200,10 @@ def grouped_ops(group: str, mode: str) -> tuple[clay_ops.Op, ...]:
     return tuple(out)
 
 
-def resolve(mode: str) -> tuple[ResolvedMenu, ...]:
-    """The menu strip for *mode*, with every empty group and menu dropped.
-
-    A menu whose groups hold nothing for this mode is omitted rather than drawn
-    empty -- Blender's header does the same -- which is how the UV menu is
-    absent in the element modes (both UV ops are object-level).
-    """
-    menus: list[ResolvedMenu] = []
-    for menu in BARS[mode]:
-        sections: list[Section] = []
-        for entry in menu.entries:
-            if entry.kind == "add":
-                sections.append(Section(entry.name.title(), (), False, source=entry.name))
-                continue
-            ops = grouped_ops(entry.name, mode)
-            if not ops:
-                continue
-            sections.append(
-                Section(GROUPS[entry.name].label, ops, submenu=entry.kind == "sub")
-            )
-        if sections:
-            menus.append(ResolvedMenu(menu.title, tuple(sections)))
-    return tuple(menus)
-
-
 def flat(mode: str) -> tuple[tuple[clay_ops.Op, ...], ...]:
     """Every op that applies in *mode*, as runs of one group each.
 
-    What the right-click menu draws: one run per group in strip order, with a
+    What the right-click menu draws: one run per group in bar order, with a
     separator between runs. An op named by two bar entries (Shading is under
     both Object and Face's Mesh menu in different bars, never twice in one) is
     emitted once, at its first appearance, and the off-bar groups (Frame
@@ -280,7 +220,7 @@ def flat(mode: str) -> tuple[tuple[clay_ops.Op, ...], ...]:
 
     for menu in BARS[mode]:
         for entry in menu.entries:
-            if entry.kind != "add" and entry.name != "delete":
+            if entry.name != "delete":
                 take(entry.name)
     for group in GROUPS:
         if group in OFF_BAR_GROUPS:

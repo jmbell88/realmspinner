@@ -79,7 +79,7 @@ def action_groups(mode: str = "object") -> list[tuple[str, str, tuple[clay_ops.O
     out: list[tuple[str, str, tuple[clay_ops.Op, ...]]] = []
     for menu in clay_menutree.BARS[mode]:
         for entry in menu.entries:
-            if entry.kind == "add" or entry.name in SKIPPED_GROUPS:
+            if entry.name in SKIPPED_GROUPS:
                 continue
             ops = tuple(
                 op for op in clay_menutree.grouped_ops(entry.name, mode) if op.name not in seen

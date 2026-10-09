@@ -15,8 +15,9 @@ It is a mode, not a takeover. Switching away leaves every open document exactly 
 quitting the app can lose unsaved work, and it asks first.
 
 The layout is picoCAD's more than Blender's: almost the whole window is the viewport. Down its left
-edge runs a slim, labelled **tool rail** — the four transform tools and the shapes — and over it the menu
-strip and the toolbar; under it only a one-line hint. On the right is one pane, the **Inspector**, a panel that
+edge runs a slim, labelled **tool rail** — the four transform tools and the shapes — and over it the toolbar;
+under it only a one-line hint. (There is no menu bar over the viewport: see
+[Where the operations live](#where-the-operations-live).) On the right is one pane, the **Inspector**, a panel that
 changes with what you have selected (see [The inspector](#the-inspector)) and holds the document's colours in
 its **Colour** card, with the list of every shape in the document, **All shapes**, docked at its foot (see
 [The outliner](#the-outliner)). There is no left-hand column and no separate file pane. Several documents
@@ -31,8 +32,8 @@ With nothing open, the middle column offers **Start with a box**, **New model** 
 view, so there is something to work on at once; **New model** opens an empty one. The column also lists the
 documents you had open recently — clicking one reopens it, and hovering it shows the full path. There
 is no separate file pane: every file command is in the **File** menu, which is where Clay's own rows sit among
-the ones every mode has — **New**, **Open...**, **Open Recent**, **Save**, **Save As...**, **Export to
-library**, **Export GLB...**, **Export OBJ...** and **Save Screenshot...**, with **Undo** and **Redo**
+the ones every mode has — **New**, **Open...**, **Open Recent**, **Import Mesh...**, **Save**, **Save As...**,
+**Export to library**, **Export GLB...**, **Export OBJ...** and **Save Screenshot...**, with **Undo** and **Redo**
 beside them (and as two buttons in the toolbar). `Ctrl+N` and `Ctrl+O` do the same two things from the
 keyboard.
 
@@ -49,15 +50,15 @@ changes nothing in it.
 
 ## Adding a primitive
 
-A document with nothing in it says so in the viewport itself — "Add a shape", with "Pick one from
-Add" underneath and a button that drops a box on the ground — rather than leaving you to notice an
+A document with nothing in it says so in the viewport itself — "Add a shape", with "Pick one from the tool rail"
+underneath and a button that drops a box on the ground — rather than leaving you to notice an
 empty grid and go looking for a shape on your own.
 
 The **tool rail** down the left edge of the viewport has the four transform tools at the top — **Select**,
 **Move**, **Turn** and **Resize**, each with its name under the icon (see [Transforming](#transforming)) — and,
 under a divider, four shapes as one-click buttons (Box, Cylinder, Sphere and Cone) and a **+** button.
-**+** opens a flyout that lists all the shapes **by name**, and the **Add** menu in the menu
-strip lists the same ones (see [The menu strip](#the-menu-strip)). When the window is too short for the
+**+** opens a flyout that lists all the shapes **by name**, and the Inspector's **More shapes** list, with nothing
+selected, is the same list. When the window is too short for the
 four shapes under the tools, they are not drawn at all and the **+** is labelled **Add** instead of
 **More**: the flyout is then the way to every shape, the four included. **Primitives**: box, plane, grid,
 cylinder, cone, UV sphere, icosphere, torus and capsule. **Game**: wedge, ramp, rounded box, stairs,
@@ -124,31 +125,35 @@ A rebuild keeps your shading. Change something that leaves the face count alone 
 something that alters the faces themselves, like a segment count, and the shading is worked out
 again by the same rule the object arrived with, because they are not the same faces any more.
 
-## The menu strip
+## Where the operations live
 
-The names across the very top of the viewport — **Select**, **Add**, **Object** (or **Mesh** in an
-element mode) and **UV** — are where every operation Clay has lives, grouped the way Blender groups
-them. They change with the mode: object mode shows Select, Add, Object and UV; vertex, edge and face
-mode show Select, Add and Mesh, and the one Mesh menu is the same in all three, drawing only what the
-current mode can use. A menu with nothing to offer in the current mode is not drawn, which is why the
-element modes have no UV menu. In a narrow window the names fold into a `…` menu with the words back.
+Clay has no menu bar over the viewport: the first row above the render is the [toolbar](#the-viewport-header).
+Every operation Clay has is in three places, and all three are drawn from one table, so a name, a key, a
+greyed-out reason or a dialog of numbers cannot differ between them:
 
-**Select** holds select all, none and invert in every mode, and **Select Linked** in the element modes.
-**Add** holds the shapes (Primitives and Game) and **Import Mesh...**. **Object** groups what applies
-to whole objects into submenus — Transform, Set Origin, Mirror, Parent, Shading and Separate — with
-Duplicate, Merge Objects, Recalculate Normals and Delete outside them. **Mesh** is what the element
-modes edit with — repeat last, extrude, inset, merge faces, weld, flip, triangulate, subdivide — plus
-Set Origin to Selection, and in face mode Shading and Separate Selection. **UV** is the unwrap family:
-Box Unwrap and Pack Islands.
+- **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in
+  groups — Transform, Set Origin, Mirror, Parent, Shading, Separate, UV — with **Duplicate** and **Delete** as rows
+  of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None, Invert Selection and
+  Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset, merge faces, weld,
+  flip, triangulate, subdivide and Delete, with Set Origin to Selection and, in face mode, Shading and Separate
+  Selection behind folds of their own. See [The inspector](#the-inspector).
+- **The right-click menu** in the viewport lists exactly the operations that apply in the current mode, in the
+  same order, with the groups separated by rules.
+- **`Ctrl`+`K`**, the command palette, lists all of them under a **Clay** heading (below).
 
-A row that cannot run is greyed and hovering it says why; a row with an ellipsis opens a small
-dialog of numbers first. The right-click menu in the viewport lists exactly the same operations, in the
-same order and with the same groups separated by rules — one table decides both.
+A row that cannot run is greyed and hovering it says why; one with an ellipsis opens a small dialog of numbers
+first. In Shape mode, Select All, Select None and Invert Selection have no Inspector button: they are `Ctrl+A`,
+`Ctrl+D` (or `Esc`) and `Ctrl+Shift+I`, and rows of the right-click menu and the palette.
 
-That is the whole list. Clay has thirty-eight operations, and every one is a menu row except Frame Selection, which
-lives in the toolbar's View popover:
+Two things that used to sit in the strip's Add menu have new homes. The shapes are the tool rail's **+** and the
+Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-primitive)). **Import Mesh...**
+is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
+menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-| Menu | Operations |
+That is the whole list. Clay has thirty-eight operations, and every one is in the right-click menu except Frame
+Selection, which lives in the toolbar's View popover:
+
+| Group | Operations |
 | --- | --- |
 | Select | Select All (`Ctrl+A`), Select None, Invert Selection (`Ctrl+Shift+I`), Select Linked (`L`, element modes) |
 | Object | Duplicate (`Ctrl+J`), Merge Objects... (`Ctrl+M`), Recalculate Normals, Delete (`Delete`) |
@@ -167,14 +172,15 @@ Everything with a key is also in [Keyboard shortcuts](38-shortcuts.md).
 
 Every operation is also searchable. With a Clay document open, `Ctrl+K` lists them under a **Clay** heading with their
 keys printed on the right, so *extrude*, *mirror*, *merge objects* or *box unwrap* finds its row whether or not you
-remember which menu it was in. An operation that works only in another mode (Extrude, from Shape mode) is listed
+remember which group it was in. An operation that works only in another mode (Extrude, from Shape mode) is listed
 greyed, and hovering it says which mode to switch to. An operation with an ellipsis opens its dialog, as the menu does.
 The same list carries the four tools, the four modes, the three shadings, X-ray, the overlays, the six axis views,
-Orthographic, Frame selection and the exports: the controls of the toolbar and the tool rail, changed the same way.
+Orthographic, Frame selection, **Import Mesh...** and the exports: the controls of the toolbar and the tool rail,
+changed the same way.
 
 ## The viewport header
 
-The toolbar is one row across the top of the viewport, under the menu strip, and it is where everything you
+The toolbar is one row across the top of the viewport, and it is where everything you
 change *between* clicks lives: which element mode you are in, how the surface is drawn, what the viewport
 shows over the model, whether snapping is on, and the way out of the document. These used to be blocks
 down a tool panel on the far side of the window from the model — a reach away from the thing every one of
@@ -304,8 +310,8 @@ mode a drag on empty space orbits and leaves the selection alone; only a click t
 mode has no box select.
 
 Right-click opens the context menu, listing exactly the operations that apply in the current mode
-with the ones that cannot run greyed out. The same table drives the menu strip, so
-neither can offer something the other refuses. Operations that take a number — inset, weld, assign
+with the ones that cannot run greyed out. The same table drives the Inspector's action buttons and the
+palette's rows, so none of them can offer something another refuses. Operations that take a number — inset, weld, assign
 material, merge objects, snap to grid, mirror copy, pack islands — open a small dialog with the fields and an
 **Apply** button, and remember what you last used.
 
@@ -378,8 +384,8 @@ it was — not even a redraw's worth of change in the history. **Type a number**
 the pointer stops mattering: the value is exactly what you typed. A value the operation refuses is
 named beside the cursor and the last good picture stays on screen.
 
-A click on the same row in a **menu** still opens the dialog, which is the way to give several numbers at
-once or to pick a value you would rather not find with the mouse.
+A click on the same row in the right-click menu or the palette still opens the dialog, which is the way to give
+several numbers at once or to pick a value you would rather not find with the mouse.
 
 On a very large mesh the preview is redrawn at most about ten times a second once a single redraw
 takes more than about 50 ms, so the pointer stays responsive; the commit always runs the real operation
@@ -394,8 +400,8 @@ wires, so a vertex on its own has nothing to extrude and says that too.
 Pressed as `E`, Extrude also begins a move of what it made — in face mode **locked to the average
 face normal**, which is the direction an extrusion goes (`X`, `Y` or `Z` swaps that for a world
 axis, and `G`, `R` or `S` switch to a free move, rotation or scale). Click or `Enter` ends it as **one**
-undo step; `Esc` or a right-click undoes the extrude as well, so nothing is left behind. The menu's
-Extrude does not start a drag. `E` extrudes only in an element mode; in object mode it does nothing.
+undo step; `Esc` or a right-click undoes the extrude as well, so nothing is left behind. The right-click menu's
+and the palette's Extrude do not start a drag. `E` extrudes only in an element mode; in object mode it does nothing.
 
 ### Adjusting the last operation, and repeating it
 
@@ -883,7 +889,7 @@ and lay on the object's material (see [Texturing](#texturing)).
 The **Unwrap** page of the Inspector shows the selected object's texture layout: its islands, with the element
 selection highlighted inside them. An object with no layout yet says so and offers **Box Unwrap** right
 there; it stays under the toolbar once there is a layout, beside **Pack islands...**, which asks for its
-margin the way the UV menu's Pack Islands does. The wheel zooms, the middle button pans,
+margin the way the right-click menu's Pack Islands does. The wheel zooms, the middle button pans,
 clicking an island selects it (a click on empty space deselects), and dragging either box-selects islands or moves
 whichever ones are selected. `R` and `S` rotate and
 scale what is selected — the same letters the viewport uses — following the mouse until you click to
@@ -983,8 +989,8 @@ the mode:
   the swatch is outlined to say so.
 - **Face mode, faces selected** — a click paints *those faces* with the slot and leaves the object's
   default slot alone, and so does one of the eight named swatches (which adds its slot first, in the same undo
-  step). The Mesh menu's **Assign Material...** does the same from the menu: it asks for the slot's number,
-  counting from 0 along the palette. It has no key.
+  step). The right-click menu's **Assign Material...** (the Mesh group) does the same from the menu: it asks for
+  the slot's number, counting from 0 along the palette. It has no key.
 - **`Ctrl`+click**, in any mode, paints nothing. It only makes that slot the one the Colours & textures page
   edits, which is the way to reach another slot's colour and texture while a face selection is up. A
   plain click with no face selected in face mode does the same.
@@ -1153,8 +1159,9 @@ in [Create](22-generating-references.md).
 
 ## Importing an asset
 
-**Add ▸ Import Mesh...** opens a `.glb`, `.obj`, `.stl` or `.ply` file, and dropping one on
-the window while Clay is on screen does the same. The library card's overflow menu has **Open in
+**Import Mesh...** opens a `.glb`, `.obj`, `.stl` or `.ply` file as a new document, and dropping one on
+the window while Clay is on screen does the same. The button is on the Inspector's Model & history page (nothing
+selected, then **History**), in the **File** menu and in `Ctrl`+`K`. The library card's overflow menu has **Open in
 Clay** for any finished model.
 
 On the Model & history page are two choices a drop uses too: the file's **import units** (metres, centimetres,

@@ -359,7 +359,8 @@ def test_the_rail_stays_inside_the_body_the_resize_floor_leaves_at_every_scale(
     ``test_studio_smoke.py::test_the_rail_fits_the_resize_floor_at_every_scale``.
 
     The body the viewport leaves at 700 px is the window minus its chrome (tab
-    bar, menu strip, toolbar, hint line and the shell's margins).
+    bar, toolbar, hint line and the shell's margins; the menu strip that used to add a
+    third header row is gone, so the body is one row taller than it was).
     Every cell the rail draws must be inside the child it was given, whether or
     not the quick shapes were dropped, at 1.0, 1.5 and 2.0 -- 2.0 is where a
     labelled 46 px cell stops being small."""
@@ -371,7 +372,7 @@ def test_the_rail_stays_inside_the_body_the_resize_floor_leaves_at_every_scale(
     tokens.set_scale(scale)
     try:
         chrome = (
-            tokens.sp(clay_header.HEADER_H) * 3.0 + tokens.sp(clay_hud.HINT_H) + tokens.sp(60.0)
+            tokens.sp(clay_header.HEADER_H) * 2.0 + tokens.sp(clay_hud.HINT_H) + tokens.sp(60.0)
         )
         body = 700.0 * scale - chrome
         ctx = _Ctx()
@@ -520,10 +521,14 @@ def test_the_file_menu_has_the_clay_rows_while_clay_is_active(monkeypatch):
     doc, _uid = _doc()
     rows = {row.identity: row for row in menus.specs(_clay_menu_ctx(_tab(doc)))}
 
-    for identity in ("clay:open", "clay:export-glb", "clay:export-obj", "clay:screenshot"):
+    for identity in (
+        "clay:open", "clay:import-mesh", "clay:export-glb", "clay:export-obj", "clay:screenshot"
+    ):  # fmt: skip
         assert identity in rows, identity
         assert rows[identity].path == ("File",)
         assert rows[identity].enabled, identity
+    # Old code: Import Mesh... was a row of the deleted menu strip's Add menu only.
+    assert rows["clay:import-mesh"].label == "Import Mesh..."
     recent = rows["clay:recent:C:/work/barrel.rblk"]
     assert recent.path == ("File", menus.CLAY_RECENT_MENU) and recent.label == "barrel.rblk"
     assert rows["clay:open"].label == "Open..."
@@ -545,6 +550,7 @@ def test_the_clay_exports_are_greyed_with_a_reason_when_there_is_nothing_to_send
     for identity in ("clay:export-glb", "clay:export-obj", "clay:screenshot"):
         assert not rows[identity].enabled and rows[identity].disabled_reason, identity
     assert rows["clay:open"].enabled, "opening needs no document"
+    assert rows["clay:import-mesh"].enabled, "an import adopts a tab of its own"
     doc, uid = _doc()
     doc.set_visibility({uid: False})
     hidden = {row.identity: row for row in menus._clay_file_specs(_clay_menu_ctx(_tab(doc)), [])}
@@ -554,15 +560,18 @@ def test_the_clay_exports_are_greyed_with_a_reason_when_there_is_nothing_to_send
 def test_a_clay_file_row_calls_the_modes_own_door(monkeypatch):
     calls: list[tuple[Any, ...]] = []
     monkeypatch.setattr(clay_mode, "ask_open", lambda ctx: calls.append(("open",)))
+    monkeypatch.setattr(clay_mode, "ask_import_mesh", lambda ctx: calls.append(("import",)))
     monkeypatch.setattr(
         clay_mode, "export_mesh_file", lambda ctx, tab, kind: calls.append(("export", kind))
     )
     monkeypatch.setattr(clay_mode, "save_screenshot", lambda ctx, tab: calls.append(("shot",)))
     doc, _uid = _doc()
     rows = {row.identity: row for row in menus._clay_file_specs(_clay_menu_ctx(_tab(doc)), [])}
-    for identity in ("clay:open", "clay:export-glb", "clay:export-obj", "clay:screenshot"):
+    for identity in (
+        "clay:open", "clay:import-mesh", "clay:export-glb", "clay:export-obj", "clay:screenshot"
+    ):  # fmt: skip
         rows[identity].callback()
-    assert calls == [("open",), ("export", "glb"), ("export", "obj"), ("shot",)]
+    assert calls == [("open",), ("import",), ("export", "glb"), ("export", "obj"), ("shot",)]
 
 
 def test_a_second_path_segment_is_a_submenu_of_its_root():
