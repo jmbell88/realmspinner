@@ -335,13 +335,12 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
     # ``share_key``, so a declared key *is* a handle there too.
     keys = set(_share_literals()) | set(_skeleton_share_keys())
     assert keys == {
-        # Clay's right column is the outliner over the Inspector, and the
-        # Inspector is the FILL -- so one share, one handle. The left column is
-        # empty (the tools are a rail inside the centre now), ``clay-tools`` left
-        # as a key when it became a column of one, and ``clay-uv`` and
-        # ``clay-props`` left with the UV pane's move into a tab and the
-        # properties pane's becoming the fill.
-        "clay-outliner",
+        # Clay declares none: its right column is the Inspector alone (the outliner
+        # is docked inside it, so ``clay-outliner`` left this set with its slot --
+        # an orphaned share under it in a user's settings is inert, and
+        # ``Layout._SHARE_SPLITS`` still seeds it, harmlessly, from the retired
+        # ``clay`` key) and its left column is empty. ``clay-tools``, ``clay-uv``
+        # and ``clay-props`` left in earlier landings.
         # Mason stacks two shares in each column: the asset palette over the
         # tools on the left, and the outliner over the properties on the
         # right, with the document pane taking the FILL underneath. Four

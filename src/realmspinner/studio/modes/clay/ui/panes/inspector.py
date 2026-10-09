@@ -1,9 +1,11 @@
 """The Inspector: one panel whose body follows what you have selected.
 
-This is the Clay right column's lower slot (``clay-inspector``, under the
-outliner), and it replaces Properties' four tabs (``props.py``) with a switch on
-the situation, so the answer to "what can I do to this?" is always the thing in
-front of you:
+This is the Clay right column's one slot (``clay-inspector``), and it replaces
+Properties' four tabs (``props.py``) with a switch on the situation, so the answer to
+"what can I do to this?" is always the thing in front of you. The body below scrolls
+in a child of its own; **docked at the pane's foot** is "All shapes (N)", the
+outliner (``outliner.draw_embedded``): one header row while closed, a pinned height
+while open, so its rows never move when the cards above them change.
 
 * **Nothing selected** -- "What do you want to make?": four big shape tiles, every
   other shape one disclosure away, and the Model card (counts, New / Open / Save,
@@ -36,8 +38,10 @@ body reads ``doc.selection`` and nothing heavier; anything that walks the docume
 disclosures that hold it are not run while closed
 (``tests/modes/clay/test_inspector.py`` measures it at 1, 100 and 4096 shapes).
 
-One ``section_blocks`` scope for the window, never nested: every section is a tinted
-block, and the page bodies open sections of their own inside the same scope.
+One ``section_blocks`` scope per window, never nested: every section is a tinted
+block, and the page bodies open sections of their own inside the same scope. With the
+dock the body is a child window, which has a draw list of its own, so the scope is
+opened inside that child; the dock has no headings of its own and opens none.
 """
 
 from __future__ import annotations
@@ -55,15 +59,25 @@ from ... import doc_io, starter_colours
 from ... import mode as clay_mode
 from ... import ops as clay_ops
 from .. import inspector_actions, inspector_size
+from . import outliner as clay_outliner
 from . import props, rail, swatches
 from . import tools as clay_tools
 from . import uv as clay_uv
 
 #: What this pane refuses to shrink past, in design pixels: the title, the first
-#: card and a few rows under it. The right column's fill, below the outliner's
-#: share (``props.PROPS_FLOOR``'s own reason: a fill with no floor takes whatever
-#: the share above left).
+#: card and a few rows under it, plus the dock's header. The right column's only
+#: slot, so this is the column's floor (``props.PROPS_FLOOR``'s own reason: a fill
+#: with no floor takes whatever the share above left).
 INSPECTOR_FLOOR = 280.0
+
+#: The "All shapes" dock: its persisted open state, the share of the pane its open
+#: region takes, the fewest rows that region may show, and the height the cards
+#: above keep (design px) before the list is allowed to take more. See
+#: :func:`dock_region_height`.
+DOCK_KEY = "clay/insp/all-shapes"
+DOCK_SHARE = 0.40
+DOCK_MIN_ROWS = 5
+BODY_FLOOR = 180.0
 
 #: The pages a click can push, in the order they are documented. ``""`` is the
 #: main view and is not a page.
@@ -88,10 +102,122 @@ _SAVING = "This document is being written; the controls come back when it lands.
 _NO_DOC = "Open or start a document to build in."
 
 
+def dock_region_height(
+    avail: float, header: float, bars: float, row: float, body_floor: float, *, compact: bool
+) -> float:
+    """The pinned height of the open "All shapes" region, header excluded. -> px.
+
+    A function of the pane's own height and of constants, never of the selection or
+    of what the cards above happen to hold: that is what keeps the rows where they
+    were between a press and its release. About :data:`DOCK_SHARE` of the pane, no
+    fewer than :data:`DOCK_MIN_ROWS` rows under the Find and Solo bars, and never so
+    much that the cards above fall under *body_floor* -- except that two rows is the
+    least a list is worth, and when the pane is too short for both the cards scroll
+    (they are in a child that does) rather than the list vanishing.
+
+    *compact* is the empty document: one line saying so, with nothing to pin.
+    """
+    if compact:
+        return row
+    least = bars + 2.0 * row
+    wanted = max(avail * DOCK_SHARE, bars + DOCK_MIN_ROWS * row)
+    ceiling = avail - header - body_floor
+    return max(least, min(wanted, ceiling))
+
+
 def draw(ctx: Any) -> None:
-    """This pane's headings, on tinted blocks (one scope for the window)."""
-    with widgets.section_blocks():
-        _body(ctx)
+    """The body, then (with a document, outside a page) the docked "All shapes" list.
+
+    The column has one slot, so this pane is the whole of it: the body scrolls in
+    a child of its own and the dock sits under that child, at the foot, not
+    scrolling. With the dock open the child is the pane less a pinned height (see
+    :func:`dock_region_height`); closed, the child is the pane less one header row.
+    A page (Colours, Unwrap, Model) takes the whole pane -- the UV canvas fits
+    itself to all of the height -- and with no document there is nothing to list.
+    """
+    state = clay_mode.ensure(ctx)
+    tab = state.active
+    if tab is None or state.inspector_page in PAGES:
+        with widgets.section_blocks():
+            _body(ctx)
+        return
+    _docked(ctx, state, tab)
+
+
+def _docked(ctx: Any, state: Any, tab: Any) -> None:
+    doc = tab.doc
+    style = imgui.get_style()
+    gap = style.item_spacing.y
+    # The header's line is taller than the header: the (?) that right-aligns onto it
+    # draws its glyph with zero frame padding, so imgui adds the difference between
+    # the two baselines (one ``frame_padding.y``) to the line. Measured on screen as
+    # 29 px of header in a 36 px line, and a pane that forgot it grew a scrollbar.
+    header = imgui.get_frame_height() + style.frame_padding.y
+    row = sp(clay_outliner.ROW_HEIGHT) + gap
+    bars = 2.0 * (imgui.get_frame_height() + gap)
+    empty = not doc.objects
+    # Open when the dock has nothing to compete with: no shape picked, or no shape
+    # at all. Only the first draw reads this -- after it the stored choice wins.
+    default_open = empty or not doc.selection
+    assumed = state.dock_open
+    if assumed is None or widgets.open_requested(DOCK_KEY) or widgets.FORCE_SECTIONS_OPEN:
+        # A one-shot open request (and the smoke test's force-open) is taken by the
+        # header on this very draw, so the layout has to expect it now.
+        assumed = widgets.persisted_open(DOCK_KEY, default_open)
+    region = 0.0
+    if assumed:
+        region = dock_region_height(
+            imgui.get_content_region_avail().y,
+            header + gap,
+            bars,
+            row,
+            sp(BODY_FLOOR),
+            compact=empty,
+        )
+    # ``- 1``: a pixel of slack so rounding can never push the pane's content past
+    # its own bottom and give it a scrollbar of its own.
+    body = imgui.get_content_region_avail().y - header - gap - (region + gap if region else 0.0) - 1
+    _body_child(ctx, max(body, 0.0))
+
+    opened = widgets.header(
+        f"All shapes ({len(doc.objects)})##clay-all-shapes",
+        default_open=default_open,
+        persist_key=DOCK_KEY,
+    )
+    anchors.mark("clay/outliner")
+    manual_render.help_button(ctx, "clay-outliner")
+    state.dock_open = bool(opened)
+    # Skipped on the one frame the header disagrees with the height this frame was
+    # laid out for (the click that toggled it): the next frame has it right.
+    if opened and assumed:
+        clay_outliner.draw_embedded(ctx, region)
+
+
+def _body_child(ctx: Any, height: float) -> None:
+    """The pane's body in a scrolling child that bleeds to the pane's edges.
+
+    Bled, so the sections' tinted blocks (which overhang their content by
+    ``SP_2``) land exactly where they did when the body was the pane itself, and
+    the scrollbar sits on the pane's edge rather than inside its padding. The
+    child's own padding is the host's, so every heading and field keeps its x.
+    """
+    cursor = imgui.get_cursor_pos()
+    top = max(cursor.y - sp(tokens.SP_2), 0.0)
+    imgui.set_cursor_pos((0.0, top))
+    imgui.push_style_var(imgui.StyleVar_.window_padding.value, (cursor.x, cursor.y - top))
+    imgui.push_style_color(imgui.Col_.child_bg.value, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
+    inside = imgui.begin_child(
+        "##insp-body",
+        (imgui.get_window_size().x, height + (cursor.y - top)),
+        imgui.ChildFlags_.always_use_window_padding.value,
+        0,
+    )
+    imgui.pop_style_color()
+    imgui.pop_style_var()
+    if inside:
+        with widgets.section_blocks():
+            _body(ctx)
+    imgui.end_child()
 
 
 def _title(ctx: Any, text: str, *, help_button: bool = True) -> None:

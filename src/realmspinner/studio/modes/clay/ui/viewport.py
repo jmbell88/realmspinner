@@ -44,8 +44,8 @@ class ClayViewport:
         """The same column / centre / column skeleton every other mode uses, with
         nothing in the left column:
 
-                          the header      [ clay-outliner ]
-            [ rail ]      the viewport    [ clay-inspector ]
+                          the header      [ clay-inspector, with
+            [ rail ]      the viewport      All shapes docked at its foot ]
             [ palette strip, under both ]
                           the hint
 

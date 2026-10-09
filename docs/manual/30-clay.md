@@ -16,12 +16,13 @@ quitting the app can lose unsaved work, and it asks first.
 
 The layout is picoCAD's more than Blender's: almost the whole window is the viewport. Down its left
 edge runs a slim, labelled **tool rail** — the four transform tools and the shapes — and over it the menu
-strip and the toolbar; under it a fixed **palette strip** shows the document's materials. On the right are only
-two panes, the outliner and the **Inspector**, one panel that changes with what you have selected (see
-[The inspector](#the-inspector)). There is no left-hand column and no separate file pane. Several documents
+strip and the toolbar; under it a fixed **palette strip** shows the document's materials. On the right is one
+pane, the **Inspector**, a panel that changes with what you have selected (see [The inspector](#the-inspector)),
+with the list of every shape in the document, **All shapes**, docked at its foot (see
+[The outliner](#the-outliner)). There is no left-hand column and no separate file pane. Several documents
 stay open at once.
 
-![Clay with a small keep open: tool rail, palette strip, outliner and Inspector](img/30-clay.png)
+![Clay with a small keep open: tool rail, palette strip and Inspector](img/30-clay.png)
 
 ## Starting a document
 
@@ -268,7 +269,7 @@ The mode belongs to the *document*, not to the app, so switching tabs does not r
 had selected in the other one.
 
 **The shape you are editing stays selected.** Pressing `1`, `2` or `3` with a shape selected keeps it
-selected, so the Inspector and the Outliner still show it, and `4` brings you back to the same
+selected, so the Inspector and the All shapes list still show it, and `4` brings you back to the same
 shape. With several shapes selected they are all edited together. With nothing selected the mode still
 turns on, and the first element you click makes its shape the one being edited. What you pick *inside*
 the shape is separate, and `Esc` drops it without ending the edit.
@@ -534,9 +535,20 @@ below, this acts once on whatever is already selected rather than following a li
 
 ## The outliner
 
+The outliner is **All shapes (N)**, the section docked at the foot of the [Inspector](#the-inspector), with the
+number of shapes in the document in its name. Closed, it is a single header row; click the row to open it, and
+click it again to close it. Open, it takes a fixed share of the column (about two fifths, never fewer than five
+rows, and never so much that the Inspector above it is squeezed past a few cards), and the Inspector's own body
+scrolls in what is left. The list does not move or change size when you pick a different shape or the Inspector
+changes what it shows, so the row under the pointer is the row you clicked: that is what makes `Ctrl`-click and
+`Shift`-click safe to aim. Whether it is open is remembered; the first time it is drawn it is open while nothing
+is selected or the document is empty, and closed otherwise. A page of the Inspector (Colours & textures, Unwrap
+and Model & history) takes the whole column, and the list comes back when you leave it. The (?) on the header
+opens this section.
+
 Every object in the document, in document order — the oldest root first, each with its subtree under
 it. Click to select, `Ctrl`-click to toggle one and
-`Shift`-click to take a range. The filter box above narrows the list by name.
+`Shift`-click to take a range. The filter box above the list narrows it by name.
 
 The eye on each row hides an object, and a hidden object does not render, does not export and cannot
 be clicked in the viewport. **Solo** above the list hides everything *except* what is selected and
@@ -552,16 +564,18 @@ you click an element of another shape.
 bound, and `Alt`+drag orbits.
 
 Rows are dragged to reorder them, which matters because display order is the order the objects come
-out in an exported GLB. Reordering is switched off while the filter box has something in it: the
-rows on screen are then a subset, so there is no honest answer for where a drop between two of them
-lands in the real list.
+out in an exported GLB. A drag that reaches the top or bottom edge of the list scrolls it. Reordering is
+switched off while the filter box has something in it: the rows on screen are then a subset, so there is
+no honest answer for where a drop between two of them lands in the real list.
 
 Right-clicking a row that is not selected selects it; the menu offers **Rename**, **Duplicate**, **Solo** and
-**Delete**. When the row is part of the selection, Duplicate, Solo and Delete all act on the whole selection
-(Delete is one undo step); otherwise on that row alone. The row's own trash button always deletes only that
-row. Double-clicking a name renames it in place. The name box takes the keyboard straight away; **Enter** or a
-click elsewhere keeps the new name, **Esc** leaves the old one. Which groups are collapsed, the Shift-click
-anchor and a rename in progress belong to the document they were made in, not to every open Clay tab.
+**Delete**. The **...** button at the end of every row opens the same menu without a right-click. There is no
+trash button on the row: Delete is in that menu, on the Inspector and on the `Delete` key. When the row is part
+of the selection, Duplicate, Solo and Delete all act on the whole selection (Delete is one undo step); otherwise
+on that row alone. Double-clicking a name renames it in place. The name box takes the keyboard straight away;
+**Enter** or a click elsewhere keeps the new name, **Esc** leaves the old one. Which groups are collapsed, the
+Shift-click anchor and a rename in progress belong to the document they were made in, not to every open Clay
+tab.
 
 The list is a tree. An object with children is indented under its parent and has an expander beside
 it; collapsing one hides its subtree, except while the filter box is in use, where a match buried
@@ -573,8 +587,9 @@ inside its own subtree is refused and says so.
 
 ## The inspector
 
-The Inspector, under the outliner on the right, is one panel whose body follows what you have selected,
-so what you can do to the thing in front of you is always in front of you.
+The Inspector, the whole of the right-hand column, is one panel whose body follows what you have selected,
+so what you can do to the thing in front of you is always in front of you. Its body scrolls; the
+[All shapes](#the-outliner) list is docked under it and does not.
 
 | You have selected | The Inspector shows |
 | --- | --- |

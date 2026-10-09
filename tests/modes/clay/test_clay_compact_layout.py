@@ -104,26 +104,31 @@ def _select_faces(doc: bd.ClayDoc, uid: int, *faces: int) -> None:
 # --- the skeleton -------------------------------------------------------------
 
 
-def test_the_clay_skeleton_is_an_empty_left_column_and_a_right_column_of_outliner_and_inspector():
+def test_the_clay_skeleton_is_an_empty_left_column_and_a_right_column_of_the_inspector_alone():
+    """Old code: the right column was ``clay-outliner`` (a SHARE slot) over the
+    Inspector, so the id list was two long and the first slot had a share key."""
     columns = skeletons.clay(SimpleNamespace())
     assert columns["left"].slots == (), "the Add sidebar is the rail inside the centre now"
     right = columns["right"].slots
-    assert [slot.id for slot in right] == ["clay-outliner", "clay-inspector"]
-    outliner, inspector = right
-    assert outliner.sizing == layout_skeleton.SHARE and outliner.share_key == "clay-outliner"
+    assert [slot.id for slot in right] == ["clay-inspector"]
+    (inspector,) = right
     assert inspector.sizing == layout_skeleton.FILL and inspector.floor > 0, (
         "the Inspector is the fill, with a floor so a short window keeps its first card"
     )
+    assert inspector.share_key == "", "one slot has no split, so no handle and no share to store"
 
 
-def test_a_layout_saved_with_the_retired_clay_panes_loads_onto_the_two_pane_column():
+def test_a_layout_saved_with_the_retired_clay_panes_loads_onto_the_one_slot_column():
     """No ``VERSION`` bump is owed: ``reconcile`` drops an id the built-in column
-    no longer names, so a saved right column that still lists the UV, Properties
-    and Document panes lands on the new one -- and the Inspector, a new id, joins
-    it in its built-in place."""
+    no longer names, so a saved right column that still lists the outliner, UV,
+    Properties and Document panes lands on the one-slot column -- and the Inspector,
+    a new id, takes it. Old code kept ``clay-outliner`` in the result."""
     builtin = [slot.id for slot in skeletons.clay(SimpleNamespace())["right"].slots]
     saved = ["clay-outliner", "clay-uv", "clay-props", "clay-bridge"]
-    assert layout_skeleton.reconcile(builtin, saved) == ["clay-outliner", "clay-inspector"]
+    assert layout_skeleton.reconcile(builtin, saved) == ["clay-inspector"]
+    assert layout_skeleton.reconcile(builtin, ["clay-outliner", "clay-inspector"]) == [
+        "clay-inspector"
+    ], "a layout saved by the last build, which had both"
     assert layout_skeleton.reconcile([], ["clay-tools"]) == [], "and the empty left column"
 
 

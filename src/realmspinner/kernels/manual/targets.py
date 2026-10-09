@@ -93,7 +93,11 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # that describes the whole panel; Colours & textures and Unwrap are pages of
     # it, and the (?) on Unwrap is ``clay-uv``'s.
     "clay-inspector": ("30-clay", "the-inspector"),
-    "clay-outliner": ("30-clay", "adding-a-primitive"),
+    # The (?) on the Inspector's docked "All shapes" header. The outliner is a
+    # section of that pane now, not a pane of its own, but the questions asked in
+    # front of it -- what a drag onto a row does, how a range is picked -- are the
+    # outliner section's, not the Inspector's.
+    "clay-outliner": ("30-clay", "the-outliner"),
     # Tranche 6 ("UV and materials"). Its own anchor rather than sharing
     # ``clay-props``: the questions asked in front of this panel -- what the
     # overlap/stretch tint means, what dragging a box does, what Pack Islands

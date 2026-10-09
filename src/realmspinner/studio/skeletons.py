@@ -338,14 +338,15 @@ def plotter(ctx: Any) -> dict[str, Column]:
 
 
 def clay(ctx: Any) -> dict[str, Column]:
-    """Clay's right column: the outliner over the Inspector. The left is empty.
+    """Clay's right column: the Inspector, alone. The left is empty.
 
     This was a left sidebar (the Add pane) and a four-pane right column
     (outliner, properties, UV, document). Both are folded into the picoCAD
     shape: **the tools are a slim rail inside the centre** (``panes/rail.py``,
     drawn by ``_clay_workspace``'s viewport), **the palette is a strip under the
-    render** (``panes/palette_strip.py``), and **the right column is two panes**
-    -- what the scene *contains*, then what the selected part of it *is*.
+    render** (``panes/palette_strip.py``), and **the right column is one pane**
+    -- what the selected part of the scene *is*, with what the scene *contains*
+    docked at its foot.
 
     **The left column is declared and empty**, not omitted. ``layout.column``
     returns early for a column with no live slots and ``centre_width`` already
@@ -369,30 +370,24 @@ def clay(ctx: Any) -> dict[str, Column]:
     drops the old id from a saved column and adds the new one in its built-in
     place, so no migration and no ``VERSION`` bump is owed (see :func:`plotter`).
 
-    **The Inspector is the FILL, with a floor.** It holds the pane that wants the
-    height -- the Unwrap page's UV canvas is a square it fits itself into -- and
-    the outliner is the one whose list scrolls happily in whatever it is given.
-    The floor is what stops a short window squeezing it to a heading:
-    ``layout_skeleton.heights`` gives the outliner its share first, and a fill
-    with no floor takes whatever that left.
+    **``clay-outliner`` is retired too, and the column is one slot.** The outliner
+    is the Inspector's "All shapes" section, docked at its foot, so the two panes
+    that used to split the column by a draggable share are one pane that sizes its
+    own list (``inspector.dock_region_height``). ``reconcile`` drops the saved id
+    and ``shares["clay-outliner"]`` in a user's settings is inert, exactly as
+    ``clay-tools``' is; no migration and no ``VERSION`` bump is owed.
+
+    **The Inspector is the FILL, with a floor.** The Unwrap page's UV canvas is a
+    square it fits itself into, so it wants all of the height; the floor is what
+    stops a short window squeezing the column to a heading.
     """
 
     from .modes.clay.ui.panes import inspector as clay_inspector
-    from .modes.clay.ui.panes import outliner as clay_outliner
 
     left = Column("left", ())
     right = Column(
         "right",
         (
-            Slot(
-                "clay-outliner",
-                "Outliner",
-                clay_outliner.draw,
-                role=_role("inspector"),
-                edge=_edge("left"),
-                sizing=SHARE,
-                share_key="clay-outliner",
-            ),
             Slot(
                 "clay-inspector",
                 "Inspector",

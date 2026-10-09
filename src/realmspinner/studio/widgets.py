@@ -1844,6 +1844,32 @@ def set_install_offer(fn: Any) -> None:
     _INSTALL_OFFER = fn
 
 
+def open_requested(persist_key: str) -> bool:
+    """Whether :func:`request_open` has asked *persist_key* to open and no draw has
+    taken the request yet."""
+    return persist_key in _OPEN_REQUESTS
+
+
+def persisted_open(persist_key: str, default_open: bool) -> bool:
+    """Whether :func:`header` would open *persist_key* on its first draw this session.
+
+    For a caller that has to size something around a section **before** the
+    section's header is drawn (the Clay inspector's docked "All shapes" list is
+    placed by arithmetic, and the body above it is sized first). It answers with the
+    same precedence ``header`` applies -- the smoke test's force-open, a one-shot
+    open request, the stored choice, then the default -- and cannot see what
+    imgui's own tree state says after the first frame, which is why such a caller
+    carries the header's returned answer forward itself.
+    """
+    if FORCE_SECTIONS_OPEN or persist_key in _OPEN_REQUESTS:
+        return True
+    if _SETTINGS is not None:
+        stored = settings_mod.as_dict(_SETTINGS.get("panels_open"))
+        if persist_key in stored:
+            return bool(stored[persist_key])
+    return bool(default_open)
+
+
 def header(label: str, default_open: bool = True, persist_key: str | None = None) -> bool:
     """A collapsing section. Open by default, because these *are* the panel.
 

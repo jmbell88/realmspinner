@@ -791,8 +791,9 @@ CLAY_TORCH = Tour(
             body=(
                 "The column of buttons on the left is the rail: four tools (Select, Move, "
                 "Rotate, Scale -- Q, G, R, S on the keyboard) and the shapes you add. "
-                "Everything you add appears in the Outliner on the right, and the "
-                "Inspector under it holds the numbers.\n\n"
+                "Everything you add is listed under All shapes, the row at the foot of "
+                "the Inspector on the right (click it to open or close the list), and "
+                "the Inspector above it holds the numbers.\n\n"
                 "Units are metres and Y is up, so a torch is about 0.7 tall."
             ),
             mode="clay",
@@ -903,7 +904,7 @@ CLAY_TORCH = Tour(
             id="paint",
             title="Paint the parts",
             body=(
-                "Select an object in the Outliner and click a swatch on the strip, or one "
+                "Select an object in All shapes and click a swatch on the strip, or one "
                 "of the named colours in the Inspector's Colour card, to repaint it. Do it "
                 "for the flame and for the shaft, so the torch is not all one colour.\n\n"
                 "Next unlocks once two objects are painted with something other than the "

@@ -36,7 +36,6 @@ from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.ui import inspector_actions, inspector_size
 from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
-from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 from realmspinner.studio.viewer.camera import Camera
@@ -152,7 +151,7 @@ def test_the_inspector_is_the_slot_that_replaced_clay_props_and_has_no_tab_strip
     from realmspinner.studio import skeletons
 
     ids = [slot.id for slot in skeletons.clay(SimpleNamespace())["right"].slots]
-    assert ids == ["clay-outliner", "clay-inspector"]
+    assert ids == ["clay-inspector"], "the outliner is docked inside it, not a slot above it"
     assert not hasattr(clay_inspector, "TABS"), "the inspector is a switch on the selection"
 
 
@@ -740,57 +739,10 @@ def test_the_counts_line_is_memoised_on_the_documents_revision(monkeypatch):
 
 
 # -- layout stability ------------------------------------------------------------------------
-
-
-def test_an_outliner_row_does_not_move_between_press_and_release_when_the_inspector_morphs(
-    imgui_ui,
-):
-    """The outliner and the inspector are two panes in one column, and the inspector
-    changes state with the selection. A pane's height is the column's arithmetic,
-    not its content's, so a row the pointer is pressing must not move between the
-    press frame and the release frame when the selection count changes in between
-    (the mockup's B/M layout jump swallowed Ctrl/Shift clicks)."""
-    ctx, tab, doc = _document(3)
-    doc.select([doc.objects[0].uid])
-    imgui = imgui_ui
-
-    def draw():
-        flags = (
-            imgui.WindowFlags_.no_title_bar.value
-            | imgui.WindowFlags_.no_move.value
-            | imgui.WindowFlags_.no_resize.value
-            | imgui.WindowFlags_.no_saved_settings.value
-        )
-        anchors.begin_frame()
-        imgui.new_frame()
-        for name, y, height, body in (
-            ("##outliner-host", 0.0, 420.0, clay_outliner.draw),
-            ("##inspector-host", 440.0, 900.0, clay_inspector.draw),
-        ):
-            imgui.set_next_window_pos((0, y))
-            imgui.set_next_window_size((300, height))
-            imgui.begin(name, None, flags)
-            body(ctx)
-            imgui.end()
-        imgui.end_frame()
-
-    driver = UiDriver(imgui, draw)
-    driver.frame()
-    driver.settle(2)
-    rows = [c for c in driver.controls if c.label.endswith("##row")]
-    target = rows[-1]
-    x, y = target.centre
-    driver.frame((x, y), down=False)
-    driver.frame((x, y), down=True)
-    press = next(c.rect for c in driver.controls if c.label == target.label)
-    # The selection count changes between the press and the release (an agent, a key).
-    doc.select([o.uid for o in doc.objects])
-    driver.frame((x, y), down=False)
-    release = next(c.rect for c in driver.controls if c.label == target.label)
-    assert press == release, "the row moved under the pointer when the inspector changed state"
-    doc.select([])
-    driver.settle(2)
-    assert next(c.rect for c in driver.controls if c.label == target.label) == press
+#
+# The outliner is the Inspector's docked "All shapes" section now, so the press-and-release
+# stability of its rows (the 2026-10-07 audit's layout jump) is pinned in
+# ``test_inspector_dock.py``, next to every other claim about the dock.
 
 
 # -- cost ------------------------------------------------------------------------------------

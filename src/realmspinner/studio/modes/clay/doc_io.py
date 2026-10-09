@@ -2,11 +2,12 @@
 
 The facts, the import choices and the export sentences that the old bridge pane
 held when the right column had a third pane for them. The pane is gone (the
-column is the outliner over the Inspector now, and these are drawn by the
-Inspector's Document tab); the **data and the pure functions** came here, to the
-mode root, because they are not drawing -- they are claims a test can check
-without a frame (a count is a number, an export refusal is a sentence), and the
-Document tab, the File menu and the tests all read them from one place.
+column is the Inspector alone now, with the outliner docked in it, and these are
+drawn by the Inspector's Model card and Model & history page); the **data and the
+pure functions** came here, to the mode root, because they are not drawing -- they
+are claims a test can check without a frame (a count is a number, an export refusal
+is a sentence), and the Document tab, the File menu and the tests all read them from
+one place.
 
 No imgui, no GL: ``tests/test_layering.py`` keeps the mode root free of both.
 """

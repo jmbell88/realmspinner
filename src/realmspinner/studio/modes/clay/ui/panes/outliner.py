@@ -43,6 +43,18 @@ before parenting existed -- and the middle half is "onto" --
 visibly jump the moment it changes parent. A cycle (dropping a group onto its
 own descendant) is refused by ``set_parent`` itself and shown as a toast
 through this pane's own door onto :func:`~.clay.ops.toast`.
+
+**This is no longer a pane.** The outliner used to be the right column's upper
+slot; it is the **All shapes** section docked at the foot of the Inspector now
+(``inspector.draw`` owns the header, the persisted open state and the pinned
+height), and :func:`draw_embedded` is the body it draws into a region of that
+height. The module keeps its place under ``panes/`` because every function in it is
+still called by name from elsewhere (``props`` borrows ``fast_descendants``, the
+ops registry's ordering test reads ``_tree_rows``) and a move would only rename
+those call sites. What changed in the rows themselves: the per-row trash can is
+gone -- Delete is in the row menu, on the Del key and on the Inspector's Delete
+button -- and a small ``...`` button opens that same menu, so the menu is findable
+without knowing to right-click.
 """
 
 from __future__ import annotations
@@ -53,14 +65,23 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import anchors, controls, icons, theme, widgets
-from .....manual import render as manual_render
+from ..... import controls, icons, theme, widgets
 from .....tokens import sp
 from ... import mode as clay_mode
 
 # Design pixels: every use goes through sp(), or the row keeps its 1.0x height
 # while the glyph inside it grows with the UI scale.
 ROW_HEIGHT = 24.0
+
+#: How close to the list's top or bottom edge a drag has to be before the list
+#: scrolls under it, and how far it moves per frame at the very edge (design px).
+#: ImGui scrolls nothing on a drag-and-drop; a list nested in a window that owns the
+#: scroll position of its rows has to do it by hand.
+AUTOSCROLL_EDGE = 28.0
+AUTOSCROLL_STEP = 14.0
+
+#: The rows' child window. One id, because there is one list on screen.
+_ROWS_ID = "##clay-all-shapes-rows"
 #: How far one level of the tree indents, in design pixels -- Mason's own
 #: outliner's figure, so the two scene trees in this app read the same depth
 #: the same width.
@@ -79,18 +100,30 @@ _DRAG_OBJECT = "clay-object"
 _DROP_ONTO_BAND = (0.25, 0.75)
 
 
-def draw(ctx: Any) -> None:
-    """This pane's headings, on tinted blocks.
+def draw_embedded(ctx: Any, height: float) -> None:
+    """The list, in a region of exactly *height* screen pixels at the cursor.
 
-    The blocks are opened *here* rather than in :func:`layout.pane`, which is
-    flat: a pane on a wide canvas wants no tint, and this is one of the four
-    narrow sidebars the grouping was written for (see
-    ``tests/test_section_blocks.py`` for the report it came from). Wrapping
-    ``_body`` rather than inlining the ``with`` keeps every early return inside
-    the scope, and the scope closes its last block on the way out.
+    What the Inspector's open "All shapes" section draws (the closed header runs
+    none of this). The Find box and the Solo / Show all row sit at the top and do
+    not scroll; the rows get a child window of their own for whatever height is
+    left, so the region is the same size whether or not the filter has appeared
+    (it draws only from eight shapes up) and the rows under a pointer do not move
+    when anything above the dock changes -- the 2026-10-07 audit's layout jump,
+    which swallowed a Ctrl or Shift click.
+
+    No section heading and no tinted block: the header the Inspector draws above
+    is the title, and a block over a scrolling list has nothing to group.
     """
-    with widgets.section_blocks():
-        _body(ctx)
+    state = clay_mode.ensure(ctx)
+    tab = state.active
+    if tab is None:
+        return
+    if not tab.doc.objects:
+        # One line, not the centred ``empty_state``: this region is a row tall when
+        # the document is empty (the Inspector's tiles are the invitation).
+        widgets.muted("No shapes yet.")
+        return
+    _body(ctx, state, tab, height)
 
 
 #: *doc* -> ``(rev, children map, by-uid map)``, weak so a closed tab's own
@@ -302,21 +335,9 @@ def _visible_rows(
     return visible
 
 
-def _body(ctx: Any) -> None:
-    state = clay_mode.ensure(ctx)
-    tab = state.active
-    anchors.mark_window("clay/outliner")
-    widgets.section("Outliner")
-    manual_render.help_button(ctx, "clay-outliner")
-    if tab is None:
-        # One voice for one empty state -- the canvas's ``nothing_open`` is it.
-        # This heading plus three more each saying "Nothing open." was Clay
-        # telling the user four times, which reads as four problems.
-        return
+def _body(ctx: Any, state: Any, tab: Any, height: float) -> None:
     doc = tab.doc
-    if not doc.objects:
-        widgets.empty_state(icons.LIST, "Empty document", "Add a primitive to start.")
-        return
+    top = imgui.get_cursor_screen_pos().y
 
     # The 2026-09-18 audit's clay-03: visibility is one history step per
     # toggle, same as every other ``set_props`` caller in this pane (rename)
@@ -325,12 +346,13 @@ def _body(ctx: Any) -> None:
     # disabled regardless of which controls would touch history: a save is
     # encoding the document on a task thread, and a list where some controls
     # respond and others do not is more confusing than one that does not.
-    imgui.begin_disabled(tab.saving)
+    imgui.begin_disabled(bool(tab.saving))
     # J86. Above the rows and inside the disable, because a search that worked
     # while a save was running would let the user narrow the list to one object
     # and then find every control on it refusing the click.
     needle = widgets.list_filter(ctx, "clay-outliner", len(doc.objects))
     _visibility_row(doc)
+    imgui.end_disabled()
     filtered = bool(needle)
     # A rename belongs to the tab it began in (clay-23, above).
     settle_rename(state, tab.uid)
@@ -345,18 +367,77 @@ def _body(ctx: Any) -> None:
     # and "what is drawn".
     visible = _visible_rows(state, tab.uid, doc, needle)
     shown = len(visible)
-    clipper = imgui.ListClipper()
-    clipper.begin(len(visible))
-    while clipper.step():
-        for index in range(clipper.display_start, clipper.display_end):
-            obj, depth, has_children = visible[index]
-            _row(
-                ctx, state, doc, obj, depth, has_children,
-                filtered=filtered, saving=bool(tab.saving), tab_uid=tab.uid,
+    # The rows take what the bars above them left of the pinned height, so the
+    # region is one size whether or not the filter box is on screen.
+    rows_height = max(height - (imgui.get_cursor_screen_pos().y - top), sp(ROW_HEIGHT))
+    imgui.push_style_color(imgui.Col_.child_bg.value, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
+    inside = imgui.begin_child(_ROWS_ID, (0.0, rows_height), 0, 0)
+    imgui.pop_style_color()
+    if inside:
+        imgui.begin_disabled(bool(tab.saving))
+        clipper = imgui.ListClipper()
+        clipper.begin(len(visible))
+        # A row being dragged is kept submitted even after auto-scroll has taken it
+        # out of view: imgui cancels a drag whose source was not drawn this frame.
+        if state.outliner_drag:
+            held = next(
+                (i for i, (obj, _d, _h) in enumerate(visible) if obj.uid == state.outliner_drag),
+                None,
             )
-    clipper.end()
-    widgets.no_matches(needle, shown)
-    imgui.end_disabled()
+            if held is not None:
+                clipper.include_item_by_index(held)
+        while clipper.step():
+            for index in range(clipper.display_start, clipper.display_end):
+                obj, depth, has_children = visible[index]
+                _row(
+                    ctx, state, doc, obj, depth, has_children,
+                    filtered=filtered, saving=bool(tab.saving), tab_uid=tab.uid,
+                )
+        clipper.end()
+        widgets.no_matches(needle, shown)
+        _auto_scroll(state)
+        imgui.end_disabled()
+    imgui.end_child()
+
+
+def autoscroll_delta(mouse_y: float, top: float, bottom: float, edge: float, step: float) -> float:
+    """How far a list scrolls this frame for a drag at *mouse_y*, negative for up.
+
+    Zero away from the edges, ramping to a full *step* at the edge itself and
+    beyond it. A pure function beside the imgui call that applies it, the shape
+    :func:`_drop_zone` takes. *edge* is capped at a third of the list so that a
+    short list still has a middle where nothing scrolls.
+    """
+    edge = min(edge, (bottom - top) / 3.0)
+    if edge <= 0:
+        return 0.0
+    if mouse_y < top + edge:
+        return -step * min(1.0, (top + edge - mouse_y) / edge)
+    if mouse_y > bottom - edge:
+        return step * min(1.0, (mouse_y - (bottom - edge)) / edge)
+    return 0.0
+
+
+def _auto_scroll(state: Any) -> None:
+    """Scroll the rows' window while a row is dragged to its top or bottom edge.
+
+    ImGui does no such thing for a drag-and-drop, and the rows are a child window
+    with a scroll position of their own, so a list longer than the region could
+    only be reordered across what happens to be visible. Called inside the child.
+    """
+    if not state.outliner_drag:
+        return
+    if not imgui.is_mouse_down(0):
+        state.outliner_drag = 0
+        return
+    pos, size, mouse = imgui.get_window_pos(), imgui.get_window_size(), imgui.get_mouse_pos()
+    if not pos.x <= mouse.x <= pos.x + size.x:
+        return
+    delta = autoscroll_delta(
+        mouse.y, pos.y, pos.y + size.y, sp(AUTOSCROLL_EDGE), sp(AUTOSCROLL_STEP)
+    )
+    if delta:
+        imgui.set_scroll_y(min(max(imgui.get_scroll_y() + delta, 0.0), imgui.get_scroll_max_y()))
 
 
 def _solo_reason(doc: Any) -> str:
@@ -535,7 +616,7 @@ def _apply_drop(ctx: Any, doc: Any, dropped_uid: int, target: Any, index: int, z
 
 
 def _reorder(
-    ctx: Any, doc: Any, obj: Any, *, filtered: bool, saving: bool
+    ctx: Any, state: Any, doc: Any, obj: Any, *, filtered: bool, saving: bool
 ) -> None:
     """Drag one row onto another to reparent it, or between two rows to
     reorder it -- see :func:`_apply_drop` for which is which and why.
@@ -565,6 +646,7 @@ def _reorder(
     # reorder in between cannot make it move a different object.
     if imgui.begin_drag_drop_source(imgui.DragDropFlags_.source_no_hold_to_open_others.value):
         imgui.set_drag_drop_payload_py_id(_DRAG_OBJECT, obj.uid)
+        state.outliner_drag = obj.uid  # see ``_auto_scroll`` and the clipper in ``_body``
         imgui.text(obj.name or "object")
         imgui.end_drag_drop_source()
     if imgui.begin_drag_drop_target():
@@ -579,16 +661,6 @@ def _reorder(
                 zone = _drop_zone(imgui.get_mouse_pos().y, rect_min.y, rect_max.y)
                 _apply_drop(ctx, doc, int(payload.data_id), obj, doc.index_of(obj.uid), zone)
         imgui.end_drag_drop_target()
-
-
-def _remove_object(ctx: Any, doc: Any, obj: Any) -> None:
-    """Remove exactly this one row's object, not the selection.
-
-    This pane's trash button and its context-menu "Delete" act on the row that
-    was clicked, which is not what the selection-wide delete op does.
-    """
-    del ctx
-    doc.remove_object(obj.uid)
 
 
 def _menu_targets(doc: Any, obj: Any) -> list[int]:
@@ -732,12 +804,13 @@ def _row(
         imgui.set_tooltip("Hidden objects do not render, export or pick.")
     imgui.same_line()
 
-    # What is still to come on this line: the delete button and the gap before
+    # What is still to come on this line: the "more" button and the gap before
     # it. Measured rather than written out -- the literal 32 this replaces was
     # already a pixel short of sp(28) + spacing at scale 1.0, and at 1.6 it
-    # reserved 32 for 58 and clipped the trash button off the pane.
+    # reserved 32 for 58 and clipped the button off the pane.
     width = imgui.get_content_region_avail().x - sp(28) - imgui.get_style().item_spacing.x
-    if renaming_uid(state, tab_uid) == obj.uid:
+    renaming = renaming_uid(state, tab_uid) == obj.uid
+    if renaming:
         imgui.set_next_item_width(width)
         if _first_rename_frame(state, (tab_uid, obj.uid)):
             imgui.set_keyboard_focus_here()
@@ -774,18 +847,27 @@ def _row(
         if hidden:
             imgui.pop_style_color()
         # Both hang off the selectable, which is the item the user aims at --
-        # the eye and the trash button are their own targets and must keep
+        # the eye and the "more" button are their own targets and must keep
         # doing only what they say.
-        _reorder(ctx, doc, obj, filtered=filtered, saving=saving)
+        _reorder(ctx, state, doc, obj, filtered=filtered, saving=saving)
         _context_menu(ctx, state, doc, obj, tab_uid)
         if imgui.is_item_hovered() and imgui.is_mouse_double_clicked(0):
             begin_rename(state, tab_uid, obj.uid)
 
     imgui.same_line()
+    # The row menu without a right-click. There is no trash can on the row any
+    # more (one tap on a list of this many shapes was too close to a mis-aim, and
+    # Delete is on the Inspector, the Del key and this menu), so the menu needs a
+    # button to be found. It opens the popup ``_context_menu`` begins; while the
+    # row is being renamed nothing begins it, so the button is greyed rather than
+    # opening a popup no code draws.
     if controls.button(
-        f"{icons.TRASH}##del",
+        f"{icons.ELLIPSIS}##more",
         (sp(28), sp(ROW_HEIGHT)),
-        tooltip="Delete this object. One undo step brings it back.",
+        enabled=not renaming,
+        reason="Finish renaming first.",
+        tooltip="Rename, duplicate, solo or delete this shape. Right-clicking the row opens "
+        "the same menu.",
     ):
-        _remove_object(ctx, doc, obj)
+        imgui.open_popup(f"clayrow{obj.uid}")
     imgui.pop_id()

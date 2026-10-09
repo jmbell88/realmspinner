@@ -312,6 +312,16 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # a document reopened expanded is the same "nothing remembered" default
     # every other transient view setting in this class gets.
     outliner_collapsed: set[int] = field(default_factory=set)
+    # Whether the inspector's "All shapes" dock was open the last time it drew, or
+    # ``None`` before it ever has. The dock's height is the column's arithmetic and
+    # the body above it is sized before the header is drawn, so the header's own
+    # answer (which only exists after it draws) is carried to the next frame; see
+    # ``inspector.draw``.
+    dock_open: bool | None = None
+    # The row being dragged in the dock (a uid) or 0. Kept so the list clipper keeps
+    # submitting a dragged row that auto-scroll has taken out of view: imgui cancels
+    # a drag whose source is not submitted that frame.
+    outliner_drag: int = 0
 
     # Units and up-axis for the next mesh import (the "Import Mesh..." button
     # and a file dropped onto the viewport both read these), remembered across
