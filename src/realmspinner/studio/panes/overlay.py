@@ -651,6 +651,12 @@ def _clay_box(ctx: Any) -> None:
     Which primitive is read off the registry rather than spelled here (the
     ``clay_props`` rule: the pane never names a generator), so a rename in
     ``primitives.CLAY_GENERATORS`` cannot leave this button pointing at nothing.
+
+    Through ``place_primitive``, the human door, not ``add_primitive``: this
+    button called the pure agent door directly, so the one button under the
+    empty viewport -- the first thing a new user presses -- put the shape half
+    below the ground at the origin and, on a full document, raised out of the
+    draw call instead of saying why nothing appeared.
     """
     from ...kernels.mesh import primitives as bp
     from ..modes.clay.ui.panes import tools as clay_tools
@@ -658,7 +664,7 @@ def _clay_box(ctx: Any) -> None:
     tab = ctx.state.clay.active if getattr(ctx.state, "clay", None) else None
     if tab is None:
         return
-    clay_tools.add_primitive(ctx, tab.doc, bp.CLAY_GENERATORS[0][1][0])
+    clay_tools.place_primitive(ctx, tab.doc, bp.CLAY_GENERATORS[0][1][0])
 
 
 def _mason_box(ctx: Any) -> None:

@@ -294,7 +294,11 @@ def test_manual_clay_empty_state_matches_the_viewports_empty_branch():
     rows, so the chapter must say that and no longer promise a file panel."""
     text = _clay_chapter()
     assert "offers the same two buttons" not in text
-    assert "the middle column offers **New model** and **Open a file...**" in text
+    # Start with a box joined the two (the first-click pass); the other two stay.
+    assert (
+        "the middle column offers **Start with a box**, **New model** and **Open a file...**"
+        in text
+    )
     assert "There is no separate file pane" in text and "**Open Recent**" in text
     assert "shows only that recent list until a document is open" not in text
 

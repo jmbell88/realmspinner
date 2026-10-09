@@ -171,11 +171,19 @@ def _kind_count(arg: str | None) -> tuple[str, int] | None:
 
 def _untouched(obj: Any, defaults: dict[str, Any]) -> bool:
     """Whether ``obj`` is exactly what the Add door placed: its generator's
-    defaults, unit scale, at the origin."""
+    defaults at unit scale. **Where it sits is not part of the answer.**
+
+    The human door now stands a shape on the ground and beside what is already
+    there (``clay/placement.py``), so a freshly added box has a non-zero
+    translation. Counting that as "shaped" satisfied the tour's size step the
+    moment the box was placed, before the reader had typed a number; position
+    was never what those steps ask for (the shaft step asks for Size too, and
+    only mentions moving it).
+    """
     import numpy as np
 
     try:
-        if not np.allclose(obj.translation, 0.0) or not np.allclose(obj.scale, 1.0):
+        if not np.allclose(obj.scale, 1.0):
             return False
         params = obj.params or {}
         if set(params) != set(defaults):

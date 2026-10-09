@@ -15,6 +15,7 @@ import inspect
 from types import SimpleNamespace
 
 from _ui_context import imgui_context
+from _ui_driver import UiDriver
 
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import primitives as bp
@@ -164,31 +165,21 @@ def test_clicking_the_box_entry_selects_it_and_places_it(monkeypatch):
         tab = _tab(doc)
         box_label = f"{icons.BOX} Box##clay-add/box"
 
-        def frame(pos=(-100.0, -100.0), down=False):
-            io = imgui.get_io()
-            io.add_mouse_pos_event(pos[0], pos[1])
-            io.add_mouse_button_event(0, down)
-            probe.begin_frame()
+        def draw():
             imgui.new_frame()
             imgui.set_next_window_size((320.0, 900.0))
             imgui.begin("##host")
             clay_tools.draw_add_menu(ctx, state, tab)
             imgui.end()
             imgui.end_frame()
-            return list(probe.FRAME_CONTROLS)
 
-        found = [c for c in frame() if c.label == box_label]
+        # The three-frame hover/press/release is ``_ui_driver``'s: imgui's
+        # default button fires on release-while-hovered, and hover is only
+        # current once a frame has put the mouse over the item.
+        driver = UiDriver(imgui, draw)
+        found = [c for c in driver.frame() if c.label == box_label]
         assert found, "no Box entry drawn -- the flyout changed shape"
-        cx, cy = found[0].centre
-
-        # imgui's default button fires on release-while-hovered, and hover
-        # itself is only current once a frame has already put the mouse over
-        # the item -- so the down/up pair needs a frame of hover in front of
-        # it, the same three-frame shape ``test_context_controls`` presses a
-        # real button with.
-        frame((cx, cy), down=False)
-        frame((cx, cy), down=True)
-        frame((cx, cy), down=False)
+        driver.click(found[0])
 
         assert state.generator == "box"
         assert len(doc.objects) == 1

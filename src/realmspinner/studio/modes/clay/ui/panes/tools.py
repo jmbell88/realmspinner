@@ -10,8 +10,10 @@ learn its name; a labelled list does not.
 
 **What stays in this module is data and doors**, because other places reach
 for them: :func:`sections` (the shape registry, grouped), :func:`add_primitive`
-(the one door an object is placed through -- the rail, the Add menu, the
-empty-state button and the agent all call it), :func:`display_name` (the one
+(the pure door -- the agent calls it, and a shape comes out at the origin) and
+:func:`place_primitive` (the human door: the rail, the Add menu and the
+empty-state button call it, and a shape comes out on the ground, beside what
+is there, in the colour last picked), :func:`display_name` (the one
 spelling of a shape's name, so ``uv_sphere`` is "UV Sphere" in the rail, the
 Add menu and the flyout alike), and the tables the header reads.
 
@@ -198,24 +200,36 @@ def add_primitive(ctx: Any, doc: Any, name: str) -> Any:
     faces meet each other), so a list here would only be a second, driftable
     statement of what the rule already decides.
     """
+    del ctx
+    obj = _new_primitive(doc, name)
+    _commit_primitive(doc, obj)
+    return obj
+
+
+def _new_primitive(doc: Any, name: str) -> Any:
+    """The object :func:`add_primitive` places, built and not yet in the document:
+    the generator's defaults at the origin, auto-smoothed (see that function)."""
     from ......kernels.mesh import shading
 
     defaults, build = bp.GENERATORS[name]
-    obj = bd.Obj(
+    return bd.Obj(
         uid=bd.new_uid(),
         name=_unique_name(doc, name.replace("_", " ").title().replace(" ", "")),
         mesh=shading.auto_smooth(build(**defaults)),
         generator=name,
         params=dict(defaults),
     )
+
+
+def _commit_primitive(doc: Any, obj: Any) -> None:
+    """Add *obj* as one undo step and select it. Raises ``OpError`` when the
+    document is full, with nothing pushed."""
     doc.add_object(obj)
     # Object mode only (the 2026-09-13 audit's clay-03) -- see
     # ``ClayDoc.add_objects``'s own comment for why selecting unconditionally
     # leaves the Properties panel naming one object while editing another.
     if doc.element_mode == "object":
         doc.select([obj.uid])
-    del ctx
-    return obj
 
 
 def place_primitive(ctx: Any, doc: Any, name: str) -> Any:
@@ -234,16 +248,82 @@ def place_primitive(ctx: Any, doc: Any, name: str) -> Any:
     decision lives here beside the draw call so it can be tested without a GL
     context. The refused click leaves no undo step and no open gesture: the
     document raises before it pushes.
+
+    **What the click gets that the agent's door does not** (the first-click
+    pass): the shape is put on the ground beside whatever is already there
+    (``placement.spawn_translation``), painted with the palette slot the user
+    last picked, and -- when it is the first shape, or lands outside the
+    picture -- the camera is asked to frame it. All three are decided *before*
+    ``add_object`` and written onto the new ``Obj``, so the add stays one undo
+    step with nothing folded; moving it afterwards would be a second step and a
+    Ctrl+Z that left a half-sunk box behind. ``add_primitive`` stays
+    origin-placed, unpainted and camera-blind: the agent's boxes stand at
+    ``[0, h/2, 0]`` after its own translation and the frozen Familiar card says
+    so.
     """
     from ......kernels.mesh.elements import OpError
+    from ... import mode as clay_mode
 
+    first = not any(o.visible for o in doc.objects)
     try:
-        return add_primitive(ctx, doc, name)
+        obj = _new_primitive(doc, name)
+        obj.translation = _spawn_translation(doc, obj)
+        _paint_with_remembered_slot(ctx, doc, obj)
+        _commit_primitive(doc, obj)
     except OpError as error:
         from ... import ops as clay_ops
 
         clay_ops.toast(ctx, str(error))
         return None
+    clay_mode.frame_after_add(ctx, doc, obj, first=first)
+    return obj
+
+
+def _spawn_translation(doc: Any, obj: Any) -> Any:
+    """Where the human door puts *obj*: on the ground, clear of the visible shapes.
+
+    The boxes are the document's *world* boxes (a parented shape's local
+    translation is not where it sits), and "beside" is the one selected
+    object, when exactly one is selected and visible.
+    """
+    from ......kernels.mesh import mesh as bm
+    from ... import ops as clay_ops
+    from ... import placement
+
+    visible = [o.uid for o in doc.objects if o.visible]
+    boxes = clay_ops._world_boxes(doc, visible)
+    near = None
+    if len(doc.selection) == 1:
+        near = boxes.get(next(iter(doc.selection)))
+    if len(obj.mesh.positions) == 0:
+        return obj.translation
+    return placement.spawn_translation(bm.bounds(obj.mesh), list(boxes.values()), beside=near)
+
+
+def _paint_with_remembered_slot(ctx: Any, doc: Any, obj: Any) -> None:
+    """Give *obj* the palette slot the user last picked, before it is added.
+
+    The object's default slot **and every face**, as ``ClayDoc.repaint_object``
+    does it -- ``Obj.material`` is only what *new* faces are stamped with and
+    the per-face array is what renders. Done on the unattached object so the
+    paint is part of the add's one step. A textured slot arriving on a mesh with
+    no UVs is box-unwrapped, ``repaint_object``'s own rule (``_with_uvs_for``).
+    """
+    from dataclasses import replace
+
+    import numpy as np
+
+    from ......kernels.mesh import uv as uv_projection
+    from ... import mode as clay_mode
+
+    slot = clay_mode.remembered_slot(ctx, doc)
+    if slot is None:
+        return
+    mesh = replace(obj.mesh, material=np.full(len(obj.mesh.material), slot, dtype="i4"))
+    if mesh.uv is None and doc.materials[slot].base_color is not None:
+        mesh = uv_projection.box_unwrap(mesh)
+    obj.mesh = mesh
+    obj.material = slot
 
 
 def _unique_name(doc: Any, base: str) -> str:

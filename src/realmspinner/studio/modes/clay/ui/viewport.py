@@ -152,7 +152,11 @@ class ClayViewport:
             # The other half of ``F``: the mode recorded the intent and this is
             # the only place that has the viewport to act on it (B6).
             state.frame_pending = False
-            self._frame_clay_selection()
+            whole, state.frame_whole = state.frame_whole, False
+            if whole:
+                self._frame_clay_whole()
+            else:
+                self._frame_clay_selection()
         # Textures painted in Inker land here, before anything below reads the
         # document: every tab with a link, not only the drawn one, and one undo
         # step per return (``texture_link``'s docstring says why the trigger is
@@ -273,8 +277,13 @@ class ClayViewport:
         # button. Both are one function now (the UI redesign, wave 2), which is the
         # only fix that also holds for the next copy.
         widgets.nothing_open(
-            "Start a model, open a document, or drop a .rblk on the window.",
+            "Start with a box, open a document, or drop a .rblk on the window.",
             [
+                # The primary, because an empty Clay used to need "New model" and
+                # then a hunt for the rail before the user had anything to look
+                # at. "New model" stays beside it for the person who wants a
+                # blank page (the torch tour's ``new-model`` step names it).
+                ("Start with a box", lambda: self._clay_start_with_box(ctx, clay_mode)),
                 ("New model", lambda: clay_mode.new_document(ctx)),
                 ("Open a file...", lambda: clay_mode.ask_open(ctx)),
             ],
@@ -285,6 +294,21 @@ class ClayViewport:
             recent_paths=clay_mode.recent_paths(ctx),
             on_open=lambda path: clay_mode.open_path(ctx, Path(path)),
         )
+
+    def _clay_start_with_box(self, ctx: Any, clay_mode: Any) -> None:
+        """A new model with one box in it, placed the way a click on the rail places
+        it: on the ground, selected and framed.
+
+        The shape is read off ``primitives.CLAY_GENERATORS`` (the pane never names
+        a generator) and placed through ``place_primitive``, the human door, so
+        this is one tab and one undo step for the add -- the same object the
+        empty viewport's own "Add a primitive" button makes.
+        """
+        from .....kernels.mesh import primitives as bp
+        from .panes import tools as clay_tools
+
+        tab = clay_mode.new_document(ctx)
+        clay_tools.place_primitive(ctx, tab.doc, bp.CLAY_GENERATORS[0][1][0])
 
     def _clay_marquee(self, imgui: Any, view: Any, rect: Any) -> None:
         """The selection rectangle, drawn in imgui rather than in GL.
@@ -350,6 +374,27 @@ class ClayViewport:
         tab = clay_mode.active(self.app_ctx)
         if tab is not None and self.clay_view is not None:
             self.clay_view.frame_selection(tab.doc)
+            self._clay_framed(tab)
+
+    def _frame_clay_whole(self) -> None:
+        """The framing a shape placed off-screen asks for: every visible object."""
+        from .. import mode as clay_mode
+
+        tab = clay_mode.active(self.app_ctx)
+        if tab is not None and self.clay_view is not None:
+            self.clay_view.frame_whole(tab.doc)
+            self._clay_framed(tab)
+
+    def _clay_framed(self, tab: Any) -> None:
+        """Mark the tab's camera as one the user has seen framed.
+
+        A tab whose first shape has just been framed is *fitted*: without the
+        mark the next tab hand-off found it unfitted and framed it again,
+        throwing away wherever the user had orbited to since.
+        """
+        if tab.doc.objects:
+            tab.view.read_from(self.clay_view.camera)
+            tab.view.fitted = True
 
     def _capture_clay_thumbnail(self, job_id: str) -> None:
         """The library card's picture, from Clay's viewport.

@@ -745,9 +745,96 @@ def apply_camera(ctx: Any, tab: ClayTab) -> None:
     if tab.view.fitted:
         tab.view.write_to(view.camera)
         return
+    if not tab.doc.objects:
+        # Nothing to frame, so nothing is fitted. This used to frame the empty
+        # document anyway (a no-op) and mark the tab fitted, which is why the
+        # *first* shape a new user placed was never framed: the camera had been
+        # declared done before there was anything in it. The tab stays unfitted
+        # until a shape arrives (``frame_after_add`` asks for the frame) or a
+        # later hand-off finds one.
+        return
     view.frame_selection(tab.doc)
     tab.view.read_from(view.camera)
     tab.view.fitted = True
+
+
+def remember_slot(ctx: Any, doc: Any, index: int) -> None:
+    """Note that the user picked palette slot *index* for *doc*, so the next shape
+    placed by hand is painted with it.
+
+    Found by document rather than by "the active tab": the swatch handlers hold
+    a document, and the active tab is only the same one until a tab switch lands
+    between the press and the handler. Silent when there is no state or no
+    tab over *doc* (a headless ctx) -- the colour is a convenience, never a
+    reason for a press to fail.
+    """
+    state = getattr(getattr(ctx, "state", None), "clay", None)
+    for tab in getattr(state, "docs", ()):
+        if tab.doc is doc:
+            tab.last_slot = int(index)
+            return
+
+
+def remembered_slot(ctx: Any, doc: Any) -> int | None:
+    """The slot the next hand-placed shape should wear, or ``None`` for the default.
+
+    Clamped to the palette **here, at use** (see ``ClayTab.last_slot``): a slot
+    removed since it was remembered would otherwise name a colour that is no
+    longer there, or worse a different one after the renumbering. Slot 0 is the
+    default every shape already wears, so it answers ``None`` and the placed
+    shape stays exactly what an unpainted one is.
+    """
+    state = getattr(getattr(ctx, "state", None), "clay", None)
+    for tab in getattr(state, "docs", ()):
+        if tab.doc is doc:
+            slot = tab.last_slot
+            break
+    else:
+        return None
+    if slot is None or not doc.materials:
+        return None
+    slot = min(max(int(slot), 0), len(doc.materials) - 1)
+    return slot or None
+
+
+def frame_after_add(ctx: Any, doc: Any, obj: Any, *, first: bool) -> None:
+    """Ask the viewport to frame a shape the user just placed, when it needs it.
+
+    **Recorded, not done**, like ``F`` (``ClayState.frame_pending``): framing
+    needs the viewport, which this module may not import, so the intent goes
+    on the state and the pane that owns the camera acts on it next frame.
+
+    The first shape in a model is always framed -- the camera has nothing to
+    keep. A later one only when part of it is outside the picture, and then the
+    *whole* model is framed (``frame_whole``), so adding a part never loses the
+    ones already built. A viewport that has not drawn yet has no camera to ask,
+    and that is the "first draw frames it" path in :func:`apply_camera`.
+
+    Only the human door calls this. The agent and headless paths place through
+    ``add_primitive`` and never come near the camera.
+    """
+    state = getattr(getattr(ctx, "state", None), "clay", None)
+    if state is None:
+        return
+    if first:
+        state.frame_pending = True
+        state.frame_whole = False
+        return
+    camera = getattr(getattr(ctx, "clay_view", None), "camera", None)
+    if camera is None:
+        return
+    from ....kernels.mesh import ops as mesh_ops
+    from . import placement
+
+    box = mesh_ops.world_box(obj, world=doc.world_matrix(obj.uid))
+    if box is None:
+        return
+    seen = placement.in_frustum(
+        box[0], box[1], camera.projection() @ camera.view(), camera.position
+    )
+    if not seen:
+        state.frame_pending = True
+        state.frame_whole = True
 
 
 # The submit-or-unlock helper is one rule for all four document modes and lives

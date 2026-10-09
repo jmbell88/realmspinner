@@ -24,7 +24,9 @@ is no left-hand column and no separate file pane. Several documents stay open at
 
 ## Starting a document
 
-With nothing open, the middle column offers **New model** and **Open a file...**, and lists the
+With nothing open, the middle column offers **Start with a box**, **New model** and **Open a file...**.
+**Start with a box** opens a new document with one box already in it, standing on the ground and in
+view, so there is something to work on at once; **New model** opens an empty one. The column also lists the
 documents you had open recently — clicking one reopens it, and hovering it shows the full path. There
 is no separate file pane: every file command is in the **File** menu, which is where Clay's own rows sit among
 the ones every mode has — **New**, **Open...**, **Open Recent**, **Save**, **Save As...**, **Export to
@@ -46,7 +48,7 @@ changes nothing in it.
 ## Adding a primitive
 
 A document with nothing in it says so in the viewport itself — "Add a shape", with "Pick one from
-Add" underneath and a button that drops a box at the origin — rather than leaving you to notice an
+Add" underneath and a button that drops a box on the ground — rather than leaving you to notice an
 empty grid and go looking for a shape on your own.
 
 The **tool rail** down the left edge of the viewport has the four transform tools at the top (see
@@ -56,8 +58,22 @@ strip lists the same ones (see [The menu strip](#the-menu-strip)). **Primitives*
 cylinder, cone, UV sphere, icosphere, torus and capsule. **Game**: wedge, ramp, rounded box, stairs,
 wall and doorway. That is fifteen, and it is the whole list — Clay no longer builds pyramids, arches,
 columns, lathes, sweeps or tubes, because the curve editor that drove the last three went with them;
-a column is a cylinder. Clicking one places it at the origin and selects it. Hovering a rail button
-names it, and a fresh document does not arrive with a shape already picked.
+a column is a cylinder. Hovering a rail button names it, and a fresh document does not arrive with a
+shape already picked.
+
+Clicking a shape places it and selects it, and the place is chosen for you. It **stands on the ground**,
+its lowest point exactly on the grid plane, and it lands **beside** what is already there rather than
+inside it: the first shape goes at the origin, and each later one takes the nearest free spot (the
+search runs outward in half-metre steps, leaves a gap of about 15 centimetres and snaps to an eighth of
+a metre). When exactly one object is selected, the search starts from it, so the new shape lands next
+to the one you are working on. Only if there is no free spot within about twelve metres does a shape
+stand on top of what is under it instead. The first shape in a model also **frames the view**, and a
+later one does only when it would otherwise be off screen, and then the whole model is framed so
+nothing already built is lost. The shape is painted with the **colour you last picked** from the
+palette strip (Ctrl+click only opens a slot to edit, so it does not count), and with the starting grey
+before you have picked one. All of it is part of the one undo step the add already was: Ctrl+Z
+removes the shape and leaves nothing behind. An agent's `clay_add_primitive` is unchanged and puts a
+shape at the origin, wherever its own translation then sends it.
 
 A shape's own numbers — a cylinder's `radius`, `height` and `segments`, say — are not set before it
 is placed: they are edited on the object itself, in Properties, once it exists.

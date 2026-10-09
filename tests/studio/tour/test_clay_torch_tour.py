@@ -123,7 +123,7 @@ def test_two_cylinders_are_needed_for_the_collar_and_one_is_not_enough():
     assert _sat(ctx, "clay_shapes_at_least", "cylinder:2")
 
 
-def test_a_freshly_added_shape_is_not_shaped_until_it_is_resized_moved_or_reparameterised():
+def test_a_freshly_added_shape_is_not_shaped_until_it_is_resized_or_reparameterised():
     ctx = _ctx()
     clay_mode.new_document(ctx)
     doc = _tab(ctx).doc
@@ -140,7 +140,24 @@ def test_a_freshly_added_shape_is_not_shaped_until_it_is_resized_moved_or_repara
     assert _sat(ctx, "clay_shape_placed", "cone")
 
     box.scale[:] = 1.0
-    box.translation[:] = (0.0, 0.5, 0.0)  # moved
+    # Moved is not shaped: the Add door stands a new shape on the ground beside
+    # what is there, so a non-zero translation is what an untouched shape has.
+    box.translation[:] = (0.0, 0.5, 0.0)
+    assert not _sat(ctx, "clay_shape_placed", "box")
+
+
+def test_a_shape_the_click_door_grounded_is_still_not_shaped_until_the_reader_shapes_it():
+    """The regression the redefinition exists for: ``place_primitive`` puts a box
+    at ``y = 0.5``, which the old test (any non-origin translation is shaped)
+    read as the reader having already shaped it, so the torch tour's size step
+    was done before they typed a number."""
+    ctx = _ctx()
+    clay_mode.new_document(ctx)
+    doc = _tab(ctx).doc
+    placed = clay_tools.place_primitive(ctx, doc, "box")
+    assert placed.translation[1] != 0.0, "the click door no longer grounds the shape"
+    assert not _sat(ctx, "clay_shape_placed", "box")
+    placed.scale[:] = (0.2, 0.4, 0.04)
     assert _sat(ctx, "clay_shape_placed", "box")
 
 

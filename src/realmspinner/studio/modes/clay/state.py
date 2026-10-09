@@ -101,6 +101,15 @@ class ClayTab(docmodes.HistoryTab):
     # screenshot): the Document tab names it under the export buttons. Session
     # state like ``job_id``; a saved ``.rblk`` carries neither.
     exported_path: str = ""
+    # The palette slot the user last picked a swatch for, or ``None`` before they
+    # have. The next shape the Add door places is painted with it, so the colour
+    # they chose a moment ago is not lost the instant they add another part.
+    # Session state on the tab like ``job_id``: a saved ``.rblk`` carries neither
+    # it nor a hint of it. Stored as picked and **clamped when read**
+    # (``clay_mode.remembered_slot``), not when written -- ``remove_material``
+    # renumbers every slot above the one it drops, so a slot that was in range
+    # when it was remembered can name nothing (or the wrong colour) later.
+    last_slot: int | None = None
 
     # Tranche 6: the UV pane's own pan/zoom and island selection. See
     # ``UvPaneState``'s own docstring (``ui/panes/uv.py``) for why it is a
@@ -139,6 +148,12 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     #: ``clay_mode.handle_key`` to do the same thing -- the one Clay binding
     #: that did not live with the others.
     frame_pending: bool = False
+
+    #: With ``frame_pending``: frame the *whole* document rather than the
+    #: selection. A shape added off-screen is the selection, so framing "the
+    #: selection" would zoom onto it and push everything already built out of
+    #: view -- the add that was meant to help would lose the model.
+    frame_whole: bool = False
 
     #: Bumped once per drawn Clay frame by ``ui/viewport.py``. A generation
     #: counter for the one question the key layer cannot ask a pane directly --

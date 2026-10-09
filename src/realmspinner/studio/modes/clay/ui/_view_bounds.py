@@ -232,6 +232,22 @@ class BoundsOps:
         lo, hi = self.world_bounds(doc, selected_only=bool(doc.selection))
         if lo is None:
             lo, hi = self.world_bounds(doc)
+        return self._frame_box(lo, hi)
+
+    def frame_whole(self: ClayView, doc: Any) -> float:
+        """Put every visible object on screen, whatever is selected.
+
+        :meth:`frame_selection` with the selection ignored: the framing a shape
+        placed off-screen asks for (``ClayState.frame_whole``), where the
+        selection is the one new part and zooming onto it would push the rest
+        of the model out of the picture.
+        """
+        lo, hi = self.world_bounds(doc)
+        return self._frame_box(lo, hi)
+
+    def _frame_box(self: ClayView, lo: Any, hi: Any) -> float:
+        """The camera move both framings share. ``(None, None)`` is nothing to
+        frame, and the camera stays where it is."""
         if lo is None:
             return 0.0
         # ``keep_angles``: F centres and sizes the selection along the direction

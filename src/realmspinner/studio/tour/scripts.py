@@ -775,8 +775,9 @@ CLAY_TORCH = Tour(
             title="Start an empty model",
             body=(
                 "The torch is built from separate shapes, so start from nothing. With "
-                "nothing open, press New model in the middle of the window; with work "
-                "already open, press Ctrl+N so the torch gets a model of its own.\n\n"
+                "nothing open, press New model in the middle of the window (not Start "
+                "with a box, which puts a box in for you); with work already open, press "
+                "Ctrl+N so the torch gets a model of its own.\n\n"
                 "Next unlocks once the model in front of you is empty."
             ),
             mode="clay",
@@ -815,7 +816,7 @@ CLAY_TORCH = Tour(
             id="plate-shape",
             title="Flatten it into a plate",
             body=(
-                "An added shape lands at the origin at its default size. With the box "
+                "An added shape lands on the ground at its default size. With the box "
                 "selected, type a flat, tall plate into Size in Properties -- W 0.2, H 0.4, "
                 "D 0.04.\n\n"
                 "Next unlocks once the box is no longer the untouched default."
@@ -831,8 +832,8 @@ CLAY_TORCH = Tour(
             title="The shaft: a cylinder",
             body=(
                 "Add a Cylinder from the rail, then make it a thin pole: Size W 0.08, "
-                "H 0.6, D 0.08. Move it with Position so it stands in front of the plate "
-                "rather than inside it.\n\n"
+                "H 0.6, D 0.08. It lands on the ground beside the plate; move it with "
+                "Position so it stands in front of the plate instead.\n\n"
                 "Next unlocks once the cylinder has been shaped."
             ),
             mode="clay",

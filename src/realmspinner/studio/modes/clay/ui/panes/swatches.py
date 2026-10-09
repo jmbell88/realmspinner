@@ -18,8 +18,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import theme
+from ..... import probe, theme
 from .....tokens import sp
+from ... import mode as clay_mode
 from ... import ops as clay_ops
 
 #: A palette swatch's side, in design px -- the size Inker's own palette uses.
@@ -60,6 +61,9 @@ def _swatch(
         imgui.push_style_color(imgui.Col_.border.value, imgui.ImVec4(*theme.rgba(theme.ACCENT)))
         imgui.push_style_var(imgui.StyleVar_.frame_border_size.value, sp(2.0))
     clicked = imgui.color_button(label, imgui.ImVec4(*colour), 0, (side, side))
+    # Into the census (the first-try test presses a swatch the way a person does,
+    # and a colour button is not one of the controls ``_finish_item`` sees).
+    probe.record(label=label, kind="swatch", selected=selected, tooltip=tooltip)
     if selected:
         imgui.pop_style_var()
         imgui.pop_style_color()
@@ -122,6 +126,8 @@ def _pick_slot(ctx: Any, doc: Any, obj: Any, index: int) -> None:
             doc.set_props(obj.uid, material=index)
         return
     ctrl = _ctrl_held()
+    if not ctrl:
+        clay_mode.remember_slot(ctx, doc, index)
     if mode == "object" and not ctrl:
         doc.repaint_object(obj.uid, index)
         return
@@ -159,6 +165,12 @@ def click_slot(ctx: Any, doc: Any, index: int) -> None:
         return
     if _ctrl_held():
         return
+    # A plain press only (above and in ``_pick_slot``): Ctrl+click means "let me
+    # edit this slot", not "I want this colour", and remembering it would paint
+    # the next shape in a slot the user only opened. Recorded even when the
+    # press paints nothing (nothing selected) -- picking a colour and *then*
+    # adding the shape is as natural an order as the reverse.
+    clay_mode.remember_slot(ctx, doc, index)
     if doc.element_mode == "face":
         op = clay_ops.get("assign-material")
         if op.enabled(doc):
