@@ -117,8 +117,16 @@ def test_every_clay_shape_has_a_name_and_no_two_share_a_glyph():
     assert len({clay_tools.display_name(name) for name in names}) == len(names)
 
 
-def test_the_mode_pill_is_ordered_by_its_keys():
-    assert [key for _mode, _label, key in clay_tools.MODE_BUTTONS] == ["1", "2", "3", "4"]
+def test_the_mode_switch_leads_with_shape_and_keeps_its_keys():
+    """Old code ordered the pill by its keys (vertex, edge, face, object = 1 2 3 4)
+    and called Shape "Object": the first assertion fails there on the order."""
+    assert [mode for mode, _label, _key in clay_tools.MODE_BUTTONS] == [
+        "object", "vertex", "edge", "face",
+    ]
+    assert [label for _mode, label, _key in clay_tools.MODE_BUTTONS] == [
+        "Shape", "Points", "Edges", "Faces",
+    ]
+    assert sorted(key for _mode, _label, key in clay_tools.MODE_BUTTONS) == ["1", "2", "3", "4"]
 
 
 def test_the_quick_shapes_are_real_clay_shapes():

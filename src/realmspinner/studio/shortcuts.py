@@ -140,7 +140,7 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
                 # with a capital, one line above "Vertex / edge / face".
                 " / ".join(CLAY_KEYS.values()).capitalize(),
             ),
-            ("1 / 2 / 3 / 4", "Vertex / edge / face / object mode"),
+            ("1 / 2 / 3 / 4", "Points / edges / faces / shape mode"),
             ("E", "Extrude, then drag it out -- along the face normal (element modes)"),
             ("Shift+R", "Repeat the last operation (an element mode)"),
             ("I", "Inset faces -- drag, type a value, Enter (face mode)"),

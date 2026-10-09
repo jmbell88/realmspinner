@@ -89,6 +89,12 @@ class Item:
     priority: int = 0
     # Never hidden in the overflow menu; see the module docstring.
     pinned: bool = False
+    # Drawn as its glyph at *every* tier, label in the tooltip. For the few
+    # controls a row spends no words on at all -- Undo, Redo and a history
+    # chevron are three squares, never three words -- so the full tier is the
+    # same width as the icon tier and the tiering has nothing to take from it.
+    # The overflow menu still spells the label out: that is where words return.
+    icon_only: bool = False
 
     def __post_init__(self, primary: bool, danger: bool) -> None:
         if danger:
@@ -260,7 +266,94 @@ def _measure(items: Any) -> tuple[list[float], list[float]]:
     with fonts.label(imgui):
         full = [widgets.button_width(item.label) for item in items]
     icon = [square if item.icon else full[i] for i, item in enumerate(items)]
+    full = [icon[i] if item.icon_only and item.icon else full[i] for i, item in enumerate(items)]
     return full, icon
+
+
+@dataclass(frozen=True)
+class RowPlan:
+    """What :func:`toolbar` decided for one row at one width: the entries (items,
+    then fields), their measured full and icon widths, the tier each is drawn at,
+    and the trailing block's tier and width.
+
+    Returned by :func:`plan_row` so a test -- or a bar that wants to know whether
+    it fits before it draws -- can ask the question the row asks itself, with the
+    same measurements, instead of re-deriving them and drifting from them.
+    """
+
+    entries: list[Any]
+    full: list[float]
+    icon: list[float]
+    tiers: list[str]
+    trailing_draw: Any
+    trailing_w: float
+    trailing_tight: bool
+    avail: float
+
+    def used(self, gap: float, overflow_w: float) -> float:
+        """The width the row actually occupies: what is drawn, the overflow
+        button when anything is in it, and the trailing block. ``<= avail`` is
+        the claim "this row fits on one line"."""
+        shown = [
+            (self.full[i] if tier == FULL else self.icon[i])
+            for i, tier in enumerate(self.tiers)
+            if tier != MENU
+        ]
+        total = sum(shown) + gap * max(len(shown) - 1, 0)
+        if MENU in self.tiers:
+            total += overflow_w + (gap if shown else 0.0)
+        if self.trailing_draw is not None:
+            total += self.trailing_w + (gap if shown or MENU in self.tiers else 0.0)
+        return total
+
+
+def plan_row(items: Any, fields: Any, trailing: Any, avail: float) -> RowPlan:
+    """Measure the row and choose its tiers for ``avail`` physical px.
+
+    The arithmetic :func:`toolbar` runs before it draws anything, lifted out
+    whole: it needs an imgui context (for frame height, spacing and text width)
+    but draws nothing, so "does this bar fit at 1100x700" is a question a test can
+    ask of the real measurements.
+    """
+    gap = imgui.get_style().item_spacing.x
+    overflow_w = imgui.get_frame_height()
+    entries = [*items, *fields]
+    full, icon = _measure(items)
+    for field in fields:
+        wide, narrow = field.widths()
+        full.append(wide)
+        icon.append(narrow)
+    trailing_draw = None
+    trailing_w = 0.0
+    trailing_tight = False
+    row_avail = avail
+    if trailing is not None:
+        trailing_full, trailing_small, trailing_draw = trailing_widths(trailing)
+        # The block's tier is chosen *before* the row's, because its width is
+        # what the row is then planned against -- and from the row's *smallest*
+        # width, so the question asked is "can the row be made to fit beside
+        # this at all", not "does it fit with every label on".
+        trailing_tight = trailing_compact(
+            sum(icon) + gap * max(len(icon) - 1, 0),
+            avail,
+            trailing_full,
+            trailing_small,
+            gap=gap,
+        )
+        trailing_w = trailing_small if trailing_tight else trailing_full
+        row_avail -= trailing_w + gap
+    tiers = plan(
+        full,
+        icon,
+        [entry.priority for entry in entries],
+        [entry.pinned for entry in entries],
+        row_avail,
+        overflow_w,
+        gap=gap,
+    )
+    return RowPlan(
+        entries, full, icon, tiers, trailing_draw, trailing_w, trailing_tight, avail
+    )
 
 
 def toolbar(
@@ -290,42 +383,10 @@ def toolbar(
     would predict. A field that reaches the overflow menu is drawn in it, with
     its label above it -- the menu is where the words come back.
     """
-    avail = imgui.get_content_region_avail().x
-    gap = imgui.get_style().item_spacing.x
-    overflow_w = imgui.get_frame_height()
-    entries = [*items, *fields]
-    full, icon = _measure(items)
-    for field in fields:
-        wide, narrow = field.widths()
-        full.append(wide)
-        icon.append(narrow)
-    trailing_draw = None
-    trailing_w = 0.0
-    trailing_tight = False
-    if trailing is not None:
-        trailing_full, trailing_small, trailing_draw = trailing_widths(trailing)
-        # The block's tier is chosen *before* the row's, because its width is
-        # what the row is then planned against -- and from the row's *smallest*
-        # width, so the question asked is "can the row be made to fit beside
-        # this at all", not "does it fit with every label on".
-        trailing_tight = trailing_compact(
-            sum(icon) + gap * max(len(icon) - 1, 0),
-            avail,
-            trailing_full,
-            trailing_small,
-            gap=gap,
-        )
-        trailing_w = trailing_small if trailing_tight else trailing_full
-        avail -= trailing_w + gap
-    tiers = plan(
-        full,
-        icon,
-        [entry.priority for entry in entries],
-        [entry.pinned for entry in entries],
-        avail,
-        overflow_w,
-        gap=gap,
-    )
+    row = plan_row(items, fields, trailing, imgui.get_content_region_avail().x)
+    entries, full, icon, tiers = row.entries, row.full, row.icon, row.tiers
+    trailing_draw, trailing_w = row.trailing_draw, row.trailing_w
+    trailing_tight = row.trailing_tight
     clicked: str | None = None
     drawn = False
     for index, (item, tier) in enumerate(zip(entries, tiers, strict=True)):
@@ -339,7 +400,7 @@ def toolbar(
             item.draw(tier != FULL)
             continue
         ident = f"##{bar_id}/{item.key}"
-        if tier == ICON and item.icon:
+        if item.icon and (tier == ICON or item.icon_only):
             # The label becomes the tooltip rather than disappearing: a glyph
             # with no name is the accessible-name failure ``icon_button``'s
             # required tooltip exists to prevent, and a compacted button is

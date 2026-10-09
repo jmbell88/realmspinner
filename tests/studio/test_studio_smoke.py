@@ -5629,7 +5629,7 @@ def test_no_two_plotter_items_claim_one_imgui_id(app_ctx, imgui_ctx, pane):
     assert not conflicts, f"{pane}: {detail}"
 
 
-def _drawn_labels(imgui, build, title):
+def _drawn_labels(imgui, build, title, width=420):
     """Every label the pane submits, in draw order.
 
     The same wrapping trick ``_claimed_ids`` uses, recording the *sequence*
@@ -5651,7 +5651,7 @@ def _drawn_labels(imgui, build, title):
         setattr(imgui, name, wrap(fn))
     try:
         imgui.new_frame()
-        imgui.set_next_window_size((420, 900))
+        imgui.set_next_window_size((width, 900))
         imgui.begin(title)
         build()
         imgui.end()
@@ -6550,37 +6550,22 @@ def test_the_plotter_stamp_ghost_draws_the_brush_under_the_pointer(app_ctx, imgu
 CLAY_CENTRE_AT_DEFAULT = 1135.0
 
 
-def _clay_header_tiers(imgui, avail: float) -> list[str]:
-    """The tier ``toolbar`` would choose for each header entry at ``avail`` px."""
-    from realmspinner.kernels.mesh import document as bd
-    from realmspinner.studio import toolbar
-    from realmspinner.studio.modes.clay import state as clay_state
+def _clay_header_plan(app_ctx, avail: float):
+    """The row's own plan (``toolbar.plan_row``) for the live Clay header at
+    ``avail`` physical px, built from the entries ``header.draw`` draws."""
+    from realmspinner.studio.modes.clay import mode as clay_mode
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
-    state = clay_state.ClayState()
     # A document in the state a fresh tab opens in: nothing to undo, so both
     # history items are disabled -- which changes neither their width nor their
     # tier, but is the case the first frame of every session draws.
-    tab = SimpleNamespace(doc=bd.ClayDoc(), saving=False)
-    items = clay_header._items(state, tab)
-    fields = [clay_header._mode_field(tab)]
-    style = imgui.get_style()
-    square = imgui.get_frame_height()
-    full = [imgui.calc_text_size(item.label).x + style.frame_padding.x * 2.0 for item in items]
-    icon = [square for _item in items]
-    for field in fields:
-        wide, narrow = field.widths()
-        full.append(wide)
-        icon.append(narrow)
-    entries = [*items, *fields]
-    return toolbar.plan(
-        full,
-        icon,
-        [entry.priority for entry in entries],
-        [entry.pinned for entry in entries],
-        avail,
-        square,
-        gap=style.item_spacing.x,
+    tab = _clay_tab(app_ctx, objects=0)
+    return clay_header.row_plan(app_ctx, clay_mode.ensure(app_ctx), tab, avail)
+
+
+def _tier_of(plan, key: str) -> str:
+    return next(
+        tier for entry, tier in zip(plan.entries, plan.tiers, strict=True) if entry.key == key
     )
 
 
@@ -6590,31 +6575,108 @@ def test_the_clay_header_fits_at_the_default_window(app_ctx, imgui_ctx):
     ``toolbar`` degrades rather than clips, so a header that does not fit does
     not *look* broken -- it looks like a header whose every label is a hover
     away, on the machine everybody uses. Measured here rather than in
-    ``tests/modes/clay/test_clay_header.py`` because measuring a font needs a live imgui
-    context and that file must not build a second one.
+    ``tests/modes/clay/test_clay_header.py`` because that file measures with
+    imgui's default font and no renderer.
     """
     from realmspinner.studio import toolbar
 
-    imgui, _renderer = imgui_ctx
-    # ``_frame`` returns nothing, so the reading is carried out in a list.
-    out: list[list[str]] = []
-    _frame(
-        imgui_ctx,
-        lambda: out.append(_clay_header_tiers(imgui, CLAY_CENTRE_AT_DEFAULT)),
-    )
-    assert set(out[0]) == {toolbar.FULL}, out[0]
+    out: list = []
+    _frame(imgui_ctx, lambda: out.append(_clay_header_plan(app_ctx, CLAY_CENTRE_AT_DEFAULT)))
+    plan = out[0]
+    assert set(plan.tiers) == {toolbar.FULL}, plan.tiers
+    assert not plan.trailing_tight, "the Export word is dropped only when the row is short"
 
 
 def test_the_clay_header_gives_up_labels_before_controls(app_ctx, imgui_ctx):
     """The ordering the module rests on: a label is cheaper to lose than a
     control, so a genuinely narrow centre drops to glyphs rather than hiding a
-    button."""
+    button -- and the mode switch, Undo and Redo, which are pinned, never go in
+    the overflow menu however narrow it gets."""
     from realmspinner.studio import toolbar
 
+    out: list = []
+    _frame(imgui_ctx, lambda: out.append(_clay_header_plan(app_ctx, 120.0)))
+    plan = out[0]
+    assert toolbar.ICON in plan.tiers or toolbar.MENU in plan.tiers
+    for key in ("undo", "redo", "mode"):
+        assert _tier_of(plan, key) != toolbar.MENU, key
+
+
+def test_the_clay_header_gives_things_up_in_the_order_the_row_promises(app_ctx, imgui_ctx):
+    """Narrowing the row from the default: the three view buttons go to glyphs
+    first, then the shading switch to letters, then the mode switch, and only
+    when all of those are as small as they get does anything enter the overflow
+    menu. (The Export word is the trailing block's own tier, chosen against the
+    row's *smallest* width -- ``toolbar.trailing_compact`` -- so it is not part
+    of this ladder.) Walked ten pixels at a time, because "the order" is a claim
+    about every width."""
+    from realmspinner.studio import toolbar
+
+    rank = {"xray": 0, "view": 0, "snap": 0, "shading": 1, "mode": 2}
+    plans: list = []
+    _frame(
+        imgui_ctx,
+        lambda: plans.extend(
+            (avail, _clay_header_plan(app_ctx, float(avail))) for avail in range(1200, 150, -10)
+        ),
+    )
+    for avail, plan in plans:
+        smaller = {key: _tier_of(plan, key) != toolbar.FULL for key in rank}
+        for later, step in rank.items():
+            if smaller[later]:
+                earlier = [k for k, r in rank.items() if r < step]
+                assert all(smaller[k] for k in earlier), (avail, later, smaller)
+        if toolbar.MENU in plan.tiers:
+            assert all(smaller.values()), (avail, smaller, plan.tiers)
+    assert any(toolbar.MENU in plan.tiers for _avail, plan in plans), "the walk never narrowed"
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.5, 2.0])
+def test_the_clay_toolbar_fits_one_row_at_the_resize_floor_at_every_scale(
+    app_ctx, imgui_ctx, scale
+):
+    """The window the app cannot be shrunk below is 1100x700 at the monitor's
+    scale, so at UI scale 1.5 it is 1650 px wide and at 2.0, 2200: the same
+    design width, which is what this measures -- with the font, the padding and
+    the spacing scaled the way ``theme.apply`` scales them, so the answer is
+    about the pixels the row would really be drawn in.
+
+    "Fits one row" is ``plan_row(...).used() <= avail``: what is drawn, the
+    overflow button when anything is in it, and the trailing block. The floor's
+    centre is Clay's: the window less the navigation rail and the right sidebar
+    (the empty left column hands its width to the centre).
+    """
+    from realmspinner.studio import layout, tokens, toolbar
+
     imgui, _renderer = imgui_ctx
-    out: list[list[str]] = []
-    _frame(imgui_ctx, lambda: out.append(_clay_header_tiers(imgui, 120.0)))
-    assert toolbar.ICON in out[0] or toolbar.MENU in out[0]
+    style = imgui.get_style()
+    base = (style.font_scale_main, tuple(style.frame_padding), tuple(style.item_spacing))
+    old_scale = tokens.SCALE
+    tokens.set_scale(scale)
+    style.font_scale_main = scale
+    style.frame_padding = (base[1][0] * scale, base[1][1] * scale)
+    style.item_spacing = (base[2][0] * scale, base[2][1] * scale)
+    out: list = []
+    try:
+        imgui.new_frame()
+        imgui.begin("##floor")
+        gap, overflow_w = imgui.get_style().item_spacing.x, imgui.get_frame_height()
+        _rail, left, centre, _right, _dock = layout.proportions(
+            1100.0 * scale, 0.0, gap, rail=70.0 * scale, scale=scale
+        )
+        avail = left + centre - 2.0 * tokens.sp(tokens.SP_3)
+        plan = _clay_header_plan(app_ctx, avail)
+        out.append((plan, plan.used(gap, overflow_w), avail))
+        imgui.end()
+        imgui.end_frame()
+    finally:
+        style.font_scale_main = base[0]
+        style.frame_padding, style.item_spacing = base[1], base[2]
+        tokens.set_scale(old_scale)
+    plan, used, avail = out[0]
+    assert used <= avail, f"the row needs {used:.0f} px of {avail:.0f} at scale {scale}"
+    for key in ("undo", "redo", "mode"):
+        assert _tier_of(plan, key) != toolbar.MENU, f"{key} was folded away at scale {scale}"
 
 
 def test_the_clay_hud_draws_its_widget_and_its_line(app_ctx, imgui_ctx):
@@ -6881,7 +6943,10 @@ def test_the_clay_stats_overlay_draws_when_it_is_asked_for(app_ctx, imgui_ctx):
 
 def test_the_clay_header_shading_pill_and_xray_render(app_ctx, imgui_ctx):
     """Each shading mode and the X-ray switch, which the walk draws only in
-    whatever state the header happens to open in."""
+    whatever state the header happens to open in. (The pane is drawn in a
+    window wide enough for the whole row; a narrower one folds shading into the
+    overflow menu, which ``test_the_clay_header_gives_things_up_in_the_order_the_row_promises``
+    covers.)"""
     from realmspinner.studio.modes.clay import mode as clay_mode
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 
@@ -6891,7 +6956,9 @@ def test_the_clay_header_shading_pill_and_xray_render(app_ctx, imgui_ctx):
 
     for key, _label, _short, _tip in clay_header.SHADING:
         state.shading = key
-        labels = _drawn_labels(imgui, lambda: clay_header.draw(app_ctx), "##shading")
+        labels = _drawn_labels(
+            imgui, lambda: clay_header.draw(app_ctx), "##shading", width=1400
+        )
         assert _index_of(labels, f"##clay-shading/{key}") >= 0, labels
     state.shading = "material"
 

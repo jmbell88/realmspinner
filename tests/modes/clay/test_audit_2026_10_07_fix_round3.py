@@ -53,18 +53,24 @@ def _open_menu(*_a: Any, **_k: Any) -> Any:
 
 
 def _stub_rail(monkeypatch: pytest.MonkeyPatch) -> None:
-    def button(label: str, *_a: Any, **_k: Any) -> bool:
-        return "clay-rail/add/" in label
+    # The rail draws each button through ``_cell`` (a glyph over a word); what this
+    # file is about is what a click on a quick shape *does*, so the cell is the
+    # one stubbed seam and reports a press for every add cell.
+    def cell(_glyph: str, ident: str, *_a: Any, **_k: Any) -> bool:
+        return "clay-rail/add/" in ident
 
     fake_imgui = SimpleNamespace(
         get_item_rect_min=lambda: SimpleNamespace(x=0.0, y=0.0),
         get_item_rect_max=lambda: SimpleNamespace(x=0.0, y=0.0),
         is_popup_open=lambda *_a: False,
         open_popup=lambda *_a: None,
+        get_style=lambda: SimpleNamespace(item_spacing=SimpleNamespace(y=8.0)),
+        # Tall: the quick shapes are drawn only when they fit (``quick_shapes_fit``).
+        get_content_region_avail=lambda: SimpleNamespace(x=100.0, y=10_000.0),
     )
     monkeypatch.setattr(pane_rail.anchors, "mark_window", lambda *_a: None)
     monkeypatch.setattr(pane_rail.widgets, "divider", lambda *_a, **_k: None)
-    monkeypatch.setattr(pane_rail.controls, "button", button)
+    monkeypatch.setattr(pane_rail, "_cell", cell)
     monkeypatch.setattr(pane_rail.controls, "menu_popup", _popup)
     monkeypatch.setattr(pane_rail, "imgui", fake_imgui)
 

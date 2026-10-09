@@ -15,8 +15,8 @@ It is a mode, not a takeover. Switching away leaves every open document exactly 
 quitting the app can lose unsaved work, and it asks first.
 
 The layout is picoCAD's more than Blender's: almost the whole window is the viewport. Down its left
-edge runs a slim **tool rail** — the four transform tools and the shapes — and over it the menu strip and
-the header; under it a fixed **palette strip** shows the document's materials. On the right are only
+edge runs a slim, labelled **tool rail** — the four transform tools and the shapes — and over it the menu
+strip and the toolbar; under it a fixed **palette strip** shows the document's materials. On the right are only
 two panes, the outliner and Properties, and Properties' tabs are Object, Material, Document and UV. There
 is no left-hand column and no separate file pane. Several documents stay open at once.
 
@@ -31,7 +31,7 @@ documents you had open recently — clicking one reopens it, and hovering it sho
 is no separate file pane: every file command is in the **File** menu, which is where Clay's own rows sit among
 the ones every mode has — **New**, **Open...**, **Open Recent**, **Save**, **Save As...**, **Export to
 library**, **Export GLB...**, **Export OBJ...** and **Save Screenshot...**, with **Undo** and **Redo**
-beside them (and as two buttons in the header). `Ctrl+N` and `Ctrl+O` do the same two things from the
+beside them (and as two buttons in the toolbar). `Ctrl+N` and `Ctrl+O` do the same two things from the
 keyboard.
 
 Choosing **Clay** from the Home screen opens an empty document for you when there is nothing open
@@ -51,15 +51,18 @@ A document with nothing in it says so in the viewport itself — "Add a shape", 
 Add" underneath and a button that drops a box on the ground — rather than leaving you to notice an
 empty grid and go looking for a shape on your own.
 
-The **tool rail** down the left edge of the viewport has the four transform tools at the top (see
-[Transforming](#transforming)) and, under a divider, a few shapes as one-click buttons and a **+**
-button. **+** opens a flyout that lists all the shapes **by name**, and the **Add** menu in the menu
-strip lists the same ones (see [The menu strip](#the-menu-strip)). **Primitives**: box, plane, grid,
+The **tool rail** down the left edge of the viewport has the four transform tools at the top — **Select**,
+**Move**, **Turn** and **Resize**, each with its name under the icon (see [Transforming](#transforming)) — and,
+under a divider, four shapes as one-click buttons (Box, Cylinder, Sphere and Cone) and a **+** button.
+**+** opens a flyout that lists all the shapes **by name**, and the **Add** menu in the menu
+strip lists the same ones (see [The menu strip](#the-menu-strip)). When the window is too short for the
+four shapes under the tools, they are not drawn at all and the **+** is labelled **Add** instead of
+**More**: the flyout is then the way to every shape, the four included. **Primitives**: box, plane, grid,
 cylinder, cone, UV sphere, icosphere, torus and capsule. **Game**: wedge, ramp, rounded box, stairs,
 wall and doorway. That is fifteen, and it is the whole list — Clay no longer builds pyramids, arches,
 columns, lathes, sweeps or tubes, because the curve editor that drove the last three went with them;
-a column is a cylinder. Hovering a rail button names it, and a fresh document does not arrive with a
-shape already picked.
+a column is a cylinder. Hovering a rail button says what it does and which key picks it, and a fresh
+document does not arrive with a shape already picked.
 
 Clicking a shape places it and selects it, and the place is chosen for you. It **stands on the ground**,
 its lowest point exactly on the grid plane, and it lands **beside** what is already there rather than
@@ -139,7 +142,7 @@ dialog of numbers first. The right-click menu in the viewport lists exactly the 
 same order and with the same groups separated by rules — one table decides both.
 
 That is the whole list. Clay has thirty-eight operations, and every one is a menu row except Frame Selection, which
-lives in the header's View popup:
+lives in the toolbar's View popover:
 
 | Menu | Operations |
 | --- | --- |
@@ -153,48 +156,54 @@ lives in the header's View popup:
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
 | Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in vertex mode Weld... |
 | UV | Box Unwrap, Pack Islands... |
-| (header) | Frame Selection (`F`) |
+| (toolbar) | Frame Selection (`F`) |
 
 Select None has no key of its own: `Esc` steps back through the selection, and `Ctrl+D` deselects.
 Everything with a key is also in [Keyboard shortcuts](38-shortcuts.md).
 
 ## The viewport header
 
-The row across the top of the viewport is where everything you change *between* clicks lives: which
-element mode you are in, which transform tool you are holding, whether snapping is on, and what the
-viewport is drawing. All four used to be blocks down a tool panel on the far side of the window from the
-model — a reach away from the thing every one of them is about.
+The toolbar is one row across the top of the viewport, under the menu strip, and it is where everything you
+change *between* clicks lives: which element mode you are in, how the surface is drawn, what the viewport
+shows over the model, whether snapping is on, and the way out of the document. These used to be blocks
+down a tool panel on the far side of the window from the model — a reach away from the thing every one of
+them is about. Left to right it holds:
 
-The header holds the **mode** field and the buttons beside it. The mode field reads **Verts**, **Edges**,
-**Faces** and **Object** — vertex, edge, face and object, in the order of the keys `1`, `2`, `3` and `4` —
-and shortens to **V**, **E**, **F** and **Obj** when the window is narrow. The tools (Select, Move, Rotate,
-Scale) live on the rail beside the viewport and nowhere else. Everything else on the row gives up its label
-before it gives up its control, and if the window is narrow enough the rightmost group moves into a `…`
-menu with the full words back.
+- **Undo**, **Redo** and a small chevron beside them that opens the **history**: every step, with the
+  newest marked, and a click on one goes there. Undo and Redo are greyed when there is nothing to take back
+  or put back, hovering one says why, and they do exactly what `Ctrl+Z` and `Ctrl+Y` do. The history jump
+  is refused in the middle of a drag, as the chords are.
+- The **mode switch**: **Shape**, **Points**, **Edges**, **Faces**. Shape is the whole-object mode; the
+  other three are vertex, edge and face editing, on the keys `1`, `2` and `3`, and `4` is Shape. Hovering a
+  segment names its key. When the window is narrow the words shorten to **S**, **P**, **E** and **F**, and
+  the switch is never folded into a menu, because a mode picker you cannot see is no use.
+- The **shading switch**: **Flat**, **Lit**, **Wire**. *Lit* is the lit render — what the object will look
+  like. *Flat* is the colours with no lighting, and it is what you model in: it shows silhouette and
+  topology without a highlight sitting on the vertex you are dragging. *Wire* replaces the surface with
+  its edges entirely.
+- **X-ray** (`Alt+Z`) makes the surface see-through, so an element behind it can be picked. It is off by
+  default because it changes what a click *selects* as well as what is drawn.
+- **View**, one popover that holds what the viewport draws and where the camera looks from. Under
+  **Overlays** it lists **Grid** (with its size in metres), **Wireframe over surface**, **Statistics** and
+  **God light**; under **Views** the six axis views, each with its key, then **Orthographic** and **Frame
+  the selection**. The button stays lit while any overlay is not at its default. See [Axis views](#axis-views).
+- **Snap**, a button that opens the numbers behind it — a grid size and an angle. It stays lit while the
+  setting is on, so a shut popover still says what is armed, and it does not grey out while a document is
+  saving: it touches nothing in the document. See [Snapping](#snapping).
+- At the far end, the **(?)** and **Export**, a split button. Its main click is **Export to the library**,
+  the same as the button in the Document tab; it is greyed, with the reason on hover, when there is nothing
+  visible to send. The chevron beside it lists **Export to the library**, **Export GLB...**, **Export
+  OBJ...** and **Save screenshot...**, each greyed with the same reason.
 
-**Undo** and **Redo** are two buttons on the header. Each is greyed when there is nothing to take back or
-put back, and hovering it says why; they do exactly what `Ctrl+Z` and `Ctrl+Y` do. The history behind
-them is one click away in the Document tab (see [The Properties tabs](#the-properties-tabs)).
-
-**Snap** is a button that opens the numbers behind it — a grid size and an angle. The button stays lit
-while the setting is on, so a shut popover still says what is armed. It does not grey out while a
-document is saving: it touches nothing in the document.
-
-**Solid / Material / Wire** is how the surface itself is drawn. *Material* is the lit render — what
-the object will look like. *Solid* is the albedo with no lighting, and it is what you model in: it
-shows silhouette and topology without a specular highlight sitting on the vertex you are dragging.
-*Wire* replaces the surface with its edges entirely.
-
-**X-ray** (`Alt+Z`) makes the surface see-through, so an element behind it can be picked. It is off by
-default because it changes what a click *selects* as well as what is drawn.
-
-**Overlays** is what the viewport draws over the model — the grid, a wireframe over whichever shading
-is showing, the statistics line, and the god light. **View** is where the camera looks from and how it
-projects; both are described below, under [Axis views](#axis-views) and [Snapping](#snapping).
+The tools (Select, Move, Turn, Resize) live on the rail beside the viewport and nowhere else. When the
+window is too narrow for the whole row it gives up labels before controls: first the View, X-ray and Snap
+words become icons, then the shading words and the mode words become letters, and then View, X-ray, Snap
+and the shading switch move into a `…` menu with their full words back. Undo, Redo and the mode switch
+never move, and neither does Export.
 
 The **Grid** is a fixed size — 100 m by default, in 1 m cells, with a brighter line every ten of them
 — rather than one that follows whatever is on screen, and its own field sits under the Grid row in the
-Overlays popover, from 1 to 1000 m. Pressing `F` to frame the selection moves the camera only; it
+View popover, from 1 to 1000 m. Pressing `F` to frame the selection moves the camera only; it
 neither resizes the grid out from under you nor turns the view — you keep looking from the same angle.
 The size is remembered across sessions, the way the switch itself already was.
 
@@ -234,15 +243,16 @@ this chapter.
 
 Every object starts as one thing you can move about. Press `1`, `2` or `3` and it becomes a mesh you
 can take apart: vertices, edges, faces. `4` goes back to object mode. The **Mode** pills in the
-viewport header say the same thing, in the same order as the keys — **V**, **E**, **F**, **Obj** — and
-highlight whichever mode the document is in.
+viewport toolbar say the same thing — **Shape**, **Points**, **Edges**, **Faces**, shortening to **S**, **P**,
+**E**, **F** in a narrow window — and highlight whichever mode the document is in. The switch reads left to
+right in the order of the modes (Shape first), so the keys under it run `4`, `1`, `2`, `3`.
 
 | Key | Mode | What clicking selects |
 | --- | --- | --- |
-| `1` | Verts | One vertex |
+| `1` | Points | One vertex |
 | `2` | Edges | One edge |
 | `3` | Faces | One face |
-| `4` | Object | The whole object |
+| `4` | Shape | The whole object |
 
 The mode belongs to the *document*, not to the app, so switching tabs does not reinterpret what you
 had selected in the other one.
@@ -407,7 +417,8 @@ With two objects selected the ring is drawn at the median and the document turns
 than each object spinning about its own origin, and a single object whose origin is not at the centre
 of its bounding box orbits the ring you can see.
 
-Four tools, on `Q`, `G`, `R` and `S`, which are also the four buttons at the top of the tool rail:
+Four tools, on `Q`, `G`, `R` and `S`, which are also the four buttons at the top of the tool rail (the rail
+calls Rotate **Turn** and Scale **Resize**):
 
 | Tool | Key | What it does |
 | --- | --- | --- |
@@ -681,7 +692,7 @@ half, mirror-copy it, and merge the two with a weld distance if you want a singl
 Blender puts them on, so the muscle memory carries over. Hold `Shift` for the opposite view, which
 is how three keys cover six. `Ctrl+5` toggles an **orthographic** projection, where parallel edges
 stay parallel and there is no perspective foreshortening; it is what you want for lining two things
-up. The **View** menu on the viewport header lists all six views and the orthographic toggle by
+up. The **View** popover on the viewport toolbar lists all six views and the orthographic toggle by
 name, and the navigation widget in the corner does the same with a click.
 
 The numeric keypad does the same without the `Ctrl`: numpad `1`, `3` and `7` look along front, right

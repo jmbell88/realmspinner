@@ -1,4 +1,4 @@
-"""The row across the top of Clay's viewport: what you are editing, and how.
+"""The row across the top of Clay's viewport: what you edit, how it draws, the way out.
 
 Clay had no viewport toolbar at all. Which element mode you were in, which
 transform tool you held, whether snapping was on and what the viewport was
@@ -7,20 +7,28 @@ on the far side of the window from the model. Every one of them is a setting
 changed *between* clicks in the viewport, which is the same argument that moved
 Inker's tool options onto a context bar and Plotter's tools onto one.
 
-**The mode is a field, not an item.** ``toolbar`` collapses items into an
-overflow menu before it collapses anything else, and a mode picker in a menu is
-a mode picker nobody can see the state of -- which is the one thing a mode
-picker is for. As a field it competes with the buttons by ``priority``, and it
-is priority 0.
+**One row, left to right:** Undo, Redo and a chevron that opens the history; the
+mode switch (**Shape / Points / Edges / Faces**); the shading switch (**Flat /
+Lit / Wire**); X-ray; **View** (the overlays and the camera, one popover); Snap;
+and at the far end the help marker and **Export**, a split button whose main
+click is the library export and whose chevron lists the other ways out. The row
+degrades rather than clips (``toolbar``): words become glyphs, the shading
+switch and the three view buttons fold into the overflow menu before the mode
+switch does, and the mode switch, Undo and Redo are pinned -- a mode picker in a
+menu is a mode picker nobody can see the state of, which is the one thing a mode
+picker is for.
 
-**The tool is not here any more.** Select / Move / Rotate / Scale are the top of
-the tool rail beside the viewport (``rail.py``); a second pill for the same four
-buttons was two controls for one state. Its width went to Undo and Redo, which
-this bar had no button for at all -- the history lived three panes away in the
-Document tab, so the most-used control in a modeller was reachable only by a
-chord or a tab switch.
+**The labels are the plain words; the state is not.** "Shape" is the document's
+``object`` mode and "Flat / Lit / Wire" are ``state.shading``'s ``solid /
+material / wireframe``: stored names are what a saved layout, the agent surface
+and the key handlers already speak, and a rename there would be a migration for
+the sake of a word. Keys 1-4 are unchanged; every tooltip carries its key.
 
-**Modes are lettered, not drawn.** ``icons.py`` is a transcription of
+**The tool is not here.** Select / Move / Turn / Resize are the top of the tool
+rail beside the viewport (``rail.py``); a second pill for the same four buttons
+was two controls for one state.
+
+**Modes are lettered when narrow, not drawn.** ``icons.py`` is a transcription of
 lucide-static 0.525.0 and its docstring forbids guessing a codepoint; the
 vendored subset has nothing for a vertex, an edge or a face. ``inker_context``
 made the same call for its four symmetry mirrors and said so.
@@ -38,9 +46,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import controls, fonts, icons, toolbar, widgets
+from ..... import controls, fonts, icons, tokens, toolbar, verbs, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
+from ... import doc_io
 from ... import mode as clay_mode
 from . import strip as clay_strip
 from . import tools as clay_tools
@@ -55,23 +64,35 @@ BAR = "clay-header"
 HEADER_H = 34.0
 
 SNAP_POPUP = "clay-snap"
-OVERLAYS_POPUP = "clay-overlays"
 VIEW_POPUP = "clay-view"
+HISTORY_POPUP = "clay-header-history"
+EXPORT_POPUP = "clay-export"
 
 #: How the surface is drawn, in the order Blender lists them: the flat albedo,
-#: the lit render, the edges alone. Glyph-free -- lucide has nothing for a
-#: shading mode and ``icons.py`` forbids inventing a codepoint -- so the compact
-#: tier is the first letter, which is unambiguous across three.
+#: the lit render, the edges alone. The first column is ``state.shading``'s own
+#: value and does not change with the word on the button. Glyph-free -- lucide
+#: has nothing for a shading mode and ``icons.py`` forbids inventing a codepoint
+#: -- so the compact tier is the first letter, which is unambiguous across three.
 SHADING: tuple[tuple[str, str, str, str], ...] = (
-    ("solid", "Solid", "S", "The albedo with no lighting: silhouette and topology, "
-     "with no highlight sitting on the vertex you are dragging"),
-    ("material", "Material", "M", "The lit render -- what the object will look like"),
-    ("wireframe", "Wire", "W", "The edges alone, with no surface at all"),
+    ("solid", "Flat", "F", "Flat colours, no lighting"),
+    ("material", "Lit", "L", "Lit surface"),
+    ("wireframe", "Wire", "W", "Edges only"),
 )
 
 #: The element modes, compact. ``clay_tools.MODE_BUTTONS`` carries the full
 #: labels and the keys; this is only what a narrow window shows instead.
-MODE_SHORT = {"object": "Obj", "vertex": "V", "edge": "E", "face": "F"}
+MODE_SHORT = {"object": "S", "vertex": "P", "edge": "E", "face": "F"}
+
+_SAVING = "This document is being written; the controls come back when it lands."
+_UNDO_WHY = "Nothing to undo yet."
+_REDO_WHY = "Nothing to redo: this is the newest step."
+_HISTORY_WHY = "No steps yet."
+_NO_VIEW = "The viewport is still starting up."
+
+#: The Export button's words. The long form is the library door's own name
+#: (``verbs.EXPORT_TO_LIBRARY``); the button is the short form because its
+#: tooltip and the menu under its chevron spell the destination out.
+EXPORT_LABEL = "Export"
 
 
 def draw(ctx: Any, view: Any = None) -> None:
@@ -85,31 +106,45 @@ def draw(ctx: Any, view: Any = None) -> None:
     # Inker's arrangement): the bar below is settings changed between clicks,
     # and these are verbs, which is the split Blender's header also makes.
     clay_strip.draw(ctx, state, tab)
-    hit = toolbar.toolbar(
-        BAR,
-        _items(state, tab),
-        fields=[_mode_field(tab)],
-        trailing=_trailing(ctx, state, view),
-    )
-    if hit == "snap":
-        imgui.open_popup(SNAP_POPUP)
-    elif hit == "undo":
+    items, fields, trailing = _row(ctx, state, tab, view)
+    hit = toolbar.toolbar(BAR, items, fields=fields, trailing=trailing)
+    if hit == "undo":
         # ``clay_mode.undo``/``redo`` rather than ``tab.doc.undo()``: the button
         # and the chord carry the same side effects (see that module's history
         # block).
         clay_mode.undo(ctx, tab)
     elif hit == "redo":
         clay_mode.redo(ctx, tab)
-    _snap_popup(state)
+    elif hit == "history":
+        imgui.open_popup(HISTORY_POPUP)
+    _history_popup(ctx, tab)
     widgets.divider()
 
 
-_UNDO_WHY = "Nothing to undo yet."
-_REDO_WHY = "Nothing to redo: this is the newest step."
+def _row(ctx: Any, state: Any, tab: Any, view: Any) -> tuple[list[Any], list[Any], Any]:
+    """The three things ``toolbar.toolbar`` is handed, built once so a test can
+    plan the very row :func:`draw` draws."""
+    return (
+        _items(state, tab),
+        _fields(ctx, state, tab, view),
+        _trailing(ctx, tab),
+    )
+
+
+def row_plan(ctx: Any, state: Any, tab: Any, avail: float, view: Any = None) -> Any:
+    """The tier every entry of the row would be drawn at in ``avail`` physical px.
+
+    Needs an imgui context for its measurements and draws nothing. For
+    ``tests/studio/test_studio_smoke.py``, which asks the one question a header
+    can silently get wrong: does it fit on one line at the window the app opens
+    at and at its floor.
+    """
+    items, fields, trailing = _row(ctx, state, tab, view)
+    return toolbar.plan_row(items, fields, trailing, avail)
 
 
 def _items(state: Any, tab: Any) -> list[Any]:
-    """Undo, Redo, and the snap popover.
+    """Undo, Redo and the history chevron.
 
     **Undo and Redo read the document's own stack** (``tab.doc.history``): the
     reason a greyed one gives is the history's, not a guess, and both grey while
@@ -118,13 +153,13 @@ def _items(state: Any, tab: Any) -> list[Any]:
     could mutate the stack under a running encode must not be the way round it.
     Clicking runs ``clay_mode.undo`` and ``redo`` (see :func:`draw`).
 
-    Snap is behind a button rather than on the bar because it is a switch *and*
-    the figures that switch governs -- a grid size and an angle -- and a 34 px
-    row is the wrong shape for a number field. ``selected`` on the button is what
-    keeps the state visible with the popover shut, which is the whole reason a
-    popover is allowed to hold a switch at all.
+    All three are glyphs at every width (``icon_only``): the history is three
+    squares, never three words, and the mode switch beside them is what the row
+    spends its words on. Undo and Redo are pinned; the chevron is not, because
+    the same list is in Properties' Document tab.
     """
 
+    del state
     history = tab.doc.history
     busy = bool(getattr(tab, "busy", getattr(tab, "saving", False)))
     return [
@@ -135,6 +170,8 @@ def _items(state: Any, tab: Any) -> list[Any]:
             tooltip="Undo the last step (Ctrl+Z)",
             enabled=bool(history.can_undo) and not busy,
             reason=_SAVING if busy else _UNDO_WHY,
+            icon_only=True,
+            pinned=True,
         ),
         toolbar.Item(
             "redo",
@@ -143,24 +180,78 @@ def _items(state: Any, tab: Any) -> list[Any]:
             tooltip="Redo the step you undid (Ctrl+Y)",
             enabled=bool(history.can_redo) and not busy,
             reason=_SAVING if busy else _REDO_WHY,
+            icon_only=True,
+            pinned=True,
         ),
         toolbar.Item(
-            "snap",
-            "Snap",
-            icons.MAGNET,
-            tooltip="Snap a drag to the grid or to an angle",
-            selected=bool(state.snap),
+            "history",
+            "History",
+            icons.CHEVRON_DOWN,
+            tooltip="Every step, with the newest marked. Click one to go there.",
+            enabled=bool(history.total) and not busy,
+            reason=_SAVING if busy else _HISTORY_WHY,
+            icon_only=True,
+            priority=1,
         ),
     ]
 
 
+def _history_popup(ctx: Any, tab: Any) -> None:
+    """The undo stack as a popover: a click on a step is ``clay_mode.step_history``.
+
+    The mode's door, not ``doc.step_history``: it refuses under a live gesture
+    (a jump mid-drag would undo the thing being dragged), which the pane must not
+    be able to bypass. Keyed apart from Properties' Document tab (``clay``), which
+    draws the same list in the same window set -- two rows with one id would be
+    one row that answers both.
+    """
+    widgets.history_popup(
+        HISTORY_POPUP,
+        tab,
+        lambda index: clay_mode.step_history(ctx, tab, index),
+        key=BAR,
+        opened="(the document as opened)",
+    )
+
+
+# --- measuring ---------------------------------------------------------------------
+
+
+def _design(px: float) -> float:
+    """Physical px -> design px, for ``toolbar.Field``, which scales its own widths."""
+    return px / tokens.SCALE
+
+
+def _segments(labels: list[str]) -> float:
+    """What ``controls.segmented_choice`` draws *labels* at, in physical px."""
+    style = imgui.get_style()
+    pad = style.frame_padding.x * 2.0
+    gap = style.item_spacing.x
+    with fonts.label(imgui):
+        text = sum(imgui.calc_text_size(label).x + pad for label in labels)
+    return text + gap * max(len(labels) - 1, 0)
+
+
+def _word(label: str) -> float:
+    """A text button's width, in physical px."""
+    with fonts.label(imgui):
+        return widgets.button_width(label)
+
+
+# --- the mode and the shading ------------------------------------------------------
+
+
 def _mode_field(tab: Any) -> Any:
-    """Object / Verts / Edges / Faces.
+    """Shape / Points / Edges / Faces.
 
     The mode lives on the **document** rather than on ``ClayState``: it is the
     interpretation key for a selection, and an app-level mode would reinterpret
     every other tab's selection on a tab switch. So this reads ``tab.doc`` and
     the state is not involved.
+
+    A field, not an item, and **pinned**: ``toolbar`` collapses items into the
+    overflow menu before it collapses anything else, and a mode picker in a menu
+    is a mode picker nobody can see the state of.
     """
 
     def draw_it(compact: bool) -> None:
@@ -170,8 +261,7 @@ def _mode_field(tab: Any) -> Any:
             for mode, label, _key in clay_tools.MODE_BUTTONS
         ]
         tips = {
-            mode: f"{label} mode  ({key})"
-            for mode, label, key in clay_tools.MODE_BUTTONS
+            mode: f"{label} mode  ({key})" for mode, label, key in clay_tools.MODE_BUTTONS
         }
         changed, picked = controls.segmented_choice(
             "clay-mode",
@@ -185,10 +275,141 @@ def _mode_field(tab: Any) -> Any:
         if changed:
             doc.set_element_mode(picked)
 
-    return toolbar.Field("mode", "Mode", draw_it, width=176.0, compact=104.0)
+    full = _segments([label for _mode, label, _key in clay_tools.MODE_BUTTONS])
+    short = _segments([MODE_SHORT[mode] for mode, _label, _key in clay_tools.MODE_BUTTONS])
+    return toolbar.Field(
+        "mode", "Mode", draw_it, width=_design(full), compact=_design(short), pinned=True
+    )
 
 
-_SAVING = "This document is being written; the controls come back when it lands."
+def _shading_field(state: Any) -> Any:
+    """Flat / Lit / Wire: how the surface is drawn.
+
+    First to give up its words after the three view buttons, and the first
+    *segment* to fold into the menu after them: it changes what the render is
+    rather than what you are editing, and the same three are in the overflow menu
+    as a row each when the bar has no room.
+    """
+
+    def draw_it(compact: bool) -> None:
+        changed, picked = controls.segmented_choice(
+            "clay-shading",
+            [(key, short if compact else label) for key, label, short, _tip in SHADING],
+            state.shading,
+            tooltips={key: tip for key, _label, _short, tip in SHADING},
+            compact=True,
+        )
+        if changed:
+            state.shading = picked
+
+    full = _segments([label for _key, label, _short, _tip in SHADING])
+    short = _segments([short for _key, _label, short, _tip in SHADING])
+    return toolbar.Field(
+        "shading", "Shading", draw_it, width=_design(full), compact=_design(short), priority=1
+    )
+
+
+# --- X-ray, View, Snap -------------------------------------------------------------
+
+
+def _glyph_word(glyph: str, word: str) -> tuple[str, float, float]:
+    """``("<glyph> word", full px, glyph-only px)`` for a button with both tiers."""
+    text = f"{glyph} {word}"
+    with fonts.label(imgui):
+        solo = widgets.button_width(glyph)
+    return text, _word(text), solo
+
+
+def _tiered_button(
+    key: str,
+    glyph: str,
+    word: str,
+    compact: bool,
+    *,
+    tooltip: str,
+    selected: bool = False,
+) -> bool:
+    """The three view buttons' one drawing: a word and its glyph, or the glyph
+    alone with the word in the tooltip (a glyph with no name is the accessible-name
+    failure ``icon_button`` forbids)."""
+    label = glyph if compact else f"{glyph} {word}"
+    return controls.button(
+        f"{label}##{BAR}/{key}",
+        role=controls.ButtonRole.GHOST,
+        control_size=controls.ControlSize.COMPACT,
+        selected=selected,
+        tooltip=f"{word} -- {tooltip}" if compact else tooltip,
+    )
+
+
+def _xray_field(state: Any) -> Any:
+    def draw_it(compact: bool) -> None:
+        if _tiered_button(
+            "xray",
+            icons.BLEND,
+            "X-ray",
+            compact,
+            tooltip="See through the surface, so an element behind it can be picked (Alt+Z)",
+            selected=bool(state.xray),
+        ):
+            state.xray = not state.xray
+
+    _text, full, solo = _glyph_word(icons.BLEND, "X-ray")
+    return toolbar.Field(
+        "xray", "X-ray", draw_it, width=_design(full), compact=_design(solo), priority=2
+    )
+
+
+def _view_field(ctx: Any, state: Any, view: Any) -> Any:
+    def draw_it(compact: bool) -> None:
+        if _tiered_button(
+            "view",
+            icons.EYE,
+            "View",
+            compact,
+            tooltip="What the viewport draws over the model, and where the camera looks from",
+            selected=any(
+                overlay_value(state, key) != OVERLAY_DEFAULTS[key]
+                for key, _label, _tip in OVERLAY_ROWS
+            ),
+        ):
+            imgui.open_popup(VIEW_POPUP)
+        _view_popup(ctx, state, view)
+
+    _text, full, solo = _glyph_word(icons.EYE, "View")
+    return toolbar.Field(
+        "view", "View", draw_it, width=_design(full), compact=_design(solo), priority=2
+    )
+
+
+def _snap_field(state: Any) -> Any:
+    def draw_it(compact: bool) -> None:
+        if _tiered_button(
+            "snap",
+            icons.MAGNET,
+            "Snap",
+            compact,
+            tooltip="Snap a drag to the grid or to an angle",
+            selected=bool(state.snap),
+        ):
+            imgui.open_popup(SNAP_POPUP)
+        _snap_popup(state)
+
+    _text, full, solo = _glyph_word(icons.MAGNET, "Snap")
+    return toolbar.Field(
+        "snap", "Snap", draw_it, width=_design(full), compact=_design(solo), priority=2
+    )
+
+
+def _fields(ctx: Any, state: Any, tab: Any, view: Any) -> list[Any]:
+    """The row's controls after Undo / Redo, in the order they are read."""
+    return [
+        _mode_field(tab),
+        _shading_field(state),
+        _xray_field(state),
+        _view_field(ctx, state, view),
+        _snap_field(state),
+    ]
 
 
 def _snap_popup(state: Any) -> None:
@@ -235,7 +456,7 @@ def _snap_popup(state: Any) -> None:
 #: switch. The table says which is which and the popover does not care.
 OVERLAY_ROWS: tuple[tuple[str, str, str], ...] = (
     ("grid", "Grid", "The ground plane, in 1 m cells -- its size is set below"),
-    ("wire", "Wireframe", "Every edge, over the shaded surface"),
+    ("wire", "Wireframe over surface", "Every edge, over the shaded surface"),
     (
         "stats",
         "Statistics",
@@ -249,7 +470,7 @@ OVERLAY_ROWS: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
-#: What each row is when nothing has been changed, so the Overlays button can
+#: What each row is when nothing has been changed, so the View button can
 #: say "something in here is not the default" without a second hand-written
 #: list. It had one -- ``(("grid", True), ("wire", False))`` -- which left
 #: ``stats`` out, so turning Statistics on and nothing else drew the button
@@ -302,10 +523,37 @@ def _grid_size_field(ctx: Any, state: Any) -> None:
     imgui.unindent()
 
 
-def _overlays_popup(ctx: Any, state: Any) -> None:
-    with controls.menu_popup(OVERLAYS_POPUP) as opened:
+#: The six views and the chord that reaches each, in the order the popover lists
+#: them. The three that had buttons were labelled ``F``/``R``/``T`` in a sidebar
+#: and their backs were reachable only by holding Shift, which nothing said.
+AXIS_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("front", "Front", "Ctrl+1"),
+    ("back", "Back", "Ctrl+Shift+1"),
+    ("left", "Left", "Ctrl+Shift+3"),
+    ("right", "Right", "Ctrl+3"),
+    ("top", "Top", "Ctrl+7"),
+    ("bottom", "Bottom", "Ctrl+Shift+7"),
+)
+
+
+def _view_popup(ctx: Any, state: Any, view: Any) -> None:
+    """What the viewport draws and where the camera looks from, in one popover.
+
+    The old **Overlays** and **View** buttons were two popovers a reader could not
+    tell apart ("Overlays" held the grid, "View" held the front/back views), and a
+    third of the row's width. One list, in two captioned groups, then the two rows
+    that are neither (orthographic and framing).
+
+    ``view`` is the live viewport and is ``None`` before it exists -- the first
+    frame, and exactly when a pane must not raise. The rows that need it are
+    disabled rather than absent, which is the house pattern and also the honest
+    answer: they will work in a moment.
+    """
+
+    with controls.menu_popup(VIEW_POPUP) as opened:
         if not opened:
             return
+        widgets.field_label("Overlays")
         for key, label, tip in OVERLAY_ROWS:
             hit = controls.menu_item(
                 f"{label}##{BAR}/overlay/{key}",
@@ -318,33 +566,8 @@ def _overlays_popup(ctx: Any, state: Any) -> None:
                 clay_mode.persist(ctx)
             if key == "grid":
                 _grid_size_field(ctx, state)
-
-
-#: Front / Right / Top and their opposites, with the chord that reaches each.
-#: The three that had buttons were labelled ``F``/``R``/``T`` in a sidebar and
-#: their backs were reachable only by holding Shift, which nothing said.
-AXIS_ROWS: tuple[tuple[str, str, str], ...] = (
-    ("front", "Front", "Ctrl+1"),
-    ("back", "Back", "Ctrl+Shift+1"),
-    ("right", "Right", "Ctrl+3"),
-    ("left", "Left", "Ctrl+Shift+3"),
-    ("top", "Top", "Ctrl+7"),
-    ("bottom", "Bottom", "Ctrl+Shift+7"),
-)
-
-
-def _view_popup(ctx: Any, state: Any, view: Any) -> None:
-    """Where the camera looks from, and how it projects.
-
-    ``view`` is the live viewport and is ``None`` before it exists -- the first
-    frame, and exactly when a pane must not raise. The rows that need it are
-    disabled rather than absent, which is the house pattern and also the honest
-    answer: they will work in a moment.
-    """
-
-    with controls.menu_popup(VIEW_POPUP) as opened:
-        if not opened:
-            return
+        controls.menu_separator()
+        widgets.field_label("Views")
         camera = None if view is None else view.camera
         for name, label, chord in AXIS_ROWS:
             hit = controls.menu_item(
@@ -352,7 +575,7 @@ def _view_popup(ctx: Any, state: Any, view: Any) -> None:
                 chord,
                 False,
                 camera is not None,
-                reason="The viewport is still starting up.",
+                reason=_NO_VIEW,
             )
             if bool(hit[0] if isinstance(hit, tuple) else hit):
                 camera.look_along(name)
@@ -363,7 +586,7 @@ def _view_popup(ctx: Any, state: Any, view: Any) -> None:
             "Ctrl+5",
             ortho,
             camera is not None,
-            reason="The viewport is still starting up.",
+            reason=_NO_VIEW,
             tooltip="No perspective, so parallel edges stay parallel -- which "
             "is what makes two parts line up by eye.",
         )
@@ -378,104 +601,114 @@ def _view_popup(ctx: Any, state: Any, view: Any) -> None:
             state.frame_pending = True
 
 
-def _trailing(ctx: Any, state: Any, view: Any) -> Any:
-    """``Overlays``, ``View`` and the (?), at the end of the row.
+# --- the way out -------------------------------------------------------------------
 
-    A trailing block rather than three more items, for ``inker_context``'s
-    reason: ``toolbar`` draws its items before its fields, so as items these
-    would land between Snap and the mode picker -- in the middle of what you are
-    editing, which is the one place a setting about the *viewport* must not be.
 
-    The tuple form rather than :class:`toolbar.Trailing`: both are already
-    single words and a glyph, so there is no smaller tier for them to fall to,
-    and a block that cannot collapse says so by having one width.
+def _export_menu(ctx: Any, tab: Any) -> None:
+    """The ways out under the Export chevron: the library, a mesh file, a picture.
+
+    The same four doors Properties' Document tab draws (``props._outputs``), each
+    greyed with the one sentence ``doc_io.outputs_why`` gives for every output
+    button -- a user reading two explanations of one state would look for two
+    different problems.
     """
 
-    style = imgui.get_style()
-    gap = style.item_spacing.x
-    pad = style.frame_padding.x * 2.0
-    shading = sum(
-        imgui.calc_text_size(short).x + pad for _key, _label, short, _tip in SHADING
-    )
-    width = (
-        shading
-        + gap
-        + imgui.calc_text_size("X-ray").x
-        + pad
-        + gap
-        + imgui.calc_text_size("Overlays").x
-        + pad
-        + gap
-        + imgui.calc_text_size("View").x
-        + pad
-        + gap
-        + imgui.get_frame_height()
-    )
-
-    def draw_it() -> None:
-        # The shading pill first, because it is the one control here that
-        # changes what the render *is* rather than what is drawn over it.
-        changed, picked = controls.segmented_choice(
-            "clay-shading",
-            [(key, short) for key, _label, short, _tip in SHADING],
-            state.shading,
-            tooltips={key: f"{label} -- {tip}" for key, label, _s, tip in SHADING},
-            compact=True,
-        )
-        if changed:
-            state.shading = picked
-        imgui.same_line()
-        if controls.button(
-            f"X-ray##{BAR}/xray",
-            role=controls.ButtonRole.GHOST,
-            control_size=controls.ControlSize.COMPACT,
-            selected=bool(state.xray),
-            tooltip="See through the surface, so an element behind it can be "
-            "picked (Alt+Z)",
-        ):
-            state.xray = not state.xray
-        imgui.same_line()
-        if controls.button(
-            f"Overlays##{BAR}/overlays",
-            role=controls.ButtonRole.GHOST,
-            control_size=controls.ControlSize.COMPACT,
-            selected=any(
-                overlay_value(state, key) != OVERLAY_DEFAULTS[key]
-                for key, _label, _tip in OVERLAY_ROWS
+    why = doc_io.outputs_why(tab.doc, bool(tab.saving))
+    ready = not why
+    with controls.menu_popup(EXPORT_POPUP) as opened:
+        if not opened:
+            return
+        rows = (
+            (
+                f"{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}",
+                "library",
+                doc_io.EXPORT_LIBRARY_TOOLTIP,
+                lambda: clay_mode.export_asset(ctx, tab),
             ),
-            tooltip="What the viewport draws over the model",
-        ):
-            imgui.open_popup(OVERLAYS_POPUP)
-        _overlays_popup(ctx, state)
-        imgui.same_line()
-        if controls.button(
-            f"View##{BAR}/view",
-            role=controls.ButtonRole.GHOST,
-            control_size=controls.ControlSize.COMPACT,
-            tooltip="Where the camera looks from, and how it projects",
-        ):
-            imgui.open_popup(VIEW_POPUP)
-        _view_popup(ctx, state, view)
-        imgui.same_line()
-        manual_render.help_button_inline(ctx, "clay-header")
+            (
+                f"{icons.DOWNLOAD} Export GLB...",
+                "glb",
+                doc_io.EXPORT_GLB_TOOLTIP,
+                lambda: clay_mode.export_mesh_file(ctx, tab, "glb"),
+            ),
+            (
+                "Export OBJ...",
+                "obj",
+                doc_io.EXPORT_OBJ_TOOLTIP,
+                lambda: clay_mode.export_mesh_file(ctx, tab, "obj"),
+            ),
+            (
+                f"{icons.CAMERA} Save screenshot...",
+                "screenshot",
+                doc_io.SCREENSHOT_TOOLTIP,
+                lambda: clay_mode.save_screenshot(ctx, tab),
+            ),
+        )
+        for label, key, tip, run in rows:
+            hit = controls.menu_item(
+                f"{label}##{BAR}/export/{key}",
+                "",
+                False,
+                ready,
+                reason=why,
+                tooltip=tip,
+            )
+            if bool(hit[0] if isinstance(hit, tuple) else hit):
+                run()
 
-    return (width, draw_it)
 
+def _trailing(ctx: Any, tab: Any) -> Any:
+    """The help marker and the Export split button, at the end of the row.
 
-def measure(state: Any, tab: Any) -> float:
-    """What the row needs at its **full** tier, in physical pixels.
+    A trailing block rather than two more entries, for ``inker_context``'s
+    reason: it never folds into the overflow menu (a way out that moves house when
+    the window is resized is not a way out), and what it gives up first is its
+    *word*. It draws itself against the right edge when the row has room to spare,
+    which is the one place in the bar where the position is the point.
 
-    For ``tests/modes/clay/test_clay_header.py``, which asks the one question a header can
-    silently get wrong: does it fit at the window the app opens at. A bar that
-    plans ICON at 1600x950 is a bar whose every label is a hover away on the
-    machine everybody uses.
+    **The main click is the library export, the same door as Properties' button,
+    and it refuses in place.** Greyed with the reason ``doc_io.outputs_why``
+    gives -- an empty or fully hidden scene has nothing to send -- rather than
+    toasting after the click. The chevron lists every way out.
     """
 
     style = imgui.get_style()
     gap = style.item_spacing.x
-    items = _items(state, tab)
-    fields = [_mode_field(tab)]
-    with fonts.label(imgui):
-        widths = [widgets.button_width(item.label) for item in items]
-    widths += [sp(field.width) for field in fields]
-    return sum(widths) + gap * (len(widths) - 1)
+    text, word_w, glyph_w = _glyph_word(icons.DOWNLOAD, EXPORT_LABEL)
+    square = imgui.get_frame_height()
+    help_w = square
+    # The split's two halves touch: a button and its chevron are one control.
+    seam = sp(2)
+
+    def block(main_w: float) -> float:
+        return help_w + gap + main_w + seam + square
+
+    full, small = block(word_w), block(glyph_w)
+
+    def draw_it(tight: bool) -> None:
+        width = small if tight else full
+        # Pushed against the right edge when there is room: what the row has
+        # left over goes *between* the settings and the way out, not after it.
+        spare = imgui.get_content_region_avail().x - width
+        if spare > 0.0:
+            imgui.set_cursor_pos_x(imgui.get_cursor_pos_x() + spare)
+        manual_render.help_button_inline(ctx, "clay-header")
+        imgui.same_line()
+        why = doc_io.outputs_why(tab.doc, bool(tab.saving))
+        if widgets.primary_button(
+            (f"{icons.DOWNLOAD}" if tight else text) + f"##{BAR}/export",
+            enabled=not why,
+            reason=why,
+            tooltip=f"{verbs.EXPORT_TO_LIBRARY}: " + doc_io.EXPORT_LIBRARY_TOOLTIP,
+        ):
+            clay_mode.export_asset(ctx, tab)
+        imgui.same_line(0.0, seam)
+        if widgets.icon_button(
+            f"{icons.CHEVRON_DOWN}##{BAR}/export-more",
+            "Other ways out: a GLB or OBJ file, or a screenshot",
+        ):
+            imgui.open_popup(EXPORT_POPUP)
+        _export_menu(ctx, tab)
+
+    # Physical px, as ``toolbar`` subtracts them from the row's physical width.
+    return toolbar.Trailing(full, small, draw_it)

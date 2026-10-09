@@ -47,17 +47,19 @@ TOOL_ICONS = {
 
 AXES = (("x", "X"), ("y", "Y"), ("z", "Z"))
 
-# The four element modes and the keys that switch them, **in the order of the
-# keys** (1 2 3 4 = vertex, edge, face, object), which is the order the header's
-# pill draws them in. The pill used to lead with Object, so the first segment
-# was the key that is pressed last, and a reader counting segments left to
-# right got "4 1 2 3". Held as data beside ``TOOL_ICONS`` so the row and
+# The four modes as the header's switch reads them, **widest thing first**: Shape
+# (the document's ``object`` mode -- you are moving whole shapes), then Points,
+# Edges and Faces (``vertex``/``edge``/``face``, which is what a mesh is made of,
+# smallest first). The second column is the plain word; the stored mode names are
+# unchanged, and so are the keys: 1 2 3 are the three element modes and 4 is
+# Shape, so the switch reads "4 1 2 3" left to right and every tooltip says which
+# key is which. Held as data beside ``TOOL_ICONS`` so the row and
 # ``clay_mode.ELEMENT_KEYS`` are one edit apart rather than two files apart.
 MODE_BUTTONS = (
-    ("vertex", "Verts", "1"),
+    ("object", "Shape", "4"),
+    ("vertex", "Points", "1"),
     ("edge", "Edges", "2"),
     ("face", "Faces", "3"),
-    ("object", "Object", "4"),
 )
 
 #: The shapes the rail keeps one click away; the rest are behind its ``+``.

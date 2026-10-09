@@ -7,7 +7,8 @@ imgui's own input queue (``_ui_driver``), the way a person would, and counts
 the pointer presses and key presses it took:
 
     empty Clay -> Start with a box -> type a height into Size -> add a colour
-    and click it -> Document tab -> Export to the library.
+    and click it -> Export (the toolbar's split button, whose main click is the
+    library export).
 
 It asserts what the person ends up with (a shape standing on the ground, selected,
 inside the camera's view, added in one undo step, in the colour they clicked, and
@@ -31,17 +32,18 @@ import pytest
 from _ui_driver import UiDriver, app_context, gl_imgui
 
 from realmspinner.kernels.mesh import ops as mesh_ops
-from realmspinner.studio import probe
+from realmspinner.studio import icons, probe
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import placement
 
 #: Gestures (pointer presses + keys typed) the path costs today, measured:
 #: Start with a box (1), click Size's H box (2), type the height (3), + on the
-#: palette strip (4), click the new swatch (5), the Document tab (6), Export to
-#: the library (7). **It may only decrease** -- raising it to fit a change is the
-#: one edit this number refuses -- and a later landing brings it to 4 (the Size
-#: and Colour cards and the toolbar's Export take the tab and the + away).
-FIRST_TRY_BUDGET = 7
+#: palette strip (4), click the new swatch (5), Export on the toolbar (6). It was
+#: 7 while Export lived behind Properties' Document tab (a tab hop first).
+#: **It may only decrease** -- raising it to fit a change is the one edit this
+#: number refuses -- and a later landing brings it to 4 (the Size and Colour
+#: cards take the + away and the height box's click).
+FIRST_TRY_BUDGET = 6
 
 
 @pytest.fixture
@@ -154,10 +156,8 @@ def test_the_first_try_path_ends_with_a_standing_framed_coloured_model_in_the_li
     d.settle(2)
     assert obj.material == 1 and set(obj.mesh.material.tolist()) == {1}
 
-    # Out of Clay and into the library.
-    d.click(d.find(label="Document##clay-props-tab/document"))
-    d.settle(2)
-    d.click(d.find(contains="Export to the library"))
+    # Into the library, from the toolbar: no tab to hop to first.
+    d.click(d.find(label=f"{icons.DOWNLOAD} Export##clay-header/export"))
     d.settle(2)
     _wait_for_export(workspace, tab)
     assert workspace.svc.store.get(tab.job_id)["status"] == "done"

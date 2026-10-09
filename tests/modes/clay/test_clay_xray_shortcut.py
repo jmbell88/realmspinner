@@ -67,7 +67,7 @@ def test_the_x_ray_tooltip_still_names_alt_z() -> None:
     than left to drift."""
     import inspect
 
-    source = inspect.getsource(clay_header._trailing)
+    source = inspect.getsource(clay_header._xray_field)
     assert "Alt+Z" in source
 
 

@@ -65,12 +65,19 @@ def _no_recents(monkeypatch):
     monkeypatch.setattr(clay_mode, "recent_paths", lambda ctx: [])
 
 
-def _frame(ui, draw) -> None:
+def _frame(ui, draw, size: tuple[float, float] | None = None) -> None:
     ui.new_frame()
+    if size is not None:
+        ui.set_next_window_size(size)
     ui.begin("##host")
     draw()
     ui.end()
     ui.end_frame()
+
+
+#: A host tall enough for the whole rail: its four quick shapes are drawn only
+#: when they fit, so a test that presses one must give them the room.
+TALL = (300.0, 1400.0)
 
 
 def _doc() -> tuple[bd.ClayDoc, int]:
@@ -258,7 +265,7 @@ def test_pressing_a_rail_tool_sets_the_tool_and_a_quick_shape_places_it(monkeypa
         "button",
         lambda label, *a, **k: "#" + label.split("#", 1)[1] in pressed,
     )
-    _frame(ui, lambda: clay_rail._body(ctx, state, tab))
+    _frame(ui, lambda: clay_rail._body(ctx, state, tab), TALL)
 
     assert state.tool == "rotate"
     assert len(doc.objects) == 1 and doc.objects[0].generator == clay_tools.QUICK_SHAPES[0]
@@ -276,7 +283,7 @@ def test_every_quick_shape_button_is_disabled_with_a_reason_without_a_document(m
         return False
 
     monkeypatch.setattr(clay_rail.controls, "button", spy)
-    _frame(ui, lambda: clay_rail._body(ctx, state, None))
+    _frame(ui, lambda: clay_rail._body(ctx, state, None), TALL)
 
     shapes = [one for one in seen if "/add/" in one["label"]]
     assert len(shapes) == len(clay_tools.QUICK_SHAPES)
@@ -285,6 +292,154 @@ def test_every_quick_shape_button_is_disabled_with_a_reason_without_a_document(m
     assert len(tools) == 4 and all(one.get("enabled", True) for one in tools), (
         "choosing a tool needs no document"
     )
+
+
+def _rail_cells(monkeypatch, ui, height: float, *, tab=None) -> list[tuple[str, str]]:
+    """``(ident, word)`` for every cell the rail draws in a child *height* tall."""
+    ctx = _Ctx()
+    ctx.state = SimpleNamespace(clay=None)
+    state = clay_mode.ensure(ctx)
+    seen: list[tuple[str, str]] = []
+    real = clay_rail._cell
+
+    def spy(glyph, ident, word, **kw):
+        seen.append((ident, word))
+        return real(glyph, ident, word, **kw)
+
+    monkeypatch.setattr(clay_rail, "_cell", spy)
+    _frame(ui, lambda: clay_rail._body(ctx, state, tab or _tab(bd.ClayDoc())), (300.0, height))
+    return seen
+
+
+def test_every_rail_tool_is_named_with_a_plain_word_under_its_glyph(monkeypatch, ui):
+    """Before, the rail was four unlabelled glyphs and a column of shape icons.
+    Old code drew no word at all: it had no ``_cell`` and no ``TOOL_WORDS``."""
+    cells = dict(_rail_cells(monkeypatch, ui, 1400.0))
+    assert [cells[f"clay-rail/tool/{key}"] for key, _l, _k in clay_state.TOOLS] == [
+        "Select",
+        "Move",
+        "Turn",
+        "Resize",
+    ]
+    assert set(clay_rail.TOOL_WORDS) == {key for key, _l, _k in clay_state.TOOLS}, (
+        "a tool with no word would be drawn with its stored name"
+    )
+    assert [cells[f"clay-rail/add/{name}"] for name in clay_tools.QUICK_SHAPES] == [
+        "Box",
+        "Cylinder",
+        "Sphere",
+        "Cone",
+    ]
+    assert cells["clay-rail/more"] == "More"
+
+
+def test_a_rail_tool_tooltip_carries_the_word_on_the_button_and_its_key(monkeypatch, ui):
+    """The tooltip says the same word the button does ("Turn", not "Rotate") and
+    the key, so what is read and what is pressed agree."""
+    ctx = _Ctx()
+    ctx.state = SimpleNamespace(clay=None)
+    state = clay_mode.ensure(ctx)
+    tips: dict[str, str] = {}
+
+    def spy(label, size=(0, 0), **kw):
+        tips[label.split("##", 1)[1]] = kw.get("tooltip", "")
+        return False
+
+    monkeypatch.setattr(clay_rail.controls, "button", spy)
+    _frame(ui, lambda: clay_rail._body(ctx, state, _tab(bd.ClayDoc())), TALL)
+    assert tips["clay-rail/tool/select"] == "Select  (Q)"
+    assert tips["clay-rail/tool/rotate"] == "Turn  (R)"
+    assert tips["clay-rail/tool/scale"] == "Resize  (S)"
+
+
+def test_the_quick_shapes_collapse_into_the_plus_flyout_when_the_window_is_short(
+    monkeypatch, ui
+):
+    """Old code drew the four quick shapes at any height and clipped the ``+``
+    off the bottom of a short rail. Now they are drawn only when all four fit,
+    the tools and the ``+`` always are, and the ``+`` says "Add" when it is the
+    only way to a shape."""
+    tall = [ident for ident, _w in _rail_cells(monkeypatch, ui, 1400.0)]
+    assert [i for i in tall if "/add/" in i], "a tall rail keeps its quick shapes"
+
+    short = dict(_rail_cells(monkeypatch, ui, 300.0))
+    assert not [i for i in short if "/add/" in i], "a short rail must not clip them"
+    assert len([i for i in short if "/tool/" in i]) == 4
+    assert short["clay-rail/more"] == "Add"
+
+
+def test_the_rail_fit_rule_is_pure_and_all_or_nothing():
+    cell, spacing = 46.0, 8.0
+    need = clay_rail.stack_height(len(clay_tools.QUICK_SHAPES), cell, spacing)
+    assert clay_rail.quick_shapes_fit(need, cell, spacing)
+    assert not clay_rail.quick_shapes_fit(need - 1.0, cell, spacing)
+    # The rail with its quick shapes dropped is shorter by exactly their cells.
+    bare = clay_rail.stack_height(0, cell, spacing)
+    assert need - bare == len(clay_tools.QUICK_SHAPES) * (cell + spacing)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.5, 2.0])
+def test_the_rail_stays_inside_the_body_the_resize_floor_leaves_at_every_scale(
+    monkeypatch, ui, scale
+):
+    """Clay's own tool rail -- not the shell's navigation rail, whose floor test is
+    ``test_studio_smoke.py::test_the_rail_fits_the_resize_floor_at_every_scale``.
+
+    The body the viewport leaves at 700 px is the window minus its chrome (tab
+    bar, menu strip, toolbar, palette strip, hint line and the shell's margins).
+    Every cell the rail draws must be inside the child it was given, whether or
+    not the quick shapes were dropped, at 1.0, 1.5 and 2.0 -- 2.0 is where a
+    labelled 46 px cell stops being small."""
+    from realmspinner.studio import tokens
+    from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import hud as clay_hud
+
+    old = tokens.SCALE
+    tokens.set_scale(scale)
+    try:
+        chrome = (
+            tokens.sp(clay_header.HEADER_H) * 3.0
+            + clay_palette.height()
+            + tokens.sp(clay_hud.HINT_H)
+            + tokens.sp(60.0)
+        )
+        body = 700.0 * scale - chrome
+        ctx = _Ctx()
+        ctx.state = SimpleNamespace(clay=None)
+        clay_mode.ensure(ctx)
+        boxes: list[tuple[str, float, float]] = []
+        real = clay_rail._cell
+
+        def spy(glyph, ident, word, **kw):
+            result = real(glyph, ident, word, **kw)
+            lo, hi = ui.get_item_rect_min(), ui.get_item_rect_max()
+            boxes.append((ident, lo.y, hi.y))
+            return result
+
+        monkeypatch.setattr(clay_rail, "_cell", spy)
+        tops: list[float] = []
+
+        def draw():
+            tops.append(ui.get_cursor_screen_pos().y)
+            clay_rail.draw(ctx, body)
+
+        ui.new_frame()
+        ui.set_next_window_size((300.0 * scale, body + 40.0 * scale))
+        ui.begin("##host", None, ui.WindowFlags_.no_decoration.value)
+        draw()
+        ui.end()
+        ui.end_frame()
+    finally:
+        tokens.set_scale(old)
+
+    idents = [ident for ident, _lo, _hi in boxes]
+    assert all(f"clay-rail/tool/{key}" in idents for key, _l, _k in clay_state.TOOLS)
+    assert "clay-rail/more" in idents, "the way to every shape must always be reachable"
+    bottom = tops[0] + body
+    for ident, _lo, hi in boxes:
+        assert hi <= bottom + 1.0, (
+            f"{ident} ends at {hi:.0f}, below the rail's {bottom:.0f} at scale {scale}"
+        )
 
 
 # --- the Inspector's element rows ---------------------------------------------
