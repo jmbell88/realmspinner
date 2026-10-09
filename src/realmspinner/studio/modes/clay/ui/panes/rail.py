@@ -121,8 +121,15 @@ def draw(ctx: Any, height: float = 0.0) -> None:
     state = clay_mode.ensure(ctx)
     tab = state.active
     imgui.push_style_var(imgui.StyleVar_.window_padding.value, (sp(PAD), sp(PAD)))
+    # ``always_use_window_padding``: a child with no border ignores
+    # ``window_padding`` without it, so the cells sat against the rail's left edge
+    # with the whole 10 px of padding on the right (the 2026-10-09 centring report).
+    # The padding is what centres a 46 px cell in the 56 px column.
     shown = imgui.begin_child(
-        "##clay-rail", (width(), height), 0, imgui.WindowFlags_.no_scrollbar.value
+        "##clay-rail",
+        (width(), height),
+        imgui.ChildFlags_.always_use_window_padding.value,
+        imgui.WindowFlags_.no_scrollbar.value,
     )
     try:
         if shown:

@@ -7,10 +7,13 @@ on the far side of the window from the model. Every one of them is a setting
 changed *between* clicks in the viewport, which is the same argument that moved
 Inker's tool options onto a context bar and Plotter's tools onto one.
 
-**One row, left to right:** Undo, Redo and a chevron that opens the history; the
-mode switch (**Shape / Points / Edges / Faces**); the shading switch (**Flat /
-Lit / Wire**); X-ray; **View** (the overlays and the camera, one popover); Snap;
-and at the far end the help marker and **Export**, a split button whose main
+**One row, left to right, in four groups by what the controls are for:** *history*
+(Undo, Redo and a chevron that opens the list); *mode* (**Shape / Points / Edges /
+Faces**, what a click edits); *display* (the shading switch **Flat / Lit / Wire**
+and X-ray, how the surface is drawn); *aids* (**View**, the overlays and the
+camera in one popover, and Snap). A thin rule separates the groups
+(``toolbar.Item.group``), and it is counted in the row's width arithmetic like any
+other control. At the far end the help marker and **Export**, a split button whose main
 click is the library export and whose chevron lists the other ways out. The row
 degrades rather than clips (``toolbar``): words become glyphs, the shading
 switch and the three view buttons fold into the overflow menu before the mode
@@ -61,6 +64,13 @@ BAR = "clay-header"
 #: measured rather than guessed would be better and is not possible: the
 #: viewport has to subtract this *before* it draws, and the bar is drawn after.
 HEADER_H = 34.0
+
+#: The row's four groups, by what the controls are for. The names are only compared
+#: for equality by ``toolbar`` (a rule is drawn where they change); they are not shown.
+HISTORY_GROUP = "history"
+MODE_GROUP = "mode"
+DISPLAY_GROUP = "display"
+AIDS_GROUP = "aids"
 
 SNAP_POPUP = "clay-snap"
 VIEW_POPUP = "clay-view"
@@ -176,6 +186,7 @@ def _items(state: Any, tab: Any) -> list[Any]:
             reason=_SAVING if busy else _UNDO_WHY,
             icon_only=True,
             pinned=True,
+            group=HISTORY_GROUP,
         ),
         toolbar.Item(
             "redo",
@@ -186,6 +197,7 @@ def _items(state: Any, tab: Any) -> list[Any]:
             reason=_SAVING if busy else _REDO_WHY,
             icon_only=True,
             pinned=True,
+            group=HISTORY_GROUP,
         ),
         toolbar.Item(
             "history",
@@ -196,6 +208,7 @@ def _items(state: Any, tab: Any) -> list[Any]:
             reason=_SAVING if busy else _HISTORY_WHY,
             icon_only=True,
             priority=1,
+            group=HISTORY_GROUP,
         ),
     ]
 
@@ -282,7 +295,13 @@ def _mode_field(tab: Any) -> Any:
     full = _segments([label for _mode, label, _key in clay_tools.MODE_BUTTONS])
     short = _segments([MODE_SHORT[mode] for mode, _label, _key in clay_tools.MODE_BUTTONS])
     return toolbar.Field(
-        "mode", "Mode", draw_it, width=_design(full), compact=_design(short), pinned=True
+        "mode",
+        "Mode",
+        draw_it,
+        width=_design(full),
+        compact=_design(short),
+        pinned=True,
+        group=MODE_GROUP,
     )
 
 
@@ -309,7 +328,13 @@ def _shading_field(state: Any) -> Any:
     full = _segments([label for _key, label, _short, _tip in SHADING])
     short = _segments([short for _key, _label, short, _tip in SHADING])
     return toolbar.Field(
-        "shading", "Shading", draw_it, width=_design(full), compact=_design(short), priority=1
+        "shading",
+        "Shading",
+        draw_it,
+        width=_design(full),
+        compact=_design(short),
+        priority=1,
+        group=DISPLAY_GROUP,
     )
 
 
@@ -360,7 +385,13 @@ def _xray_field(state: Any) -> Any:
 
     _text, full, solo = _glyph_word(icons.BLEND, "X-ray")
     return toolbar.Field(
-        "xray", "X-ray", draw_it, width=_design(full), compact=_design(solo), priority=2
+        "xray",
+        "X-ray",
+        draw_it,
+        width=_design(full),
+        compact=_design(solo),
+        priority=2,
+        group=DISPLAY_GROUP,
     )
 
 
@@ -382,7 +413,13 @@ def _view_field(ctx: Any, state: Any, view: Any) -> Any:
 
     _text, full, solo = _glyph_word(icons.EYE, "View")
     return toolbar.Field(
-        "view", "View", draw_it, width=_design(full), compact=_design(solo), priority=2
+        "view",
+        "View",
+        draw_it,
+        width=_design(full),
+        compact=_design(solo),
+        priority=2,
+        group=AIDS_GROUP,
     )
 
 
@@ -401,7 +438,13 @@ def _snap_field(state: Any) -> Any:
 
     _text, full, solo = _glyph_word(icons.MAGNET, "Snap")
     return toolbar.Field(
-        "snap", "Snap", draw_it, width=_design(full), compact=_design(solo), priority=2
+        "snap",
+        "Snap",
+        draw_it,
+        width=_design(full),
+        compact=_design(solo),
+        priority=2,
+        group=AIDS_GROUP,
     )
 
 

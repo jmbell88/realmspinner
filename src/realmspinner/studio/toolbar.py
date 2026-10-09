@@ -37,6 +37,15 @@ there, which is why :func:`plan` can return a row that does not fit -- if
 everything is pinned, there is nothing left to give, and drawing the truth
 beats pretending.
 
+**A row can be grouped by what its controls are for.** ``Item.group`` and
+``Field.group`` name a group ("history", "mode", "display"), and where two
+neighbouring entries that are both drawn carry different non-empty names the row
+draws a thin rule between them and spends :func:`group_extra` on it. The rule is
+part of the arithmetic -- :func:`plan` and :func:`plan_row` count it -- so a
+grouped row that fits on paper fits on screen, and when a whole group moves into
+the overflow menu its rule goes with it rather than leaving two rules side by
+side. A row that names no groups is drawn exactly as before.
+
 The tier arithmetic is :func:`plan`, which is pure and takes numbers: no imgui
 context, no fonts, no scale. That is what lets the collapse be tested at every
 width rather than eyeballed at one.
@@ -95,6 +104,9 @@ class Item:
     # same width as the icon tier and the tiering has nothing to take from it.
     # The overflow menu still spells the label out: that is where words return.
     icon_only: bool = False
+    # What the control is for, so a row can draw a rule between the groups. Empty
+    # means "no opinion": an entry with no group never gets a rule beside it.
+    group: str = ""
 
     def __post_init__(self, primary: bool, danger: bool) -> None:
         if danger:
@@ -131,6 +143,8 @@ class Field:
     compact: float = 0.0
     priority: int = 0
     pinned: bool = False
+    # See :attr:`Item.group`.
+    group: str = ""
 
     def widths(self) -> tuple[float, float]:
         """(full, compact) in physical pixels. Equal when no compact size is set."""
@@ -204,6 +218,31 @@ def trailing_compact(
     return not (row_min + gap + full_w <= avail)
 
 
+def group_extra(gap: float) -> float:
+    """What one group rule adds to the row beyond the ordinary gap, in physical px.
+
+    A rule is a 1 px line with a gap on each side, so between two groups the row
+    spends ``gap + 1 + gap`` where it spends ``gap`` between two neighbours of one
+    group; the extra is ``gap + 1``.
+    """
+    return gap + sp(1.0)
+
+
+def separators(groups: Any, shown: Any) -> int:
+    """How many rules the *shown* entries (indices, in order) are drawn with. Pure.
+
+    A rule sits between two drawn neighbours that both name a group and name
+    different ones; an entry that names none never has one beside it.
+    """
+    if not groups:
+        return 0
+    return sum(
+        1
+        for a, b in zip(shown, shown[1:], strict=False)
+        if groups[a] and groups[b] and groups[a] != groups[b]
+    )
+
+
 def plan(
     widths_full: Any,
     widths_icon: Any,
@@ -213,6 +252,8 @@ def plan(
     overflow_w: float,
     *,
     gap: float = 0.0,
+    groups: Any = None,
+    extra: float = 0.0,
 ) -> list[str]:
     """Which tier each item is drawn at, given the room. -> FULL/ICON/MENU.
 
@@ -235,6 +276,7 @@ def plan(
         )
         if shown:
             total += gap * (len(shown) - 1)
+        total += extra * separators(groups, shown)
         if len(shown) != count:
             # The overflow button is an item too, and it is the one a row
             # forgets to budget for -- which is how a bar "fits" at exactly the
@@ -244,16 +286,18 @@ def plan(
 
     if spread() <= avail or not count:
         return tiers
-    groups = sorted(set(priorities), reverse=True)
-    for group in groups:
+    # ``levels``, not ``groups``: ``groups`` is the caller's rule groups, which
+    # ``spread`` above still reads.
+    levels = sorted(set(priorities), reverse=True)
+    for level in levels:
         for i in range(count):
-            if priorities[i] == group:
+            if priorities[i] == level:
                 tiers[i] = ICON
         if spread() <= avail:
             return tiers
-    for group in groups:
+    for level in levels:
         for i in range(count):
-            if priorities[i] == group and not pinned[i]:
+            if priorities[i] == level and not pinned[i]:
                 tiers[i] = MENU
         if spread() <= avail:
             return tiers
@@ -289,17 +333,17 @@ class RowPlan:
     trailing_w: float
     trailing_tight: bool
     avail: float
+    groups: tuple[str, ...] = ()
+    extra: float = 0.0
 
     def used(self, gap: float, overflow_w: float) -> float:
         """The width the row actually occupies: what is drawn, the overflow
         button when anything is in it, and the trailing block. ``<= avail`` is
         the claim "this row fits on one line"."""
-        shown = [
-            (self.full[i] if tier == FULL else self.icon[i])
-            for i, tier in enumerate(self.tiers)
-            if tier != MENU
-        ]
+        drawn = [i for i, tier in enumerate(self.tiers) if tier != MENU]
+        shown = [(self.full[i] if self.tiers[i] == FULL else self.icon[i]) for i in drawn]
         total = sum(shown) + gap * max(len(shown) - 1, 0)
+        total += self.extra * separators(self.groups, drawn)
         if MENU in self.tiers:
             total += overflow_w + (gap if shown else 0.0)
         if self.trailing_draw is not None:
@@ -318,6 +362,8 @@ def plan_row(items: Any, fields: Any, trailing: Any, avail: float) -> RowPlan:
     gap = imgui.get_style().item_spacing.x
     overflow_w = imgui.get_frame_height()
     entries = [*items, *fields]
+    groups = tuple(entry.group for entry in entries)
+    extra = group_extra(gap) if any(groups) else 0.0
     full, icon = _measure(items)
     for field in fields:
         wide, narrow = field.widths()
@@ -334,7 +380,7 @@ def plan_row(items: Any, fields: Any, trailing: Any, avail: float) -> RowPlan:
         # width, so the question asked is "can the row be made to fit beside
         # this at all", not "does it fit with every label on".
         trailing_tight = trailing_compact(
-            sum(icon) + gap * max(len(icon) - 1, 0),
+            sum(icon) + gap * max(len(icon) - 1, 0) + extra * separators(groups, range(len(icon))),
             avail,
             trailing_full,
             trailing_small,
@@ -350,10 +396,40 @@ def plan_row(items: Any, fields: Any, trailing: Any, avail: float) -> RowPlan:
         row_avail,
         overflow_w,
         gap=gap,
+        groups=groups,
+        extra=extra,
     )
     return RowPlan(
-        entries, full, icon, tiers, trailing_draw, trailing_w, trailing_tight, avail
+        entries,
+        full,
+        icon,
+        tiers,
+        trailing_draw,
+        trailing_w,
+        trailing_tight,
+        avail,
+        groups,
+        extra,
     )
+
+
+def _group_rule() -> None:
+    """The thin vertical rule between two groups, one frame tall and inset from it.
+
+    A ``dummy`` of the rule's own width, so layout moves past it exactly as
+    :func:`group_extra` counted; the line is drawn into the draw list over it.
+    """
+    low = imgui.get_cursor_screen_pos()
+    height = imgui.get_frame_height()
+    width = sp(1.0)
+    inset = height * 0.2
+    imgui.get_window_draw_list().add_line(
+        (low.x + width * 0.5, low.y + inset),
+        (low.x + width * 0.5, low.y + height - inset),
+        imgui.get_color_u32(imgui.Col_.separator),
+        width,
+    )
+    imgui.dummy((width, height))
 
 
 def toolbar(
@@ -389,12 +465,17 @@ def toolbar(
     trailing_tight = row.trailing_tight
     clicked: str | None = None
     drawn = False
+    last_group = ""
     for index, (item, tier) in enumerate(zip(entries, tiers, strict=True)):
         if tier == MENU:
             continue
         if drawn:
             imgui.same_line()
+            if last_group and item.group and item.group != last_group:
+                _group_rule()
+                imgui.same_line()
         drawn = True
+        last_group = item.group
         if isinstance(item, Field):
             imgui.set_next_item_width(full[index] if tier == FULL else icon[index])
             item.draw(tier != FULL)

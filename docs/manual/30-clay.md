@@ -211,6 +211,10 @@ about. Left to right it holds:
   visible to send. The chevron beside it lists **Export to the library**, **Export GLB...**, **Export
   OBJ...** and **Save screenshot...**, each greyed with the same reason.
 
+The row is in four groups, divided by thin rules, in the order you reach for them: **history** (Undo, Redo and
+the chevron), **mode** (Shape, Points, Edges, Faces), **display** (the shading switch and X-ray, how the
+surface is drawn) and **aids** (View and Snap). A group that folds into the `…` menu takes its rule with it.
+
 The tools (Select, Move, Turn, Resize) live on the rail beside the viewport and nowhere else. When the
 window is too narrow for the whole row it gives up labels before controls: first the View, X-ray and Snap
 words become icons, then the shading words and the mode words become letters, and then View, X-ray, Snap
