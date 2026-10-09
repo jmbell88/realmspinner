@@ -89,6 +89,11 @@ _REDO_WHY = "Nothing to redo: this is the newest step."
 _HISTORY_WHY = "No steps yet."
 _NO_VIEW = "The viewport is still starting up."
 
+#: The two sentences the command palette's Clay rows grey with, so a row there and
+#: its control here never give two accounts of one state (``studio/palette.py``).
+SAVING_WHY = _SAVING
+NO_VIEW_WHY = _NO_VIEW
+
 #: The Export button's words. The long form is the library door's own name
 #: (``verbs.EXPORT_TO_LIBRARY``); the button is the short form because its
 #: tooltip and the menu under its chevron spell the destination out.
@@ -536,6 +541,26 @@ AXIS_ROWS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+def look_along(view: Any, name: str) -> None:
+    """One of :data:`AXIS_ROWS`' views: the camera looks along that axis.
+
+    The View popover's row and the command palette's are this one call, so a
+    seventh view is a line in the table and not a line in two places.
+    """
+    view.camera.look_along(name)
+
+
+def toggle_orthographic(view: Any) -> None:
+    """Perspective <-> orthographic; shared by the popover and the palette."""
+    view.camera.orthographic = not view.camera.orthographic
+
+
+def request_frame(state: Any) -> None:
+    """Frame the selection. A flag rather than a call, the house pattern: framing
+    needs the viewport, which is a thing ``main`` owns."""
+    state.frame_pending = True
+
+
 def _view_popup(ctx: Any, state: Any, view: Any) -> None:
     """What the viewport draws and where the camera looks from, in one popover.
 
@@ -578,7 +603,7 @@ def _view_popup(ctx: Any, state: Any, view: Any) -> None:
                 reason=_NO_VIEW,
             )
             if bool(hit[0] if isinstance(hit, tuple) else hit):
-                camera.look_along(name)
+                look_along(view, name)
         controls.menu_separator()
         ortho = bool(camera is not None and camera.orthographic)
         hit = controls.menu_item(
@@ -591,14 +616,12 @@ def _view_popup(ctx: Any, state: Any, view: Any) -> None:
             "is what makes two parts line up by eye.",
         )
         if bool(hit[0] if isinstance(hit, tuple) else hit):
-            camera.orthographic = not ortho
+            toggle_orthographic(view)
         hit = controls.menu_item(
             f"Frame the selection##{BAR}/frame", "F", False, True
         )
         if bool(hit[0] if isinstance(hit, tuple) else hit):
-            # A flag rather than a call, the house pattern: framing needs the
-            # viewport, which is a thing ``main`` owns.
-            state.frame_pending = True
+            request_frame(state)
 
 
 # --- the way out -------------------------------------------------------------------

@@ -407,6 +407,12 @@ def _wrong_mode_reason(op: Op) -> str:
     return f"Switch to {_mode_list(op.modes)} mode first."
 
 
+wrong_mode_reason = _wrong_mode_reason
+"""The same sentence, for a surface that lists an op it cannot run in this mode
+(the command palette greys it with this rather than with ``Op.reason``, which
+only answers for a mode the op *does* declare)."""
+
+
 def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
     """Fold everything the op pushed into a single, named step.
 

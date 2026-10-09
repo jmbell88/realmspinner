@@ -74,9 +74,12 @@ and each guided tour as **Take the tour: …** — see [New here?](21-home.md#ne
 cannot run right now is still listed, greyed: an empty result would not tell you the command exists
 or which mode owns it.
 
-Everything in the palette is also in the menu bar: both are drawn from the same registry, so the
-palette cannot offer a command the menu lacks. The menu bar adds a few rows of its own — Window ▸
-Navigation labels, and in Inker the editor's own operations — which the palette does not list.
+Everything in the palette is also in the menu bar, except Clay's own: in the Clay workspace with a
+document open the palette also lists each of Clay's operations, tools, modes and view controls under
+a **Clay** heading (see [Clay](30-clay.md#the-menu-strip)). Otherwise both are drawn from the same
+registry, so the palette cannot offer a command the menu lacks. The menu bar adds a few rows of its
+own — Window ▸ Navigation labels, and in Inker the editor's own operations — which the palette does
+not list.
 
 Typing also searches your most recent assets — by name, prompt or job id, up to the newest 200 —
 picking one selects it and opens it in the pane that made it. An older asset than that is still in

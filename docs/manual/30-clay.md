@@ -161,6 +161,13 @@ lives in the toolbar's View popover:
 Select None has no key of its own: `Esc` steps back through the selection, and `Ctrl+D` deselects.
 Everything with a key is also in [Keyboard shortcuts](38-shortcuts.md).
 
+Every operation is also searchable. With a Clay document open, `Ctrl+K` lists them under a **Clay** heading with their
+keys printed on the right, so *extrude*, *mirror*, *merge objects* or *box unwrap* finds its row whether or not you
+remember which menu it was in. An operation that works only in another mode (Extrude, from Shape mode) is listed
+greyed, and hovering it says which mode to switch to. An operation with an ellipsis opens its dialog, as the menu does.
+The same list carries the four tools, the four modes, the three shadings, X-ray, the overlays, the six axis views,
+Orthographic, Frame selection and the exports: the controls of the toolbar and the tool rail, changed the same way.
+
 ## The viewport header
 
 The toolbar is one row across the top of the viewport, under the menu strip, and it is where everything you

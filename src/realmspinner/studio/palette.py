@@ -26,6 +26,7 @@ says which mode it belongs to. The one thing a disabled row may not do is run.
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -432,6 +433,328 @@ def _mode_commands(ctx: Any) -> list[Command]:
     return out
 
 
+# --- Clay's commands ---------------------------------------------------------
+#
+# A mode cannot hand the palette commands of its own, and Clay needs to: its
+# menu strip is going away and every tool on it has to stay one search from
+# the user ("Extrude", "Mirror", "Box Unwrap"), plus the view, mode, tool and
+# export controls that live on its header and rail. So the palette asks Clay
+# for them here, **only in the Clay workspace and only with a document open**,
+# and every row is a thin door onto what the mode already does:
+#
+# * an op's row is ``clay_mode.fire_op`` -- the strip's own call, which opens the
+#   parameter popup next frame for an op with parameters and toasts a refusal;
+# * a view, mode or export row calls what the header's popover and Export menu
+#   call (``ui/panes/header.py``), so the two surfaces cannot drift;
+# * every ``enabled`` and ``run`` resolves the *live* tab through ``ctx``, never a
+#   captured document, so a cached row cannot act on a document that was since
+#   closed.
+#
+# **Cached.** ``commands()`` runs every frame -- the palette's rows and the menu
+# bar both ask for it -- and this block is ~65 ``Command`` objects with a
+# reason apiece. The list is rebuilt only when the question it answers changes:
+# a different tab or document, a ``rev`` bump (every edit, undo and selection
+# change touches it), the element mode, the selection, or a save starting or
+# ending. ``enabled`` stays a lambda over the live document, so what a row
+# *does* is never stale; only the ``why`` string and the row set are cached.
+#
+# Function-scope imports only: ``studio/modes/clay`` is a sibling the palette
+# sits above, and ``tests/test_layering.py`` reads module scope.
+
+_CLAY_GROUP = "Clay"
+# Said when an op is greyed by a gate that has no sentence of its own, so a row
+# is never shut in silence (``test_every_command_with_a_gate_says_why_it_is_shut``).
+_CLAY_GENERIC_WHY = "Not available for the current selection."
+
+
+class _ClayCache:
+    """The last Clay command list and the question it answered."""
+
+    key: tuple[Any, ...] | None = None
+    doc_ref: Any = None
+    commands: list[Command] = []
+    #: How many times the list was actually built, for the test that pins the cache.
+    builds: int = 0
+
+
+_clay_cache = _ClayCache()
+
+
+def _clay_tab(ctx: Any) -> Any:
+    """The Clay tab in front, or ``None`` outside Clay or with no document."""
+    if getattr(ctx.state, "mode", None) != "clay":
+        return None
+    clay = getattr(ctx.state, "clay", None)
+    return None if clay is None else clay.active
+
+
+def _clay_run(act: Callable[[Any, Any, Any], None]) -> Callable[[Any], None]:
+    """A ``run`` that resolves the live tab, then calls ``act(ctx, state, tab)``."""
+
+    def run(ctx: Any) -> None:
+        tab = _clay_tab(ctx)
+        if tab is not None:
+            act(ctx, ctx.state.clay, tab)
+
+    return run
+
+
+def _clay_has_view(ctx: Any) -> bool:
+    return getattr(ctx, "clay_view", None) is not None
+
+
+def _clay_op_command(op: Any, doc: Any, tab: Any) -> Command:
+    from .modes.clay import mode as clay_mode
+    from .modes.clay import ops as clay_ops
+    from .modes.clay.ui.panes import header as clay_header
+
+    if tab.saving:
+        why = clay_header.SAVING_WHY
+    elif doc.element_mode not in op.modes:
+        # Listed, not hidden: a user searching "Extrude" from Shape mode learns
+        # which mode it lives in from the greyed row.
+        why = clay_ops.wrong_mode_reason(op)
+    else:
+        why = clay_ops.reason_for(op, doc) or _CLAY_GENERIC_WHY
+
+    def enabled(ctx: Any) -> bool:
+        live = _clay_tab(ctx)
+        if live is None or live.saving:
+            return False
+        return live.doc.element_mode in op.modes and bool(op.enabled(live.doc))
+
+    def run(ctx: Any) -> None:
+        live = _clay_tab(ctx)
+        if live is not None:
+            clay_mode.fire_op(ctx, live.doc, op)
+
+    return Command(
+        key=f"clay-op:{op.name}",
+        label=op.label,
+        group=_CLAY_GROUP,
+        run=run,
+        hint=op.key,
+        enabled=enabled,
+        why=why,
+    )
+
+
+def _clay_build(doc: Any, tab: Any) -> list[Command]:
+    from . import verbs
+    from .modes.clay import doc_io
+    from .modes.clay import mode as clay_mode
+    from .modes.clay import ops as clay_ops
+    from .modes.clay import state as clay_state
+    from .modes.clay.ui.panes import header as clay_header
+    from .modes.clay.ui.panes import rail as clay_rail
+    from .modes.clay.ui.panes import tools as clay_tools
+
+    out: list[Command] = []
+
+    # The registry's ops. "Frame Selection" is left to the view row below, which
+    # uses the header's own door; two rows for one camera move would be noise.
+    for op in clay_ops.OPS:
+        if op.name != "frame":
+            out.append(_clay_op_command(op, doc, tab))
+
+    # The four tools: the rail's words, the registry's keys and shortcuts.
+    for key, label, shortcut in clay_state.TOOLS:
+
+        def set_tool(_ctx: Any, state: Any, _tab: Any, key: str = key) -> None:
+            state.tool = key
+
+        out.append(
+            Command(
+                key=f"clay-tool:{key}",
+                label=f"{clay_rail.TOOL_WORDS.get(key, label)} tool",
+                group=_CLAY_GROUP,
+                run=_clay_run(set_tool),
+                hint=shortcut,
+            )
+        )
+
+    # The four modes, through the door the header's switch uses.
+    def can_switch(ctx: Any) -> bool:
+        live = _clay_tab(ctx)
+        return live is not None and not live.saving
+
+    for mode, label, key in clay_tools.MODE_BUTTONS:
+
+        def set_mode(_ctx: Any, _state: Any, live: Any, mode: str = mode) -> None:
+            if not live.saving:
+                live.doc.set_element_mode(mode)
+
+        out.append(
+            Command(
+                key=f"clay-mode:{mode}",
+                label=f"{label} mode",
+                group=_CLAY_GROUP,
+                run=_clay_run(set_mode),
+                hint=key,
+                enabled=can_switch,
+                why=clay_header.SAVING_WHY,
+            )
+        )
+
+    # Shading: stored names (solid / material / wireframe), the header's words.
+    for key, label, _short, _tip in clay_header.SHADING:
+
+        def set_shading(_ctx: Any, state: Any, _tab: Any, key: str = key) -> None:
+            state.shading = key
+
+        out.append(
+            Command(
+                key=f"clay-view:shading-{key}",
+                label=f"{label} shading",
+                group=_CLAY_GROUP,
+                run=_clay_run(set_shading),
+            )
+        )
+
+    def toggle_xray(_ctx: Any, state: Any, _tab: Any) -> None:
+        state.xray = not state.xray
+
+    out.append(
+        Command(
+            key="clay-view:xray",
+            label="Toggle X-ray",
+            group=_CLAY_GROUP,
+            run=_clay_run(toggle_xray),
+            hint="Alt+Z",
+        )
+    )
+
+    # The overlays, off the header popover's own table.
+    for key, label, _tip in clay_header.OVERLAY_ROWS:
+
+        def toggle_overlay(ctx: Any, state: Any, _tab: Any, key: str = key) -> None:
+            clay_header.set_overlay(state, key, not clay_header.overlay_value(state, key))
+            clay_mode.persist(ctx)
+
+        out.append(
+            Command(
+                key=f"clay-view:{key}",
+                label=f"Toggle {label.lower()}",
+                group=_CLAY_GROUP,
+                run=_clay_run(toggle_overlay),
+            )
+        )
+
+    # The camera. These need the live viewport, which is absent on the first frame.
+    def toggle_ortho(ctx: Any, _state: Any, _tab: Any) -> None:
+        view = getattr(ctx, "clay_view", None)
+        if view is not None:
+            clay_header.toggle_orthographic(view)
+
+    out.append(
+        Command(
+            key="clay-view:ortho",
+            label="Toggle orthographic",
+            group=_CLAY_GROUP,
+            run=_clay_run(toggle_ortho),
+            hint="Ctrl+5",
+            enabled=_clay_has_view,
+            why=clay_header.NO_VIEW_WHY,
+        )
+    )
+    for name, label, chord in clay_header.AXIS_ROWS:
+
+        def look(ctx: Any, _state: Any, _tab: Any, name: str = name) -> None:
+            view = getattr(ctx, "clay_view", None)
+            if view is not None:
+                clay_header.look_along(view, name)
+
+        out.append(
+            Command(
+                key=f"clay-view:axis-{name}",
+                label=f"{label} view",
+                group=_CLAY_GROUP,
+                run=_clay_run(look),
+                hint=chord,
+                enabled=_clay_has_view,
+                why=clay_header.NO_VIEW_WHY,
+            )
+        )
+
+    def frame(_ctx: Any, state: Any, _tab: Any) -> None:
+        clay_header.request_frame(state)
+
+    out.append(
+        Command(
+            key="clay-view:frame",
+            # Fifteen characters, the same as the Create-only "Frame the model":
+            # ``rank`` breaks a tie toward the earlier row, and Clay's rows are
+            # built first.
+            label="Frame selection",
+            group=_CLAY_GROUP,
+            run=_clay_run(frame),
+            hint="F",
+        )
+    )
+
+    # The ways out, greyed with the one sentence every output button uses.
+    def can_export(ctx: Any) -> bool:
+        live = _clay_tab(ctx)
+        return live is not None and not doc_io.outputs_why(live.doc, bool(live.saving))
+
+    export_why = doc_io.outputs_why(doc, bool(tab.saving)) or "Nothing to send yet."
+
+    def export_library(ctx: Any, _state: Any, live: Any) -> None:
+        clay_mode.export_asset(ctx, live)
+
+    def export_glb(ctx: Any, _state: Any, live: Any) -> None:
+        clay_mode.export_mesh_file(ctx, live, "glb")
+
+    def export_obj(ctx: Any, _state: Any, live: Any) -> None:
+        clay_mode.export_mesh_file(ctx, live, "obj")
+
+    def screenshot(ctx: Any, _state: Any, live: Any) -> None:
+        clay_mode.save_screenshot(ctx, live)
+
+    for key, label, act, hint in (
+        ("library", verbs.EXPORT_TO_LIBRARY, export_library, "Ctrl+E"),
+        ("glb", "Export GLB...", export_glb, ""),
+        ("obj", "Export OBJ...", export_obj, ""),
+        ("screenshot", "Save screenshot...", screenshot, ""),
+    ):
+        out.append(
+            Command(
+                key=f"clay-export:{key}",
+                label=label,
+                group=_CLAY_GROUP,
+                run=_clay_run(act),
+                hint=hint,
+                enabled=can_export,
+                why=export_why,
+            )
+        )
+    return out
+
+
+def _clay_commands(ctx: Any) -> list[Command]:
+    """Clay's commands for the document in front, or ``[]``. See the block comment."""
+    tab = _clay_tab(ctx)
+    if tab is None:
+        return []
+    doc = tab.doc
+    key = (
+        tab.uid,
+        doc.rev,
+        doc.element_mode,
+        tuple(sorted(doc.selection)),
+        bool(tab.saving),
+    )
+    cache = _clay_cache
+    held = cache.doc_ref() if cache.doc_ref is not None else None
+    if cache.key == key and held is doc:
+        return cache.commands
+    cache.commands = _clay_build(doc, tab)
+    cache.key = key
+    cache.doc_ref = weakref.ref(doc)
+    cache.builds += 1
+    return cache.commands
+
+
 def commands(ctx: Any) -> list[Command]:
     """Every command, in a sensible reading order.
 
@@ -612,6 +935,10 @@ def commands(ctx: Any) -> list[Command]:
 
     return [
         *_mode_commands(ctx),
+        # Before the generic rows on purpose: a tie in ``rank`` goes to the
+        # earlier command, and Clay's "Frame selection" must not lose to the
+        # Create-only "Frame the model" the workspace cannot run.
+        *_clay_commands(ctx),
         Command(
             key="generate",
             label="Generate / Make 3D",
