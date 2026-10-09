@@ -104,8 +104,9 @@ def _row(ctx: Any, state: Any, tab: Any, doc: Any, op: Any) -> None:
 def param_widget(op_name: str, param: Any, value: float) -> tuple[bool, float]:
     """One parameter's label, field and warning. -> ``(changed, new value)``.
 
-    The popup's loop body, lifted out so the viewport's adjust card
-    (``ui/panes/adjust.py``) draws the *same* widget for the same ``Param`` --
+    The popup's loop body, lifted out so the inspector's inline forms and its
+    Last action card (``ui/inspector_elements.py``) draw the *same* widget for the
+    same ``Param`` --
     two copies of "a boolean is a checkbox, a choice is a combo, an integer is
     a spinner" are two places for a new kind of parameter to land in only one.
     ``value`` is what the field shows; nothing is written anywhere here.

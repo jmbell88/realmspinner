@@ -1583,7 +1583,7 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     ``ctx`` is taken and dropped: the parameter stays so the sibling editors'
     ``step_history(ctx, tab, index)`` and this one's one caller
     (the Properties pane's Document tab) share a signature. A jump needs
-    no bookkeeping for the recent op (``ClayDoc.recent_op``): the adjust card
+    no bookkeeping for the recent op (``ClayDoc.recent_op``): the Last action card
     is live only while the history head is the step the op pushed, so moving
     the head hides it by itself.
 

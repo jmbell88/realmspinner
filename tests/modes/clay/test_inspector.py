@@ -148,6 +148,7 @@ def _state(ctx):
 
 
 def test_the_inspector_is_the_slot_that_replaced_clay_props_and_has_no_tab_strip():
+    """The tab strip itself is gone from ``props`` too: ``test_inspector_elements.py``."""
     from realmspinner.studio import skeletons
 
     ids = [slot.id for slot in skeletons.clay(SimpleNamespace())["right"].slots]
@@ -225,20 +226,51 @@ def test_several_shapes_selected_hide_the_size_card_and_open_the_group_actions(i
         assert f"{clay_ops.get(name).label}##insp-op/{name}" in labels, name
 
 
-def test_an_element_mode_shows_the_legacy_body_under_a_done_button_that_returns_to_shape_mode(
+def test_an_element_mode_shows_the_element_state_under_a_done_button_that_returns_to_shape_mode(
     imgui_ui,
 ):
+    """Old code: the Object tab's body (``position##bt``, ``size##bz``) under Done. The
+    element state's own claims are in ``test_inspector_elements.py``."""
     ctx, tab, doc = _document(1)
     doc.set_element_mode("face")
     rig = _rig(imgui_ui, ctx)
     labels = rig.labels
     assert any("##insp-done" in label for label in labels)
-    assert "position##bt" in labels, "the old Object body, unchanged"
-    assert "size##bz" in labels, "with the old Size row, until the element state replaces it"
+    assert any("##insp-select/" in label for label in labels), "the Select row"
+    assert "Extrude##insp-op/extrude" in labels, "Shape it"
+    assert "position##bt" not in labels and "size##bz" not in labels, "no legacy Object body"
     assert "##size##insp" not in labels
     rig.click(contains="##insp-done")
     assert doc.element_mode == "object"
     assert doc.selection, "the shape stays selected, as the selection rule says"
+
+
+@pytest.mark.parametrize("count", [2, 3, 16])
+def test_the_inspector_says_how_many_shapes_are_selected_instead_of_nothing_selected(
+    imgui_ui, monkeypatch, count
+):
+    """The 2026-09 UX pass's claim, moved with the pane that made it: with sixteen shapes lit
+    up the Object tab said "Nothing selected", which the viewport plainly contradicts."""
+    ctx, tab, doc = _document(count)
+    doc.select([o.uid for o in doc.objects])
+    seen: list[str] = []
+    real = widgets.section
+    monkeypatch.setattr(widgets, "section", lambda label: (seen.append(label), real(label))[1])
+    _rig(imgui_ui, ctx)
+    assert f"{count} shapes selected" in seen
+    assert "Nothing selected" not in seen
+
+
+def test_the_inspector_with_no_shape_selected_does_not_say_a_shape_is_selected(
+    imgui_ui, monkeypatch
+):
+    ctx, tab, doc = _document(1)
+    doc.select([])
+    seen: list[str] = []
+    real = widgets.section
+    monkeypatch.setattr(widgets, "section", lambda label: (seen.append(label), real(label))[1])
+    _rig(imgui_ui, ctx)
+    assert not any("selected" in label for label in seen)
 
 
 def test_a_page_is_reachable_from_an_element_mode(imgui_ui):
@@ -816,13 +848,14 @@ def test_the_inspector_frame_is_bounded_even_under_contention(imgui_ui):
     assert (time.perf_counter() - start) / 5 < 0.5
 
 
-# -- the retired pane still draws what it drew ----------------------------------------------
+# -- the retired pane's functions ------------------------------------------------------------
 
 
 def test_properties_keeps_its_functions_so_the_old_doors_still_answer(imgui_ui):
-    """25 test files and the element-mode legacy body call these by name."""
+    """25 test files and the pages call these by name; the tab strip and the legacy
+    Object body are the part that went (``test_inspector_elements.py``)."""
     for name in (
         "_transform", "_dimensions", "_palette_row", "_material", "_document", "_outputs",
-        "_generator", "_relations", "commit_median", "legacy_object_body", "scale_fields",
+        "_generator", "_relations", "commit_median", "scale_fields", "_element_median",
     ):  # fmt: skip
         assert callable(getattr(clay_props, name)), name

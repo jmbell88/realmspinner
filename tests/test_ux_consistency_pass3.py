@@ -135,72 +135,24 @@ def test_the_clay_button_never_names_a_generator():
         assert f'"{name}"' not in source, f"{name} is hardcoded in overlay"
 
 
-# --- item 2: Clay's properties pane tells the truth about a multi-selection --
+# --- item 2: Clay's inspector tells the truth about a multi-selection --------
+#
+# These four claims were about ``props._body``'s empty state, which said "Nothing
+# selected" over sixteen lit-up objects. The pane is the Inspector now: the sentence
+# claims are in ``tests/modes/clay/test_inspector.py``
+# (``test_the_inspector_says_how_many_shapes_are_selected_*``) and the element state's
+# own in ``test_inspector_elements.py``. What stays here is the pure half.
 
 
-def _clay_props_ctx(monkeypatch, selection: set[str]):
-    """``clay_props._body`` with everything but the empty-state stubbed out.
-
-    Cheaper than a real imgui frame, and the claim is about *which sentence*
-    is drawn rather than about the frame surviving -- the smoke suite owns
-    that half.
-    """
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-
-    drawn: list[tuple[str, str]] = []
-    doc = SimpleNamespace(
-        selection=selection,
-        element_mode="object",
-        by_uid=lambda uid: None,
-    )
-    tab = SimpleNamespace(doc=doc, saving=False)
-    state = SimpleNamespace(active=tab)
-    monkeypatch.setattr(clay_props.clay_mode, "ensure", lambda ctx: state)
-    monkeypatch.setattr(clay_props.widgets, "section", lambda *a, **k: None)
-    monkeypatch.setattr(clay_props.manual_render, "help_button", lambda *a, **k: None)
-    # The tab strip (a segmented choice) and its spacer need an imgui context
-    # this test deliberately does not build; the claim is the empty-state text.
-    monkeypatch.setattr(
-        clay_props.controls, "segmented_choice", lambda _id, _opts, current, **k: (False, current)
-    )
-    monkeypatch.setattr(clay_props.imgui, "dummy", lambda *a, **k: None)
-    monkeypatch.setattr(
-        clay_props.widgets,
-        "empty_state",
-        lambda icon, title, hint="", **k: drawn.append((title, hint)),
-    )
-    clay_props._body(SimpleNamespace())
-    return drawn
-
-
-def test_clay_says_how_many_objects_are_selected_instead_of_nothing_selected(monkeypatch):
-    """With sixteen objects lit up the pane said "Nothing selected", which the
-    viewport plainly contradicts."""
-    drawn = _clay_props_ctx(monkeypatch, {"a", "b"})
-    assert drawn == [("2 objects selected", "Select one to edit it.")]
-
-
-def test_clay_still_says_nothing_selected_when_nothing_is(monkeypatch):
-    drawn = _clay_props_ctx(monkeypatch, set())
-    assert drawn == [("Nothing selected", "Click an object in the viewport.")]
-
-
-def test_the_multi_selection_refusal_itself_is_unchanged(monkeypatch):
-    """Only the sentence changed: ``_selected`` still refuses to edit one of
-    many, which is the whole reason the branch exists."""
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+def test_the_one_object_gate_refuses_several_and_is_the_palette_strips_too():
+    """``swatches.single_selected`` still refuses to edit one of many, which is the
+    whole reason the several-shapes body has no Size card."""
+    from realmspinner.studio.modes.clay.ui.panes import swatches
 
     doc = SimpleNamespace(selection={"a", "b"}, by_uid=lambda uid: "an object")
-    assert clay_props._selected(doc) is None
+    assert swatches.single_selected(doc) is None
     one = SimpleNamespace(selection={"a"}, by_uid=lambda uid: "an object")
-    assert clay_props._selected(one) == "an object"
-
-
-@pytest.mark.parametrize("count", [3, 16])
-def test_the_count_is_the_real_one(monkeypatch, count):
-    drawn = _clay_props_ctx(monkeypatch, {str(index) for index in range(count)})
-    assert drawn[0][0] == f"{count} objects selected"
-    assert re.fullmatch(r"\d+ objects selected", drawn[0][0])
+    assert swatches.single_selected(one) == "an object"
 
 
 # --- item 6: Settings speaks in one register --------------------------------

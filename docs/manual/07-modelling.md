@@ -143,7 +143,7 @@ you through a whole small prop. The exercise below is the free-form version.
 3. Undo, then select both and use **Group Selected** instead; move the group, and note that each part is
    still its own object.
 4. In Face mode, select the top of a box, **Inset**, then **Extrude** upward to make a chimney —
-   and watch the properties panel drop the box's parameters the moment the inset lands.
+   then press **Done** and watch the Inspector say the box is frozen: its parameters no longer describe it.
 5. **Export to the library**, then **Open in Clay** from the new card, and confirm your objects came
    back.
 

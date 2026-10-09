@@ -32,6 +32,7 @@ from modes.sirens.test_sirens_panes_smoke import frames as frames  # noqa: F401,
 
 from realmspinner.core import undo
 from realmspinner.studio import controls, widgets
+from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
@@ -407,10 +408,10 @@ def test_the_sirens_name_fields_commit_on_release(pane, field_id):
     "func,field",
     [
         (clay_outliner._row, '"##rename"'),
-        (clay_props._identity, '"name##buildname"'),
+        (clay_inspector._header_row, '"##insp-name"'),
         (clay_props._palette_row, '"slot name##matname"'),
     ],
-    ids=["outliner-rename", "properties-name", "material-slot-name"],
+    ids=["outliner-rename", "inspector-name", "material-slot-name"],
 )
 def test_renaming_an_object_or_material_slot_in_clay_is_one_undo_step_not_one_per_keystroke(
     func, field

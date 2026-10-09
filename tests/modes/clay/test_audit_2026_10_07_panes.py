@@ -23,6 +23,7 @@ from realmspinner.kernels.pixel import Document
 from realmspinner.studio.modes.clay import doc_io
 from realmspinner.studio.modes.clay import texture_link as tl
 from realmspinner.studio.modes.clay.state import ClayState, ClayTab
+from realmspinner.studio.modes.clay.ui import inspector_elements as clay_elements
 from realmspinner.studio.modes.clay.ui.panes import header as clay_header
 from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
@@ -314,30 +315,26 @@ def test_a_swatch_click_in_vertex_mode_does_not_repaint_faces_outside_the_select
 
 
 @pytest.mark.parametrize(
-    ("mode", "noun"), [("face", "face"), ("vertex", "vertex"), ("edge", "edge")]
+    ("mode", "noun"), [("face", "face"), ("vertex", "point"), ("edge", "edge")]
 )
-def test_properties_in_an_element_mode_with_no_shape_being_edited_says_to_pick_an_element(
+def test_the_inspector_in_an_element_mode_with_nothing_picked_says_to_click_an_element(
     mode: str, noun: str
 ) -> None:
-    """Reached only with no shape selected (entering the mode keeps a selected
-    shape, which has its own panel): the hint names what the mode picks."""
+    """The 2026-10-07 audit's clay-74, moved with the Object tab it was found in: the
+    viewport picks elements, not objects, so "Click an object" asked for the one gesture
+    the mode does not make. The element state's sentence names what the mode picks and
+    how to pick several."""
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), generator="box", params={}))
     doc.set_element_mode(mode)
     assert not doc.selection
 
-    title, hint = clay_props._nothing_selected_text(doc)
+    text = clay_elements.element_line(doc)
 
-    assert noun in hint
-    assert "Click an object" not in hint
-
-
-def test_properties_in_object_mode_with_nothing_selected_still_says_to_click_an_object() -> None:
-    doc = bd.ClayDoc()
-    assert clay_props._nothing_selected_text(doc) == (
-        "Nothing selected",
-        "Click an object in the viewport.",
-    )
+    assert text == clay_elements.empty_text(mode)
+    assert text.startswith("Nothing selected. Click a")
+    assert f" {noun}," in text and "hold Shift and drag" in text
+    assert "object" not in text
 
 
 # --- clay-75 -----------------------------------------------------------------

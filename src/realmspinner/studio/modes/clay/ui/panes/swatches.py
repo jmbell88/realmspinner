@@ -89,7 +89,7 @@ def single_selected(doc: Any) -> Any:
 
     One rather than the first of many: a panel that silently edited whichever
     object happened to sort first under a multi-selection is worse than one that
-    says it cannot. ``props._selected`` is this function under its old name.
+    says it cannot.
     """
     if len(doc.selection) != 1:
         return None

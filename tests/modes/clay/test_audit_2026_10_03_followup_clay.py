@@ -14,7 +14,7 @@ from realmspinner.kernels.mesh import mesh as bm
 from realmspinner.kernels.mesh import ops as mesh_ops
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio import viewport_hints as clay_hints
-from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.studio.modes.clay.ui import inspector_elements as clay_elements
 
 
 def _two_boxes() -> tuple[bd.ClayDoc, bd.Obj, bd.Obj]:
@@ -34,25 +34,25 @@ def _open_box() -> bm.Mesh:
 # --- (a) Properties' "N selected" and the HUD follow the drag's eligibility --
 
 
-def test_properties_selected_count_ignores_a_hidden_objects_element_selection() -> None:
+def test_the_inspectors_selected_count_ignores_a_hidden_objects_element_selection() -> None:
     doc, first, second = _two_boxes()
     doc.set_element_mode("face")
     doc.set_element_sel(first.uid, el.ElementSel(faces=[0, 1]))
     doc.set_element_sel(second.uid, el.ElementSel(faces=[0, 1, 2]))
-    assert clay_props.element_summary_text(doc) == "face mode -- 5 faces across 2 objects"
+    assert clay_elements.element_line(doc) == "5 faces selected across 2 shapes"
 
     doc.set_props(second.uid, visible=False)
 
-    text = clay_props.element_summary_text(doc)
-    assert text == "face mode -- 2 faces across 1 object", text
+    text = clay_elements.element_line(doc)
+    assert text == "2 faces selected", text
 
 
-def test_properties_with_only_a_hidden_selection_says_nothing_selected() -> None:
+def test_the_inspector_with_only_a_hidden_selection_says_nothing_selected() -> None:
     doc, first, _second = _two_boxes()
     doc.set_element_mode("edge")
     doc.set_element_sel(first.uid, el.ElementSel(edges=[[0, 1]]))
     doc.set_props(first.uid, visible=False)
-    assert clay_props.element_summary_text(doc) == "edge mode -- nothing selected"
+    assert clay_elements.element_line(doc) == clay_elements.empty_text("edge")
 
 
 def test_hud_selected_count_and_measure_ignore_a_hidden_objects_element_selection() -> None:

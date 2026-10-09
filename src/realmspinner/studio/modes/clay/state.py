@@ -283,15 +283,9 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # holding a request it could not act on. Cleared by the pane that opens it.
     open_op_popup: bool = False
 
-    # Which tab of the Properties pane is showing (``props.TABS`` keys). App
-    # level rather than per document, like ``tool``: it is a place you are
-    # *looking*, and switching documents should not move you back to Object.
-    # An unknown key (a tab since removed) is read as ``"object"`` by the pane.
-    props_tab: str = "object"
-
     # Which page the inspector has pushed ("" is its main view, else one of
     # ``inspector.PAGES``: ``colours``, ``unwrap``, ``model``). App level like
-    # ``props_tab`` -- a place you are *looking*, not a fact about a document --
+    # ``tool`` -- a place you are *looking*, not a fact about a document --
     # and read as "" by the pane when no tab is open or the name is unknown.
     # Esc closes it before it does anything else (``mode._escape``).
     inspector_page: str = ""
@@ -346,10 +340,13 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # files both carry uids 1 and 2, so a rotation typed into one tab's object
     # was shown for the other's.
     length_unit: str = "m"
-    # Why the adjust card's last re-run was refused ("" when it was not), kept
+    # Why the Last action card's re-run was refused ("" when it was not), kept
     # here so the card can print it on the frames after the refusal. Cleared
     # by the card itself the moment the recent op stops being live.
-    adjust_message: str = ""
+    last_action_message: str = ""
+    # Whether the Last action card was drawn on the previous frame: it scrolls itself into
+    # view on the frame it *appears*, not on every adjust (which keeps it live).
+    last_action_open: bool = False
     size_lock_aspect: bool = False
     euler_cache: dict[Hashable, tuple[tuple[float, ...], tuple[float, float, float]]] = field(
         default_factory=dict

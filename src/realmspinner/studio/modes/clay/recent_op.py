@@ -2,8 +2,8 @@
 
 The 2026-09-07 audit's clay-10 removed ``ClayState.last_op`` because it was
 written by every ``clay_ops.run`` and read by nothing. **This record has two
-readers**, which is the whole of why it is back: the adjust card
-(``ui/panes/adjust.py``) re-runs it at new values, and the ``repeat-last`` op
+readers**, which is the whole of why it is back: the inspector's Last action card
+(``ui/inspector_elements.py``) re-runs it at new values, and the ``repeat-last`` op
 re-runs it on the current selection.
 
 It lives on the *document* (``ClayDoc.recent_op``), not on ``ClayState``, for

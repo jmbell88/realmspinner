@@ -29,9 +29,11 @@ from realmspinner.studio import layout_skeleton, menus, skeletons
 from realmspinner.studio.modes.clay import element_move
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import state as clay_state
+from realmspinner.studio.modes.clay.ui import inspector_elements as clay_elements
 from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
+from realmspinner.studio.modes.clay.ui.panes import swatches
 from realmspinner.studio.modes.clay.ui.panes import swatches as clay_swatches
 from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
@@ -520,9 +522,9 @@ def test_the_median_row_sits_outside_the_one_object_gate():
     doc.set_element_mode("face")
     doc.set_element_sel(first, el.ElementSel(faces=[0]))
     doc.set_element_sel(second, el.ElementSel(faces=[0]))
-    assert clay_props._selected(doc) is None, "two objects: the object gate is shut"
+    assert swatches.single_selected(doc) is None, "two objects: the one-object gate is shut"
     assert element_move.element_median_world(doc) is not None
-    assert clay_props.element_summary_text(doc) == "face mode -- 2 faces across 2 objects"
+    assert clay_elements.element_line(doc) == "2 faces selected across 2 shapes"
 
 
 def test_the_element_measure_line_reports_area_and_edge_length():

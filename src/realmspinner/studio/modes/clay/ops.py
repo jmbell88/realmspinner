@@ -384,7 +384,7 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
         doc.history.collapse_since(mark)
         return False
     _one_step(doc, op, mark, head)
-    # What the adjust card and Repeat Last read. Only a parameterised op that
+    # What the Last action card and Repeat Last read. Only a parameterised op that
     # started in an element mode and actually pushed a step: a bare action has
     # nothing to adjust, an object-level op is a different selection model, and
     # an op that pushed nothing (a no-op) has no step for the card to be live

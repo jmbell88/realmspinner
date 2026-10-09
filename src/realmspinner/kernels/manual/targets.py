@@ -87,11 +87,10 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "overlay": ("24-the-3d-viewport", "the-toolbar"),
     "clay-header": ("30-clay", "the-viewport-header"),
     "clay-tools": ("30-clay", "adding-a-primitive"),
-    "clay-props": ("30-clay", "materials"),
-    # The Inspector that took the ``clay-props`` slot (the id is never reused: a
-    # saved layout may have hidden it). Its own anchor, pointing at the section
-    # that describes the whole panel; Colours & textures and Unwrap are pages of
-    # it, and the (?) on Unwrap is ``clay-uv``'s.
+    # The Inspector that took the ``clay-props`` slot (that id is retired and never
+    # reused: a saved layout may have hidden it, and ``studio/skeletons.py`` says so).
+    # Its own anchor, pointing at the section that describes the whole panel; Colours
+    # & textures and Unwrap are pages of it, and the (?) on Unwrap is ``clay-uv``'s.
     "clay-inspector": ("30-clay", "the-inspector"),
     # The (?) on the Inspector's docked "All shapes" header. The outliner is a
     # section of that pane now, not a pane of its own, but the questions asked in
@@ -99,7 +98,7 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # outliner section's, not the Inspector's.
     "clay-outliner": ("30-clay", "the-outliner"),
     # Tranche 6 ("UV and materials"). Its own anchor rather than sharing
-    # ``clay-props``: the questions asked in front of this panel -- what the
+    # the Inspector's: the questions asked in front of this panel -- what the
     # overlap/stretch tint means, what dragging a box does, what Pack Islands
     # and Texel Density actually set -- are answered in one section, "The UV
     # view" under "Texture coordinates".

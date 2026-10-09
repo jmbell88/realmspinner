@@ -372,7 +372,7 @@ thickness 0.050 m`). The distance starts at nothing and grows with how far the p
 from where you pressed the key.
 
 Click or `Enter` commits, and it commits **once**: one undo step, the same mesh you would have got from
-the dialog at that value, and the adjust card appears afterwards so the number is still in reach.
+the dialog at that value, and the **Last action** card appears afterwards so the number is still in reach.
 `Esc` or a right-click cancels, and since nothing is written until the commit the document is exactly as
 it was — not even a redraw's worth of change in the history. **Type a number** (`0.1`, then `Enter`) and
 the pointer stops mattering: the value is exactly what you typed. A value the operation refuses is
@@ -400,24 +400,24 @@ Extrude does not start a drag. `E` extrudes only in an element mode; in object m
 ### Adjusting the last operation, and repeating it
 
 An operation that takes numbers and is run in an element mode — inset, weld, assign material — leaves a
-small **adjust card** in the viewport's bottom-left corner; the object-level ones (merge objects, snap
-to grid, mirror copy, pack islands) open a dialog but leave no card. It holds the same fields the dialog had,
-and changing one re-runs the operation from the state it started in: you see the new thickness on the
-mesh, and the whole thing is still **one** undo step, the same mesh you would have got by running the
-operation at that value in the first place. If the new value is one the operation refuses, the
-previous result stays on screen and the card says why.
+**Last action** card in the [Inspector](#the-inspector), under **Shape it**; the object-level ones (merge
+objects, snap to grid, mirror copy, pack islands) open a dialog but leave no card. It is headed with the
+operation's name and holds the same fields the dialog had, and changing one re-runs the operation from the
+state it started in: you see the new thickness on the mesh, and the whole thing is still **one** undo step,
+the same mesh you would have got by running the operation at that value in the first place. If the new
+value is one the operation refuses, the previous result stays on screen and the card says why.
 
-The card is there only while the model is exactly as the operation left it. Any later edit, an undo, or
-a change to what is selected hides it, because from then on "change the thickness" would no longer mean
-"redo that operation".
+The card is there only while the model is exactly as the operation left it. Any later edit, an undo, a
+change to what is selected or a change of mode hides it, because from then on "change the thickness" would no
+longer mean "redo that operation".
 
-**Repeat Last** (`Shift`+`R`, and the first row of the **Mesh** menu) runs the last such operation again,
+**Repeat Last** (`Shift`+`R`, and the first button of **Shape it**) runs the last such operation again,
 at the same values, on whatever is selected now — inset one face, select another, press it. It remembers
 per document, so an agent's own document repeats only what the agent did; with nothing to repeat it says
 so.
 
 The first operation that changes an object's topology **freezes** it. A box that has been extruded is
-no longer describable as "box, size 1", so the properties panel switches from the generator's
+no longer describable as "box, size 1", so the Inspector's Shape settings switch from the generator's
 parameters to a vertex and face count.
 
 ![Face mode: one face of the keep selected, its median and area in the Inspector](img/30-clay-faces.png)
@@ -596,7 +596,7 @@ so what you can do to the thing in front of you is always in front of you. Its b
 | Nothing | **What do you want to make?**: four shape cards, a **More shapes** list, and the **Model** card |
 | One shape | Its name and colour, then **Size**, **Shape settings** (when it has any), **Colour**, **Duplicate** and **Delete**, and three closed folds |
 | Several shapes | **Colour**, **Duplicate** and **Delete**, and the actions for several shapes; no size |
-| Points, edges or faces | A **Done** button, then the shape's own name, parent, transform and numbers, with the selection's median on top |
+| Points, edges or faces | **Editing points** (or edges, or faces) with a **Done** button, then a **Select** row, what is picked and its median, **Shape it**, and, right after an operation with numbers, **Last action** |
 
 **With nothing selected** the panel is the first screen of a model. The four cards place a Box, Cylinder, Sphere
 or Cone exactly as the rail's buttons do, **More shapes** lists every other shape, and the **Model** card
@@ -652,16 +652,38 @@ then the mode, then the selection).
 | **Model & history** | The **History** row | The whole document: the file row, counts, the undo history, the import units and up axis, the last export, and the **Export GLB** and **Export OBJ** buttons |
 
 The page is remembered while the app is open and is the same for every document. In an element mode the
-Colours & textures and Texture mapping pages are one click below the shape's fields.
+Colours & textures and Texture mapping pages are one click below **Shape it**.
 
 The history is a button with the step count: press it for the whole undo stack, oldest first, with the head
 marked and the undone steps greyed, and click any row to move there in one go.
 
-**With elements selected,** the body is the shape's own, under **Done**, with a data row under the transform. In
-vertex, edge or face mode with something selected it shows the selection's **median** position as X, Y and Z
-in world space, and the boxes are typeable: enter a value and the selected elements move so their median
-lands there. Each entry is **one undo step**. A short readout beside the boxes gives the length of a
-selected edge or the area of a selected face.
+**In Points, Edges or Faces** the heading says what you are editing (**Editing faces**) and **Done** goes back to
+Shape mode with the shape still selected, the same as the header's **Shape** and `Esc`. The body is the same
+four things in every element mode, and what the mode offers is drawn from the same table as the right-click menu,
+so the three never disagree:
+
+- **Select** is a row of **All**, **None**, **Invert** and **Linked**, the same operations as `Ctrl`+`A`,
+  `Ctrl`+`Shift`+`I` and `L`. Each is greyed with a reason when it has nothing to act on (Linked wants something
+  picked first).
+- Under it, a line says what is picked — `3 faces selected`, or `4 faces selected across 2 shapes` when the edit
+  spans several — or, with nothing picked, what to click: *Nothing selected. Click a face, or hold Shift and drag
+  to select several.* The selection's **median** position follows as X, Y and Z in world space, and the boxes
+  are typeable: enter a value and the selected elements move so their median lands there. Each entry is **one
+  undo step**. With nothing picked the boxes stay where they are, greyed, so nothing below them moves when the
+  first pick lands. Edge and face mode add a line with the length of the selected edges or the area of the
+  selected faces.
+- **Shape it** holds the mode's operations as buttons: **Repeat Last**, **Extrude**, and in face mode
+  **Inset Faces...**, **Merge Faces**, **Flip Normals**, **Assign Material...**, **Triangulate Faces** and
+  **Subdivide**; in point mode **Weld...**; and **Delete**, which deletes the picked elements and never the
+  shape. The groups that are used less (**Set Origin**, and in face mode **Shading** and **Separate**) are
+  closed folds under the card. Hover shows what a button does and its key; a button that cannot run is greyed
+  and says why. An operation with numbers (the ones with `...`) opens its fields right under its button with an
+  **Apply**, remembers the values for next time, and counts as one undo step.
+- **Last action**, described under [Adjusting the last operation](#adjusting-the-last-operation-and-repeating-it),
+  appears under **Shape it** while an operation's numbers are still live.
+
+Below them, **Colours & textures** and **Texture mapping** open those pages for the shape being edited: painting a
+face and laying out an island are what an element mode is for.
 
 ## Parents and groups
 

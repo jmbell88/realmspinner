@@ -744,7 +744,6 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
 
     from realmspinner.studio import layout as layout_mod
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.create.ui import workspace as generation_workspace
     from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
     from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
@@ -817,21 +816,6 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
             else:
                 app_ctx.state.preview[app_settings.CATEGORY_SLOT] = before
 
-    def _clay_document_tab() -> None:
-        """The Document tab with a document open: the file row, the history
-        pair and the three exports, in the 300 px column the Properties pane is
-        drawn in. This is the pane ``bridge.py`` was; the Inspector's Model &
-        history page draws the same rows now."""
-        from realmspinner.studio.modes.clay import mode as clay_mode
-
-        tab = _clay_tab(app_ctx)
-        tab.doc.select([tab.doc.objects[0].uid])
-        clay_mode.ensure(app_ctx).props_tab = "document"
-        try:
-            clay_props.draw(app_ctx)
-        finally:
-            clay_mode.ensure(app_ctx).props_tab = "object"
-
     def _clay_inspector(situation: str, *, dock: bool = False):
         """The Inspector in one situation: the walk reaches every body it can draw
         (the model card's three-button row, the colour card, the open folds, each
@@ -851,9 +835,15 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
             tab.doc.select({"nothing": [], "one": uids[:1], "many": uids}.get(situation, uids[:1]))
             if situation in ("colours", "unwrap", "model"):
                 state.inspector_page = situation
-            if situation == "face":
+            if situation in ("vertex", "edge", "face"):
+                # An element mode with the shape kept selected and nothing picked: the
+                # Select row greyed, the empty sentence, the median greyed.
                 tab.doc.select(uids[:1])
-                tab.doc.set_element_mode("face")
+                tab.doc.set_element_mode(situation)
+            if situation.endswith("-picked"):
+                # Picks, and a live op, so the median, the measure line and the Last
+                # action card are walked as well.
+                _element_picked(tab, uids[0], situation.removesuffix("-picked"))
             try:
                 clay_inspector.draw(app_ctx)
             finally:
@@ -876,12 +866,17 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
         ("retarget", lambda: retarget_panel.draw(app_ctx, job)),
         ("pose", lambda: pose_panel.draw(app_ctx, job)),
         ("sheet", lambda: sheet_panel.draw(app_ctx, job)),
-        ("clay-props", lambda: clay_props.draw(app_ctx)),
-        ("clay-props-document", _clay_document_tab),
         ("clay-inspector-nothing", _clay_inspector("nothing")),
         ("clay-inspector-one", _clay_inspector("one")),
         ("clay-inspector-many", _clay_inspector("many")),
-        ("clay-inspector-elements", _clay_inspector("face")),
+        # All three element modes, with and without picks, at the sidebar's width: the
+        # Select row, the element line, Shape it and (picked) the Last action card.
+        ("clay-inspector-points", _clay_inspector("vertex")),
+        ("clay-inspector-edges", _clay_inspector("edge")),
+        ("clay-inspector-faces", _clay_inspector("face")),
+        ("clay-inspector-points-picked", _clay_inspector("vertex-picked")),
+        ("clay-inspector-edges-picked", _clay_inspector("edge-picked")),
+        ("clay-inspector-faces-picked", _clay_inspector("face-picked")),
         ("clay-inspector-colours", _clay_inspector("colours")),
         ("clay-inspector-unwrap", _clay_inspector("unwrap")),
         ("clay-inspector-model", _clay_inspector("model")),
@@ -2690,6 +2685,25 @@ def test_a_toolbar_row_never_draws_past_the_pane_it_is_in(app_ctx, imgui_ctx, sc
 # --- Clay mode -------------------------------------------------------------
 
 
+def _element_picked(tab, uid, mode):
+    """Put *tab*'s document in *mode* with picks on *uid* and, in face mode, a live Inset
+    behind them (so the Last action card has numbers to draw)."""
+    from realmspinner.kernels.mesh import elements as el
+    from realmspinner.studio.modes.clay import ops as clay_ops
+
+    doc = tab.doc
+    doc.set_element_mode(mode)
+    picks = {
+        "vertex": el.ElementSel(verts=[0, 1]),
+        "edge": el.ElementSel(edges=[(0, 1)]),
+        "face": el.ElementSel(faces=[0]),
+    }[mode]
+    doc.set_element_sel(uid, picks)
+    if mode == "face":
+        ctx = type("Ctx", (), {"toast": lambda self, *a, **k: None})()
+        clay_ops.run(ctx, doc, clay_ops.get("inset"), thickness=0.1)
+
+
 def _clay_tab(app_ctx, *, objects: int = 2):
     """A Clay document with objects in it, adopted as the active tab."""
     from realmspinner.kernels.mesh import document as bd
@@ -2715,14 +2729,13 @@ def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     # ``clay_header``, ``clay_rail`` and ``clay_palette`` are drawn inside the
     # viewport rather than in a sidebar, and they walk with the panes for the
     # reason the panes walk: an unbalanced disable stack, child or popup left
     # open is the same defect wherever it is.
-    for pane in (clay_props, clay_inspector, clay_header, clay_rail, clay_palette):
+    for pane in (clay_inspector, clay_header, clay_rail, clay_palette):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
     # The outliner is the Inspector's docked All shapes list: open, for a frame.
     widgets.request_open(clay_inspector.DOCK_KEY)
@@ -2733,7 +2746,6 @@ def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     tab = _clay_tab(app_ctx)
@@ -2742,7 +2754,7 @@ def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx
     # viewport rather than in a sidebar, and they walk with the panes for the
     # reason the panes walk: an unbalanced disable stack, child or popup left
     # open is the same defect wherever it is.
-    for pane in (clay_props, clay_inspector, clay_header, clay_rail, clay_palette):
+    for pane in (clay_inspector, clay_header, clay_rail, clay_palette):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
     # The outliner is the Inspector's docked All shapes list: open, for a frame.
     widgets.request_open(clay_inspector.DOCK_KEY)
@@ -2756,7 +2768,6 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     tab = _clay_tab(app_ctx)
@@ -2766,7 +2777,7 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     # viewport rather than in a sidebar, and they walk with the panes for the
     # reason the panes walk: an unbalanced disable stack, child or popup left
     # open is the same defect wherever it is.
-    for pane in (clay_props, clay_inspector, clay_header, clay_rail, clay_palette):
+    for pane in (clay_inspector, clay_header, clay_rail, clay_palette):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
     # The outliner is the Inspector's docked All shapes list: open, for a frame.
     widgets.request_open(clay_inspector.DOCK_KEY)
@@ -2842,13 +2853,10 @@ def test_the_clay_properties_pane_builds_for_a_frozen_object(app_ctx, imgui_ctx)
     """Phase 2's state: no generator, so the panel shows counts instead of
     parameters. Unreachable from the UI today and drawn here anyway, because it
     is one line away from being reachable."""
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
-
     tab = _clay_tab(app_ctx, objects=1)
     obj = tab.doc.objects[0]
     tab.doc.set_props(obj.uid, generator=None)
     tab.doc.select([obj.uid])
-    _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 
     _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
@@ -2860,7 +2868,6 @@ def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx)
     from realmspinner.kernels.mesh import document as bd
     from realmspinner.kernels.mesh import primitives as bp
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     tab = _clay_tab(app_ctx, objects=0)
     for name, (defaults, build) in bp.GENERATORS.items():
@@ -2873,7 +2880,6 @@ def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx)
         )
         tab.doc.add_object(obj)
         tab.doc.select([obj.uid])
-        _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
         _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
 
 
@@ -2927,13 +2933,9 @@ def test_the_clay_properties_pane_enumerates_a_generator_it_has_never_seen(
         return real(key, value, default)
 
     monkeypatch.setattr(clay_props, "_widget", spy)
-    _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
-    assert seen == ["width", "steps", "footprint"]
-    # The Inspector's Shape settings card enumerates it the same way: the one
-    # generator loop, drawn by the same function.
+    # The Inspector's Shape settings card enumerates it: the one generator loop.
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 
-    seen.clear()
     _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
     assert seen == ["width", "steps", "footprint"]
 
@@ -7236,32 +7238,29 @@ def test_the_clay_menu_strip_runs_an_op_and_asks_for_a_parameter_dialog(
     assert len(tab.doc.objects) == 2, "the dialog's Apply runs it, not the row"
 
 
-def _press_tab(imgui_ctx, build, probe, key):
-    """Click the Properties tab ``key`` (an icon button, found by its id)."""
+def _press_label(imgui_ctx, build, probe, fragment):
+    """Click the button whose label contains *fragment* (an id suffix), as a person does."""
     # Located inside ``_click``'s own host window: a rect read from ``_frame``'s
     # is empty space in it (see the palette-folder test).
     probe.begin_frame()
     _hover(imgui_ctx, build, (-100.0, -100.0), frames=2)
-    found = [
-        one
-        for one in probe.census()
-        if one.kind == "button" and f"clay-props-tab/{key}" in one.label
-    ]
+    found = [one for one in probe.census() if one.kind == "button" and fragment in one.label]
     assert found, [one.label for one in probe.census()]
     probe.begin_frame()
     _click(imgui_ctx, build, found[-1].centre)
 
 
-def test_the_clay_properties_tabs_show_their_own_sections_when_pressed(
+def test_the_clay_inspector_pushes_and_pops_its_pages_when_pressed(
     app_ctx, imgui_ctx, monkeypatch
 ):
-    """**Pressed, not called.** Each tab draws its own sections and only those:
-    the Document tab holds the counts and the import settings (and works with
-    nothing selected), Material holds the palette, and Object holds the
-    identity block -- through the real pane, with the real tab strip."""
+    """**Pressed, not called.** The Properties tab strip is gone; its Material tab is a
+    page the Inspector pushes (Model & history and Unwrap are the others, pressed in
+    ``test_inspector.py``, where the column is tall enough to reach their rows).
+    Colours & textures replaces the body and Back returns; the element state's Select row
+    and Done are pressed too -- through the real pane."""
     from realmspinner.studio import probe
     from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 
     monkeypatch.setattr(probe, "ENABLED", True)
     tab = _clay_tab(app_ctx, objects=1)
@@ -7270,40 +7269,42 @@ def test_the_clay_properties_tabs_show_their_own_sections_when_pressed(
     tab.doc.select([tab.doc.objects[0].uid])
 
     def build():
-        clay_props.draw(app_ctx)
+        clay_inspector.draw(app_ctx)
 
     def drawn():
         probe.begin_frame()
         _frame(imgui_ctx, build)
         return " ".join(f"{one.text} {one.label}" for one in probe.census())
 
-    def shows_counts(text):
-        # The Document tab's own controls: the import settings under the counts.
-        return "clay-import-scale" in text
+    assert state.inspector_page == ""
+    assert "##size##insp" in drawn()
 
-    assert state.props_tab == "object"
-    assert not shows_counts(drawn())
+    _press_label(imgui_ctx, build, probe, "##insp-edit-colour")
+    assert state.inspector_page == "colours"
+    assert "##insp-back" in drawn() and "##size##insp" not in drawn()
 
-    _press_tab(imgui_ctx, build, probe, "document")
-    assert state.props_tab == "document"
-    assert shows_counts(drawn()), "the import settings live in the Document tab"
+    _press_label(imgui_ctx, build, probe, "##insp-back")
+    assert state.inspector_page == ""
 
-    # Nothing selected: the Document tab is about the document, so it still draws.
-    tab.doc.select([])
-    assert shows_counts(drawn())
+    # An element mode's own controls are pressed the same way: Select All picks every face
+    # and Done goes back to Shape mode with the shape still selected.
+    tab.doc.set_element_mode("face")
+    assert "##insp-select/" in drawn() and "##size##insp" not in drawn()
+    _press_label(imgui_ctx, build, probe, "##insp-select/select-all")
+    assert len(tab.doc.element_sel[tab.doc.objects[0].uid].faces) == 6
+    _press_label(imgui_ctx, build, probe, "##insp-done")
+    assert tab.doc.element_mode == "object" and tab.doc.selection
 
-    _press_tab(imgui_ctx, build, probe, "material")
-    assert state.props_tab == "material"
-    assert not shows_counts(drawn())
 
-
-def test_the_uv_tab_embeds_the_uv_body_without_a_second_heading(app_ctx, imgui_ctx, monkeypatch):
-    """UV was a pane of its own and is the Inspector's fourth tab: the same body,
-    minus a section heading the tab strip already supplies -- with the key-hover
+def test_the_unwrap_page_embeds_the_uv_body_without_a_second_heading(
+    app_ctx, imgui_ctx, monkeypatch
+):
+    """UV was a pane of its own and is the Inspector's Unwrap page: the same body,
+    minus a section heading the page title already supplies -- with the key-hover
     stamps ``clay_mode.handle_key`` reads still recorded, because the shell routes
     R and S without asking which pane the pointer is over."""
     from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import uv as clay_uv
 
     tab = _clay_tab(app_ctx, objects=1)
@@ -7328,26 +7329,26 @@ def test_the_uv_tab_embeds_the_uv_body_without_a_second_heading(app_ctx, imgui_c
     assert headings == ["UV"], "the standalone pane keeps its heading"
 
     headings.clear()
-    state.props_tab = "uv"
-    _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
+    state.inspector_page = "unwrap"
+    _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
     assert "UV" not in headings, "inside the Inspector it is the embedded body"
 
 
-def test_leaving_the_uv_tab_commits_an_armed_live_transform(app_ctx, imgui_ctx):
+def test_leaving_the_unwrap_page_commits_an_armed_live_transform(app_ctx, imgui_ctx):
     """An armed UV rotate or scale is committed by the canvas that armed it. Once
-    the user has clicked another tab that canvas is not drawn, so without this it
+    the user has left the Unwrap page that canvas is not drawn, so without this it
     stayed armed with its undo gesture open and swallowed the viewport's R and S."""
     from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 
     tab = _clay_tab(app_ctx, objects=1)
     state = clay_mode.ensure(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
     tab.uv_view.drag_mode = "rotate"
     tab.uv_view.drag_mark = tab.doc.history.head
-    state.props_tab = "material"
+    state.inspector_page = "colours"
 
-    _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
+    _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
 
     assert tab.uv_view.drag_mode == ""
 

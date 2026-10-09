@@ -19,9 +19,13 @@ while open, so its rows never move when the cards above them change.
   from the registry -- ``inspector_actions.py``).
 * **Several shapes** -- Colour, Duplicate and Delete, and the multi-object actions;
   no Size card ("Select one shape to change its size").
-* **An element mode** (Points, Edges, Faces) -- **unchanged for now**: the old
-  Object tab's body (``props.legacy_object_body``) under a Done button that returns
-  to Shape mode. The next landing replaces it with an element state of its own.
+* **An element mode** (Points, Edges, Faces) -- "Editing faces" and a Done button that
+  goes back to Shape mode, then the element state (``inspector_elements.py``): the
+  Select row, what is picked and its median, **Shape it** (the mode's mesh ops from
+  the registry, the rest behind closed folds) and, while an op's numbers are still
+  live, the **Last action** card. Colours & textures and Texture mapping stay one
+  click below, because painting a face and laying out an island are what an element
+  mode is for.
 
 **Pages push, and Esc or Back pops.** Colours & textures, Unwrap and Model &
 history are whole pages (``ClayState.inspector_page``) that replace the body under
@@ -29,8 +33,8 @@ a "Back" row, because each needs the full column (the UV canvas wants all of the
 height; the texture rows are a form of their own) and none belongs in a card. They
 reuse Properties' bodies -- ``props._material``, ``uv.draw_embedded``,
 ``props._document`` -- so a page cannot drift from the tab it came from. A page is
-reachable from every mode (Colours and Unwrap from an element mode's legacy body as
-well), because the Material and UV tabs it replaces were.
+reachable from every mode (Colours and Unwrap from an element mode's links as well),
+because the Material and UV tabs it replaces were.
 
 **Cheap by construction.** The panel runs every frame at any document size, so the
 body reads ``doc.selection`` and nothing heavier; anything that walks the document
@@ -58,7 +62,7 @@ from .....tokens import sp
 from ... import doc_io, starter_colours
 from ... import mode as clay_mode
 from ... import ops as clay_ops
-from .. import inspector_actions, inspector_size
+from .. import inspector_actions, inspector_elements, inspector_size
 from . import outliner as clay_outliner
 from . import props, rail, swatches
 from . import tools as clay_tools
@@ -66,18 +70,25 @@ from . import uv as clay_uv
 
 #: What this pane refuses to shrink past, in design pixels: the title, the first
 #: card and a few rows under it, plus the dock's header. The right column's only
-#: slot, so this is the column's floor (``props.PROPS_FLOOR``'s own reason: a fill
-#: with no floor takes whatever the share above left).
+#: slot, so this is the column's floor (a fill with no floor takes whatever the share
+#: above left).
 INSPECTOR_FLOOR = 280.0
 
 #: The "All shapes" dock: its persisted open state, the share of the pane its open
 #: region takes, the fewest rows that region may show, and the height the cards
 #: above keep (design px) before the list is allowed to take more. See
 #: :func:`dock_region_height`.
+#:
+#: Landing 9 retuned ``DOCK_SHARE`` (0.40 -> 0.28) and ``BODY_FLOOR`` (180 -> 420), measured
+#: at 1600x950 with the element state up: that state's Select row, element line and
+#: Shape it card are about 580 px, and at 40% the open dock left the body 470 px, so
+#: Shape it was cut across its second row and the folds below it were a scroll away. At
+#: 28% the body is about 600 (Delete a few pixels short of whole) and the list shows
+#: five rows; the floor is what stops a shorter window from taking more of the cards.
 DOCK_KEY = "clay/insp/all-shapes"
-DOCK_SHARE = 0.40
+DOCK_SHARE = 0.28
 DOCK_MIN_ROWS = 5
-BODY_FLOOR = 180.0
+BODY_FLOOR = 420.0
 
 #: The pages a click can push, in the order they are documented. ``""`` is the
 #: main view and is not a page.
@@ -241,6 +252,10 @@ def _body(ctx: Any) -> None:
     page = state.inspector_page if state.inspector_page in PAGES else ""
     state.inspector_page = page
     _settle_uv(tab, doc, page)
+    if page or doc.element_mode == "object":
+        # Anything but the element state: the Last action card is not on screen, so the
+        # next time it appears it is new again and scrolls itself into view.
+        state.last_action_open = False
     if page:
         _page(ctx, state, tab, doc, page)
         return
@@ -585,14 +600,14 @@ def _many(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
     _more_actions(ctx, state, tab, doc, persist_key="clay/insp/more-many", default_open=True)
 
 
-# --- element modes (the legacy body, until the element state replaces it) --------
+# --- element modes -------------------------------------------------------------
 
 
 _NOUN = {"vertex": "points", "edge": "edges", "face": "faces"}
 
 
 def _elements(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
-    """Points, Edges and Faces keep the old Object tab, under a Done button."""
+    """Points, Edges and Faces: the title, a Done button, then the element state."""
     _title(ctx, f"Editing {_NOUN.get(doc.element_mode, 'parts')}")
     if widgets.primary_button(
         f"{icons.CHECK} Done##insp-done",
@@ -602,8 +617,7 @@ def _elements(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
     ):
         doc.set_element_mode("object")
     imgui.dummy((0, sp(tokens.SP_2)))
-    props.legacy_object_body(ctx, state, tab, doc)
-    imgui.dummy((0, sp(tokens.SP_2)))
+    inspector_elements.draw(ctx, state, tab, doc)
     # The Material and UV tabs this slot used to carry are pages now; an element
     # mode is where both are wanted (paint a face, lay out an island), so they are
     # one click from here as well.

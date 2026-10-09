@@ -306,7 +306,11 @@ def test_the_dock_header_has_a_help_button_onto_the_outliner_section(imgui_ui):
 def test_the_open_region_is_a_pinned_share_of_the_pane_with_at_least_five_rows():
     row, header, bars, floor = 28.0, 34.0, 70.0, 180.0
     tall = clay_inspector.dock_region_height(800.0, header, bars, row, floor, compact=False)
-    assert tall == pytest.approx(320.0), "about 40% of the pane"
+    assert tall == pytest.approx(800.0 * clay_inspector.DOCK_SHARE), "the share of the pane"
+    assert 0.25 <= clay_inspector.DOCK_SHARE <= 0.35, (
+        "retuned from 0.40 in Landing 9: the element state's Shape it card is 580 px, and "
+        "an open dock at 40% cut it across its second row at 1600x950"
+    )
     mid = clay_inspector.dock_region_height(500.0, header, bars, row, floor, compact=False)
     assert mid >= bars + 5 * row, "never fewer than five rows under the bars"
     assert mid <= 500.0 - header - floor + 1e-9, "and the cards above keep their floor"
@@ -538,7 +542,9 @@ def test_the_find_box_narrows_the_list_by_name_and_says_so_when_nothing_matches(
         obj = clay_tools.place_primitive(ctx, doc, "box")
         doc.set_props(obj.uid, name=name)
     _open_dock(ctx)
-    rig = Rig(imgui_ui, ctx)
+    # Tall enough that all eight rows are on screen whatever share of the pane the open
+    # dock takes (it was 40% and is 28% since the element state; the claim is the filter's).
+    rig = Rig(imgui_ui, ctx, height=1600.0)
     assert len(rig.rows) == 8
     # ``widgets.input_text`` is not in the control census, so the box is found by where
     # the dock puts it: the first thing under the header.

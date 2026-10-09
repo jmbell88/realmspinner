@@ -1,25 +1,18 @@
-"""Properties: the selected object, its material, the document, and its UVs, as four tabs.
+"""Properties' bodies: what the Inspector's cards, folds and pages are built from.
 
-**No longer the skeleton's pane.** The right column's lower slot is the Inspector
-now (``inspector.py``, slot ``clay-inspector``); this module is what it is built
-from. Every function below stays, by name, because the Inspector calls them -- the
-Size card is its own (``ui/inspector_size.py``), but Position & turn is
-``_transform(show_unit=False, show_scale=False, show_size=False)``, Advanced is
-``scale_fields``, Shape settings is ``_generator``, Group & parent is ``_relations``,
-the Colours & textures page is ``_material``, the Model & history page is
-``_document``, and an element mode still wears ``legacy_object_body`` -- and because
-a long tail of tests drives them directly. ``draw`` and the tab strip still work and
-are still tested; nothing in the app draws them.
-
-The text below describes the four-tab pane this was.
-
-Four tabs (``TABS``). **Object** is the selected object's name, parent, transform and
-its generator's parameters; **Material** is the selected slot's colour, flags and
-texture (the swatches themselves are the palette strip under the viewport); **Document**
-is the file row, the counts, the history, the import settings and the ways out -- what
-``bridge.py`` drew before the right column became two panes; **UV** is ``uv.py``'s body,
-embedded. In an element mode the Object and Material tabs also open with the selection's
-median as three editable numbers.
+**Not a pane any more.** The right column is one slot, the Inspector (``inspector.py``,
+slot ``clay-inspector``), and this module is the box of widgets it draws from. The
+four-tab pane this file used to be -- Object, Material, Document and UV, with an
+Adjust card over the viewport and a median row in an element mode -- is gone: the
+Object tab's body is the Inspector's Shape states and the element state
+(``ui/inspector_elements.py``), and the other three tabs are pushed pages. Every
+function below stays, by name, because the Inspector calls it and a long tail of
+tests drives it directly: Position & turn is ``_transform(show_unit=False,
+show_scale=False, show_size=False)``, Advanced is ``scale_fields``, Shape settings is
+``_generator``, Group & parent is ``_relations``, the Colours & textures page is
+``_material``, the Model & history page is ``_document``, and the element state's
+median row is ``_element_median``. The Size card is its own
+(``ui/inspector_size.py``).
 
 **The parameter widgets are generated from the registry, not written by hand.**
 ``primitives.GENERATORS`` maps a name to ``(defaults, builder)`` and every
@@ -58,15 +51,12 @@ from ......kernels.mesh import measure, regen
 from ......kernels.mesh import primitives as bp
 from ......kernels.mesh import uv as uv_projection
 from ..... import anchors, controls, icons, tokens, verbs, widgets
-from .....manual import render as manual_render
 from .....tokens import sp
 from ... import doc_io, element_move, transform_edit
 from ... import mode as clay_mode
 from ... import ops as clay_ops
 from ...state import ClayState
 from . import outliner as clay_outliner
-from . import swatches
-from . import uv as clay_uv
 
 # The swatch code left for ``swatches.py`` with the swatch row (it is the
 # palette strip's now). Re-exported under the names this module always had,
@@ -80,183 +70,6 @@ log = logging.getLogger(__name__)
 # because a registry entry carries no schema and does not need one: a float
 # default means a float field, and a tuple means one field per component.
 _STEP = {"segments": 1, "rings": 1, "sides": 1}
-
-
-def draw(ctx: Any) -> None:
-    """This pane's headings, on tinted blocks.
-
-    The blocks are opened *here* rather than in :func:`layout.pane`, which is
-    flat: a pane on a wide canvas wants no tint, and this is one of the four
-    narrow sidebars the grouping was written for (see
-    ``tests/test_section_blocks.py`` for the report it came from). Wrapping
-    ``_body`` rather than inlining the ``with`` keeps every early return inside
-    the scope, and the scope closes its last block on the way out.
-    """
-    with widgets.section_blocks():
-        _body(ctx)
-
-
-#: The tabs of this pane, Blender's Properties editor reduced to what Clay has:
-#: ``(key, label, what it holds)``. Words on the strip, not glyphs: the glyph
-#: strip had a box, a palette and a cog, which named none of the three -- the
-#: label was only in a tooltip, so the first thing a new user did with the tabs
-#: was hover each. The fourth, UV, was a pane of its own in the right column
-#: until the column became two slots (outliner and this); it is a tab now.
-TABS: tuple[tuple[str, str, str], ...] = (
-    ("object", "Object", "Name, parent, transform and the shape's own numbers"),
-    ("material", "Material", "The selected slot's colour, flags and texture"),
-    ("document", "Document", "Counts, import settings, history and the ways out"),
-    ("uv", "UV", "Texture coordinates: select islands, move, rotate, scale, pack"),
-)
-
-#: What this pane refuses to shrink past, in design pixels: the heading, the tab
-#: strip and a few rows under it.
-#:
-#: It is the right column's **fill** now, below the outliner's share, and
-#: ``layout_skeleton.heights`` hands a fill whatever the share left -- so on a
-#: short window, with no floor, the tab strip was all there was. The same
-#: lesson ``bridge.py`` learned for its own pane when two shares above it left
-#: it exactly zero pixels; a floor is how a pane says it needs a few rows to
-#: mean anything.
-PROPS_FLOOR = 280.0
-
-#: The tab a pane falls back to when ``ClayState.props_tab`` names one that no
-#: longer exists (a saved setting from a build with different tabs).
-DEFAULT_TAB = "object"
-
-
-def tab_key(state: Any) -> str:
-    """The tab to draw: ``state.props_tab`` if it is a real one, else Object."""
-    key = getattr(state, "props_tab", DEFAULT_TAB)
-    return key if any(key == known for known, *_ in TABS) else DEFAULT_TAB
-
-
-def _body(ctx: Any) -> None:
-    state = clay_mode.ensure(ctx)
-    tab = state.active
-    widgets.section("Properties")
-    manual_render.help_button(ctx, "clay-props")
-    if tab is None:
-        # The heading and nothing else; see ``clay_outliner``.
-        return
-    doc = tab.doc
-    current = tab_key(state)
-    changed, picked = controls.segmented_choice(
-        "clay-props-tab",
-        [(key, label) for key, label, _what in TABS],
-        current,
-        tooltips={key: f"{label} -- {what}" for key, label, what in TABS},
-        compact=True,
-    )
-    if changed:
-        state.props_tab = current = picked
-    imgui.dummy((0, sp(tokens.SP_2)))
-    uv_view = getattr(tab, "uv_view", None)
-    if current != "uv" and uv_view is not None and uv_view.drag_mode in ("rotate", "scale"):
-        # A live UV rotate/scale armed on the canvas, and the user has since moved
-        # to another tab: the canvas that would commit it is no longer drawn, so
-        # it would stay armed with its undo gesture open (which switches the
-        # stack's eviction off for the rest of the document's life) and swallow
-        # the 3-D viewport's R and S. Committed, the choice every other way out
-        # makes (`UvPaneState`'s tab switch and selection change).
-        clay_uv.commit_live_transform(doc, uv_view)
-    if current == "document":
-        # The only tab about the document rather than the selection, so it is
-        # the one that needs no object.
-        imgui.begin_disabled(tab.saving)
-        _document(ctx, tab, doc)
-        imgui.end_disabled()
-        return
-    if current == "uv":
-        # Its own pane's body, embedded: the UV tools draw their own empty
-        # states and gate themselves on ``tab.saving``, so nothing here
-        # decides for them. The element summary is not repeated -- a UV island
-        # selection is not an element selection.
-        clay_uv.draw_embedded(ctx)
-        return
-    if current == "object":
-        legacy_object_body(ctx, state, tab, doc)
-        return
-    _element_summary(doc, state, ctx)
-    obj = _selected(doc)
-    if obj is None:
-        _no_single_object(doc, current)
-        return
-
-    imgui.begin_disabled(tab.saving)
-    _material(ctx, tab, doc, obj)
-    imgui.end_disabled()
-
-
-def _no_single_object(doc: Any, current: str) -> None:
-    """The empty state a tab with no one object to show draws.
-
-    Two sentences, because ``_selected`` returns None for two different
-    reasons and one of them used to lie: with sixteen objects lit up the
-    pane said "Nothing selected", which the viewport plainly contradicts
-    -- and a multi-object selection is an ordinary case rather than the
-    odd one. The *refusal* is unchanged (see ``_selected``); only the
-    sentence the user reads is.
-    """
-    count = len(doc.selection)
-    if count > 1:
-        widgets.empty_state(
-            icons.BOX,
-            f"{count} objects selected",
-            "Select one to edit it.",
-        )
-    else:
-        title, hint = _nothing_selected_text(doc, current)
-        widgets.empty_state(icons.BOX, title, hint)
-
-
-def legacy_object_body(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
-    """The old Object tab's body: the element line, then name, parent, transform
-    and the shape's own numbers.
-
-    Public since the inspector (``inspector.py``) took over the slot: an element
-    mode still wears this body unchanged, under a Done button, until the
-    inspector's own element state replaces it. The tab strip and the Material,
-    Document and UV tabs are not part of it -- the inspector reaches those as
-    pushed pages.
-    """
-    _element_summary(doc, state, ctx)
-    obj = _selected(doc)
-    if obj is None:
-        _no_single_object(doc, "object")
-        return
-    imgui.begin_disabled(tab.saving)
-    _identity(doc, obj)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _relations(ctx, doc, obj)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _transform(doc, obj, ctx=ctx, state=state)
-    imgui.dummy((0, sp(tokens.SP_2)))
-    _generator(doc, obj, ctx=ctx, state=state)
-    imgui.end_disabled()
-
-
-def _nothing_selected_text(doc: Any, tab: str = "object") -> tuple[str, str]:
-    """The empty state's ``(title, hint)`` for a pane with no object to show.
-
-    The 2026-10-07 audit's clay-74: in an element mode the viewport picks
-    elements, not objects, so "Click an object" asked for the one gesture that
-    mode does not make -- and the swatch row the manual describes for face mode
-    was unreachable behind it. The hint names what the mode picks, and the first
-    pick makes its own object the one being edited.
-
-    Since the selection rule changed (the shape being edited stays selected in
-    an element mode) this is reached in an element mode only when *no* shape is
-    being edited -- the user entered the mode with nothing selected, or hid or
-    deleted the shape; several shapes have their own sentence above.
-    """
-    noun = {"vertex": "a vertex", "edge": "an edge", "face": "a face"}.get(doc.element_mode)
-    if noun is None:
-        return "Nothing selected", "Click an object in the viewport."
-    hint = f"Click {noun} in the viewport."
-    if doc.element_mode == "face" and tab == "material":
-        hint += " Then pick a swatch in the palette strip to paint it."
-    return "Nothing selected", hint
 
 
 def _document(ctx: Any, tab: Any, doc: Any) -> None:
@@ -411,39 +224,14 @@ def export_lines(tab: Any) -> list[str]:
     return lines
 
 
-def _element_summary(doc: Any, state: Any = None, ctx: Any = None) -> None:
-    """What is selected inside the objects, in element modes: a line, the
-    median as three editable numbers, and a measurement.
-
-    The object panel below stays exactly as it was -- an element selection is
-    still an object selection, by the document's own invariant -- so this adds
-    rows rather than replacing the pane. It is also where the *frozen* branch
-    of the generator section finally becomes reachable: an op that edits
-    topology clears ``generator``, and this is usually the first thing the user
-    sees afterwards.
-
-    **Outside the one-object gate**, and that is why the numbers are here and
-    not in the Transform block: an element selection can span three objects, and
-    the median of it is a fact about the selection, not about any one object. A
-    face selection on one cube used to be movable only by dragging; a modeller
-    putting a vertex at an exact coordinate had no field to type it into.
-    """
-    text = element_summary_text(doc)
-    if text is None:
-        return
-    widgets.muted(text)
-    imgui.dummy((0, sp(tokens.SP_1)))
-    _element_median(doc, state, ctx)
-    line = element_measure_text(doc, _unit_of(state))
-    if line:
-        widgets.muted(line)
-        imgui.dummy((0, sp(tokens.SP_1)))
-
-
 def _unit_of(state: ClayState | None) -> str:
     """The unit position and size are shown in (``ClayState.length_unit``)."""
     ui = _display_state(state)
     return ui.length_unit if ui.length_unit in dict(units.LENGTH_UNITS) else units.DEFAULT_UNIT
+
+
+#: Why the median row is greyed with nothing picked.
+NO_MEDIAN_WHY = "Pick something in the viewport first, then type where its middle should be."
 
 
 def _element_median(doc: Any, state: ClayState | None, ctx: Any = None) -> None:
@@ -451,28 +239,30 @@ def _element_median(doc: Any, state: ClayState | None, ctx: Any = None) -> None:
 
     ``commit=True``: the field reports on Enter or on leaving it, so typing
     "120" is one move to 120 and not three steps to 1, 12 and 120 -- the rule
-    every undoable field in this pane follows (``_identity``'s name, and the
-    transform fields via ``fold_undo``). The move itself is
+    every undoable field in this pane follows (the Inspector's name field, and
+    the transform fields via ``fold_undo``). The move itself is
     :func:`element_move.move_elements`, the door the G drag also ends in: one
     undo step however many objects hold a selection, parented objects handled,
     hidden ones skipped.
     """
     median = element_median_cached(doc)
-    if median is None:
-        return
     unit = _unit_of(state)
-    shown = units.vec_to_display(median, unit)
+    # Always drawn: with nothing picked the row is greyed and says why, rather than
+    # vanishing and pulling every card under it up the moment the first pick lands.
+    shown = units.vec_to_display(median if median is not None else (0.0, 0.0, 0.0), unit)
     widgets.field_label("median")
     edited, typed = controls.input_vec(
         "##median##bmedian",
         list(shown),
         ("X", "Y", "Z"),
         commit=True,
+        enabled=median is not None,
+        reason=NO_MEDIAN_WHY,
         tooltip="The middle of the selected elements, in world space. Type a "
         "coordinate to move them there.",
     )
     controls.fold_undo(doc.history)
-    if edited:
+    if edited and median is not None:
         refused: list[Exception] = []
         commit_median(doc, median, shown, typed, unit, refused)
         if ctx is not None:
@@ -602,58 +392,6 @@ def _element_measure_text(doc: Any, unit: str = units.DEFAULT_UNIT) -> str | Non
     if doc.element_mode == "face":
         return f"area  {total:.4f} m\u00b2"
     return f"length  {units.to_display(total, unit):.4f} {unit}"
-
-
-def element_summary_text(doc: Any) -> str | None:
-    """:func:`_element_summary`'s line, or ``None`` in object mode.
-
-    The count summed every entry of
-    ``doc.element_sel``, but a drag, the gizmo centre and every element door
-    skip a hidden object (``selection._element_pickable``), so
-    hiding an object that still held a selection made "N selected" promise
-    elements the next drag would not move. Only eligible objects are counted,
-    and "across N objects" counts only those too.
-    """
-    from ......kernels.mesh.selection import _element_pickable
-
-    if doc.element_mode == "object":
-        return None
-    total = 0
-    objects = 0
-    for uid, sel in doc.element_sel.items():
-        try:
-            if not _element_pickable(doc.by_uid(uid)):
-                continue
-        except KeyError:
-            continue
-        count = sel.count(doc.element_mode)
-        if count:
-            total += count
-            objects += 1
-    noun = {"vertex": "vertices", "edge": "edges", "face": "faces"}[doc.element_mode]
-    if total == 0:
-        return f"{doc.element_mode} mode -- nothing selected"
-    across = "1 object" if objects == 1 else f"{objects} objects"
-    return f"{doc.element_mode} mode -- {total} {noun} across {across}"
-
-
-def _selected(doc: Any) -> Any:
-    """The one selected object, or None -- :func:`swatches.single_selected`,
-    which the palette strip shares so the two agree on "one"."""
-    return swatches.single_selected(doc)
-
-
-def _identity(doc: Any, obj: Any) -> None:
-    # commit=True: the 2026-09-06 audit's clay-02 found this field reporting a
-    # change on every keystroke, so ``set_props`` -- an unconditional
-    # ``history.push`` -- fired once per letter typed and a lone Ctrl+Z after
-    # a rename undid one character instead of the whole name.
-    name = widgets.input_text("name##buildname", obj.name, max_length=120, commit=True)
-    if name != obj.name:
-        doc.set_props(obj.uid, name=name)
-    changed, value = widgets.toggle(f"{icons.EYE} Visible", obj.visible, tag=str(obj.uid))
-    if changed:
-        doc.set_props(obj.uid, visible=value)
 
 
 def _clear_parent_reason(obj: Any) -> str:

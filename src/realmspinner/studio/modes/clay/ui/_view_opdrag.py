@@ -17,7 +17,7 @@ document's next ``sync`` the one that rebuilds from truth. Consequently:
 * Esc restores nothing, because nothing was changed -- the document is
   byte-identical (``rev`` included);
 * Enter or a click runs ``clay_ops.run`` **once**, which is one undo step, and
-  makes the op the recent op (``recent_op``), so the adjust card appears after.
+  makes the op the recent op (``recent_op``), so the Last action card appears after.
 
 **Throttle.** A preview that costs more than ``SLOW_PREVIEW_S`` is recomputed at
 most every ``SLOW_INTERVAL_S`` (and always on the commit, which runs the real op
@@ -266,7 +266,7 @@ class OpDragOps:
         Recomputed from the pointer rather than read off the last preview,
         because a throttled preview may be a frame or two behind the hand. Run
         through ``clay_ops.run`` -- one undo step, a refusal toasted, the op
-        recorded for the adjust card -- and the value is remembered for the
+        recorded for the Last action card -- and the value is remembered for the
         dialog, as a dialog Apply remembers its own.
         """
         from .. import ops as clay_ops

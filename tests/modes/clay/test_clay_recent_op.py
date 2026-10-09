@@ -3,7 +3,8 @@
 **Reverses the 2026-09-07 audit's clay-10, deliberately.** ``ClayState.last_op``
 was removed because it was written by every ``clay_ops.run`` and read by no
 pane. The record is back (``ClayDoc.recent_op``, ``recent_op.RecentOp``) because
-it now has two readers -- the viewport's adjust card, which re-runs the op at new
+it now has two readers -- the inspector's Last action card (it was a card over the
+viewport's corner until the element state took it in), which re-runs the op at new
 values, and the ``repeat-last`` op -- and the claims below are about those
 readers rather than about the bookkeeping:
 
@@ -281,13 +282,15 @@ def ui(monkeypatch):
         yield imgui
 
 
-def _draw_card(ui: Any, ctx: Any) -> bool:
-    from realmspinner.studio.modes.clay.ui.panes import adjust
+def _draw_card(ui: Any, ctx: Any) -> None:
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui import inspector_elements
 
+    state = clay_mode.ensure(ctx)
     ui.new_frame()
     ui.begin("##host")
     try:
-        return adjust.draw(ctx, (0.0, 0.0, 800.0, 600.0))
+        inspector_elements.draw_last_action(ctx, state, state.active, state.active.doc)
     finally:
         ui.end()
         ui.end_frame()
@@ -297,7 +300,7 @@ def test_the_card_draws_only_while_live_and_a_field_change_adjusts_the_op(
     ui, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.clay.ui.panes import adjust
+    from realmspinner.studio.modes.clay.ui import inspector_elements
 
     doc, uid = _box_doc()
     state = clay_state.ClayState()
@@ -309,7 +312,7 @@ def test_the_card_draws_only_while_live_and_a_field_change_adjusts_the_op(
         drawn.append(param.name)
         return (True, 0.3) if param.name == "thickness" else (False, value)
 
-    monkeypatch.setattr(adjust, "param_widget", fake_widget)
+    monkeypatch.setattr(inspector_elements.clay_menu, "param_widget", fake_widget)
 
     _faces(doc, uid, 0)
     clay_ops.run(ctx, doc, clay_ops.get("inset"), thickness=0.1)
@@ -324,3 +327,30 @@ def test_the_card_draws_only_while_live_and_a_field_change_adjusts_the_op(
     doc.set_props(uid, name="Renamed")
     _draw_card(ui, ctx)
     assert drawn == [], "a stale record draws nothing"
+
+
+def test_the_card_prints_a_refusals_reason_and_clears_it_when_the_op_is_no_longer_live(
+    ui, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from realmspinner.studio.modes.clay import mode as clay_mode
+    from realmspinner.studio.modes.clay.ui import inspector_elements
+
+    doc, uid = _box_doc()
+    state = clay_state.ClayState()
+    ctx = _AppCtx(state)
+    clay_mode.adopt(ctx, doc, title="Scene")
+    monkeypatch.setattr(
+        inspector_elements.clay_menu,
+        "param_widget",
+        lambda op_name, param, value: (True, 0.3) if param.name == "thickness" else (False, value),
+    )
+    _faces(doc, uid, 0)
+    clay_ops.run(ctx, doc, clay_ops.get("inset"), thickness=0.1)
+    monkeypatch.setattr(
+        recent_op, "adjust", lambda ctx, doc, **kw: recent_op.AdjustResult(False, "Too thick.")
+    )
+    _draw_card(ui, ctx)
+    assert state.last_action_message == "Too thick.", "kept for the frames after the refusal"
+    doc.set_props(uid, name="Renamed")
+    _draw_card(ui, ctx)
+    assert state.last_action_message == "", "cleared the moment the op is stale"

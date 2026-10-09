@@ -34,7 +34,7 @@ from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio import viewport_hints as clay_hints
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 from realmspinner.studio.modes.clay.agent import schema as agent_schema
-from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+from realmspinner.studio.modes.clay.ui import inspector_elements as clay_elements
 from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 from realmspinner.studio.modes.clay.ui.panes import uv as clay_uv
 
@@ -409,14 +409,13 @@ def test_pane_deciders_face_fill_format_default_and_element_summary_are_pinned()
     ):
         assert clay_tools._format_default(value) == text, value
 
-    # props._element_summary's sentence (``element_summary_text`` is its pure half).
+    # The element line's sentence (``inspector_elements.element_line``).
     doc = bd.ClayDoc()
     a = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
-    assert clay_props.element_summary_text(doc) is None
     doc.set_element_mode("face")
-    assert clay_props.element_summary_text(doc) == "face mode -- nothing selected"
+    assert clay_elements.element_line(doc) == clay_elements.empty_text("face")
     doc.set_element_sel(a.uid, el.ElementSel(faces=[0, 1]))
-    assert clay_props.element_summary_text(doc) == "face mode -- 2 faces across 1 object"
+    assert clay_elements.element_line(doc) == "2 faces selected"
 
 
 # --- clay-127: outward-import pins -----------------------------------------------

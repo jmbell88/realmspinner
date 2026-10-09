@@ -395,7 +395,6 @@ def test_the_sidebars_the_report_named_still_ask_for_blocks():
     import inspect
 
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     # ``plotter_tools`` was a fourth and ``clay_tools`` a fifth. Both are strips
     # or flyouts now rather than sidebars -- Plotter's a toolbar over the canvas,
@@ -405,7 +404,7 @@ def test_the_sidebars_the_report_named_still_ask_for_blocks():
     # drawn by the Inspector's dock, in a child with no headings, so there is
     # nothing in it to group. The Inspector opens its scope *inside* the body child
     # (a child has its own draw list), which this scan still finds in ``draw``.
-    for module in (clay_inspector, clay_props):
+    for module in (clay_inspector,):
         tree = ast.parse(inspect.getsource(module))
         draw = next(
             node

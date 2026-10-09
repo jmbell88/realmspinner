@@ -65,11 +65,14 @@ NO_HELP_BUTTON = {
     "plotter_textures",  # a texture cache, drawn by nobody
     "packwright_preview",  # the atlas itself; its controls are packwright-settings
     "packwright_textures",  # a texture cache, drawn by nobody
-    "clay_adjust",  # a card over the viewport: the op dialog's own fields
     # Not a pane since Landing 8: the Inspector's docked "All shapes" list, whose
     # header (in ``clay_inspector``) carries the (?) onto ``clay-outliner``'s target.
     # The file keeps the rows and the drag-and-drop, with no heading of its own.
     "clay_outliner",
+    # Not a pane since the tab strip went: the widgets the Inspector's cards, folds and
+    # pages are drawn from (``props._transform``, ``_material``, ``_document``...). The
+    # (?) is the Inspector's own, on the ``clay-inspector`` target.
+    "clay_props",
     "clay_menu",  # a menu bar
     "clay_strip",  # the menu names above the header; a menu bar
     # The tool rail at the viewport's left edge and the palette strip under it
