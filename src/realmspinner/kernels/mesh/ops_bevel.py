@@ -7,8 +7,10 @@ the walk, which is exactly what this wants: continuing across one would produce
 a fan that never closes, and the failure is not visible until the geometry is
 exported.
 
-Clay no longer offers Bevel as an op; what remains here is the kernel the
-``.rblk`` migration (:mod:`.legacy`) replays for a v3 file's bevel modifier.
+Clay's ``bevel`` op (Edges, ``Ctrl+B``) wraps :func:`bevel_edges`, and so does the
+``.rblk`` migration (:mod:`.legacy`), which replays it for a v3 file's bevel
+modifier. The op was cut with the Blender-shaped long tail in 112c69e2 and
+restored in the 2026-10 Clay UI rebuild; this kernel never left.
 """
 
 from __future__ import annotations

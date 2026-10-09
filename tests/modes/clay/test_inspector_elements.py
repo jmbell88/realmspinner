@@ -847,3 +847,49 @@ def test_escape_stages_page_then_picks_then_mode_then_shapes_with_the_element_st
     assert doc.element_mode == "object" and doc.selection == {uid}
     clay_mode._escape(state, tab, doc)
     assert doc.selection == set()
+
+
+# -- Bevel Edges, restored in Landing 12 -------------------------------------------------------
+#
+# All four fail on the tree before the restore: ``clay_ops.get("bevel")`` raises KeyError and
+# the Edges ``Shape it`` card has no ``##insp-op/bevel`` button.
+
+
+def test_edges_mode_shape_it_has_a_bevel_button_with_its_key_and_no_other_mode_does(imgui_ui):
+    assert "bevel" in _shape_ops("edge")
+    assert "bevel" not in _shape_ops("face") and "bevel" not in _shape_ops("vertex")
+    ctx, tab, doc = _document("edge", picked=True)
+    rig = _rig(imgui_ui, ctx)
+    control = rig.find(label="Bevel Edges...##insp-op/bevel")
+    assert control.enabled, "an edge is picked, so Bevel is live"
+    tip = inspector_actions.tooltip_for(clay_ops.get("bevel"))
+    assert "Ctrl+B" in tip, "the key is in the tooltip"
+
+
+def test_bevel_is_greyed_with_a_plain_reason_when_no_edge_is_picked(imgui_ui):
+    ctx, tab, doc = _document("edge")  # edge mode, nothing picked
+    rig = _rig(imgui_ui, ctx)
+    control = rig.find(label="Bevel Edges...##insp-op/bevel")
+    bevel = clay_ops.get("bevel")
+    assert not control.enabled
+    assert control.reason and control.reason == clay_ops.reason_for(bevel, doc)
+
+
+def test_the_bevel_form_opens_inline_with_a_width_field_and_apply_is_one_undo_step(imgui_ui):
+    ctx, tab, doc = _document("edge", picked=True)
+    obj = doc.objects[0]
+    state = _state(ctx)
+    steps = len(doc.history)
+    faces = len(obj.mesh.starts)
+    rig = _rig(imgui_ui, ctx)
+    rig.click(label="Bevel Edges...##insp-op/bevel")
+    assert state.inspector_form == "bevel"
+    assert any("width" in label and "bevel" in label for label in rig.labels), rig.labels
+    assert len(doc.history) == steps, "opening the form pushes nothing"
+    state.op_params["bevel"]["width"] = 0.1
+    rig.click(contains="##insp-apply/bevel")
+    assert len(obj.mesh.starts) > faces, "the bevel adds its strip"
+    assert len(doc.history) == steps + 1, "the whole op is one step"
+    assert doc.recent_op is not None and doc.recent_op.params["width"] == 0.1
+    assert doc.undo()
+    assert len(obj.mesh.starts) == faces

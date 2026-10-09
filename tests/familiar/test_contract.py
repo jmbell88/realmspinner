@@ -22,14 +22,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
-    """The card this module ships (``cards/clay-2.txt``) must hash to the sha
-    run A froze it at. The cross-check against run A's own on-disk card and
-    its eval JSONs' recorded ``settings.card_sha256`` -- proof this is not
-    just copied once and trusted -- lives in
-    ``dev/tests/familiar/test_contract.py``, since it reaches into
-    ``dev/measurements/data/clay-assistant/run-A``.
+    """The card this module ships (``cards/clay-2.txt``) must hash to the sha it
+    was last frozen at. Re-frozen 2026-10-09 (Landing 12 of the Clay UI rebuild)
+    when ``clay_op`` regained ``bevel``: the only change to the card is that one
+    word in ``clay_op``'s name enum, ``4f53e4b7...1d6c73`` -> ``53fd8891...a01b``.
+    No fine-tune had shipped against the old bytes (``FamiliarModel.card_shas``
+    is still ``()``), which is why the re-freeze cost nothing. The cross-check
+    against run A's own on-disk card lives in ``dev/tests/familiar/test_contract.py``
+    where ``dev/measurements`` exists; it does not apply to ``clay-2``.
     """
-    expected = "4f53e4b7a5f492dadcbbb48f4544eb216ab612a8bd5ebfb26ff718e2af1d6c73"
+    expected = "53fd8891daa6903b60bf1d9a3c2ada0dd443cc26ab8293853518a0c2e105a01b"
     assert contract.card_sha("clay") == expected
 
 

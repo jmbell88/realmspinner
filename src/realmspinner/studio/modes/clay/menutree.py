@@ -96,6 +96,7 @@ GROUPS: dict[str, Group] = {
             "repeat-last",
             "extrude",
             "inset",
+            "bevel",
             "merge_faces",
             "weld",
             "flip",

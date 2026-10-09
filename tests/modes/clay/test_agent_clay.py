@@ -3548,6 +3548,44 @@ def test_clay_op_inset_refuses_until_the_agent_switches_to_face_mode_and_then_ru
     assert _payload(result)["ran"] is True
 
 
+def test_clay_op_bevel_refuses_in_the_wrong_mode_and_bevels_a_picked_edge_in_edge_mode() -> None:
+    """Landing 12 restored Bevel Edges, so the agent's ``clay_op`` enum gains ``bevel``
+    (and the frozen Familiar card was re-frozen with it). Fails before the restore: the
+    enum has no ``bevel`` and the first call is a schema refusal, not a mode refusal."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    bevel = clay_ops.get("bevel")
+
+    refused = agent_clay.call(ctx, session, "clay_op", {"name": "bevel"})
+    assert refused["isError"] is True
+    assert refused["content"][0]["text"] == clay_ops.reason_for(bevel, tab.doc)
+    assert "edge" in refused["content"][0]["text"].lower()
+
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    wrong = agent_clay.call(ctx, session, "clay_op", {"name": "bevel"})
+    assert wrong["isError"] is True, "face mode is still the wrong mode"
+
+    assert agent_clay.call(ctx, session, "clay_element_mode", {"mode": "edge"})["isError"] is False
+    nothing = agent_clay.call(ctx, session, "clay_op", {"name": "bevel"})
+    assert nothing["isError"] is True, "edge mode with nothing picked says what to pick"
+
+    edge = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, "edges": [[0, 1]]}
+    )
+    assert edge["isError"] is False, edge
+    faces = len(tab.doc.by_uid(uid).mesh.starts)
+    steps = _history_len(ctx, session)
+    result = agent_clay.call(
+        ctx, session, "clay_op", {"name": "bevel", "params": {"width": 0.05}}
+    )
+    assert result["isError"] is False, result
+    assert _payload(result)["ran"] is True
+    assert len(tab.doc.by_uid(uid).mesh.starts) > faces
+    assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"
+
+
 @pytest.mark.parametrize(
     "op_name,mode,select_kwargs",
     [

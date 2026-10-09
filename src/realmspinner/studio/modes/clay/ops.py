@@ -2044,6 +2044,23 @@ def _register_defaults() -> None:
             ),
         )
     )
+    # Restored in the 2026-10 Clay UI rebuild (Landing 12): the picoCAD-level cut of
+    # 112c69e2 took Bevel out with the Blender-shaped long tail, but a low-poly
+    # modeller still wants the chamfered corner. The kernel (``ops_bevel``) never
+    # left -- the ``.rblk`` migration replays it -- so this row is only the door.
+    register(
+        Op(
+            name="bevel",
+            label="Bevel Edges...",
+            modes=("edge",),
+            run=_element("ops_bevel.bevel_edges"),
+            key="Ctrl+B",
+            drag=DragSpec("width", "distance", "ops_bevel.bevel_edges"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            params=(Param("width", "width (m)", 0.05, 0.01),),
+        )
+    )
     # ``ops_dissolve.dissolve_faces`` merges a connected block of faces into
     # one n-gon; "Merge Faces" is the word a user searches for.
     #

@@ -84,9 +84,12 @@ def _type(view, doc: bd.ClayDoc, text: str) -> None:
 # --- the op metadata ----------------------------------------------------------
 
 
-def test_the_inset_drag_op_names_a_real_param_and_the_kernel_its_run_wraps() -> None:
+def test_the_drag_ops_name_a_real_param_and_the_kernel_their_run_wraps() -> None:
     names = {op.name for op in clay_ops.OPS if op.drag is not None}
-    assert names == {"inset"}
+    # Inset since the picoCAD cut, and Bevel again since Landing 12 of the 2026-10 UI
+    # rebuild restored it: the two ops whose first number is a distance the pointer
+    # finds. Loop cut and edge slide (fractions) stay cut.
+    assert names == {"inset", "bevel"}
     for op in clay_ops.OPS:
         if op.drag is None:
             continue
@@ -384,3 +387,65 @@ def test_a_big_mesh_op_drag_never_exceeds_the_throttled_cadence(view, ctx) -> No
     if od.cost <= _view_opdrag.SLOW_PREVIEW_S:
         pytest.skip("this machine previews fast enough that no throttling applies")
     assert len(calls) <= 2 + elapsed / _view_opdrag.SLOW_INTERVAL_S
+
+
+# --- Bevel, restored by Landing 12 of the 2026-10 Clay UI rebuild --------------
+
+
+def _edge_doc() -> tuple[bd.ClayDoc, int]:
+    """A box in edge mode with one real (two-face) edge picked."""
+    doc, uid = _doc("face")
+    doc.set_element_mode("edge")
+    sel = el.convert(doc.by_uid(uid).mesh, el.ElementSel(faces=[0]), "edge")
+    doc.set_element_sel(uid, el.ElementSel(edges=[tuple(sel.edges[0])]))
+    return doc, uid
+
+
+def test_ctrl_b_starts_a_bevel_drag_and_a_menu_click_keeps_the_dialog(view, ctx) -> None:
+    doc, uid = _edge_doc()
+    _ready(view, doc)
+    bevel = clay_ops.get("bevel")
+    assert bevel.key == "Ctrl+B" and clay_ops.by_key("edge", "Ctrl+B") is bevel
+
+    assert clay_mode._fire_op(ctx, doc, bevel, interactive=True) is True
+    assert view._grab == "opdrag" and view._op_drag.op.name == "bevel"
+    view.cancel_drag(doc)
+
+    state = ctx.state.clay
+    assert clay_mode.fire_op(ctx, doc, bevel) is True, "the menu's door"
+    assert view._grab is None and state.pending_op == "bevel", "a dialog, not a drag"
+
+
+def test_a_bevel_drag_changes_the_width_live_without_touching_the_document(view, ctx) -> None:
+    doc, uid = _edge_doc()
+    _ready(view, doc)
+    rev, mesh, steps = doc.rev, doc.by_uid(uid).mesh, len(doc.history)
+
+    assert view.begin_op_drag(doc, clay_ops.get("bevel"))
+    view._motion(doc, (70.0, 48.0))
+    near = view._op_drag.value
+    view._motion(doc, (120.0, 48.0))
+    far = view._op_drag.value
+    assert 0.0 < near < far, "the width follows the pointer's travel"
+    assert view.drag_hud.startswith("Bevel width ")
+    assert doc.rev == rev and doc.by_uid(uid).mesh is mesh and len(doc.history) == steps
+    view.cancel_drag(doc)
+
+
+def test_a_bevel_drag_commits_as_one_undo_step_equal_to_running_it_at_that_width(
+    view, ctx
+) -> None:
+    doc, uid = _edge_doc()
+    _ready(view, doc)
+    faces = bm.face_count(doc.by_uid(uid).mesh)
+    steps = len(doc.history)
+    view.begin_op_drag(doc, clay_ops.get("bevel"))
+    _type(view, doc, "0.1")
+    assert view._release_drag(doc)
+
+    assert bm.face_count(doc.by_uid(uid).mesh) > faces, "a bevel adds its strip"
+    assert len(doc.history) == steps + 1, "one drag, one undo step"
+    assert doc.history.top.label == "Bevel Edges"
+    assert doc.recent_op is not None and doc.recent_op.params["width"] == 0.1
+    assert doc.undo()
+    assert bm.face_count(doc.by_uid(uid).mesh) == faces

@@ -134,8 +134,8 @@ greyed-out reason or a dialog of numbers cannot differ between them:
 - **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in
   groups — Transform, Set Origin, Mirror, Parent, Shading, Separate, UV — with **Duplicate** and **Delete** as rows
   of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None, Invert Selection and
-  Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset, merge faces, weld,
-  flip, triangulate, subdivide and Delete, with Set Origin to Selection and, in face mode, Shading and Separate
+  Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset, bevel, merge faces,
+  weld, flip, triangulate, subdivide and Delete, with Set Origin to Selection and, in face mode, Shading and Separate
   Selection behind folds of their own. See [The inspector](#the-inspector).
 - **The right-click menu** in the viewport lists exactly the operations that apply in the current mode, in the
   same order, with the groups separated by rules.
@@ -150,7 +150,7 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has thirty-eight operations, and every one is in the right-click menu except Frame
+That is the whole list. Clay has thirty-nine operations, and every one is in the right-click menu except Frame
 Selection, which lives in the toolbar's View popover:
 
 | Group | Operations |
@@ -163,7 +163,7 @@ Selection, which lives in the toolbar's View popover:
 | Object ▸ Parent | Group Selected, Ungroup, Parent to Last, Clear Parent |
 | Object ▸ Shading | Shade Smooth, Shade Flat (also in face mode) |
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
-| Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in vertex mode Weld... |
+| Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`); in vertex mode Weld... |
 | UV | Box Unwrap, Pack Islands... |
 | (toolbar) | Frame Selection (`F`) |
 
@@ -353,6 +353,7 @@ a box and `L` between them reach what a low-poly model needs.
 | --- | --- | --- |
 | Any | Extrude (`E`) | Pulls the selection off the surface and walls in the gap, then starts dragging what it made — along the face normal in face mode, free in edge and vertex mode. |
 | Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. With *treat selection as one region* on, the cap's texture shrinks with the geometry and the rim gets the band of texture between the old edge and the new one, as a per-face inset always did. |
+| Edges | Bevel Edges... (`Ctrl+B`) | Replaces each selected edge with a flat strip the width you give and rebuilds the corners where beveled edges meet: bevel one edge of a box and the face opposite becomes a pentagon, bevel all twelve and the box has 26 faces. One flat segment, not a rounded profile, and a bevel wider than the feature it sits on is clamped rather than turned inside out. The key starts a drag for the width. An edge on a boundary, or one that three faces share, is refused with the reason, and so is a width of zero or less; so is a selection that touches more than 10,000 corners (half that on a mesh with UVs), which would freeze the window. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
@@ -372,10 +373,10 @@ collapse for vertices and edges.
 
 ### Dragging an operation's number
 
-**Inset** (`I`) does not open its dialog from the keyboard. It starts a **drag**: move the pointer and
-the result is drawn live, with the operation, the number and its unit beside the cursor (`Inset
-thickness 0.050 m`). The distance starts at nothing and grows with how far the pointer has travelled
-from where you pressed the key.
+**Inset** (`I`) and **Bevel** (`Ctrl`+`B`) do not open their dialogs from the keyboard. They start a **drag**:
+move the pointer and the result is drawn live, with the operation, the number and its unit beside the cursor
+(`Inset thickness 0.050 m`, `Bevel width 0.050 m`). The distance starts at nothing and grows with how far the
+pointer has travelled from where you pressed the key.
 
 Click or `Enter` commits, and it commits **once**: one undo step, the same mesh you would have got from
 the dialog at that value, and the **Last action** card appears afterwards so the number is still in reach.
@@ -405,7 +406,7 @@ and the palette's Extrude do not start a drag. `E` extrudes only in an element m
 
 ### Adjusting the last operation, and repeating it
 
-An operation that takes numbers and is run in an element mode — inset, weld, assign material — leaves a
+An operation that takes numbers and is run in an element mode — inset, bevel, weld, assign material — leaves a
 **Last action** card in the [Inspector](#the-inspector), under **Shape it**; the object-level ones (merge
 objects, snap to grid, mirror copy, pack islands) open a dialog but leave no card. It is headed with the
 operation's name and holds the same fields the dialog had, and changing one re-runs the operation from the
@@ -515,7 +516,7 @@ The keyboard joins a drag already under way. While a gizmo is held:
 | Key | What it does |
 | --- | --- |
 | `X` / `Y` / `Z` | Lock the drag to that axis. The same key again clears the lock. |
-| digits, `.`, `-` | Type the value outright — metres for a move, degrees for a rotation, a factor for a scale, and the inset's own unit while dragging one. |
+| digits, `.`, `-` | Type the value outright — metres for a move, degrees for a rotation, a factor for a scale, and the unit of an inset's thickness or a bevel's width while dragging one. |
 | `Backspace` | Take back the last character. |
 | `Enter` | Commit and end the drag. |
 | `Esc` | Cancel it: everything goes back where it was and nothing is recorded. |
@@ -684,11 +685,11 @@ so the three never disagree:
   selected faces.
 - **Shape it** holds the mode's operations as buttons: **Repeat Last**, **Extrude**, and in face mode
   **Inset Faces...**, **Merge Faces**, **Flip Normals**, **Assign Material...**, **Triangulate Faces** and
-  **Subdivide**; in point mode **Weld...**; and **Delete**, which deletes the picked elements and never the
-  shape. The groups that are used less (**Set Origin**, and in face mode **Shading** and **Separate**) are
-  closed folds under the card. Hover shows what a button does and its key; a button that cannot run is greyed
-  and says why. An operation with numbers (the ones with `...`) opens its fields right under its button with an
-  **Apply**, remembers the values for next time, and counts as one undo step.
+  **Subdivide**; in edge mode **Bevel Edges...**; in point mode **Weld...**; and **Delete**, which deletes the
+  picked elements and never the shape. The groups that are used less (**Set Origin**, and in face mode
+  **Shading** and **Separate**) are closed folds under the card. Hover shows what a button does and its key; a
+  button that cannot run is greyed and says why. An operation with numbers (the ones with `...`) opens its fields
+  right under its button with an **Apply**, remembers the values for next time, and counts as one undo step.
 - **Last action**, described under [Adjusting the last operation](#adjusting-the-last-operation-and-repeating-it),
   appears under **Shape it** while an operation's numbers are still live.
 
