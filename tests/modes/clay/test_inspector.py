@@ -356,11 +356,16 @@ def test_a_starter_colour_paints_every_selected_shape_in_one_undo_step(imgui_ui)
 def test_the_swatch_a_shape_wears_is_outlined_and_a_custom_colour_gets_its_own_ring(imgui_ui):
     ctx, tab, doc = _document(1)
     rig = _rig(imgui_ui, ctx)
-    selected = [c.label for c in rig.driver.controls if c.kind == "swatch" and c.selected]
-    assert selected == ["##inspsw/custom"], "the default grey is none of the eight"
+    def starters():
+        return [
+            c.label
+            for c in rig.driver.controls
+            if c.kind == "swatch" and c.selected and c.label.startswith("##inspsw/")
+        ]
+
+    assert starters() == ["##inspsw/custom"], "the default grey is none of the eight"
     rig.click(label="##inspsw/Purple")
-    selected = [c.label for c in rig.driver.controls if c.kind == "swatch" and c.selected]
-    assert selected == ["##inspsw/Purple"]
+    assert starters() == ["##inspsw/Purple"]
 
 
 def test_starter_matching_ignores_textured_and_see_through_slots():

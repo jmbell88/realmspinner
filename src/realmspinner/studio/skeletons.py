@@ -343,10 +343,9 @@ def clay(ctx: Any) -> dict[str, Column]:
     This was a left sidebar (the Add pane) and a four-pane right column
     (outliner, properties, UV, document). Both are folded into the picoCAD
     shape: **the tools are a slim rail inside the centre** (``panes/rail.py``,
-    drawn by ``_clay_workspace``'s viewport), **the palette is a strip under the
-    render** (``panes/palette_strip.py``), and **the right column is one pane**
-    -- what the selected part of the scene *is*, with what the scene *contains*
-    docked at its foot.
+    drawn by ``_clay_workspace``'s viewport), **the palette is the Inspector's
+    Colour card**, and **the right column is one pane** -- what the selected part
+    of the scene *is*, with what the scene *contains* docked at its foot.
 
     **The left column is declared and empty**, not omitted. ``layout.column``
     returns early for a column with no live slots and ``centre_width`` already
@@ -369,6 +368,10 @@ def clay(ctx: Any) -> dict[str, Column]:
     would otherwise hide the new pane the day it reused the name. ``reconcile``
     drops the old id from a saved column and adds the new one in its built-in
     place, so no migration and no ``VERSION`` bump is owed (see :func:`plotter`).
+
+    **The palette strip under the render is gone too**, but it never had a slot: the
+    viewport drew it, so there is no id to retire and a saved layout names nothing
+    of it. Its swatches are the Colour card's second row (``swatches.draw_slots``).
 
     **``clay-outliner`` is retired too, and the column is one slot.** The outliner
     is the Inspector's "All shapes" section, docked at its foot, so the two panes

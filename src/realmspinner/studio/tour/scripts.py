@@ -888,10 +888,13 @@ CLAY_TORCH = Tour(
             id="palette-colours",
             title="Add colours",
             body=(
-                "The palette strip under the model holds the document's colours. A new "
-                "model has one grey slot. Press + on the strip twice to add two more, "
-                "then Ctrl+click a slot and press Edit colour in the Inspector's Colour "
-                "card to set its colour: a brown for the wood, an orange for the fire.\n\n"
+                "The Colour card in the Inspector holds the document's colours: the named "
+                "ones on top and the palette itself under them. A new model has one grey "
+                "slot. With the cone selected, press + in the palette twice to add two "
+                "more (each starts grey and the cone wears it), then Ctrl+click a slot and "
+                "press Edit colour to set its colour: a brown for the wood, an orange for "
+                "the fire. With nothing selected the same card is headed Next shape's "
+                "colour, and a click there picks what the next shape wears.\n\n"
                 "Next unlocks once the palette holds three slots."
             ),
             mode="clay",
@@ -904,9 +907,9 @@ CLAY_TORCH = Tour(
             id="paint",
             title="Paint the parts",
             body=(
-                "Select an object in All shapes and click a swatch on the strip, or one "
-                "of the named colours in the Inspector's Colour card, to repaint it. Do it "
-                "for the flame and for the shaft, so the torch is not all one colour.\n\n"
+                "Select an object in All shapes and click a swatch in the Colour card, a "
+                "named colour or a slot of the palette, to repaint it. Do it for the "
+                "flame and for the shaft, so the torch is not all one colour.\n\n"
                 "Next unlocks once two objects are painted with something other than the "
                 "first slot."
             ),

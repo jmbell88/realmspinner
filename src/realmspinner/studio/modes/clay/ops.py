@@ -2096,7 +2096,7 @@ def _register_defaults() -> None:
             ),
             hint="Paints the selected faces with one palette entry, leaving the "
             "object's default slot alone. The slot is its number in the "
-            "palette strip under the viewport, counting from 0.",
+            "Colour card's palette row, counting from 0.",
         )
     )
     register(

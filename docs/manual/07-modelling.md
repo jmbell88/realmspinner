@@ -88,7 +88,7 @@ empty, so the set moves as one thing and each part is still a box you can resize
 
 One material palette per document, with slots referenced per face. A slot is a name, a base colour,
 an optional base-colour texture, double-sided and cutout — the picoCAD palette, a flat colour or a
-picture. Clicking a swatch in the palette strip under the viewport repaints the object; in Face mode it
+picture. Clicking a swatch in the Inspector's Colour card repaints the object; in Face mode it
 paints the selected faces instead, and **Assign Material...** does the same from the menu.
 
 Clay does not paint a texture itself — Inker does, and Clay opens it for you. **Add texture** on a slot

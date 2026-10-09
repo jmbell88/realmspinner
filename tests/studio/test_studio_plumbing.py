@@ -1030,14 +1030,13 @@ def test_every_clay_pane_gates_its_controls_on_saving():
     describing a document that never existed."""
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
-    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
+    from realmspinner.studio.modes.clay.ui.panes import swatches as clay_swatches
     from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
-    for pane in (
-        clay_tools, clay_props, clay_inspector, clay_outliner, clay_rail, clay_palette
-    ):
+    # ``clay_swatches`` is the palette row of the Colour card (the strip's old home).
+    for pane in (clay_tools, clay_props, clay_inspector, clay_outliner, clay_rail, clay_swatches):
         source = inspect.getsource(pane)
         assert "saving" in source, f"{pane.__name__} does not consult tab.saving"
 

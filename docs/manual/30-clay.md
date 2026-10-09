@@ -16,13 +16,13 @@ quitting the app can lose unsaved work, and it asks first.
 
 The layout is picoCAD's more than Blender's: almost the whole window is the viewport. Down its left
 edge runs a slim, labelled **tool rail** — the four transform tools and the shapes — and over it the menu
-strip and the toolbar; under it a fixed **palette strip** shows the document's materials. On the right is one
-pane, the **Inspector**, a panel that changes with what you have selected (see [The inspector](#the-inspector)),
-with the list of every shape in the document, **All shapes**, docked at its foot (see
+strip and the toolbar; under it only a one-line hint. On the right is one pane, the **Inspector**, a panel that
+changes with what you have selected (see [The inspector](#the-inspector)) and holds the document's colours in
+its **Colour** card, with the list of every shape in the document, **All shapes**, docked at its foot (see
 [The outliner](#the-outliner)). There is no left-hand column and no separate file pane. Several documents
 stay open at once.
 
-![Clay with a small keep open: tool rail, palette strip and Inspector](img/30-clay.png)
+![Clay with a small keep open: tool rail and Inspector](img/30-clay.png)
 
 ## Starting a document
 
@@ -74,9 +74,9 @@ a metre). When exactly one object is selected, the search starts from it, so the
 to the one you are working on. Only if there is no free spot within about twelve metres does a shape
 stand on top of what is under it instead. The first shape in a model also **frames the view**, and a
 later one does only when it would otherwise be off screen, and then the whole model is framed so
-nothing already built is lost. The shape is painted with the **colour you last picked** from the
-palette strip (Ctrl+click only opens a slot to edit, so it does not count), and with the starting grey
-before you have picked one. All of it is part of the one undo step the add already was: Ctrl+Z
+nothing already built is lost. The shape is painted with the **colour you last picked** in the
+Inspector's Colour card (Ctrl+click only opens a slot to edit, so it does not count), and with the starting
+grey before you have picked one. All of it is part of the one undo step the add already was: Ctrl+Z
 removes the shape and leaves nothing behind. An agent's `clay_add_primitive` is unchanged and puts a
 shape at the origin, wherever its own translation then sends it.
 
@@ -349,7 +349,7 @@ a box and `L` between them reach what a low-poly model needs.
 | Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. With *treat selection as one region* on, the cap's texture shrinks with the geometry and the rim gets the band of texture between the old edge and the new one, as a per-face inset always did. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
-| Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number along the palette strip, and leaves the object's default slot alone. See [Texturing](#texturing). |
+| Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
 | Faces | Triangulate Faces (`T`) | Replaces each selected face with its own triangles. |
 | Faces | Merge Faces | Merges a connected block of selected faces into one n-gon. |
 | Verts | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. |
@@ -593,18 +593,19 @@ so what you can do to the thing in front of you is always in front of you. Its b
 
 | You have selected | The Inspector shows |
 | --- | --- |
-| Nothing | **What do you want to make?**: four shape cards, a **More shapes** list, and the **Model** card |
+| Nothing | **What do you want to make?**: four shape cards, a **More shapes** list, **Next shape's colour**, and the **Model** card |
 | One shape | Its name and colour, then **Size**, **Shape settings** (when it has any), **Colour**, **Duplicate** and **Delete**, and three closed folds |
 | Several shapes | **Colour**, **Duplicate** and **Delete**, and the actions for several shapes; no size |
 | Points, edges or faces | **Editing points** (or edges, or faces) with a **Done** button, then a **Select** row, what is picked and its median, **Shape it**, and, right after an operation with numbers, **Last action** |
 
-**With nothing selected** the panel is the first screen of a model. The four cards place a Box, Cylinder, Sphere
-or Cone exactly as the rail's buttons do, **More shapes** lists every other shape, and the **Model** card
-under them is the document: a line of counts of what leaves it (`9 shapes · 4 colours · 254 vertices · 227
-faces · 472 triangles`, the visible shapes only, the same set the exporters write, so the triangle count
-is a promise about the exported file), **New**, **Open...**, **Save** and **Save as...**, the ways out under
-**Take it somewhere** with a line naming the last export, and a **History** row. Press `Esc` with one
-shape selected to let go of it and get this screen back.
+**With nothing selected** the panel is the first screen of a model. The four cards place a Box, Cylinder, Sphere or
+Cone exactly as the rail's buttons do, **More shapes** lists every other shape, **Next shape's colour** is the
+Colour card with nothing to paint (a click only picks the colour the next shape you add will wear), and the
+**Model** card under them is the document: a line of counts of what leaves it (`9 shapes · 4 colours · 254 vertices
+· 227 faces · 472 triangles`, the visible shapes only, the same set the exporters write, so the triangle count is a
+promise about the exported file), **New**, **Open...**, **Save** and **Save as...**, the ways out under **Take it
+somewhere** with a line naming the last export, and a **History** row. Press `Esc` with one shape selected to let go
+of it and get this screen back.
 
 **With one shape selected** the panel opens on the shape's name, which is a field (type a new one and
 press `Enter`), and the colour it wears. Under that:
@@ -619,8 +620,11 @@ press `Enter`), and the colour it wears. Under that:
   already holds the colour or adding one named after it**, all as one undo step. The eight exist only in the
   panel: a new document still has exactly one grey slot, and a slot appears in the palette only when a
   click asks for it. The swatch the shape already wears is outlined, and a colour that is none of the
-  eight (one you edited, or a textured slot) outlines a ninth swatch in its own colour instead. **Edit
-  colour** opens the Colours & textures page for the shape's slot.
+  eight (one you edited, or a textured slot) outlines a ninth swatch in its own colour instead. Under the
+  eight is **the palette itself**: every slot of the document, in order, the ones the eight made among
+  them, and a **+** that adds a grey slot and paints the shape with it (see
+  [Painting faces](#painting-faces) for what a click does). **Edit colour** opens the Colours & textures
+  page for the shape's slot.
 - **Duplicate** and **Delete** run the same operations as `Ctrl`+`J` and `Delete`. A refused one is
   greyed and says why on hover.
 
@@ -636,10 +640,10 @@ Then three folds, closed until you open them (the Inspector remembers which are 
   group with an **Apply** button, and remembers the values for next time; the same fields open from the
   right-click menu. **Texture mapping** opens the Unwrap page.
 
-**With several shapes selected** the panel says so in its heading and offers the Colour card (one click
-paints them all, as one undo step), Duplicate, Delete, and More actions already open, where Group, Merge
-Objects, Parent to Last and the Mirror operations are. There is no Size card: select one shape to change
-its size.
+**With several shapes selected** the panel says so in its heading and offers the Colour card (one click paints them
+all, as one undo step; the palette row is there too), Duplicate, Delete, and More actions already open, where Group,
+Merge Objects, Parent to Last and the Mirror operations are. There is no Size card: select one shape to change its
+size.
 
 **The three pages.** A few things need the whole column, so they open as pages over the Inspector, under a
 **Back** button; `Esc` does the same, ahead of everything else it undoes (a page closes first, then the picks,
@@ -647,7 +651,7 @@ then the mode, then the selection).
 
 | Page | Opens from | What it holds |
 | --- | --- | --- |
-| **Colours & textures** | **Edit colour** | The selected slot's name, colour, cutout and double-sided, and its base-colour texture (make one, edit it in Inker, take it back), with **Add** and **Remove** for slots; the swatches themselves are in the palette strip under the viewport |
+| **Colours & textures** | **Edit colour** | The selected slot's name, colour, cutout and double-sided, and its base-colour texture (make one, edit it in Inker, take it back), with **Add** and **Remove** for slots; the swatches themselves are in the Colour card |
 | **Unwrap** | **Texture mapping** | The selected object's texture layout, described under [The UV view](#the-uv-view) |
 | **Model & history** | The **History** row | The whole document: the file row, counts, the undo history, the import units and up axis, the last export, and the **Export GLB** and **Export OBJ** buttons |
 
@@ -911,20 +915,20 @@ few faces that are wrong, **Flip Normals** in face mode is the sharper tool.
 
 ## Materials
 
-Every object points at a slot in the document's material palette, chosen with the palette strip under
-the viewport (see [Painting faces](#painting-faces) for what a click does) or with the eight named swatches
-on the Inspector's Colour card. A slot has
+Every object points at a slot in the document's material palette, chosen with the palette row of the
+Inspector's Colour card (see [Painting faces](#painting-faces) for what a click does) or with the eight
+named swatches above it. A slot has
 a **name**, a **base colour**, an optional **base-colour texture**, **double-sided** and **cutout**, and
 the change reaches every object using that slot at once — which is the point of a palette rather than
 a material per object. That is the whole of it: the palette is
 the picoCAD one, a flat colour or a picture per slot, and there is no metallic, roughness, emissive,
 normal or occlusion map to set.
 
-**Add** (or the palette strip's **+**) appends a new slot and **Remove** drops one — but only a slot no
-face is using, and the panel says how many faces are in the way when it will not. Reassigning those faces to some other
-slot is the alternative, and it is a silent change to how part of the model looks. A slot is an
-index that every face names, so adding always appends rather than inserting; removing one renumbers
-the slots above it, and an undo puts the numbering back.
+**Add** (or the Colour card's **+**, which also paints with the new slot) appends a new slot and **Remove** drops
+one — but only a slot no face is using, and the panel says how many faces are in the way when it will not.
+Reassigning those faces to some other slot is the alternative, and it is a silent change to how part of the model
+looks. A slot is an index that every face names, so adding always appends rather than inserting; removing one
+renumbers the slots above it, and an undo puts the numbering back.
 
 **Double-sided** is for a surface an engine should not cull from behind, and **cutout** makes the
 texture's transparent pixels see-through. The base-colour texture is made, painted and cleared as
@@ -961,28 +965,34 @@ is the one you painted, and Clay opens Inker for you and takes the picture back.
 
 ### Painting faces
 
-The **palette strip** is a fixed band under the viewport, always in the same place, with one swatch
-per slot of the document's palette in a row, a textured slot marked by a small triangle in its corner,
-and the slot's number and name on hover. The **+** at the end of the row adds a slot. The outlined swatch
-is the slot the Colours & textures page edits, which is also the object's default slot. A strip with no
-slots shows only the **+**; a new document is not given a palette it did not ask for. What a click does
-depends on the mode:
+The **Colour** card in the Inspector is where you paint, in every state the Inspector has: one shape, several, none
+(headed **Next shape's colour**) and Points, Edges and Faces. Under the eight named swatches is the **palette**:
+one swatch per slot of the document's palette, wrapped to the width of the column, a textured slot marked by a
+small triangle in its corner, and the slot's number and name on hover and on the line beneath. The **+** after
+the last swatch adds a grey slot and uses it, as one undo step: it paints what a click would paint, and **Edit
+colour** below it changes the grey. The outlined swatch is the slot the Colours & textures page edits, which is
+also the object's default slot. A palette longer than three rows scrolls inside the card rather than pushing the
+cards below it away; a new document is not given a palette it did not ask for. What a click does depends on
+the mode:
 
 - **Object mode, objects selected** — a click repaints each selected object: its default slot and every
-  one of its faces move to that slot, as one undo step however many objects are selected. With nothing
-  selected the strip paints nothing. **Ctrl**+click, which edits the slot in the Inspector, needs exactly one
-  object selected; with several it does nothing, and the tooltip says "Select one object to edit its slot."
+  one of its faces move to that slot, as one undo step however many objects are selected. **Ctrl**+click, which
+  edits the slot in the Inspector, needs exactly one object selected; with several it does nothing, and the
+  tooltip says "Select one object to edit its slot."
+- **Nothing selected** — a click paints nothing and only picks the slot: the next shape you add wears it, and
+  the swatch is outlined to say so.
 - **Face mode, faces selected** — a click paints *those faces* with the slot and leaves the object's
-  default slot alone. The Mesh menu's **Assign Material...** does the same from the menu: it asks for
-  the slot's number, counting from 0 along the strip. It has no key.
+  default slot alone, and so does one of the eight named swatches (which adds its slot first, in the same undo
+  step). The Mesh menu's **Assign Material...** does the same from the menu: it asks for the slot's number,
+  counting from 0 along the palette. It has no key.
 - **`Ctrl`+click**, in any mode, paints nothing. It only makes that slot the one the Colours & textures page
   edits, which is the way to reach another slot's colour and texture while a face selection is up. A
   plain click with no face selected in face mode does the same.
-- **Vertex and edge mode** — a click paints nothing. It only makes that slot the one the fields
-  edit; switch to face mode to paint faces.
+- **Vertex and edge mode** — the eight named swatches are not drawn, because there is nothing to paint. A click
+  on a slot only makes it the one the fields edit; switch to face mode to paint faces.
 
 Under a face selection the UV view draws the first selected face's slot, while the Colours & textures
-page edits the slot the strip outlines; the page names both.
+page edits the slot the palette outlines; the page names both.
 
 Painting is one undo step however many objects the selection spans, and faces that already wear the
 slot say so and push nothing. A face's material is not geometry, so a painted box is still a box;

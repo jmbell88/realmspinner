@@ -46,7 +46,6 @@ class ClayViewport:
 
                           the header      [ clay-inspector, with
             [ rail ]      the viewport      All shapes docked at its foot ]
-            [ palette strip, under both ]
                           the hint
 
         The right column is ``skeletons.clay``, which is where the argument for
@@ -104,7 +103,6 @@ class ClayViewport:
         from .panes import header as clay_header
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
-        from .panes import palette_strip as clay_palette
         from .panes import rail as clay_rail
 
         # One tick per drawn frame, before anything below can return: the UV pane
@@ -125,13 +123,10 @@ class ClayViewport:
         # And the hint line's own row, reserved rather than drawn over: a line
         # the viewport has already claimed the height for is a line clipped away
         # at the bottom of the pane, which is where every status row in this app
-        # has gone wrong at least once. The palette strip's fixed height is
-        # reserved the same way and for the same reason (Inker's timeline strip
-        # is the precedent): it sits between the render and the hint, so a
-        # palette that grows must never take the model's height.
+        # has gone wrong at least once. (The palette strip that used to sit above
+        # it is the Inspector's Colour card now, so the render owns that height.)
         hint_h = float(tokens.sp(clay_hud.HINT_H))
-        strip_h = clay_palette.height()
-        body_h = max(avail.y - hint_h - strip_h, 1.0)
+        body_h = max(avail.y - hint_h, 1.0)
         origin = imgui.get_cursor_screen_pos()
         # The tool rail, to the left of the render and as tall as it: a child of
         # this pane rather than a docked one, so it costs the model its width and
@@ -221,13 +216,9 @@ class ClayViewport:
             # clay-83: the pointer is on a panel, a card or a control, and no
             # mouse move will reach the view to say so.
             view.clear_hover(tab.doc)
-        # Under the render and the rail both, the full width of the centre: the
-        # palette is the document's, not the viewport's.
+        # Last, under the render and the rail both: read when you are stuck, and a
+        # line over the model covers the thing you are stuck on.
         imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3]))
-        clay_palette.draw(ctx, max(avail.x, 1.0))
-        # Last, and under the strip: read when you are stuck, and a line over
-        # the model covers the thing you are stuck on.
-        imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3] + strip_h))
         clay_hud.hint_line(ctx)
 
     def _clay_tabs(self, ctx: Any, clay_mode: Any) -> None:

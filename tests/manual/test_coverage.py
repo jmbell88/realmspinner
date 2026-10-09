@@ -75,14 +75,14 @@ NO_HELP_BUTTON = {
     "clay_props",
     "clay_menu",  # a menu bar
     "clay_strip",  # the menu names above the header; a menu bar
-    # The tool rail at the viewport's left edge and the palette strip under it
-    # (2026-10-07): chrome drawn over and under the render, like ``clay_hud``,
-    # with no heading to hang a (?) beside. ``clay_swatches`` is not a pane at
-    # all -- the swatch drawing both the strip and the Material tab share.
+    # The tool rail at the viewport's left edge (2026-10-07): chrome drawn over the
+    # render, like ``clay_hud``, with no heading to hang a (?) beside. The palette
+    # strip that sat under it folded into the Inspector's Colour card (Landing 10),
+    # so its entry is gone. ``clay_swatches`` is not a pane at all -- the swatch
+    # drawing and click rules the Colour card and the Material page share.
     # Their subject is documented under the Clay chapter's "Adding a primitive"
     # and "Painting faces" sections.
     "clay_rail",
-    "clay_palette_strip",
     "clay_swatches",
     # The axis ball in the viewport's corner and the hint line under it. Chrome
     # over and under the render rather than a panel: there is no heading to hang

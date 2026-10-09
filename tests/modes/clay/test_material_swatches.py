@@ -3,10 +3,10 @@
 Three doors reach ``ClayDoc.paint_faces``, and each is pinned here:
 
 * the ``assign-material`` op (face mode, one parameter: the palette slot);
-* the palette strip under the viewport -- a click paints the selected faces in
-  face mode and repaints the object in object mode, exactly as the combo it
-  replaced did -- and the Material tab's texture block (Add texture, Clear,
-  Edit in Inker, Take back);
+* the palette row of the Inspector's Colour card (it was a strip under the viewport
+  until Landing 10) -- a click paints the selected faces in face mode and repaints
+  the object in object mode, exactly as the combo it replaced did -- and the Material
+  tab's texture block (Add texture, Clear, Edit in Inker, Take back);
 * ``clay_material``'s ``faces`` argument, for an agent.
 
 The pane is driven headless the way ``test_material_editor.py`` does it: a
@@ -33,7 +33,7 @@ from realmspinner.studio.modes.clay import menutree, texture_link
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
-from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
+from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.clay.ui.panes import swatches as clay_swatches
 
@@ -208,7 +208,7 @@ def test_the_agent_reaches_assign_material_through_clay_op_and_a_bad_slot_is_a_m
     assert body["ran"] is False and "no palette entry 7" in body["messages"][0]
 
 
-# --- the palette strip --------------------------------------------------------
+# --- the palette row of the Colour card ---------------------------------------
 
 
 def _frame(ui, draw) -> None:
@@ -225,17 +225,20 @@ def _press_swatch(monkeypatch: pytest.MonkeyPatch, index: int) -> list[dict]:
 
     def fake(label, colour, side, **kw):
         drawn.append({"label": label, "colour": colour, **kw})
-        return label == f"##palsw{index}"
+        return label == f"##slotsw/{index}"
 
     monkeypatch.setattr(clay_swatches, "_swatch", fake)
     return drawn
 
 
 def _draw_strip(ui, doc: bd.ClayDoc, ctx: _Ctx) -> None:
-    _frame(ui, lambda: clay_palette._body(ctx, _Tab(doc)))
+    """The Colour card as the Inspector draws it for what *doc* has selected."""
+    state = SimpleNamespace(inspector_page="")
+    uids = sorted(doc.selection)
+    _frame(ui, lambda: clay_inspector._colour_card(ctx, state, _Tab(doc), doc, uids))
 
 
-def test_the_strip_draws_one_swatch_per_palette_entry_and_the_material_tab_none(
+def test_the_colour_card_draws_one_slot_swatch_per_palette_entry_and_the_material_tab_none(
     monkeypatch: pytest.MonkeyPatch, ui
 ) -> None:
     doc, [uid] = _doc()
@@ -244,9 +247,10 @@ def test_the_strip_draws_one_swatch_per_palette_entry_and_the_material_tab_none(
 
     _draw_strip(ui, doc, _Ctx())
 
-    assert [d["label"] for d in drawn] == ["##palsw0", "##palsw1"]
-    assert [d["selected"] for d in drawn] == [True, False], "the object's default slot"
-    assert drawn[1]["colour"] == pytest.approx((1.0, 0.0, 0.0, 1.0))
+    slots = [d for d in drawn if d["label"].startswith("##slotsw/")]
+    assert [d["label"] for d in slots] == ["##slotsw/0", "##slotsw/1"]
+    assert [d["selected"] for d in slots] == [True, False], "the object's default slot"
+    assert slots[1]["colour"] == pytest.approx((1.0, 0.0, 0.0, 1.0))
     source = inspect.getsource(clay_props._material)
     assert "labeled_combo" not in source, "no combo any more"
     drawn.clear()
@@ -303,11 +307,11 @@ def test_a_swatch_click_in_face_mode_paints_the_selected_faces_through_the_op(
     assert ctx.info == ["Painted 2 face(s) with red."]
 
 
-def test_a_strip_click_in_face_mode_with_no_faces_selected_changes_nothing(
+def test_a_slot_click_in_face_mode_with_no_faces_selected_changes_nothing(
     monkeypatch: pytest.MonkeyPatch, ui
 ) -> None:
     """With no faces there is no object in the selection either (in an element
-    mode an object is selected *through* its elements), so the strip has nothing
+    mode an object is selected *through* its elements), so the card has nothing
     to paint and no single object whose slot it could retarget. The press is a
     refused no-op -- it must not repaint the object behind the user's back."""
     doc, [uid] = _doc()

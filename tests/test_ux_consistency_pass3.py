@@ -144,7 +144,7 @@ def test_the_clay_button_never_names_a_generator():
 # own in ``test_inspector_elements.py``. What stays here is the pure half.
 
 
-def test_the_one_object_gate_refuses_several_and_is_the_palette_strips_too():
+def test_the_one_object_gate_refuses_several_and_is_the_palette_swatches_too():
     """``swatches.single_selected`` still refuses to edit one of many, which is the
     whole reason the several-shapes body has no Size card."""
     from realmspinner.studio.modes.clay.ui.panes import swatches

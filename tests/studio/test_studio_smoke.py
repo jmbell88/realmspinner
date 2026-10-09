@@ -2728,14 +2728,13 @@ def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
     """Every one of them has to survive the state the mode opens in."""
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
-    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
-    # ``clay_header``, ``clay_rail`` and ``clay_palette`` are drawn inside the
-    # viewport rather than in a sidebar, and they walk with the panes for the
-    # reason the panes walk: an unbalanced disable stack, child or popup left
-    # open is the same defect wherever it is.
-    for pane in (clay_inspector, clay_header, clay_rail, clay_palette):
+    # ``clay_header`` and ``clay_rail`` are drawn inside the viewport rather than in a
+    # sidebar, and they walk with the panes for the reason the panes walk: an
+    # unbalanced disable stack, child or popup left open is the same defect wherever
+    # it is.
+    for pane in (clay_inspector, clay_header, clay_rail):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
     # The outliner is the Inspector's docked All shapes list: open, for a frame.
     widgets.request_open(clay_inspector.DOCK_KEY)
@@ -2745,16 +2744,15 @@ def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
 def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx):
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
-    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
-    # ``clay_header``, ``clay_rail`` and ``clay_palette`` are drawn inside the
-    # viewport rather than in a sidebar, and they walk with the panes for the
-    # reason the panes walk: an unbalanced disable stack, child or popup left
-    # open is the same defect wherever it is.
-    for pane in (clay_inspector, clay_header, clay_rail, clay_palette):
+    # ``clay_header`` and ``clay_rail`` are drawn inside the viewport rather than in a
+    # sidebar, and they walk with the panes for the reason the panes walk: an
+    # unbalanced disable stack, child or popup left open is the same defect wherever
+    # it is.
+    for pane in (clay_inspector, clay_header, clay_rail):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
     # The outliner is the Inspector's docked All shapes list: open, for a frame.
     widgets.request_open(clay_inspector.DOCK_KEY)
@@ -2767,17 +2765,16 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     to catch."""
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
     from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
-    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     tab = _clay_tab(app_ctx)
     tab.doc.select([tab.doc.objects[0].uid])
     tab.saving = True
-    # ``clay_header``, ``clay_rail`` and ``clay_palette`` are drawn inside the
-    # viewport rather than in a sidebar, and they walk with the panes for the
-    # reason the panes walk: an unbalanced disable stack, child or popup left
-    # open is the same defect wherever it is.
-    for pane in (clay_inspector, clay_header, clay_rail, clay_palette):
+    # ``clay_header`` and ``clay_rail`` are drawn inside the viewport rather than in a
+    # sidebar, and they walk with the panes for the reason the panes walk: an
+    # unbalanced disable stack, child or popup left open is the same defect wherever
+    # it is.
+    for pane in (clay_inspector, clay_header, clay_rail):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
     # The outliner is the Inspector's docked All shapes list: open, for a frame.
     widgets.request_open(clay_inspector.DOCK_KEY)
@@ -3012,15 +3009,15 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
     assert "Tools" not in seen["hint"]
 
 
-def test_the_clay_viewport_stacks_render_strip_and_hint_with_the_rail_beside_the_render(
+def test_the_clay_viewport_stacks_render_and_hint_with_the_rail_beside_the_render(
     app_ctx, imgui_ctx, gl, monkeypatch
 ):
     """The geometry of the compact layout, through the real viewport: the tool rail
-    is to the *left* of the render and as tall as it, the palette strip starts
-    exactly where the render ends and runs the full width under both, and the
-    hint line starts exactly where the strip's fixed 52 px ends. A strip that
-    overlapped the render would cover the model; one that left a gap would be a
-    band of unowned pixels."""
+    is to the *left* of the render and as tall as it, and the hint line starts exactly
+    where the render ends and runs the full width under both. The palette strip that
+    used to sit between them is the Inspector's Colour card now (Landing 10), so there
+    is no band under the render but the hint: a strip that came back would show up as
+    a gap here, and one that overlapped the render would cover the model."""
     from imgui_bundle import imgui
 
     from realmspinner.kernels.mesh import document as bd
@@ -3029,7 +3026,6 @@ def test_the_clay_viewport_stacks_render_strip_and_hint_with_the_rail_beside_the
     from realmspinner.studio.modes.clay import mode as clay_mode
     from realmspinner.studio.modes.clay.ui import view as clay_view
     from realmspinner.studio.modes.clay.ui.panes import hud as clay_hud
-    from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 
     app = App(app_ctx.runtime)
@@ -3039,18 +3035,12 @@ def test_the_clay_viewport_stacks_render_strip_and_hint_with_the_rail_beside_the
 
     seen: dict = {}
     real_draw = clay_view.ClayView.draw
-    real_strip = clay_palette.draw
     real_hint = clay_hud.hint_line
     real_rail = clay_rail.draw
 
     def draw(self, doc, rect, dt):
         seen["rect"] = rect
         return real_draw(self, doc, rect, dt)
-
-    def strip(ctx, width=0.0):
-        pos = imgui.get_cursor_screen_pos()
-        seen["strip"] = (pos.x, pos.y, width)
-        return real_strip(ctx, width)
 
     def hint(ctx):
         pos = imgui.get_cursor_screen_pos()
@@ -3063,7 +3053,6 @@ def test_the_clay_viewport_stacks_render_strip_and_hint_with_the_rail_beside_the
         return real_rail(ctx, height)
 
     monkeypatch.setattr(clay_view.ClayView, "draw", draw)
-    monkeypatch.setattr(clay_palette, "draw", strip)
     monkeypatch.setattr(clay_hud, "hint_line", hint)
     monkeypatch.setattr(clay_rail, "draw", rail)
     try:
@@ -3074,14 +3063,10 @@ def test_the_clay_viewport_stacks_render_strip_and_hint_with_the_rail_beside_the
 
     x, y, w, h = seen["rect"]
     rail_x, rail_y, rail_h = seen["rail"]
-    strip_x, strip_y, strip_w = seen["strip"]
     hint_x, hint_y = seen["hint"]
     assert rail_x < x, "the rail is to the left of the render"
     assert rail_y == pytest.approx(y) and rail_h == pytest.approx(h), "and exactly as tall"
-    assert strip_y == pytest.approx(y + h), "the strip starts where the render ends"
-    assert strip_x == pytest.approx(rail_x), "and runs under the rail as well"
-    assert strip_w >= (x - rail_x) + w - 1.0
-    assert hint_y == pytest.approx(strip_y + clay_palette.height()), "the hint is under the strip"
+    assert hint_y == pytest.approx(y + h), "the hint starts where the render ends: no strip between"
     assert hint_x == pytest.approx(rail_x)
 
 

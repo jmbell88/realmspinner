@@ -3,9 +3,10 @@
 A new model has one grey slot, and a first-time user who wants a blue box should
 not have to learn that a palette exists, that ``+`` appends a slot, and that the
 slot's colour is edited somewhere else before they can have one. The inspector's
-Colour card lists these eight by name; a click **finds the document's slot that
-already holds the colour, or adds one named after it, and paints the selected
-shapes with it, as one undo step**.
+Colour card lists these eight by name (the document's own slots are the row under
+them); a click **finds the document's slot that already holds the colour, or adds
+one named after it, and paints the selected shapes with it, as one undo step** --
+the picked faces, in Faces mode (:func:`paint_faces`).
 
 **They are UI-only, and that is the whole design.** Nothing here is ever seeded
 into :class:`~realmspinner.kernels.mesh.document.ClayDoc` or its default palette:
@@ -17,9 +18,9 @@ palette an empty document has) and the tour's ``clay_palette_at_least`` conditio
 for it, and an unused one stays until the user removes it like any other.
 
 **The number stored is the number drawn.** ``base_color_factor`` is what the
-palette strip and the colour field show as-is (``swatches._swatch_colour`` draws
+palette row and the colour field show as-is (``swatches._swatch_colour`` draws
 the factor, ``props._material`` edits it), so a starter's slot holds ``hex / 255``
-per channel and its swatch in the card and in the strip are the same pixels. A
+per channel and its swatch and its slot's in the card are the same pixels. A
 sRGB-to-linear conversion here would store a different number than the field
 displays for the same colour and the "find the slot that already holds it" match
 would stop working for a colour the user picked by hand.
@@ -122,9 +123,10 @@ def paint(ctx: Any, doc: Any, uids: Iterable[int], colour: StarterColour) -> int
     ``repaint_object`` per shape (the default slot and every face, which is what
     renders), inside one mark, so a Ctrl+Z puts back the colour of every shape
     *and* removes the slot this click added, in a single step -- the rule
-    ``add_material_and_assign`` and the strip's multi-object click already keep.
+    ``add_material_and_assign`` and the slot row's multi-object click already keep.
     The slot is remembered (``ClayTab.last_slot``) so the next shape placed by
-    hand arrives in it, as a swatch press on the strip does.
+    hand arrives in it, as a press on a slot swatch does. With no *uids* (nothing
+    selected) that is the whole of it: the colour the next shape will wear.
     """
     from . import mode as clay_mode
 
@@ -136,6 +138,37 @@ def paint(ctx: Any, doc: Any, uids: Iterable[int], colour: StarterColour) -> int
             index = doc.add_material(replace(fresh, base_color_factor=colour.factor))
         for uid in sorted(uids):
             doc.repaint_object(uid, index)
+    finally:
+        doc.history.collapse_since(mark)
+    clay_mode.remember_slot(ctx, doc, index)
+    return index
+
+
+def paint_faces(ctx: Any, doc: Any, colour: StarterColour) -> int | None:
+    """Paint the picked faces with *colour*, adding its slot first if the palette has
+    none, as **one** undo step. -> the slot index used, or ``None`` with no faces
+    picked.
+
+    The ``assign-material`` op, the door every face paint goes through (the Edit
+    menu's Assign Material, a slot swatch's click, the agent's ``faces``): it leaves
+    each object's default slot alone and is one step across however many objects have
+    a pick. With no face picked nothing is added -- a click that painted nothing must
+    not leave a stray slot behind -- and the refusal is said in a toast.
+    """
+    from . import mode as clay_mode
+    from . import ops as clay_ops
+
+    op = clay_ops.get("assign-material")
+    if not op.enabled(doc):
+        ctx.toast(clay_ops.reason_for(op, doc) or "Select faces to paint them.")
+        return None
+    mark = doc.history.mark()
+    try:
+        index = find_slot(doc, colour)
+        if index is None:
+            fresh = clay_document.default_material(colour.name)
+            index = doc.add_material(replace(fresh, base_color_factor=colour.factor))
+        clay_ops.run(ctx, doc, op, index=index)
     finally:
         doc.history.collapse_since(mark)
     clay_mode.remember_slot(ctx, doc, index)

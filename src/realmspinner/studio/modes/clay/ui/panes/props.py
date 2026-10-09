@@ -58,8 +58,8 @@ from ... import ops as clay_ops
 from ...state import ClayState
 from . import outliner as clay_outliner
 
-# The swatch code left for ``swatches.py`` with the swatch row (it is the
-# palette strip's now). Re-exported under the names this module always had,
+# The swatch code left for ``swatches.py`` with the swatch row (it is the Inspector's
+# Colour card's now). Re-exported under the names this module always had,
 # because the tests that drive a press reach for ``clay_props._pick_slot`` and
 # ``clay_props._swatch_colour`` by those names.
 from .swatches import SWATCH, _pick_slot, _swatch, _swatch_colour  # noqa: F401
@@ -899,9 +899,9 @@ def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
 
 #: The 2026-10-07 audit's clay-82: this tab said only "the palette is empty" and
 #: returned before any control, so nothing on it pointed at the one place a slot
-#: can be added from an empty palette -- the + in the strip under the viewport.
+#: can be added from an empty palette -- the + in the Inspector's Colour card.
 EMPTY_PALETTE_TEXT = (
-    "The palette is empty. Add a slot with the + in the palette strip under the viewport."
+    "The palette is empty. Add a slot with the + in the Inspector's Colour card."
 )
 
 
@@ -910,11 +910,11 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     if not doc.materials:
         widgets.muted_wrapped(EMPTY_PALETTE_TEXT)
         return
-    # The swatches themselves are the palette strip under the viewport: painting
-    # is a viewport action, and this tab is where a slot's *options* live. Said
-    # here because a tab that quietly lost its picker would read as a bug.
+    # The swatches themselves are the Inspector's Colour card: painting is a click
+    # on a shape, and this page is where a slot's *options* live. Said here because
+    # a page that quietly lost its picker would read as a bug.
     widgets.muted_wrapped(
-        "Pick or paint a slot in the palette strip under the viewport "
+        "Pick or paint a slot in the Colour card "
         "(Ctrl+click a swatch to edit it here)."
     )
     _palette_row(doc, obj)

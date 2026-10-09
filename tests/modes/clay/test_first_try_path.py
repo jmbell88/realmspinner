@@ -2,7 +2,7 @@
 
 A first-time user should get an object quickly, and "quickly" is a number of
 gestures. This test drives the real Clay workspace -- the viewport pane with its
-header, rail, palette strip and empty state, and the inspector beside it -- through
+header, rail and empty state, and the inspector beside it -- through
 imgui's own input queue (``_ui_driver``), the way a person would, and counts
 the pointer presses and key presses it took:
 
@@ -176,7 +176,7 @@ def test_a_click_straight_after_typing_a_height_is_not_swallowed(workspace):
     d.click(d.find(label="##size##insp"))
     d.type_text("3")
     before = len(tab.doc.materials)
-    d.click(d.find(label="##clay-palette/add"))
+    d.click(d.find(label="##slot-add"))
     d.settle(1)
     assert len(tab.doc.materials) == before + 1
     assert obj.scale[1] == pytest.approx(3.0)

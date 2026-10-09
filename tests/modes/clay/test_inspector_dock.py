@@ -303,7 +303,7 @@ def test_the_dock_header_has_a_help_button_onto_the_outliner_section(imgui_ui):
 # -- the region is pinned -------------------------------------------------------------------
 
 
-def test_the_open_region_is_a_pinned_share_of_the_pane_with_at_least_five_rows():
+def test_the_open_region_is_a_pinned_share_of_the_pane_with_at_least_four_rows():
     row, header, bars, floor = 28.0, 34.0, 70.0, 180.0
     tall = clay_inspector.dock_region_height(800.0, header, bars, row, floor, compact=False)
     assert tall == pytest.approx(800.0 * clay_inspector.DOCK_SHARE), "the share of the pane"
@@ -312,7 +312,8 @@ def test_the_open_region_is_a_pinned_share_of_the_pane_with_at_least_five_rows()
         "an open dock at 40% cut it across its second row at 1600x950"
     )
     mid = clay_inspector.dock_region_height(500.0, header, bars, row, floor, compact=False)
-    assert mid >= bars + 5 * row, "never fewer than five rows under the bars"
+    assert clay_inspector.DOCK_MIN_ROWS == 4, "Landing 10: one row less, for the longer Colour card"
+    assert mid >= bars + 4 * row, "never fewer than four rows under the bars"
     assert mid <= 500.0 - header - floor + 1e-9, "and the cards above keep their floor"
     short = clay_inspector.dock_region_height(260.0, header, bars, row, floor, compact=False)
     assert short == bars + 2 * row, "a pane too short for both keeps two rows; the cards scroll"

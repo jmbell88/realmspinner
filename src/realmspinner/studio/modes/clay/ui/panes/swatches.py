@@ -1,30 +1,44 @@
 """A palette swatch: how one slot is drawn, and what a click on it does.
 
 Lifted out of ``props.py`` when the swatch row left the Material tab for the
-palette strip under the viewport (``palette_strip.py``). Two callers want the
-same three things -- the colour a slot is drawn in, the button that draws it
-and the rule for what pressing it means -- and a second copy of the rule is
-where "click paints, Ctrl+click only picks" would have come apart between them.
-``props`` re-exports the names it used to define, because the test files that
-drive them reach for ``clay_props._swatch`` and friends.
+palette strip under the viewport, and kept when the strip itself went: the
+Inspector's Colour card (``inspector.py``) draws the document's slots with
+:func:`draw_slots` under its eight starter colours. The callers want the same three
+things -- the colour a slot is drawn in, the button that draws it and the rule for
+what pressing it means -- and a second copy of the rule is where "click paints,
+Ctrl+click only picks" would have come apart between them. ``props`` re-exports the
+names it used to define, because the test files that drive them reach for
+``clay_props._swatch`` and friends.
 
-No pane here: this module draws a button and decides a click, it does not lay
-anything out.
+:func:`draw_slots` is the one place a row of the document's own slots is laid out:
+wrapped to the column's width (never sideways), capped at :data:`SLOT_ROWS_MAX` rows
+before it scrolls in a child of its own, so sixty-four slots cannot push the cards
+below them out of the pane.
 """
 
 from __future__ import annotations
 
+import weakref
 from typing import Any
 
 from imgui_bundle import imgui
 
-from ..... import probe, theme
+from ..... import controls, icons, probe, theme, widgets
 from .....tokens import sp
 from ... import mode as clay_mode
 from ... import ops as clay_ops
 
 #: A palette swatch's side, in design px -- the size Inker's own palette uses.
 SWATCH = 22.0
+
+#: Rows of slots the Colour card shows before the grid scrolls vertically. Three rows
+#: of nine fit the 300 px column's twenty-seven slots without a scrollbar, which is
+#: more than a model made by hand grows; a bigger palette (an imported one) scrolls
+#: in place instead of taking the pane. Three, not four: with the "All shapes" dock
+#: open at 1600x950 a fourth row put Delete's foot under the dock's header.
+SLOT_ROWS_MAX = 3
+
+_SAVING = "This document is being written; the palette comes back when it lands."
 
 
 def _swatch_colour(material: Any) -> tuple[float, float, float, float]:
@@ -196,3 +210,152 @@ def current_slot(doc: Any) -> int | None:
     if obj is None or not doc.materials:
         return None
     return min(max(int(obj.material), 0), len(doc.materials) - 1)
+
+
+#: ``doc -> (rev, sentence)``. The sentence asks the registry whether faces can be
+#: painted, and the grid wants it every frame; ``rev`` covers every edit, selection
+#: and undo, so nothing can change the answer without moving it first. Weak, so a
+#: closed document takes its entry with it.
+_HINTS: weakref.WeakKeyDictionary[Any, tuple[Any, str]] = weakref.WeakKeyDictionary()
+
+
+def click_hint(doc: Any) -> str:
+    """What a plain click on a slot swatch would do right now, in a sentence.
+
+    A pure function of the document (memoised on ``doc.rev``, so an unchanged
+    document asks the registry nothing), so the sentence the tooltip carries is
+    checkable without a frame. It names the *current* behaviour rather than all
+    of them: "paint the selected faces" while faces are selected, and the reason
+    the swatch would do nothing while they are not.
+    """
+    rev = getattr(doc, "rev", None)
+    cached = _HINTS.get(doc) if rev is not None else None
+    if cached is not None and cached[0] == rev:
+        return cached[1]
+    text = _click_hint(doc)
+    if rev is not None:
+        _HINTS[doc] = (rev, text)
+    return text
+
+
+def _click_hint(doc: Any) -> str:
+    mode = doc.element_mode
+    one = single_selected(doc) is not None
+    # The 2026-10-07 audit's clay-38: the Ctrl+click clause and the vertex/edge
+    # "picks the slot" sentence were shown for any number of objects, but
+    # ``click_slot`` retargets the Inspector only with exactly one object
+    # selected -- with none or several the press does nothing of the sort.
+    edit = (
+        "Ctrl+click edits this slot in the Inspector."
+        if one
+        else "Select one object to edit its slot."
+    )
+    if mode == "face":
+        if clay_ops.get("assign-material").enabled(doc):
+            return f"Click paints the selected faces. {edit}"
+        return f"Select faces to paint them. {edit}"
+    if mode == "object":
+        if not doc.selection:
+            return "Click picks the colour the next shape you add will wear."
+        if one:
+            return f"Click repaints the selected object. {edit}"
+        return f"Click repaints every selected object. {edit}"
+    if one:
+        return "Click picks the slot the Inspector edits. Switch to face mode (3) to paint faces."
+    return f"{edit} Switch to face mode (3) to paint faces."
+
+
+def slot_label(doc: Any, index: int) -> str:
+    """``"2  Red"``, or ``"2"`` for an unnamed slot -- the line under the grid."""
+    name = doc.materials[index].name if 0 <= index < len(doc.materials) else ""
+    return f"{index}  {name}" if name else f"{index}"
+
+
+def slot_rows(count: int, avail: float, side: float, gap: float) -> int:
+    """How many rows *count* swatches of width *side* wrap into over *avail* px.
+
+    Pure, so the cap on the grid's height is a number a test can check without a
+    frame. At least one swatch to a row, however narrow the column.
+    """
+    per_row = max(1, int((avail + gap) // (side + gap)))
+    return max(1, -(-count // per_row))
+
+
+def add_slot_and_paint(ctx: Any, doc: Any) -> int:
+    """The grid's ``+``: append a grey slot and wear it, as **one** undo step. -> its index.
+
+    "Wear" is :func:`click_slot`'s rule for whatever is selected -- the shapes
+    repainted, the picked faces painted, or (nothing selected) the colour the next
+    shape arrives in -- so a new colour is a click and a trip to Edit colour, not a
+    click, a click on the swatch it made and the trip. The slot and the paint are
+    folded so a Ctrl+Z takes both back, the way a starter colour's click does.
+    """
+    mark = doc.history.mark()
+    try:
+        index = doc.add_material()
+        click_slot(ctx, doc, index)
+    finally:
+        doc.history.collapse_since(mark)
+    return index
+
+
+def draw_slots(ctx: Any, doc: Any, *, current: int | None, saving: bool) -> None:
+    """The document's slots as one wrapped grid of swatches, then a ``+``.
+
+    The slots are the document's, and only the document's: a new model keeps the
+    one grey slot it has and nothing here seeds more. The grid wraps to the column;
+    past :data:`SLOT_ROWS_MAX` rows it scrolls in a child of its own. Labels carry
+    their own ``##slotsw/`` prefix, apart from the Colour card's ``##inspsw/``
+    starters, so a control found by label is never the wrong row's. A press goes to
+    :func:`click_slot`, which paints, retargets (Ctrl) or remembers by what is
+    selected; the line under the grid names the slot under the pointer, else the
+    one in use.
+    """
+    side = sp(SWATCH)
+    gap = imgui.get_style().item_spacing.x
+    plus_w = widgets.button_width(icons.PLUS)
+    avail = imgui.get_content_region_avail().x
+    rows = slot_rows(len(doc.materials) + 1, avail, side, gap)
+    capped = rows > SLOT_ROWS_MAX
+    if capped:
+        height = SLOT_ROWS_MAX * side + (SLOT_ROWS_MAX - 1) * imgui.get_style().item_spacing.y
+        imgui.begin_child("##slot-grid", (0.0, height), 0, 0)
+    hint = click_hint(doc)
+    hovered: int | None = None
+    clicked: int | None = None
+    for i, entry in enumerate(doc.materials):
+        if i:
+            widgets.same_line_or_wrap(side)
+        textured = entry.base_color is not None
+        name = entry.name or f"slot {i}"
+        tip = _SAVING if saving else f"{i}: {name}" + (" (textured)" if textured else "")
+        if not saving:
+            tip += "\n" + hint
+        if _swatch(
+            f"##slotsw/{i}",
+            _swatch_colour(entry),
+            side,
+            selected=i == current,
+            textured=textured,
+            tooltip=tip,
+        ):
+            clicked = i
+        if imgui.is_item_hovered():
+            hovered = i
+    widgets.same_line_or_wrap(plus_w)
+    add = controls.small_button(
+        f"{icons.PLUS}##slot-add",
+        enabled=not saving,
+        reason=_SAVING,
+        tooltip="Add a palette slot and use it. It starts as a grey; Edit colour changes it.",
+    )
+    if capped:
+        imgui.end_child()
+    if saving:
+        return
+    if add:
+        add_slot_and_paint(ctx, doc)
+    elif clicked is not None:
+        click_slot(ctx, doc, clicked)
+    shown = hovered if hovered is not None else current
+    widgets.muted("Palette" if shown is None else slot_label(doc, shown))

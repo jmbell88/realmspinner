@@ -1,4 +1,4 @@
-"""The 2026-10-07 Clay audit, outliner and palette-strip panes.
+"""The 2026-10-07 Clay audit, outliner and palette-swatch panes.
 
 Each test's name is the claim. Panes cannot be driven headlessly, so the
 decisions are pure helpers beside the draw calls and the document-level
@@ -17,7 +17,6 @@ from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.studio.modes.clay.ui.panes import outliner as ol
-from realmspinner.studio.modes.clay.ui.panes import palette_strip as ps
 from realmspinner.studio.modes.clay.ui.panes import swatches as sw
 
 
@@ -132,19 +131,19 @@ def test_the_palette_hint_does_not_promise_ctrl_click_editing_without_exactly_on
     doc, a, b = _two_boxes()
     # Object mode, two selected.
     doc.select([a.uid, b.uid])
-    assert "Ctrl+click" not in ps.click_hint(doc)
-    assert "Select one object to edit its slot" in ps.click_hint(doc)
+    assert "Ctrl+click" not in sw.click_hint(doc)
+    assert "Select one object to edit its slot" in sw.click_hint(doc)
     # Face mode, faces on both objects.
     doc.set_element_mode("face")
     for o in (a, b):
         doc.set_element_sel(o.uid, el.ElementSel(faces=np.array([0], dtype="i4")))
-    assert "Ctrl+click" not in ps.click_hint(doc)
-    assert "Select one object to edit its slot" in ps.click_hint(doc)
+    assert "Ctrl+click" not in sw.click_hint(doc)
+    assert "Select one object to edit its slot" in sw.click_hint(doc)
     # Vertex mode, nothing picked and both shapes still being edited: no
     # "Click picks the slot" promise either.
     doc.set_element_mode("vertex")
     doc.clear_element_sel()
-    hint = ps.click_hint(doc)
+    hint = sw.click_hint(doc)
     assert "Click picks the slot" not in hint
     assert "Select one object to edit its slot" in hint
     # Exactly one object keeps the promise. ``clear_element_sel`` no longer
@@ -152,16 +151,16 @@ def test_the_palette_hint_does_not_promise_ctrl_click_editing_without_exactly_on
     doc.select([a.uid])
     doc.set_element_sel(a.uid, el.ElementSel(verts=np.array([0], dtype="i4")))
     assert doc.selection == {a.uid}
-    assert "Click picks the slot Properties edits" in ps.click_hint(doc)
+    assert "Click picks the slot the Inspector edits" in sw.click_hint(doc)
     doc.set_element_mode("object")
     doc.select([a.uid])
-    assert "Ctrl+click" in ps.click_hint(doc)
+    assert "Ctrl+click" in sw.click_hint(doc)
 
 
 # --- clay-39 (docs only: the behaviour is the contract) ------------------------
 
 
-def test_the_palette_strip_repaints_every_selected_object_in_object_mode_as_one_undo_step(
+def test_a_slot_swatch_repaints_every_selected_object_in_object_mode_as_one_undo_step(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sw, "_ctrl_held", lambda: False)

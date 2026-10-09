@@ -8,24 +8,25 @@ outliner (``outliner.draw_embedded``): one header row while closed, a pinned hei
 while open, so its rows never move when the cards above them change.
 
 * **Nothing selected** -- "What do you want to make?": four big shape tiles, every
-  other shape one disclosure away, and the Model card (counts, New / Open / Save,
-  the ways out, a History row). The first screen a new model has, and the one the
-  tour's Save and Export steps point at -- Esc lets go of a shape to get back to it.
+  other shape one disclosure away, the Model card (counts, New / Open / Save,
+  the ways out, a History row) and, under it, "Next shape's colour" (the Colour card with
+  nothing to paint). The first screen a new model has, and the one the tour's Save and
+  Export steps point at -- Esc lets go of a shape to get back to it.
 * **One shape** -- its name and colour, the **Size** card (the one place a size is
   typed -- ``inspector_size.py``), its own settings when it has any, the **Colour**
-  card (eight named starter colours, ``starter_colours.py``), Duplicate and
-  Delete, then *closed* disclosures: Position & turn (scale behind its own
-  Advanced), Group & parent, and More actions (every object-level op, generated
-  from the registry -- ``inspector_actions.py``).
+  card (eight named starter colours, ``starter_colours.py``, over the document's own
+  palette, ``swatches.draw_slots``), Duplicate and Delete, then *closed* disclosures:
+  Position & turn (scale behind its own Advanced), Group & parent, and More actions
+  (every object-level op, generated from the registry -- ``inspector_actions.py``).
 * **Several shapes** -- Colour, Duplicate and Delete, and the multi-object actions;
   no Size card ("Select one shape to change its size").
 * **An element mode** (Points, Edges, Faces) -- "Editing faces" and a Done button that
   goes back to Shape mode, then the element state (``inspector_elements.py``): the
   Select row, what is picked and its median, **Shape it** (the mode's mesh ops from
-  the registry, the rest behind closed folds) and, while an op's numbers are still
-  live, the **Last action** card. Colours & textures and Texture mapping stay one
-  click below, because painting a face and laying out an island are what an element
-  mode is for.
+  the registry, the rest behind closed folds), while an op's numbers are still
+  live the **Last action** card, and the Colour card, which paints the picked faces.
+  Colours & textures and Texture mapping stay one click below, because painting a face
+  and laying out an island are what an element mode is for.
 
 **Pages push, and Esc or Back pops.** Colours & textures, Unwrap and Model &
 history are whole pages (``ClayState.inspector_page``) that replace the body under
@@ -83,11 +84,17 @@ INSPECTOR_FLOOR = 280.0
 #: at 1600x950 with the element state up: that state's Select row, element line and
 #: Shape it card are about 580 px, and at 40% the open dock left the body 470 px, so
 #: Shape it was cut across its second row and the folds below it were a scroll away. At
-#: 28% the body is about 600 (Delete a few pixels short of whole) and the list shows
-#: five rows; the floor is what stops a shorter window from taking more of the cards.
+#: 28% the body was about 600 with Delete a few pixels short of whole.
+#:
+#: Landing 10 (the Colour card grew a palette row and moved into the element state)
+#: took ``DOCK_SHARE`` to 0.25 (the floor ``test_inspector_dock`` allows) and
+#: ``DOCK_MIN_ROWS`` to 4: with both, the open region is 221 px at 1600x950 instead of
+#: 250, the body is 28 px taller and Delete clears the body's foot by about 30 px. The
+#: list still shows four rows and scrolls; the floor is what stops a shorter window
+#: from taking more of the cards.
 DOCK_KEY = "clay/insp/all-shapes"
-DOCK_SHARE = 0.28
-DOCK_MIN_ROWS = 5
+DOCK_SHARE = 0.25
+DOCK_MIN_ROWS = 4
 BODY_FLOOR = 420.0
 
 #: The pages a click can push, in the order they are documented. ``""`` is the
@@ -295,6 +302,16 @@ def _nothing(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
     if widgets.header("More shapes", default_open=False, persist_key="clay/insp/more-shapes"):
         clay_tools.draw_add_menu(ctx, state, tab, heading=False)
     _model_card(ctx, tab, doc)
+    # What the palette strip did with nothing selected: a press picks the colour the
+    # next shape arrives in (``ClayTab.last_slot``), and paints nothing. **Under** the
+    # Model card, not above it: this is the state the "All shapes" dock opens in, with
+    # a body about 600 px tall at 1600x950, and the tour's Save and Export steps ring
+    # the Model card's buttons -- a card above it pushed them below the fold.
+    imgui.dummy((0, sp(tokens.SP_2)))
+    imgui.begin_disabled(bool(tab.saving))
+    _colour_card(ctx, state, tab, doc, [], title="Next shape's colour", edit_row=False)
+    imgui.end_disabled()
+    widgets.end_section()
 
 
 def _tiles(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
@@ -480,18 +497,70 @@ def _settings(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
     props._generator(doc, obj, ctx=ctx, state=state)
 
 
-def _colour_card(ctx: Any, state: Any, tab: Any, doc: Any, uids: list[int]) -> None:
-    """The eight starter colours, and a way to the full editor.
+def _colour_card(
+    ctx: Any,
+    state: Any,
+    tab: Any,
+    doc: Any,
+    uids: list[int],
+    *,
+    title: str = "Colour",
+    edit_row: bool = True,
+) -> None:
+    """The eight starter colours, the document's own palette under them, and a way
+    to the full editor. The card the palette strip under the viewport became.
 
-    A click paints every shape in *uids* in one undo step, finding or adding the
-    document's slot for it (``starter_colours.paint``). The swatch the shapes
-    already wear is outlined; a colour that is none of the eight (an edited slot, a
-    textured one) outlines a ninth, "custom" swatch instead, so the card never
-    shows no answer to "what colour is it now?".
+    A starter click paints every shape in *uids* in one undo step, finding or adding
+    the document's slot for it (``starter_colours.paint``); in Faces mode it paints
+    the picked faces instead (``starter_colours.paint_faces``), and in Points and
+    Edges mode, which have nothing to paint, the starters are not drawn at all. The
+    swatch the shapes already wear is outlined; a colour that is none of the eight
+    (an edited slot, a textured one) outlines a ninth, "custom" swatch instead, so
+    the card never shows no answer to "what colour is it now?".
+
+    Under them is the palette itself, every slot of the document -- the starters a
+    click added among them, so a slot is reachable by its number whatever made it --
+    through :func:`swatches.draw_slots`, whose ids (``##slotsw/N``) cannot collide
+    with the starters' (``##inspsw/NAME``). A press there is the strip's rule:
+    paint, or Ctrl+click to make it the slot *Edit colour* edits.
+
+    With nothing selected (*uids* empty, *title* "Next shape's colour") a press paints
+    nothing and only remembers the colour, and the outline is the remembered one.
+    The tour's ``clay/palette`` ring is the group of both rows.
     """
-    widgets.section("Colour")
-    current = _shared_slot(doc, uids)
-    match = starter_colours.matching(doc, current)
+    widgets.section(title)
+    mode = doc.element_mode
+    saving = bool(tab.saving)
+    imgui.begin_group()
+    if uids:
+        current = _shared_slot(doc, uids)
+    else:
+        current = (clay_mode.remembered_slot(ctx, doc) or 0) if doc.materials else None
+    if mode in ("object", "face"):
+        _starters(ctx, tab, doc, uids, current)
+    else:
+        widgets.muted_wrapped(swatches.click_hint(doc))
+    widgets.field_label("palette")
+    swatches.draw_slots(ctx, doc, current=current, saving=saving)
+    imgui.end_group()
+    anchors.mark("clay/palette")
+    if edit_row:
+        label = f"{icons.PALETTE} Edit colour {icons.CHEVRON_RIGHT}##insp-edit-colour"
+        if controls.button(
+            label,
+            (imgui.get_content_region_avail().x, 0),
+            tooltip="Rename it, change the colour, add a picture. Colours & textures opens "
+            "as a page; Esc comes back.",
+        ):
+            state.inspector_page = "colours"
+
+
+def _starters(ctx: Any, tab: Any, doc: Any, uids: list[int], current: int | None) -> None:
+    """The row of eight named colours (and the ninth, "custom", when none matches)."""
+    face = doc.element_mode == "face"
+    # Faces mode paints a pick, not the shape's default slot, so an outline on the
+    # shape's colour would name something the click does not change.
+    match = None if face else starter_colours.matching(doc, current)
     side = sp(swatches.SWATCH)
     for index, colour in enumerate(starter_colours.STARTER_COLOURS):
         if index:
@@ -505,8 +574,11 @@ def _colour_card(ctx: Any, state: Any, tab: Any, doc: Any, uids: list[int]) -> N
             tooltip=colour.name,
         )
         if hit and not tab.saving:
-            starter_colours.paint(ctx, doc, uids, colour)
-    if match is None and current is not None:
+            if face:
+                starter_colours.paint_faces(ctx, doc, colour)
+            else:
+                starter_colours.paint(ctx, doc, uids, colour)
+    if not face and match is None and current is not None:
         material = doc.materials[current]
         widgets.same_line_or_wrap(side)
         swatches._swatch(
@@ -518,14 +590,6 @@ def _colour_card(ctx: Any, state: Any, tab: Any, doc: Any, uids: list[int]) -> N
             tooltip=f"Custom colour: {material.name or f'slot {current}'}. Edit colour "
             "below changes it.",
         )
-    label = f"{icons.PALETTE} Edit colour {icons.CHEVRON_RIGHT}##insp-edit-colour"
-    if controls.button(
-        label,
-        (imgui.get_content_region_avail().x, 0),
-        tooltip="Rename it, change the colour, add a picture. Colours & textures opens "
-        "as a page; Esc comes back.",
-    ):
-        state.inspector_page = "colours"
 
 
 def _shared_slot(doc: Any, uids: list[int]) -> int | None:
@@ -617,7 +681,17 @@ def _elements(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
     ):
         doc.set_element_mode("object")
     imgui.dummy((0, sp(tokens.SP_2)))
-    inspector_elements.draw(ctx, state, tab, doc)
+
+    def colour() -> None:
+        # The palette strip's other job: in Faces mode a swatch paints the picked faces.
+        # No Edit colour row here -- the Colours & textures link below is that page.
+        imgui.begin_disabled(bool(tab.saving))
+        _colour_card(ctx, state, tab, doc, sorted(doc.selection), edit_row=False)
+        imgui.end_disabled()
+        widgets.end_section()
+        imgui.dummy((0, sp(tokens.SP_2)))
+
+    inspector_elements.draw(ctx, state, tab, doc, between=colour)
     # The Material and UV tabs this slot used to carry are pages now; an element
     # mode is where both are wanted (paint a face, lay out an island), so they are
     # one click from here as well.

@@ -29,6 +29,7 @@ compares the rects).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from imgui_bundle import imgui
@@ -279,10 +280,16 @@ def draw_last_action(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
 
 
-def draw(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
+def draw(
+    ctx: Any, state: Any, tab: Any, doc: Any, between: Callable[[], None] | None = None
+) -> None:
     """The whole element state under its title: Select row and element line in the
     title's block, then Shape it, Last action (right under the op buttons it belongs to)
-    and the folds."""
+    and the folds.
+
+    *between* draws a card of the caller's between Last action and the folds -- the
+    Inspector's Colour card, which is how a face is painted. Above the folds because
+    they are closed disclosures nobody scrolls past on the way to a colour."""
     imgui.begin_disabled(bool(tab.saving))
     draw_select_row(ctx, state, tab, doc)
     imgui.dummy((0, sp(tokens.SP_1)))
@@ -294,6 +301,8 @@ def draw(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
     draw_shape_it(ctx, state, tab, doc)
     imgui.end_disabled()
     draw_last_action(ctx, state, tab, doc)
+    if between is not None:
+        between()
     imgui.begin_disabled(bool(tab.saving))
     draw_folds(ctx, state, tab, doc)
     imgui.end_disabled()

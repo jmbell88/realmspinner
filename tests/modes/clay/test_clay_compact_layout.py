@@ -1,8 +1,9 @@
 """Clay's picoCAD-compact layout (2026-10-07): the claims the change makes.
 
 The right column is the outliner over a tabbed Inspector, the tools are a rail
-inside the centre, the palette is a strip under the render, undo and redo are on
-the header, and the file verbs are in the File menu. Each test's name is the
+inside the centre, the palette is a row in the Inspector's Colour card (it was a strip
+under the render until Landing 10), undo and redo are on the header, and the file verbs
+are in the File menu. Each test's name is the
 claim it makes, and each fails against the tree as it stood before the change
 (the names it imports did not exist, or the old arrangement answers
 differently).
@@ -30,7 +31,6 @@ from realmspinner.studio.modes.clay import element_move
 from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import state as clay_state
 from realmspinner.studio.modes.clay.ui import inspector_elements as clay_elements
-from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
 from realmspinner.studio.modes.clay.ui.panes import swatches
@@ -126,8 +126,10 @@ def test_a_layout_saved_with_the_retired_clay_panes_loads_onto_the_one_slot_colu
     Properties and Document panes lands on the one-slot column -- and the Inspector,
     a new id, takes it. Old code kept ``clay-outliner`` in the result."""
     builtin = [slot.id for slot in skeletons.clay(SimpleNamespace())["right"].slots]
-    saved = ["clay-outliner", "clay-uv", "clay-props", "clay-bridge"]
-    assert layout_skeleton.reconcile(builtin, saved) == ["clay-inspector"]
+    saved = ["clay-outliner", "clay-uv", "clay-props", "clay-bridge", "clay-palette"]
+    assert layout_skeleton.reconcile(builtin, saved) == ["clay-inspector"], (
+        "clay-palette is retired too: the strip under the render folded into the Colour card"
+    )
     assert layout_skeleton.reconcile(builtin, ["clay-outliner", "clay-inspector"]) == [
         "clay-inspector"
     ], "a layout saved by the last build, which had both"
@@ -143,10 +145,10 @@ def test_the_retired_properties_id_is_never_reused_by_the_inspector():
     assert "clay-props" not in ids and "clay-inspector" in ids
 
 
-# --- the palette strip --------------------------------------------------------
+# --- the palette: the Colour card's second row (its own claims: test_colour_palette.py) ---
 
 
-def test_a_strip_click_paints_the_selected_faces_as_one_undo_step(monkeypatch):
+def test_a_slot_click_paints_the_selected_faces_as_one_undo_step(monkeypatch):
     doc, uid = _doc()
     _select_faces(doc, uid, 2, 3)
     monkeypatch.setattr(clay_swatches, "_ctrl_held", lambda: False)
@@ -161,7 +163,7 @@ def test_a_strip_click_paints_the_selected_faces_as_one_undo_step(monkeypatch):
     assert not doc.by_uid(uid).mesh.material.any()
 
 
-def test_a_ctrl_click_on_the_strip_only_retargets_the_slot(monkeypatch):
+def test_a_ctrl_click_on_a_slot_only_retargets_the_slot(monkeypatch):
     """Ctrl+click is how a slot's colour and texture are reached from a face
     selection. It must not paint: the user is going to edit the slot, not wear
     it."""
@@ -189,7 +191,7 @@ def test_a_ctrl_click_in_object_mode_retargets_instead_of_repainting(monkeypatch
     assert obj.material == 1 and not obj.mesh.material.any()
 
 
-def test_a_strip_click_in_object_mode_repaints_every_selected_object_as_one_step(monkeypatch):
+def test_a_slot_click_in_object_mode_repaints_every_selected_object_as_one_step(monkeypatch):
     doc, first = _doc()
     second = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box())).uid
     doc.select([first, second])
@@ -203,61 +205,15 @@ def test_a_strip_click_in_object_mode_repaints_every_selected_object_as_one_step
     assert len(doc.history) == before + 1, "one Ctrl+Z puts the whole selection back"
 
 
-def test_the_strip_draws_the_documents_slots_and_never_seeds_new_ones(monkeypatch, ui):
-    doc, _uid = _doc()
-    before = list(doc.materials)
-    drawn: list[str] = []
-
-    def fake(label, colour, side, **kw):
-        drawn.append(label)
-        return False
-
-    monkeypatch.setattr(clay_swatches, "_swatch", fake)
-    _frame(ui, lambda: clay_palette._body(_Ctx(), _tab(doc)))
-
-    assert drawn == [f"##palsw{i}" for i in range(len(before))]
-    assert doc.materials == before, "drawing is not an edit"
-
-
-def test_the_strips_plus_appends_a_slot_as_one_undo_step(monkeypatch, ui):
-    doc, _uid = _doc()
-    monkeypatch.setattr(clay_swatches, "_swatch", lambda *a, **k: False)
-    monkeypatch.setattr(
-        clay_palette.controls, "small_button", lambda label, **kw: "palette/add" in label
-    )
-    slots, steps = len(doc.materials), len(doc.history)
-
-    _frame(ui, lambda: clay_palette._body(_Ctx(), _tab(doc)))
-
-    assert len(doc.materials) == slots + 1
-    assert len(doc.history) == steps + 1
-    assert doc.undo() and len(doc.materials) == slots
-
-
-def test_the_strip_ignores_a_press_while_a_save_is_in_flight(monkeypatch, ui):
-    doc, uid = _doc()
-    doc.select([uid])
-    monkeypatch.setattr(clay_swatches, "_swatch", lambda label, *a, **k: label == "##palsw1")
-    steps = len(doc.history)
-
-    _frame(ui, lambda: clay_palette._body(_Ctx(), _tab(doc, saving=True)))
-
-    assert len(doc.history) == steps and not doc.by_uid(uid).mesh.material.any()
-
-
-def test_the_strips_height_is_fixed_at_52_design_pixels():
-    assert clay_palette.STRIP_H == 52.0
-
-
 def test_the_click_hint_names_what_a_click_does_in_each_mode():
     doc, uid = _doc()
-    assert "Select" in clay_palette.click_hint(doc)
+    assert "next shape" in clay_swatches.click_hint(doc)
     doc.select([uid])
-    assert "repaints" in clay_palette.click_hint(doc)
+    assert "repaints" in clay_swatches.click_hint(doc)
     _select_faces(doc, uid, 0)
-    assert "paints the selected faces" in clay_palette.click_hint(doc)
+    assert "paints the selected faces" in clay_swatches.click_hint(doc)
     doc.set_element_mode("vertex")
-    assert "face mode" in clay_palette.click_hint(doc)
+    assert "face mode" in clay_swatches.click_hint(doc)
 
 
 # --- the rail -----------------------------------------------------------------
@@ -403,7 +359,7 @@ def test_the_rail_stays_inside_the_body_the_resize_floor_leaves_at_every_scale(
     ``test_studio_smoke.py::test_the_rail_fits_the_resize_floor_at_every_scale``.
 
     The body the viewport leaves at 700 px is the window minus its chrome (tab
-    bar, menu strip, toolbar, palette strip, hint line and the shell's margins).
+    bar, menu strip, toolbar, hint line and the shell's margins).
     Every cell the rail draws must be inside the child it was given, whether or
     not the quick shapes were dropped, at 1.0, 1.5 and 2.0 -- 2.0 is where a
     labelled 46 px cell stops being small."""
@@ -415,10 +371,7 @@ def test_the_rail_stays_inside_the_body_the_resize_floor_leaves_at_every_scale(
     tokens.set_scale(scale)
     try:
         chrome = (
-            tokens.sp(clay_header.HEADER_H) * 3.0
-            + clay_palette.height()
-            + tokens.sp(clay_hud.HINT_H)
-            + tokens.sp(60.0)
+            tokens.sp(clay_header.HEADER_H) * 3.0 + tokens.sp(clay_hud.HINT_H) + tokens.sp(60.0)
         )
         body = 700.0 * scale - chrome
         ctx = _Ctx()

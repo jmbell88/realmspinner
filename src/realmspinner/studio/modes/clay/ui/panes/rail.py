@@ -116,7 +116,7 @@ def draw(ctx: Any, height: float = 0.0) -> None:
 
     ``height`` 0 takes whatever is left of the window, which is what a pane walk
     wants; the viewport passes the render's own height so the rail ends where the
-    render does and the palette strip runs under both.
+    render does and the hint line runs under both.
     """
     state = clay_mode.ensure(ctx)
     tab = state.active
