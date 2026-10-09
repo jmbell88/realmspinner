@@ -90,6 +90,33 @@ def geometry_line(doc: Any) -> str:
     )
 
 
+def model_counts_line(doc: Any) -> str:
+    """``"3 shapes · 2 colours · 1,024 vertices · 1,022 faces · 2,040 triangles"``:
+    the Model card's one line.
+
+    The counts are of what leaves the document (the visible shapes), by the same
+    arithmetic as :func:`objects_line` and :func:`geometry_line` -- the Model &
+    history page still prints those two -- in the plain words the inspector uses
+    (shapes and colours where those lines say objects and materials). An empty
+    document says so instead of printing zeroes.
+    """
+    visible = [obj for obj in doc.objects if obj.visible]
+    if not doc.objects:
+        return "No shapes yet."
+    hidden = len(doc.objects) - len(visible)
+    shapes = f"{len(visible)} shape{'s' if len(visible) != 1 else ''}"
+    if hidden:
+        shapes += f" ({hidden} hidden)"
+    colours = f"{len(doc.materials)} colour{'s' if len(doc.materials) != 1 else ''}"
+    verts = sum(len(o.mesh.positions) for o in visible)
+    faces = sum(max(0, len(o.mesh.starts) - 1) for o in visible)
+    tris = sum(triangles(o.mesh) for o in visible)
+    return (
+        f"{shapes} · {colours} · {verts:,} vertices · {faces:,} faces "
+        f"· {tris:,} triangles"
+    )
+
+
 def outputs_why(doc: Any, saving: bool) -> str:
     """Why the output buttons are refused right now, or ``""`` when they are not.
 

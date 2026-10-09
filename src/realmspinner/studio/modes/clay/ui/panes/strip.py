@@ -129,6 +129,6 @@ def _add_source(ctx: Any, state: Any, tab: Any, section: Any) -> None:
             not tab.saving,
             reason=why,
             tooltip="Open a .glb, .obj, .stl or .ply into this document. Units and "
-            "up axis are in Properties > Document.",
+            "up axis are on the Inspector's Model & history page.",
         )[0]:
             clay_mode.ask_import_mesh(ctx)

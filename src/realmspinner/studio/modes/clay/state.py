@@ -289,6 +289,18 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     # An unknown key (a tab since removed) is read as ``"object"`` by the pane.
     props_tab: str = "object"
 
+    # Which page the inspector has pushed ("" is its main view, else one of
+    # ``inspector.PAGES``: ``colours``, ``unwrap``, ``model``). App level like
+    # ``props_tab`` -- a place you are *looking*, not a fact about a document --
+    # and read as "" by the pane when no tab is open or the name is unknown.
+    # Esc closes it before it does anything else (``mode._escape``).
+    inspector_page: str = ""
+    # The parameterised op whose inline form is open under More actions, by name
+    # ("" for none). The popup door (``pending_op``) is the keyboard's and the
+    # menus'; this is the panel's own, so a click in the panel never opens a
+    # dialog over the thing it is beside.
+    inspector_form: str = ""
+
     # Where a Shift+click range in the outliner is measured from. A uid, for the
     # reason every address in this package is one: the list reorders, and an
     # anchor that was an index would silently point at a different row.

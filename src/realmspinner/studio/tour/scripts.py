@@ -792,7 +792,7 @@ CLAY_TORCH = Tour(
                 "The column of buttons on the left is the rail: four tools (Select, Move, "
                 "Rotate, Scale -- Q, G, R, S on the keyboard) and the shapes you add. "
                 "Everything you add appears in the Outliner on the right, and the "
-                "Properties pane under it holds the numbers.\n\n"
+                "Inspector under it holds the numbers.\n\n"
                 "Units are metres and Y is up, so a torch is about 0.7 tall."
             ),
             mode="clay",
@@ -817,8 +817,9 @@ CLAY_TORCH = Tour(
             title="Flatten it into a plate",
             body=(
                 "An added shape lands on the ground at its default size. With the box "
-                "selected, type a flat, tall plate into Size in Properties -- W 0.2, H 0.4, "
-                "D 0.04.\n\n"
+                "selected, type a flat, tall plate into the Size card in the Inspector -- "
+                "W 0.2, H 0.4, D 0.04. A taller height keeps the box standing on the "
+                "ground.\n\n"
                 "Next unlocks once the box is no longer the untouched default."
             ),
             mode="clay",
@@ -872,9 +873,9 @@ CLAY_TORCH = Tour(
             title="Make it a flame",
             body=(
                 "A smooth cone reads as a party hat. Bring its Segments down to 5 in the "
-                "shape's own parameters (under Position and Size in Properties) and the "
-                "flame turns faceted, which is the low-poly look. Then size it up to "
-                "about 0.12 wide and 0.22 tall and set it on top of the collar.\n\n"
+                "Shape settings card, under Size in the Inspector, and the flame turns "
+                "faceted, which is the low-poly look. Then size it up to about 0.12 "
+                "wide and 0.22 tall and set it on top of the collar.\n\n"
                 "Next unlocks once the cone has been shaped."
             ),
             mode="clay",
@@ -888,8 +889,8 @@ CLAY_TORCH = Tour(
             body=(
                 "The palette strip under the model holds the document's colours. A new "
                 "model has one grey slot. Press + on the strip twice to add two more, "
-                "then Ctrl+click a slot and set its colour in the Material tab: a brown "
-                "for the wood, an orange for the fire.\n\n"
+                "then Ctrl+click a slot and press Edit colour in the Inspector's Colour "
+                "card to set its colour: a brown for the wood, an orange for the fire.\n\n"
                 "Next unlocks once the palette holds three slots."
             ),
             mode="clay",
@@ -902,9 +903,9 @@ CLAY_TORCH = Tour(
             id="paint",
             title="Paint the parts",
             body=(
-                "Select an object in the Outliner and click a swatch on the strip to "
-                "repaint it. Do it for the flame and for the shaft, so the torch is not "
-                "all one colour.\n\n"
+                "Select an object in the Outliner and click a swatch on the strip, or one "
+                "of the named colours in the Inspector's Colour card, to repaint it. Do it "
+                "for the flame and for the shaft, so the torch is not all one colour.\n\n"
                 "Next unlocks once two objects are painted with something other than the "
                 "first slot."
             ),
@@ -915,19 +916,20 @@ CLAY_TORCH = Tour(
         ),
         Step(
             id="document-tab",
-            title="The Document tab",
+            title="The Model card",
             body=(
-                "Saving and exporting live on the Document tab of Properties. Click it "
-                "now; the next two cards point at the controls inside."
+                "Saving and exporting live on the Model card, which the Inspector shows "
+                "when no shape is selected. Press Esc, or click empty space, to let go of "
+                "the shape; the next two cards point at the controls inside."
             ),
             mode="clay",
-            anchor="clay/props/tabs",
+            anchor="clay/inspector",
         ),
         Step(
             id="save",
             title="Save the model",
             body=(
-                "Press Save in the Model file section, or Ctrl+S, and give it a name. "
+                "Press Save on the Model card, or Ctrl+S, and give it a name. "
                 "The file is your editable copy: reopen it later and every shape is "
                 "still a shape.\n\n"
                 "Next unlocks once the model is saved with nothing changed since."
@@ -942,7 +944,8 @@ CLAY_TORCH = Tour(
             id="export",
             title="Send it to the Library",
             body=(
-                "Export to library, under Take it somewhere, writes a GLB and files the "
+                "Export to library, under Take it somewhere on the Model card (or Export "
+                "in the toolbar), writes a GLB and files the "
                 "torch as an asset the rest of the app can rig, pose and render.\n\n"
                 "Next unlocks once the export has landed."
             ),

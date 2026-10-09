@@ -88,6 +88,11 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "clay-header": ("30-clay", "the-viewport-header"),
     "clay-tools": ("30-clay", "adding-a-primitive"),
     "clay-props": ("30-clay", "materials"),
+    # The Inspector that took the ``clay-props`` slot (the id is never reused: a
+    # saved layout may have hidden it). Its own anchor, pointing at the section
+    # that describes the whole panel; Colours & textures and Unwrap are pages of
+    # it, and the (?) on Unwrap is ``clay-uv``'s.
+    "clay-inspector": ("30-clay", "the-inspector"),
     "clay-outliner": ("30-clay", "adding-a-primitive"),
     # Tranche 6 ("UV and materials"). Its own anchor rather than sharing
     # ``clay-props``: the questions asked in front of this panel -- what the

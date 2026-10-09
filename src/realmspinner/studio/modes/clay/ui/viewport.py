@@ -45,7 +45,7 @@ class ClayViewport:
         nothing in the left column:
 
                           the header      [ clay-outliner ]
-            [ rail ]      the viewport    [ clay-props     ]
+            [ rail ]      the viewport    [ clay-inspector ]
             [ palette strip, under both ]
                           the hint
 

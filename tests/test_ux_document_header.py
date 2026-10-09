@@ -12,13 +12,23 @@ from __future__ import annotations
 import inspect
 
 from realmspinner.studio import controls, widgets
+from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
 from realmspinner.studio.modes.packwright.ui.panes import bridge as packwright_bridge
 from realmspinner.studio.modes.plotter.ui.panes import bridge as plotter_bridge
 from realmspinner.studio.modes.sirens.ui.panes import bridge as sirens_bridge
 
-BRIDGES = (clay_props, inker_generate, packwright_bridge, plotter_bridge, sirens_bridge)
+# The Inspector's Model card is where Clay's header is drawn now; ``clay_props`` keeps
+# the Model & history page's copy of it.
+BRIDGES = (
+    clay_inspector,
+    clay_props,
+    inker_generate,
+    packwright_bridge,
+    plotter_bridge,
+    sirens_bridge,
+)
 
 
 def test_every_document_mode_draws_the_shared_header():

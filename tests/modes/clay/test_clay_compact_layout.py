@@ -104,26 +104,36 @@ def _select_faces(doc: bd.ClayDoc, uid: int, *faces: int) -> None:
 # --- the skeleton -------------------------------------------------------------
 
 
-def test_the_clay_skeleton_is_an_empty_left_column_and_a_right_column_of_outliner_and_props():
+def test_the_clay_skeleton_is_an_empty_left_column_and_a_right_column_of_outliner_and_inspector():
     columns = skeletons.clay(SimpleNamespace())
     assert columns["left"].slots == (), "the Add sidebar is the rail inside the centre now"
     right = columns["right"].slots
-    assert [slot.id for slot in right] == ["clay-outliner", "clay-props"]
-    outliner, props = right
+    assert [slot.id for slot in right] == ["clay-outliner", "clay-inspector"]
+    outliner, inspector = right
     assert outliner.sizing == layout_skeleton.SHARE and outliner.share_key == "clay-outliner"
-    assert props.sizing == layout_skeleton.FILL and props.floor > 0, (
-        "the Inspector is the fill, with a floor so a short window keeps its tab strip"
+    assert inspector.sizing == layout_skeleton.FILL and inspector.floor > 0, (
+        "the Inspector is the fill, with a floor so a short window keeps its first card"
     )
 
 
 def test_a_layout_saved_with_the_retired_clay_panes_loads_onto_the_two_pane_column():
     """No ``VERSION`` bump is owed: ``reconcile`` drops an id the built-in column
-    no longer names, so a saved right column that still lists the UV and Document
-    panes lands on the new one."""
+    no longer names, so a saved right column that still lists the UV, Properties
+    and Document panes lands on the new one -- and the Inspector, a new id, joins
+    it in its built-in place."""
     builtin = [slot.id for slot in skeletons.clay(SimpleNamespace())["right"].slots]
     saved = ["clay-outliner", "clay-uv", "clay-props", "clay-bridge"]
-    assert layout_skeleton.reconcile(builtin, saved) == ["clay-outliner", "clay-props"]
+    assert layout_skeleton.reconcile(builtin, saved) == ["clay-outliner", "clay-inspector"]
     assert layout_skeleton.reconcile([], ["clay-tools"]) == [], "and the empty left column"
+
+
+def test_the_retired_properties_id_is_never_reused_by_the_inspector():
+    """A slot is hideable and a saved layout may have hidden ``clay-props``: the
+    Inspector must not answer to that id, or the layout that hid the old pane would
+    hide the new one without anybody having asked."""
+    columns = skeletons.clay(SimpleNamespace()).values()
+    ids = {slot.id for column in columns for slot in column.slots}
+    assert "clay-props" not in ids and "clay-inspector" in ids
 
 
 # --- the palette strip --------------------------------------------------------

@@ -394,6 +394,7 @@ def test_the_sidebars_the_report_named_still_ask_for_blocks():
     import ast
     import inspect
 
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
@@ -401,7 +402,7 @@ def test_the_sidebars_the_report_named_still_ask_for_blocks():
     # or flyouts now rather than sidebars -- Plotter's a toolbar over the canvas,
     # Clay's a rail inside the viewport with its shapes in a popup -- with no
     # headings to group, so they left this list when they left the column.
-    for module in (clay_outliner, clay_props):
+    for module in (clay_outliner, clay_inspector, clay_props):
         tree = ast.parse(inspect.getsource(module))
         draw = next(
             node

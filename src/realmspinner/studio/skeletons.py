@@ -358,20 +358,27 @@ def clay(ctx: Any) -> dict[str, Column]:
 
     **``clay-uv`` and ``clay-bridge`` are retired the same way.** ``reconcile``
     drops a saved id the built-in column no longer names, so a layout saved with
-    either in its right column loads onto this one. UV became the Inspector's
-    fourth tab and the Document pane became its third; their contents did not go
-    away, they moved a tab over.
+    either in its right column loads onto this one. UV became a page of the
+    Inspector and the Document pane became another; their contents did not go
+    away, they moved.
 
-    **Properties is the FILL, with a floor.** It holds the pane that wants the
-    height -- the UV canvas is a square it fits itself into, and the Document tab
-    is a column of buttons -- and the outliner is the one whose list scrolls
-    happily in whatever it is given. The floor is what stops a short window
-    squeezing the tab strip to a heading: ``layout_skeleton.heights`` gives the
-    outliner its share first, and a fill with no floor takes whatever that left.
+    **``clay-props`` is retired too, and its id is never reused.** The Inspector
+    (``clay-inspector``) replaced Properties' four tabs with one panel that follows
+    the selection, and a slot is hideable: a saved layout that hid ``clay-props``
+    would otherwise hide the new pane the day it reused the name. ``reconcile``
+    drops the old id from a saved column and adds the new one in its built-in
+    place, so no migration and no ``VERSION`` bump is owed (see :func:`plotter`).
+
+    **The Inspector is the FILL, with a floor.** It holds the pane that wants the
+    height -- the Unwrap page's UV canvas is a square it fits itself into -- and
+    the outliner is the one whose list scrolls happily in whatever it is given.
+    The floor is what stops a short window squeezing it to a heading:
+    ``layout_skeleton.heights`` gives the outliner its share first, and a fill
+    with no floor takes whatever that left.
     """
 
+    from .modes.clay.ui.panes import inspector as clay_inspector
     from .modes.clay.ui.panes import outliner as clay_outliner
-    from .modes.clay.ui.panes import props as clay_props
 
     left = Column("left", ())
     right = Column(
@@ -387,13 +394,13 @@ def clay(ctx: Any) -> dict[str, Column]:
                 share_key="clay-outliner",
             ),
             Slot(
-                "clay-props",
-                "Properties",
-                clay_props.draw,
+                "clay-inspector",
+                "Inspector",
+                clay_inspector.draw,
                 role=_role("inspector"),
                 edge=_edge("left"),
                 sizing=FILL,
-                floor=clay_props.PROPS_FLOOR,
+                floor=clay_inspector.INSPECTOR_FLOOR,
             ),
         ),
     )

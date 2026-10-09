@@ -17,10 +17,11 @@ quitting the app can lose unsaved work, and it asks first.
 The layout is picoCAD's more than Blender's: almost the whole window is the viewport. Down its left
 edge runs a slim, labelled **tool rail** — the four transform tools and the shapes — and over it the menu
 strip and the toolbar; under it a fixed **palette strip** shows the document's materials. On the right are only
-two panes, the outliner and Properties, and Properties' tabs are Object, Material, Document and UV. There
-is no left-hand column and no separate file pane. Several documents stay open at once.
+two panes, the outliner and the **Inspector**, one panel that changes with what you have selected (see
+[The inspector](#the-inspector)). There is no left-hand column and no separate file pane. Several documents
+stay open at once.
 
-![Clay with a small keep open: tool rail, palette strip, outliner and Properties](img/30-clay.png)
+![Clay with a small keep open: tool rail, palette strip, outliner and Inspector](img/30-clay.png)
 
 ## Starting a document
 
@@ -79,7 +80,9 @@ removes the shape and leaves nothing behind. An agent's `clay_add_primitive` is 
 shape at the origin, wherever its own translation then sends it.
 
 A shape's own numbers — a cylinder's `radius`, `height` and `segments`, say — are not set before it
-is placed: they are edited on the object itself, in Properties, once it exists.
+is placed: they are edited on the object itself, in the Inspector's Shape settings, once it exists. With
+nothing selected the Inspector offers the same shapes as four big cards (Box, Cylinder, Sphere and Cone)
+and a **More shapes** list of the rest; a click on either is the same click as on the rail.
 
 Shapes arrive with their shading already set, by an angle rule: a face is smooth when it meets its
 neighbours at a shallow angle all the way round, and flat otherwise. So a sphere, an icosphere, a
@@ -198,7 +201,7 @@ them is about. Left to right it holds:
   setting is on, so a shut popover still says what is armed, and it does not grey out while a document is
   saving: it touches nothing in the document. See [Snapping](#snapping).
 - At the far end, the **(?)** and **Export**, a split button. Its main click is **Export to the library**,
-  the same as the button in the Document tab; it is greyed, with the reason on hover, when there is nothing
+  the same as the button on the Inspector's Model card; it is greyed, with the reason on hover, when there is nothing
   visible to send. The chevron beside it lists **Export to the library**, **Export GLB...**, **Export
   OBJ...** and **Save screenshot...**, each greyed with the same reason.
 
@@ -265,7 +268,7 @@ The mode belongs to the *document*, not to the app, so switching tabs does not r
 had selected in the other one.
 
 **The shape you are editing stays selected.** Pressing `1`, `2` or `3` with a shape selected keeps it
-selected, so the Properties pane and the Outliner still show it, and `4` brings you back to the same
+selected, so the Inspector and the Outliner still show it, and `4` brings you back to the same
 shape. With several shapes selected they are all edited together. With nothing selected the mode still
 turns on, and the first element you click makes its shape the one being edited. What you pick *inside*
 the shape is separate, and `Esc` drops it without ending the edit.
@@ -306,8 +309,9 @@ material, merge objects, snap to grid, mirror copy, pack islands — open a smal
 **Apply** button, and remember what you last used.
 
 `Ctrl+A` selects everything in the current mode's sense of everything, `Ctrl+Shift+I` inverts it, and
-`Esc` steps back: first it drops the picks, then it leaves the element mode (the shape stays selected),
-then it clears the object selection. In an element mode `Ctrl+A` and `Ctrl+Shift+I` work on the shape
+`Esc` steps back: first it closes an Inspector page if one is open, then it drops the picks, then it leaves
+the element mode (the shape stays selected), then it clears the object selection. In an element mode `Ctrl+A`
+and `Ctrl+Shift+I` work on the shape
 being edited, or on every visible shape when none is, so inverting never pulls in a shape behind it.
 `Delete` in an element mode deletes the picked *faces*, never the object, and is greyed until something
 is picked. In object mode it
@@ -415,7 +419,7 @@ The first operation that changes an object's topology **freezes** it. A box that
 no longer describable as "box, size 1", so the properties panel switches from the generator's
 parameters to a vertex and face count.
 
-![Face mode: one face of the keep selected, its median and area in Properties](img/30-clay-faces.png)
+![Face mode: one face of the keep selected, its median and area in the Inspector](img/30-clay-faces.png)
 
 ## Transforming
 
@@ -448,8 +452,9 @@ all. **Select** (`Q`) shows the move gizmo for an element selection just as it d
 the box select still works with `Shift` or `Ctrl` held: dragging the gizmo moves the selection, and
 dragging empty space looks around.
 
-The **Move**, **Rotate** and **Scale** values are also typed directly in the properties panel, which
-is the better way to place something exactly. Position and scale boxes are labelled X, Y and Z.
+The **Move**, **Rotate** and **Scale** values are also typed directly in the Inspector, under **Position &
+turn**, which is the better way to place something exactly. Position and scale boxes are labelled X, Y and Z;
+**Scale** is one fold further down, under **Advanced**.
 **Rotation is in degrees**, turned X, then Y, then Z -- the same three numbers an agent's
 `clay_transform` takes, so what an agent set and what the panel shows are one thing. (The object
 itself stores an `XYZW` quaternion, which is what every file this app writes uses.) A rotation can be
@@ -457,18 +462,24 @@ written more than one way -- 190° is the same turn as −170° -- so while you 
 exactly as you typed them; they are read afresh from the object the moment anything else turns it, a
 gizmo drag or an undo.
 
-Under the transform is the object's **size**, width, height and depth, and it is editable. It is the
-mesh's own extent times the object's scale, so typing a new width sets that axis's scale to match
-and nothing else. **lock aspect** carries the other two axes along by the same ratio. An axis the
-mesh has no extent on -- the height of a plane -- has nothing to scale from, so the panel says so and
-ignores an edit to it. Below that, **world bounds** is the read-only box around the object *after* it
-is rotated and placed -- the number a scale of 2 on a generator whose radius is 0.35 does not tell
-you, and the same box the camera frames against.
+The object's **size**, width, height and depth, is the **Size** card at the top of the Inspector, and it is
+the one place to type a size. It is the mesh's own extent times the object's scale, so typing a new width
+sets that axis's scale to match and nothing else. **Lock aspect** carries the other two axes along by
+the same ratio. An axis the mesh has no extent on -- the height of a plane -- has nothing to scale from, so
+the card says so and ignores an edit to it. Below the boxes, **Spans** is the read-only box around the
+object *after* it is rotated and placed -- the number a scale of 2 on a generator whose radius is 0.35 does
+not tell you, and the same box the camera frames against. Type a number and press `Enter` or click
+anywhere else: the size is applied once, as one undo step, not once per digit.
 
-The small combo at the top of the transform picks the **unit** position and size are shown in --
+A taller height keeps the shape **standing where it is**: the lowest point of the shape stays put and the
+shape grows upward, so a box on the ground does not sink into it. Width and depth keep the middle. If a
+size you type makes the shape reach past the edge of the view, the camera frames the model, as it does for
+a new shape that would be off screen.
+
+The small combo on the Size card's heading picks the **unit** sizes and positions are shown in --
 metres, centimetres, millimetres, inches or feet. It changes only what the fields display and
-accept; the document, and every file it writes, stays in metres. The import-scale choices in the
-Document tab are the same table.
+accept; the document, and every file it writes, stays in metres. The import-scale choices on the
+Model & history page are the same table.
 
 ### Moving without a handle
 
@@ -560,31 +571,82 @@ the dragged object beside that row, as a sibling under the same parent (a row dr
 that parent's child; beside a root it becomes a root), in one undo step. A drop that would put an object
 inside its own subtree is refused and says so.
 
-## The Properties tabs
+## The inspector
 
-Properties, under the outliner on the right, is a strip of four tabs, named in words.
+The Inspector, under the outliner on the right, is one panel whose body follows what you have selected,
+so what you can do to the thing in front of you is always in front of you.
 
-| Tab | What it holds |
+| You have selected | The Inspector shows |
 | --- | --- |
-| **Object** | Name, visibility, the parent, transform and size, the shape's own numbers, and in an element mode the selection's own data (below) |
-| **Material** | The selected slot's name, colour, cutout and double-sided, its base-colour texture (make one, edit it in Inker, take it back), and **Add** and **Remove** for slots; the swatches themselves are in the palette strip under the viewport |
-| **Document** | The whole document: its counts, the import units and up axis, the undo history, the last export, and the **Export GLB** and **Export OBJ** buttons |
-| **UV** | The selected object's texture layout, described under [The UV view](#the-uv-view) |
+| Nothing | **What do you want to make?**: four shape cards, a **More shapes** list, and the **Model** card |
+| One shape | Its name and colour, then **Size**, **Shape settings** (when it has any), **Colour**, **Duplicate** and **Delete**, and three closed folds |
+| Several shapes | **Colour**, **Duplicate** and **Delete**, and the actions for several shapes; no size |
+| Points, edges or faces | A **Done** button, then the shape's own name, parent, transform and numbers, with the selection's median on top |
 
-The tab is remembered while the app is open and is the same for every document. Document is the one tab
-that needs no object selected, since it is about the document rather than a part of it; the others
-say "Nothing selected" or how many objects are selected until exactly one is.
+**With nothing selected** the panel is the first screen of a model. The four cards place a Box, Cylinder, Sphere
+or Cone exactly as the rail's buttons do, **More shapes** lists every other shape, and the **Model** card
+under them is the document: a line of counts of what leaves it (`9 shapes · 4 colours · 254 vertices · 227
+faces · 472 triangles`, the visible shapes only, the same set the exporters write, so the triangle count
+is a promise about the exported file), **New**, **Open...**, **Save** and **Save as...**, the ways out under
+**Take it somewhere** with a line naming the last export, and a **History** row. Press `Esc` with one
+shape selected to let go of it and get this screen back.
 
-The Document tab's counts are of what leaves the document: the visible objects only, the same set the
-exporters write, so the triangle line is a promise about the exported file. The step count is a button:
-press it for the whole undo stack, oldest first, with the head marked and the undone steps greyed, and
-click any row to move there in one go. Under the export buttons a line names the last file written.
+**With one shape selected** the panel opens on the shape's name, which is a field (type a new one and
+press `Enter`), and the colour it wears. Under that:
 
-**With elements selected,** the Object tab gains a data row under the transform. In vertex, edge or face
-mode with something selected it shows the selection's **median** position as X, Y and Z in world space,
-and the boxes are typeable: enter a value and the selected elements move so their median lands there.
-Each entry is **one undo step**. A short readout beside the boxes gives the length of a selected edge or
-the area of a selected face.
+- **Size** is described under [Transforming](#transforming).
+- **Shape settings** are the shape's own numbers, one box per parameter the generator has (a cylinder's
+  `radius`, `height` and `segments`). A box or a plane has none beyond its size, so it shows no such card.
+  A change rebuilds the mesh as one undo step; an object that has been edited or imported has no
+  parameters left, and says it is frozen, with its vertex and face counts.
+- **Colour** is eight named swatches -- Stone, Red, Orange, Yellow, Green, Blue, Purple and Charcoal. A click
+  paints the shape (or every selected shape) in that colour, **finding the slot in the document's palette that
+  already holds the colour or adding one named after it**, all as one undo step. The eight exist only in the
+  panel: a new document still has exactly one grey slot, and a slot appears in the palette only when a
+  click asks for it. The swatch the shape already wears is outlined, and a colour that is none of the
+  eight (one you edited, or a textured slot) outlines a ninth swatch in its own colour instead. **Edit
+  colour** opens the Colours & textures page for the shape's slot.
+- **Duplicate** and **Delete** run the same operations as `Ctrl`+`J` and `Delete`. A refused one is
+  greyed and says why on hover.
+
+Then three folds, closed until you open them (the Inspector remembers which are open):
+
+- **Position & turn** holds the position and rotation boxes, and a fold of its own, **Advanced**, with
+  scale -- the shape compared with the mesh as first made, which Size makes unnecessary for nearly everything.
+- **Group & parent** holds the parent choice and **Clear parent**; see [Parents and groups](#parents-and-groups).
+- **More actions** lists every whole-object operation, generated from the same table as the right-click menu,
+  in groups: Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Separate and UV. Each button
+  says what it does on hover, with its key, and is greyed with the plain reason when it cannot run. An
+  operation that takes numbers (Snap to Grid, Mirror Copy, Pack islands) opens its fields right below the
+  group with an **Apply** button, and remembers the values for next time; the same fields open from the
+  right-click menu. **Texture mapping** opens the Unwrap page.
+
+**With several shapes selected** the panel says so in its heading and offers the Colour card (one click
+paints them all, as one undo step), Duplicate, Delete, and More actions already open, where Group, Merge
+Objects, Parent to Last and the Mirror operations are. There is no Size card: select one shape to change
+its size.
+
+**The three pages.** A few things need the whole column, so they open as pages over the Inspector, under a
+**Back** button; `Esc` does the same, ahead of everything else it undoes (a page closes first, then the picks,
+then the mode, then the selection).
+
+| Page | Opens from | What it holds |
+| --- | --- | --- |
+| **Colours & textures** | **Edit colour** | The selected slot's name, colour, cutout and double-sided, and its base-colour texture (make one, edit it in Inker, take it back), with **Add** and **Remove** for slots; the swatches themselves are in the palette strip under the viewport |
+| **Unwrap** | **Texture mapping** | The selected object's texture layout, described under [The UV view](#the-uv-view) |
+| **Model & history** | The **History** row | The whole document: the file row, counts, the undo history, the import units and up axis, the last export, and the **Export GLB** and **Export OBJ** buttons |
+
+The page is remembered while the app is open and is the same for every document. In an element mode the
+Colours & textures and Texture mapping pages are one click below the shape's fields.
+
+The history is a button with the step count: press it for the whole undo stack, oldest first, with the head
+marked and the undone steps greyed, and click any row to move there in one go.
+
+**With elements selected,** the body is the shape's own, under **Done**, with a data row under the transform. In
+vertex, edge or face mode with something selected it shows the selection's **median** position as X, Y and Z
+in world space, and the boxes are typeable: enter a value and the selected elements move so their median
+lands there. Each entry is **one undo step**. A short readout beside the boxes gives the length of a
+selected edge or the area of a selected face.
 
 ## Parents and groups
 
@@ -594,7 +656,7 @@ topmost selected object. Nothing moves when you do it — the child keeps exactl
 and from then on moving the parent moves the whole subtree. **Clear Parent** frees an object again,
 also without moving it.
 
-A child's position, rotation and scale are measured *relative to its parent*, so the Properties
+A child's position, rotation and scale are measured *relative to its parent*, so the Inspector's
 fields are labelled "local" once an object has one. That is why a wheel at local zero sits at the
 car's origin rather than the world's. An object can never become its own ancestor; a drop that would
 make a loop is refused and says so.
@@ -616,7 +678,7 @@ their place in the world.
 Each is one undo step, each piece keeps the original's place and parent, and an object with nothing to
 split says so rather than making a pointless copy.
 
-An object's **origin** is the point it rotates and scales about, and where its Properties position
+An object's **origin** is the point it rotates and scales about, and where its Inspector position
 is measured. Four operations move it without moving the geometry: **to Bounds** (the centre of the
 object's box), **to Base** (the middle of its underside, which is what makes an object sit on a
 floor cleanly), **to Selection** (the centre of what is selected in an element mode) and **to World**
@@ -686,7 +748,7 @@ it *duplicates* the selection and reflects the copies across a plane you place a
 space, perpendicular to the axis you choose, at the `offset` you give it — which is what mirroring a
 limb across a body's centre-line means, with the original left exactly where it was. Like Mirror
 X/Y/Z the result is baked into the mesh for the identical reason, so a mirrored copy is no longer
-what its generator would build and its size field disappears from Properties. It leaves the copies
+what its generator would build and its size field disappears from the Inspector's Shape settings. It leaves the copies
 selected alongside the originals, so a second Mirror Copy across a different
 axis doubles what the first one made: one table leg, mirrored across X and then across Z, is four.
 
@@ -773,11 +835,11 @@ box and editing its size still rebuilds it.
 Clay does not paint a texture itself. The layout is for a picture you draw in [Inker](28-inker.md)
 and lay on the object's material (see [Texturing](#texturing)).
 
-![The UV tab: island controls and the unwrap canvas, overlaps in red](img/30-clay-uv.png)
+![The UV page: island controls and the unwrap canvas, overlaps in red](img/30-clay-uv.png)
 
 ### The UV view
 
-The **UV** tab of Properties shows the selected object's texture layout: its islands, with the element
+The **Unwrap** page of the Inspector shows the selected object's texture layout: its islands, with the element
 selection highlighted inside them. An object with no layout yet says so and offers **Box Unwrap** right
 there; it stays under the toolbar once there is a layout, beside **Pack islands...**, which asks for its
 margin the way the UV menu's Pack Islands does. The wheel zooms, the middle button pans,
@@ -808,12 +870,13 @@ imported meshes and hand-edited ones; every primitive already comes out facing o
 that needs nothing is left exactly as it was, generator and all, and nothing is said about it. For a
 few faces that are wrong, **Flip Normals** in face mode is the sharper tool.
 
-![The Material tab: the Stone slot with its base colour, flags and texture](img/30-clay-material.png)
+![The Colours & textures page: the Stone slot with its base colour, flags and texture](img/30-clay-material.png)
 
 ## Materials
 
 Every object points at a slot in the document's material palette, chosen with the palette strip under
-the viewport (see [Painting faces](#painting-faces) for what a click does). A slot has
+the viewport (see [Painting faces](#painting-faces) for what a click does) or with the eight named swatches
+on the Inspector's Colour card. A slot has
 a **name**, a **base colour**, an optional **base-colour texture**, **double-sided** and **cutout**, and
 the change reaches every object using that slot at once — which is the point of a palette rather than
 a material per object. That is the whole of it: the palette is
@@ -864,25 +927,25 @@ is the one you painted, and Clay opens Inker for you and takes the picture back.
 The **palette strip** is a fixed band under the viewport, always in the same place, with one swatch
 per slot of the document's palette in a row, a textured slot marked by a small triangle in its corner,
 and the slot's number and name on hover. The **+** at the end of the row adds a slot. The outlined swatch
-is the slot the Material tab's fields edit, which is also the object's default slot. A strip with no
+is the slot the Colours & textures page edits, which is also the object's default slot. A strip with no
 slots shows only the **+**; a new document is not given a palette it did not ask for. What a click does
 depends on the mode:
 
 - **Object mode, objects selected** — a click repaints each selected object: its default slot and every
   one of its faces move to that slot, as one undo step however many objects are selected. With nothing
-  selected the strip paints nothing. **Ctrl**+click, which edits the slot in Properties, needs exactly one
+  selected the strip paints nothing. **Ctrl**+click, which edits the slot in the Inspector, needs exactly one
   object selected; with several it does nothing, and the tooltip says "Select one object to edit its slot."
 - **Face mode, faces selected** — a click paints *those faces* with the slot and leaves the object's
   default slot alone. The Mesh menu's **Assign Material...** does the same from the menu: it asks for
   the slot's number, counting from 0 along the strip. It has no key.
-- **`Ctrl`+click**, in any mode, paints nothing. It only makes that slot the one the Material tab's fields
-  edit, which is the way to reach another slot's colour and texture while a face selection is up. A
+- **`Ctrl`+click**, in any mode, paints nothing. It only makes that slot the one the Colours & textures page
+  edits, which is the way to reach another slot's colour and texture while a face selection is up. A
   plain click with no face selected in face mode does the same.
 - **Vertex and edge mode** — a click paints nothing. It only makes that slot the one the fields
   edit; switch to face mode to paint faces.
 
-Under a face selection the UV view draws the first selected face's slot, while the Material tab's
-fields edit the slot the strip outlines; the tab names both.
+Under a face selection the UV view draws the first selected face's slot, while the Colours & textures
+page edits the slot the strip outlines; the page names both.
 
 Painting is one undo step however many objects the selection spans, and faces that already wear the
 slot say so and push nothing. A face's material is not geometry, so a painted box is still a box;
@@ -1008,8 +1071,8 @@ Clay has two ways to turn a document into an asset, and they do genuinely differ
 Choosing between them is the whole reason both exist. A third door writes a plain file.
 
 All of them are in the **File** menu (**Export to library**, **Export GLB...**, **Export OBJ...** and
-**Save Screenshot...**), and the Document tab of Properties carries buttons for the two file exports
-and a line naming the last file written. There is no separate file panel.
+**Save Screenshot...**), and the Inspector's Model card carries the same exports (the Model & history page
+too), with a line naming the last file written. There is no separate file panel.
 
 **Export to the library** puts the *exact* geometry in the library as an ordinary asset. It is a
 finished model row from the moment it lands, so it inherits everything the rest of the app does to a
@@ -1047,7 +1110,7 @@ in [Create](22-generating-references.md).
 the window while Clay is on screen does the same. The library card's overflow menu has **Open in
 Clay** for any finished model.
 
-In the Document tab are two choices a drop uses too: the file's **import units** (metres, centimetres,
+On the Model & history page are two choices a drop uses too: the file's **import units** (metres, centimetres,
 millimetres, inches or feet) and which way is **up** (Y or Z). Clay works in metres with Y up, so a
 file from a Z-up tool imported as Y-up lies on its back, and one in centimetres arrives a hundred
 times too big.
@@ -1058,7 +1121,7 @@ come from the `.mtl` file the OBJ names, when it sits in the same folder; withou
 arrive grey. An OBJ that Clay exported comes back with its material names and flat colours, and only
 the materials its faces use (a slot nothing uses is not in the file). A `map_Kd` picture is not read,
 so a textured slot arrives as its plain colour, often white, with the faces keeping their texture
-coordinates: assign the PNG again from the Material tab. STL and PLY carry
+coordinates: assign the PNG again from the Colours & textures page. STL and PLY carry
 neither materials nor texture coordinates, so each arrives as one grey object with its triangles
 joined back into one surface. A GLB brings in only the meshes its active scene places, each with its
 own transform, so the nodes of a file's other scenes are not stacked at the origin. A file whose

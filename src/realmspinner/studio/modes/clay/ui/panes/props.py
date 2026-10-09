@@ -1,4 +1,17 @@
-"""The Inspector: the selected object, its material, the document, and its UVs.
+"""Properties: the selected object, its material, the document, and its UVs, as four tabs.
+
+**No longer the skeleton's pane.** The right column's lower slot is the Inspector
+now (``inspector.py``, slot ``clay-inspector``); this module is what it is built
+from. Every function below stays, by name, because the Inspector calls them -- the
+Size card is its own (``ui/inspector_size.py``), but Position & turn is
+``_transform(show_unit=False, show_scale=False, show_size=False)``, Advanced is
+``scale_fields``, Shape settings is ``_generator``, Group & parent is ``_relations``,
+the Colours & textures page is ``_material``, the Model & history page is
+``_document``, and an element mode still wears ``legacy_object_body`` -- and because
+a long tail of tests drives them directly. ``draw`` and the tab strip still work and
+are still tested; nothing in the app draws them.
+
+The text below describes the four-tab pane this was.
 
 Four tabs (``TABS``). **Object** is the selected object's name, parent, transform and
 its generator's parameters; **Material** is the selected slot's colour, flags and
@@ -135,7 +148,6 @@ def _body(ctx: Any) -> None:
         tooltips={key: f"{label} -- {what}" for key, label, what in TABS},
         compact=True,
     )
-    anchors.mark("clay/props/tabs")
     if changed:
         state.props_tab = current = picked
     imgui.dummy((0, sp(tokens.SP_2)))
@@ -162,38 +174,65 @@ def _body(ctx: Any) -> None:
         # selection is not an element selection.
         clay_uv.draw_embedded(ctx)
         return
+    if current == "object":
+        legacy_object_body(ctx, state, tab, doc)
+        return
     _element_summary(doc, state, ctx)
     obj = _selected(doc)
     if obj is None:
-        # Two sentences, because ``_selected`` returns None for two different
-        # reasons and one of them used to lie: with sixteen objects lit up the
-        # pane said "Nothing selected", which the viewport plainly contradicts
-        # -- and a multi-object selection is an ordinary case rather than the
-        # odd one. The *refusal* is unchanged
-        # (see ``_selected``); only the sentence the user reads is.
-        count = len(doc.selection)
-        if count > 1:
-            widgets.empty_state(
-                icons.BOX,
-                f"{count} objects selected",
-                "Select one to edit it.",
-            )
-        else:
-            title, hint = _nothing_selected_text(doc, current)
-            widgets.empty_state(icons.BOX, title, hint)
+        _no_single_object(doc, current)
         return
 
     imgui.begin_disabled(tab.saving)
-    if current == "object":
-        _identity(doc, obj)
-        imgui.dummy((0, sp(tokens.SP_2)))
-        _relations(ctx, doc, obj)
-        imgui.dummy((0, sp(tokens.SP_2)))
-        _transform(doc, obj, ctx=ctx, state=state)
-        imgui.dummy((0, sp(tokens.SP_2)))
-        _generator(doc, obj, ctx=ctx, state=state)
+    _material(ctx, tab, doc, obj)
+    imgui.end_disabled()
+
+
+def _no_single_object(doc: Any, current: str) -> None:
+    """The empty state a tab with no one object to show draws.
+
+    Two sentences, because ``_selected`` returns None for two different
+    reasons and one of them used to lie: with sixteen objects lit up the
+    pane said "Nothing selected", which the viewport plainly contradicts
+    -- and a multi-object selection is an ordinary case rather than the
+    odd one. The *refusal* is unchanged (see ``_selected``); only the
+    sentence the user reads is.
+    """
+    count = len(doc.selection)
+    if count > 1:
+        widgets.empty_state(
+            icons.BOX,
+            f"{count} objects selected",
+            "Select one to edit it.",
+        )
     else:
-        _material(ctx, tab, doc, obj)
+        title, hint = _nothing_selected_text(doc, current)
+        widgets.empty_state(icons.BOX, title, hint)
+
+
+def legacy_object_body(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
+    """The old Object tab's body: the element line, then name, parent, transform
+    and the shape's own numbers.
+
+    Public since the inspector (``inspector.py``) took over the slot: an element
+    mode still wears this body unchanged, under a Done button, until the
+    inspector's own element state replaces it. The tab strip and the Material,
+    Document and UV tabs are not part of it -- the inspector reaches those as
+    pushed pages.
+    """
+    _element_summary(doc, state, ctx)
+    obj = _selected(doc)
+    if obj is None:
+        _no_single_object(doc, "object")
+        return
+    imgui.begin_disabled(tab.saving)
+    _identity(doc, obj)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _relations(ctx, doc, obj)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _transform(doc, obj, ctx=ctx, state=state)
+    imgui.dummy((0, sp(tokens.SP_2)))
+    _generator(doc, obj, ctx=ctx, state=state)
     imgui.end_disabled()
 
 
@@ -333,14 +372,18 @@ def _outputs(ctx: Any, tab: Any) -> None:
         f"{icons.DOWNLOAD} Export GLB...", ready, reason=why, tooltip=doc_io.EXPORT_GLB_TOOLTIP
     ):
         clay_mode.export_mesh_file(ctx, tab, "glb")
-    imgui.same_line()
+    # Wrapped, not run on: three labelled buttons are wider than the 300 px column
+    # the inspector hosts this row in, and the third ("Save screenshot...") was
+    # clipped to "Save scre".
+    widgets.same_line_or_wrap(widgets.button_width("Export OBJ..."))
     if widgets.disabled_button(
         "Export OBJ...", ready, reason=why, tooltip=doc_io.EXPORT_OBJ_TOOLTIP
     ):
         clay_mode.export_mesh_file(ctx, tab, "obj")
-    imgui.same_line()
+    shot = f"{icons.CAMERA} Save screenshot..."
+    widgets.same_line_or_wrap(widgets.button_width(shot))
     if widgets.disabled_button(
-        f"{icons.CAMERA} Save screenshot...",
+        shot,
         ready,
         reason=why,
         tooltip=doc_io.SCREENSHOT_TOOLTIP,
@@ -729,7 +772,22 @@ def _apply_transform(doc: Any, obj: Any, ctx: Any, **fields: Any) -> bool:
     return True
 
 
-def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None = None) -> None:
+def _transform(
+    doc: Any,
+    obj: Any,
+    *,
+    ctx: Any = None,
+    state: ClayState | None = None,
+    show_unit: bool = True,
+    show_scale: bool = True,
+    show_size: bool = True,
+) -> None:
+    # ``show_*`` are the inspector's: its Size card owns the unit combo and the
+    # one sizing control, and Scale sits behind an "Advanced" disclosure of its
+    # own (:func:`scale_fields`), so "Position & turn" draws this block with all
+    # three off. Every default is today's block, which is what the element-mode
+    # legacy body and the tests that drive this door by name still get.
+    #
     # Tranche 3: scene structure. TRS is local to the parent now, and a root's
     # local TRS *is* its world TRS (``document.py``'s module docstring) --
     # which is what keeps an unparented object's fields, and their labels,
@@ -752,15 +810,16 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
     widgets.field_label("local transform" if parented else "transform")
     # Position and size are *shown* in this unit and stored in metres; nothing
     # about the document changes with it. Rotation and scale are unitless.
-    picked = widgets.combo(
-        "##clay-length-unit",
-        unit,
-        _UNIT_OPTIONS,
-        sp(72),
-        tooltip="The unit position and size are shown in. Storage stays in metres.",
-    )
-    if picked != unit:
-        ui.length_unit = unit = picked
+    if show_unit:
+        picked = widgets.combo(
+            "##clay-length-unit",
+            unit,
+            _UNIT_OPTIONS,
+            sp(72),
+            tooltip="The unit position and size are shown in. Storage stays in metres.",
+        )
+        if picked != unit:
+            ui.length_unit = unit = picked
     was = tuple(v.copy() for v in obj.trs())
     changed = False
     shown = units.vec_to_display(obj.translation, unit)
@@ -782,14 +841,11 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
         for i in range(3)
     ]
     changed |= edited
-    if parented:
-        edited, scale = controls.input_vec(
-            "local scale##bs", list(obj.scale), ("X", "Y", "Z")
-        )
+    if show_scale:
+        edited, scale = _scale_row(doc, obj)
+        changed |= edited
     else:
-        edited, scale = controls.input_vec("scale##bs", list(obj.scale), ("X", "Y", "Z"))
-    controls.fold_undo(doc.history)
-    changed |= edited
+        scale = [float(v) for v in obj.scale]
     # Rotation is Euler degrees in the app's one rotation order (XYZ, the MCP
     # surface's), which is what lets the panel and an agent's ``clay_transform``
     # read the same three numbers. The object stores a quaternion and
@@ -827,7 +883,37 @@ def _transform(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None =
             transform_edit.remember_euler(
                 ui.euler_cache, euler_at, doc.by_uid(obj.uid).rotation, typed_euler
             )
-    _dimensions(doc, obj, ctx=ctx, state=ui)
+    if show_size:
+        _dimensions(doc, obj, ctx=ctx, state=ui)
+
+
+def _scale_row(doc: Any, obj: Any) -> tuple[bool, list[float]]:
+    """The three scale boxes, folded -> ``(edited, the numbers shown)``.
+
+    Two literal calls, one per parent state, for the reason ``_transform``'s
+    opening comment gives (the label-above-control scan reads literals).
+    """
+    if obj.parent is not None:
+        edited, scale = controls.input_vec("local scale##bs", list(obj.scale), ("X", "Y", "Z"))
+    else:
+        edited, scale = controls.input_vec("scale##bs", list(obj.scale), ("X", "Y", "Z"))
+    controls.fold_undo(doc.history)
+    return edited, list(scale)
+
+
+def scale_fields(doc: Any, obj: Any, *, ctx: Any = None) -> bool:
+    """:func:`_transform`'s scale boxes on their own, applied. -> whether it landed.
+
+    The inspector's "Advanced" disclosure: scale compares the shape with the mesh
+    as first made, which is not the same number as its size, and almost nobody
+    wants it -- so it is one fold away rather than a third row of three boxes
+    under Position.
+    """
+    was = tuple(v.copy() for v in obj.trs())
+    edited, scale = _scale_row(doc, obj)
+    if not edited:
+        return False
+    return _apply_transform(doc, obj, ctx, scale=scale, was=was)
 
 
 def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None = None) -> None:
@@ -867,7 +953,6 @@ def _dimensions(doc: Any, obj: Any, *, ctx: Any = None, state: ClayState | None 
 
     widgets.field_label("size")
     edited, typed = controls.input_vec("size##bz", list(shown), ("W", "H", "D"))
-    anchors.mark("clay/props/size")
     controls.fold_undo(doc.history)
     _, ui.size_lock_aspect = controls.checkbox("lock aspect##bzlock", ui.size_lock_aspect)
     if edited:

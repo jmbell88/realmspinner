@@ -1028,13 +1028,16 @@ def test_every_clay_pane_gates_its_controls_on_saving():
     """The rule Inker had to learn: a save encodes the live document on a task
     thread, so a control that restructures it mid-encode writes a file
     describing a document that never existed."""
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.clay.ui.panes import rail as clay_rail
     from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
-    for pane in (clay_tools, clay_props, clay_outliner, clay_rail, clay_palette):
+    for pane in (
+        clay_tools, clay_props, clay_inspector, clay_outliner, clay_rail, clay_palette
+    ):
         source = inspect.getsource(pane)
         assert "saving" in source, f"{pane.__name__} does not consult tab.saving"
 

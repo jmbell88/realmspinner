@@ -64,7 +64,7 @@ def click_hint(doc: Any) -> str:
     # ``swatches.click_slot`` retargets Properties only with exactly one object
     # selected -- with none or several the press does nothing of the sort.
     edit = (
-        "Ctrl+click edits this slot in Properties."
+        "Ctrl+click edits this slot in the Inspector."
         if one
         else "Select one object to edit its slot."
     )

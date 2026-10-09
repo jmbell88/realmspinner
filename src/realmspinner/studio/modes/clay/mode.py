@@ -1961,15 +1961,23 @@ made inside a submenu names the popup in the submenu's own id stack."""
 
 
 def _escape(state: ClayState, tab: ClayTab, doc: Any) -> None:
-    """Esc, staged: the picks, then the mode, then the shape.
+    """Esc, staged: the inspector's page, the picks, then the mode, then the shape.
 
     One key that undoes the last thing the user got into, in the order they got
-    into it. In an element mode the first press drops the picks (the shape stays
-    selected and the mode stays on), the second leaves the mode (the shape is
-    still selected, as it was when the mode was entered), and the third, in
+    into it. A pushed inspector page (Colours, Unwrap, Model) closes first -- it
+    is the newest thing on screen, and the Back button beside it says the same
+    key. In an element mode the next press drops the picks (the shape stays
+    selected and the mode stays on), the one after leaves the mode (the shape is
+    still selected, as it was when the mode was entered), and the last, in
     object mode, deselects it. It **never leaves Clay mode**: Esc means "drop what I am doing",
     and losing a workspace full of tabs to a stray keypress is not that.
     """
+    if state.inspector_page:
+        # A view change, not an edit: safe mid-save, and the document's
+        # selection is exactly as the page was opened over it.
+        state.inspector_page = ""
+        state.clear_drag()
+        return
     if not tab.saving:
         if doc.element_mode != "object":
             if doc.element_sel:

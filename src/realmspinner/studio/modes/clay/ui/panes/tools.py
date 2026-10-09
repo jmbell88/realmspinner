@@ -94,7 +94,7 @@ def sections() -> list[tuple[str, tuple[str, ...]]]:
     return [(label, tuple(names)) for label, names in bp.CLAY_GENERATORS]
 
 
-def draw_add_menu(ctx: Any, state: Any, tab: Any) -> None:
+def draw_add_menu(ctx: Any, state: Any, tab: Any, *, heading: bool = True) -> None:
     """The flyout's body: every shape Clay offers, grouped, name beside glyph.
 
     Enumerated rather than listed, so a sixteenth shape is a new entry in
@@ -104,10 +104,12 @@ def draw_add_menu(ctx: Any, state: Any, tab: Any) -> None:
 
     Drawn inside the rail's popup (``rail.py`` owns the open and close), with
     the heading's (?) here so the manual's "Adding a primitive" section stays
-    one click from the list it describes.
+    one click from the list it describes. ``heading=False`` is the inspector's
+    "More shapes" disclosure, which is already under its own heading and (?).
     """
-    widgets.section("Add")
-    manual_render.help_button(ctx, "clay-tools")
+    if heading:
+        widgets.section("Add")
+        manual_render.help_button(ctx, "clay-tools")
     blocked = tab is None or bool(tab.saving)
     reason = (
         "Open or start a document to build in."
@@ -143,14 +145,14 @@ def _defaults_tooltip(name: str) -> str:
         return ""
     heading, rows, _note = entry
     body = ", ".join(f"{label} {value}" for label, value in rows)
-    return f"{heading}: {body}. Edit the numbers in Properties once it is placed."
+    return f"{heading}: {body}. Edit the numbers in the Inspector once it is placed."
 
 
 #: Shown under a primitive's defaults. Editing them is the Properties panel's
 #: job, once the object exists.
 _PRIMITIVE_NOTE = (
     "What the next click places. A shape's own numbers are edited afterwards, "
-    "in Properties, once it exists."
+    "in the Inspector, once it exists."
 )
 
 

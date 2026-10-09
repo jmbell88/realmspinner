@@ -2,13 +2,13 @@
 
 A first-time user should get an object quickly, and "quickly" is a number of
 gestures. This test drives the real Clay workspace -- the viewport pane with its
-header, rail, palette strip and empty state, and Properties beside it -- through
+header, rail, palette strip and empty state, and the inspector beside it -- through
 imgui's own input queue (``_ui_driver``), the way a person would, and counts
 the pointer presses and key presses it took:
 
-    empty Clay -> Start with a box -> type a height into Size -> add a colour
-    and click it -> Export (the toolbar's split button, whose main click is the
-    library export).
+    empty Clay -> Start with a box -> type a height into the Size card -> click
+    Blue in the Colour card -> Export (the toolbar's split button, whose main click
+    is the library export).
 
 It asserts what the person ends up with (a shape standing on the ground, selected,
 inside the camera's view, added in one undo step, in the colour they clicked, and
@@ -17,8 +17,7 @@ a row in the library) and that no control was pressed while disabled.
 **The gesture budget is a ratchet.** :data:`FIRST_TRY_BUDGET` is what the path
 costs *today*, measured, and may only go down: a landing that makes the path
 dearer fails here, and one that makes it cheaper lowers the number in the same
-commit. The redesign this belongs to reaches 4 (Start with a box, Size, a colour,
-Export) once the inspector and toolbar land.
+commit.
 
 Needs a GL context like the rest of the Clay viewport tests (skipped without one).
 """
@@ -37,13 +36,14 @@ from realmspinner.studio.modes.clay import mode as clay_mode
 from realmspinner.studio.modes.clay import placement
 
 #: Gestures (pointer presses + keys typed) the path costs today, measured:
-#: Start with a box (1), click Size's H box (2), type the height (3), + on the
-#: palette strip (4), click the new swatch (5), Export on the toolbar (6). It was
-#: 7 while Export lived behind Properties' Document tab (a tab hop first).
-#: **It may only decrease** -- raising it to fit a change is the one edit this
-#: number refuses -- and a later landing brings it to 4 (the Size and Colour
-#: cards take the + away and the height box's click).
-FIRST_TRY_BUDGET = 6
+#: Start with a box (1), click the Size card's H box (2), type the height (3), click
+#: Blue in the Colour card (4), Export on the toolbar (5). It was 7 while Export lived
+#: behind Properties' Document tab, and 6 while a colour needed the palette strip's +
+#: and then the new swatch. **It may only decrease** -- raising it to fit a change is
+#: the one edit this number refuses. The redesign's mockup counts click-and-type as
+#: one gesture and says 4; the driver counts the click and the character apart, so 5
+#: is the same path.
+FIRST_TRY_BUDGET = 5
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def workspace(gl, svc, tmp_path, monkeypatch):
 
     from realmspinner.studio import widgets
     from realmspinner.studio.main import App
-    from realmspinner.studio.modes.clay.ui.panes import props as clay_props
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
 
     with app_context(gl, svc, tmp_path) as app_ctx, gl_imgui(gl) as (_imgui, renderer):
         app = App(app_ctx.runtime)
@@ -83,8 +83,8 @@ def workspace(gl, svc, tmp_path, monkeypatch):
             imgui.end()
             imgui.set_next_window_pos((1280, 0))
             imgui.set_next_window_size((300, 900))
-            imgui.begin("##props", None, flags)
-            clay_props.draw(app_ctx)
+            imgui.begin("##inspector", None, flags)
+            clay_inspector.draw(app_ctx)
             imgui.end()
             imgui.render()
             renderer.render(imgui.get_draw_data())
@@ -140,20 +140,18 @@ def test_the_first_try_path_ends_with_a_standing_framed_coloured_model_in_the_li
     assert lowest == 0.0, "the first box is not standing on the ground"
     assert _in_view(workspace, obj, doc), "the first box is outside the camera's view"
 
-    # A height, typed into the middle (H) box of Size.
-    d.click(d.find(label="size##bz"))
+    # A height, typed into the middle (H) box of the inspector's Size card. The
+    # field commits when it is left, so the very next press -- on a colour -- both
+    # lands the height and paints; the click must not be the one that only took
+    # focus away from the field (the lost click this guards).
+    d.click(d.find(label="##size##insp"))
     d.type_text("2")
-    d.settle(1)
+    d.click(d.find(label="##inspsw/Blue"))
+    d.settle(2)
     assert obj.scale[1] == pytest.approx(2.0), "the typed height never reached the shape"
-
-    # A colour: the strip's + adds a slot, a click on it paints the shape. The
-    # first press after typing must land on its own target (a text field that
-    # still holds focus swallowing it is the lost click this guards).
-    d.click(d.find(label="##clay-palette/add"))
-    d.settle(2)
-    assert len(doc.materials) == 2, "the click straight after typing was lost"
-    d.click(d.find(label="##palsw1"))
-    d.settle(2)
+    lowest = mesh_ops.world_box(obj, world=doc.world_matrix(obj.uid))[0][1]
+    assert lowest == pytest.approx(0.0, abs=1e-9), "the taller box sank through the ground"
+    assert len(doc.materials) == 2 and doc.materials[1].name == "Blue"
     assert obj.material == 1 and set(obj.mesh.material.tolist()) == {1}
 
     # Into the library, from the toolbar: no tab to hop to first.
@@ -175,7 +173,7 @@ def test_a_click_straight_after_typing_a_height_is_not_swallowed(workspace):
     took focus away from it. Here the + must add its slot on that one press."""
     d = workspace.driver
     tab, obj = _start_with_a_box(workspace)
-    d.click(d.find(label="size##bz"))
+    d.click(d.find(label="##size##insp"))
     d.type_text("3")
     before = len(tab.doc.materials)
     d.click(d.find(label="##clay-palette/add"))

@@ -49,6 +49,7 @@ _OWNED_FILES = (
     "settings_2d.py",
     "settings_3d.py",
     "clay_props.py",
+    "clay_inspector.py",
     "clay_header.py",
     "clay_menu.py",
     "plotter_canvas.py",
@@ -105,6 +106,10 @@ _ALLOW: dict[str, set[str]] = {
         "local scale##bs",
         "local rotation (deg)##br",
     },
+    # Every control in the Inspector is a ``##``-hidden id, a button whose own text is
+    # its label, or a field with a ``field_label`` line above it -- nothing is
+    # allowed to draw a name beside its box.
+    "clay_inspector.py": set(),
     "clay_header.py": set(),
     "clay_menu.py": set(),
     "plotter_canvas.py": {

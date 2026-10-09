@@ -384,7 +384,12 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
     for name in ("packwright_bridge.py", "sirens_bridge.py", "poser_sheet.py"):
         assert "widgets.primary_button(" in sources[name], name
     for name in (
-        # Clay's bridge is the Properties pane's Document tab since 2026-10-07.
+        # Clay's bridge is the Properties pane's Document tab since 2026-10-07, and the
+        # Inspector's Model card and Model & history page draw it by calling
+        # ``props._outputs`` / ``props._document`` -- so ``clay_inspector.py`` is
+        # deliberately not listed here: it holds no exits heading or history block of
+        # its own to find (``test_ux_document_header.BRIDGES`` does enrol it, for the
+        # one widget it does draw itself, ``widgets.document_header``).
         "clay_props.py",
         "packwright_bridge.py",
         "poser_sheet.py",

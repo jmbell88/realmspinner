@@ -743,6 +743,7 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     import traceback
 
     from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
     from realmspinner.studio.modes.create.ui import workspace as generation_workspace
@@ -820,8 +821,8 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
     def _clay_document_tab() -> None:
         """The Document tab with a document open: the file row, the history
         pair and the three exports, in the 300 px column the Properties pane is
-        drawn in. This is the pane ``bridge.py`` was, and the only drawing of
-        those rows the walk reaches."""
+        drawn in. This is the pane ``bridge.py`` was; the Inspector's Model &
+        history page draws the same rows now."""
         from realmspinner.studio.modes.clay import mode as clay_mode
 
         tab = _clay_tab(app_ctx)
@@ -831,6 +832,32 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
             clay_props.draw(app_ctx)
         finally:
             clay_mode.ensure(app_ctx).props_tab = "object"
+
+    def _clay_inspector(situation: str):
+        """The Inspector in one situation: the walk reaches every body it can draw
+        (the model card's three-button row, the colour card, the open folds, each
+        page), in the 300 px column the skeleton hosts it in."""
+        from realmspinner.studio.modes.clay import mode as clay_mode
+
+        def draw() -> None:
+            tab = clay_mode.active(app_ctx) or _clay_tab(app_ctx, objects=2)
+            state = clay_mode.ensure(app_ctx)
+            uids = [obj.uid for obj in tab.doc.objects]
+            tab.doc.set_element_mode("object")
+            state.inspector_page = ""
+            tab.doc.select({"nothing": [], "one": uids[:1], "many": uids}.get(situation, uids[:1]))
+            if situation in ("colours", "unwrap", "model"):
+                state.inspector_page = situation
+            if situation == "face":
+                tab.doc.select(uids[:1])
+                tab.doc.set_element_mode("face")
+            try:
+                clay_inspector.draw(app_ctx)
+            finally:
+                state.inspector_page = ""
+                tab.doc.set_element_mode("object")
+
+        return draw
 
     panes = [
         ("results-tray", lambda: generation_workspace.draw(app_ctx, sp(320), "mesh")),
@@ -848,6 +875,13 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
         ("sheet", lambda: sheet_panel.draw(app_ctx, job)),
         ("clay-props", lambda: clay_props.draw(app_ctx)),
         ("clay-props-document", _clay_document_tab),
+        ("clay-inspector-nothing", _clay_inspector("nothing")),
+        ("clay-inspector-one", _clay_inspector("one")),
+        ("clay-inspector-many", _clay_inspector("many")),
+        ("clay-inspector-elements", _clay_inspector("face")),
+        ("clay-inspector-colours", _clay_inspector("colours")),
+        ("clay-inspector-unwrap", _clay_inspector("unwrap")),
+        ("clay-inspector-model", _clay_inspector("model")),
         ("clay-outliner", lambda: clay_outliner.draw(app_ctx)),
         ("inker-tools", lambda: inker_tools.draw(app_ctx)),
         ("inker-colors", lambda: inker_colors.draw(app_ctx)),
@@ -2673,6 +2707,7 @@ def _clay_tab(app_ctx, *, objects: int = 2):
 def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
     """Every one of them has to survive the state the mode opens in."""
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
@@ -2682,12 +2717,15 @@ def test_the_clay_panes_build_with_nothing_open(app_ctx, imgui_ctx):
     # viewport rather than in a sidebar, and they walk with the panes for the
     # reason the panes walk: an unbalanced disable stack, child or popup left
     # open is the same defect wherever it is.
-    for pane in (clay_props, clay_outliner, clay_header, clay_rail, clay_palette):
+    for pane in (
+        clay_props, clay_inspector, clay_outliner, clay_header, clay_rail, clay_palette
+    ):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
 
 
 def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx):
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
@@ -2699,7 +2737,9 @@ def test_the_clay_panes_build_with_a_document_and_a_selection(app_ctx, imgui_ctx
     # viewport rather than in a sidebar, and they walk with the panes for the
     # reason the panes walk: an unbalanced disable stack, child or popup left
     # open is the same defect wherever it is.
-    for pane in (clay_props, clay_outliner, clay_header, clay_rail, clay_palette):
+    for pane in (
+        clay_props, clay_inspector, clay_outliner, clay_header, clay_rail, clay_palette
+    ):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
 
 
@@ -2708,6 +2748,7 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     unbalanced disable stack is exactly the class of mistake this file exists
     to catch."""
     from realmspinner.studio.modes.clay.ui.panes import header as clay_header
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import outliner as clay_outliner
     from realmspinner.studio.modes.clay.ui.panes import palette_strip as clay_palette
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
@@ -2720,7 +2761,9 @@ def test_the_clay_panes_build_while_a_save_is_in_flight(app_ctx, imgui_ctx):
     # viewport rather than in a sidebar, and they walk with the panes for the
     # reason the panes walk: an unbalanced disable stack, child or popup left
     # open is the same defect wherever it is.
-    for pane in (clay_props, clay_outliner, clay_header, clay_rail, clay_palette):
+    for pane in (
+        clay_props, clay_inspector, clay_outliner, clay_header, clay_rail, clay_palette
+    ):
         _frame(imgui_ctx, lambda pane=pane: pane.draw(app_ctx))
 
 
@@ -2800,6 +2843,9 @@ def test_the_clay_properties_pane_builds_for_a_frozen_object(app_ctx, imgui_ctx)
     tab.doc.set_props(obj.uid, generator=None)
     tab.doc.select([obj.uid])
     _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
+
+    _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
 
 
 def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx):
@@ -2807,6 +2853,7 @@ def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx)
     has to have a widget -- a float, an int and a tuple today."""
     from realmspinner.kernels.mesh import document as bd
     from realmspinner.kernels.mesh import primitives as bp
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
     from realmspinner.studio.modes.clay.ui.panes import props as clay_props
 
     tab = _clay_tab(app_ctx, objects=0)
@@ -2821,6 +2868,7 @@ def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx)
         tab.doc.add_object(obj)
         tab.doc.select([obj.uid])
         _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
+        _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
 
 
 def test_the_clay_outliner_builds_with_a_rename_in_flight(app_ctx, imgui_ctx):
@@ -2873,6 +2921,13 @@ def test_the_clay_properties_pane_enumerates_a_generator_it_has_never_seen(
 
     monkeypatch.setattr(clay_props, "_widget", spy)
     _frame(imgui_ctx, lambda: clay_props.draw(app_ctx))
+    assert seen == ["width", "steps", "footprint"]
+    # The Inspector's Shape settings card enumerates it the same way: the one
+    # generator loop, drawn by the same function.
+    from realmspinner.studio.modes.clay.ui.panes import inspector as clay_inspector
+
+    seen.clear()
+    _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
     assert seen == ["width", "steps", "footprint"]
 
 
