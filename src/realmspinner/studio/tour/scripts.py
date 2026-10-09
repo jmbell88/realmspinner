@@ -790,7 +790,7 @@ CLAY_TORCH = Tour(
             title="The room you build in",
             body=(
                 "The column of buttons on the left is the rail: four tools (Select, Move, "
-                "Rotate, Scale -- Q, G, R, S on the keyboard) and the shapes you add. "
+                "Turn, Resize -- Q, G, R, S on the keyboard) and the shapes you add. "
                 "Everything you add is listed under All shapes, the row at the foot of "
                 "the Inspector on the right (click it to open or close the list), and "
                 "the Inspector above it holds the numbers.\n\n"
@@ -834,8 +834,9 @@ CLAY_TORCH = Tour(
             title="The shaft: a cylinder",
             body=(
                 "Add a Cylinder from the rail, then make it a thin pole: Size W 0.08, "
-                "H 0.6, D 0.08. It lands on the ground beside the plate; move it with "
-                "Position so it stands in front of the plate instead.\n\n"
+                "H 0.6, D 0.08. It lands on the ground beside the plate; open Position "
+                "& turn in the Inspector and move it so it stands in front of the plate "
+                "instead.\n\n"
                 "Next unlocks once the cylinder has been shaped."
             ),
             mode="clay",
@@ -893,8 +894,9 @@ CLAY_TORCH = Tour(
                 "slot. With the cone selected, press + in the palette twice to add two "
                 "more (each starts grey and the cone wears it), then Ctrl+click a slot and "
                 "press Edit colour to set its colour: a brown for the wood, an orange for "
-                "the fire. With nothing selected the same card is headed Next shape's "
-                "colour, and a click there picks what the next shape wears.\n\n"
+                "the fire (Back returns to the Inspector). With nothing selected the same card is "
+                "headed Next shape's colour, and a click there picks what the next shape "
+                "wears.\n\n"
                 "Next unlocks once the palette holds three slots."
             ),
             mode="clay",
@@ -907,8 +909,9 @@ CLAY_TORCH = Tour(
             id="paint",
             title="Paint the parts",
             body=(
-                "Select an object in All shapes and click a swatch in the Colour card, a "
-                "named colour or a slot of the palette, to repaint it. Do it for the "
+                "Click an object in the viewport (or in the All shapes list) and then a "
+                "swatch in the Colour card, a named colour or a slot of the palette, to "
+                "repaint it. Do it for the "
                 "flame and for the shaft, so the torch is not all one colour.\n\n"
                 "Next unlocks once two objects are painted with something other than the "
                 "first slot."
@@ -923,8 +926,9 @@ CLAY_TORCH = Tour(
             title="The Model card",
             body=(
                 "Saving and exporting live on the Model card, which the Inspector shows "
-                "when no shape is selected. Press Esc, or click empty space, to let go of "
-                "the shape; the next two cards point at the controls inside."
+                "when no shape is selected. Press Back if a page is open, then Esc, or click "
+                "empty space, to let go of the shape; the next two cards point at the "
+                "controls inside."
             ),
             mode="clay",
             anchor="clay/inspector",
@@ -963,8 +967,9 @@ CLAY_TORCH = Tour(
             id="where-next",
             title="Your torch is in the Library",
             body=(
-                "Open the Library to find it. Export GLB and Export OBJ, beside the "
-                "library button, write a plain file instead -- for a game engine that "
+                "Open the Library to find it. Export GLB and Export OBJ, in the "
+                "toolbar's Export menu (the chevron) and on the Model & history page, "
+                "write a plain file instead -- for a game engine that "
                 "reads files, not this app's Library. Neither counts as saving the "
                 "model; the .rblk you saved does.\n\n"
                 "From here the same moves build anything: add, size, colour, repeat."

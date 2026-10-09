@@ -23,7 +23,7 @@ its **Colour** card, with the list of every shape in the document, **All shapes*
 [The outliner](#the-outliner)). There is no left-hand column and no separate file pane. Several documents
 stay open at once.
 
-![Clay with a small keep open: tool rail and Inspector](img/30-clay.png)
+![Clay with a small keep open: toolbar, tool rail and the Inspector on one shape](img/30-clay.png)
 
 ## Starting a document
 
@@ -116,7 +116,7 @@ longitude, which is what makes it the one to wrap an equirectangular texture rou
 `height` is its cylindrical middle alone, so the whole shape is that plus a radius at each end.
 
 A placed object remembers *how it was made*. Its generator and the parameters it was built with are
-kept, so the properties panel offers those parameters — a cylinder's radius, height and segment
+kept, so the Inspector's Shape settings offer those parameters — a cylinder's radius, height and segment
 count — and changing one rebuilds the mesh. That is a single undo step, so `Ctrl+Z` takes the
 object back to the shape it had rather than to some intermediate state.
 
@@ -145,7 +145,7 @@ A row that cannot run is greyed and hovering it says why; one with an ellipsis o
 first. In Shape mode, Select All, Select None and Invert Selection have no Inspector button: they are `Ctrl+A`,
 `Ctrl+D` (or `Esc`) and `Ctrl+Shift+I`, and rows of the right-click menu and the palette.
 
-Two things that used to sit in the strip's Add menu have new homes. The shapes are the tool rail's **+** and the
+Two things you might look for in an Add menu live elsewhere. The shapes are the tool rail's **+** and the
 Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-primitive)). **Import Mesh...**
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
@@ -182,9 +182,8 @@ changed the same way.
 
 The toolbar is one row across the top of the viewport, and it is where everything you
 change *between* clicks lives: which element mode you are in, how the surface is drawn, what the viewport
-shows over the model, whether snapping is on, and the way out of the document. These used to be blocks
-down a tool panel on the far side of the window from the model — a reach away from the thing every one of
-them is about. Left to right it holds:
+shows over the model, whether snapping is on, and the way out of the document, all next to the model they are
+about. Left to right it holds:
 
 - **Undo**, **Redo** and a small chevron beside them that opens the **history**: every step, with the
   newest marked, and a click on one goes there. Undo and Redo are greyed when there is nothing to take back
@@ -259,9 +258,9 @@ this chapter.
 ## Element modes
 
 Every object starts as one thing you can move about. Press `1`, `2` or `3` and it becomes a mesh you
-can take apart: vertices, edges, faces. `4` goes back to object mode. The **Mode** pills in the
-viewport toolbar say the same thing — **Shape**, **Points**, **Edges**, **Faces**, shortening to **S**, **P**,
-**E**, **F** in a narrow window — and highlight whichever mode the document is in. The switch reads left to
+can take apart: vertices, edges, faces. `4` goes back to object mode. The mode switch in the
+viewport toolbar says the same thing — **Shape**, **Points**, **Edges**, **Faces**, shortening to **S**, **P**,
+**E**, **F** in a narrow window — and highlights whichever mode the document is in. The switch reads left to
 right in the order of the modes (Shape first), so the keys under it run `4`, `1`, `2`, `3`.
 
 | Key | Mode | What clicking selects |
@@ -330,7 +329,7 @@ Delete, Duplicate and element drags leave a hidden object alone too, without a m
 
 **Element selection is transient.** It is not saved with the document, and an undo that changes
 geometry drops it — the indices it named describe a mesh that no longer exists. An undo that only
-moves or renames something keeps it, because those cannot invalidate it. A properties-panel or agent
+moves or renames something keeps it, because those cannot invalidate it. An Inspector or agent
 edit that rebuilds a shape from its own parameters is different again: if it comes out with the same
 faces in the same order (every change to a size, however many are changed at once) the selection, any
 per-face paint and the UV layout are carried through unchanged, and so is the shading. Two counts that
@@ -359,7 +358,7 @@ a box and `L` between them reach what a low-poly model needs.
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
 | Faces | Triangulate Faces (`T`) | Replaces each selected face with its own triangles. |
 | Faces | Merge Faces | Merges a connected block of selected faces into one n-gon. |
-| Verts | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. |
+| Points | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. |
 
 An operation that cannot do what you asked says so in a toast naming the element and what to do
 instead, and changes nothing. Those are refusals, not failures: the alternative is geometry that
@@ -779,7 +778,7 @@ carrying both sets of interior walls. For a low-poly model that is usually fine,
 faces cost nothing you can see; where it is not, delete the faces inside the overlap in face mode.
 
 A merged object is no longer what a generator would build, so its generator claim is dropped along
-with the merge — the properties panel stops offering the size field that would have rebuilt a
+with the merge — the Inspector stops offering the size field that would have rebuilt a
 pristine box over your work. That drop is part of the same undo step.
 
 ## Mirroring
@@ -846,7 +845,7 @@ vertex** onto a grid point in world space, so a face dragged with Snap on ends w
 grid points however it started; the vertices are not carried by a common offset, which means a mesh that
 began off the grid is pulled onto it. Rotation snaps the angle.
 
-Snapping applies to gizmo and keyboard drags. A number typed into the properties panel is used exactly
+Snapping applies to gizmo and keyboard drags. A number typed into the Inspector is used exactly
 as typed, because you already said what you meant, and so is a number typed during a drag, because at
 that point you have said where the thing goes. A drag locked to an axis is not snapped either, and the drag
 an Extrude hands over to is locked to the face's normal, so it is not snapped: type a distance, or let go and
@@ -889,7 +888,7 @@ and lay on the object's material (see [Texturing](#texturing)).
 
 The **Unwrap** page of the Inspector shows the selected object's texture layout: its islands, with the element
 selection highlighted inside them. An object with no layout yet says so and offers **Box Unwrap** right
-there; it stays under the toolbar once there is a layout, beside **Pack islands...**, which asks for its
+there; it stays on the page once there is a layout, beside **Pack islands...**, which asks for its
 margin the way the right-click menu's Pack Islands does. The wheel zooms, the middle button pans,
 clicking an island selects it (a click on empty space deselects), and dragging either box-selects islands or moves
 whichever ones are selected. `R` and `S` rotate and
@@ -904,7 +903,7 @@ with the same patch of texture. That is exactly what a box projection does on pu
 information rather than a warning. **Pack Islands** lays everything out inside the square with a
 margin you choose, keeping the relative sizes so nothing changes its texture density.
 
-When the material under the pane has a base-colour texture, the picture fills the square behind
+When the material under the page has a base-colour texture, the picture fills the square behind
 the islands, so you can see which part of it each face lands on. It is the material of the first
 selected face while faces are selected, and the object's default slot otherwise, and it is drawn
 with the same filtering as in the viewport: hard texels for a crisp texture.

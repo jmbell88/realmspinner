@@ -1102,7 +1102,7 @@ def _palette_row(doc: Any, obj: Any) -> None:
         # Same fold as Add, for the same reason.
         doc.remove_material_and_reassign(obj.uid, index)
     if reason:
-        widgets.muted(reason)
+        widgets.muted_wrapped(reason)
 
     # commit=True for the reason ``_identity``'s name field needs it: the
     # 2026-09-06 audit's clay-02 found this one reporting per keystroke too,
