@@ -3,7 +3,7 @@
 What a layout is, and deliberately is not. It captures **arrangement,
 visibility and shares** -- which panes are in which column, in what order, and
 how their vertical splits are divided. It does **not** capture a width: each
-side column is a fixed share of the room (``layout.proportions``), the same in
+side column is a fixed 300 design px (``layout.proportions``), the same in
 every mode, and the per-workspace widths a v2 blob used to carry were never read
 once that landed. A file that still has a ``widths`` key loads (the key is
 ignored, :meth:`Arrangement.from_json`) and the next save drops it.  The rail,

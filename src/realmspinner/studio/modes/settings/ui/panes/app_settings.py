@@ -1156,7 +1156,7 @@ def _layout(ctx: Any) -> None:
         ctx.settings.set("panels_open", {})
         ctx.toast("Section states reset.")
     # No sidebar-width combo here (shell-03): since the proportional shell
-    # ``layout.measure`` takes each side column as a fixed share of the room,
+    # ``layout.measure`` takes each side column as a fixed 300 dp,
     # so a chosen width reached nothing the shell measures.
 
 

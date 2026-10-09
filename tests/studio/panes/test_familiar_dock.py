@@ -24,10 +24,14 @@ def test_the_dock_opens_by_widening_and_taking_from_both_sidebars():
     """Opening the dock (``layout.FAMILIAR_OPEN_T`` 0 -> 1) must widen it and
     narrow both sidebars by the same construction ``layout.proportions``
     already proves elsewhere -- this is the same fact, read through the
-    dock's own ``tick``/``width`` rather than through ``proportions`` directly."""
+    dock's own ``tick``/``width`` rather than through ``proportions`` directly.
+
+    At 1400 wide, where the dock's 260 dp floor outruns its 15% share. On a
+    roomier window (1920, with 300 dp sidebars) the dock's share clears its
+    floor and only the centre pays -- ``test_layout`` pins that half."""
     from realmspinner.studio import layout as layout_mod
 
-    room, spacing = 1920.0, 8.0
+    room, spacing = 1400.0, 8.0
     closed = layout_mod.proportions(room, 0.0, spacing)
     opened = layout_mod.proportions(room, 1.0, spacing)
     assert opened[4] > closed[4]  # dock widens

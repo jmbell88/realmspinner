@@ -697,7 +697,7 @@ class FrameMixin:
         # not settle it for itself and leave the right one to find out (UX-01).
         mode_for_layout = ctx.state.mode
         self.layout.bind_workspace(self.layouts, mode_for_layout)
-        # The side columns are a fixed share of the room now
+        # The side columns are a fixed 300 dp now
         # (``layout.proportions``, 2026-09-23), the same in every workspace --
         # ``self.layouts``/``mode_for_layout`` are still passed and still
         # accepted, but ``measure`` no longer reads them for anything.

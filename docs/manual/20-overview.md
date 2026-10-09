@@ -160,12 +160,13 @@ is the first entry in the rail described above, and returns there at any time.
 Once you are in the workspace, the window is five columns, left to right: the rail, the left
 sidebar, the canvas, the right sidebar and the Familiar dock — and none of them is a size you drag.
 The rail and the closed dock are icon strips, each just wide enough for its icons; the two sidebars
-are 15% of the window each; the canvas takes everything left over. Opening the dock grows it to 15%
-of the window, three points taken from each sidebar (so they become 12% each) and the rest from the
-canvas. Neither sidebar has a drag handle of its own any more; a window too narrow for a column's
-comfortable width compresses it instead, following a stated order (the sidebars give way to the open
-dock first, then the canvas), so there is one width per mode rather than a per-workspace preference
-to lose track of.
+are 300 px wide each in every mode, and the canvas takes everything left over. Opening the dock
+grows it to 15% of the window, which comes out of the canvas. Neither sidebar has a drag handle of
+its own any more; a window too narrow for the canvas to keep a comfortable width squeezes the two
+sidebars equally, down to 200 px each, and only then does the canvas shrink (the open dock's own
+minimum width is met from the sidebars first too), so there is one width per mode rather than a
+per-workspace preference to lose track of. A very wide window does not make the sidebars wider; the
+canvas takes all the extra.
 
 - **The left sidebar** is the settings form for the current mode, and nothing else — there is
   nothing left to split against, so it is one scrolling column with no divider. In Create a **stage
@@ -271,12 +272,11 @@ beside a **✕** that also collapses it, above
 a short conversation: a scrollback of what you and Familiar have said, an input line, and **Send**.
 The input line and **Send** stay pinned to the bottom of the dock; only the conversation above them
 scrolls.
-Opening it grows the dock to 15% of the window's width, three points taken from each of the two
-sidebars and the rest from the canvas — there is no grip to drag any more, and nothing to remember:
-the width is always that same share. On a narrow window the dock's own floor (260 px) is met by the
-two sidebars giving up width first, then the canvas. The per-item readouts that used to sit
-in a pane at the foot of the window (workspace, document, tool, zoom, queue, health) live in the menu
-bar's own right-aligned group, described above.
+Opening it grows the dock to 15% of the window's width, taken from the canvas — there is no grip to
+drag any more, and nothing to remember: the width is always that same share. On a narrow window the
+dock's own floor (260 px) is met by the two sidebars giving up width first, then the canvas. The per-item
+readouts that used to sit in a pane at the foot of the window (workspace, document, tool, zoom, queue, health)
+live in the menu bar's own right-aligned group, described above.
 
 **Familiar is a language model that runs on this computer and never calls out.** It is Gemma 4 12B,
 started on demand as a local server that listens on this machine only and is told not to go online; its

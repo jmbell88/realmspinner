@@ -570,7 +570,7 @@ SHADOW_DROP = 0.35
 
 # The three named sidebar sizes, and the range a side column was once draggable
 # within, in design pixels. No width is saved or dragged now (each side column
-# is a fixed share of the room, ``layout.proportions``), so ``clamp_panel`` and
+# is a fixed 300 dp, ``layout.proportions``), so ``clamp_panel`` and
 # the persistence half's width plumbing are gone; ``layout.SIDEBAR_WIDTHS``/
 # ``PANEL_MIN``/``PANEL_MAX`` still name these.
 SIDEBAR_WIDTHS: dict[str, float] = {
@@ -580,6 +580,12 @@ SIDEBAR_WIDTHS: dict[str, float] = {
 }
 PANEL_MIN = 220.0
 PANEL_MAX = 480.0
+
+# What each side column is asked to be, in design pixels, in every mode
+# (``layout.proportions`` multiplies it by the scale and gives way only when the
+# canvas would fall under ``layout.CENTRE_MIN``). A width and not a share of
+# the window: the same form reads the same on a 1600 and a 2560 display.
+SIDEBAR_TARGET_DP = 300.0
 
 
 # --- vertical splits ------------------------------------------------------------

@@ -336,7 +336,7 @@ banner and through no check row at all, so this is the only copy.
 
 ## Advanced
 
-**Layout.** The sidebars are not a size you pick: each side column takes a fixed share of the window, the
+**Layout.** The sidebars are not a size you pick: each side column is 300 px wide, the
 same in every mode, so there is no width control. *Reset pane
 sizes* puts the split between the inspector and the library — both on the right sidebar — back to its
 default, undoing any dragging of that divider. *Reset collapsed sections* re-opens every section that

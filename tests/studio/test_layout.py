@@ -419,9 +419,12 @@ def test_measure_shrinks_the_sidebars_as_familiar_opens(monkeypatch):
     from _ui_context import imgui_context
 
     with imgui_context(monkeypatch) as imgui:
-        # Wide enough that the sidebars are on their share rather than on
-        # ``SIDEBAR_MIN``'s floor, which would hide the shrink this asserts.
-        imgui.get_io().display_size = (2560.0, 900.0)
+        # Narrow enough that the dock's 260 dp floor outruns its 15% share (so
+        # the sidebars must give), yet wide enough that they are not already on
+        # ``SIDEBAR_MIN``'s floor, which would hide the shrink this asserts. At
+        # 2560 wide the dock's share clears its floor and the sidebars stay at
+        # 300 whether it is open or not (``test_a_roomy_window_...`` below).
+        imgui.get_io().display_size = (1400.0, 900.0)
         imgui.new_frame()
         try:
             layout_mod.FAMILIAR_OPEN_T = 0.0
@@ -435,6 +438,88 @@ def test_measure_shrinks_the_sidebars_as_familiar_opens(monkeypatch):
             layout_mod.FAMILIAR_OPEN_T = 0.0
 
     assert with_dock < without_dock
+
+
+# Every mode with side columns, by the workspace module that draws them. Clay
+# is in the list on purpose: its left slot is declared and empty, so its viewer
+# is what takes the left column's width back and its right column is the 300 dp
+# one (``centre_width`` is "what is left once the right sidebar is reserved").
+_WORKSPACES = {
+    "clay": "modes/clay/ui/viewport.py",
+    "inker": "modes/inker/ui/workspace.py",
+    "mason": "modes/mason/ui/viewport.py",
+    "plotter": "modes/plotter/ui/workspace.py",
+    "sirens": "modes/sirens/ui/workspace.py",
+    "poser": "modes/poser/ui/viewport.py",
+    "packwright": "modes/packwright/ui/workspace.py",
+    "review": "modes/review/ui/workspace.py",
+    "muse": "modes/muse/ui/workspace.py",
+    "library": "modes/library/ui/panes/full.py",
+}
+
+
+@pytest.mark.parametrize("workspace", sorted(_WORKSPACES))
+def test_every_workspace_takes_its_sidebar_width_from_the_one_shared_measurement(workspace):
+    """The user's decision of 2026-10-08 is one number for every mode, which only
+    holds while no workspace sizes a column from a number of its own. Each of
+    them asks ``layout.sidebar_width``/``centre_width`` (the shared, measured
+    fit) rather than a literal or ``SIDEBAR_WIDTHS`` of its own."""
+    path = pathlib.Path(layout_mod.__file__).parent / _WORKSPACES[workspace]
+    source = path.read_text(encoding="utf-8")
+    assert "sidebar_width(" in source
+    assert "SIDEBAR_WIDTHS" not in source and "SIDEBAR_W)" not in source
+
+
+@pytest.mark.parametrize("workspace", sorted(_WORKSPACES))
+@pytest.mark.parametrize("dock_open", [False, True])
+def test_a_roomy_window_gives_every_workspace_300_dp_sidebars(monkeypatch, workspace, dock_open):
+    """Measured through the real imgui style on a 2560x1000 window, both
+    columns that ``sidebar_width`` reports are exactly 300 design px, whatever
+    the workspace and whether the Familiar dock is open (the old 15%/12% shares
+    gave 375/300 here and ~232 at 1600)."""
+    from _ui_context import imgui_context
+
+    from realmspinner.studio import tokens
+
+    assert workspace in _WORKSPACES
+    monkeypatch.setattr(layout_mod, "SIDEBAR_FIT", None)
+    monkeypatch.setitem(layout_mod.SIDE_FIT, "left", None)
+    monkeypatch.setitem(layout_mod.SIDE_FIT, "right", None)
+    monkeypatch.setattr(layout_mod, "FAMILIAR_OPEN_T", 1.0 if dock_open else 0.0)
+    monkeypatch.setattr(layout_mod, "RAIL_RESERVED", 44.0 * tokens.SCALE)
+    with imgui_context(monkeypatch) as imgui:
+        imgui.get_io().display_size = (2560.0, 1000.0)
+        imgui.new_frame()
+        try:
+            layout_mod.measure(workspace=workspace)
+        finally:
+            imgui.end_frame()
+            imgui.render()
+    assert layout_mod.sidebar_width("left") == pytest.approx(300.0 * tokens.SCALE)
+    assert layout_mod.sidebar_width("right") == pytest.approx(300.0 * tokens.SCALE)
+
+
+def test_every_width_that_names_the_sidebar_agrees_on_300():
+    """``skeletons.COLUMN_W`` states the width without importing imgui, and the
+    unmeasured fallback ``SIDEBAR_W`` is the same number; neither may drift from
+    the target ``proportions`` actually hands out."""
+    from realmspinner.studio import skeletons, tokens
+
+    assert tokens.SIDEBAR_TARGET_DP == layout_mod.SIDEBAR_TARGET_DP == 300.0
+    assert skeletons.COLUMN_W == tokens.SIDEBAR_TARGET_DP
+    assert layout_mod.SIDEBAR_WIDTHS["default"] == tokens.SIDEBAR_TARGET_DP
+
+
+def test_very_wide_windows_keep_300_dp_sidebars_rather_than_growing_them():
+    """The deliberate trade: above ~2000 px wide the sidebars are *narrower*
+    than the 15% they replaced (2560 wide: 300 where 15% gave ~375), and a
+    window twice as wide gets the same two columns, not bigger ones."""
+    spacing = 8.0
+    for room in (2560.0, 3840.0, 5120.0):
+        _rail, left, _centre, right, _dock = layout_mod.proportions(
+            room, 0.0, spacing, rail=44.0, scale=1.0
+        )
+        assert left == right == pytest.approx(300.0), room
 
 
 # --- proportions(): the proportional shell (2026-09-23) ----------------------
@@ -499,24 +584,27 @@ def test_the_canvas_gets_what_the_icon_strips_gave_up():
     rail, left, centre, right, dock = layout_mod.proportions(
         room, 0.0, spacing, rail=44.0, scale=1.0
     )
-    assert left == right == pytest.approx(content * layout_mod.LEFT_SHARE_CLOSED)
-    assert centre == pytest.approx(content * (1.0 - 2 * layout_mod.LEFT_SHARE_CLOSED) - 88.0)
+    assert left == right == pytest.approx(300.0), "300 dp a side, not 15% of the window (288)"
+    assert centre == pytest.approx(content - 2 * 300.0 - 88.0)
 
 
-def test_sidebars_leave_the_centre_at_least_two_thirds_at_1920():
-    """Two quarter-window sidebars left Clay's viewer half a 1920 px window
-    (2026-10-04); the canvas is the point of a workspace, so it keeps most of
-    it -- with the closed Familiar dock's 44 dp strip counted against it."""
+def test_a_1920_window_gives_the_canvas_the_rest_after_two_300_dp_sidebars():
+    """The 2026-10-04 report was that two quarter-window sidebars left Clay's
+    viewer half a 1920 px window. At a fixed 300 dp the canvas keeps 63% of it
+    (the closed Familiar dock's 44 dp strip counted against it) -- less than
+    the 15% shares left it, by the user's decision of 2026-10-08, but well clear
+    of the half the 25% sidebars took."""
     spacing = 8.0
     content = 1920.0 - 4.0 * spacing
-    _rail, _left, centre, _right, _dock = layout_mod.proportions(
+    _rail, left, centre, right, _dock = layout_mod.proportions(
         1920.0, 0.0, spacing, rail=44.0, scale=1.0
     )
-    assert centre >= content * 0.65
+    assert left == right == pytest.approx(300.0)
+    assert centre >= content * 0.62
 
 
 def test_proportions_at_the_open_extreme():
-    """Open, each sidebar is :data:`layout_mod.LEFT_SHARE_OPEN` and the dock
+    """Open, each sidebar is still 300 dp and the dock is
     :data:`layout_mod.DOCK_SHARE_OPEN` of the room (spacing taken out), on a
     window generous enough that no floor engages."""
     spacing = 8.0
@@ -526,25 +614,46 @@ def test_proportions_at_the_open_extreme():
         room, 1.0, spacing, rail=44.0, scale=1.0
     )
     assert rail == pytest.approx(44.0)
-    assert left == right == pytest.approx(content * layout_mod.LEFT_SHARE_OPEN)
+    assert left == right == pytest.approx(300.0), "opening the dock did not narrow a sidebar"
     assert dock == pytest.approx(content * layout_mod.DOCK_SHARE_OPEN)
-    open_claim = 2 * layout_mod.LEFT_SHARE_OPEN + layout_mod.DOCK_SHARE_OPEN
-    assert centre == pytest.approx(content * (1.0 - open_claim) - 44.0)
+    assert centre == pytest.approx(content - 2 * 300.0 - dock - 44.0)
 
 
-def test_opening_familiar_takes_the_same_share_from_each_sidebar():
-    """Halfway open, each sidebar should have given up exactly half of the
-    points the fully-open state takes -- ``proportions`` interpolates
-    linearly, and this is what "linearly" has to mean for a share."""
+def test_opening_familiar_takes_the_same_width_from_each_sidebar_when_the_dock_floor_binds():
+    """At 1400 wide the dock's 15% share (200) is under its 260 dp floor, so
+    opening the dock takes the 60 dp difference back off the sidebars, half
+    from each; halfway open the floor has only climbed halfway
+    (``proportions`` interpolates both with one ``t``) and each sidebar has
+    given up exactly half of what the fully-open state takes, and the two
+    sidebars are always the same width."""
     spacing = 8.0
-    room = 3800.0
+    room = 1400.0
+    closed = layout_mod.proportions(room, 0.0, spacing, rail=44.0, scale=1.0)
+    half = layout_mod.proportions(room, 0.5, spacing, rail=44.0, scale=1.0)
+    opened = layout_mod.proportions(room, 1.0, spacing, rail=44.0, scale=1.0)
+    assert closed[1] == closed[3] == pytest.approx(300.0)
+    assert half[1] == half[3] and opened[1] == opened[3]
+    assert closed[1] > half[1] > opened[1], "opening the dock must take width from the sidebars"
+    assert closed[1] - half[1] == pytest.approx((closed[1] - opened[1]) / 2.0)
+    # The centre is unchanged by the dock's floor: what the dock gained over its
+    # share came out of the sidebars one for one.
     content = room - 4.0 * spacing
-    step = layout_mod.LEFT_SHARE_CLOSED - layout_mod.LEFT_SHARE_OPEN
-    assert step > 0.0, "opening the dock must take width from the sidebars, not give it"
-    _rail, left_closed, _c, right_closed, _dock = layout_mod.proportions(room, 0.0, spacing)
-    _rail, left_half, _c, right_half, _dock = layout_mod.proportions(room, 0.5, spacing)
-    assert left_closed - left_half == pytest.approx(content * step / 2.0)
-    assert right_closed - right_half == pytest.approx(content * step / 2.0)
+    raw_dock = content * layout_mod.DOCK_SHARE_OPEN
+    assert opened[2] == pytest.approx(content - 44.0 - 600.0 - raw_dock)
+
+
+def test_a_roomy_window_does_not_narrow_a_sidebar_when_the_dock_opens():
+    """On a window where the dock's 15% already clears its 260 dp floor there
+    is nothing for the sidebars to give, so only the canvas pays for the dock:
+    300 dp a side, open or closed, at every scale."""
+    for scale in (1.0, 1.5, 2.0):
+        spacing = 8.0 * scale
+        room = 2560.0 * scale
+        for t in (0.0, 0.5, 1.0):
+            _rail, left, _c, right, _dock = layout_mod.proportions(
+                room, t, spacing, rail=44.0 * scale, scale=scale
+            )
+            assert left == right == pytest.approx(300.0 * scale), (scale, t)
 
 
 def test_the_rail_argument_defaults_to_what_rail_tick_reserved(monkeypatch):
@@ -560,12 +669,13 @@ def test_the_rail_argument_defaults_to_what_rail_tick_reserved(monkeypatch):
 
 
 def test_the_dock_floor_pulls_from_the_sidebars_then_the_canvas():
-    """At a 1100 px window, scale 1, fully open, the dock's raw share is well
-    under its 260 dp floor and the sidebars are already at
-    :data:`SIDEBAR_MIN`, so they have nothing to give: the floor is met in
-    full and the centre -- the remainder -- carries it."""
+    """At a 900 px window, scale 1, fully open, the dock's raw share is well
+    under its 260 dp floor and the centre cannot keep 300 dp even with the
+    sidebars squeezed all the way, so they sit on :data:`SIDEBAR_MIN` with
+    nothing left to give: the dock floor is met in full and the centre -- the
+    remainder -- carries it (900 - 32 spacing - 44 rail - 400 - 260 = 164)."""
     spacing = 8.0
-    room = 1100.0
+    room = 900.0
     rail, left, centre, right, dock = layout_mod.proportions(
         room, 1.0, spacing, rail=44.0, scale=1.0
     )
@@ -573,30 +683,136 @@ def test_the_dock_floor_pulls_from_the_sidebars_then_the_canvas():
     assert left == pytest.approx(layout_mod.SIDEBAR_MIN)
     assert right == pytest.approx(layout_mod.SIDEBAR_MIN)
     assert rail == pytest.approx(44.0), "the rail is an icon strip; it never gives"
-    assert centre > 0.0
+    assert centre == pytest.approx(164.0)
     assert rail + left + centre + right + dock + 4.0 * spacing == pytest.approx(room)
 
 
 def test_the_dock_floor_takes_half_its_shortfall_from_each_sidebar_above_their_floor():
-    """The first rung of the ladder, where the sidebars still have width above
-    :data:`SIDEBAR_MIN` to give: at a window where the open sidebars sit a few
-    points over their floor and the dock's raw share is a few points under its
-    own, the shortfall comes half from each sidebar, and neither goes below
-    its floor."""
+    """The dock rung of the ladder, where the sidebars still have width above
+    :data:`SIDEBAR_MIN` to give and the centre is comfortable: at a window
+    where the dock's raw share is a few points under its own floor, the
+    shortfall comes half from each 300 dp sidebar, and neither goes below its
+    floor."""
     spacing = 8.0
     content = 1700.0
     room = content + 4.0 * spacing
-    _rail, left, _centre, right, dock = layout_mod.proportions(
+    _rail, left, centre, right, dock = layout_mod.proportions(
         room, 1.0, spacing, rail=44.0, scale=1.0
     )
     raw_dock = content * layout_mod.DOCK_SHARE_OPEN
-    raw_side = content * layout_mod.LEFT_SHARE_OPEN
     assert raw_dock < layout_mod.DOCK_FLOOR_OPEN, "the window must be one the dock floor binds on"
-    assert raw_side > layout_mod.SIDEBAR_MIN, "...and one the sidebars have width to give on"
     shortfall = layout_mod.DOCK_FLOOR_OPEN - raw_dock
     assert dock == pytest.approx(layout_mod.DOCK_FLOOR_OPEN)
-    assert left == right == pytest.approx(raw_side - shortfall / 2.0)
+    assert left == right == pytest.approx(300.0 - shortfall / 2.0)
     assert left >= layout_mod.SIDEBAR_MIN
+    assert centre > layout_mod.CENTRE_MIN, "...and the centre never needed the squeeze rung"
+
+
+def test_the_sidebars_squeeze_equally_to_keep_the_centre_at_its_minimum():
+    """The rung ahead of the dock's: 920 px, dock closed, scale 1. Two 300 dp
+    sidebars would leave 920 - 32 - 44 - 600 - 44 = 200 for the canvas, under
+    :data:`CENTRE_MIN`, so both give 50 dp -- no more, no less -- and the
+    centre lands on exactly 300 with the sidebars still above their 200 dp
+    floor. (A 15%-share sidebar would be 133 dp, on the floor, centre 400.)"""
+    spacing = 8.0
+    _rail, left, centre, right, dock = layout_mod.proportions(
+        920.0, 0.0, spacing, rail=44.0, scale=1.0
+    )
+    assert left == right == pytest.approx(250.0)
+    assert centre == pytest.approx(layout_mod.CENTRE_MIN)
+    assert dock == pytest.approx(44.0)
+
+
+def test_the_squeeze_stops_at_the_sidebar_floor_and_the_centre_pays_the_rest():
+    """700 px, dock closed, scale 1: even at 200 dp a side the canvas only gets
+    700 - 32 - 44 - 400 - 44 = 180, under :data:`CENTRE_MIN`; the sidebars stop
+    at their floor rather than going narrower (a form's labels wrap to one
+    word a line), so the canvas is the column that comes up short."""
+    spacing = 8.0
+    _rail, left, centre, right, _dock = layout_mod.proportions(
+        700.0, 0.0, spacing, rail=44.0, scale=1.0
+    )
+    assert left == right == pytest.approx(layout_mod.SIDEBAR_MIN)
+    assert centre == pytest.approx(180.0)
+    assert centre < layout_mod.CENTRE_MIN
+
+
+def _resize_floor_room(scale: float) -> tuple[float, float]:
+    """``(room, spacing)`` as ``layout.measure`` sees the 1100-design-px resize
+    floor on a monitor at ``scale``: ``main._min_window_size`` is
+    ``MIN_SIZE * monitor_scale``, the window padding is ``SP_4 * scale`` a side
+    and ``proportions`` takes four item spacings (``SP_2 * scale``) off it."""
+    return 1100.0 * scale - 2 * 16.0 * scale, 8.0 * scale
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.5, 2.0])
+def test_the_centre_keeps_its_minimum_at_the_resize_floor_with_the_dock_closed(scale):
+    """The window cannot be dragged under ``MIN_SIZE * monitor_scale``, and at
+    that floor, dock closed, two 300 dp sidebars leave the canvas 348 dp
+    (times the scale): over :data:`CENTRE_MIN`, so nothing squeezes."""
+    room, spacing = _resize_floor_room(scale)
+    rail, left, centre, right, dock = layout_mod.proportions(
+        room, 0.0, spacing, rail=44.0 * scale, scale=scale
+    )
+    assert left == right == pytest.approx(300.0 * scale)
+    assert centre == pytest.approx(348.0 * scale)
+    assert centre >= layout_mod.CENTRE_MIN * scale
+    assert rail + left + centre + right + dock + 4.0 * spacing == pytest.approx(room)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.5, 2.0])
+def test_the_centre_keeps_its_minimum_at_the_resize_floor_with_the_dock_open(scale):
+    """Dock open at the same floor: the dock wants 260 dp, the canvas keeps
+    exactly 300 dp, and the 112 dp of difference comes out of the sidebars,
+    which land on 216 dp (times the scale) -- still above their 200 dp floor.
+    (The same floor with 12% sidebars left the canvas 332.)"""
+    room, spacing = _resize_floor_room(scale)
+    rail, left, centre, right, dock = layout_mod.proportions(
+        room, 1.0, spacing, rail=44.0 * scale, scale=scale
+    )
+    assert dock == pytest.approx(260.0 * scale)
+    assert left == right == pytest.approx(216.0 * scale)
+    assert left >= layout_mod.SIDEBAR_MIN * scale
+    assert centre == pytest.approx(layout_mod.CENTRE_MIN * scale)
+    assert rail + left + centre + right + dock + 4.0 * spacing == pytest.approx(room)
+
+
+@pytest.mark.parametrize("ui_scale", [1.5, 2.0])
+@pytest.mark.parametrize("t", [0.0, 1.0])
+def test_a_ui_scale_on_the_1100_px_floor_squeezes_the_sidebars_to_their_floor_first(ui_scale, t):
+    """The UI-scale preference does not grow the window: 1100 physical px at
+    1.5 or 2.0 cannot hold 300 dp sidebars and a 300 dp canvas. The ladder's
+    promise is the order: the sidebars go all the way to their floor before the
+    canvas is allowed under :data:`CENTRE_MIN`, and the widths still sum."""
+    spacing = 8.0 * ui_scale
+    room = 1100.0 - 2 * 16.0 * ui_scale
+    rail, left, centre, right, dock = layout_mod.proportions(
+        room, t, spacing, rail=44.0 * ui_scale, scale=ui_scale
+    )
+    assert rail + left + centre + right + dock + 4.0 * spacing == pytest.approx(room)
+    assert min(rail, left, centre, right, dock) >= 0.0
+    if centre < layout_mod.CENTRE_MIN * ui_scale:
+        assert left == right == pytest.approx(layout_mod.SIDEBAR_MIN * ui_scale)
+
+
+def test_the_sidebars_give_way_to_their_floor_before_the_centre_goes_under_its_minimum():
+    """The ladder's order as a property, swept over windows, dock states and
+    scales: whenever the canvas ends up under :data:`CENTRE_MIN`, the sidebars
+    are on their floor (never narrower, never still wide), and in every case
+    the five widths plus gaps sum exactly to the room."""
+    for scale in (1.0, 1.5, 2.0):
+        spacing = 8.0 * scale
+        for room in range(700, 3000, 50):
+            for t in (0.0, 0.3, 1.0):
+                rail, left, centre, right, dock = layout_mod.proportions(
+                    float(room), t, spacing, rail=44.0 * scale, scale=scale
+                )
+                total = rail + left + centre + right + dock + 4.0 * spacing
+                assert total == pytest.approx(room), (room, scale, t)
+                floor = layout_mod.SIDEBAR_MIN * scale
+                if centre < layout_mod.CENTRE_MIN * scale - 1e-6 and left + right >= 2 * floor:
+                    assert left == right == pytest.approx(floor), (room, scale, t)
+                assert left <= 300.0 * scale + 1e-6, "a sidebar never grows past its target"
 
 
 def test_a_closed_dock_never_borrows_the_open_floor():

@@ -2,9 +2,10 @@
 
 Side panels tile around a fixed centre canvas: they may be resized, reordered
 inside their column, or hidden, but never float, tab together, or cross through
-the canvas. Each side column is a fixed share of the room (:func:`proportions`),
-the same in every mode; a named layout retains pane order, visibility and each
-workspace's internal vertical shares, not a width.
+the canvas. Each side column is 300 design px (:func:`proportions`), the same in
+every mode, giving way only on a window too small to keep the canvas; a named
+layout retains pane order, visibility and each workspace's internal vertical
+shares, not a width.
 
 Sizes are design pixels and are multiplied by :data:`tokens.SCALE` at use, so
 a saved width has the same meaning on every display scale.
@@ -29,7 +30,7 @@ log = logging.getLogger(__name__)
 
 # The named sidebar widths. Nothing offers a choice between them any more
 # (Settings' combo and ``Layout.set_sidebar_width`` are gone -- each side column
-# is a fixed share of the room, see :func:`proportions`), so ``SIDEBAR_W`` is
+# is a fixed 300 dp, see :func:`proportions`), so ``SIDEBAR_W`` is
 # only the width a pane is drawn at before the first :func:`measure`, and the
 # stored ``sidebar`` name only moves that fallback. Defined in ``tokens`` and
 # named here, where the readers already look.
@@ -160,15 +161,25 @@ FAMILIAR_OPEN_T: float = 0.0
 # ``rail.tick`` settled (44 dp, or the labelled width), the closed dock
 # ``DOCK_FLOOR_CLOSED`` -- and the centre is whatever the other four leave.
 #
-# 15%, not the 25% it was set at: two quarter-window sidebars left the canvas
-# half the window, and Clay's viewer was the pane that visibly shrank (user
-# report, 2026-10-04). ``SIDEBAR_MIN`` still floors each column on a small
-# window, so a form never gets narrower than it did before.
-LEFT_SHARE_CLOSED = 0.15
-# Opening the dock takes three points back from each sidebar (it took five off
-# the 25% they were before the 2026-10-04 narrowing), and the dock claims 15%
-# of the room itself: the centre narrows by the difference, never the other way.
-LEFT_SHARE_OPEN = 0.12
+# **The sidebars are 300 design px, not a share of the window** (2026-10-08).
+# History: they were 25% of the room, which left the canvas half the window and
+# shrank Clay's viewer (user report, 2026-10-04); 15% was the answer to that.
+# 15% is only ~232 px at 1600 wide, a width the forms were never designed for,
+# and it made a column's width depend on the display. The user decided every
+# mode gets the same 300 dp column instead (``tokens.SIDEBAR_TARGET_DP``). What
+# that trades:
+#
+# * windows up to ~2000 px wide get *wider* sidebars than 15% (232 -> 300 at
+#   1600) and a correspondingly smaller canvas;
+# * windows wider than ~2000 px get *narrower* sidebars than 15% did, because a
+#   fixed width stops growing with the room (2560 wide: 300 where 15% gave
+#   ~375). A big window is never squeezed; the canvas takes all of its extra;
+# * on a small window the canvas must not pay for it: ``CENTRE_MIN`` is kept by
+#   squeezing both sidebars equally down toward ``SIDEBAR_MIN`` first
+#   (:func:`proportions`, rung 1), so the 1100x700 floor still has a viewer.
+SIDEBAR_TARGET_DP = tokens.SIDEBAR_TARGET_DP
+# The dock claims 15% of the room itself when open; its own floor
+# (``DOCK_FLOOR_OPEN``) meets any shortfall from the sidebars, then the centre.
 DOCK_SHARE_OPEN = 0.15
 # The dock's width and floor both interpolate by the same ``t``: closed, the
 # dock is a slim strip the same width as the collapsed rail (44 dp); open, a
@@ -212,25 +223,31 @@ def proportions(
     ``rail`` is the rail's own physical width -- an icon column, not a share
     (``rail.tick`` settles it first; ``None`` reads :data:`RAIL_RESERVED`, and
     44 dp when nothing has ticked it). The two sidebars interpolate by
-    ``familiar_open_t`` (0..1, already eased by the caller) between
-    :data:`LEFT_SHARE_CLOSED` and :data:`LEFT_SHARE_OPEN` of the room each.
-    The dock interpolates between the closed 44 dp strip and
-    :data:`DOCK_SHARE_OPEN` of the room. **The centre is the remainder**, so
-    it gets every pixel the icon strips do not need; it narrows a little when
-    the dock opens, since the dock grows by more than the sidebars give.
+    ``familiar_open_t`` (0..1, already eased by the caller) never changes what
+    a sidebar *asks for*: each wants :data:`SIDEBAR_TARGET_DP` times ``scale``,
+    open dock or closed, and only gives way on the ladder below. The dock
+    interpolates between the closed 44 dp strip and :data:`DOCK_SHARE_OPEN` of
+    the room. **The centre is the remainder**, so it gets every pixel the
+    other four do not claim.
 
     **The give-way ladder.** A floor is a claim, and UX-01's whole story is
     that a claim which cannot be met does not fail, it silently pushes
     something else off the window -- so every shortfall here is met by moving
     width between columns, never by overflowing:
 
-    1. The dock's floor (interpolated between 44 dp closed and 260 dp open,
-       both times ``scale``) is met first, taken half from the left sidebar
+    1. The centre keeps :data:`CENTRE_MIN` (times ``scale``): if the remainder
+       would be smaller, both sidebars are squeezed *equally* toward
+       :data:`SIDEBAR_MIN` until it reaches it or they hit their floor. A
+       window roomy enough that the centre is already comfortable never
+       reaches this rung, so the sidebars stay at 300 dp.
+    2. The dock's floor (interpolated between 44 dp closed and 260 dp open,
+       both times ``scale``) is met next, taken half from the left sidebar
        and half from the right, each stopping at :data:`SIDEBAR_MIN`.
-    2. Whatever the sidebars could not give, and each sidebar's own floor,
+    3. Whatever the sidebars could not give, and each sidebar's own floor,
        come out of the centre -- which is the remainder, so this is only
-       arithmetic.
-    3. If the centre would go negative -- a window narrower than this app can
+       arithmetic. (This is how the centre can end up under ``CENTRE_MIN``:
+       only once both sidebars are already at their floor.)
+    4. If the centre would go negative -- a window narrower than this app can
        actually be resized to -- the shortfall is taken back off the dock
        first (the column that exists only once the user asked for it), then
        off the two sidebars evenly, then off the rail.
@@ -246,9 +263,7 @@ def proportions(
     if rail is None:
         rail = RAIL_RESERVED or 44.0 * use_scale
     rail = min(max(float(rail), 0.0), content)
-    left_share = LEFT_SHARE_CLOSED + (LEFT_SHARE_OPEN - LEFT_SHARE_CLOSED) * t
-    left = content * left_share
-    right = content * left_share
+    left = right = SIDEBAR_TARGET_DP * use_scale
     closed = DOCK_FLOOR_CLOSED * use_scale
     dock = closed + (content * DOCK_SHARE_OPEN - closed) * t
 
@@ -257,7 +272,17 @@ def proportions(
         (DOCK_FLOOR_CLOSED + (DOCK_FLOOR_OPEN - DOCK_FLOOR_CLOSED) * t) * use_scale, content
     )
 
-    # Rung 1: the dock's own floor, taken half from each sidebar; whatever
+    # Rung 1: the centre keeps CENTRE_MIN. Measured against the dock's raw
+    # share, not its floor: rung 2 hands the dock's extra width back out of the
+    # sidebars one-for-one, so the centre is unchanged by it and the two rungs
+    # together land the centre on CENTRE_MIN rather than under it.
+    shortfall = CENTRE_MIN * use_scale - (content - rail - left - right - dock)
+    if shortfall > 0.0:
+        half = shortfall / 2.0
+        left, _ = _give(left, sidebar_floor, half)
+        right, _ = _give(right, sidebar_floor, half)
+
+    # Rung 2: the dock's own floor, taken half from each sidebar; whatever
     # they could not give comes out of the centre below.
     deficit = max(dock_floor - dock, 0.0)
     if deficit > 0.0:
@@ -266,11 +291,11 @@ def proportions(
         right, _ = _give(right, sidebar_floor, half)
         dock = dock_floor
 
-    # Rung 2: each sidebar's own floor -- the centre pays, as the remainder.
+    # Rung 3: each sidebar's own floor -- the centre pays, as the remainder.
     left = max(left, sidebar_floor)
     right = max(right, sidebar_floor)
 
-    # Rung 3: a room too narrow for even that takes the overdraw back off the
+    # Rung 4: a room too narrow for even that takes the overdraw back off the
     # dock, then the sidebars, then the rail, so the sum stays exactly ``room``.
     over = rail + left + right + dock - content
     if over > 0.0:
@@ -300,7 +325,7 @@ def measure(library: Any = None, workspace: str = "", *, fixed_left: float | Non
 
     ``library``/``workspace``/``fixed_left`` are accepted and ignored: they
     named the per-workspace preference :func:`proportions` replaced (a side
-    column is now a fixed share of the room, the same in every mode), and are
+    column is now a fixed 300 dp, the same in every mode), and are
     kept only so the one production call site
     (``shell/frame.py``'s ``_build_ui``) and every existing test call did not
     all have to change the day the shares did.
