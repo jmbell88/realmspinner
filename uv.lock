@@ -1752,7 +1752,7 @@ wheels = [
 
 [[package]]
 name = "realmspinner"
-version = "0.0.54"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
