@@ -126,19 +126,28 @@ def axis_layout(view_matrix: Any, size: float) -> list[AxisBall]:
 # focus out of the viewport as well as changing the mode. The 1/2/3/4 keys
 # are what actually switch element mode (``clay_mode.ELEMENT_KEYS``), so the
 # line now names those instead.
+#
+# Plain words, because this is the line a newcomer reads: "click" and "drag",
+# never a button's abbreviation. It states the input rule ``gestures`` owns --
+# a drag on empty space looks around, a click selects, and the box select is
+# held behind a modifier -- and ``test_clay_hints`` walks the classifier to prove
+# each clause.
 _PICK = {
-    "object": "LMB select . Shift extend . 1/2/3 edit",
-    "vertex": "LMB pick . L linked . 4 object",
-    "edge": "LMB pick . L linked . 4 object",
-    "face": "LMB pick . L linked . 4 object",
+    "object": (
+        "Click to select, Shift adds, Ctrl removes . drag empty space to look around . 1/2/3 edit"
+    ),
+    "vertex": "Click to pick . drag empty space to look around . L linked . 4 object",
+    "edge": "Click to pick . drag empty space to look around . L linked . 4 object",
+    "face": "Click to pick . drag empty space to look around . L linked . 4 object",
 }
 
-#: The element modes' marquee clause. Only the Select tool sweeps one: under
-#: Move, Rotate and Scale a drag in empty space orbits (``_press_element``), so
-#: the 2026-10-07 audit's clay-86 -- a line that said "drag marquee" under all
-#: four tools -- promised a gesture three of them do not have. Spliced in after
-#: the pick clause, only for ``tool == "select"``.
-_MARQUEE = "drag marquee"
+#: The element modes' box-select clause, under every tool: since the 2026-10-08
+#: input rule a plain drag orbits under Select too, and the box is Shift's (adds)
+#: and Ctrl's (subtracts) whichever tool is in hand. The 2026-10-07 audit's
+#: clay-86 had to confine the old clause to Select because a plain drag swept a
+#: box only there; that asymmetry is gone, and with it the reason to splice.
+#: Spliced in after the look-around clause in the three element modes.
+_MARQUEE = "hold Shift and drag to select several, Ctrl to remove"
 
 #: What the tool in hand adds. Keyed on the tool rather than folded into the
 #: mode line because the two vary independently: Move in face mode and Move in
@@ -150,10 +159,11 @@ _TOOL = {
     "scale": "S scale . drag a handle",
 }
 
-#: Always true, and always last: the two mouse buttons that navigate. They are
-#: the keys a newcomer to a 3D viewport asks about first and the ones a manual
-#: is least likely to be open at.
-_NAVIGATE = "Alt+LMB orbit . MMB / Shift+MMB pan . wheel zoom"
+#: Always true, and always last: how to move the camera when a plain drag is
+#: not available. Orbiting needs no mention (the pick clause says a drag on empty
+#: space looks around, and Alt and drag does the same over the model); what a
+#: newcomer to a 3D viewport asks about next is panning and zoom.
+_NAVIGATE = "middle-drag pans . wheel zooms"
 
 
 def hint(mode: str, tool: str) -> str:
@@ -176,9 +186,9 @@ def hint(mode: str, tool: str) -> str:
     """
 
     pick = _PICK.get(mode, _PICK["object"])
-    if tool == "select" and mode in _PICK and mode != "object":
-        head, _, rest = pick.partition(" . ")
-        pick = f"{head} . {_MARQUEE} . {rest}"
+    if mode in _PICK and mode != "object":
+        head, look, rest = pick.split(" . ", 2)
+        pick = f"{head} . {look} . {_MARQUEE} . {rest}"
     parts = [pick]
     extra = _TOOL.get(tool, "")
     if extra:

@@ -18,6 +18,7 @@ delta arrives, and stand down for a typed value.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ import numpy as np
 
 from .....kernels.geom3d import math3d as m3
 from .....kernels.mesh import document as bd
+from .. import gestures
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .view import ClayView
@@ -180,6 +182,7 @@ class DragOps:
         if button != 1:
             return False
 
+        self._begin_press(local)
         shift, ctrl, alt = self._mods()
         if alt:
             # Alt+drag always orbits, in every mode: it is the one gesture that
@@ -210,19 +213,72 @@ class DragOps:
         # with ``doc.selection`` the same way ``_press_element`` combines with
         # an element selection, and the manual (30-clay.md:223) has always
         # promised Shift adds, Ctrl removes.
+        #
+        # A press on *nothing* no longer clears at the press: the clear used
+        # to run here, so the first orbit drag over empty space deselected the
+        # object the user was looking at. ``gestures.classify_press`` defers it
+        # to the release, and only a release that never left the click slop
+        # (``_run_click``) still clears.
         hit = self.pick(doc, local)
-        how = "add" if shift else ("subtract" if ctrl else "replace")
-        if how == "replace":
-            doc.select([hit] if hit is not None else [])
-        elif hit is not None:
-            current = set(doc.selection)
-            if how == "add":
-                current.add(hit)
+        plan = gestures.classify_press(
+            element_mode=False,
+            under="object" if hit is not None else "nothing",
+            tool=self._tool(),
+            shift=shift,
+            ctrl=ctrl,
+        )
+        if plan.now == gestures.PICK:
+            how = gestures.pick_how(shift, ctrl)
+            if how == "replace":
+                doc.select([hit])
             else:
-                current.discard(hit)
-            doc.select(current)
+                current = set(doc.selection)
+                if how == "add":
+                    current.add(hit)
+                else:
+                    current.discard(hit)
+                doc.select(current)
+        if plan.click == gestures.CLEAR:
+            self._click = ("clear-objects",)
         self._grab = "orbit"
         return True
+
+    def _tool(self: ClayView) -> str:
+        return str(getattr(self.state, "tool", "select"))
+
+    def _begin_press(self: ClayView, local: tuple[float, float]) -> None:
+        """Forget the last press's click and start measuring this one's travel."""
+        self._press_at = local
+        self._moved = 0.0
+        self._click = None
+
+    def _run_click(self: ClayView, doc: Any, click: tuple[Any, ...]) -> None:
+        """Do what a press that never left the click slop was waiting to do.
+
+        Guarded against the document having moved on since the press (a mode
+        key, a deleted object): an element click in object mode, or an object
+        click in an element mode, is dropped rather than written into a state
+        that has no place for it.
+        """
+        from .....kernels.mesh import elements as el
+
+        kind = click[0]
+        in_elements = doc.element_mode != "object"
+        if kind == "clear-objects":
+            if not in_elements:
+                doc.select([])
+            return
+        if not in_elements:
+            return
+        if kind == "clear-picks":
+            doc.clear_element_sel()
+        elif kind == "clear-surface":
+            if any(o.uid == click[1] for o in doc.objects):
+                doc.set_element_sel(click[1], el.empty())
+        elif kind == "pick":
+            _kind, uid, one, how = click
+            if any(o.uid == uid for o in doc.objects):
+                doc.set_element_sel(uid, el.combine(doc.element_sel_of(uid), one, how))
 
     def _begin_gizmo_drag(self: ClayView, doc: Any) -> bool:
         """Record every selected object's transform at the press. -> whether
@@ -495,42 +551,47 @@ class DragOps:
     def _press_element(
         self: ClayView, doc: Any, local: tuple[float, float], *, shift: bool, ctrl: bool
     ) -> bool:
-        """LMB in an element mode: pick, clear, or start a marquee.
+        """LMB in an element mode: pick, clear, orbit or start a marquee.
 
-        The order is what makes it feel right. An element under the cursor
-        wins; failing that, a *surface* under the cursor means the user clicked
-        the object and missed everything on it, which clears that object rather
-        than the whole selection; failing that, they clicked empty space, and
-        what happens then is the tool's business -- Q starts a marquee, the
-        transform tools orbit, because dragging a gizmo tool over the void is
-        how a user looks around.
+        Read off what is under the cursor -- an element, else a *surface* (the
+        user clicked the object and missed everything on it), else nothing --
+        and handed to :func:`~..gestures.classify_press`, which owns the rule:
+        a plain drag orbits, a click picks or clears, Shift+drag sweeps a box
+        that adds and Ctrl+drag one that subtracts. This used to start a
+        marquee on every plain press over empty space under the Select tool, so
+        a first-time user dragging the void to look around drew a rectangle and
+        lost their picks. A plain press on an element still picks at once; a
+        Shift or Ctrl press on one waits for the release, so the box can start
+        on the model.
         """
-        from .....kernels.mesh import elements as el
-
-        how = "add" if shift else ("subtract" if ctrl else "replace")
+        how = gestures.pick_how(shift, ctrl)
         hit = self.pick_face(doc, local)
         picked = self.pick_element(doc, local, hit)
+        under = "element" if picked is not None else ("surface" if hit is not None else "nothing")
+        plan = gestures.classify_press(
+            element_mode=True, under=under, tool=self._tool(), shift=shift, ctrl=ctrl
+        )
+        one = None
         if picked is not None:
             uid, index = picked
             one = self.element_sel_for(doc, uid, index)
+        if plan.now == gestures.PICK:
+            from .....kernels.mesh import elements as el
+
             if how == "replace":
                 doc.clear_element_sel()
-            doc.set_element_sel(
-                uid, el.combine(doc.element_sel_of(uid), one, how)
-            )
+            doc.set_element_sel(uid, el.combine(doc.element_sel_of(uid), one, how))
+        if plan.click == gestures.PICK:
+            self._click = ("pick", uid, one, how)
+        elif plan.click == gestures.CLEAR:
+            self._click = ("clear-surface", hit.uid) if hit is not None else ("clear-picks",)
+        if plan.drag == gestures.ORBIT:
             self._grab = "orbit"
-            return True
-        if hit is not None:
-            doc.set_element_sel(hit.uid, el.empty())
-            self._grab = "orbit"
-            return True
-        if getattr(self.state, "tool", "select") == "select":
+        else:
             self._grab = "marquee"
             self._marquee_from = local
-            self._marquee_add = how
+            self._marquee_add = "add" if plan.drag == gestures.MARQUEE_ADD else "subtract"
             self.marquee = (local[0], local[1], local[0], local[1])
-        else:
-            self._grab = "orbit"
         return True
 
     def _release_drag(self: ClayView, doc: Any, button: int = 1) -> bool:
@@ -545,12 +606,21 @@ class DragOps:
         if button != owner:
             return True
         was, self._grab = self._grab, None
+        click, self._click = self._click, None
         if was in ("gizmo", "keydrag"):
             self._settle_drag_tail(doc, was)
         elif was == "opdrag":
             self._op_drag_commit(doc)
         elif was == "marquee":
-            self._commit_marquee(doc)
+            if click is not None and gestures.is_click(self._moved):
+                # A Shift or Ctrl press that never became a sweep: the click
+                # it was waiting to be, with the rectangle dropped unread.
+                self.marquee, self._marquee_from = None, None
+                self._run_click(doc, click)
+            else:
+                self._commit_marquee(doc)
+        elif was == "orbit" and click is not None and gestures.is_click(self._moved):
+            self._run_click(doc, click)
         return True
 
     def _settle_drag_tail(self: ClayView, doc: Any, was: str) -> None:
@@ -615,6 +685,7 @@ class DragOps:
         self._grab = None
         self.marquee = None
         self._marquee_from = None
+        self._click = None
         self._render_dirty = True
         return True
 
@@ -791,11 +862,14 @@ class DragOps:
         return True
 
     def _commit_marquee(self: ClayView, doc: Any) -> None:
-        """Apply the swept rectangle, or clear the selection if it has no area.
+        """Apply the swept rectangle. A rectangle with no area changes nothing.
 
-        A zero-area marquee is a click on empty space, and clicking empty space
-        deselects -- so the same gesture does both, with the area deciding
-        which, rather than the press having to guess in advance.
+        A zero-area marquee used to be a click on empty space and cleared the
+        selection, because a plain press there started a marquee. A marquee is
+        now Shift's or Ctrl's alone (``gestures.classify_press``), and a Shift
+        press that never left the click slop is handled by the release before
+        this is reached; a sweep that is merely thin must not wipe the picks
+        it was asked to add to or take from.
         """
         from .....kernels.mesh import elements as el
         from .....kernels.mesh import pick as bp
@@ -812,8 +886,6 @@ class DragOps:
         if doc.element_mode == "object":
             return
         if abs(rect[2] - rect[0]) < 2.0 and abs(rect[3] - rect[1]) < 2.0:
-            if self._marquee_add == "replace":
-                doc.clear_element_sel()
             return
 
         mode = doc.element_mode
@@ -935,6 +1007,12 @@ class DragOps:
         # not trail an orbit or follow a dragged object.
         self.hover_object = None
         self._hover_pick_at = None
+        if self._grab in ("orbit", "marquee"):
+            # The farthest the pointer has been from the press, so a drag that
+            # wanders off and comes back is still a drag (``gestures.is_click``).
+            self._moved = max(
+                self._moved, math.hypot(local[0] - self._press_at[0], local[1] - self._press_at[1])
+            )
         if self._grab == "marquee":
             start = self._marquee_from or local
             self.marquee = (start[0], start[1], local[0], local[1])

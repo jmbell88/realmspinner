@@ -442,6 +442,9 @@ _PINNED_MODULE_IMPORTS = {
     _UI / "_view_drag.py": {
         ("__future__", "annotations"), ("dataclasses", "dataclass"), ("typing", "Any"),
         ("numpy", None), (".....kernels.geom3d", "math3d"), (".....kernels.mesh", "document"),
+        # The input rule's pure classifier (no imports of its own) and the
+        # click-slop distance it is measured with.
+        ("..", "gestures"), ("math", None),
     },
     _UI / "_view_overlay.py": {
         ("__future__", "annotations"), ("typing", "Any"), ("moderngl", None), ("numpy", None),

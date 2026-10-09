@@ -270,7 +270,10 @@ def test_a_middle_press_during_a_marquee_neither_pans_nor_strands_the_rectangle(
     view.draw(doc, RECT, 0.0)
     far = (int(RECT[2]) - 1, int(RECT[3]) - 1)
 
-    view.handle_event(doc, _event(pygame.MOUSEBUTTONDOWN, button=1, pos=(1, 1)), True)
+    # Shift: a plain press on empty space orbits now, and the box is Shift's.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(pygame.key, "get_mods", lambda: pygame.KMOD_SHIFT, raising=False)
+        view.handle_event(doc, _event(pygame.MOUSEBUTTONDOWN, button=1, pos=(1, 1)), True)
     view.handle_event(doc, _event(pygame.MOUSEMOTION, pos=far), True)
     assert view._grab == "marquee"
 

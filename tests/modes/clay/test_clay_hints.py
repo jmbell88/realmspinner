@@ -108,10 +108,11 @@ def test_a_degenerate_matrix_still_produces_six_balls():
 def test_every_mode_and_tool_pair_has_a_hint(mode, tool):
     line = clay_hints.hint(mode, tool)
     assert line and "  " not in line
-    # The two navigation buttons are on every line: they are what a newcomer to
-    # a 3D viewport asks about first and what a manual is least open at.
-    # The middle button pans bare or with Shift held, and the line says both.
-    assert "Alt+LMB orbit" in line and "MMB / Shift+MMB pan" in line
+    # Panning and zoom are on every line: they are what a newcomer to a 3D
+    # viewport asks about once looking around works, and what a manual is least
+    # open at. Plain words: no button abbreviations on a line a newcomer reads.
+    assert "middle-drag pans" in line and "wheel zooms" in line
+    assert "LMB" not in line and "MMB" not in line and "RMB" not in line
 
 
 def test_the_element_modes_advertise_only_the_verbs_they_still_have():
@@ -119,9 +120,51 @@ def test_the_element_modes_advertise_only_the_verbs_they_still_have():
     a hint that names a chord nothing listens to is offer-then-refuse."""
     for mode in ("vertex", "edge", "face"):
         line = clay_hints.hint(mode, "select")
-        assert "marquee" in line and "L linked" in line
+        assert "Shift and drag" in line and "L linked" in line
         assert "Alt+click" not in line and "grow/shrink" not in line
     assert clay_hints.hint("nonsense", "select") == clay_hints.hint("object", "select")
+
+
+@pytest.mark.parametrize("mode", clay_ops.ALL_MODES)
+@pytest.mark.parametrize("tool", [key for key, _label, _key in clay_state.TOOLS])
+def test_every_gesture_the_hint_names_is_the_one_the_classifier_performs(mode, tool):
+    """The hint is a promise about the mouse, so each clause is walked against
+    ``gestures.classify_press`` rather than trusted: "drag empty space to look
+    around" must be an orbit, "Shift and drag" a box that adds, "Ctrl ... remove"
+    one that subtracts, and a click on an element a pick. Fails against the old
+    hint, which said "LMB pick" and, under the Select tool, "drag marquee" for
+    a plain drag the classifier now orbits."""
+    from realmspinner.studio.modes.clay import gestures
+
+    line = clay_hints.hint(mode, tool)
+    element = mode != "object"
+    under = "nothing"
+    plain = gestures.classify_press(
+        element_mode=element, under=under, tool=tool, shift=False, ctrl=False
+    )
+    assert "drag empty space to look around" in line
+    assert plain.drag == gestures.ORBIT
+    if element:
+        assert "Shift and drag" in line and "Ctrl to remove" in line
+        shift = gestures.classify_press(
+            element_mode=True, under=under, tool=tool, shift=True, ctrl=False
+        )
+        ctrl = gestures.classify_press(
+            element_mode=True, under=under, tool=tool, shift=False, ctrl=True
+        )
+        assert shift.drag == gestures.MARQUEE_ADD and ctrl.drag == gestures.MARQUEE_SUB
+        pick = gestures.classify_press(
+            element_mode=True, under="element", tool=tool, shift=False, ctrl=False
+        )
+        assert "Click to pick" in line and pick.now == gestures.PICK
+    else:
+        assert "box" not in line and "Shift and drag" not in line, (
+            "object mode has no box select, so its line may not offer one"
+        )
+        click = gestures.classify_press(
+            element_mode=False, under="object", tool=tool, shift=False, ctrl=False
+        )
+        assert "Click to select" in line and click.now == gestures.PICK
 
 
 # --- the measurement line ----------------------------------------------------
@@ -137,7 +180,7 @@ def test_a_live_measurement_outranks_the_ordinary_legend():
 
 def test_keys_named_finds_the_chords_and_the_bare_letters():
     found = clay_hints.keys_named(clay_hints.hint("edge", "move"))
-    assert {"L", "G", "4", "LMB", "MMB", "Alt+LMB"} <= found
+    assert {"L", "G", "4", "wheel"} <= found
 
 
 def test_keys_named_does_not_read_english_as_a_binding():

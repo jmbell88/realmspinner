@@ -57,10 +57,11 @@ either to zero and that half is off. In an element mode each moved vertex lands 
 details are in [Clay](30-clay.md), under *Snapping*. The grid is all there is to snap to, with no snap
 to another object's vertex and no soft falloff: to make two things touch, type their positions.
 
-Camera: `Alt`-drag always orbits, the middle button (or `Shift` and the middle button) pans, and the
-wheel zooms toward the pointer. `F` frames the selection without turning the view. `Ctrl+1`, `Ctrl+3`
-and `Ctrl+7` snap to axis views (add `Shift` for the opposite side; the numeric keypad does the same
-without `Ctrl`), and `Ctrl+5` toggles orthographic.
+Camera: dragging empty space looks around (`Alt`-drag orbits even over the model), the middle button
+(or `Shift` and the middle button) pans, and the wheel zooms toward the pointer. `F` frames the
+selection without turning the view. `Ctrl+1`, `Ctrl+3` and `Ctrl+7` snap to axis views (add `Shift`
+for the opposite side; the numeric keypad does the same without `Ctrl`), and `Ctrl+5` toggles
+orthographic.
 
 ## Editing the mesh
 
@@ -69,8 +70,8 @@ keyboard always offer exactly the same list. Right-click is the easiest way in.
 
 The ones you will use: **Extrude** (`E`), **Inset Faces** (`I`), **Subdivide**, **Merge Faces**,
 **Weld**, **Triangulate Faces**, **Flip Normals** and **Delete**. It is a short list on purpose: a
-low-poly model is made of a few hundred faces you can see, and a marquee, `L` for everything joined
-and these eight reach all of them.
+low-poly model is made of a few hundred faces you can see, and a `Shift`-drag box, `L` for everything
+joined and these eight reach all of them.
 
 ## Merging objects
 

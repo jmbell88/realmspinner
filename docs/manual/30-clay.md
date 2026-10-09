@@ -225,8 +225,10 @@ back views one click rather than a chord.
 
 The line under the viewport says what the mouse and the keyboard do *right now*, and it changes with
 the mode, the tool and whether a drag is running. It is there because most of the selection verbs are
-not buttons: `L` for everything connected, a marquee, `Shift` and `Ctrl` to add and remove. Without
-the line the only way to find out what a mode can do is to read this chapter.
+not buttons: `L` for everything connected, a box select held behind `Shift` or `Ctrl`, `Shift` and
+`Ctrl` to add and remove. It is written in plain words — click, drag, hold Shift — and never names a
+mouse button by abbreviation. Without the line the only way to find out what a mode can do is to read
+this chapter.
 
 ## Element modes
 
@@ -255,14 +257,22 @@ edges (or corners) is selected, so two edges of a triangle do not select the tri
 
 Clicking replaces the selection, `Shift`+click adds to it and `Ctrl`+click removes from it. Clicking
 the object but missing everything on it clears that object; clicking empty space with the **Select**
-tool (`Q`) starts a marquee, and a marquee that ends where it started clears everything. A marquee
-takes a vertex inside the rectangle, an edge only when *both* ends are inside, and a face only when
-*all* its corners are — and it selects through the mesh, back face included, because that is what a
-rectangle dragged over a blockout means. The marquee belongs to the Select tool: under Move, Rotate or Scale a
-drag in empty space orbits the view, and the hint line under the viewport only names the marquee under Select.
+tool (`Q`) clears everything. **Dragging empty space looks around** (orbits the view), in every mode and
+under every tool, and it never selects or deselects anything, so the first thing a newcomer tries does no
+harm. A click on empty space only counts as a click if the pointer stays within about four pixels of where
+it went down; drag farther than that, even if you come back, and it was a drag.
 
-`Alt`+drag always orbits, in every mode. That is the one gesture that is never reinterpreted, since
-it is how you look at what you are about to click.
+To select several at once, hold `Shift` and drag a box (it adds to what is selected) or `Ctrl` and drag
+one (it removes). A box takes a vertex inside the rectangle, an edge only when *both* ends are inside, and
+a face only when *all* its corners are — and it selects through the mesh, back face included, because that
+is what a rectangle dragged over a blockout means. The box works under every tool, and it may start on the
+model itself: a `Shift`- or `Ctrl`-press on an element waits to see whether you drag, so a click still
+adds or removes that element and a drag becomes a box. A box with no area changes nothing.
+
+`Alt`+drag orbits too, in every mode, even when the press lands on something you could pick. That is the
+one gesture that is never reinterpreted, since it is how you look at what you are about to click. In object
+mode a drag on empty space orbits and leaves the selection alone; only a click there deselects, and object
+mode has no box select.
 
 Right-click opens the context menu, listing exactly the operations that apply in the current mode
 with the ones that cannot run greyed out. The same table drives the menu strip, so
@@ -292,11 +302,11 @@ exist rather than left pointing past the end of a smaller mesh.
 
 ### Selecting more than one thing
 
-Clicking picks one element and `Shift`-clicking adds another, and a marquee takes everything inside a
-rectangle. `L` selects everything **joined** to what is selected — the way to pick one of two shapes
-that were welded into one mesh, and what Separate Selection is about to split off. Clay has no
+Clicking picks one element and `Shift`-clicking adds another, and `Shift`- or `Ctrl`-dragging a box takes
+(or removes) everything inside a rectangle. `L` selects everything **joined** to what is selected — the way to
+pick one of two shapes that were welded into one mesh, and what Separate Selection is about to split off. Clay has no
 select-more or select-less, no loop or ring pick and no select-by-similarity: it is a small tool, and
-a marquee and `L` between them reach what a low-poly model needs.
+a box and `L` between them reach what a low-poly model needs.
 
 ### The operations
 
@@ -406,8 +416,8 @@ The gizmos work on elements too. In an element mode they sit at the centre of wh
 *inside* the objects rather than at the object's own centre, and dragging one moves those vertices.
 That is one undo step per drag, and a drag that ends where it started records nothing at
 all. **Select** (`Q`) shows the move gizmo for an element selection just as it does for an object, and
-the marquee still works: dragging in empty space sweeps a rectangle, dragging the gizmo moves the
-selection.
+the box select still works with `Shift` or `Ctrl` held: dragging the gizmo moves the selection, and
+dragging empty space looks around.
 
 The **Move**, **Rotate** and **Scale** values are also typed directly in the properties panel, which
 is the better way to place something exactly. Position and scale boxes are labelled X, Y and Z.
@@ -676,12 +686,12 @@ the key from it permanently.
 
 ### Moving the camera
 
-`Alt`+drag orbits, and the **middle button** pans — drag it alone, or with `Shift` held, which is
-Blender's spelling (`MMB` or `Shift`+`MMB`). The wheel zooms **toward the pointer**: the point under the
-cursor stays put as you zoom, so you steer by where you point rather than by first panning to the thing
-you want to look at. You can zoom in much closer than before, which is what a model a few centimetres
-across needs. `F` frames the selection without changing the angle you are looking from, and numpad `.`
-does the same.
+A plain drag on empty space orbits (so does `Alt`+drag, which also works over the model), and the **middle
+button** pans — drag it alone, or with `Shift` held, which is Blender's spelling (`MMB` or `Shift`+`MMB`).
+The wheel zooms **toward the pointer**: the point under the cursor stays put as you zoom, so you steer by
+where you point rather than by first panning to the thing you want to look at. You can zoom in much
+closer than before, which is what a model a few centimetres across needs. `F` frames the selection
+without changing the angle you are looking from, and numpad `.` does the same.
 
 ## Snapping
 

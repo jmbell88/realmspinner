@@ -9,7 +9,7 @@ the two whose wording happens to say the word.
 
 One rule explains an apparent overlap between the tables below. Inker, Clay and Review each take
 every key while they are on screen — so in Inker `W` picks the wand rather than toggling wireframe,
-in Clay `W` is the move tool, and in Review `S` skips a unit. Create's viewport bindings would
+in Clay `G` is the move tool, and in Review `S` skips a unit. Create's viewport bindings would
 otherwise act on a viewport that is not on screen.
 
 ## Everywhere
@@ -200,16 +200,20 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Ctrl+Shift+1 / +3 / +7 | The opposite view: back / left / bottom |
 | Ctrl+5 | Toggle orthographic and perspective |
 | Numpad 1 / 3 / 7 | Look along front / right / top, with no `Ctrl` — numpad 5 toggles orthographic and numpad `.` frames the selection |
+| Shift+drag / Ctrl+drag | Box-select, adding to / removing from the selection (element modes, under any tool) |
 | Alt+drag | Orbit, whatever mode you are in |
 | Esc | Cancel a drag; otherwise step back: element selection, then element mode, then object selection |
 
-**The mouse.** Left-drag in empty space orbits, and `Alt`+left-drag always orbits whatever mode you
-are in. Middle-drag pans (`Shift`+middle-drag does too) and the wheel zooms toward the pointer.
-Right-click opens the context menu — right-drag does nothing, so grabbing the wrong button mid-orbit
-costs you nothing.
+**The mouse.** Left-drag in empty space orbits, in every mode and under every tool, and `Alt`+left-drag
+always orbits whatever mode you are in, even over the model. Middle-drag pans (`Shift`+middle-drag does
+too) and the wheel zooms toward the pointer. Right-click opens the context menu — right-drag does
+nothing, so grabbing the wrong button mid-orbit costs you nothing.
 
-In an element mode, left-click selects an element, `Shift`+click adds and `Ctrl`+click removes;
-left-drag in empty space with `Q` selected sweeps a marquee.
+A click is a press that stays within about four pixels. Only a click on empty space deselects, so a drag
+that starts there to look around never changes the selection. In an element mode, left-click selects an element,
+`Shift`+click adds and `Ctrl`+click removes, and clicking empty space with `Q` selected clears the
+picks. To select several, hold `Shift` and drag a box (adds) or `Ctrl` and drag one (removes); a box
+with no area changes nothing. Object mode has no box select: a drag on empty space orbits there too.
 
 ## Mason
 

@@ -402,11 +402,15 @@ def test_the_private_offscreen_caches_are_bounded_and_released(view) -> None:
 
 
 def _start_marquee(view: Any, doc: Any) -> None:
+    """Begin a box select the only way left: a Shift press on empty space, then
+    movement. (A plain press there orbits; see ``test_clay_input_model``.)"""
     import pygame
 
     doc.set_element_mode("face")
     view.draw(doc, RECT, 0.0)
-    view.handle_event(doc, _event(pygame.MOUSEBUTTONDOWN, button=1, pos=(1, 1)), True)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(pygame.key, "get_mods", lambda: pygame.KMOD_SHIFT, raising=False)
+        view.handle_event(doc, _event(pygame.MOUSEBUTTONDOWN, button=1, pos=(1, 1)), True)
     view.handle_event(doc, _event(pygame.MOUSEMOTION, pos=(190, 140)), True)
     assert view._grab == "marquee"
 
@@ -434,16 +438,21 @@ def test_settling_a_drag_also_drops_a_live_marquee(view) -> None:
     assert view.marquee is None and view._grab is None
 
 
-# --- clay-86: the marquee clause is the Select tool's alone -------------------
+# --- clay-86: the hint promises only the gestures the tool has ----------------
+# It used to confine the marquee clause to the Select tool, the one tool where a
+# plain drag swept a box. The box is Shift's and Ctrl's under every tool now (a
+# plain drag orbits everywhere), so the honest line names it under all four.
 
 
 @pytest.mark.parametrize("mode", ["vertex", "edge", "face"])
-def test_the_hint_names_the_marquee_only_under_the_select_tool(mode) -> None:
-    assert "marquee" in clay_hints.hint(mode, "select")
-    for tool in ("move", "rotate", "scale"):
-        line = clay_hints.hint(mode, tool)
-        assert "marquee" not in line, f"{mode}/{tool}: {line!r}"
-        assert "L linked" in line and "4 object" in line
+@pytest.mark.parametrize("tool", ["select", "move", "rotate", "scale"])
+def test_the_hint_names_the_box_select_under_every_tool_and_never_a_plain_drag_sweep(
+    mode, tool
+) -> None:
+    line = clay_hints.hint(mode, tool)
+    assert "hold Shift and drag to select several" in line, f"{mode}/{tool}: {line!r}"
+    assert "drag marquee" not in line, "a plain drag orbits now; it sweeps nothing"
+    assert "L linked" in line and "4 object" in line
 
 
 # --- clay-87: the extrude drag's normal lock is not snapped (documented) -------

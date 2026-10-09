@@ -316,7 +316,9 @@ def test_clicking_empty_space_hits_nothing(view) -> None:
     assert view.pick(doc, (2.0, 2.0)) is None
 
 
-def test_a_press_on_empty_space_clears_the_selection(view) -> None:
+def test_a_click_on_empty_space_clears_the_selection_on_release_not_at_the_press(view) -> None:
+    """Fails on the old code at the middle assertion: the press itself ran
+    ``doc.select([])``, so the first orbit drag over empty space deselected."""
     import pygame
 
     doc = _doc(count=1)
@@ -326,6 +328,8 @@ def test_a_press_on_empty_space_clears_the_selection(view) -> None:
 
     event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(2, 2))
     assert view.handle_event(doc, event, True) is True
+    assert doc.selection == {doc.objects[0].uid}, "a press on empty space decides nothing yet"
+    view.handle_event(doc, pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=(2, 2)), True)
     assert doc.selection == set()
 
 
@@ -664,27 +668,47 @@ def test_shift_adds_and_ctrl_subtracts(view, headless_mods) -> None:
     first = doc.element_sel_of(uid).faces.tolist()
     assert first
 
+    # Shift and Ctrl on an element wait for the release (so a box can start on
+    # the model itself): the click is press then release, not press alone.
     _hold(headless_mods, pygame.KMOD_CTRL)
     _press(view, doc, _centre())
+    _release(view, doc, _centre())
     assert first[0] not in doc.element_sel_of(uid).faces.tolist()
 
     _hold(headless_mods, pygame.KMOD_SHIFT)
     _press(view, doc, _centre())
+    _release(view, doc, _centre())
     assert first[0] in doc.element_sel_of(uid).faces.tolist()
 
 
-def test_clicking_empty_space_with_the_select_tool_starts_a_marquee(view) -> None:
+def test_a_plain_press_on_empty_space_orbits_rather_than_starting_a_marquee(view) -> None:
+    """Fails on the old code: a plain press on empty space under the Select tool
+    set ``_grab`` to ``"marquee"`` and drew a rectangle."""
     doc = _doc(count=1)
     _face_mode(doc)
     view.frame_selection(doc)
     view.draw(doc, RECT, 0.0)
 
     _press(view, doc, (2, 2))
+    assert view._grab == "orbit"
+    assert view.marquee is None
+
+
+def test_a_shift_press_on_empty_space_starts_a_marquee(view, headless_mods) -> None:
+    import pygame
+
+    doc = _doc(count=1)
+    _face_mode(doc)
+    view.frame_selection(doc)
+    view.draw(doc, RECT, 0.0)
+
+    _hold(headless_mods, pygame.KMOD_SHIFT)
+    _press(view, doc, (2, 2))
     assert view._grab == "marquee"
     assert view.marquee is not None
 
 
-def test_a_marquee_over_the_whole_viewport_takes_every_face(view) -> None:
+def test_a_shift_marquee_over_the_whole_viewport_takes_every_face(view, headless_mods) -> None:
     import pygame
 
     doc = _doc(count=1)
@@ -693,6 +717,7 @@ def test_a_marquee_over_the_whole_viewport_takes_every_face(view) -> None:
     view.draw(doc, RECT, 0.0)
 
     far = (int(RECT[2]) - 1, int(RECT[3]) - 1)
+    _hold(headless_mods, pygame.KMOD_SHIFT)
     _press(view, doc, (1, 1))
     view.handle_event(doc, pygame.event.Event(pygame.MOUSEMOTION, pos=far), True)
     _release(view, doc, far)
@@ -700,7 +725,9 @@ def test_a_marquee_over_the_whole_viewport_takes_every_face(view) -> None:
     assert len(doc.element_sel_of(doc.objects[0].uid).faces) == 6
 
 
-def test_a_zero_area_marquee_clears_the_selection(view) -> None:
+def test_a_click_on_empty_space_with_the_select_tool_still_clears_the_picks(view) -> None:
+    """The old test of this claim leaned on a zero-area marquee; the click is
+    now the release of a press that never left the slop."""
     doc = _doc(count=1)
     _face_mode(doc)
     view.frame_selection(doc)

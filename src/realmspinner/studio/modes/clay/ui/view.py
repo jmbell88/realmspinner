@@ -29,6 +29,11 @@ sort that fail invisibly:
   clear colour straight back to sRGB, so it is the literal hex, and the
   renderer owns that; nothing here re-grades it.
 
+**A plain left-drag orbits in every mode; Shift+drag sweeps a selection box that
+adds and Ctrl+drag one that subtracts** (``gestures.classify_press`` is the
+rule, pure and table-tested). A click without a drag picks or clears, and a
+press that begins on empty space decides nothing until the release.
+
 **The mouse map is Wings3D's, and RMB pan is gone.** Right-drag used to pan,
 and the context menu needs the right button more: a menu that appears under the
 cursor with the ops that apply to what is selected is the whole point of an
@@ -373,6 +378,14 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self.marquee: tuple[float, float, float, float] | None = None
         self._marquee_from: tuple[float, float] | None = None
         self._marquee_add = "replace"
+        # The left press in flight (``gestures``): where it began, the farthest
+        # the pointer has been from there, and the click a release inside the
+        # slop will still run -- a tuple ``_view_drag._run_click`` reads, or
+        # ``None``. Nothing a press starts on empty space is decided until the
+        # pointer has shown whether it is a click or a drag.
+        self._press_at = (0.0, 0.0)
+        self._moved = 0.0
+        self._click: tuple[Any, ...] | None = None
         self._element_drags: dict[int, _ElementDrag] = {}
         # A live op drag (``_view_opdrag``) and an Extrude's drag gesture, each
         # ``None`` between gestures.
@@ -826,9 +839,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         *app* setting shared across documents -- so this reads it rather than
         holding it. Select shows the translate gizmo once there is something to
         move -- a selected object, or selected elements -- so a selection always
-        has a handle on it, and a drag of that handle is a Move. Only the empty
-        space around it belongs to Select's marquee, which is what keeps the
-        left button free for it in an element mode.
+        has a handle on it, and a drag of that handle is a Move. A drag of the
+        empty space around it orbits; the box select is Shift's and Ctrl's.
         """
         kind = GIZMO_FOR_TOOL.get(getattr(self.state, "tool", "select"), "")
         if not kind and getattr(self.state, "tool", "select") == "select":

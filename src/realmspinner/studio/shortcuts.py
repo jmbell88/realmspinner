@@ -174,7 +174,11 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Ctrl+A", "Select all, in the current mode"),
             ("Ctrl+Shift+I", "Invert the selection"),
             ("Right-click", "Context menu"),
-            ("Alt+drag", "Orbit, in any mode"),
+            # The input model: a plain drag orbits in every mode, and the box
+            # select is held behind a modifier so a first look around never
+            # draws a rectangle or clears the picks.
+            ("Shift+drag / Ctrl+drag", "Box-select, adding / removing (element modes)"),
+            ("Alt+drag", "Orbit, in any mode (a plain drag on empty space orbits too)"),
             ("Ctrl+Z / Ctrl+Y", "Undo / redo (Ctrl+Shift+Z also redoes)"),
             ("Ctrl+S / Ctrl+Shift+S", "Save / save as"),
             # "Ctrl+N / O / W", matching Inker's row below rather than
