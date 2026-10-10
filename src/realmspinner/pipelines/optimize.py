@@ -38,11 +38,13 @@ module never touches.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -222,6 +224,109 @@ def run(
         "bytes": dest.stat().st_size,
         "tiercheck": {"ok": True, "notes": list(verdict.notes)},
     }
+
+
+#: The share of the mesh's triangles each LOD level keeps, finest first. LOD0 is
+#: the mesh as it is. Halving is the convention an engine's LOD group expects
+#: (each level is cheaper by about the factor its switch distance grows by),
+#: and 10% is where a prop stops being readable from any distance a game uses it
+#: at. Not measured against anything: no corpus has been judged for what an
+#: engine's switch looks like, which is a human sitting's question.
+LOD_RATIOS: tuple[float, ...] = (1.0, 0.5, 0.25, 0.1)
+
+
+def triangles(path: Path) -> int:
+    """How many triangles the GLB at ``path`` holds."""
+    return _triangles(path)
+
+
+def lod_chain(
+    model_glb: Path,
+    out_zip: Path,
+    *,
+    exe: Path,
+    ratios: tuple[float, ...] = LOD_RATIOS,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> dict[str, Any]:
+    """Write ``<name>_LOD0.glb`` ... and ``lods.json`` into ``out_zip``.
+
+    Every level is simplified **from ``model_glb`` itself**, never from the
+    level above it: simplifying a simplification compounds its error, and each
+    level then needs its own budget to be a plain share of the original. Each
+    pass goes through :func:`run`, so it gets what a retarget gets -- the
+    ``tiercheck`` that refuses a pass that dropped UVs, a material or a PBR map,
+    and gltfpack inside the kill-on-close job.
+
+    **A level that cannot be made drops itself and every coarser one**, with the
+    reason in ``lods.json``: a pass the check refused at 25% will refuse 10%,
+    and a level that failed to get smaller than the one above it (a mesh already
+    at or under the budget, where :func:`run` copies) is not a level. A chain
+    of fewer than two levels is not a chain, so that raises ``ValueError`` with
+    the first reason -- the caller says why there is nothing to download.
+
+    The pivot is untouched: gltfpack bakes node transforms into the geometry, so
+    a grounded source stays where it was, and **not** re-grounding each level is
+    deliberate -- an engine swaps LODs in place, and a pivot that moved by the
+    millimetres simplification shifts a bounding box by would make the swap pop.
+
+    ``out_zip`` is written in place: the caller stages (``service.derive`` does,
+    as it does for ``model.fbx``), because that is where the per-artifact lock
+    and the rename live.
+    """
+    if not ratios or ratios[0] != 1.0 or list(ratios) != sorted(ratios, reverse=True):
+        raise ValueError("ratios must start at 1.0 and decrease")
+    source_triangles = _triangles(model_glb)
+    work = Path(tempfile.mkdtemp(dir=out_zip.parent, prefix=".lods."))
+    levels: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    try:
+        for index, ratio in enumerate(ratios):
+            level = work / f"model_LOD{index}.glb"
+            if ratio >= 1.0:
+                shutil.copyfile(model_glb, level)
+                achieved = source_triangles
+            else:
+                budget = max(int(round(source_triangles * ratio)), 1)
+                try:
+                    achieved = int(
+                        run(model_glb, level, target_triangles=budget, exe=exe, timeout=timeout)[
+                            "achieved"
+                        ]
+                    )
+                except OptimizeError as exc:
+                    reason = str(exc)
+                else:
+                    reason = ""
+                    if achieved >= levels[-1]["triangles"]:
+                        reason = (
+                            f"the mesh did not get smaller than LOD{index - 1} "
+                            f"({achieved:,} triangles)"
+                        )
+                if reason:
+                    dropped.extend(
+                        {"level": j, "ratio": ratios[j], "reason": reason}
+                        for j in range(index, len(ratios))
+                    )
+                    break
+            levels.append(
+                {
+                    "file": level.name,
+                    "level": index,
+                    "ratio": ratio,
+                    "triangles": achieved,
+                    "bytes": level.stat().st_size,
+                }
+            )
+        if len(levels) < 2:
+            raise ValueError(dropped[0]["reason"] if dropped else "there is only one level")
+        manifest = {"source_triangles": source_triangles, "levels": levels, "dropped": dropped}
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as archive:
+            for entry in levels:
+                archive.write(work / entry["file"], entry["file"])
+            archive.writestr("lods.json", json.dumps(manifest, indent=2))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return manifest
 
 
 def _argv(exe: Path, src: Path, dst: Path, ratio: float) -> list[str]:

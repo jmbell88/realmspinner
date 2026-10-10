@@ -283,8 +283,8 @@ purpose; see [Data locations](41-configuration.md#data-locations). A job directo
   to, not in the rig job's own directory.
 - `poses/` — one JSON file per saved pose, plus its baked GLB once you have asked for one.
 - `sheets/` — one PNG plus its JSON sidecar per rendered sprite sheet.
-- Derived exports (`model.stl`, `model_obj.zip`, `model.fbx`, `collision.glb`, `textures.zip`) once
-  they have been requested.
+- Derived exports (`model.stl`, `model_obj.zip`, `model.fbx`, `collision.glb`, `textures.zip`,
+  `model_lods.zip`) once they have been requested.
 - `versions/` — up to four earlier meshes a retarget, a remesh, a re-texture or a resize replaced; see
   [Earlier meshes](23-generating-meshes.md#earlier-meshes). Counted in the size below and never
   listed as a download of its own.

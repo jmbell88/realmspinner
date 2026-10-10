@@ -1899,6 +1899,8 @@ def _why_blocked(ctx: Any, job: Any, name: str, ready: bool, derivable: bool) ->
         return None
     if name == "model.fbx" and not ctx.rigging_available:
         return "needs Blender"
+    if name == "model_lods.zip" and not retarget_panel.gltfpack_available(ctx):
+        return "needs gltfpack"
     if derivable:
         return None
     if job.get("status") in ("queued", "running"):

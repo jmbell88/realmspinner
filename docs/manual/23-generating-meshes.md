@@ -573,6 +573,7 @@ The inspector's **Export** tab lists everything you can take away, as a two-colu
 | STL | `model.stl` | Geometry only. |
 | OBJ (zip) | `model_obj.zip` | OBJ plus its material and texture files. |
 | FBX | `model.fbx` | Needs Blender; the button says so when it is missing. |
+| LOD chain (zip) | `model_lods.zip` | The mesh at 100%, 50%, 25% and 10% of its triangles as separate GLBs (`model_LOD0.glb` to `model_LOD3.glb`) and a `lods.json` listing each level's triangle count. Needs gltfpack; the button says so when it is missing. |
 | Collision | `collision.glb` | A simplified collision shape. |
 | Textures | `textures.zip` | The texture images on their own. |
 | Rigged GLB | `rig.glb` | Present once the mesh has been rigged. |
@@ -587,6 +588,16 @@ three.js all read named glTF animations directly. Retargeting the mesh lists it 
 rig, for the same reason the rig is listed: both describe geometry that no longer exists — which is why the first STL
 of a large mesh takes a moment and the second is instant. Rebuilding the mesh at a new triangle
 budget deletes all of them, since they describe the old geometry.
+
+The **LOD chain** is built from `model.glb` by the same gltfpack pass a triangle budget uses, once per
+level, each cut from the full mesh rather than from the level above it, and each level goes through
+the same check that a budget does: a pass that lost the UVs, a material or a PBR map is refused rather
+than shipped. A level that fails that check, or that would not come out smaller than the one above
+(a mesh that already has fewer triangles than a level asks for), is left out together with every
+coarser level, and `lods.json` says which and why. A mesh that cannot make two levels has no chain,
+and the button reports the reason instead of producing a zip of one file. Every level keeps the
+pivot LOD0 has, so an engine swapping levels in place does not make the model jump. A re-texture,
+a remesh, a retarget or a resize deletes it with the other exports.
 
 A button you cannot press keeps its place and explains itself in a tooltip: "needs Blender" for FBX
 without Blender installed, "not available for this asset" for a mesh export on a plain reference

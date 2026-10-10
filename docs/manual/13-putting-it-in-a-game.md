@@ -20,6 +20,7 @@ is sitting on your disk.
 | STL | Geometry only. For printing rather than for engines. |
 | OBJ | A zip, since OBJ is never one file. |
 | FBX | For pipelines that insist on it. |
+| `model_lods.zip` | The mesh at 100%, 50%, 25% and 10% of its triangles, one GLB per level. |
 | `collision.glb` | A convex hull. |
 | `textures.zip` | The maps on their own. |
 | `rig.glb` | Once rigged. |
@@ -55,6 +56,28 @@ smoothest path, and `REALMSPINNER_EXPORT_DIR` pointed at a Godot project makes i
 
 **Unity** and **Unreal** both read glTF, Unity via a package and Unreal natively. FBX is there if
 your pipeline is built around it.
+
+### Levels of detail
+
+**LOD chain (zip)** gives you `model_LOD0.glb` (the mesh as it is) down to `model_LOD3.glb` (a tenth
+of its triangles) and a `lods.json` with each level's triangle count. Unzip it into the project and
+import all four GLBs. The levels share a pivot, so swapping between them in place does not shift
+the model.
+
+In **Godot**, instance the four scenes as children of one node and give each level's mesh instance a
+visibility range: set `visibility_range_end` on LOD0 and `visibility_range_begin` on LOD1 to the same
+distance (and so on up the chain), with `visibility_range_fade_mode` on if you want them to dissolve
+rather than pop. Godot can also generate its own LODs when it imports a mesh, which is the simpler
+route if you only need levels for a model you are not otherwise controlling.
+
+In **Unity**, add a `LODGroup` to an empty object, parent the four models under it, and assign each to
+its slot, LOD0 to LOD3, then set the transition heights to suit the model's size on screen.
+
+Be honest about what this has not been checked against: nobody has opened a chain in a real Godot or
+Unity editor yet, so the recipes above are how those components are documented to work, not something
+observed with these files, and the 50/25/10 percent steps have not been judged by eye for any kind of
+model. A model built from thin parts — a blade, a railing — loses them first, and a lower level may
+look wrong long before its triangle count says it should.
 
 Rigged exports carry their skeleton and skin weights. A pose bakes to its own GLB rather than
 travelling as an animation track — for a still pose that is what you want, and it sidesteps a class

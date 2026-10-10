@@ -19,6 +19,7 @@ ARTIFACTS = (
     ("model.stl", "STL"),
     ("model_obj.zip", "OBJ (zip)"),
     ("model.fbx", "FBX"),
+    ("model_lods.zip", "LOD chain (zip)"),
     ("collision.glb", "Collision"),
     ("textures.zip", "Textures"),
     ("rig.glb", "Rigged GLB"),

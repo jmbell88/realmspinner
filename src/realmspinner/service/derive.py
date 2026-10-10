@@ -96,6 +96,36 @@ def get_file(
                     log.error("fbx export for %s failed: %s", job_id, exc)
                     raise Failed("could not export FBX") from exc
 
+    # The LOD chain: ``model.fbx``'s shape (an external binary, so not in the
+    # ``derived`` dict below, but the same per-artifact lock and the same
+    # staged rename -- a gltfpack killed part way through would otherwise leave a
+    # truncated zip that existence alone then serves for the life of the job).
+    # It needs gltfpack, which is vendored by hand and may be absent; that is a
+    # fact about this machine, not a fault, so it is ``NotReady`` with the reason
+    # rather than a ``Failed`` -- and so is a mesh too small to have a chain.
+    if name == "model_lods.zip" and glb.exists():
+        from ..pipelines import optimize
+
+        with svc.convert_lock(job_id, name):
+            if not path.exists():
+                exe = svc.config.gltfpack_exe
+                if not exe.is_file():
+                    raise NotReady(
+                        "LODs are made with gltfpack, which is not installed "
+                        "(set REALMSPINNER_GLTFPACK)"
+                    )
+                try:
+                    _staged(
+                        job_dir,
+                        name,
+                        lambda tmp: optimize.lod_chain(glb, tmp, exe=exe),
+                    )
+                except ValueError as exc:
+                    raise NotReady(f"this mesh has no LOD chain: {exc}") from exc
+                except optimize.OptimizeError as exc:
+                    log.error("lod chain for %s failed: %s", job_id, exc)
+                    raise Failed("could not build the LOD chain") from exc
+
     # The rig with its clips baked on. ``model.fbx``'s branch exactly: a
     # Blender subprocess under the same per-artifact lock, staged and renamed
     # in because a child that dies part way through would otherwise leave a

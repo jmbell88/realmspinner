@@ -74,7 +74,7 @@ its reconstruction and mesh for recovery, and none of them may be retargeted bac
 ## Derived artifacts
 
 Everything except the two GLBs is a pure function of `model.glb`: `model.stl`, the OBJ zip,
-`model.fbx`, `collision.glb` and `textures.zip`. None of them is produced when the job runs. Each is
+`model.fbx`, `collision.glb`, `textures.zip` and `model_lods.zip`. None of them is produced when the job runs. Each is
 built the first time something asks for it and then left on disk.
 
 Two mechanisms make that safe. Each artifact of each job has its own lock, so a double-clicked

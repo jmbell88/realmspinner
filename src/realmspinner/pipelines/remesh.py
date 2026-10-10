@@ -74,7 +74,14 @@ QUADRIFLOW_SEED = 0
 #: restated here because the queue may not import ``service``. Geometry *and*
 #: skin change, so this is the superset of ``retexture.SURFACE_DERIVED``;
 #: ``tests/test_remesh.py`` asserts the two spellings agree.
-GEOMETRY_DERIVED = ("model.stl", "model_obj.zip", "collision.glb", "textures.zip", "model.fbx")
+GEOMETRY_DERIVED = (
+    "model.stl",
+    "model_obj.zip",
+    "collision.glb",
+    "textures.zip",
+    "model.fbx",
+    "model_lods.zip",
+)
 
 #: The margin (texels) the bake grows past every island edge, so bilinear
 #: filtering and the first two mips never read the background. Eight texels is

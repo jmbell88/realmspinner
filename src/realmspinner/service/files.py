@@ -62,6 +62,9 @@ MEDIA = {
     "model_obj.zip": "application/zip",
     "collision.glb": "model/gltf-binary",
     "model.fbx": "application/octet-stream",
+    # The mesh at 100%, 50%, 25% and 10% of its triangles as separate GLBs, plus
+    # lods.json -- see ``optimize.lod_chain``.
+    "model_lods.zip": "application/zip",
     "textures.zip": "application/zip",
     "rig.glb": "model/gltf-binary",
     # The rig with every authored clip baked on as a named glTF animation.
@@ -779,7 +782,14 @@ def measure_storage(data_dir: Path) -> dict[str, Any]:
 
 # Everything that is a pure function of model.glb: derivable exactly when
 # model.glb itself is ready, and never independently of it.
-DERIVED = ("model.stl", "model_obj.zip", "collision.glb", "textures.zip", "model.fbx")
+DERIVED = (
+    "model.stl",
+    "model_obj.zip",
+    "collision.glb",
+    "textures.zip",
+    "model.fbx",
+    "model_lods.zip",
+)
 
 #: Where a take's stems land, inside the *take's* own directory.
 #:

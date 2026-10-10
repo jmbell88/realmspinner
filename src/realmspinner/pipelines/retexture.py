@@ -132,7 +132,7 @@ TEXTURE_SIZES: tuple[int, ...] = (512, 1024, 2048)
 # authority on the whole set; this is a stated subset of it, and
 # ``tests/test_retexture.py`` asserts the containment in both directions so a
 # new export cannot join one list and quietly miss the other.
-SURFACE_DERIVED: tuple[str, ...] = ("model_obj.zip", "textures.zip", "model.fbx")
+SURFACE_DERIVED: tuple[str, ...] = ("model_obj.zip", "textures.zip", "model.fbx", "model_lods.zip")
 
 # How far the finished atlas is grown past the islands, in texels. Four covers
 # bilinear sampling plus two mip levels, which is where a rim first becomes
