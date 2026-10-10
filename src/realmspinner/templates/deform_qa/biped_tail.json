@@ -1,0 +1,65 @@
+{
+  "template": "biped_tail",
+  "space": "delta",
+  "comment": "The deformation battery: the poses a rig is reviewed in, not poses anybody would ship. Same format as templates/poses/*.json -- local joint rotations, XYZW -- in space=delta like templates/clips/*.json: each value is a rotation from the bone's own rest orientation (blender_worker.POSE_SPACES). Every value below was computed from a rotation about a WORLD axis applied to the bone relative to its parent and converted through the bone's rest frame (basis = rest^-1 * R * rest, the recipe templates/clips/quadruped.json states), in the template's frame: +X is the subject's left, -Y is forward, +Z is up. Symmetric rows carry L and R as exact mirrors (x, -y, -z, w), which is what poses.mirror_quaternion means and what the tests check. UNCHECKED BY EYE: the signs of these rows were derived, not seen -- the recipe reproduces the humanoid battery's thigh, shin and spine-twist values exactly, but nobody has yet looked at a render of this family's sheet. The first four rows are templates/deform_qa/humanoid.json's verbatim: this skeleton's humanoid bones have the same heads and tails.",
+  "poses": [
+    {
+      "name": "squat",
+      "bones": {
+        "spine": [0.1736, 0.0, 0.0, 0.9848],
+        "thigh.L": [-0.7071, 0.0, 0.0, 0.7071],
+        "thigh.R": [-0.7071, 0.0, 0.0, 0.7071],
+        "shin.L": [0.766, 0.0, 0.0, 0.6428],
+        "shin.R": [0.766, 0.0, 0.0, 0.6428],
+        "foot.L": [-0.0872, 0.0, 0.0, 0.9962],
+        "foot.R": [-0.0872, 0.0, 0.0, 0.9962]
+      }
+    },
+    {
+      "name": "arms overhead",
+      "bones": {
+        "upper_arm.L": [0.9659, 0.0, 0.0, 0.2588],
+        "upper_arm.R": [0.9659, 0.0, 0.0, 0.2588],
+        "forearm.L": [-0.1305, 0.0, 0.0, 0.9914],
+        "forearm.R": [-0.1305, 0.0, 0.0, 0.9914]
+      }
+    },
+    {
+      "name": "elbow and knee 90",
+      "bones": {
+        "forearm.L": [-0.7071, 0.0, 0.0, 0.7071],
+        "forearm.R": [-0.7071, 0.0, 0.0, 0.7071],
+        "shin.L": [0.7071, 0.0, 0.0, 0.7071],
+        "shin.R": [0.7071, 0.0, 0.0, 0.7071]
+      }
+    },
+    {
+      "name": "torso twist",
+      "bones": {
+        "spine": [0.0, 0.2588, 0.0, 0.9659],
+        "chest": [0.0, 0.2588, 0.0, 0.9659],
+        "head": [0.0, -0.2588, 0.0, 0.9659]
+      }
+    },
+    {
+      "name": "tail whip",
+      "bones": {
+        "tail_01": [0.0, -0.1051, 0.1892, 0.9763],
+        "tail_02": [0.0, -0.1201, 0.1801, 0.9763],
+        "tail_03": [0.0, -0.1329, 0.1708, 0.9763],
+        "tail_04": [0.0, -0.1329, 0.1708, 0.9763],
+        "tail_05": [0.0, -0.1201, 0.1801, 0.9763]
+      }
+    },
+    {
+      "name": "tail lift",
+      "bones": {
+        "tail_01": [0.2588, 0.0, 0.0, 0.9659],
+        "tail_02": [0.2588, 0.0, 0.0, 0.9659],
+        "tail_03": [0.2588, 0.0, 0.0, 0.9659],
+        "tail_04": [0.2588, 0.0, 0.0, 0.9659],
+        "tail_05": [0.2588, 0.0, 0.0, 0.9659]
+      }
+    }
+  ]
+}

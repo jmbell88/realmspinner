@@ -269,6 +269,7 @@ class RigOps:
         """
         from . import queue as queue_mod
         from .kernels import sheet as sheetlib
+        from .kernels.rig import deform_metrics
         from .kernels.rig import poses as rig_poses
 
         poses = rig_poses.deform_battery(template)
@@ -340,6 +341,7 @@ class RigOps:
                 prefix="realmspinner-rigqa-",
                 on_progress=on_progress,
                 pack_target=png_tmp,
+                deform_metrics=True,
             )
             # The second of the two checks the comment above already promised:
             # the 2026-09-12 audit (docs-10) found this docstring claimed a
@@ -372,6 +374,26 @@ class RigOps:
             name="deformation QA",
             pivot=(float(pivot[0]), float(pivot[1])) if pivot else None,
         )
+        # The numbers beside the picture, keyed by the pose's name. Advisory and
+        # uncalibrated (``kernels.rig.deform_metrics``), so they ride in the
+        # sidecar as data and nothing reads a verdict out of them. A pose the
+        # worker could not score is simply absent, and so is the whole key when
+        # none could be -- the sheet is published either way.
+        scored = result.get("deform_metrics") if isinstance(result, dict) else None
+        names = {str(p["id"]): str(p["name"]) for p in poses}
+        by_name = {
+            names[pose_id]: scores
+            for pose_id, scores in (scored or {}).items()
+            if scores and pose_id in names
+        }
+        if by_name:
+            meta["deform_metrics"] = {
+                "poses": by_name,
+                "limits": {
+                    "stretch": deform_metrics.STRETCH_LIMIT,
+                    "collapse": deform_metrics.COLLAPSE_LIMIT,
+                },
+            }
         # Written last, so it is the completion marker the file rules key on --
         # the same ordering rig.json has for rig.glb. The QA sheet's marker,
         # not the rig job's, which ``_rig`` has already committed.
@@ -632,6 +654,7 @@ class RigOps:
         on_progress: Any,
         pack_target: Path,
         before_pack: Any = None,
+        deform_metrics: bool = False,
     ) -> tuple[Any, Any]:
         """Render one cell per frame into a scratch directory and pack them.
 
@@ -662,6 +685,7 @@ class RigOps:
                 frame_size=layout.frame_size,
                 elevation=layout.elevation,
                 lighting=layout.lighting,
+                deform_metrics=deform_metrics,
             )
             result = await asyncio.to_thread(
                 functools.partial(

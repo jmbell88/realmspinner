@@ -1,0 +1,58 @@
+{
+  "template": "serpent",
+  "space": "delta",
+  "comment": "The deformation battery: the poses a rig is reviewed in, not poses anybody would ship. Same format as templates/poses/*.json -- local joint rotations, XYZW -- in space=delta like templates/clips/*.json: each value is a rotation from the bone's own rest orientation (blender_worker.POSE_SPACES). Every value below was computed from a rotation about a WORLD axis applied to the bone relative to its parent and converted through the bone's rest frame (basis = rest^-1 * R * rest, the recipe templates/clips/quadruped.json states), in the template's frame: +X is the subject's left, -Y is forward, +Z is up. Symmetric rows carry L and R as exact mirrors (x, -y, -z, w), which is what poses.mirror_quaternion means and what the tests check. UNCHECKED BY EYE: the signs of these rows were derived, not seen -- the recipe reproduces the humanoid battery's thigh, shin and spine-twist values exactly, but nobody has yet looked at a render of this family's sheet.",
+  "poses": [
+    {
+      "name": "S-curve",
+      "bones": {
+        "spine_02": [0.0, 0.0, 0.2588, 0.9659],
+        "spine_03": [0.0, 0.0, -0.5, 0.866],
+        "spine_04": [0.0, 0.0, 0.5, 0.866],
+        "spine_05": [0.0, 0.0, -0.5, 0.866],
+        "spine_06": [0.0, 0.0, 0.5, 0.866],
+        "spine_07": [0.0, 0.0, -0.342, 0.9397]
+      }
+    },
+    {
+      "name": "coil",
+      "bones": {
+        "spine_02": [0.0, 0.0, 0.3827, 0.9239],
+        "spine_03": [0.0, 0.0, 0.3827, 0.9239],
+        "spine_04": [0.0, 0.0, 0.3827, 0.9239],
+        "spine_05": [0.0, 0.0, 0.3827, 0.9239],
+        "spine_06": [0.0, 0.0, 0.3827, 0.9239],
+        "spine_07": [0.0, 0.0, 0.3827, 0.9239],
+        "tail_tip": [0.0, 0.0, 0.3827, 0.9239]
+      }
+    },
+    {
+      "name": "strike",
+      "bones": {
+        "neck": [-0.4226, 0.0, 0.0, 0.9063],
+        "head": [0.3007, 0.0, 0.0, 0.9537]
+      }
+    },
+    {
+      "name": "roll twist",
+      "bones": {
+        "spine_02": [0.0, 0.2588, 0.0, 0.9659],
+        "spine_03": [0.0, 0.2588, 0.0, 0.9659],
+        "spine_04": [0.0, 0.2588, 0.0, 0.9659],
+        "spine_05": [0.0, 0.2588, 0.0, 0.9659],
+        "spine_06": [0.0, 0.2588, 0.0, 0.9659]
+      }
+    },
+    {
+      "name": "vertical wave",
+      "bones": {
+        "spine_02": [0.2588, 0.0, 0.0, 0.9659],
+        "spine_03": [-0.5, 0.0, 0.0, 0.866],
+        "spine_04": [0.5, 0.0, 0.0, 0.866],
+        "spine_05": [-0.5, 0.0, 0.0, 0.866],
+        "spine_06": [0.5, 0.0, 0.0, 0.866],
+        "spine_07": [-0.2588, 0.0, 0.0, 0.9659]
+      }
+    }
+  ]
+}

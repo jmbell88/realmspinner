@@ -664,11 +664,15 @@ def _deform_qa_probe(job_dir: Any) -> Any:
 def _deform_qa(ctx: Any, job: Any) -> None:
     """The QA battery as a thumbnail, beside the weighting line it explains.
 
-    **Nothing scores it, and the wording must not imply anything does.** The
-    battery renders a rig in poses nobody would ship an asset in (squat, arms
-    overhead, elbow and knee at 90 degrees, a torso twist) precisely so a person
-    can see where the skin tears. A metric here would be a claim about
-    deformation quality that nothing in the repo has earned yet.
+    **Nothing judges it, and the wording must not imply anything does.** The
+    battery renders a rig in poses nobody would ship an asset in (a squat, wings
+    raised, a coil, a torso twist) precisely so a person can see where the skin
+    tears. Since 2026-10-10 the worker also *measures* each pose
+    (``kernels.rig.deform_metrics``) and the numbers are shown below the picture
+    -- but as numbers only: no pass/fail colour, no verdict, until a dated
+    measurement under ``dev/measurements/`` has calibrated thresholds from real
+    rigs. A coloured number here would be a claim about deformation quality that
+    nothing in the repo has earned yet.
     """
     path = deform_qa_path(ctx.svc, job, cache=ctx.state.preview.setdefault("deform_qa", {}))
     if path is None:
@@ -687,7 +691,103 @@ def _deform_qa(ctx: Any, job: Any) -> None:
     imgui.image(widgets.texture_ref(texture), (side, side))
     if imgui.is_item_hovered():
         imgui.set_tooltip(str(path))
-    widgets.hint_text("The rig in five test poses. Look for tearing; nothing scores it.")
+    widgets.hint_text("The rig in its test poses. Look for tearing; nothing judges it.")
+    _deform_numbers(ctx, job)
+
+
+# Columns of the measured-numbers table, in order. Plain labels over plain
+# numbers: what a bigger or smaller value *means* is in the manual, and no cell is
+# coloured -- see ``_deform_qa``.
+DEFORM_COLUMNS = ("Pose", "Volume", "Stretch p99", "Stretch max", "Over limit", "Min joint")
+
+
+def deform_rows(meta: Any) -> list[tuple[str, ...]]:
+    """One row of formatted cells per scored pose in a QA sidecar, or ``[]``.
+
+    Pure, and tolerant: a sidecar from before the numbers existed, a hand-edited
+    one, or a pose with a missing figure draws as nothing or as ``-`` -- never an
+    exception on the frame thread. ``Volume`` is ``-`` for an open mesh, which has
+    no enclosed volume to compare.
+    """
+    block = meta.get("deform_metrics") if isinstance(meta, dict) else None
+    poses = block.get("poses") if isinstance(block, dict) else None
+    if not isinstance(poses, dict):
+        return []
+
+    def num(value: Any, spec: str) -> str:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return "-"
+        return format(float(value), spec)
+
+    rows = []
+    for name, scores in poses.items():
+        if not isinstance(scores, dict):
+            continue
+        rows.append(
+            (
+                str(name),
+                num(scores.get("volume_ratio"), ".2f"),
+                num(scores.get("stretch_p99"), ".2f"),
+                num(scores.get("stretch_max"), ".1f"),
+                _percent(scores.get("stretched_fraction")),
+                num(scores.get("min_radial_ratio"), ".2f"),
+            )
+        )
+    return rows
+
+
+def _percent(fraction: Any) -> str:
+    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
+        return "-"
+    return f"{float(fraction) * 100.0:.2f}%"
+
+
+def deform_metrics_meta(ctx: Any, job: Any) -> Any:
+    """The QA sidecar's parsed JSON, cached against its own mtime, or None."""
+    job_id = job.get("id")
+    if not job_id:
+        return None
+    import json
+
+    path = ctx.svc.job_dir(job_id) / "rig_qa.json"
+    stamp = stamps.stamp_ns(path)
+    cache = ctx.state.preview.setdefault("deform_qa_meta", {})
+    hit = cache.get(job_id)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    meta = None
+    if stamp is not None:
+        try:
+            meta = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = None
+    if stamps.storable(stamp):
+        cache[job_id] = (stamp, meta)
+    return meta
+
+
+def _deform_numbers(ctx: Any, job: Any) -> None:
+    rows = deform_rows(deform_metrics_meta(ctx, job))
+    if not rows:
+        return
+    if not widgets.header("Measured numbers", default_open=False, persist_key="inspector/deform"):
+        return
+    flags = imgui.TableFlags_.sizing_stretch_prop.value
+    if imgui.begin_table("deform-numbers", len(DEFORM_COLUMNS), flags):
+        for label in DEFORM_COLUMNS:
+            imgui.table_setup_column(label)
+        imgui.table_headers_row()
+        for row in rows:
+            imgui.table_next_row()
+            for cell in row:
+                imgui.table_next_column()
+                imgui.text(cell)
+        imgui.end_table()
+    widgets.hint_text(
+        "Volume and stretch are posed over rest (1.00 is unchanged). Over limit is the share "
+        "of edges stretched past twice their length. Min joint is the narrowest cross-section "
+        "at any joint, posed over rest. Advisory: no threshold has been calibrated yet."
+    )
 
 
 # --- pieces -----------------------------------------------------------------

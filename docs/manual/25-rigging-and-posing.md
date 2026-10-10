@@ -77,10 +77,20 @@ warning colour, with the reason on hover. It reads the rig beside the selected m
 for the asset you have selected rather than for the rig job that produced it.
 
 Under it, when the rig has one, is the **deformation review** sheet: the skeleton put through a
-battery of test poses — a squat, arms overhead, elbow and knee at 90°, a torso twist — and rendered
-as one image. It is there to be looked at, and nothing scores it: what you are looking for is skin
-tearing or collapsing at the joints, which is a judgement no measurement in the app has earned yet.
-The battery ships for the humanoid skeleton only.
+battery of test poses — for a humanoid a squat, arms overhead, elbow and knee at 90°, a torso twist —
+and rendered as one image. It is there to be looked at: what you are looking for is skin tearing or
+collapsing at the joints, which is a judgement no measurement in the app has earned yet. The battery
+ships for the humanoid, humanoid-with-a-tail, four-legged, winged and snake-like skeletons; the
+insect, fish, blob and blank skeletons have none.
+
+Under the picture, a collapsed **Measured numbers** header lists, for each pose, how the mesh
+changed against its rest shape: **Volume** (the enclosed volume, posed over rest, shown as `-` for a
+mesh that is not closed), **Stretch p99** and **Stretch max** (how much longer the most-stretched
+edges got, posed over rest), **Over limit** (the share of edges stretched past twice their rest
+length) and **Min joint** (the narrowest cross-section at any joint, posed over rest — a twist that
+wrings the skin to a point, the candy-wrapper, drives it towards 0). They are plain numbers with no
+colour and no pass mark, because no threshold has been calibrated against real rigs yet; read them
+as a way to find which pose to look at first.
 
 The result is `rig.glb` and `rig.json`, written **beside the `model.glb` they were fitted to**, not
 into the rig job's own directory. The rig belongs to the mesh. Rigging a mesh a second time replaces

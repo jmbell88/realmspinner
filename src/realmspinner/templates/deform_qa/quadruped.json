@@ -1,0 +1,106 @@
+{
+  "template": "quadruped",
+  "space": "delta",
+  "comment": "The deformation battery: the poses a rig is reviewed in, not poses anybody would ship. Same format as templates/poses/*.json -- local joint rotations, XYZW -- in space=delta like templates/clips/*.json: each value is a rotation from the bone's own rest orientation (blender_worker.POSE_SPACES). Every value below was computed from a rotation about a WORLD axis applied to the bone relative to its parent and converted through the bone's rest frame (basis = rest^-1 * R * rest, the recipe templates/clips/quadruped.json states), in the template's frame: +X is the subject's left, -Y is forward, +Z is up. Symmetric rows carry L and R as exact mirrors (x, -y, -z, w), which is what poses.mirror_quaternion means and what the tests check. UNCHECKED BY EYE: the signs of these rows were derived, not seen -- the recipe reproduces the humanoid battery's thigh, shin and spine-twist values exactly, but nobody has yet looked at a render of this family's sheet.",
+  "poses": [
+    {
+      "name": "fore reach and hind push",
+      "bones": {
+        "front_upper.L": [-0.4617, 0.0, 0.0, 0.887],
+        "front_upper.R": [-0.4617, 0.0, 0.0, 0.887],
+        "front_lower.L": [0.2164, 0.0, 0.0, 0.9763],
+        "front_lower.R": [0.2164, 0.0, 0.0, 0.9763],
+        "front_foot.L": [0.1736, 0.0, 0.0, 0.9848],
+        "front_foot.R": [0.1736, 0.0, 0.0, 0.9848],
+        "rear_upper.L": [0.3827, 0.0, 0.0, 0.9239],
+        "rear_upper.R": [0.3827, 0.0, 0.0, 0.9239],
+        "rear_lower.L": [-0.2164, 0.0, 0.0, 0.9763],
+        "rear_lower.R": [-0.2164, 0.0, 0.0, 0.9763],
+        "rear_foot.L": [-0.1736, 0.0, 0.0, 0.9848],
+        "rear_foot.R": [-0.1736, 0.0, 0.0, 0.9848]
+      }
+    },
+    {
+      "name": "crouch",
+      "bones": {
+        "front_upper.L": [-0.3007, 0.0, 0.0, 0.9537],
+        "front_upper.R": [-0.3007, 0.0, 0.0, 0.9537],
+        "front_lower.L": [0.6088, 0.0, 0.0, 0.7934],
+        "front_lower.R": [0.6088, 0.0, 0.0, 0.7934],
+        "front_foot.L": [-0.342, 0.0, 0.0, 0.9397],
+        "front_foot.R": [-0.342, 0.0, 0.0, 0.9397],
+        "rear_upper.L": [-0.4226, 0.0, 0.0, 0.9063],
+        "rear_upper.R": [-0.4226, 0.0, 0.0, 0.9063],
+        "rear_lower.L": [0.766, 0.0, 0.0, 0.6428],
+        "rear_lower.R": [0.766, 0.0, 0.0, 0.6428],
+        "rear_foot.L": [-0.4226, 0.0, 0.0, 0.9063],
+        "rear_foot.R": [-0.4226, 0.0, 0.0, 0.9063]
+      }
+    },
+    {
+      "name": "rear up",
+      "bones": {
+        "spine": [0.1736, 0.0, 0.0, 0.9848],
+        "chest": [-0.2164, 0.0, 0.0, 0.9763],
+        "neck": [0.2164, 0.0, 0.0, 0.9763],
+        "head": [0.0872, 0.0, 0.0, 0.9962],
+        "front_upper.L": [-0.5, 0.0, 0.0, 0.866],
+        "front_upper.R": [-0.5, 0.0, 0.0, 0.866],
+        "front_lower.L": [0.6428, 0.0, 0.0, 0.766],
+        "front_lower.R": [0.6428, 0.0, 0.0, 0.766],
+        "rear_upper.L": [-0.0872, 0.0, 0.0, 0.9962],
+        "rear_upper.R": [-0.0872, 0.0, 0.0, 0.9962],
+        "rear_lower.L": [0.0872, 0.0, 0.0, 0.9962],
+        "rear_lower.R": [0.0872, 0.0, 0.0, 0.9962]
+      }
+    },
+    {
+      "name": "head down",
+      "bones": {
+        "neck": [0.4617, 0.0, 0.0, 0.887],
+        "head": [0.3007, 0.0, 0.0, 0.9537]
+      }
+    },
+    {
+      "name": "spine bend",
+      "bones": {
+        "spine": [0.0, 0.0, 0.1736, 0.9848],
+        "chest": [0.0, 0.0229, -0.1721, 0.9848],
+        "neck": [0.0, -0.1044, 0.0783, 0.9914],
+        "head": [0.0, -0.1019, 0.0815, 0.9914]
+      }
+    },
+    {
+      "name": "spine roll",
+      "bones": {
+        "spine": [0.0, -0.1305, 0.0, 0.9914],
+        "chest": [0.0, -0.1294, -0.0173, 0.9914],
+        "neck": [0.0, 0.0523, 0.0697, 0.9962],
+        "head": [0.0, 0.0544, 0.0681, 0.9962]
+      }
+    },
+    {
+      "name": "legs splayed",
+      "bones": {
+        "front_upper.L": [0.0, -0.0231, -0.2998, 0.9537],
+        "front_upper.R": [0.0, 0.0231, 0.2998, 0.9537],
+        "rear_upper.L": [0.0, -0.0729, -0.2917, 0.9537],
+        "rear_upper.R": [0.0, 0.0729, 0.2917, 0.9537]
+      }
+    },
+    {
+      "name": "tail whip",
+      "bones": {
+        "tail_01": [0.0, -0.2137, 0.2671, 0.9397],
+        "tail_02": [0.0, -0.3901, 0.1625, 0.9063]
+      }
+    },
+    {
+      "name": "tail lift",
+      "bones": {
+        "tail_01": [0.4226, 0.0, 0.0, 0.9063],
+        "tail_02": [0.342, 0.0, 0.0, 0.9397]
+      }
+    }
+  ]
+}

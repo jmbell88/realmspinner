@@ -848,9 +848,11 @@ async def test_the_battery_kill_switch_leaves_a_rig_byte_for_byte_as_it_was(
 
 
 async def test_a_template_with_no_battery_simply_renders_nothing(worker, monkeypatch):
+    # "fish" is one of the named exemptions (tests/kernels/rig/test_deform_batteries.py);
+    # this used to use "quadruped", which has had a battery since 2026-10-10.
     calls = _fake_worker_run(monkeypatch)
     source = _mesh_job(worker)
-    rig_id = worker.store.create("rig", None, {"source_job": source, "template": "quadruped"})
+    rig_id = worker.store.create("rig", None, {"source_job": source, "template": "fish"})
 
     worker.start()
     await _wait_until(lambda: worker.store.get(rig_id)["status"] == "done")
@@ -1053,3 +1055,106 @@ def test_a_publish_that_lands_the_glb_but_not_the_json_leaves_no_stale_marker(
     assert (job_dir / "rig.glb").read_bytes() == b"new"
     assert not (job_dir / "rig.json").exists()
     assert (job_dir / rig_store.RIG_JSON_TMP).exists()
+
+
+# --- the deformation numbers beside the QA sheet ------------------------------
+#
+# ``kernels.rig.deform_metrics`` scores each battery pose in the worker and the
+# host writes the numbers into the sidecar. Advisory data: a sheet whose numbers
+# could not be had is published exactly as before.
+
+
+def _sheet_also_returns(monkeypatch, make):
+    inner = blender_run.run_worker
+
+    def wrapped(spec, **kwargs):
+        out = inner(spec, **kwargs)
+        if spec.get("op") == "sheet":
+            out = {**out, **make(spec)}
+        return out
+
+    monkeypatch.setattr(blender_run, "run_worker", wrapped)
+
+
+def _pose_ids(spec):
+    return list(dict.fromkeys(c["pose"] for c in spec["cells"]))
+
+
+def _scores(spec, *, skip_first=False):
+    return {
+        pose_id: None if skip_first and i == 0 else {"volume_ratio": 1.0, "stretch_p99": 1.1 + i}
+        for i, pose_id in enumerate(_pose_ids(spec))
+    }
+
+
+async def test_the_deformation_qa_asks_for_metrics_and_records_them_by_pose_name(
+    worker, monkeypatch
+):
+    calls = _fake_worker_run(monkeypatch)
+    _sheet_also_returns(monkeypatch, lambda spec: {"deform_metrics": _scores(spec)})
+    source = _mesh_job(worker)
+    rig_id = worker.store.create("rig", None, {"source_job": source})
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(rig_id)["status"] == "done")
+
+    assert calls.sheets[0]["spec"]["deform_metrics"] is True
+    meta = json.loads(rig_store.rig_qa_path(worker.config.job_dir(source)).read_text("utf-8"))
+    recorded = meta["deform_metrics"]["poses"]
+    assert set(recorded) == {p["name"] for p in poses.deform_battery("humanoid")}
+    assert recorded["squat"]["stretch_p99"] == 1.1
+    assert set(meta["deform_metrics"]["limits"]) == {"stretch", "collapse"}
+    await worker.shutdown()
+
+
+async def test_a_metrics_failure_still_publishes_the_qa_sheet(worker, monkeypatch):
+    """One pose the worker could not score is simply absent; the picture and its
+    sidecar are published and the rig job is done regardless."""
+    _fake_worker_run(monkeypatch)
+    _sheet_also_returns(
+        monkeypatch, lambda spec: {"deform_metrics": _scores(spec, skip_first=True)}
+    )
+    source = _mesh_job(worker)
+    rig_id = worker.store.create("rig", None, {"source_job": source})
+    worker.start()
+    await _wait_until(lambda: worker.store.get(rig_id)["status"] == "done")
+    source_dir = worker.config.job_dir(source)
+    assert (source_dir / "rig_qa.png").exists()
+    meta = json.loads(rig_store.rig_qa_path(source_dir).read_text("utf-8"))
+    assert "squat" not in meta["deform_metrics"]["poses"]
+    assert "arms overhead" in meta["deform_metrics"]["poses"]
+    await worker.shutdown()
+
+
+async def test_a_sheet_with_no_metrics_at_all_has_no_metrics_block(worker, monkeypatch):
+    _fake_worker_run(monkeypatch)
+    _sheet_also_returns(
+        monkeypatch,
+        lambda spec: {"deform_metrics": dict.fromkeys(_pose_ids(spec))},
+    )
+    source = _mesh_job(worker)
+    rig_id = worker.store.create("rig", None, {"source_job": source})
+    worker.start()
+    await _wait_until(lambda: worker.store.get(rig_id)["status"] == "done")
+    source_dir = worker.config.job_dir(source)
+    assert (source_dir / "rig_qa.png").exists()
+    meta = json.loads(rig_store.rig_qa_path(source_dir).read_text("utf-8"))
+    assert "deform_metrics" not in meta
+    await worker.shutdown()
+
+
+def test_sprite_sheets_never_ask_for_metrics():
+    """Every non-QA sheet spec is byte-identical to what it was before the key
+    existed: ``deform_metrics`` is written only when true."""
+    from realmspinner.kernels.rig import blender_spec
+
+    plain = blender_spec.sheet_spec(
+        Path("rig.glb"), Path("frames"), [], frame_size=64, elevation=0.5, lighting="flat"
+    )
+    assert "deform_metrics" not in plain
+    asked = blender_spec.sheet_spec(
+        Path("rig.glb"), Path("frames"), [], frame_size=64, elevation=0.5,
+        lighting="flat", deform_metrics=True,
+    )
+    assert asked["deform_metrics"] is True
+    assert {k: v for k, v in asked.items() if k != "deform_metrics"} == plain

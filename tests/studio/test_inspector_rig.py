@@ -30,6 +30,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from realmspinner.studio.panes import inspector
 from realmspinner.studio.state import AppState
 
@@ -286,3 +288,48 @@ def test_the_library_rig_and_pose_tab_offers_game_ready_remesh(svc, monkeypatch)
     # The same order Create's own stage list draws it in: after retarget,
     # before retexture.
     assert calls.index("retarget") < calls.index("remesh") < calls.index("retexture")
+
+
+# --- the measured numbers beside the deformation review -----------------------
+
+
+def test_deform_rows_format_each_scored_pose_and_leave_the_gaps_as_dashes():
+    meta = {
+        "deform_metrics": {
+            "poses": {
+                "squat": {
+                    "volume_ratio": 0.9731, "stretch_p99": 1.4, "stretch_max": 3.2468,
+                    "stretched_fraction": 0.00062, "min_radial_ratio": 0.4183,
+                },
+                "wings raised": {"volume_ratio": None, "stretch_p99": 1.0},
+            }
+        }
+    }
+    rows = inspector.deform_rows(meta)
+    assert rows[0] == ("squat", "0.97", "1.40", "3.2", "0.06%", "0.42")
+    assert rows[1] == ("wings raised", "-", "1.00", "-", "-", "-")
+    assert len(rows[0]) == len(inspector.DEFORM_COLUMNS)
+
+
+@pytest.mark.parametrize(
+    "meta", [None, {}, {"deform_metrics": None}, {"deform_metrics": {"poses": []}}, "junk", []]
+)
+def test_deform_rows_are_empty_for_a_sidecar_without_numbers_or_with_junk(meta):
+    assert inspector.deform_rows(meta) == []
+
+
+def test_deform_rows_survive_non_numeric_cells_and_non_dict_poses():
+    poses = {"a": {"volume_ratio": "x", "stretched_fraction": True}, "b": 3}
+    meta = {"deform_metrics": {"poses": poses}}
+    assert inspector.deform_rows(meta) == [("a", "-", "-", "-", "-", "-")]
+
+
+def test_the_measured_numbers_carry_no_verdict_colour():
+    """No threshold has been calibrated (a dated dev/measurements document must
+    come first), so the table draws plain text: not one theme colour."""
+    import inspect
+
+    source = inspect.getsource(inspector._deform_numbers) + inspect.getsource(
+        inspector.deform_rows
+    )
+    assert "theme." not in source and "text_colored" not in source

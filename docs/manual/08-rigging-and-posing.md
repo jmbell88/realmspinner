@@ -28,9 +28,11 @@ weighting fails outright it falls back to envelope weights, and that fallback is
 hidden: `rig.json` says `automatic`, `automatic-welded`, or `envelope - needs review`. If you read
 the third one, look at the result before trusting it.
 
-For humanoids there is also a deformation-review sheet: a fixed battery of poses — squat, arms
-overhead, bent elbow and knee, torso twist — rendered for you to look at. Nothing scores it. It is a
-picture, and you are the judge.
+There is also a deformation-review sheet: a fixed battery of poses for the skeleton you chose —
+for a humanoid a squat, arms overhead, bent elbow and knee and a torso twist; for the four-legged,
+winged, tailed and snake-like skeletons their own (a crouch, wings raised and folded, a tail whip, a
+coil) — rendered for you to look at. It is a picture, and you are the judge. A table of measured
+numbers sits under it, but nothing in the app turns them into a pass or a fail.
 
 ## The A-pose trap
 

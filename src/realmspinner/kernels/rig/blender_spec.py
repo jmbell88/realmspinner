@@ -116,6 +116,7 @@ def sheet_spec(
     lighting: str,
     margin: float | None = None,
     sockets: Sequence[Mapping[str, Any]] | None = None,
+    deform_metrics: bool = False,
 ) -> dict[str, Any]:
     """The worker spec for rendering one frame per sheet cell.
 
@@ -139,6 +140,10 @@ def sheet_spec(
     framed about ten times too wide as a result. Written only when given, for
     the same reason as ``margin``, and its presence is what makes the worker
     emit a ``sockets`` block at all.
+
+    ``deform_metrics`` asks the worker to also score each distinct pose against
+    the rest shape (``kernels.rig.deform_metrics``) and return the numbers under
+    ``"deform_metrics"``. Written only when true, for the same reason.
     """
     spec: dict[str, Any] = {
         "op": "sheet",
@@ -154,6 +159,10 @@ def sheet_spec(
         spec["margin"] = float(margin)
     if sockets is not None:
         spec["sockets"] = [dict(s) for s in sockets]
+    if deform_metrics:
+        # Only the deformation QA sets this, and only when set: a sprite sheet's
+        # spec stays byte-identical to what it was before the key existed.
+        spec["deform_metrics"] = True
     return spec
 
 

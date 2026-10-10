@@ -29,7 +29,7 @@ from typing import Any
 
 from .. import meshreport, poselib
 from ..kernels import sheet
-from ..kernels.rig import poses, skeleton, templates
+from ..kernels.rig import deform_metrics, poses, skeleton, templates
 from . import blender_run
 
 
@@ -828,11 +828,138 @@ def _view_depth(
     )
 
 
+def _metric_vertices(bpy: Any, obj: Any) -> tuple[Any, Any]:
+    """World-space vertices and loop triangles of ``obj`` **as currently posed**.
+
+    Read off the depsgraph-evaluated copy -- the armature deformation is a
+    modifier, so the original object only ever holds the rest shape -- through
+    ``foreach_get`` rather than a Python loop, which at a rig's vertex counts is
+    the difference between milliseconds and seconds per pose.
+    """
+    import numpy as np
+
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    mesh = evaluated.to_mesh()
+    try:
+        count = len(mesh.vertices)
+        flat = np.empty(count * 3, dtype=np.float64)
+        mesh.vertices.foreach_get("co", flat)
+        matrix = np.array(evaluated.matrix_world, dtype=np.float64)
+        world = flat.reshape(count, 3) @ matrix[:3, :3].T + matrix[:3, 3]
+        mesh.calc_loop_triangles()
+        tri_count = len(mesh.loop_triangles)
+        tris = np.empty(tri_count * 3, dtype=np.int64)
+        mesh.loop_triangles.foreach_get("vertices", tris)
+    finally:
+        evaluated.to_mesh_clear()
+    return world, tris.reshape(tri_count, 3)
+
+
+def _metrics_static(bpy: Any, meshes: Sequence[Any], armature: Any) -> dict[str, Any]:
+    """Everything about the mesh that does not change with the pose.
+
+    The rest vertices, the triangles (indices offset as the meshes are joined
+    end to end), each vertex's dominant bone and whether the rest mesh is closed.
+    Called with the rig at rest.
+    """
+    import numpy as np
+
+    bone_names = [b.name for b in armature.data.bones]
+    index = {name: i for i, name in enumerate(bone_names)}
+    rest, tris, dominant = [], [], []
+    offset = 0
+    for obj in meshes:
+        world, local_tris = _metric_vertices(bpy, obj)
+        rest.append(world)
+        tris.append(local_tris + offset)
+        names = [g.name for g in obj.vertex_groups]
+        owner = np.full(len(world), -1, dtype=np.int64)
+        for i, vertex in enumerate(obj.data.vertices):
+            best = -1.0
+            for group in vertex.groups:
+                bone = index.get(names[group.group], -1) if group.group < len(names) else -1
+                if bone >= 0 and group.weight > best:
+                    best, owner[i] = group.weight, bone
+        dominant.append(owner)
+        offset += len(world)
+    rest_all = np.concatenate(rest)
+    tris_all = np.concatenate(tris)
+    return {
+        "rest": rest_all,
+        "tris": tris_all,
+        "dominant": np.concatenate(dominant),
+        "bone_names": bone_names,
+        "closed": deform_metrics.is_closed(rest_all, tris_all),
+        "joints": _joint_frames(armature, posed=False),
+    }
+
+
+def _joint_frames(armature: Any, *, posed: bool) -> list[dict[str, Any]]:
+    """Each non-root bone's head and unit direction in world space.
+
+    The head of a bone is the joint it turns about, and its own axis is the
+    twist axis the candy-wrapper ratio is taken about.
+    """
+    import numpy as np
+
+    matrix = np.array(armature.matrix_world, dtype=np.float64)
+    frames = []
+    for bone in armature.data.bones:
+        if bone.parent is None:
+            continue
+        if posed:
+            pose_bone = armature.pose.bones[bone.name]
+            head, tail = np.array(pose_bone.head), np.array(pose_bone.tail)
+        else:
+            head, tail = np.array(bone.head_local), np.array(bone.tail_local)
+        head_w = matrix[:3, :3] @ head + matrix[:3, 3]
+        axis_w = matrix[:3, :3] @ (tail - head)
+        frames.append({"name": bone.name, "head": head_w, "axis": axis_w})
+    return frames
+
+
+def _score_current_pose(
+    bpy: Any, meshes: Sequence[Any], armature: Any, static: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """Score the pose that is applied now, or ``None`` if anything about it fails.
+
+    A review number is never worth the sheet it rides on: any exception here
+    costs this pose its metrics and nothing else (the rule ``_audit_mesh``
+    follows on the host).
+    """
+    import numpy as np
+
+    try:
+        posed = np.concatenate([_metric_vertices(bpy, obj)[0] for obj in meshes])
+        if posed.shape != static["rest"].shape:
+            raise ValueError("the posed mesh changed vertex count")
+        now = {f["name"]: f for f in _joint_frames(armature, posed=True)}
+        joints = [
+            {
+                "name": f["name"],
+                "rest_head": f["head"],
+                "rest_axis": f["axis"],
+                "posed_head": now[f["name"]]["head"],
+                "posed_axis": now[f["name"]]["axis"],
+            }
+            for f in static["joints"]
+            if f["name"] in now
+        ]
+        return deform_metrics.score_pose(
+            static["rest"], posed, static["tris"], static["dominant"], joints,
+            static["closed"], static["bone_names"],
+        )
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        print(f"deformation metrics skipped for one pose: {exc}", flush=True)
+        return None
+
+
 def _pose_union(
     bpy: Any,
     armature: Any,
     cells: Sequence[Mapping[str, Any]],
     sockets: Sequence[Mapping[str, Any]],
+    metrics_out: dict[str, Any] | None = None,
 ) -> tuple[
     list[tuple[float, float, float]],
     dict[Any, dict[str, tuple[float, float, float]]],
@@ -850,8 +977,23 @@ def _pose_union(
 
     The pose is left at rest afterwards, so the render loop's ``posed`` cache
     starts from the state it claims to.
+
+    ``metrics_out``, when given, is filled with one score per pose id (see
+    ``kernels.rig.deform_metrics``): this loop already poses and evaluates every
+    distinct pose the sheet contains, so the review numbers cost one more read
+    of the evaluated mesh rather than a second walk. Only the deformation QA
+    asks, and a failure -- here or in any one pose -- leaves ``None`` and the
+    sheet is rendered regardless.
     """
     meshes = _render_meshes(bpy)
+    static = None
+    if metrics_out is not None and armature is not None:
+        try:
+            _reset_pose(armature)
+            bpy.context.view_layer.update()
+            static = _metrics_static(bpy, meshes, armature)
+        except Exception as exc:  # noqa: BLE001 - a number must not cost the sheet
+            print(f"deformation metrics unavailable: {exc}", flush=True)
     corners: list[tuple[float, float, float]] = []
     socket_points: dict[Any, dict[str, tuple[float, float, float]]] = {}
     body_centres: dict[Any, tuple[float, float, float]] = {}
@@ -872,6 +1014,10 @@ def _pose_union(
             if cell.get("root_offset"):
                 _apply_root_translation(armature, cell.get("root_bone"), cell["root_offset"])
         bpy.context.view_layer.update()
+        if metrics_out is not None and armature is not None:
+            metrics_out[str(key[0])] = (
+                _score_current_pose(bpy, meshes, armature, static) if static else None
+            )
         mine = _evaluated_corners(bpy, meshes)
         if not mine:
             raise RuntimeError("nothing to render: the scene has no mesh")
@@ -1682,7 +1828,8 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     # is why it is that constant and not a literal here.
     margin = float(spec.get("margin") or sheet.FRAME_MARGIN)
     progress(0.07, "Measuring poses")
-    union, socket_points, body_centres = _pose_union(bpy, armature, cells, sockets)
+    metrics: dict[str, Any] | None = {} if spec.get("deform_metrics") else None
+    union, socket_points, body_centres = _pose_union(bpy, armature, cells, sockets, metrics)
     if not union:
         # An empty cell list -- nothing to pose, so the union is the rest box.
         union = [(x, y, z) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
@@ -1799,6 +1946,8 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         # are cell indices and arrive at the host as JSON object keys, i.e.
         # strings -- the result travels through ``result.json``.
         result["sockets"] = projected
+    if metrics is not None:
+        result["deform_metrics"] = metrics
     return result
 
 
