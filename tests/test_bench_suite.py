@@ -43,7 +43,8 @@ def test_no_suite_carries_a_retired_guidance_key():
 
 def test_every_category_is_evenly_covered():
     by_category = suite_mod.load().by_category()
-    assert set(by_category) == set(suite_mod.CATEGORIES)
+    # core-v2's five; create-3d-v1 added six more to CATEGORIES without touching it.
+    assert set(by_category) == {"prop", "weapon", "character", "vehicle", "environment"}
     assert {len(v) for v in by_category.values()} == {8}
 
 

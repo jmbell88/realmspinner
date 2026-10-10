@@ -142,7 +142,7 @@ never cloned the repository.
 ```text
 ~/.realmspinner/
   assets/                  the library, and studio_settings.json (REALMSPINNER_DATA_DIR)
-  bench/                   benchmark runs (REALMSPINNER_BENCH_DIR)
+  bench/                   benchmark runs, and the reference stills an image suite reads from references/ (REALMSPINNER_BENCH_DIR)
   evidence/                what a bulk delete kept (REALMSPINNER_EVIDENCE_DIR)
   palettes/                pixel-art palettes you supply (REALMSPINNER_PALETTE_DIR)
   models/                  every downloaded model weight (REALMSPINNER_T2I_ROOT)

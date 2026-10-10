@@ -102,6 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="reuse identical reference images for mesh comparisons or reference editing",
     )
 
+    run.add_argument(
+        "--references", type=Path, default=None,
+        help="folder holding an image suite's starting stills "
+        "(default: <bench_dir>/references/<suite>)",
+    )
+    run.add_argument(
+        "--skip-missing", action="store_true",
+        help="run the items whose reference image exists and list the rest in the manifest",
+    )
+
     quality = sub.add_parser(
         "quality", help="report acceptance with equal weight per output family"
     )
@@ -114,6 +124,16 @@ def build_parser() -> argparse.ArgumentParser:
     blind.add_argument("right", type=Path)
     blind.add_argument("out", type=Path)
     blind.add_argument("--seed", type=int, default=42)
+    ext = sub.add_parser(
+        "import-external",
+        help="file another service's GLBs (<item>/attempt-<n>.glb) as a run blind-review can pair",
+    )
+    ext.add_argument("reference_run", type=Path, help="the Realmspinner run to pair against")
+    ext.add_argument("glb_dir", type=Path)
+    ext.add_argument("out", type=Path)
+    ext.add_argument(
+        "--label", required=True, help="e.g. tripo or meshy; kept out of blind packets"
+    )
     grading = sub.add_parser(
         "import-review", help="import completed blind rubrics into quality reports"
     )
@@ -301,11 +321,28 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "score":
         return _score(config, args)
+    if args.command == "import-external":
+        from . import quality
+
+        try:
+            result = quality.import_external(
+                args.reference_run, args.glb_dir, args.out, args.label
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        print(f"imported {len(result['imported'])} attempt(s) into {args.out}")
+        for name in ("missing", "unmatched"):
+            if result[name]:
+                print(f"{name}: {', '.join(result[name])}")
+        return 0
+
     if args.command in ("quality", "blind-review", "import-review"):
         from . import quality
 
         if args.command == "quality":
-            print(quality.report(args.run_dir, args.grades))
+            doc = quality.report(args.run_dir, args.grades)
+            print(doc)
         elif args.command == "blind-review":
             print(quality.blind_review(args.left, args.right, args.out, args.seed))
         else:
@@ -368,12 +405,21 @@ def _run(config, args) -> int:
             "limit": 0,
             "seeds": tuple(stored.get("seeds") or ()),
         }
-    run_dir, todo, doc = runner_mod.plan_run(
-        config, suite, recipe,
-        stage=args.stage, started=started, run_dir=args.resume, **selection,
-        reference_run=args.reference_run,
+    try:
+        run_dir, todo, doc = runner_mod.plan_run(
+            config, suite, recipe,
+            stage=args.stage, started=started, run_dir=args.resume, **selection,
+            reference_run=args.reference_run,
+            references=args.references, skip_missing=args.skip_missing,
+        )
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+    if doc.get("skipped"):
+        print(f"skipping {len(doc['skipped'])} unit(s) with no reference image")
+    print(
+        f"{len(todo)} job(s): {len({u.item.id for u in todo})} items x {len(doc['seeds'])} seeds"
     )
-    print(f"{len(todo)} job(s): {len(doc['items'])} items x {len(doc['seeds'])} seeds")
     print(f"stage: {args.stage}   run dir: {run_dir}")
     if args.dry_run:
         for unit in todo:
@@ -388,6 +434,7 @@ def _run(config, args) -> int:
             limit=args.limit, seeds=args.seeds, render=args.render,
             keep_source=args.keep_source, resume=args.resume, on_event=print,
             reference_run=args.reference_run,
+            references=args.references, skip_missing=args.skip_missing,
         )
     except KeyboardInterrupt:
         print("interrupted")

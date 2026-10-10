@@ -30,7 +30,7 @@ import logging
 import shutil
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +61,11 @@ class Unit:
 
     item: Any
     seed: int
+    # 1-based slot of this seed in the suite's seed order: seed 42 is attempt 1
+    # of create-3d-v1 whichever subset of seeds a run was asked for.
+    attempt: int = 0
+    # Where an image item's starting still lives, resolved by plan_run.
+    reference: Path | None = None
 
     @property
     def key(self) -> str:
@@ -98,6 +103,8 @@ def plan_run(
     seeds: tuple[int, ...] = (),
     run_dir: Path | None = None,
     reference_run: Path | None = None,
+    references: Path | None = None,
+    skip_missing: bool = False,
 ) -> tuple[Path, list[Unit], dict[str, Any]]:
     """Everything decided before a single job is submitted.
 
@@ -107,7 +114,20 @@ def plan_run(
     """
     items = select(suite, categories=categories, ids=ids, limit=limit)
     use_seeds = seeds or suite.seeds
-    todo = units(items, use_seeds)
+    todo = [
+        Unit(
+            item=u.item, seed=u.seed,
+            attempt=(suite.seeds.index(u.seed) if u.seed in suite.seeds
+                     else use_seeds.index(u.seed)) + 1,
+        )
+        for u in units(items, use_seeds)
+    ]
+    skipped: list[str] = []
+    ref_hashes: dict[str, str] = {}
+    root: Path | None = None
+    if any(u.item.input_mode == "image" for u in todo) and reference_run is None:
+        root = Path(references) if references else Path(config.bench_dir) / "references" / suite.key
+        todo, skipped, ref_hashes = _resolve_references(todo, root, skip_missing)
     directory = run_dir or (
         Path(config.bench_dir) / "runs" / run_dir_name(started, recipe.key, suite.key)
     )
@@ -123,17 +143,72 @@ def plan_run(
     if reference_run is not None:
         from .quality import reference_hash
 
-        references = {}
+        paired = {}
         for unit in todo:
             if getattr(unit.item, "output_family", "3d_model") not in ("3d_model", "image"):
                 continue
             path = reference_run / "items" / unit.key / "input.png"
             if not path.is_file():
                 raise ValueError(f"missing paired reference: {path}")
-            references[unit.key] = reference_hash(path)
+            paired[unit.key] = reference_hash(path)
         doc["reference_run"] = str(reference_run.resolve())
-        doc["references"] = references
+        doc["references"] = paired
+    elif root is not None:
+        doc["references_root"] = str(root.resolve())
+        doc["references"] = ref_hashes
+        doc["skip_missing"] = skip_missing
+        if skipped:
+            doc["skipped"] = skipped
     return directory, todo, doc
+
+
+def _resolve_references(
+    todo: list[Unit], root: Path, skip_missing: bool
+) -> tuple[list[Unit], list[str], dict[str, str]]:
+    """Attach each image unit's still, or say which ones are not there.
+
+    Every missing image is named in one refusal: finding them one run at a
+    time, each after the planning above has already passed, is how a
+    two-hour run becomes a two-hour run that has not started.
+    """
+    from .quality import reference_hash
+
+    missing = sorted({
+        u.item.reference_image for u in todo
+        if u.item.input_mode == "image" and not (root / u.item.reference_image).is_file()
+    })
+    if missing and not skip_missing:
+        raise ValueError(
+            f"{len(missing)} reference image(s) missing under {root}: "
+            + ", ".join(missing)
+            + " (supply them, or pass --skip-missing to run without)"
+        )
+    kept: list[Unit] = []
+    skipped: list[str] = []
+    hashes: dict[str, str] = {}
+    for unit in todo:
+        if unit.item.input_mode != "image":
+            kept.append(unit)
+        elif unit.item.reference_image in missing:
+            skipped.append(unit.key)
+        else:
+            path = root / unit.item.reference_image
+            kept.append(replace(unit, reference=path))
+            hashes[unit.key] = reference_hash(path)
+    return kept, skipped, hashes
+
+
+def reference_bytes(unit: Unit, reference_run: Path | None) -> bytes | None:
+    """The still this unit starts from, or None when it starts from its prompt.
+
+    A paired run's frozen ``input.png`` wins over the suite's own reference:
+    that is what makes an engine comparison hold the picture fixed.
+    """
+    if reference_run is not None:
+        return (reference_run / "items" / unit.key / "input.png").read_bytes()
+    if unit.reference is not None:
+        return unit.reference.read_bytes()
+    return None
 
 
 def read_items(run_dir: Path) -> list[dict[str, Any]]:
@@ -228,6 +303,8 @@ def run(
     keep_source: bool = False,
     resume: Path | None = None,
     reference_run: Path | None = None,
+    references: Path | None = None,
+    skip_missing: bool = False,
     on_event: Callable[[str], None] | None = None,
 ) -> Path:
     """Execute a run and return its directory."""
@@ -259,6 +336,9 @@ def run(
         # legitimately covers a subset.
         if reference_run is None and stored.get("reference_run"):
             reference_run = Path(stored["reference_run"])
+        if references is None and stored.get("references_root"):
+            references = Path(stored["references_root"])
+        skip_missing = skip_missing or bool(stored.get("skip_missing"))
         if categories or ids or limit or seeds:
             say("resume: ignoring the selection flags; using the run's own")
         run_dir, todo, doc = plan_run(
@@ -268,6 +348,7 @@ def run(
             seeds=tuple(stored.get("seeds") or ()),
             run_dir=resume,
             reference_run=reference_run,
+            references=references, skip_missing=skip_missing,
         )
         # Refuse before a single job is submitted: a run half-measured against
         # two checkpoints is worse than no run.
@@ -283,7 +364,10 @@ def run(
             stage=stage, started=started, categories=categories, ids=ids,
             limit=limit, seeds=seeds, run_dir=None,
             reference_run=reference_run,
+            references=references, skip_missing=skip_missing,
         )
+        if doc.get("skipped"):
+            say(f"skipping {len(doc['skipped'])} unit(s) with no reference image")
         manifest_mod.write_manifest(run_dir, doc)
 
     pending = [u for u in todo if u.key not in already]
@@ -386,6 +470,9 @@ def _run_unit(
         "item": unit.item.id,
         "category": unit.item.category,
         "seed": unit.seed,
+        "attempt": unit.attempt or None,
+        "input_mode": unit.item.input_mode,
+        "rubric": unit.item.rubric,
         "job": job_id,
         "status": job.get("status"),
         "error": job.get("error"),
@@ -442,12 +529,10 @@ def _submit_unit(svc: Any, recipe: Any, unit: Unit, stage: str,
     from ..service import jobs
 
     family = getattr(unit.item, "output_family", "3d_model")
-    if reference_run is not None and family == "3d_model":
+    image = reference_bytes(unit, reference_run)
+    if image is not None and family == "3d_model":
         kwargs = recipe_mod.job_kwargs(recipe, unit.item, unit.seed, stage="model")
-        kwargs.update(
-            kind="image", image=(reference_run / "items" / unit.key / "input.png").read_bytes(),
-            asset_type="3d_model",
-        )
+        kwargs.update(kind="image", image=image, asset_type="3d_model")
         return jobs.create_job(svc, **kwargs)
     if reference_run is not None and family == "image":
         from .. import models

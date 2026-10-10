@@ -262,7 +262,7 @@ uv run realmspinner doctor   # checks dependencies, weights, and configuration
 
 `realmspinner sweep --image ~/.realmspinner/assets/<job-id>/input.png --bands auto,4,8 --seed 42` regenerates one reference at several trellis `--band` values with a fixed seed and audits each resulting mesh.
 
-`python -m realmspinner.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v2`, `pixel-v2`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `suite`, `run`, `quality`, `blind-review`, `import-review`, `score`, `compare`, `calibrate`, `prune`, `purge`.
+`python -m realmspinner.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v2`, `pixel-v2`, `create-3d-v1`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `suite`, `run`, `quality`, `blind-review`, `import-external`, `import-review`, `score`, `compare`, `calibrate`, `prune`, `purge`.
 
 ### Configuration
 

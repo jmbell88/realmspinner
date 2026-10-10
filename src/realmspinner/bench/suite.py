@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 SUITE_DIR = Path(__file__).resolve().parent / "suites"
@@ -21,7 +21,13 @@ DEFAULT_SUITE = "core-v2"
 # this string, so a typo'd category in a suite file selects zero items and
 # reports nothing wrong -- a run that silently does nothing, which is the one
 # failure mode worse than a crash.
-CATEGORIES = ("prop", "weapon", "character", "vehicle", "environment")
+CATEGORIES = (
+    "prop", "weapon", "character", "vehicle", "environment",
+    # create-3d-v1's six: what a 3D generator is judged on, not what a game
+    # calls the thing. Added, never renamed -- core-v2's ids are frozen.
+    "solid_prop", "thin_weapon", "open_structure", "hard_surface", "humanoid", "creature",
+)
+INPUT_MODES = ("text", "image")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +40,12 @@ class Item:
     notes: str = ""
     output_family: str = "3d_model"
     settings: dict[str, Any] = field(default_factory=dict)
+    # ``image`` items start from a still the maintainer supplies, found under a
+    # references root at ``reference_image`` (never inside the repo). ``rubric``
+    # names an entry in ``quality.RUBRICS``; None keeps the family's CRITERIA.
+    input_mode: str = "text"
+    reference_image: str | None = None
+    rubric: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +89,7 @@ def parse(raw: dict[str, Any], path: Path) -> Suite:
     actually accepts -- a typo would otherwise fail 160 submits one at a time,
     two hours into a run."""
     from .. import guidance
+    from .quality import CRITERIA, RUBRICS
 
     known = set(guidance.form_fields())
     seeds = tuple(int(s) for s in raw.get("seeds") or ())
@@ -102,8 +115,6 @@ def parse(raw: dict[str, Any], path: Path) -> Suite:
             )
         fields = dict(entry.get("guidance") or {})
         family = str(entry.get("output_family") or "3d_model")
-        from .quality import CRITERIA
-
         if family not in CRITERIA:
             raise ValueError(f"{path.name}: item {item_id} has unknown output family {family!r}")
         unknown = sorted(set(fields) - known)
@@ -117,6 +128,23 @@ def parse(raw: dict[str, Any], path: Path) -> Suite:
             guidance.normalize(fields)
         except ValueError as exc:
             raise ValueError(f"{path.name}: item {item_id}: {exc}") from exc
+        input_mode = str(entry.get("input") or "text")
+        if input_mode not in INPUT_MODES:
+            raise ValueError(
+                f"{path.name}: item {item_id} has input {input_mode!r}; "
+                f"expected one of {list(INPUT_MODES)}"
+            )
+        reference_image = entry.get("reference_image") or None
+        if input_mode == "image":
+            reference_image = _reference_path(path, item_id, reference_image)
+        elif reference_image is not None:
+            raise ValueError(f"{path.name}: text item {item_id} names a reference_image")
+        rubric = entry.get("rubric") or None
+        if rubric is not None and rubric not in RUBRICS:
+            raise ValueError(
+                f"{path.name}: item {item_id} has unknown rubric {rubric!r}; "
+                f"expected one of {sorted(RUBRICS)}"
+            )
         items.append(
             Item(
                 id=item_id,
@@ -127,6 +155,9 @@ def parse(raw: dict[str, Any], path: Path) -> Suite:
                 notes=str(entry.get("notes") or ""),
                 output_family=family,
                 settings=dict(entry.get("settings") or {}),
+                input_mode=input_mode,
+                reference_image=reference_image,
+                rubric=rubric,
             )
         )
     if not items:
@@ -139,3 +170,15 @@ def parse(raw: dict[str, Any], path: Path) -> Suite:
         path=path,
         notes=str(raw.get("notes") or ""),
     )
+
+
+def _reference_path(path: Path, item_id: str, value: Any) -> str:
+    """A reference is relative to a root the *runner* chooses, so a suite can
+    neither point outside it nor depend on one machine's drive layout."""
+    text = str(value or "").replace("\\", "/")
+    parts = PurePosixPath(text).parts
+    if not text or PurePosixPath(text).is_absolute() or ":" in parts[0] or ".." in parts:
+        raise ValueError(
+            f"{path.name}: image item {item_id} needs a relative reference_image, got {value!r}"
+        )
+    return PurePosixPath(*parts).as_posix()

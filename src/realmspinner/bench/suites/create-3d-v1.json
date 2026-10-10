@@ -1,0 +1,32 @@
+{
+  "key": "create-3d-v1",
+  "label": "Create 3D v1: image-to-3D and text-to-3D across six asset categories",
+  "seeds": [42, 1337, 7],
+  "notes": "Immutable. Seeds are attempt slots in order (attempt 1 = seed 42): first-attempt, best-of-3 and time-to-accepted are read off them. Image items read their reference from <bench_dir>/references/<suite key>/<reference_image>, never from the repo; the images are licence-clean stills the maintainer supplies. External services (Tripo, Meshy) are filed into the same slots with `import-external`. Every missing measurement or grade remains unknown.",
+  "items": [
+    {"id": "solid_prop-img-01", "category": "solid_prop", "input": "image", "reference_image": "solid_prop/01.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a wooden storage crate with iron corner brackets", "guidance": {}},
+    {"id": "solid_prop-img-02", "category": "solid_prop", "input": "image", "reference_image": "solid_prop/02.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a round clay water jug with a short neck", "guidance": {}},
+    {"id": "solid_prop-img-03", "category": "solid_prop", "input": "image", "reference_image": "solid_prop/03.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a leather-bound treasure chest with a curved lid", "guidance": {}},
+    {"id": "solid_prop-txt-01", "category": "solid_prop", "input": "text", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a stone garden urn on a square base", "guidance": {}},
+    {"id": "thin_weapon-img-01", "category": "thin_weapon", "input": "image", "reference_image": "thin_weapon/01.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a steel longsword with a crossguard and leather grip", "guidance": {}},
+    {"id": "thin_weapon-img-02", "category": "thin_weapon", "input": "image", "reference_image": "thin_weapon/02.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a wooden bow with a taut string", "guidance": {}},
+    {"id": "thin_weapon-img-03", "category": "thin_weapon", "input": "image", "reference_image": "thin_weapon/03.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a spear with a leaf-shaped iron head", "guidance": {}},
+    {"id": "thin_weapon-txt-01", "category": "thin_weapon", "input": "text", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a curved dagger with a ring pommel", "guidance": {}},
+    {"id": "open_structure-img-01", "category": "open_structure", "input": "image", "reference_image": "open_structure/01.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a wooden lantern with open gaps between its bars", "guidance": {}},
+    {"id": "open_structure-img-02", "category": "open_structure", "input": "image", "reference_image": "open_structure/02.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a stone archway with a hollow opening", "guidance": {}},
+    {"id": "open_structure-img-03", "category": "open_structure", "input": "image", "reference_image": "open_structure/03.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a wrought-iron garden gate with spaced bars", "guidance": {}},
+    {"id": "open_structure-txt-01", "category": "open_structure", "input": "text", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a wooden market stall frame with an open canopy", "guidance": {}},
+    {"id": "hard_surface-img-01", "category": "hard_surface", "input": "image", "reference_image": "hard_surface/01.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a small six-wheeled rover with a boxy chassis", "guidance": {}},
+    {"id": "hard_surface-img-02", "category": "hard_surface", "input": "image", "reference_image": "hard_surface/02.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a sci-fi crate with panel seams and hazard stripes", "guidance": {}},
+    {"id": "hard_surface-img-03", "category": "hard_surface", "input": "image", "reference_image": "hard_surface/03.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a retro robot vacuum with a domed top", "guidance": {}},
+    {"id": "hard_surface-txt-01", "category": "hard_surface", "input": "text", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a steel bank-vault door with a round wheel handle", "guidance": {}},
+    {"id": "humanoid-img-01", "category": "humanoid", "input": "image", "reference_image": "humanoid/01.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a knight in plate armor standing in an A-pose", "guidance": {}},
+    {"id": "humanoid-img-02", "category": "humanoid", "input": "image", "reference_image": "humanoid/02.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a hooded rogue in a leather coat standing in a T-pose", "guidance": {}},
+    {"id": "humanoid-img-03", "category": "humanoid", "input": "image", "reference_image": "humanoid/03.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a villager in a plain tunic with arms slightly out", "guidance": {}},
+    {"id": "humanoid-txt-01", "category": "humanoid", "input": "text", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a mage in long robes holding a staff", "guidance": {}},
+    {"id": "creature-img-01", "category": "creature", "input": "image", "reference_image": "creature/01.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a four-legged wolf standing in profile", "guidance": {}},
+    {"id": "creature-img-02", "category": "creature", "input": "image", "reference_image": "creature/02.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a winged dragon with folded wings", "guidance": {}},
+    {"id": "creature-img-03", "category": "creature", "input": "image", "reference_image": "creature/03.png", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a coiled snake with a raised head", "guidance": {}},
+    {"id": "creature-txt-01", "category": "creature", "input": "text", "output_family": "3d_model", "rubric": "3d_v2", "prompt": "a round-bodied frog crouching", "guidance": {}}
+  ]
+}

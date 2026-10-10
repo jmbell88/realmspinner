@@ -24,9 +24,43 @@ CRITERIA = {
     "authored_character": ("recipe_fidelity", "deformation", "rig_readiness", "sheet_consistency"),
 }
 
+# Rubrics are *additional* criteria sets a suite item opts into by name. CRITERIA
+# is left alone so every create-v1 report and packet reads exactly as it did.
+RUBRICS = {
+    "3d_v2": (
+        "silhouette",
+        "reference_fidelity",
+        "unseen_surfaces",
+        "texture",
+        "finishing_damage",
+        "animation_suitability",
+    ),
+}
+# animation_suitability is only a question for things that will be rigged; asking
+# it of a crate would make every static prop "unknown" forever.
+ANIMATABLE = frozenset({"humanoid", "creature"})
+_ANIMATION = "animation_suitability"
+ATTEMPT_LIMIT = 3
 
-def readiness(family: str, grades: dict[str, Any] | None) -> bool | None:
-    values = [(grades or {}).get(name) for name in CRITERIA[family]]
+
+def criteria_for(
+    family: str, rubric: str | None = None, category: str | None = None
+) -> tuple[str, ...]:
+    if not rubric:
+        return CRITERIA[family]
+    names = RUBRICS[rubric]
+    if category in ANIMATABLE:
+        return names
+    return tuple(n for n in names if n != _ANIMATION)
+
+
+def readiness(
+    family: str,
+    grades: dict[str, Any] | None,
+    rubric: str | None = None,
+    category: str | None = None,
+) -> bool | None:
+    values = [(grades or {}).get(name) for name in criteria_for(family, rubric, category)]
     if any(value is False for value in values):
         return False
     return True if all(value is True for value in values) else None
@@ -43,7 +77,12 @@ def summarise(
             usable.append(
                 False
                 if row.get("status") != "done"
-                else readiness(family, (grades or {}).get(row["key"]))
+                else readiness(
+                    family,
+                    (grades or {}).get(row["key"]),
+                    row.get("rubric"),
+                    row.get("category"),
+                )
             )
         known = [v for v in usable if v is not None]
         families[family] = {
@@ -70,13 +109,112 @@ def summarise(
     }
 
 
+def _accepted(record: dict[str, Any], grades: dict[str, Any] | None) -> bool | None:
+    if record.get("status") != "done":
+        return False
+    return readiness(
+        record.get("output_family", "3d_model"),
+        (grades or {}).get(record["key"]),
+        record.get("rubric"),
+        record.get("category"),
+    )
+
+
+def _repair_minutes(grades: dict[str, Any] | None, key: str) -> float | None:
+    value = ((grades or {}).get(key) or {}).get("repair_minutes")
+    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+        return None
+    return float(value)
+
+
+def _item_attempts(
+    attempts: list[dict[str, Any]], grades: dict[str, Any] | None
+) -> dict[str, Any]:
+    """One item's attempts, in attempt order, reduced to what is known.
+
+    Three-valued throughout, like ``readiness``: a verdict nobody has given is
+    None, and a None is never counted as a pass or as a failure.
+    """
+    attempts = sorted(attempts, key=lambda r: r["attempt"])
+    verdicts = [_accepted(r, grades) for r in attempts]
+    first = verdicts[0] if attempts[0]["attempt"] == 1 else None
+    window = [v for r, v in zip(attempts, verdicts, strict=True) if r["attempt"] <= ATTEMPT_LIMIT]
+    if any(v is True for v in window):
+        best: bool | None = True
+    else:
+        best = None if any(v is None for v in window) else False
+
+    seconds: float | None = None
+    if True in verdicts:
+        # Everything spent up to and including the first accepted attempt; one
+        # unrecorded duration along the way makes the total unknown.
+        upto = verdicts.index(True) + 1
+        spent = [r.get("seconds") for r in attempts[:upto]]
+        repair = _repair_minutes(grades, attempts[upto - 1]["key"])
+        if all(v is not None for v in spent) and repair is not None:
+            seconds = sum(spent) + repair * 60.0
+    return {"first": first, "best": best, "time_to_accepted": seconds}
+
+
+def _rate(values: list[bool | None]) -> float | None:
+    if not values or None in values:
+        return None
+    return sum(v is True for v in values) / len(values)
+
+
+def _group_metrics(records: list[dict[str, Any]], grades: dict[str, Any] | None) -> dict[str, Any]:
+    by_item: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        if record.get("attempt") is not None:
+            by_item.setdefault(record["item"], []).append(record)
+    items = [_item_attempts(rows, grades) for rows in by_item.values()]
+    times = sorted(i["time_to_accepted"] for i in items if i["time_to_accepted"] is not None)
+    seconds = [r["seconds"] for r in records if r.get("seconds") is not None]
+    return {
+        "items": len(items),
+        "attempts": sum(len(rows) for rows in by_item.values()),
+        "first_attempt": _rate([i["first"] for i in items]),
+        "best_of_3": _rate([i["best"] for i in items]),
+        "generation_seconds_total": sum(seconds) if seconds else None,
+        "time_to_accepted_seconds": statistics.median(times) if times else None,
+        "time_to_accepted_known": len(times),
+    }
+
+
+def attempt_metrics(
+    records: list[dict[str, Any]], grades: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """First-attempt, best-of-3 and time-to-accepted, overall and split by input
+    mode and by category.
+
+    An attempt is one seed slot of an item (``record["attempt"]``, 1-based).
+    ``time_to_accepted_seconds`` is the *median* over the items that reached an
+    accepted attempt and whose every duration and repair time is known:
+    generation seconds through the first accepted attempt plus its repair
+    minutes. Items that never reached acceptance, or whose cost is unknown, are
+    counted in ``items`` but never in the median.
+    """
+    out: dict[str, Any] = {"overall": _group_metrics(records, grades)}
+    for label, field in (("by_input_mode", "input_mode"), ("by_category", "category")):
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for record in records:
+            groups.setdefault(record.get(field) or "text", []).append(record)
+        out[label] = {name: _group_metrics(rows, grades) for name, rows in sorted(groups.items())}
+    return out
+
+
 def report(run_dir: Path, grades_path: Path | None = None) -> dict[str, Any]:
     from .runner import latest_items
 
     if grades_path is None and (run_dir / "human-grades.json").is_file():
         grades_path = run_dir / "human-grades.json"
     grades = json.loads(grades_path.read_text("utf-8")) if grades_path else {}
-    doc = summarise(list(latest_items(run_dir).values()), grades)
+    records = list(latest_items(run_dir).values())
+    doc = summarise(records, grades)
+    # Only for runs that recorded attempts: a create-v1 report stays byte-for-byte
+    # what it was, and an old run does not grow a block of Nones.
+    if any(r.get("attempt") is not None for r in records):
+        doc["attempts"] = attempt_metrics(records, grades)
     (run_dir / "quality.json").write_text(json.dumps(doc, indent=2), "utf-8")
     return doc
 
@@ -117,6 +255,8 @@ def blind_review(left: Path, right: Path, out: Path, seed: int = 42) -> Path:
     review, mapping = [], {}
     for index, key in enumerate(pairs, 1):
         family = a[key].get("output_family", "3d_model")
+        rubric, category = a[key].get("rubric"), a[key].get("category")
+        criteria = criteria_for(family, rubric, category)
         order = [left, right]
         rng.shuffle(order)
         for slot, directory in zip(("A", "B"), order, strict=True):
@@ -132,7 +272,11 @@ def blind_review(left: Path, right: Path, out: Path, seed: int = 42) -> Path:
                         target = dest / path.name / image.relative_to(path)
                         target.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copyfile(image, target)
-            mapping[label] = {"run": str(directory.resolve()), "key": key}
+            mapping[label] = {
+                "run": str(directory.resolve()),
+                "key": key,
+                "criteria": list(criteria),
+            }
             review.append(
                 {
                     "id": label,
@@ -142,8 +286,11 @@ def blind_review(left: Path, right: Path, out: Path, seed: int = 42) -> Path:
                     if family == "authored_character"
                     else None,
                     "assets": str(dest.relative_to(out)),
-                    "acceptance": dict.fromkeys(CRITERIA[family]),
+                    "acceptance": dict.fromkeys(criteria),
                     "aesthetic_preference": None,
+                    # Only rubric packets carry these; a create-v1 packet is
+                    # unchanged. repair_minutes: hand-fix time to make it usable.
+                    **({"rubric": rubric, "repair_minutes": None} if rubric else {}),
                 }
             )
     (out / "review.json").write_text(json.dumps(review, indent=2), "utf-8")
@@ -157,14 +304,23 @@ def import_review(review_dir: Path) -> None:
     runs: dict[str, dict[str, Any]] = {}
     for row in review:
         grades = row["acceptance"]
-        if set(grades) != set(CRITERIA[row["family"]]) or any(
+        target = mapping[row["id"]]
+        # The mapping knows which criteria this case was issued with; a mapping
+        # from before rubrics has none and falls back to the family's.
+        expected = set(target.get("criteria") or CRITERIA[row["family"]])
+        if set(grades) != expected or any(
             v is not None and not isinstance(v, bool) for v in grades.values()
         ):
             raise ValueError(f"{row['id']}: acceptance grades must be true, false, or null")
-        target = mapping[row["id"]]
+        repair = row.get("repair_minutes")
+        if repair is not None and (
+            isinstance(repair, bool) or not isinstance(repair, int | float) or repair < 0
+        ):
+            raise ValueError(f"{row['id']}: repair_minutes must be a number of minutes or null")
         runs.setdefault(target["run"], {})[target["key"]] = {
             **grades,
             "aesthetic_preference": row.get("aesthetic_preference"),
+            **({"repair_minutes": repair} if "repair_minutes" in row else {}),
         }
     for directory, grades in runs.items():
         path = Path(directory) / "human-grades.json"
@@ -172,6 +328,118 @@ def import_review(review_dir: Path) -> None:
             grades = {**json.loads(path.read_text("utf-8")), **grades}
         path.write_text(json.dumps(grades, indent=2), "utf-8")
         report(Path(directory), path)
+
+
+# A GLB a service hands back is a few MiB to a few hundred; past this it is not
+# a game asset and the copy would only fill the disk.
+EXTERNAL_MAX_BYTES = 512 * 1024 * 1024
+_GLB_MAGIC = b"glTF"
+
+
+def _external_glb(path: Path) -> None:
+    size = path.stat().st_size
+    if size > EXTERNAL_MAX_BYTES:
+        raise ValueError(f"{path.name}: {size} bytes is over the {EXTERNAL_MAX_BYTES} byte cap")
+    with path.open("rb") as fh:
+        if fh.read(4) != _GLB_MAGIC:
+            raise ValueError(f"{path.name}: not a binary glTF (missing 'glTF' magic)")
+
+
+def import_external(
+    reference_run: Path, glb_dir: Path, out: Path, label: str
+) -> dict[str, Any]:
+    """File another service's GLBs as a run that blind_review can pair.
+
+    ``glb_dir`` holds ``<item>/attempt-<n>.glb``, the files a person downloaded
+    from Tripo or Meshy by hand; an optional ``timings.json`` maps
+    ``"<item>/attempt-<n>.glb"`` to the seconds that attempt took. Each file
+    becomes the unit of the same item and attempt in ``reference_run`` and
+    shares its ``input.png``, so the pairing rule that mesh comparisons need
+    the same reference image holds by construction. Nothing here touches the
+    network: this reads local files only.
+
+    Attempts the service never produced are simply absent, and are returned
+    under ``missing`` so the caller can say so -- they are not recorded as
+    failures, because a person choosing not to download a third try is not a
+    generation failure.
+    """
+    from .runner import append_item, latest_items
+
+    if out.exists():
+        raise ValueError("import output already exists; choose a fresh directory")
+    if not glb_dir.is_dir():
+        raise ValueError(f"{glb_dir}: not a directory")
+    label = label.strip()
+    if not label:
+        raise ValueError("a label is required")
+    records = latest_items(reference_run)
+    if not records:
+        raise ValueError(f"{reference_run}: no recorded units")
+    timings: dict[str, Any] = {}
+    if (glb_dir / "timings.json").is_file():
+        timings = json.loads((glb_dir / "timings.json").read_text("utf-8"))
+
+    imported, missing, used = [], [], set()
+    out.mkdir(parents=True)
+    for key, record in sorted(records.items()):
+        attempt = record.get("attempt")
+        if attempt is None or record.get("status") != "done":
+            continue
+        rel = f"{record['item']}/attempt-{attempt}.glb"
+        source = glb_dir / record["item"] / f"attempt-{attempt}.glb"
+        reference = reference_run / "items" / key / "input.png"
+        if not source.is_file():
+            missing.append(rel)
+            continue
+        if not reference.is_file():
+            raise ValueError(f"{reference}: the reference run has no input.png for {key}")
+        _external_glb(source)
+        item_dir = out / "items" / key
+        item_dir.mkdir(parents=True)
+        shutil.copyfile(reference, item_dir / "input.png")
+        shutil.copyfile(source, item_dir / "model.glb")
+        seconds = timings.get(rel)
+        used.add(rel)
+        append_item(
+            out,
+            {
+                "key": key,
+                "item": record["item"],
+                "category": record.get("category"),
+                "seed": record["seed"],
+                "attempt": attempt,
+                "status": "done",
+                "seconds": float(seconds) if isinstance(seconds, int | float) else None,
+                "output_family": record.get("output_family", "3d_model"),
+                "prompt": record.get("prompt"),
+                "input_mode": record.get("input_mode"),
+                "rubric": record.get("rubric"),
+                "backend": label,
+                "reference_sha256": reference_hash(item_dir / "input.png"),
+            },
+        )
+        imported.append(rel)
+    if not imported:
+        shutil.rmtree(out, ignore_errors=True)
+        raise ValueError(f"{glb_dir}: no <item>/attempt-<n>.glb matched the reference run")
+    extra = sorted(
+        p.relative_to(glb_dir).as_posix()
+        for p in glb_dir.rglob("*.glb")
+        if p.relative_to(glb_dir).as_posix() not in used
+    )
+    (out / "manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "imported": True,
+                "label": label,
+                "reference_run": str(reference_run.resolve()),
+            },
+            indent=2,
+        ),
+        "utf-8",
+    )
+    return {"imported": imported, "missing": missing, "unmatched": extra}
 
 
 def reference_hash(path: Path) -> str:

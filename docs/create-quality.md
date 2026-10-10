@@ -64,6 +64,72 @@ and leaves usable-output rate unknown until every acceptance criterion is known.
 Runtime includes failed attempts. Memory is sampled every 250 ms and records
 machine-wide VRAM usage and host commit, including other processes.
 
+## The 3D corpus: `create-3d-v1`
+
+`create-3d-v1` is the suite for the question "do usable game assets come out of
+this, and how fast?". It has six categories (`solid_prop`, `thin_weapon`,
+`open_structure`, `hard_surface`, `humanoid`, `creature`), each with three
+image-to-3D items and one text-to-3D item, and seeds 42, 1337 and 7. The seeds
+are **attempt slots, in order**: seed 42 is attempt 1, so first-attempt,
+best-of-3 and time-to-accepted fall out of the same run. They are also the
+slots an external service is filed into (below), whatever seed it used itself.
+
+Image items start from a still you supply. The images are never in the repo:
+the runner reads them from `<bench dir>/references/create-3d-v1/<reference_image>`
+(for example `humanoid/02.png`), or from the folder given by `--references`.
+Use licence-clean stills. A run refuses with **one** message naming every
+missing image; `--skip-missing` runs the items whose image exists and records
+the rest under `skipped` in the manifest. The images' hashes go into the
+manifest, so replacing one refuses a resume.
+
+```powershell
+uv run python -m realmspinner.bench run --suite create-3d-v1 --recipe sdxl-cfg-raw --stage model --render --references D:enchefs --skip-missing
+```
+
+Items grade on the `3d_v2` rubric: silhouette, reference fidelity, unseen
+surfaces, texture, finishing damage and, for `humanoid` and `creature` only,
+animation suitability. A packet from this suite also carries `repair_minutes`:
+the hand-fix time, in minutes, to make the mesh usable (0 is a real answer;
+leave null if unknown). `create-v1` keeps its own criteria and its reports are
+unchanged.
+
+`quality` adds an `attempts` block to `quality.json` for runs that recorded
+attempts, overall and split by input mode and by category:
+
+- `first_attempt` and `best_of_3`: the share of items accepted on attempt 1, or
+  on any of attempts 1-3. Unknown (null) until every item's verdict is known.
+- `generation_seconds_total`: every attempt's runtime, failures included.
+- `time_to_accepted_seconds`: per item, the generation seconds of every attempt
+  through the first accepted one plus its `repair_minutes` x 60. The block
+  reports the **median** over items where that is known (and how many were);
+  an item that was never accepted, or whose duration or repair time is
+  missing, is left out rather than guessed.
+
+### Comparing with Tripo or Meshy
+
+Nothing here calls another service. Generate from the same reference images by
+hand, then file the downloads as a run:
+
+```
+tripo-downloads/
+  humanoid-img-02/attempt-1.glb
+  humanoid-img-02/attempt-2.glb
+  timings.json            (optional: {"humanoid-img-02/attempt-1.glb": 41.0})
+```
+
+```powershell
+uv run python -m realmspinner.bench import-external OUR_RUN tripo-downloads tripo-run --label tripo
+uv run python -m realmspinner.bench blind-review OUR_RUN tripo-run REVIEW_DIRECTORY
+```
+
+Each GLB becomes the unit of the same item and attempt in `OUR_RUN` and shares
+its `input.png`, so both sides of a review start from the identical image. The
+import checks the glTF magic number and a size cap and records the label as
+`backend`; the blind packet leaves it out. Attempts the service has no file
+for are reported as `missing` and are not scored as failures, so give each
+service the same number of tries. Text-to-3D comparisons are a separate
+exercise, because the services' own text pipelines differ from ours.
+
 ## Verification on this checkout
 
 The full repository suite passed: **25,869 passed, 45 skipped**. Real Blender
