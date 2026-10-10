@@ -68,7 +68,7 @@ def test_the_export_stage_lists_an_over_budget_mesh_with_its_remesh_repair():
     assert row.state == "attention"
     assert "200,000" in row.detail
     assert "150,000" in row.detail
-    assert row.repair == readiness.REPAIR_GO_TO_RIG
+    assert row.repair == readiness.REPAIR_GO_TO_MESH
 
 
 def test_an_in_budget_mesh_reports_its_triangles_as_ok_with_no_repair():
@@ -117,26 +117,25 @@ def test_missing_uvs_and_missing_textures_are_each_their_own_row():
     assert rows["Textures"].repair is None
 
 
-def test_an_ungrounded_pivot_is_flagged_with_no_repair():
+def test_an_ungrounded_pivot_is_flagged_with_the_finished_asset_repair():
     job = _job(params={"mesh_report": _report(grounded=False), "size_m": 1.0})
     rows = {row.label: row for row in readiness.rows_for(job)}
     row = rows["Pivot on floor"]
     assert row.state == "attention"
-    assert row.repair is None
+    assert row.repair == readiness.REPAIR_FIX_ASSET
 
 
 # --- size ----------------------------------------------------------------------
 
 
-def test_no_target_size_states_the_guidance_suggestion_and_offers_no_press():
-    """The hint is worth saying; applying it to a finished mesh is not a press.
+def test_no_target_size_states_the_guidance_suggestion_and_points_at_the_finished_asset_panel():
+    """The hint is stated, and the repair points at the panel that resizes.
 
-    ``size_m`` is a recorded input in ``vectors.VECTOR_PARAMS`` and the scale
-    was composed into the geometry by ``normalize_glb`` when the mesh was
-    made, so a button here could only re-key the job's stored evidence and
-    claim a size the mesh does not have. The first draft of this row wired one
-    to ``jobs.update_job``, which accepts name/tags/favorite and silently
-    ignores everything else -- a repair that did nothing at all.
+    This row applies nothing itself: ``size_m`` is a recorded input in
+    ``vectors.VECTOR_PARAMS``, and the first draft wired a button to
+    ``jobs.update_job``, which silently ignores it. The honest press is
+    ``jobs.reorient_model`` (rescale and record in one step), reached through
+    the Mesh stage's Finished-asset panel.
     """
     # size_hint takes the *last* noun it recognises (the head of an English
     # noun phrase), so the prompt names only the one word it should match.
@@ -149,15 +148,15 @@ def test_no_target_size_states_the_guidance_suggestion_and_offers_no_press():
     assert row.state == "attention"
     assert "no target size" in row.detail
     assert "1 m" in row.detail  # guidance.SIZE_HINTS_M["sword"], stated
-    assert row.repair is None
+    assert row.repair == readiness.REPAIR_FIX_ASSET
 
 
-def test_no_target_size_and_no_recognised_noun_has_no_repair():
+def test_no_target_size_and_no_recognised_noun_still_offers_the_finished_asset_repair():
     job = _job(prompt="a strange glowing thing", params={"mesh_report": _report()})
     rows = {row.label: row for row in readiness.rows_for(job)}
     row = rows["Size"]
     assert row.state == "attention"
-    assert row.repair is None
+    assert row.repair == readiness.REPAIR_FIX_ASSET
 
 
 def test_a_size_close_to_the_target_is_ok():
@@ -166,13 +165,13 @@ def test_a_size_close_to_the_target_is_ok():
     assert rows["Size"].state == "ok"
 
 
-def test_a_size_far_from_the_target_is_flagged_with_no_repair():
+def test_a_size_far_from_the_target_is_flagged_with_the_finished_asset_repair():
     job = _job(params={"mesh_report": _report(achieved_size_m=1.5), "size_m": 1.0})
     rows = {row.label: row for row in readiness.rows_for(job)}
     row = rows["Size"]
     assert row.state == "attention"
     assert "1.500" in row.detail and "1.000" in row.detail
-    assert row.repair is None
+    assert row.repair == readiness.REPAIR_FIX_ASSET
 
 
 # --- degraded processing --------------------------------------------------------
@@ -188,7 +187,7 @@ def test_a_degraded_normalize_offers_the_rebuild_door():
     row = rows["Processing"]
     assert row.state == "attention"
     assert "normalize" in row.detail
-    assert row.repair == readiness.REPAIR_GO_TO_RIG
+    assert row.repair == readiness.REPAIR_GO_TO_MESH
 
 
 def test_a_degraded_report_step_has_no_repair():
@@ -293,3 +292,41 @@ def test_size_row_still_reads_a_numeric_size_m():
     assert row.state == "ok"
     row = readiness._size_row(_report(achieved_size_m=1.0), {"size_m": "1.0"}, None)
     assert row.state == "ok"
+
+
+# --- the rig outrun by any geometry change ----------------------------------
+
+
+def _rigged(history, **extra):
+    return _job(
+        files=["rig.glb", "rig.json", "model.glb"],
+        params={"mesh_report": _report(), "model_history": history, **extra},
+    )
+
+
+def test_a_remesh_or_resize_newer_than_the_rig_flags_it_even_with_a_report():
+    """The old evidence only ever caught a retarget (it drops ``mesh_report``).
+    A remesh or a reorient re-measures, so the report is present and the row
+    stayed silent while the rig described the old mesh."""
+    history = [{"n": 1, "kind": "reorient", "at": 2_000.0, "geometry": True}]
+    rows = {row.label: row for row in readiness.rows_for(_rigged(history), rig_mtime=1_000.0)}
+    assert rows["Rig"].state == "attention"
+    assert rows["Rig"].repair == readiness.REPAIR_GO_TO_RIG
+
+
+def test_a_geometry_change_older_than_the_rig_does_not_flag_it():
+    history = [{"n": 1, "kind": "remesh", "at": 500.0, "geometry": True}]
+    rows = {row.label: row for row in readiness.rows_for(_rigged(history), rig_mtime=1_000.0)}
+    assert "Rig" not in rows
+
+
+def test_a_surface_only_change_after_the_rig_does_not_flag_it():
+    history = [{"n": 1, "kind": "retexture", "at": 2_000.0, "geometry": False}]
+    rows = {row.label: row for row in readiness.rows_for(_rigged(history), rig_mtime=1_000.0)}
+    assert "Rig" not in rows
+
+
+def test_without_a_rig_mtime_the_older_evidence_still_stands():
+    job = _job(files=["rig.glb"], params={"optimize": {"faces": 1}})
+    rows = {row.label: row for row in readiness.rows_for(job)}
+    assert rows["Rig"].repair == readiness.REPAIR_GO_TO_RIG

@@ -2,11 +2,10 @@
 
 Three findings, three panes:
 
-- shell-02: Create's live Rig stage (``inspector._STAGE_SECTIONS["rig"]``)
-  never drew ``history_panel``, though Manual 23 promises "Earlier meshes"
-  there, below Surface texture, with no caveat -- and the Library's Rig &
-  Pose tab (``_rig_tab``) already drew it. The mirror image of create-02
-  (2026-09-07 audit), which fixed the gap in the other direction.
+- shell-02: Create's live inspector never drew ``history_panel`` at the stage
+  Manual 23 promises "Earlier meshes" at, below Surface texture -- and the
+  Library's Rig & Pose tab (``_rig_tab``) already drew it. That stage is now
+  Mesh (2026-10-10), where the rest of the reworks live too.
 - create-05: ``retarget_panel._warn_stale`` only reassured that the replaced
   mesh was kept when undoing a prior remesh; ``optimize_job`` keeps it on
   every retarget, so the line must be unconditional, matching
@@ -41,44 +40,46 @@ def _job(svc, job_id):
 # --- shell-02: Create's Rig stage must offer Earlier meshes -----------------
 
 
-def test_the_create_rig_stage_offers_earlier_meshes(svc, monkeypatch):
-    """shell-02 (2026-09-23 audit): ``history_panel.draw`` was wired into the
-    Library's Rig & Pose tab (``_rig_tab``) but never into
-    ``inspector._STAGE_SECTIONS["rig"]``, so Create's own live Rig stage
-    never showed it -- though Manual 23 promises it "in the inspector at the
-    Rig stage, below Surface texture" with no such caveat.
+def test_the_create_mesh_stage_offers_every_rework_and_earlier_meshes(svc, monkeypatch):
+    """shell-02 (2026-09-23 audit) put Earlier meshes on the Rig stage; the
+    2026-10-10 Create parity work moved the whole run of mesh reworks to the Mesh
+    stage, because a prop never visits Rig ("props skip Rig") and so never met a
+    remesh, a re-texture or a way back. Rig keeps only what is about the rig.
     """
     from realmspinner.studio.panes import (
         history_panel,
-        pose_panel,
         remesh_panel,
+        reorient_panel,
         retarget_panel,
-        sheet_panel,
         texture_panel,
     )
 
-    calls: list[str] = []
-    ctx = FakeCtx(svc)
-    ctx.state.create.stage = "rig"
-    job_id = svc.store.create("image", "a chest", {}, stage="model", status="done")
-    svc.job_dir(job_id).mkdir(parents=True, exist_ok=True)
-    job = _job(svc, job_id)
+    def run(stage):
+        calls: list[str] = []
+        ctx = FakeCtx(svc)
+        ctx.state.create.stage = stage
+        job_id = svc.store.create("image", "a chest", {}, stage="model", status="done")
+        svc.job_dir(job_id).mkdir(parents=True, exist_ok=True)
+        job = _job(svc, job_id)
+        for name in ("_lineage", "_settings", "_reference", "_pixel", "_seam", "_quality",
+                     "_verdict", "_weighting", "_bones", "_deform_qa"):
+            monkeypatch.setattr(inspector, name, lambda *_a, n=name: calls.append(n))
+        for label, module in (
+            ("reorient", reorient_panel), ("retarget", retarget_panel),
+            ("remesh", remesh_panel), ("retexture", texture_panel), ("history", history_panel),
+        ):
+            monkeypatch.setattr(module, "draw", lambda *_a, n=label: calls.append(n))
+        inspector._stage_body(ctx, job)
+        return calls
 
-    monkeypatch.setattr(inspector, "_weighting", lambda *_a: calls.append("weighting"))
-    monkeypatch.setattr(inspector, "_bones", lambda *_a: calls.append("bones"))
-    monkeypatch.setattr(inspector, "_deform_qa", lambda *_a: calls.append("deform_qa"))
-    monkeypatch.setattr(retarget_panel, "draw", lambda *_a: calls.append("retarget"))
-    monkeypatch.setattr(remesh_panel, "draw", lambda *_a: calls.append("remesh"))
-    monkeypatch.setattr(texture_panel, "draw", lambda *_a: calls.append("retexture"))
-    monkeypatch.setattr(history_panel, "draw", lambda *_a: calls.append("history"))
-    monkeypatch.setattr(pose_panel, "draw", lambda *_a: calls.append("pose"))
-    monkeypatch.setattr(sheet_panel, "draw", lambda *_a: calls.append("sheet"))
-
-    inspector._stage_body(ctx, job)
-
-    assert "history" in calls, "Create's Rig stage must offer Earlier meshes"
-    # Manual 23: "below Surface texture".
-    assert calls.index("retexture") < calls.index("history")
+    mesh = run("mesh")
+    assert mesh[-5:] == ["reorient", "retarget", "remesh", "retexture", "history"], (
+        "the Mesh stage must end with the reworks, Earlier meshes last (below Surface texture)"
+    )
+    rig = run("rig")
+    assert rig == ["_weighting", "_bones", "_deform_qa"], (
+        "the Rig stage keeps what is about the rig and none of the mesh reworks"
+    )
 
 
 # --- create-05: the retarget panel's kept-mesh reassurance is unconditional -

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import os
 import shutil
 import tempfile
@@ -203,8 +204,22 @@ def glb_to_collision(glb_path: Path, out_path: Path, *, max_hull_faces: int = 25
     return out_path
 
 
-def normalize_glb(glb_path: Path, target_max_m: float | None) -> dict[str, Any]:
+def normalize_glb(
+    glb_path: Path,
+    target_max_m: float | None,
+    *,
+    yaw_deg: float = 0.0,
+    ground: bool = True,
+) -> dict[str, Any]:
     """Scale to a real-world size, centre in X/Z and sit the model on Y=0.
+
+    ``yaw_deg`` turns the whole model about world +Y *first* (right-handed, so a
+    positive angle takes +Z toward +X), and the bounds that size and ground it
+    are measured after the turn -- ``T . S . R . M_root``. ``ground=False``
+    keeps the pivot where it is: the model is scaled and turned about the
+    origin and nothing is centred or dropped. Both exist for
+    ``service.jobs.reorient_model``; the queue's own callers pass neither and
+    get exactly what they always did.
 
     Returns the transform that was applied. Scaling alone was never enough: a
     trellis GLB's origin is wherever the reconstruction volume's centre happened
@@ -237,6 +252,13 @@ def normalize_glb(glb_path: Path, target_max_m: float | None) -> dict[str, Any]:
     resolves into a cycle that drops the transform again.
     """
     scene = trimesh.load(glb_path)
+    if yaw_deg:
+        # Measured in the turned frame: a quarter turn swaps a long thin model's
+        # X and Z extents, and grounding it by the unturned bounds would leave
+        # it off-centre by the difference.
+        scene.apply_transform(
+            trimesh.transformations.rotation_matrix(math.radians(yaw_deg), [0.0, 1.0, 0.0])
+        )
     extents = scene.extents
     bounds = scene.bounds
     extent = float(max(extents))
@@ -247,17 +269,21 @@ def normalize_glb(glb_path: Path, target_max_m: float | None) -> dict[str, Any]:
     # In the *scaled* frame: centre X and Z on the origin, put minimum Y at zero.
     # glTF is Y-up, which is why Y is the odd one out here and Z is not.
     lo, hi = bounds[0], bounds[1]
-    translation = [
-        -float(lo[0] + hi[0]) / 2.0 * factor,
-        -float(lo[1]) * factor,
-        -float(lo[2] + hi[2]) / 2.0 * factor,
-    ]
+    translation = (
+        [
+            -float(lo[0] + hi[0]) / 2.0 * factor,
+            -float(lo[1]) * factor,
+            -float(lo[2] + hi[2]) / 2.0 * factor,
+        ]
+        if ground
+        else [0.0, 0.0, 0.0]
+    )
 
     header, gltf, rest = _split_glb(glb_path.read_bytes())
     gltf_scene = gltf["scenes"][gltf.get("scene", 0)]
     nodes = gltf.setdefault("nodes", [])
     for root in gltf_scene.get("nodes", []):
-        _insert_transform_below(nodes, root, factor, translation)
+        _insert_transform_below(nodes, root, factor, translation, yaw_deg)
     # Staged, not write_bytes(), which opens "wb" and truncates glb_path to 0
     # bytes before writing -- a concurrent reader (the file-serving route, or
     # another export) could observe a half-written file. _staged is the house
@@ -281,7 +307,7 @@ def scale_glb(glb_path: Path, target_max_m: float) -> float:
 
 
 def _insert_transform_below(
-    nodes: list[dict], root: int, factor: float, translation: list[float]
+    nodes: list[dict], root: int, factor: float, translation: list[float], yaw_deg: float = 0.0
 ) -> None:
     """Move everything hanging off ``root`` -- *including the root's own
     transform* -- into a new child that carries the grounding as well.
@@ -314,13 +340,14 @@ def _insert_transform_below(
     for key in ("mesh", "children", "skin", "weights"):
         if key in node:
             child[key] = node.pop(key)
-    child.update(_composed(node, factor, translation))
+    child.update(_composed(node, factor, translation, yaw_deg))
     nodes.append(child)
     node["children"] = [len(nodes) - 1]
 
 
-def _composed(node: dict, factor: float, translation: list[float]) -> dict:
-    """``T . S . M_node`` as a node transform, consuming the node's own.
+def _composed(node: dict, factor: float, translation: list[float], yaw_deg: float = 0.0) -> dict:
+    """``T . S . R . M_node`` as a node transform, consuming the node's own
+    (``R`` is the optional turn about +Y; the identity for every queue caller).
 
     Stays in TRS whenever the node was in TRS, which is every exporter we meet:
     the scale is uniform, so the product decomposes exactly -- rotation is
@@ -337,11 +364,22 @@ def _composed(node: dict, factor: float, translation: list[float]) -> dict:
         own = np.array(node.pop("matrix"), dtype=float).reshape(4, 4).T
         outer = np.diag([factor, factor, factor, 1.0])
         outer[:3, 3] = translation
+        if yaw_deg:
+            turn = np.eye(4)
+            turn[:3, :3] = _yaw_matrix(yaw_deg)
+            outer = outer @ turn
         return {"matrix": [float(v) for v in (outer @ own).T.reshape(16)]}
 
     own_t = [float(v) for v in node.pop("translation", (0.0, 0.0, 0.0))]
     own_s = [float(v) for v in node.pop("scale", (1.0, 1.0, 1.0))]
     rotation = node.pop("rotation", None)
+    if yaw_deg:
+        # R . (T_n R_n S_n) = T(R t_n) (R R_n) S_n: the turn moves the node's own
+        # offset and premultiplies its rotation; its scale is untouched.
+        own_t = [float(v) for v in _yaw_matrix(yaw_deg) @ own_t]
+        half = math.radians(yaw_deg) / 2.0
+        turn_q = (0.0, math.sin(half), 0.0, math.cos(half))
+        rotation = list(_quat_mul(turn_q, rotation or (0.0, 0.0, 0.0, 1.0)))
     out = {
         "translation": [translation[i] + factor * own_t[i] for i in range(3)],
         "scale": [factor * own_s[i] for i in range(3)],
@@ -349,6 +387,25 @@ def _composed(node: dict, factor: float, translation: list[float]) -> dict:
     if rotation is not None:
         out["rotation"] = rotation
     return out
+
+
+def _yaw_matrix(yaw_deg: float) -> Any:
+    import numpy as np
+
+    c, s = math.cos(math.radians(yaw_deg)), math.sin(math.radians(yaw_deg))
+    return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+
+
+def _quat_mul(a: Any, b: Any) -> tuple[float, float, float, float]:
+    """Hamilton product of two glTF ``[x, y, z, w]`` quaternions, ``a`` applied last."""
+    ax, ay, az, aw = (float(v) for v in a)
+    bx, by, bz, bw = (float(v) for v in b)
+    return (
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    )
 
 
 def _load_merged(glb_path: Path) -> trimesh.Trimesh:

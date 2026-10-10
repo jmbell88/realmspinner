@@ -319,6 +319,12 @@ def revert_model(
             modelhistory.meta_path(job_dir, version).read_text("utf-8")
         )
 
+        # A restore that crosses a front-baking reorient turns the mesh back;
+        # its own entry records the front the mesh it replaces faces with
+        # (0 when the key is absent), so restoring forward again is symmetric.
+        restored_front = modelhistory.front_yaw_restored(entries, version)
+        turns = restored_front is not None
+
         # The mesh being replaced is kept too, exactly like every other
         # rework's publish -- so a restore can itself be undone.
         #
@@ -343,6 +349,7 @@ def revert_model(
             geometry=geometry,
             detail=f"restored version {version}",
             now=time.time(),
+            extra={"front_yaw": float(params.get("front_yaw") or 0.0)} if turns else None,
         )
 
         def _write(tmp: Path) -> None:
@@ -382,6 +389,15 @@ def revert_model(
         # too -- restoring is putting the mesh's whole description back, not
         # only adding what this version recorded.
         remove = tuple(k for k in modelhistory.MODEL_PARAMS if k not in restored_params)
+        # A reorient that baked the front turned the mesh and cleared
+        # ``front_yaw``; restoring across it puts back a mesh facing that far
+        # off 0 again, so the key comes back with it. A resize-only reorient
+        # turned nothing and the row's own value stays.
+        if turns:
+            if restored_front:
+                changes["front_yaw"] = restored_front
+            else:
+                remove = (*remove, "front_yaw")
         svc.store.merge_params(job_id, changes, remove=remove)
 
     return {
@@ -389,6 +405,185 @@ def revert_model(
         "version": version,
         "stale": stale_rig_artifacts(job_dir) if geometry else [],
         "surface": not geometry,
+    }
+
+
+def reorient_model(
+    svc: RealmspinnerService,
+    job_id: str,
+    *,
+    size_m: float | None = None,
+    ground: bool = True,
+    bake_front: bool = False,
+) -> dict[str, Any]:
+    """Resize, re-ground and/or turn a finished mesh so its front is the model's.
+
+    The standalone door ``normalize_glb`` never had: until now the only way to
+    change a finished asset's size or pivot was a retarget, which rebuilds from
+    ``source.glb`` and throws away a remesh and a re-texture. This reworks
+    ``model.glb`` itself, and it is an **inline door** in the ``optimize_job`` /
+    ``revert_model`` sense -- no job kind, no queue slot, no cancel token --
+    because it is a two-second JSON-chunk rewrite and nothing in it needs the
+    GPU or Blender.
+
+    Everything that makes the other doors safe is here for the same reasons:
+    a queued, running or cancelled row is refused, and so is one with a
+    dependent still writing into the directory; the whole thing runs under
+    ``MODEL_LOCK``; the mesh being replaced is staged under Earlier meshes
+    first and backed out if the write fails; and ``model.glb`` is **never
+    written in place** -- a copy is normalised beside it and ``os.replace``d
+    over it, so a concurrent reader sees the old file or the new one.
+
+    ``bake_front`` turns the mesh by ``-front_yaw`` about +Y, so the direction
+    a person pointed the camera at and called "front" becomes +Z, the front
+    every engine and every sheet assume; the key is then removed, since it now
+    says 0. That is a statement about geometry, so it is **refused while a rig
+    exists** (``field="front_yaw"``): a rig and its poses were fitted to the
+    mesh as it stood, and turning only the mesh would leave them describing a
+    different one. A resize or a re-ground on a rigged asset is allowed -- it
+    moves geometry too, and the result reports the rig as stale, exactly as a
+    retarget does.
+
+    Not exposed over MCP: an agent may not change ``front_yaw``.
+    """
+    import contextlib
+    import os
+    import shutil
+    import time
+
+    from .. import guidance, meshreport
+    from ..pipelines import modelhistory, postprocess
+    from . import files
+
+    check_job_id(job_id)
+    if size_m is not None:
+        try:
+            size_m = float(size_m)
+        except (TypeError, ValueError):
+            raise Invalid("size_m must be a number", field="size_m") from None
+        if not guidance.SIZE_MIN_M <= size_m <= guidance.SIZE_MAX_M:
+            raise Invalid(
+                f"size_m must be between {guidance.SIZE_MIN_M} and "
+                f"{guidance.SIZE_MAX_M} metres",
+                field="size_m",
+            )
+    if size_m is None and not ground and not bake_front:
+        raise Invalid("choose a size, grounding or the front to change")
+    job = svc.require_job(job_id)
+    if job["status"] in ("queued", "running"):
+        raise Conflict(f"job is {job['status']}; change its size or front once it finishes")
+    _refuse_cancelled(job, "reorient")
+    _require_no_dependents(svc, job_id, "change the size or front of")
+    job_dir = svc.job_dir(job_id)
+    model = job_dir / "model.glb"
+    if not model.exists():
+        raise Invalid("this job has no mesh to reorient")
+    if bake_front:
+        # Both refusals at the door, before a lock is taken or a version staged.
+        if not float(job["params"].get("front_yaw") or 0.0):
+            raise Invalid("no front has been set on this mesh", field="front_yaw")
+        if any((job_dir / name).exists() for name in ("rig.glb", "rig.json")):
+            raise Invalid(
+                "this asset has a rig fitted to its current orientation; "
+                "turning only the mesh would leave the rig describing a different one",
+                field="front_yaw",
+            )
+
+    with svc.convert_lock(job_id, modelhistory.MODEL_LOCK):
+        # Re-read inside the lock, as optimize_job does: a rework ahead of this
+        # one may have published, and the history index and ``front_yaw`` are
+        # whatever it left, not what the door saw.
+        job = svc.require_job(job_id)
+        params = job["params"]
+        front = float(params.get("front_yaw") or 0.0)
+        if bake_front and not front:
+            raise Invalid("no front has been set on this mesh", field="front_yaw")
+        inherited = params.get(ARTIFACT_HEALTH)
+        health = {ARTIFACT_HEALTH: dict(inherited) if isinstance(inherited, dict) else {}}
+        parts = []
+        if size_m is not None:
+            parts.append(f"{size_m:g} m")
+        if bake_front:
+            parts.append(f"front turned {front:g} degrees")
+        if ground:
+            parts.append("grounded")
+        entries, staged = modelhistory.stage(
+            job_dir,
+            modelhistory.entries_of(params),
+            params,
+            kind="reorient",
+            geometry=True,
+            detail=", ".join(parts),
+            now=time.time(),
+            extra={"front_yaw": front} if bake_front else None,
+        )
+        # A dotfile with a ``.glb`` suffix, because trimesh picks its loader from
+        # the suffix and the house temp name (``derive._staged``) has none.
+        scratch = job_dir / ".reorient.glb"
+        try:
+            shutil.copyfile(model, scratch)
+            transform = postprocess.normalize_glb(
+                scratch,
+                size_m,
+                yaw_deg=-front if bake_front else 0.0,
+                ground=ground,
+            )
+            os.replace(scratch, model)
+        except Exception as exc:
+            # model.glb is untouched on this path, so the version just staged
+            # describes a replacement that never happened.
+            entries = modelhistory.discard_last(job_dir, entries, staged)
+            svc.store.merge_params(job_id, {"model_history": entries})
+            raise Failed(f"could not change the mesh: {exc}") from exc
+        finally:
+            with contextlib.suppress(OSError):
+                scratch.unlink()
+        entries = modelhistory.commit(job_dir, entries)
+        for name in files.DERIVED:
+            with svc.convert_lock(job_id, name), contextlib.suppress(OSError):
+                (job_dir / name).unlink()
+
+    # Re-measured: the old report's size, pivot and bounds describe a mesh that
+    # no longer exists. Its budget and silhouette summary are carried over --
+    # neither depends on scale or yaw -- rather than defaulting the budget the
+    # way a bare ``build`` would (the 2026-09-23 audit's pipelines-01).
+    old = params.get("mesh_report") if isinstance(params.get("mesh_report"), dict) else {}
+    target = size_m if size_m is not None else params.get("size_m")
+    changes: dict[str, Any] = {"model_history": entries}
+    drop: list[str] = []
+    previous = params.get("transform") if isinstance(params.get("transform"), dict) else {}
+    changes["transform"] = {
+        **transform,
+        "scale": float(previous.get("scale") or 1.0) * transform["scale"],
+    }
+    changes["scale_factor"] = changes["transform"]["scale"]
+    if size_m is not None:
+        changes["size_m"] = size_m
+    if bake_front:
+        drop.append("front_yaw")
+    health[ARTIFACT_HEALTH].pop("normalize", None)
+    try:
+        changes["mesh_report"] = meshreport.build(
+            model,
+            target_size_m=float(target) if target else None,
+            silhouette=old.get("silhouette"),
+            triangle_budget=old.get("triangle_budget") or meshreport.TRIANGLE_BUDGET,
+        )
+        health[ARTIFACT_HEALTH].pop("report", None)
+    except Exception as exc:
+        log.exception("mesh report failed after reorient for job %s", job_id)
+        drop.append("mesh_report")
+        note_degraded(health, "report", f"the mesh could not be re-measured ({exc})")
+    if health[ARTIFACT_HEALTH]:
+        changes[ARTIFACT_HEALTH] = health[ARTIFACT_HEALTH]
+    else:
+        drop.append(ARTIFACT_HEALTH)
+    svc.store.merge_params(job_id, changes, remove=tuple(drop))
+    return {
+        "ok": True,
+        "transform": transform,
+        "size_m": size_m,
+        "stale": stale_rig_artifacts(job_dir),
     }
 
 

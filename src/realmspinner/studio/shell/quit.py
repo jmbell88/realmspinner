@@ -146,7 +146,7 @@ class QuitMixin:
         # "export"/"save"/"bake", "pack:" or contains "-library:" or matches
         # ``_EXPORT_OR_SAVE_KEY`` -- so quitting mid-rework gave no warning at
         # all, unlike every other in-flight rewrite this method already names.
-        if any(k.startswith(("retarget:", "model-revert:")) for k in busy):
+        if any(k.startswith(("retarget:", "model-revert:", "reorient:")) for k in busy):
             lines.append("The mesh is still being reworked and will be interrupted.")
         # agents-01 (2026-09-23, second run, audit): a character-pipeline
         # tool call (``character_export`` and the rest) runs on AgentHost's

@@ -905,6 +905,18 @@ class TasksMixin:
                 else "Mesh rebuilt."
             )
             return
+        if key.startswith("reorient:"):
+            # ``reorient_model`` is inline too, and rewrites model.glb under the
+            # viewer: same cache drop, same reload, worded for what it did.
+            ctx.cache.invalidate()
+            self._reload_viewer()
+            stale = (done.result or {}).get("stale") or []
+            ctx.toast(
+                f"Mesh changed. {len(stale)} rig artifact(s) now describe the old mesh."
+                if stale
+                else "Mesh changed. The old one is kept under Earlier meshes."
+            )
+            return
         if key.startswith("model-revert:"):
             # ``revert_model`` is inline like ``optimize_job``, and it rewrites
             # model.glb under the viewer the same way -- same cache drop, same

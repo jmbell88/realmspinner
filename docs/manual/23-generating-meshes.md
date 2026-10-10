@@ -276,7 +276,7 @@ The reconstruction is kept, permanently, as `source.glb`, and nothing ever overw
 changing your mind about triangle count cheap: rebuilding at a different budget is a couple of
 seconds of mesh processing rather than another two minutes of reconstruction.
 
-The control is in the inspector at the **Rig** stage, under the collapsed **Triangle budget**
+The control is in the inspector at the **Mesh** stage, under the collapsed **Triangle budget**
 header. It appears only on jobs that have a `source.glb` — older jobs and rig jobs do not.
 
 Five tiers exist in the code: Raw (as reconstructed — the engine has already simplified it to about
@@ -333,7 +333,7 @@ the triangle-budget step and grounding, so a rig queued for the same mesh sees t
 geometry rather than the ~300k-triangle reconstruction. The panel below is for **reworking an
 existing mesh** — trying a different budget, or remeshing a mesh that predates this default.
 
-The control is in the inspector at the **Rig** stage, under the collapsed **Game-ready remesh**
+The control is in the inspector at the **Mesh** stage, under the collapsed **Game-ready remesh**
 header, between the triangle budget and the surface texture. It runs in Blender, so it needs the
 `rig` extra; without it the header says so and offers nothing.
 
@@ -376,8 +376,10 @@ terms a triangle tier's own `tiercheck.compare` measures.
 ## Surface texture
 
 A re-texture gives a finished mesh a new skin without touching its geometry. The control is in the
-inspector at the **Rig** stage, under the collapsed **Surface texture** header, directly below
-[Triangle budget](#triangle-budget) — both are operations on an asset that already exists.
+inspector at the **Mesh** stage, under the collapsed **Surface texture** header, below
+[Triangle budget](#triangle-budget) and [Game-ready remesh](#game-ready-remesh) — all three are
+operations on an asset that already exists, and a prop that never visits the Rig stage still has
+them.
 
 Describe the surface you want ("rusted iron", "mossy stone", "painted wood"), set how far the
 restyle is taken, pick an atlas size, and press **Re-texture mesh**. What happens then is four
@@ -434,24 +436,55 @@ same thing, and the line names which kind of run produced it.
 `source.glb` is never touched. A re-texture is a derivation, exactly as a retarget is, so the
 reconstruction stays the thing both of them rebuild from.
 
+## Fixing a finished asset
+
+A mesh can be the right shape and still be wrong for a game: the wrong size, a pivot that is not on
+the floor, or a front that is not the way an engine expects. None of the controls above is for that —
+each one rebuilds the mesh — so the **Finished asset** header, in the inspector at the **Mesh** stage
+above Triangle budget, changes only those three things and leaves the surface and the triangles as
+they are.
+
+**Size (m)** scales the model so its longest side is that many metres, and **Ground** centres it on
+the origin and puts its lowest point on the floor. **Apply size and ground** does both; leaving the
+size at what it already is just re-grounds. It is allowed on a rigged asset, because it changes the
+geometry rather than turning it, and the panel and the result both say that the rig, its poses and
+its sheets now describe the old mesh.
+
+**Make current front the model's front** is for the front you set in the viewport with **Set front**.
+Sheets and Poser already honour that angle as a record, but a record is not the mesh: an engine
+imports `model.glb` and sees whichever way it was built. This turns the mesh so the direction you
+pointed at faces +Z, the way glTF and every engine's "forward" expect, and then clears the angle,
+since the model now faces front by itself. It is off, with the reason on the button, until a front is
+set, and off for good while the asset has a rig: a rig and its poses were fitted to the mesh as it
+stood, and turning only the mesh would leave them describing a different one. Bake the front before
+you rig.
+
+Every press keeps the mesh it replaces under [Earlier meshes](#earlier-meshes), so any of it can be
+undone, and every export derived from the old mesh is dropped and rebuilt on the next request. A
+restore across a front change brings the front back with the mesh. The **Ready for an engine?**
+checklist's Pivot and Size lines send you here.
+
 ## Earlier meshes
 
-A retarget, a remesh and a re-texture all write over the same `model.glb`, so each one used to
+A retarget, a remesh, a re-texture and a resize all write over the same `model.glb`, so each one used to
 throw away whatever the last one built — remesh, then re-texture, and the quad mesh was gone the
 moment the new skin landed; retarget after either, and both were gone. That is no longer true. Each
 one keeps a copy of the mesh it is about to replace before it publishes, and the collapsed
-**Earlier meshes** header — in the inspector at the **Rig** stage, below Surface texture — is where
+**Earlier meshes** header — in the inspector at the **Mesh** stage, below Surface texture — is where
 those copies live.
 
-Each row names what replaced that version (triangle budget, game-ready remesh, surface texture, or
-an earlier restore), when, and a one-line detail — a quad count, a view count, a file size. Press
+Each row names what replaced that version (triangle budget, game-ready remesh, surface texture, a
+resize or front change, or an earlier restore), when, and a one-line detail — a quad count, a view
+count, a file size. Press
 **Restore** on a row to put that mesh back. The panel names what goes stale first: restoring across
 a triangle budget or a remesh changes geometry, so the rig, its poses and its sheets describe the
 old mesh again, the same warning a retarget gives; restoring only across a re-texture changes
 nothing but the surface. A restore is itself kept, so restoring is not a one-way trip either — you
 can always go back to what you had before pressing it.
 
-Up to four earlier meshes are kept per asset; keeping a fifth drops the oldest, file and row both.
+Up to four earlier meshes are kept per asset; keeping a fifth drops the oldest, file and row both,
+so after four changes in a row the mesh you started from is gone from the list. Restore it before the
+fifth change if it matters.
 Deleting the asset deletes its earlier meshes with it, the same as every other file in its folder,
 and they are never offered as a download — they exist only so a Restore has something to restore.
 
@@ -514,22 +547,22 @@ Standing on the Export stage, above the grid of buttons, is **Ready for an engin
 built from measurements the app already took, so it costs nothing new to look at and nothing here is
 re-measured. It reads the mesh report (triangles against the budget, watertightness, UVs, base
 colour and metallic/roughness maps, the pivot), a note left behind if a rebuild's normalize step
-silently failed, and whether the rig on this asset was fitted before the mesh was last retargeted.
+silently failed, and whether the rig on this asset was fitted before the mesh was last changed (retargeted, remeshed,
+resized or restored).
 Each line says **OK** or **Attention** in words, not only in colour, with the one fact behind it.
 Nothing here refuses an export — like the mesh report itself, this is advice, not a gate — and it
 draws nothing at all for a plain reference or a mesh nothing has measured yet, rather than showing an
 empty or falsely all-green checklist.
 
 Some lines carry a button and most do not, because a line only gets one where a press already exists
-elsewhere in the app. An over-budget triangle count, a normalize failure and a rig left behind by a
-retarget all send you to the **Rig** stage, where the remesh and retarget panels live. The rest — a
-leaky seal, missing UVs or texture maps, a pivot off the floor, a size that landed far from what you
-asked for, or no target size at all — are named with no button, because nothing in the app fixes them
-in one press. Size is the instructive one: the checklist will tell you what a sword is usually sized
-at, but it will not write that number onto a finished mesh. The scale was baked into the geometry
-when the mesh was made, and the number you asked for is part of what the app recorded about the run,
-so changing it afterwards would only make the record disagree with the file. Ask for the size on the
-Mesh stage and rebuild.
+elsewhere in the app. An over-budget triangle count and a normalize failure send you to the **Mesh** stage, where the
+remesh and retarget panels live, and a pivot off the floor, a size that landed far from what you
+asked for, or no target size at all send you to its **Finished asset** panel. A rig left behind by a
+mesh change sends you to the **Rig** stage, to fit it again. The rest — a leaky seal, missing UVs or
+texture maps — are named with no button, because nothing in the app fixes them in one press. Size
+is the instructive one: the checklist will tell you what a sword is usually sized at but will not
+write that number onto the mesh by itself. Resizing changes the geometry and the recorded size in the
+same step, from the Finished asset panel, so the record and the file cannot disagree.
 
 The inspector's **Export** tab lists everything you can take away, as a two-column grid of buttons:
 

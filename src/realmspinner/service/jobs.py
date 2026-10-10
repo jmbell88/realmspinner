@@ -84,6 +84,7 @@ from ._jobs_resubmit import (  # noqa: F401  -- the facade's re-export
 from ._jobs_rework import (  # noqa: F401  -- the facade's re-export
     optimize_job,
     remesh_job,
+    reorient_model,
     retexture_job,
     revert_model,
     separate_job,

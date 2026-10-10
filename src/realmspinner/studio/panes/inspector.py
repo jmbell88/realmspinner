@@ -91,18 +91,23 @@ _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
         "_seam",
         "_quality",
         "_verdict",
+        # What can be done to the mesh once it exists, in the order a person
+        # reaches for it: size/pivot/front (cheap, keeps everything), then the
+        # rebuilds, then the skin, then the way back. These lived behind the
+        # Rig stage, which a prop never visits -- "props skip Rig" -- so an
+        # over-budget crate had a remesh nobody could find. Rig keeps only what
+        # is *about the rig*. (The Library's Rig & Pose tab draws the same run,
+        # ``_rig_tab``, for assets opened from there.)
+        "reorient",
+        "retarget",
+        "remesh",
+        "retexture",
+        "_history",
     ),
     # The rig's *products*: how it was weighted, how many joints, and the
     # deformation sheet. The decision and the button are in the stage's own
-    # column; retarget and retexture join them because both act on the mesh a
-    # rig was fitted to and both are read *after* looking at it.
-    # shell-02 (2026-09-23 audit): "_history" was wired into the Library's
-    # Rig & Pose tab (``_rig_tab``) but never into this table, so Create's own
-    # live Rig stage never showed "Earlier meshes" though Manual 23 promises
-    # it "in the inspector at the Rig stage, below Surface texture" with no
-    # such caveat -- the same shape as create-02 (2026-09-07 audit), fixed
-    # then in the other direction (remesh reached the tab but not this table).
-    "rig": ("_weighting", "_bones", "_deform_qa", "retarget", "remesh", "retexture", "_history"),
+    # column.
+    "rig": ("_weighting", "_bones", "_deform_qa"),
     # Posing produces poses, and the thing made *of* poses is a sprite sheet.
     "pose": ("sheet",),
     # The grid itself is the stage's *column*; this side answers the question
@@ -115,7 +120,14 @@ _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
 
 
 def _stage_body(ctx: Any, job: Any) -> None:
-    from . import remesh_panel, retarget_panel, sheet_panel, sprite_panel, texture_panel
+    from . import (
+        remesh_panel,
+        reorient_panel,
+        retarget_panel,
+        sheet_panel,
+        sprite_panel,
+        texture_panel,
+    )
 
     named = {
         "_lineage": lambda: _lineage(ctx, job),
@@ -130,6 +142,7 @@ def _stage_body(ctx: Any, job: Any) -> None:
         "_bones": lambda: _bones(ctx, job),
         "_deform_qa": lambda: _deform_qa(ctx, job),
         "sprites": lambda: sprite_panel.draw(ctx, job),
+        "reorient": lambda: reorient_panel.draw(ctx, job),
         "retarget": lambda: retarget_panel.draw(ctx, job),
         "remesh": lambda: remesh_panel.draw(ctx, job),
         "retexture": lambda: texture_panel.draw(ctx, job),
@@ -362,7 +375,7 @@ def _readiness(ctx: Any, job: Any) -> None:
     """
     from .. import readiness
 
-    rows = readiness.rows_for(job)
+    rows = readiness.rows_for(job, _rig_mtime(ctx, job))
     if not rows:
         return
     widgets.section("Ready for an engine?")
@@ -376,15 +389,33 @@ def _readiness(ctx: Any, job: Any) -> None:
             theme.OK if ok else theme.WARN,
             f"{'OK' if ok else 'Attention'} - {row.label}: {row.detail}",
         )
-        if row.repair == readiness.REPAIR_GO_TO_RIG:
+        if row.repair in (readiness.REPAIR_GO_TO_MESH, readiness.REPAIR_FIX_ASSET):
             imgui.same_line()
-            if controls.small_button(f"Fix on Rig stage##readiness-{row.label}"):
+            if controls.small_button(f"Fix on Mesh stage##readiness-{row.label}"):
                 # The one stage switch (``create_stages.go``'s own docstring);
                 # this pane must never set ``state.create.stage`` itself. The
-                # rig-stage repairs (remesh for an over-budget mesh, the
-                # retarget panel's Rebuild mesh for a degraded normalize or a
-                # rig that has outrun a retarget) all live there already.
+                # repairs the first two kinds point at -- remesh and the
+                # retarget panel's Rebuild mesh for an over-budget or degraded
+                # mesh, the Finished-asset panel for a size or pivot -- live on
+                # the Mesh stage.
+                create_stages.go(ctx, "mesh")
+        elif row.repair == readiness.REPAIR_GO_TO_RIG:
+            imgui.same_line()
+            if controls.small_button(f"Fix on Rig stage##readiness-{row.label}"):
+                # Re-fitting a rig that a mesh change outran is Rig-stage work.
                 create_stages.go(ctx, "rig")
+
+
+def _rig_mtime(ctx: Any, job: Any) -> float | None:
+    """When ``rig.json`` was last written, or None -- the stale-rig row's evidence.
+
+    One ``stat`` on a file that exists only for a rigged asset, which is the
+    cost ``rig_meta`` below already pays per frame for the directory.
+    """
+    if "rig.glb" not in (job.get("files") or []):
+        return None
+    stamp = stamps.stamp_ns(ctx.svc.job_dir(job["id"]) / "rig.json")
+    return None if stamp is None else stamp / 1e9
 
 
 def _details_tab(ctx: Any, job: Any) -> None:
@@ -428,11 +459,12 @@ def _rig_tab(ctx: Any, job: Any) -> None:
     # Create session had already ended, though chapter 23 documents the
     # control with no such caveat. Same order Create draws it in: after
     # retarget, before retexture.
-    from . import remesh_panel
+    from . import remesh_panel, reorient_panel
 
     _weighting(ctx, job)
     _bones(ctx, job)
     _deform_qa(ctx, job)
+    reorient_panel.draw(ctx, job)
     retarget_panel.draw(ctx, job)
     remesh_panel.draw(ctx, job)
     texture_panel.draw(ctx, job)

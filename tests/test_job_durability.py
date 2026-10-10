@@ -236,6 +236,11 @@ PUBLISHERS = [
     # ``revert_model`` (``service/_jobs_rework.py``) is deliberately *not* a
     # row here: it is an inline door like ``optimize_job``, with no cancel
     # token to commit -- there is nothing queued to cancel out from under it.
+    # ``service._jobs_rework.reorient_model`` (2026-10-10) is the same: an inline
+    # door, no job kind and no cancel token. It publishes onto ``model.glb`` but
+    # never in place -- a copy is normalised beside it and ``os.replace``d under
+    # ``MODEL_LOCK``, with the replaced mesh staged under Earlier meshes first
+    # (``tests/service/test_reorient_model.py`` pins the rename).
     # ``MeshPostOps._lowpoly`` (added 2026-09-23) is the same shape as
     # ``_optimize``/``_apply_scale``/the ``_q_generate`` promotion stage
     # above, not ``_remesh``'s: it ``os.replace``s a game-ready remesh onto

@@ -282,7 +282,7 @@ def test_a_mesh_still_over_its_own_accepted_custom_budget_is_flagged():
     rows = {row.label: row for row in readiness.rows_for(job)}
     row = rows["Triangles"]
     assert row.state == "attention"
-    assert row.repair == readiness.REPAIR_GO_TO_RIG
+    assert row.repair == readiness.REPAIR_GO_TO_MESH
     assert "200,000" in row.detail
 
 

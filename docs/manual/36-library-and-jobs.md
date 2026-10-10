@@ -285,7 +285,7 @@ purpose; see [Data locations](41-configuration.md#data-locations). A job directo
 - `sheets/` — one PNG plus its JSON sidecar per rendered sprite sheet.
 - Derived exports (`model.stl`, `model_obj.zip`, `model.fbx`, `collision.glb`, `textures.zip`) once
   they have been requested.
-- `versions/` — up to four earlier meshes a retarget, a remesh or a re-texture replaced; see
+- `versions/` — up to four earlier meshes a retarget, a remesh, a re-texture or a resize replaced; see
   [Earlier meshes](23-generating-meshes.md#earlier-meshes). Counted in the size below and never
   listed as a download of its own.
 - `thumb.png`, and `error.log` on a failed job.

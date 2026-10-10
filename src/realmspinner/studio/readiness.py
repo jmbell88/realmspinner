@@ -31,12 +31,20 @@ from dataclasses import dataclass
 from typing import Any
 
 from .. import guidance, meshreport
+from ..pipelines import modelhistory
 
 # What a row's repair button does, named rather than a callable: this module
 # draws nothing and calls no service, so a row can only *point at* an action
 # the caller already owns. Wiring only what already exists is the review's own
 # rule for this item -- a row with neither identifier below carries no button.
 REPAIR_GO_TO_RIG = "go_to_rig"
+# The Mesh stage is where retarget, remesh, retexture, Earlier meshes and the
+# Finished-asset panel live (they used to sit behind the Rig stage, which a prop
+# never visits). Two names because they answer two questions -- "rebuild this
+# mesh" and "change this finished asset's size or pivot" -- even though both
+# land on one stage today.
+REPAIR_GO_TO_MESH = "go_to_mesh"
+REPAIR_FIX_ASSET = "fix_asset"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,8 +63,12 @@ class Row:
     repair: str | None = None
 
 
-def rows_for(job: Any) -> list[Row]:
+def rows_for(job: Any, rig_mtime: float | None = None) -> list[Row]:
     """The checklist for ``job``, or ``[]`` when there is nothing to check.
+
+    ``rig_mtime`` is when ``rig.json`` was last written, read by the one caller
+    that may touch the disk; this module stays pure. ``None`` means "not known",
+    and the stale-rig row then falls back to its older, weaker evidence.
 
     Empty rather than a checklist of assumptions: a reference at the Export
     stage (legal -- Export shows whatever the asset has) carries no
@@ -81,7 +93,7 @@ def rows_for(job: Any) -> list[Row]:
     if isinstance(degraded, dict) and degraded:
         rows.append(_degraded_row(degraded))
 
-    stale = _stale_rig_row(params, files)
+    stale = _stale_rig_row(params, files, rig_mtime)
     if stale is not None:
         rows.append(stale)
 
@@ -151,10 +163,10 @@ def _report_rows(report: dict[str, Any], params: dict[str, Any], prompt: Any) ->
                     if over
                     else f"{triangles:,} of the {budget:,} triangle budget"
                 ),
-                # The over-budget mesh is exactly what a Rig-stage remesh (or a
-                # cheaper retarget) exists to fix -- ``panes.remesh_panel`` and
-                # ``panes.retarget_panel`` both live there.
-                repair=REPAIR_GO_TO_RIG if over else None,
+                # The over-budget mesh is exactly what a remesh (or a cheaper
+                # retarget) exists to fix -- ``panes.remesh_panel`` and
+                # ``panes.retarget_panel`` both live on the Mesh stage.
+                repair=REPAIR_GO_TO_MESH if over else None,
             )
         )
 
@@ -209,6 +221,7 @@ def _report_rows(report: dict[str, Any], params: dict[str, Any], prompt: Any) ->
                 "Pivot on floor",
                 "ok" if grounded else "attention",
                 "the pivot sits on the floor" if grounded else "the pivot is off the floor",
+                repair=None if grounded else REPAIR_FIX_ASSET,
             )
         )
 
@@ -227,30 +240,31 @@ def _watertight_detail(report: dict[str, Any]) -> str:
 def _size_row(report: dict[str, Any], params: dict[str, Any], prompt: Any) -> Row:
     """The size row: whether one was ever asked for, and if so whether it landed.
 
-    **Stated, never repaired here**, and the first draft of this row got that
-    wrong in both of the ways it could (the 2026-09-07 Create review, item
-    3.3). ``guidance.SIZE_HINTS_M`` is a suggestion table nothing applies on
-    its own (``guidance.size_hint``'s own docstring), and the settings
-    column's "Use N m" applies it to a *form*, before a mesh exists. There is
-    no such press for a finished mesh, because there is nothing honest for it
-    to do: ``size_m`` is a recorded **input** in ``vectors.VECTOR_PARAMS``, so
-    writing one onto a done job would re-key that job's stored evidence and
-    claim a size the geometry does not have -- and it would not resize
-    anything, since the scale was composed into the mesh by
-    ``postprocess.normalize_glb`` two minutes of GPU ago. The hint is worth
-    saying, so it is said; the way to act on it is a rebuild, which the
-    Processing and Triangles rows already point at.
+    **Stated here, repaired on the Mesh stage**, and the first draft of this row
+    got that wrong in both of the ways it could (the 2026-09-07 Create review,
+    item 3.3). ``guidance.SIZE_HINTS_M`` is a suggestion table nothing applies
+    on its own (``guidance.size_hint``'s own docstring), and writing ``size_m``
+    onto a done job without touching the geometry would re-key that job's
+    stored evidence (it is in ``vectors.VECTOR_PARAMS``) and claim a size the
+    mesh does not have. So this row never applies anything itself. What changed
+    afterwards is that a press which *is* honest now exists:
+    ``service.jobs.reorient_model`` rescales ``model.glb`` and records the new
+    ``size_m`` in the same step, under Earlier meshes, so the row's button
+    points at the Finished-asset panel that calls it.
     """
     target = params.get("size_m")
     if not target:
         hint = guidance.size_hint(prompt if isinstance(prompt, str) else None)
         if hint is None:
-            return Row("Size", "attention", "no target size was requested")
+            return Row(
+                "Size", "attention", "no target size was requested", repair=REPAIR_FIX_ASSET
+            )
         noun, metres = hint
         return Row(
             "Size",
             "attention",
             f"no target size was requested; a {noun} is usually {metres:g} m",
+            repair=REPAIR_FIX_ASSET,
         )
 
     try:
@@ -279,6 +293,7 @@ def _size_row(report: dict[str, Any], params: dict[str, Any], prompt: Any) -> Ro
         f"{float(achieved):.3f} m, asked for {target:.3f} m"
         if mismatch
         else f"{float(achieved):.3f} m, matching the {target:.3f} m requested",
+        repair=REPAIR_FIX_ASSET if mismatch else None,
     )
 
 
@@ -286,7 +301,8 @@ def _degraded_row(degraded: dict[str, Any]) -> Row:
     """The one row for every step ``validation.note_degraded`` ever recorded.
 
     A normalize failure is the one this review names a repair for: the
-    rebuild door is exactly ``panes.retarget_panel``'s "Rebuild mesh", which
+    rebuild door is exactly ``panes.retarget_panel``'s "Rebuild mesh" (on the
+    Mesh stage), which
     re-runs ``postprocess.normalize_glb`` and clears the note on success (see
     ``_jobs_rework.optimize_job``). A degraded ``report`` step has no such
     door -- nothing re-measures a mesh on its own -- so it is stated with no
@@ -298,41 +314,50 @@ def _degraded_row(degraded: dict[str, Any]) -> Row:
         "Processing",
         "attention",
         detail or "a post-processing step did not run",
-        repair=REPAIR_GO_TO_RIG if "normalize" in degraded else None,
+        repair=REPAIR_GO_TO_MESH if "normalize" in degraded else None,
     )
 
 
-def _stale_rig_row(params: dict[str, Any], files: set[str]) -> Row | None:
+def _stale_rig_row(
+    params: dict[str, Any], files: set[str], rig_mtime: float | None = None
+) -> Row | None:
     """Whether the rig on this asset predates its last known geometry change.
 
-    Not a fresh measurement -- there is no stored timestamp pairing a rig to
-    the mesh it was fitted to, so this reads the same signal
-    ``panes.retarget_panel``'s own warning is built from (a rig existing at
-    all is what a retarget invalidates) plus one more fact that only a
-    retarget leaves behind: ``optimize_job`` drops ``mesh_report`` when it
-    rebuilds ``model.glb`` and nothing recomputes it afterwards (unlike a
-    remesh, which re-measures through ``_audit_published``). A rig beside a
-    mesh with no report and a recorded ``optimize`` run is a mesh that has
-    been rebuilt since anything last measured it -- which is exactly the
-    asset the retarget panel's warning describes, seen after the fact instead
-    of before it.
+    The evidence, strongest first. **A geometry step newer than the rig:**
+    every rework that changes geometry (retarget, remesh, a resize or re-ground
+    through ``reorient_model``, a restore across one) keeps the mesh it replaces
+    under ``model_history`` with the time it ran and a ``geometry`` flag, and
+    ``rig.json`` is written last when a rig lands -- so a geometry entry newer
+    than ``rig.json``'s mtime is a mesh changed since it was rigged, whichever
+    rework did it. Without a ``rig_mtime`` (the caller could not stat the file)
+    this falls back to the older signal, which only a retarget leaves:
+    ``optimize_job`` drops ``mesh_report`` when it rebuilds ``model.glb`` and
+    nothing recomputes it afterwards, so a rig beside a mesh with no report and
+    a recorded ``optimize`` run has been rebuilt since anything last measured
+    it.
     """
     if "rig.glb" not in files:
         return None
-    if params.get("mesh_report"):
-        return None
-    if not params.get("optimize"):
+    changed = rig_mtime is not None and any(
+        e.get("geometry", True)
+        and isinstance(e.get("at"), (int, float))
+        and e["at"] > rig_mtime
+        for e in modelhistory.entries_of(params)
+    )
+    if not changed and (params.get("mesh_report") or not params.get("optimize")):
         return None
     return Row(
         "Rig",
         "attention",
-        "the mesh was retargeted after it was last measured; the rig, its "
+        "the mesh was changed after it was rigged; the rig, its "
         "poses and its sheets may still describe the old geometry",
         repair=REPAIR_GO_TO_RIG,
     )
 
 
 __all__ = [
+    "REPAIR_FIX_ASSET",
+    "REPAIR_GO_TO_MESH",
     "REPAIR_GO_TO_RIG",
     "Row",
     "rows_for",

@@ -92,5 +92,5 @@ def test_a_remesh_that_genuinely_exceeds_its_recorded_budget_is_still_flagged():
     rows = {row.label: row for row in readiness.rows_for(job)}
     row = rows["Triangles"]
     assert row.state == "attention"
-    assert row.repair == readiness.REPAIR_GO_TO_RIG
+    assert row.repair == readiness.REPAIR_GO_TO_MESH
     assert "5,000" in row.detail

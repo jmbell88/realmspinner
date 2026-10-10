@@ -26,6 +26,7 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "library": ("36-library-and-jobs", None),
     "inspector": ("23-generating-meshes", "exports"),
     "retarget": ("23-generating-meshes", "triangle-budget"),
+    "reorient": ("23-generating-meshes", "fixing-a-finished-asset"),
     "retexture": ("23-generating-meshes", "surface-texture"),
     "remesh": ("23-generating-meshes", "game-ready-remesh"),
     # The Earlier meshes panel (2026-09-22): what a retarget, a remesh

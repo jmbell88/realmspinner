@@ -87,6 +87,10 @@ MODEL_PARAMS: tuple[str, ...] = (
     "mesh_audit",
     "mesh_report",
     "degraded",
+    # ``reorient_model`` rewrites it: a version kept before a resize has to
+    # put the old target back, or the readiness Size row would compare the
+    # restored mesh against a size it no longer has.
+    "size_m",
 )
 
 #: The lock name every ``model.glb`` writer takes -- ``optimize_job``'s own
@@ -144,6 +148,7 @@ def stage(
     geometry: bool,
     detail: str,
     now: float,
+    extra: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Snapshot the ``model.glb`` on disk right now, before it is replaced.
 
@@ -205,6 +210,10 @@ def stage(
         "detail": detail,
         "geometry": bool(geometry),
         "bytes": dest.stat().st_size,
+        # ``front_yaw`` -- the front the saved mesh faces with -- is recorded
+        # only by a step that turns the geometry (a reorient that bakes the
+        # front, or a restore that crosses one); absent for every other rework.
+        **(extra or {}),
     }
     return [*entries, entry], True
 
@@ -324,6 +333,24 @@ def crossed_geometry(entries: list[dict[str, Any]], n: int) -> bool:
     # frame thread. A missing flag reads as "geometry may have changed" --
     # the warning errs toward telling the user the rig may be stale.
     return any(e.get("geometry", True) for e in entries if e["n"] >= n)
+
+
+def front_yaw_restored(entries: list[dict[str, Any]], n: int) -> float | None:
+    """The ``front_yaw`` the mesh saved as version ``n`` was facing with, when a
+    step since then turned the geometry; ``None`` when none did.
+
+    A reorient that baked the front turned the mesh by that angle and cleared
+    the key, so restoring across it puts back a mesh whose front is *not* at 0
+    again -- the entry recorded exactly where it was (and a restore that
+    crossed one records the same fact for its own entry, so restoring forward
+    again undoes it). The oldest crossed entry wins: it describes the oldest
+    mesh being restored. Steps that turn nothing (a resize, a re-texture)
+    leave no value, which is why ``None`` means "leave the row's own".
+    """
+    for entry in entries:
+        if entry["n"] >= n and entry.get("front_yaw") is not None:
+            return float(entry["front_yaw"])
+    return None
 
 
 def _delete_version_files(job_dir: Path, n: int) -> None:
