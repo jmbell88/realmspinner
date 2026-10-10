@@ -27,7 +27,7 @@ import uuid
 from typing import Any
 
 from .. import guidance
-from ..pipelines import reference
+from ..pipelines import recon, reference
 from ..provenance import file_fingerprint
 from . import matte
 from ._jobs_create import _normalize_guidance, resolve_lowpoly, resolve_profile
@@ -40,6 +40,7 @@ from .validation import (
     DERIVED_PARAMS,
     MAX_MESH_CANDIDATES,
     check_job_id,
+    check_recon_views,
     check_seed,
     check_trellis_atlas,
     check_trellis_band,
@@ -702,6 +703,9 @@ def promote_to_model(
             f"resolution must be one of {sorted(ALLOWED_RESOLUTIONS)}", field="resolution"
         )
     check_trellis_band(trellis_band)
+    # One reference image per reconstruction today; the call is what a backend that
+    # takes several (``recon.ReconCapabilities.max_views``) will be admitted by.
+    check_recon_views(recon.active_capabilities(svc.config), 1)
     check_trellis_tex_res(trellis_tex_res)
     check_trellis_gss(trellis_gss)
     check_trellis_gsh(trellis_gsh)

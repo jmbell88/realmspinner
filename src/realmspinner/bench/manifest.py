@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import provenance
+from ..pipelines import recon
 
 MANIFEST_VERSION = 1
 FILENAME = "manifest.json"
@@ -67,6 +68,9 @@ def build_manifest(
         "seeds": list(seeds),
         "config": {name: _plain(getattr(config, name, None)) for name in CONFIG_FIELDS},
         "models": _model_fingerprints(config, recipe),
+        # Which reconstruction backend produced the meshes (``pipelines.recon``):
+        # numbers from two backends are not a regression, they are a comparison.
+        "recon_backend": recon.active_backend_name(config),
         "engine": provenance.native_engine_identity(config),
         "versions": provenance.versions(),
     }
@@ -130,6 +134,10 @@ def compare_manifests(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
         out.append("paired reference images changed")
     if old.get("stage") != new.get("stage"):
         out.append(f"stage: {old.get('stage')} -> {new.get('stage')}")
+    # A manifest written before the key existed was TRELLIS.2, the only backend.
+    old_backend = old.get("recon_backend") or recon.DEFAULT_BACKEND
+    if old_backend != (new.get("recon_backend") or recon.DEFAULT_BACKEND):
+        out.append(f"recon backend: {old_backend} -> {new.get('recon_backend')}")
     if old.get("engine") and old.get("engine") != new.get("engine"):
         out.append("native engine identity changed")
     for section in ("suite", "recipe"):

@@ -25,6 +25,7 @@ from typing import Any
 
 from .. import guidance, models
 from ..core.safeio import atomic as safeio_atomic
+from ..pipelines import recon
 from . import matte
 from .core import RealmspinnerService
 from .errors import Invalid, TooLarge, invalid_from
@@ -37,6 +38,7 @@ from .validation import (
     MAX_UPLOAD_BYTES,
     check_glb,
     check_prompt,
+    check_recon_views,
     check_seed,
     check_trellis_atlas,
     check_trellis_band,
@@ -517,6 +519,9 @@ def create_job(
     ):
         check_seed(name, value)
     check_trellis_band(trellis_band)
+    # One reference image per reconstruction today; the call is what a backend that
+    # takes several (``recon.ReconCapabilities.max_views``) will be admitted by.
+    check_recon_views(recon.active_capabilities(svc.config), 1)
     check_trellis_tex_res(trellis_tex_res)
     check_trellis_gss(trellis_gss)
     check_trellis_gsh(trellis_gsh)

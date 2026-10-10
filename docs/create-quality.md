@@ -83,7 +83,8 @@ the rest under `skipped` in the manifest. The images' hashes go into the
 manifest, so replacing one refuses a resume.
 
 ```powershell
-uv run python -m realmspinner.bench run --suite create-3d-v1 --recipe sdxl-cfg-raw --stage model --render --references D:enchefs --skip-missing
+uv run python -m realmspinner.bench run --suite create-3d-v1 --recipe sdxl-cfg-raw --stage model --render --references D:ench
+efs --skip-missing
 ```
 
 Items grade on the `3d_v2` rubric: silhouette, reference fidelity, unseen
@@ -157,6 +158,15 @@ silhouette coverage loss was 2.65% and 1.69% respectively. Both material checks
 passed. These measurements cannot establish which result is more usable.
 
 ## Engine experiment gates
+
+The queue holds its reconstruction engine as a `ReconBackend` (`pipelines/recon.py`): a
+`reconstruct(request)` call whose request carries a tuple of images, and a capability record
+(`max_views`) that admission refuses against on the `views` field. TRELLIS.2 is the only backend and
+takes one image, so nothing about a run has changed; a bench manifest records `recon_backend`
+(older manifests read as `trellis.2`), and resuming a run under a different backend is refused. A
+new backend is added **non-default** and may become the default only after a `create-3d-v1` run on
+frozen references (see above) shows it ahead on first-attempt, best-of-three and time-to-accepted
+-- a multi-view, Pixal3D or newer-trellis.cpp backend included.
 
 Automatic model routing and the pinned v0.6.0 runtime remain unchanged. A v0.8.1
 comparison requires that runtime installed separately, using

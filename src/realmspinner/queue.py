@@ -53,6 +53,7 @@ from .db import JobStore
 from .kernels.rig import blender_spec, templates
 from .pipelines import pose2d, reference
 from .pipelines.llama import EMBED_PROFILE, LlamaServer
+from .pipelines.recon import ReconBackend
 from .pipelines.trellis import TrellisServer, TrellisStopFailed
 from .progress import ProgressBus, TrellisProgressParser
 
@@ -915,7 +916,7 @@ class Worker(
         # name the (then-empty) vendor directory after a successful download,
         # so the user's very next Generate would fail with "trellis-server not
         # found" against a path that was correct an hour ago.
-        self.trellis = TrellisServer(
+        self.trellis: ReconBackend = TrellisServer(
             config.resolve_trellis_exe,
             config.trellis_models_dir,
             config.trellis_port,

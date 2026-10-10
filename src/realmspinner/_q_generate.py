@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import fetch, guidance, models, provenance
-from .pipelines import control, reference, seam
+from .pipelines import control, recon, reference, seam
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -686,30 +686,34 @@ class GenerateOps:
         # A restart that then fails to come back is nothing new: ensure_started
         # inside generate() raises, the job errors, and _check_backoff throttles
         # the respawn.
-        await asyncio.to_thread(
-            self.trellis.ensure_config,
-            tex_res=int(params["trellis_tex_res"])
-            if "trellis_tex_res" in params
-            else self.config.trellis_tex_res,
-            band=int(params["trellis_band"])
-            if "trellis_band" in params
-            else self.config.trellis_band,
-            gss=float(params["trellis_gss"])
-            if "trellis_gss" in params
-            else self.config.trellis_gss,
-            gsh=float(params["trellis_gsh"])
-            if "trellis_gsh" in params
-            else self.config.trellis_gsh,
-            max_tokens=int(params["trellis_max_tokens"])
-            if "trellis_max_tokens" in params
-            else self.config.trellis_max_tokens,
-            decim=int(params["trellis_decim"])
-            if "trellis_decim" in params
-            else self.config.trellis_decim,
-            atlas=int(params["trellis_atlas"])
-            if "trellis_atlas" in params
-            else self.config.trellis_atlas,
-        )
+        # Launch configuration belongs to the backend that has a command line
+        # (``TrellisServer``); ``pipelines.recon.ReconBackend`` does not
+        # require it, so a backend without one is simply not asked.
+        if hasattr(self.trellis, "ensure_config"):
+            await asyncio.to_thread(
+                self.trellis.ensure_config,
+                tex_res=int(params["trellis_tex_res"])
+                if "trellis_tex_res" in params
+                else self.config.trellis_tex_res,
+                band=int(params["trellis_band"])
+                if "trellis_band" in params
+                else self.config.trellis_band,
+                gss=float(params["trellis_gss"])
+                if "trellis_gss" in params
+                else self.config.trellis_gss,
+                gsh=float(params["trellis_gsh"])
+                if "trellis_gsh" in params
+                else self.config.trellis_gsh,
+                max_tokens=int(params["trellis_max_tokens"])
+                if "trellis_max_tokens" in params
+                else self.config.trellis_max_tokens,
+                decim=int(params["trellis_decim"])
+                if "trellis_decim" in params
+                else self.config.trellis_decim,
+                atlas=int(params["trellis_atlas"])
+                if "trellis_atlas" in params
+                else self.config.trellis_atlas,
+            )
 
         self.progress.update(
             job_id,
@@ -794,12 +798,14 @@ class GenerateOps:
             or guidance.default_bg_removal(self.config.trellis_models_dir)
         )
         queue_mod._log_mem("before trellis generate")
-        await self.trellis.generate(
-            trellis_input,
-            source_glb,
-            seed=mesh_seed,
-            resolution=resolution,
-            bg_removal=bg_removal,
+        await self.trellis.reconstruct(
+            recon.ReconRequest(
+                images=(trellis_input,),
+                output=source_glb,
+                seed=mesh_seed,
+                resolution=resolution,
+                bg_removal=bg_removal,
+            )
         )
         # The remesh loop, and it re-enters only the trellis half. Everything
         # above it -- the VRAM handoff, the reference measurement, the
@@ -923,15 +929,17 @@ class GenerateOps:
                 )
                 on_disk_seed = None
                 try:
-                    await self.trellis.generate(
-                        trellis_input,
-                        source_glb,
-                        seed=mesh_seed,
-                        resolution=resolution,
-                        # The same resolution the first attempt used: a remesh
-                        # that matted differently would not be the retry it
-                        # reports itself as.
-                        bg_removal=bg_removal,
+                    await self.trellis.reconstruct(
+                        recon.ReconRequest(
+                            images=(trellis_input,),
+                            output=source_glb,
+                            seed=mesh_seed,
+                            resolution=resolution,
+                            # The same resolution the first attempt used: a remesh
+                            # that matted differently would not be the retry it
+                            # reports itself as.
+                            bg_removal=bg_removal,
+                        )
                     )
                 except Exception:
                     # The best reconstruction so far is already on disk and the

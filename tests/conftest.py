@@ -627,7 +627,13 @@ def _tiny_glb() -> bytes:
 class FakeTrellisServer:
     """Stands in for TrellisServer: no subprocess, no GPU, no HTTP."""
 
+    name = "trellis.2"
+
     def __init__(self, *_args, **_kwargs) -> None:
+        from realmspinner.pipelines import recon
+
+        # The ``ReconBackend`` members the queue holds its backend by.
+        self.capabilities = recon.TRELLIS_CAPS
         self.running = False
         self.last_used = 0.0
         self.on_line = None
@@ -691,6 +697,18 @@ class FakeTrellisServer:
             self.stop()
             return True
         return False
+
+    async def reconstruct(self, request) -> Path:
+        """``ReconBackend``'s call, through ``generate`` so every recorded call and
+        every ``should_raise`` the tests already drive still lands."""
+        assert len(request.images) == self.capabilities.max_views
+        return await self.generate(
+            request.images[0],
+            request.output,
+            seed=request.seed,
+            resolution=request.resolution,
+            bg_removal=request.bg_removal,
+        )
 
     async def generate(
         self,

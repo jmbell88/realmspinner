@@ -26,6 +26,7 @@ import httpx
 from .. import winjob
 from ..kernels.geom3d.glbio import split_glb
 from ..progress import pump
+from . import recon
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +100,10 @@ def _port_in_use(port: int) -> bool:
 
 
 class TrellisServer:
+    #: ``pipelines.recon.ReconBackend``: what the queue and admission know this by.
+    name = recon.DEFAULT_BACKEND
+    capabilities = recon.TRELLIS_CAPS
+
     def __init__(
         self,
         exe: Path | Callable[[], Path],
@@ -669,6 +674,27 @@ class TrellisServer:
             # kill would invite the next start to "reclaim" a port whose holder
             # is very much alive.
             self._release_port_claim()
+
+    async def reconstruct(self, request: recon.ReconRequest) -> Path:
+        """``ReconBackend``'s one call, forwarding to :meth:`generate` unchanged.
+
+        TRELLIS.2 takes one image. Admission refuses more
+        (``validation.check_recon_views``); this raises as well, because a
+        request that got past it with two images would otherwise silently
+        reconstruct from the first.
+        """
+        if len(request.images) != self.capabilities.max_views:
+            raise ValueError(
+                f"{self.name} takes {self.capabilities.max_views} image, "
+                f"got {len(request.images)}"
+            )
+        return await self.generate(
+            request.images[0],
+            request.output,
+            seed=request.seed,
+            resolution=request.resolution,
+            bg_removal=request.bg_removal,
+        )
 
     async def generate(
         self,

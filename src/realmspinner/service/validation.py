@@ -365,6 +365,24 @@ def check_trellis_band(value: int | None) -> None:
         )
 
 
+def check_recon_views(capabilities: Any, views: int) -> None:
+    """Refuse a request that carries more reference images than the backend takes.
+
+    Addressed to ``views`` -- the field a caller would set to ask for more. Today
+    every request carries one image and TRELLIS.2 takes one, so this never fires;
+    it exists so a backend with ``max_views > 1`` is a registration, not a hunt
+    for every door that quietly assumed one picture.
+    """
+    if not isinstance(views, int) or isinstance(views, bool) or views < 1:
+        raise Invalid("views must be a whole number of at least 1", field="views")
+    if views > capabilities.max_views:
+        raise Invalid(
+            f"this reconstruction backend takes {capabilities.max_views} image"
+            f"{'' if capabilities.max_views == 1 else 's'}, got {views}",
+            field="views",
+        )
+
+
 def check_trellis_tex_res(value: int | None) -> None:
     if value is None:
         return
