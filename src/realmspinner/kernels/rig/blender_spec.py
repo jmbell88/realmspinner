@@ -173,6 +173,7 @@ def views_spec(
     *,
     size: int,
     depth: bool = False,
+    region_mask: Path | None = None,
 ) -> dict[str, Any]:
     """The worker spec for rendering one flat view per direction.
 
@@ -185,8 +186,14 @@ def views_spec(
     visibility test and the ControlNet hint both decode. Off by default so
     every other caller keeps meaning exactly what it meant before the depth
     pass existed.
+
+    ``region_mask`` -- an ``L`` image in the mesh's own UV space -- adds a third
+    render per view, ``mask_NN.png``: the region as that camera sees it, white
+    where the painted patch is. It is how a masked repair learns which pixels of
+    each restyled view to regenerate. Written to the spec only when given, so every
+    other re-texture's spec is byte-identical to what it was.
     """
-    return {
+    spec = {
         "op": "views",
         "source_glb": str(source_glb),
         "views_dir": str(views_dir),
@@ -195,6 +202,9 @@ def views_spec(
         "views": [list(v) for v in views],
         "depth": bool(depth),
     }
+    if region_mask is not None:
+        spec["region_mask"] = str(region_mask)
+    return spec
 
 
 def project_spec(

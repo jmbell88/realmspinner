@@ -134,6 +134,30 @@ TEXTURE_SIZES: tuple[int, ...] = (512, 1024, 2048)
 # new export cannot join one list and quietly miss the other.
 SURFACE_DERIVED: tuple[str, ...] = ("model_obj.zip", "textures.zip", "model.fbx", "model_lods.zip")
 
+# --- masked repair --------------------------------------------------------
+#
+# A repair repaints one painted region instead of the whole skin. **Every number
+# here is provisional**: nothing is keyed on them and no measurement backs them,
+# so a dated ``dev/measurements/`` document has to say what a seam looks like at
+# other values before any of them is called tuned. They are named here, in one
+# place, so that measurement is a one-place change.
+
+# At most this many views are restyled for a repair. Each is a full SDXL inpaint
+# pass, and a patch is visible from two or three directions at most.
+REGION_MAX_VIEWS = 3
+# A mask over this share of the atlas is a re-texture, not a repair; refused at
+# the door so a repair that would repaint half the model says so before it queues.
+REGION_MAX_COVERAGE = 0.40
+# The feather inside the region's edge, in texels: the repaint fades in over this
+# distance so the boundary reads as a blend rather than a cut line.
+REGION_FEATHER_PX = 6
+# How far each view's screen-space mask is grown, in pixels, before it is handed
+# to the inpaint: the denoise needs a little surrounding context to match.
+REGION_VIEW_GROW_PX = 12
+# A view whose mask covers less than this share of the frame is not worth an
+# inpaint pass: the patch is edge-on or hidden from that direction.
+REGION_MIN_VIEW_FRACTION = 0.002
+
 # How far the finished atlas is grown past the islands, in texels. Four covers
 # bilinear sampling plus two mip levels, which is where a rim first becomes
 # visible; growing further costs a pass each and never helps, because by the
@@ -408,8 +432,19 @@ def assemble(
     *,
     count: int,
     occlusion: bool = False,
+    region: Path | None = None,
 ) -> dict[str, Any] | None:
     """Combine ``count`` baked (colour, weight) pairs into one atlas PNG.
+
+    With ``region`` -- the path of an ``L`` mask at the atlas's own size -- this
+    is a **repair**: only texels the mask covers may change. Outside the mask the
+    result is the base atlas's own uint8 bytes, copied rather than recomputed
+    (a float round trip of an 8-bit value is *usually* exact, and "usually" is
+    not what a user who painted a patch of rust on one panel is owed about the
+    other 95% of their texture). Inside it the repaint is blended in by
+    ``uvmask.feather_inside``'s weight, and the gutter inside the mask is
+    dilated from the covered texels so an island edge does not show the old skin.
+    Needs a base of the same size: refused (``None``) otherwise.
 
     Returns a small report -- how much of the atlas any view actually covered,
     and how much is base texture showing through -- or ``None`` if the inputs
@@ -483,6 +518,44 @@ def assemble(
     if occlusion:
         blend = feather_blend(total)
         mixed = base + (mixed - base) * blend[..., None]
+
+    region_report = None
+    if region is not None:
+        from ..kernels.geom3d import uvmask
+
+        region_mask = _read(region, "L")
+        base_bytes = _read_bytes(base_path) if base_path is not None else None
+        if (
+            region_mask is None
+            or base_bytes is None
+            or base_bytes.shape != shape
+            or region_mask.shape != shape[:2]
+        ):
+            return None
+        inside = region_mask > 0.0
+        weight = uvmask.feather_inside(inside.astype(np.uint8) * 255, REGION_FEATHER_PX)
+        repainted = dilate(mixed, covered)
+        blended = base + (repainted - base) * weight[..., None]
+        out_bytes = np.clip(blended * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        # The contract: outside the region, the base's own bytes.
+        out_bytes = np.where(inside[..., None], out_bytes, base_bytes)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(out_bytes, "RGB").save(dest, "PNG")
+        region_report = {
+            "texels": int(inside.sum()),
+            "coverage": float(inside.mean()),
+            "repainted": float((covered & inside).sum() / max(int(inside.sum()), 1)),
+            "feather_px": REGION_FEATHER_PX,
+        }
+        report = {
+            "views": len(colours),
+            "coverage": float(covered.mean()),
+            "size": [int(shape[1]), int(shape[0])],
+            "occlusion_tested": bool(occlusion),
+            "region": region_report,
+        }
+        return report
+
     out = dilate(mixed, covered)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -501,6 +574,93 @@ def assemble(
     if occlusion:
         report["coverage_effective"] = float((blend > 0.5).mean())
     return report
+
+
+def _read_bytes(path: Path) -> Any | None:
+    """An image's RGB pixels as the uint8 array it holds, or None. No float round
+    trip: this is what ``assemble``'s repair copies outside the region."""
+    import numpy as np
+    from PIL import Image
+
+    try:
+        with Image.open(path) as im:
+            return np.asarray(im.convert("RGB"), dtype=np.uint8).copy()
+    except Exception:
+        log.exception("could not read %s", path)
+        return None
+
+
+def pick_region_views(
+    view_masks: list[tuple[int, Any]], *, cap: int = REGION_MAX_VIEWS
+) -> list[int]:
+    """Which views to restyle for a repair: the ones that see the most of it.
+
+    ``view_masks`` is ``(view index, mask)`` with each mask an ``(h, w)`` array in
+    0..1 (the region as that camera sees it). A view under
+    :data:`REGION_MIN_VIEW_FRACTION` of the frame is dropped whatever its rank;
+    the rest are ordered by how much of the frame the region fills, ties to the
+    lower index, and cut to ``cap``. Empty when no camera sees it -- the caller
+    refuses, rather than spending a pass on a patch nobody can see.
+    """
+    scored = []
+    for index, mask in view_masks:
+        fraction = float((mask > 0.5).mean()) if getattr(mask, "size", 0) else 0.0
+        if fraction >= REGION_MIN_VIEW_FRACTION:
+            scored.append((-fraction, index))
+    scored.sort()
+    return [index for _fraction, index in scored[: max(0, cap)]]
+
+
+def inpaint_mask(mask_png: Path, dest: Path, *, grow_px: int = REGION_VIEW_GROW_PX) -> bool:
+    """A view's region mask, grown and written as the inpaint's white-is-regenerate.
+
+    Thresholded first (the render is anti-aliased) and then grown by ``grow_px``
+    so the denoise has surrounding pixels to match. False if the mask cannot be
+    read.
+    """
+    import numpy as np
+    from PIL import Image
+
+    from ..kernels.geom3d import uvmask
+
+    mask = _read(mask_png, "L")
+    if mask is None:
+        return False
+    grown = uvmask.grow((mask > 0.5).astype(np.uint8) * 255, grow_px)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(grown, "L").save(dest, "PNG")
+    return True
+
+
+def uv_digest(glb_path: Path) -> str | None:
+    """A fingerprint of the mesh's texture coordinates, or None.
+
+    A repair's mask is a picture of *where on the atlas*, so it is only valid for
+    the UV layout it was painted against. The door records this digest next to the
+    mask and the worker recomputes it: a remesh that landed in between rewrote the
+    layout, and a mask over the old one would repaint whatever texels it now
+    happens to cover. Positions are left out on purpose -- a resize moves them and
+    leaves the atlas exactly where it was.
+    """
+    import hashlib
+
+    import numpy as np
+
+    from ..kernels.geom3d import gltf
+
+    try:
+        model = gltf.load(glb_path, texture_slots=())
+        digest = hashlib.sha256()
+        for _node, primitives in model.mesh_instances():
+            for primitive in primitives:
+                if primitive.uvs is None:
+                    return None
+                digest.update(np.ascontiguousarray(primitive.uvs, dtype="<f4").tobytes())
+                digest.update(np.ascontiguousarray(primitive.indices, dtype="<u4").tobytes())
+    except Exception:
+        log.exception("could not read the texture coordinates of %s", glb_path)
+        return None
+    return digest.hexdigest()
 
 
 # --- putting the atlas back into the GLB -------------------------------------

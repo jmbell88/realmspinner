@@ -2094,6 +2094,33 @@ def _retexture_frame(bpy: Any, source: Path, size: int):
     return mesh, centre, extent, distance
 
 
+def _region_material(bpy: Any, mask_png: Path):
+    """One emission material showing a UV-space mask through the mesh's own UVs.
+
+    White where the painted region is, black elsewhere. Read **raw** -- Non-Color,
+    nearest-texel -- because the mask is data: sRGB decoding would bend the
+    values and smoothing would blur a hard region edge into a gradient the host
+    would then threshold at the wrong place.
+    """
+    material = bpy.data.materials.new("wl_region")
+    if material.node_tree is None:
+        material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.clear()
+    out = tree.nodes.new("ShaderNodeOutputMaterial")
+    tex = tree.nodes.new("ShaderNodeTexImage")
+    tex.image = bpy.data.images.load(str(mask_png))
+    tex.image.colorspace_settings.name = "Non-Color"
+    tex.interpolation = "Closest"
+    tex.extension = "CLIP"
+    emit = tree.nodes.new("ShaderNodeEmission")
+    # No Vector link: the texture reads the object's active UV map, which is the
+    # atlas the region was rasterised against.
+    tree.links.new(tex.outputs["Color"], emit.inputs["Color"])
+    tree.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+    return material
+
+
 def op_views(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     """Render the mesh once per view direction, flat.
 
@@ -2161,6 +2188,30 @@ def op_views(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
             dot.inputs[1].default_value = _view_direction(float(yaw), float(pitch))
             _aim_camera(cam, centre, float(yaw), float(pitch), distance)
             scene.render.filepath = str(views_dir / f"depth_{i:02d}.png")
+            bpy.ops.render.render(write_still=True)
+
+    if spec.get("region_mask"):
+        # After the colour (and depth) passes, which need the real materials: every
+        # mesh now wears the one mask material. Raw view transform and a single
+        # sample for the depth pass's reason -- the output is data, and a hard
+        # region edge must stay hard.
+        mask_png = Path(spec["region_mask"]).resolve()
+        if not mask_png.exists():
+            raise RuntimeError(f"no region mask at {mask_png}")
+        scene = bpy.context.scene
+        region_mat = _region_material(bpy, mask_png)
+        for obj in scene.objects:
+            if obj.type == "MESH":
+                obj.data.materials.clear()
+                obj.data.materials.append(region_mat)
+        with contextlib.suppress(TypeError):
+            scene.view_settings.view_transform = "Raw"
+        scene.render.image_settings.color_depth = "8"
+        with contextlib.suppress(AttributeError):
+            scene.eevee.taa_render_samples = 1
+        for i, (yaw, pitch) in enumerate(views):
+            _aim_camera(cam, centre, float(yaw), float(pitch), distance)
+            scene.render.filepath = str(views_dir / f"mask_{i:02d}.png")
             bpy.ops.render.render(write_still=True)
 
     progress(1.0, "Views rendered")
