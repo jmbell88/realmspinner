@@ -469,6 +469,26 @@ class ClayState(docmodes.DocTabs[ClayTab]):
             self.settle_drag(previous)
         self.clear_drag()
 
+    def add_in_background(self, tab: ClayTab) -> ClayTab:
+        """Open *tab* without bringing it to the front.
+
+        The 2026-10-11 audit's clay-14: an agent's first tool call mints its
+        tab, and :meth:`add` makes every new tab active -- the person's own
+        document left the viewport and Inspector mid-work and ``_switched``
+        committed whatever G/R/S drag they had live. No arrival happens here, so
+        no ``_switched`` either: the front tab keeps its drag, its camera and its
+        keys. With nothing open there is nothing to protect and the tab is
+        simply added (``active`` would fall back to the last tab anyway).
+        """
+        if not self.docs:
+            return self.add(tab)
+        if self.active_uid not in {doc.uid for doc in self.docs}:
+            # ``active`` falls back to the *last* tab when ``active_uid`` names
+            # nothing; pin the one actually in front before another follows it.
+            self.active_uid = self.active.uid
+        self.docs.append(tab)
+        return tab
+
     def _closed(self, was_active: bool) -> None:
         self.clear_drag()
 

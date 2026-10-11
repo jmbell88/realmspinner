@@ -153,6 +153,11 @@ def test_a_typed_positive_scale_on_selected_elements_still_scales(view, ctx) -> 
 # --- clay-12: an op-drag preview skips the object that refuses ------------------
 
 
+def _prim_counts(model: Any) -> list[tuple[int, int]]:
+    """``(vertices, indices)`` of each drawn primitive: what is on screen."""
+    return [(len(p.positions), len(p.indices)) for p in model.meshes[0]]
+
+
 def test_an_op_drag_preview_shows_the_objects_that_accept_the_value_when_another_refuses(
     view, ctx
 ) -> None:
@@ -172,9 +177,16 @@ def test_an_op_drag_preview_shows_the_objects_that_accept_the_value_when_another
 
     od.kernel = kernel
     gpu_b = view._cache[b].gpu
+    base_a = _prim_counts(view._cache[a].model)
+    base_b = _prim_counts(view._cache[b].model)
     view._motion(doc, (100.0, 48.0))
 
     assert view._cache[b].gpu is not gpu_b, "the accepting object was not drawn"
+    # Identity alone passes for a model rebuilt from the same mesh (the
+    # 2026-10-11 audit's clay-01), so the geometry is compared as well: the
+    # accepting object shows its inset, the refusing one its own box.
+    assert _prim_counts(view._cache[b].model) != base_b, "the accepting object drew its old mesh"
+    assert _prim_counts(view._cache[a].model) == base_a, "the refusing object changed"
     assert "Box0" in view.drag_hud, view.drag_hud
     view.cancel_drag(doc)
 

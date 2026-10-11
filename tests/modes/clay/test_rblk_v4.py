@@ -232,5 +232,9 @@ def test_a_long_boolean_target_chain_is_baked_without_recursion(monkeypatch) -> 
         for i in range(n - 1)
     }
     monkeypatch.setattr(legacy.ops_boolean, "boolean", lambda objs, op, world=None: objs[0].mesh)
+    # This test is about recursion, not the bake budget: 3,000 booleans, even on
+    # a box, are now refused by the budget's per-kind floor (the 2026-10-11 Clay
+    # audit), so lift the ceiling and leave the chain walk the thing under test.
+    monkeypatch.setattr(legacy, "MAX_BAKE_WORK", 10**9)
     meshes, errors = legacy._bake(doc, stacks)
     assert errors == {} and meshes == {}  # the stub returns each base unchanged

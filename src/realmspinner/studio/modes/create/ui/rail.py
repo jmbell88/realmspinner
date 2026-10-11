@@ -1,15 +1,16 @@
 """Create mode's breadcrumb: the pill that draws the stage rail, and the two
 helpers that measure it without drawing anything.
 
-Split out of ``widgets`` (P4 of the restructure, ``dev/RESTRUCTURE.md``):
-this is imgui-bearing and Create-only, while ``create_stages`` -- the module
+Split out of ``widgets`` (P4 of the 2026-09 restructure):
+this is imgui-bearing and Create-only, while ``stages.py`` -- the module
 next to it that decides *which* stages exist and whether an asset has
 reached them -- is deliberately headless and shared by nothing that draws.
-Putting the rail's own drawing into ``create_stages`` would have dragged
+Putting the rail's own drawing into ``stages.py`` would have dragged
 imgui into a module whose own docstring promises it imports nothing from it,
 so the rail gets its own file instead of folding into that one.
 
-``create_brief.draw`` hands the header's rail to ``App._stage_rail`` (the rail
+``brief.draw`` (``modes/create/ui/brief.py``) hands the header's rail to
+``App._stage_rail`` (``studio/shell/frame.py``; the rail
 now holds the header alone, with New and Inspector beside it), which builds the
 live ``items``/``done`` from a job and calls :func:`stage_rail` to draw it.
 :func:`stage_rail_width` has no caller in ``src``: it is the measuring seam the
@@ -141,7 +142,7 @@ def stage_rail(
     thing so far" to report -- it is folded into a one-member set below.
 
     ``optional`` names segments a finished asset may legitimately never earn
-    (``create_stages.OPTIONAL_HINTS``, keyed the same way). A segment named
+    (``stages.OPTIONAL_HINTS``, keyed the same way). A segment named
     there that is open (not blocked) and not in ``done`` gets a tooltip
     saying so -- the same courtesy a blocked segment's reason already is, for
     a segment that is merely skippable rather than unreachable.
@@ -159,7 +160,7 @@ def stage_rail(
       tooltip. **Not hidden.** "Rig" missing entirely is a feature the user
       concludes does not exist; "Rig -- Blender is not installed" is an
       answer. The reason is the service's own sentence (see
-      ``create_stages.available``), so the tooltip and the refusal it predicts
+      ``stages.available``), so the tooltip and the refusal it predicts
       cannot drift into two paraphrases of one rule.
 
     Fitting is a **ladder of three**, each rung all-or-nothing in
@@ -182,7 +183,7 @@ def stage_rail(
     default font. Handing a taller ``row_height`` does **not** stretch the track
     to fill it (a pill rail the height of a text field reads as broken, not
     tall); it centres the rail's own natural-height content inside the reserved
-    band instead. The bar no longer shares its row, so ``create_brief.draw``
+    band instead. The bar no longer shares its row, so ``brief.draw``
     passes none and ``None`` (the live caller) keeps the reserved height equal
     to the content height; the argument stays for ``App._stage_rail``'s
     pass-through and the tests that centre against it.

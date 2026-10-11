@@ -4,7 +4,7 @@ The Inker mode's ``state.py`` / ``plotter_state`` split, third instance, and the
 view type is imported for the same reason it is there: a zoomable, pannable 2D
 viewport is not about pixels, and a second copy would be a second set of
 clamping rules and a second Ctrl+0. It lives at ``shell.paintview`` rather than
-in either mode, since dev/RESTRUCTURE.md's P5 -- Inker was never its owner
+in either mode, since P5 of the 2026-09 restructure -- Inker was never its owner
 either, only its first caller.
 
 **The atlas is a task result, not a document field.** ``PackDoc`` holds sources

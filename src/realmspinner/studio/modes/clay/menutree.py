@@ -87,7 +87,7 @@ GROUPS: dict[str, Group] = {
     "parent": Group("Parent", ("group", "ungroup", "parent-to-last", "clear-parent")),
     "join": Group("Join", ("join",)),
     "shading": Group("Shading", ("shade-smooth", "shade-flat")),
-    "cleanup": Group("Clean Up", ("recalc-normals",)),
+    "cleanup": Group("Clean Up", ("recalc-normals", "simplify")),
     "separate": Group("Separate", ("separate-loose", "separate-selection")),
     "uv": Group("UV", ("unwrap", "pack-uv")),
     "mesh": Group(
@@ -151,8 +151,8 @@ def _mesh_menu(*extra: Entry) -> Menu:
 
     ``extra`` is how Face mode adds Shading and Separate (both of which apply
     to selected faces) without the vertex and edge menus carrying a submenu
-    that would be empty for them -- :func:`resolve` drops an empty group anyway,
-    but naming only what a mode can have keeps the table honest.
+    that would be empty for them; naming only what a mode can have keeps the
+    table honest.
     """
     return Menu(
         "Mesh",

@@ -1581,10 +1581,26 @@ class TasksMixin:
         job = ctx.job()
         # The thumbnail is free here: the model is loaded and framed, and a
         # server-side render would need the serial GPU queue for something
-        # purely cosmetic.
+        # purely cosmetic. Only *requested* here, though: the 2026-10-11 audit
+        # (finding create-03) found that photographing the viewport straight
+        # after ``adopt_model`` read the previous frame, because adoption
+        # uploads and frames but draws nothing. ``_service_thumbnail_request``
+        # takes it once ``Viewer.render`` has drawn the adopted model.
         if job is not None and "thumb.png" not in (job.get("files") or []):
-            ctx.capture_thumbnail(job["id"])
+            self.viewer.request_thumbnail(job["id"])
         self._refresh_rig_side_data()
+
+    def _service_thumbnail_request(self) -> None:
+        """Take the card picture a ``_adopt_model`` asked for. Frame thread.
+
+        Called right after ``Viewer.render`` in the frame loop; a no-op until a
+        request exists and the adopted model has been drawn. The GL readback is
+        the only work on this thread -- ``ctx.capture_thumbnail`` hands the PNG
+        encode and save to the task runner.
+        """
+        job_id = self.viewer.take_thumbnail_request()
+        if job_id is not None:
+            self.app_ctx.capture_thumbnail(job_id)
 
     def _refresh_rig_side_data(self) -> None:
         """Poses, sheets and the shipped preset library, off-thread.

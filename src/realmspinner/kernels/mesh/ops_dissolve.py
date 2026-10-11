@@ -280,6 +280,15 @@ def merge_groups(mesh: Mesh, groups: list[np.ndarray]) -> tuple[Mesh, ElementSel
     merge, and rebuilding would move the face to the end of the list for no
     reason.
 
+    **A block of faces that disagree keeps its lowest-numbered face's
+    attributes.** The merged n-gon takes the material and the smooth flag of
+    the lowest-numbered face of its group (``g[0]``: every caller hands each
+    group in ascending face order, :func:`_group_by_label`'s own contract), so
+    a block that mixes materials or smooth/flat faces is repainted
+    to that one face's, with no refusal and no message (the 2026-10-11 audit's
+    clay-28). Its texture coordinates are not a vote: each corner of the
+    outline keeps the uv it already had.
+
     Refused past :data:`MAX_DISSOLVED_RING`, for the reason ``ops_subdiv``
     refuses past ``MAX_SUBDIVIDED_FACES`` -- and, separately, refused past
     :data:`MAX_CONCAVE_DISSOLVE_RING` when the outline is also concave, since

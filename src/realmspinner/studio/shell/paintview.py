@@ -1,7 +1,7 @@
 """A zoomable, pannable 2D viewport: zoom/pan state, framing, wheel input.
 
 Promoted out of Inker (``modes/inker/state.py:858-1476`` before this move,
-dev/RESTRUCTURE.md's P5) because it was never Inker's: Plotter and Packwright
+P5 of the 2026-09 restructure) because it was never Inker's: Plotter and Packwright
 imported ``PaintView`` and its view maths from day one (see
 ``plotter_state.py``'s and ``packwright_state.py``'s own docstrings, "the
 view type is imported, not reimplemented"), which made four sibling-mode

@@ -95,8 +95,9 @@ from typing import Any
 
 import numpy as np
 
+from ......kernels.mesh import earclip, uvtools
 from ......kernels.mesh import elements as el
-from ......kernels.mesh import uvtools
+from ......kernels.mesh import mesh as bm
 from ..... import controls, icons, imgui_backend, theme, widgets
 from .....manual import render as manual_render
 from .....shell import paintview
@@ -1655,6 +1656,42 @@ def _screen_corners(
     return corners
 
 
+def _concave_triangles(cache: dict[str, Any], mesh: Any) -> dict[int, list[tuple[int, int, int]]]:
+    """``{face: [(c0, c1, c2), ...]}`` for the concave faces of *mesh*, as corner indices.
+
+    The 2026-10-11 audit's clay-38: ``_faces`` filled every face as one convex polygon,
+    on the ground that blockout geometry has none -- but Simplify, the dissolve family
+    and an imported GLB all make concave n-gons, and an L-shaped floor of twelve quads
+    drew as one wrong hexagon, so the fills and the overlap tints (which come from
+    ``overlap_faces``, correct) disagreed with the canvas. The ear clip is the one
+    ``overlap_faces`` already uses (``earclip.corner_triangles``), on the mesh's own
+    positions, so the fill and the overlap tint triangulate a face the same way.
+
+    **Memoised on the identity of ``positions``, ``loops`` and ``starts``**, the three
+    arrays the triangulation reads and a live UV drag never replaces (it moves ``uv``
+    only), so a frame that pans, zooms or hovers -- or a drag -- does not clip again.
+    Held as strong references, as :func:`_screen_corners` does, so an address cannot be
+    reused under the key. A convex mesh (the common case) costs one vectorised screen,
+    once, and answers ``{}``.
+    """
+    key = (mesh.positions, mesh.loops, mesh.starts)
+    hit = cache.get("concave_tris")
+    if hit is not None and all(a is b for a, b in zip(hit[0], key, strict=True)):
+        return hit[1]
+    normals = bm.face_normals(mesh)
+    concave = earclip.concave_faces(mesh.positions, mesh.loops, mesh.starts, normals)
+    out: dict[int, list[tuple[int, int, int]]] = {}
+    if concave.any():
+        tris, tri_face = earclip.corner_triangles(
+            mesh.positions, mesh.loops, mesh.starts, normals
+        )
+        for tri, face in zip(tris.tolist(), tri_face.tolist(), strict=True):
+            if concave[face]:
+                out.setdefault(face, []).append((tri[0], tri[1], tri[2]))
+    cache["concave_tris"] = (key, out)
+    return out
+
+
 def _face_colours(
     cache: dict[str, Any],
     overlap: np.ndarray | None,
@@ -1703,12 +1740,11 @@ def _faces(
     where :func:`_face_fill` has something to say -- and outlined, so the
     layout reads as faces rather than as a smear of translucent grey.
 
-    Drawn from each face's own corners in order, as one convex polygon --
-    every generator and unwrap in this package produces simple convex faces
-    (quads and triangles); a hand-imported mesh with a concave face is drawn
-    slightly wrong here rather than triangulated, which this pane accepts as
-    a known, cosmetic-only limit rather than paying a triangulation pass on
-    every frame for a shape blockout geometry does not produce.
+    Drawn from each face's own corners in order, as one convex polygon when the
+    face is convex (every generator and unwrap produces quads and triangles), and as
+    **triangles** when it is not (:func:`_concave_triangles`; the 2026-10-11 audit's
+    clay-38 -- Simplify and dissolve make concave faces routine, and a convex fill of
+    one paints a wedge over its notch). The outline is always the face's own boundary.
 
     **Past** :data:`FACE_DETAIL_CEILING` faces this draws one rectangle per
     island instead (:func:`_island_rects`; the 2026-10-09 second audit's clay-80),
@@ -1734,11 +1770,20 @@ def _faces(
     colours = _face_colours(cache, overlap, n_faces, neutral)
     edge = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.8))
     closed = imgui.ImDrawFlags_.closed.value
+    concave = _concave_triangles(cache, mesh)
     for face in range(n_faces):
         lo, hi = starts[face], starts[face + 1]
         if hi - lo < 3:
             continue
-        draw_list.add_convex_poly_filled(corners[lo:hi], colours[face])
+        triangles = concave.get(face)
+        if triangles is None:
+            draw_list.add_convex_poly_filled(corners[lo:hi], colours[face])
+        else:
+            # A triangle is convex however the face turns, so the convex fill is right
+            # for each one (and a recording draw list needs no second method).
+            for a, b, c in triangles:
+                triangle = [corners[a], corners[b], corners[c]]
+                draw_list.add_convex_poly_filled(triangle, colours[face])
         draw_list.add_polyline(corners[lo:hi], edge, 1.0, closed)
 
 

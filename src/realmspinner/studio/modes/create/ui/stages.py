@@ -19,7 +19,8 @@ one.
 The module imports nothing from imgui and draws nothing. The rail that renders
 it is :func:`realmspinner.studio.modes.create.ui.rail.stage_rail` -- its own module (P4 of
 the restructure), split out precisely so this one stays headless while that
-one draws; the panes each stage maps to are wired in :mod:`.main`.
+one draws; the panes each stage maps to are wired in
+``realmspinner/studio/shell/frame.py`` (``_stage_pane``).
 """
 
 from __future__ import annotations

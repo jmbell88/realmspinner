@@ -907,7 +907,7 @@ def test_the_plan_height_follows_the_measured_footer_within_bounds(frames):
 
 
 def test_a_non_commercial_model_is_flagged_when_automatic_picked_it(monkeypatch):
-    from tests._synthetic_models import distilled_base
+    from _synthetic_models import distilled_base
 
     spec = distilled_base("nc_test", commercial=False, license="CC-BY-NC-4.0")
     monkeypatch.setitem(models.BASE_MODELS, spec.key, spec)

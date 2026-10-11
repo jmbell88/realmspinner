@@ -241,7 +241,7 @@ def test_repeat_last_names_the_mode_it_does_not_work_in() -> None:
     _edges_of_face(doc, uid, 1)
     repeat = clay_ops.get("repeat-last")
     assert not repeat.enabled(doc)
-    assert "face mode" in clay_ops.reason_for(repeat, doc)
+    assert "Faces mode" in clay_ops.reason_for(repeat, doc)
 
 
 def test_each_document_repeats_only_its_own_last_op() -> None:

@@ -81,6 +81,53 @@ MAX_LIGHTS = 100_000
 #: a primitive entry is the same order of JSON cost as a mesh or a node, and a
 #: file declaring this many of them is a hang before it is a scene.
 MAX_PRIMITIVES = 100_000
+#: The 2026-10-11 audit, finding clay-30: ``MAX_NODES`` bounds how many node
+#: *entries* a file declares, and nothing bounded how many child *references*
+#: they hold between them -- a node's ``children`` list is legal JSON with no
+#: length rule, so 2 M entries loaded in 0.36 s and imported in 0.68 s, and a
+#: 100 MiB file of about 50 M of them cost 9-17 s and about 0.4 GB, before any
+#: node is placed. Counted across every node and refused before the per-node
+#: decode loop (and before Clay's declared-budget walk): a real hierarchy has
+#: about one reference per node (every node but a root is somebody's child
+#: once), so a small multiple of ``MAX_NODES`` is generous and a flood is not.
+#: A per-node multiple rather than a fixed number so lowering ``MAX_NODES``
+#: (as tests do) lowers this with it.
+CHILD_REFERENCES_PER_NODE = 4
+#: The 2026-10-11 audit, finding clay-10: the decoded-image cache was keyed by
+#: the image's *index*, so 100,000 ``images`` entries over one 16x16 PNG
+#: bufferView decoded 100,000 times (7.8 s from a 9.6 MB GLB on Clay's
+#: uncancellable import task) and were charged about 1 KB each against
+#: ``MAX_TOTAL_BYTES``, which they never reached -- the only bound was
+#: ``MAX_MATERIALS``. The cache now also keys on the payload (so a repeated one
+#: decodes once), and this bounds how many *distinct* payloads a document may
+#: decode, counted before the decode: a trellis output carries one to five, a
+#: scene of props a few hundred; a file past this is a hang before it is a
+#: scene, the same call ``MAX_MATERIALS`` makes for its own array.
+MAX_IMAGE_DECODES = 4_096
+
+
+def child_reference_ceiling() -> int:
+    """How many child references one document may hold in total (clay-30)."""
+    return MAX_NODES * CHILD_REFERENCES_PER_NODE
+
+
+def child_reference_count(nodes: Any) -> int:
+    """Child references across every node entry of a raw ``nodes`` array.
+
+    Read defensively -- a non-object node or a non-list ``children`` counts as
+    none -- because Clay's pre-check calls this before ``load``'s own named
+    refusals have had a chance to speak. One pass over the nodes, no
+    allocation per reference.
+    """
+    if not isinstance(nodes, list):
+        return 0
+    total = 0
+    for node in nodes:
+        if isinstance(node, dict):
+            kids = node.get("children")
+            if isinstance(kids, list):
+                total += len(kids)
+    return total
 #: One field over again: a skin's own ``joints`` array is bound-checked
 #: (every entry must be ``0 <= joint < n_nodes``, clay-io-05/create2-01) but
 #: its *length* never was. The 2026-09-26 audit, finding create-viewer-01
@@ -641,6 +688,14 @@ def load(
     declared = len(_check_list_field(gltf.get("nodes", []), "this GLB's \"nodes\""))
     if declared > MAX_NODES:
         raise ValueError(f"this GLB declares {declared} nodes, more than this viewer will load")
+    # The 2026-10-11 audit, finding clay-30: counted before ``reader.node``
+    # walks the entries, the same order as every ceiling here.
+    child_refs = child_reference_count(gltf.get("nodes", []))
+    if child_refs > child_reference_ceiling():
+        raise ValueError(
+            f"this GLB's nodes hold {child_refs:,} child references between them, "
+            "more than this viewer will load"
+        )
     # The 2026-09-05 audit, finding clay-05: these two used to be iterated with
     # no ceiling of their own -- an *unreferenced* material or an
     # accessor-less mesh never reaches ``_charge``, so the byte budget never
@@ -874,9 +929,25 @@ def _roots(gltf: dict, nodes: list[Node]) -> list[int]:
                 # returned straight off the JSON with no check at all, so a
                 # non-integer entry reached Model.update_world's bare
                 # ``0 <= index < len(self.nodes)`` comparison as a TypeError.
+                #
+                # The 2026-10-11 audit, finding create-11: and no ceiling and
+                # no de-duplication either. One node named 1.5 M times in a
+                # 3 MB GLB loaded in 2.0 s and 481 MiB, and every
+                # ``update_world`` after it (each pose edit, each onion-ghost
+                # frame, on the frame thread) rebuilt a stack entry per
+                # repetition for 1.9 s. Refused past ``MAX_NODES`` -- there are
+                # never that many distinct nodes to root -- before the loop
+                # below touches an entry, then kept once each in first-seen
+                # order, which is the order ``update_world`` would have
+                # visited them in anyway.
+                if len(roots) > MAX_NODES:
+                    raise ValueError(
+                        f"scene {index} lists {len(roots):,} root nodes, "
+                        "more than this viewer will load"
+                    )
                 for root in roots:
                     _check_int_index(root, "a scene's root node index")
-                return list(roots)
+                return list(dict.fromkeys(roots))
     parented = {child for node in nodes for child in node.children}
     return [i for i in range(len(nodes)) if i not in parented]
 
@@ -1091,6 +1162,12 @@ class _Reader:
         # the same (w, h, bytes) tuple is shared, which is also what lets the
         # GPU side de-duplicate its uploads by buffer identity.
         self._images: dict[int, tuple[int, int, bytes] | None] = {}
+        # The 2026-10-11 audit, finding clay-10: the same, by *payload*. The
+        # index key above never matched two ``images`` entries that name one
+        # bufferView span or carry one data URI, so each decoded again; see
+        # ``MAX_IMAGE_DECODES``.
+        self._decoded_payloads: dict[Any, tuple[int, int, bytes] | None] = {}
+        self._distinct_decodes = 0
         # Images this file carries that could not be used (D42). Counted per
         # *source*, not per material reference, because ``_images`` memoizes:
         # one unreadable atlas shared by six primitives is one loss, and
@@ -1741,29 +1818,46 @@ class _Reader:
             # on the wrong texels with no word. Counted as skipped, the same
             # honest loss an unreadable image is.
             base_ref = pbr.get("baseColorTexture")
-            if self._texture_needs_unsupported_mapping(base_ref):
-                # clay-112: counted by the image it would have drawn, so three
-                # materials asking for one atlas on another UV set are one
-                # lost texture, and ``skipped`` keeps its per-source meaning.
-                source = self._texture_source(base_ref)
-                key = source if source is not None else ("reference", len(self.lost_by_material))
-                self._lost_now.add(key)
-                out.base_color = None
-            else:
-                out.base_color = self.texture(base_ref)
+            out.base_color = self._slot_texture(base_ref, "base_color")
             out.nearest = out.base_color is not None and self._nearest(
                 pbr.get("baseColorTexture")
             )
+        # The 2026-10-11 audit, finding create-24: the check above covered
+        # ``baseColorTexture`` alone, and these four went straight to
+        # ``texture()`` -- sampled through TEXCOORD_0, untransformed -- so a UV1
+        # occlusion map or a scaled normal map drew wrongly with nothing in
+        # ``skipped_textures`` to say so. Same rule for every slot; ``texCoord``
+        # selection and ``normalTexture.scale`` stay unimplemented (the loss is
+        # counted, not repaired).
         if "metallic_roughness" in wanted:
-            out.metallic_roughness = self.texture(pbr.get("metallicRoughnessTexture"))
+            out.metallic_roughness = self._slot_texture(
+                pbr.get("metallicRoughnessTexture"), "metallic_roughness"
+            )
         if "normal" in wanted:
-            out.normal = self.texture(mat.get("normalTexture"))
+            out.normal = self._slot_texture(mat.get("normalTexture"), "normal")
         if "emissive" in wanted:
-            out.emissive = self.texture(mat.get("emissiveTexture"))
+            out.emissive = self._slot_texture(mat.get("emissiveTexture"), "emissive")
         if "occlusion" in wanted:
-            out.occlusion = self.texture(mat.get("occlusionTexture"))
+            out.occlusion = self._slot_texture(mat.get("occlusionTexture"), "occlusion")
         self.lost_by_material.append(frozenset(self._lost_now))
         return out
+
+    def _slot_texture(self, ref: Any, slot: str) -> tuple[int, int, bytes] | None:
+        """One slot's decoded texture, or ``None`` when the reference asks for
+        a UV set or transform this viewer ignores (counted as lost)."""
+        if not self._texture_needs_unsupported_mapping(ref):
+            return self.texture(ref)
+        # clay-112: counted by the image it would have drawn, so three
+        # materials asking for one atlas on another UV set are one lost
+        # texture, and ``skipped`` keeps its per-source meaning.
+        source = self._texture_source(ref)
+        key = (
+            source
+            if source is not None
+            else ("reference", len(self.lost_by_material), slot)
+        )
+        self._lost_now.add(key)
+        return None
 
     def _texture_source(self, ref: Any) -> int | None:
         """The image source a texture reference points at, or ``None`` when the
@@ -2004,9 +2098,25 @@ class _Reader:
         # ``ValueError`` this loader's every other malformed-shape boundary
         # raises.
         _check_dict_entry(image, f"image {source} in this GLB's \"images\" array")
+        payload = self._image_key(image)
+        if payload is not None and payload in self._decoded_payloads:
+            # Same bytes as an image already met: share its result (including
+            # a recorded loss) rather than decode them again, and charge
+            # nothing -- the tuple is the one already charged.
+            decoded = self._decoded_payloads[payload]
+            self._images[source] = decoded
+            return decoded
+        # Counted before the bytes are read or decoded (clay-10): a refusal
+        # that arrived after the work would only be a slower hang.
+        self._distinct_decodes += 1
+        if self._distinct_decodes > MAX_IMAGE_DECODES:
+            raise ValueError(
+                f"this GLB carries more than {MAX_IMAGE_DECODES:,} distinct images, "
+                "more than this viewer will load"
+            )
         data = self._image_bytes(image)
         if data is None:
-            self._images[source] = None
+            self._remember_image(source, payload, None)
             return None
         try:
             # ``formats=``: the container's declared type is never consulted,
@@ -2030,7 +2140,7 @@ class _Reader:
                         MAX_TEXTURE_SIDE,
                     )
                     self.skipped += 1
-                    self._images[source] = None
+                    self._remember_image(source, payload, None)
                     return None
                 # Charged into the *document-wide* budget (H01) before the
                 # decode it describes, and deliberately outside the
@@ -2051,8 +2161,48 @@ class _Reader:
             log.warning("skipping a texture whose image data could not be decoded")
             self.skipped += 1
             decoded = None
-        self._images[source] = decoded
+        self._remember_image(source, payload, decoded)
         return decoded
+
+    def _remember_image(
+        self, source: int, payload: Any, decoded: tuple[int, int, bytes] | None
+    ) -> None:
+        """Record one image's outcome under its index and, when it has one, its
+        payload key (clay-10)."""
+        self._images[source] = decoded
+        if payload is not None:
+            self._decoded_payloads[payload] = decoded
+
+    def _image_key(self, image: dict) -> Any:
+        """What identifies an image's *bytes* without reading them, or ``None``.
+
+        A bufferView image is the span it names (offset and length in the one
+        binary chunk -- two views over the same span are the same pixels, and a
+        copy of the slice per entry would be 100,000 copies of it), a data-URI
+        image is its URI. Read defensively: anything malformed answers ``None``
+        and falls through to ``_image_bytes``, whose own refusals and skips
+        are unchanged.
+        """
+        if "bufferView" in image:
+            views = self.gltf.get("bufferViews")
+            index = image["bufferView"]
+            if (
+                not isinstance(views, list)
+                or isinstance(index, bool)
+                or not isinstance(index, int)
+                or not 0 <= index < len(views)
+                or not isinstance(views[index], dict)
+            ):
+                return None
+            view = views[index]
+            span = (view.get("buffer", 0), view.get("byteOffset", 0), view.get("byteLength", 0))
+            if any(isinstance(n, bool) or not isinstance(n, int) for n in span):
+                return None
+            return ("view", *span)
+        uri = image.get("uri")
+        if isinstance(uri, str) and uri.startswith("data:"):
+            return ("uri", uri)
+        return None
 
     def skin(self, skin: dict) -> Skin:
         _check_dict_entry(skin, "a skin in this GLB's \"skins\" array")

@@ -45,7 +45,7 @@ used to make ``realmspinner.pipelines.sheet`` (this module's old location, befor
 the move) unreachable from here, so
 ``sheet.slerp`` and ``sheet.MAX_CLIP_FRAMES`` were restated verbatim
 instead -- a duplicate this codebase keeps finding has silently drifted
-(``dev/RESTRUCTURE.md``'s own "constants get restated instead of imported"
+(the 2026-09 restructure's own "constants get restated instead of imported"
 failure shape). ``sheet.py`` moved to ``realmspinner.kernels.sheet`` because it
 was always a kernel wearing a pipelines name (stdlib plus a lazy Pillow
 import), and the ban above was never about kernels -- it exists to keep

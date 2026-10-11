@@ -158,7 +158,7 @@ def test_run_refuses_an_object_level_op_in_an_element_mode() -> None:
     ctx = _Ctx()
     before = _fingerprint(doc)
     assert clay_ops.run(ctx, doc, clay_ops.get("join")) is False
-    assert ctx.errors == ["Switch to object mode first."]
+    assert ctx.errors == ["Switch to Shape mode first."]
     assert _fingerprint(doc) == before
     assert doc.element_sel, "the element selection survived the refusal"
 
@@ -197,14 +197,14 @@ def test_the_refusal_sentence_names_every_mode_the_op_works_in() -> None:
     doc = _doc_in_mode("object")
     ctx = _Ctx()
     clay_ops.run(ctx, doc, clay_ops.get("extrude"))
-    assert ctx.errors == ["Switch to vertex, edge or face mode first."]
+    assert ctx.errors == ["Switch to Points, Edges or Faces mode first."]
     doc = _doc_in_mode("vertex")
     ctx = _Ctx()
     clay_ops.run(ctx, doc, clay_ops.get("shade-smooth"))
-    assert ctx.errors == ["Switch to object or face mode first."]
+    assert ctx.errors == ["Switch to Shape or Faces mode first."]
     ctx = _Ctx()
     clay_ops.run(ctx, doc, clay_ops.get("inset"))
-    assert ctx.errors == ["Switch to face mode first."]
+    assert ctx.errors == ["Switch to Faces mode first."]
 
 
 # --- clay-11 (run_mesh_op) ----------------------------------------------------
@@ -336,7 +336,7 @@ def test_extrude_in_object_mode_names_the_mode_it_needs(name: str) -> None:
     doc.select([a.uid])
     op = clay_ops.get(name)
     assert not op.enabled(doc)
-    assert clay_ops.reason_for(op, doc) == "Switch to vertex, edge or face mode first."
+    assert clay_ops.reason_for(op, doc) == "Switch to Points, Edges or Faces mode first."
 
 
 @pytest.mark.parametrize("name", ["extrude", "select-linked", "origin-to-selection"])

@@ -45,7 +45,7 @@ class RealmspinnerService:
         self.loop = loop
         # Tell the shared host/worker module where this process's editable clip
         # libraries live. ``kernels.rig`` is deliberately configuration-free
-        # (Layer 1, per ``dev/RESTRUCTURE.md`` -- it may not reach for
+        # (Layer 1, per the 2026-09 restructure -- it may not reach for
         # ``config``) -- so it is *told* rather than allowed to discover, and
         # this is the one object every app process builds before anything
         # asks for a clip. Idempotent and cheap; it only drops the clip

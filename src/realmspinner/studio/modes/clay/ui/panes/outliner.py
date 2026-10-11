@@ -67,7 +67,9 @@ from imgui_bundle import imgui
 
 from ..... import controls, icons, theme, widgets
 from .....tokens import sp
+from ... import doc_io
 from ... import mode as clay_mode
+from ... import ops as clay_ops
 
 # Design pixels: every use goes through sp(), or the row keeps its 1.0x height
 # while the glyph inside it grows with the UI scale.
@@ -352,7 +354,18 @@ def _body(ctx: Any, state: Any, tab: Any, height: float) -> None:
     # disabled regardless of which controls would touch history: a save is
     # encoding the document on a task thread, and a list where some controls
     # respond and others do not is more confusing than one that does not.
-    imgui.begin_disabled(bool(tab.saving))
+    #
+    # The 2026-10-11 audit's clay-18: a live G/R/S, gizmo or UV drag greys the pane too.
+    # Solo, Show all, the eye, a drop that reparents, the row menu's Delete and a rename
+    # all write ``doc.history`` through the document's own doors, and the drag's commit
+    # reverts against the head it started from -- so the step they pushed was lost. The
+    # same refusal ``clay_mode.undo`` and ``ops.run`` already give, drawn as a grey.
+    gesture = clay_ops.gesture_live(ctx)
+    blocked = bool(tab.saving) or gesture
+    note = gesture_note(gesture and not tab.saving)
+    if note:
+        widgets.muted_wrapped(note)
+    imgui.begin_disabled(blocked)
     # J86. Above the rows and inside the disable, because a search that worked
     # while a save was running would let the user narrow the list to one object
     # and then find every control on it refusing the click.
@@ -384,7 +397,7 @@ def _body(ctx: Any, state: Any, tab: Any, height: float) -> None:
     inside = imgui.begin_child(_ROWS_ID, (0.0, rows_height), 0, 0)
     imgui.pop_style_color()
     if inside:
-        imgui.begin_disabled(bool(tab.saving))
+        imgui.begin_disabled(blocked)
         clipper = imgui.ListClipper()
         clipper.begin(len(visible))
         # A row being dragged is kept submitted even after auto-scroll has taken it
@@ -401,7 +414,7 @@ def _body(ctx: Any, state: Any, tab: Any, height: float) -> None:
                 obj, depth, has_children = visible[index]
                 _row(
                     ctx, state, doc, obj, depth, has_children,
-                    filtered=filtered, saving=bool(tab.saving), tab_uid=tab.uid,
+                    filtered=filtered, saving=blocked, tab_uid=tab.uid,
                     needle=needle,
                 )
         clipper.end()
@@ -409,6 +422,15 @@ def _body(ctx: Any, state: Any, tab: Any, height: float) -> None:
         _auto_scroll(state)
         imgui.end_disabled()
     imgui.end_child()
+
+
+def gesture_note(gesture: bool) -> str:
+    """The line over a greyed list while a live drag is under way, or ``""``.
+
+    A disabled item swallows hover, so a tooltip could never carry the reason; one
+    muted line says it once, in the sentence the header and the palette use.
+    """
+    return doc_io.GESTURE_WHY if gesture else ""
 
 
 def autoscroll_delta(mouse_y: float, top: float, bottom: float, edge: float, step: float) -> float:
@@ -914,7 +936,11 @@ def _row(
         # the eye and the "more" button are their own targets and must keep
         # doing only what they say.
         _reorder(ctx, state, doc, obj, filtered=filtered, saving=saving)
-        _context_menu(ctx, state, doc, obj, tab_uid)
+        if not saving:
+            # Not drawn while blocked: a popup is a window of its own, and whether
+            # ``begin_disabled`` reaches into one is imgui's business -- the menu's
+            # Delete and Solo are doors onto the history this pane refuses to write.
+            _context_menu(ctx, state, doc, obj, tab_uid)
         if imgui.is_item_hovered() and imgui.is_mouse_double_clicked(0):
             begin_rename(state, tab_uid, obj.uid)
 

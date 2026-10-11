@@ -17,7 +17,9 @@ Press **Make 3D** on a finished reference — over the picture on the canvas, on
 Attempts tray, or at the top of the inspector's **Next step**; it is one button. This explicitly
 chooses the source, opens the Mesh stage and starts the cutout check; it does not spend GPU
 time until the check passes. Inspecting a different attempt keeps the chosen source and draft.
-Library promotion remains available too.
+Library promotion remains available too. A reference drawn on an image model that this version has
+since removed can still be made 3D: the mesh stage never runs the image model, so the model the
+picture was drawn with stays in its record as history and is not checked again.
 
 With no reference chosen the Mesh canvas is a drop zone: *Drop an image here, or pick a reference*,
 with a thumbnail for each finished reference in this creation — click one to make it the source.

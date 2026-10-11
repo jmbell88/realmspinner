@@ -342,7 +342,15 @@ def transform_islands(
         new_uv[sel] = pts + centre
 
     new_uv[selected] += np.asarray(translate, dtype="f8")
-    return replace(mesh, uv=_finite_f4(new_uv, "transform_islands"))
+    moved = _finite_f4(new_uv, "transform_islands")
+    # The 2026-10-11 audit's clay-36: ``box_unwrap`` and ``pack_islands`` hand
+    # back the very same mesh when the uv does not change, but an identity
+    # transform (translate 0, rotate 0, scale 1) came back as a fresh ``Mesh``,
+    # which ``set_mesh`` reads as a change -- the agent's ``clay_uv
+    # action=transform`` with default arguments pushed a no-op undo step.
+    if np.array_equal(mesh.uv, moved):
+        return mesh
+    return replace(mesh, uv=moved)
 
 
 def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> Mesh:

@@ -1088,7 +1088,7 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOA
     # section heading is not a field label, and the two neighbouring
     # controls in it (Seed, Style LoRA) both have their own.
     widgets.field_label("Image model")
-    picked = widgets.combo("##model", before, create_recipe.model_options(ctx))
+    picked = widgets.combo("##model", before, create_recipe.model_options(ctx, form))
     if picked != before:
         _pick_base_model(ctx, form, picked)
     # The refusal this most often carries is ``check_weights``' -- a model that
@@ -1588,7 +1588,16 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
             form["seed"] = seed_before
         return
     resolved = None
-    if create_assets.selected(form).key in {"image", "3d_model", "seamless_material"}:
+    # The 2026-10-11 audit, finding create-05: ``sprite_sheet`` was missing
+    # here, so on that arm under Automatic the screen said "Sprite sheet -
+    # sdxl_cfg" and ``weights_problem`` checked ``sdxl_cfg`` while this
+    # submit sent whatever stale ``form["base_model"]`` an earlier Advanced
+    # pick left behind -- a reference drawn by a model other than the one
+    # shown and gated -- and the job recorded no request or recipe as the
+    # other three arms' jobs do. Its first step is an ordinary reference job
+    # (``create_recipe.submit_kwargs``), so it resolves like one.
+    resolves_at_submit = {"image", "3d_model", "seamless_material", "sprite_sheet"}
+    if create_assets.selected(form).key in resolves_at_submit:
         request = generation.request_from_legacy(form)
         resolved = generation.resolve_recipe(request, ctx.svc.config)
         recipe_issues = generation.validate_request(request, resolved)

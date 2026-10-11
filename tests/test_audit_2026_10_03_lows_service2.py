@@ -258,6 +258,6 @@ def test_every_served_publish_commits_the_cancel_token_for_lora_train():
     """``_lora_train`` registers an adapter onto the shared model store through
     ``generation.import_lora`` and commits the cancel token, but was in no row
     of ``PUBLISHERS``, so deleting its commit failed nothing."""
-    from tests.test_job_durability import PUBLISHERS
+    from test_job_durability import PUBLISHERS
 
     assert ("realmspinner._q_lora", "_lora_train", "import_lora") in PUBLISHERS

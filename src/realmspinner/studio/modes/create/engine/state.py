@@ -1,6 +1,6 @@
 """Create's own corner of ``AppState``.
 
-P5 of the restructure (``dev/RESTRUCTURE.md``) split Create into
+P5 of the 2026-09 restructure split Create into
 ``engine``/``ui`` packages but left its state as fifteen loose fields on
 ``studio/state.py``'s ``AppState`` -- this is the fold that gives it one
 object instead. Only the fields nothing *outside* Create reads move here:

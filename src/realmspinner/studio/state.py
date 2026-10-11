@@ -263,12 +263,38 @@ def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, An
 
     _restore_sheet_block(form, params)
     _restore_generation_request(form, params)
+    _show_retired_model(form)
     form["asset_type"] = (
         create_assets.asset_type_from_params(params, stage=stage) or form["asset_type"]
     )
     form["generation_type"] = form["asset_type"]
     create_assets.sync_legacy_fields(form)
     return form
+
+
+def _show_retired_model(form: dict[str, Any]) -> None:
+    """Make a removed image model the *visible* Advanced pick, in place.
+
+    The 2026-10-11 audit, finding create-04: commit 800001dc removed eight
+    image models, and Copy settings, Vary and reopen copied the removed key
+    into the form verbatim and said nothing -- under Automatic the combo drew
+    "Automatic" while the key sat unseen, and under Advanced the refusal was
+    the generic "Choose a recognised image model.". Only the History log's Load
+    settings door (``history.load_block``) named the removal. A removed key is
+    now kept as an Advanced pick on both fields the request reads, so
+    ``recipe.validate`` refuses it with the ledger's own sentence and the
+    Model combo lists it as "<label> - removed" (``recipe.model_options``)
+    rather than drawing a different model than the one held. It is never
+    mapped to a replacement (``models.retired_choice``'s rule).
+    """
+    from .. import models
+
+    for key in ("model_override", "base_model"):
+        if models.retired_choice("base_model", form.get(key)) is not None:
+            held = str(form[key])
+            form["model_mode"] = "advanced"
+            form["base_model"] = form["model_override"] = held
+            return
 
 
 _UNCOERCIBLE = object()

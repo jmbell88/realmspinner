@@ -464,9 +464,23 @@ def run(ctx: Any, doc: Any, op: Op, *, during_gesture: bool = False, **params: A
     return True
 
 
+#: The stored mode names as the header's switch spells them
+#: (``ui/panes/tools.py``'s ``MODE_BUTTONS``; a test holds the two equal -- this
+#: module sits below ``ui/`` and cannot import it). The 2026-10-11 audit's clay-43:
+#: every greyed reason said "Switch to object mode first" and the right-click
+#: menu's heading printed "vertex mode", words the interface never uses -- the
+#: switch reads Shape, Points, Edges, Faces.
+MODE_WORDS = {"object": "Shape", "vertex": "Points", "edge": "Edges", "face": "Faces"}
+
+
+def mode_word(mode: str) -> str:
+    """A stored mode name in the words the header's mode switch uses."""
+    return MODE_WORDS.get(mode, mode)
+
+
 def _mode_list(modes: Iterable[str]) -> str:
-    """``("vertex", "edge", "face")`` -> "vertex, edge or face"."""
-    names = list(modes)
+    """``("vertex", "edge", "face")`` -> "Points, Edges or Faces"."""
+    names = [mode_word(mode) for mode in modes]
     if len(names) == 1:
         return names[0]
     return f"{', '.join(names[:-1])} or {names[-1]}"
@@ -967,7 +981,7 @@ def _in_mode_reason(*modes: str) -> Callable[[Any], str]:
     the mode first, then the selection -- so the sentence shown can never
     disagree with the row it is explaining."""
 
-    label = " or ".join(modes)
+    label = _mode_list(modes)
 
     def reason(doc: Any) -> str:
         if doc.element_mode not in modes:
@@ -1091,21 +1105,15 @@ def _inset_check(values: dict[str, Any]) -> None:
 def _with_descendants_in(doc: Any, uids: Iterable[int]) -> set[int]:
     """*uids* and every object under any of them, from one parent -> children map.
 
-    ``selection.with_descendants`` calls ``doc.descendants`` per uid, and each of
-    those builds a map of the whole document -- the 2026-10-10 audit's clay-23:
-    quadratic in the selection at 4,000 objects. Same set, one pass.
+    The 2026-10-10 audit's clay-23 wrote this one-pass walk here because
+    ``selection.with_descendants`` called ``doc.descendants`` per uid (quadratic
+    at 4,000 objects); the 2026-10-11 audit's clay-21 then made that function
+    the same single pass, so this is a delegate kept for its call sites' name
+    rather than a second copy of the walk.
     """
-    kids: dict[Any, list[int]] = {}
-    for obj in doc.objects:
-        kids.setdefault(obj.parent, []).append(obj.uid)
-    out = set(uids)
-    stack = list(out)
-    while stack:
-        for child in kids.get(stack.pop(), ()):
-            if child not in out:  # also the cycle guard, as ``ClayDoc.descendants``
-                out.add(child)
-                stack.append(child)
-    return out
+    from ....kernels.mesh import selection
+
+    return selection.with_descendants(doc, uids)
 
 
 def _duplicate(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1814,7 +1822,7 @@ def _repeat_last_reason(doc: Any) -> str:
         return "Nothing to repeat."
     op = get(recent.op_name)
     if doc.element_mode not in op.modes:
-        return f"{op.label.rstrip('.')} works in {' or '.join(op.modes)} mode."
+        return f"{op.label.rstrip('.')} works in {_mode_list(op.modes)} mode."
     return reason_for(op, doc) if not op.enabled(doc) else ""
 
 
@@ -1930,6 +1938,9 @@ def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> bool:
     unselected geometry anyway (silently doing more than the button claims).
     Object mode asks the one question the algorithm actually answers.
 
+    A flat open sheet, or a closed shell too thin to enclose any volume, has no
+    meaningful outside; such a shell is left as it is.
+
     **Freezes the generator, deliberately, through the same door as every
     other geometry-changing op.** ``doc.set_mesh`` does the freezing (see the
     module docstring); this passes no ``keep_generator=True`` because winding
@@ -1968,6 +1979,110 @@ def _recalc_normals(ctx: Any, doc: Any, **_: Any) -> bool:
         return mesh is not obj.mesh and doc.set_mesh(obj.uid, mesh)
 
     return run_object_op(ctx, doc, one, needs_geometry=True)
+
+
+def _faces(count: int) -> str:
+    return f"{count:,} face" + ("" if count == 1 else "s")
+
+
+def _simplify(ctx: Any, doc: Any, target: int = 100, **_: Any) -> bool:
+    """Reduce every selected object toward *target* faces.
+
+    **Object mode only, and whole objects**, for :func:`_recalc_normals`'s reason:
+    "the target" is a face count of a shell, and a face selection is not one.
+
+    **Hidden objects are left alone, by the selection rather than by a check
+    here**: hiding deselects and ``ClayDoc.select`` refuses a hidden uid, so a
+    hidden object is never in ``doc.selection`` for this to rewrite -- the same
+    reason :func:`_recalc_normals` carries no visibility test of its own.
+
+    **Freezes the generator, through ``set_mesh``**, like every other op that
+    changes geometry. The kernel answers the *identical* mesh when nothing can
+    be merged (or the object is already at or under *target*), and that identity
+    is what keeps a no-op from pushing an undo step.
+
+    **The toast carries the real counts** because the result is often not the
+    number the user typed: a flat merge can land far below it (a subdivided cube
+    asked for 100 faces becomes 6) and the collapse stage stops above it when the
+    rest would break a seam or a material border. A count that is silently not
+    the one asked for reads as a bug, so the sentence names both.
+    """
+    from ....kernels.mesh import mesh as bm
+    from ....kernels.mesh import ops_simplify
+    from ....kernels.mesh.elements import OpError
+
+    target = int(target)
+    by_uid = {obj.uid: obj for obj in doc.objects}
+    chosen = [by_uid[uid] for uid in doc.selection if uid in by_uid]
+    # ``MAX_CLEAN_CORNERS``'s lesson (the 2026-10-09 second audit's clay-96): the
+    # kernel's ceiling bounds each object, not the press, and the frame thread
+    # pays for the whole selection. One object over keeps the kernel's sentence.
+    #
+    # Charged with the kernel's own function, over the objects it would actually
+    # work on (the 2026-10-11 audit's clay-06 and clay-24): the sum used to be
+    # bare corners against the bare ceiling, so two UV objects each inside the
+    # kernel's halved ceiling stalled the frame for 2.6 s together, while two
+    # objects already under the target -- which the kernel hands straight back --
+    # were refused as a pair.
+    working = [obj for obj in chosen if bm.face_count(obj.mesh) > target]
+    cost = ops_simplify.selection_cost([obj.mesh for obj in working], target)
+    if len(working) > 1 and cost > ops_simplify.MAX_SIMPLIFY_CORNERS:
+        raise OpError(
+            f"These {len(working)} objects add up to {cost:,} corners of work (a mesh "
+            "with UVs counts double), past the "
+            f"{ops_simplify.MAX_SIMPLIFY_CORNERS:,} Simplify can process in one press "
+            "without stalling. Select fewer objects."
+        )
+
+    before = after = changed = 0
+    short = refused = False
+
+    def one(doc: Any, obj: Any) -> bool:
+        nonlocal before, after, changed, short, refused
+        was = bm.face_count(obj.mesh)
+        try:
+            mesh = ops_simplify.simplify(obj.mesh, target)
+        except OpError:
+            # ``run_object_op`` toasts it; the flag only keeps the "nothing to
+            # do" sentence below from piling a second, untrue one on top.
+            refused = True
+            raise
+        now = bm.face_count(mesh)
+        short = short or now > target
+        if mesh is obj.mesh or not doc.set_mesh(obj.uid, mesh):
+            return False
+        before += was
+        after += now
+        changed += 1
+        return True
+
+    ran = run_object_op(ctx, doc, one, needs_geometry=True)
+    if ran and changed > 1:
+        # The target is per object, and the sentence sums the counts: "to 12"
+        # beside a typed 10 read as the target being missed (the 2026-10-11
+        # audit's clay-25), so the count of objects and the "each" are said.
+        reached = (
+            "" if not short else "; some stopped above it rather than break seams or materials"
+        )
+        ctx.toast(
+            f"Simplified {_faces(before)} to {after:,} across {changed} objects, "
+            f"each toward {target:,}{reached}.",
+            "info",
+        )
+    elif ran:
+        reached = "" if not short else (
+            f"; {target:,} was not reachable without breaking seams or materials"
+        )
+        ctx.toast(f"Simplified {_faces(before)} to {after:,}{reached}.", "info")
+    elif not refused:
+        if short:
+            ctx.toast(
+                "Nothing more can be merged or collapsed without breaking seams or materials.",
+                "info",
+            )
+        else:
+            ctx.toast(f"Already at or under {_faces(target)}; nothing to simplify.", "info")
+    return ran
 
 
 # --- shading, selection, frame ------------------------------------------------
@@ -2247,6 +2362,31 @@ def _register_defaults() -> None:
             hint="Makes every shell's winding agree with itself, then orients "
             "each shell outward. Whole objects only -- winding is a fact "
             "about a shell, not about a face selection.",
+        )
+    )
+    register(
+        Op(
+            name="simplify",
+            label="Simplify...",
+            modes=("object",),
+            run=_simplify,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Merges flat neighbouring faces into larger ones, then, if "
+            "that is not enough, collapses edges toward the target. Seams and "
+            "material borders are kept, so the result can stay above it. "
+            "Whole objects only.",
+            params=(
+                Param(
+                    "target",
+                    "target faces",
+                    100.0,
+                    10.0,
+                    low=4.0,
+                    integer=True,
+                    refuse_below=True,
+                ),
+            ),
         )
     )
     register(

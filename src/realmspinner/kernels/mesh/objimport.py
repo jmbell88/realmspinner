@@ -42,6 +42,9 @@ calls so every importable format agrees about what "up" and "scale" mean.
 from __future__ import annotations
 
 import math
+from array import array
+from collections.abc import Iterator
+from itertools import islice
 
 import numpy as np
 
@@ -262,12 +265,25 @@ def _unique(name: str, taken: set[str]) -> str:
     return name  # pragma: no cover - unreachable, the loop is bounded above
 
 
-def _joined_lines(text: str) -> list[str]:
-    """Comments stripped, blank lines dropped, ``\\``-continuations joined."""
+def _joined_lines(text: str) -> Iterator[str]:
+    """Comments stripped, blank lines dropped, ``\\``-continuations joined.
+
+    A generator, and the file is read through it twice (the budget pass and the
+    parse) rather than held as a list. The 2026-10-11 audit, finding clay-11:
+    the list was one ``str`` per line (about 64 B for a ``v 1 2 3``), which at
+    the ceilings' 10 M lines was most of the 1.1 GB an import peaked at; a line
+    is cheap to produce again and nothing needs them all at once.
+    """
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    joined: list[str] = []
     buf = ""
-    for raw_line in normalized.split("\n"):
+    pos = 0
+    size = len(normalized)
+    while pos <= size:
+        end = normalized.find("\n", pos)
+        if end < 0:
+            end = size
+        raw_line = normalized[pos:end]
+        pos = end + 1
         stripped = raw_line.split("#", 1)[0].rstrip()
         if stripped.endswith("\\"):
             buf += stripped[:-1] + " "
@@ -275,10 +291,14 @@ def _joined_lines(text: str) -> list[str]:
         line = (buf + stripped).strip()
         buf = ""
         if line:
-            joined.append(line)
+            yield line
     if buf.strip():
-        joined.append(buf.strip())
-    return joined
+        yield buf.strip()
+
+
+def _nth_line(text: str, index: int) -> str:
+    """The *index*-th line ``_joined_lines`` yields, for wording a refusal."""
+    return next(islice(_joined_lines(text), index, None))
 
 
 def _resolve_index(raw: str, count: int, what: str) -> int:
@@ -313,14 +333,25 @@ def _parse_corner(tok: str, v_count: int, vt_count: int) -> tuple[int, int | Non
     return v, vt
 
 
+#: The corner uv of a face whose corner names no ``vt``: one shared tuple
+#: rather than an allocation per corner (``uv_ok`` turns the object's uv off
+#: whenever this is used, so the value itself never reaches a mesh).
+_NO_UV = (0.0, 0.0)
+
+
 class _Building:
-    """One in-progress object: local vertices, corners and per-face state."""
+    """One in-progress object: corners and per-face state.
+
+    The 2026-10-11 audit, finding clay-11: the per-corner and per-face columns
+    are typed arrays, not lists of Python numbers, and a corner holds the
+    *file-wide* vertex index it names -- the local numbering (first use, as it
+    always was) is worked out once per object by :func:`_localise`, where a dict
+    of every vertex an object touches used to be built corner by corner.
+    """
 
     __slots__ = (
         "name",
-        "global_to_local",
-        "positions",
-        "loops",
+        "corner_v",
         "corner_uv",
         "counts",
         "material",
@@ -330,22 +361,70 @@ class _Building:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.global_to_local: dict[int, int] = {}
-        self.positions: list[list[float]] = []
-        self.loops: list[int] = []
+        self.corner_v = array("i")
         self.corner_uv: list[tuple[float, float]] = []
-        self.counts: list[int] = []
-        self.material: list[int] = []
-        self.smooth: list[bool] = []
+        self.counts = array("i")
+        self.material = array("i")
+        self.smooth = array("b")
         self.uv_ok = True
 
-    def local_index(self, global_v: int, position: list[float]) -> int:
-        local = self.global_to_local.get(global_v)
-        if local is None:
-            local = len(self.positions)
-            self.positions.append(position)
-            self.global_to_local[global_v] = local
-        return local
+
+def _localise(corner_v: array) -> tuple[np.ndarray, np.ndarray]:
+    """-> (file-wide vertex index per local vertex, local index per corner).
+
+    Local vertices are numbered in order of first use -- exactly what the
+    per-corner dict this replaces did -- so the meshes are unchanged.
+    """
+    corners = np.frombuffer(corner_v, dtype="i4")
+    unique, first, inverse = np.unique(corners, return_index=True, return_inverse=True)
+    order = np.argsort(first, kind="stable")
+    rank = np.empty(len(order), dtype="i8")
+    rank[order] = np.arange(len(order))
+    return unique[order], rank[inverse.reshape(-1)]
+
+
+#: Rows of ``v`` data placed per block by :func:`_place_vertices`: a float64
+#: block of this many rows is 24 MiB, so the transient beside the float32
+#: result stays small however many ``v`` lines the file has.
+_PLACE_BLOCK = 1 << 20
+
+
+def _place_vertices(
+    raw: array, source: array, text: str, matrix: np.ndarray
+) -> np.ndarray:
+    """Every ``v`` line's position after the axis/scale transform, as float32.
+
+    The 2026-10-11 audit, finding clay-11: this used to run per line --
+    ``np.array`` of three floats, a 3x3 matrix product, two ``isfinite`` calls
+    and an ``errstate`` -- and store each result as a Python list of three
+    floats (about 416 B per ``v`` line; a 700,000-triangle soup took 14 s and
+    900 MB, and the ceilings extrapolated to minutes and gigabytes on an import
+    task that cannot be cancelled). *raw* holds the three doubles each line
+    carried and *source* the index of the line in ``_joined_lines(text)`` it
+    came from, so one ``matmul`` per block replaces the per-line work and the
+    line is only looked up (``_nth_line``) to word a refusal.
+
+    The float32 overflow check is the 2026-10-07 audit's clay-18, unchanged:
+    after the same transform and the same cast the mesh is stored in, so ``v
+    1e39 0 0`` (or ``1e30`` under a ``1e10`` scale) is still refused naming
+    its line rather than becoming an infinite position far from it.
+    """
+    count = len(source)
+    placed = np.empty((count, 3), dtype="f4")
+    values = np.frombuffer(raw, dtype="f8").reshape(-1, 3) if count else placed
+    for start in range(0, count, _PLACE_BLOCK):
+        stop = min(start + _PLACE_BLOCK, count)
+        with np.errstate(over="ignore"):
+            narrowed = (values[start:stop] @ matrix.T).astype("f4")
+        finite = np.isfinite(narrowed).all(axis=1)
+        if not finite.all():
+            row = start + int(np.flatnonzero(~finite)[0])
+            raise OpError(
+                f"OBJ has a 'v' line too large for Clay's float32 positions "
+                f"(after the import scale and axis): {_nth_line(text, source[row])!r}"
+            )
+        placed[start:stop] = narrowed
+    return placed
 
 
 def obj_to_claydoc(
@@ -371,7 +450,6 @@ def obj_to_claydoc(
         raise OpError("This OBJ is empty.")
 
     matrix = axis_matrix(scale=scale, up=up)[:3, :3]
-    lines = _joined_lines(text)
 
     # --- pass 1: the declared triangle, object *and* vertex/texcoord-line
     # budget, before a single array is built (H01, the same reasoning
@@ -392,7 +470,7 @@ def obj_to_claydoc(
     vt_lines = 0
     corner_lines = 0
     material_names: set[str] = {""}  # the implicit unnamed material
-    for line in lines:
+    for line in _joined_lines(text):
         head = line.split(None, 1)[0]
         if head == "f":
             corners = len(line.split()) - 1
@@ -484,7 +562,12 @@ def obj_to_claydoc(
             materials.append(reduce_material(_material_from_mtl(key, mtl_materials.get(key))))
         return palette[key]
 
-    positions_all: list[list[float]] = []
+    # The 2026-10-11 audit, finding clay-11: ``v`` lines are collected raw --
+    # three doubles per line, and the index of the line they came from for the
+    # refusal messages -- and placed in bulk by ``_place_vertices`` once the
+    # file has been read, instead of through numpy per line into Python lists.
+    v_raw = array("d")
+    v_source = array("i")
     texcoords_all: list[tuple[float, float]] = []
     objects: list[Obj] = []
     taken: set[str] = set()
@@ -498,32 +581,15 @@ def obj_to_claydoc(
     current_smooth = False
     saw_face = False
 
-    def flush() -> None:
-        nonlocal current
-        if current.loops:
-            mesh = topo.rebuild(
-                np.asarray(current.positions, dtype="f4").reshape(-1, 3),
-                np.asarray(current.loops, dtype="i4"),
-                topo.starts_from_counts(np.asarray(current.counts, dtype="i8")),
-                np.asarray(current.material, dtype="i4"),
-                np.asarray(current.smooth, dtype=bool),
-                uv=(
-                    np.asarray(current.corner_uv, dtype="f4").reshape(-1, 2)
-                    if current.uv_ok
-                    else None
-                ),
-            )
-            objects.append(
-                Obj(
-                    uid=new_uid(),
-                    name=_unique(current.name, taken),
-                    mesh=mesh,
-                    generator=None,
-                    material=current.material[0],
-                )
-            )
+    finished: list[_Building] = []
 
-    for line in lines:
+    def flush() -> None:
+        # Only queued here: an object's positions are gathered from the bulk
+        # placement below, which needs every ``v`` line read first.
+        if current.corner_v:
+            finished.append(current)
+
+    for line_no, line in enumerate(_joined_lines(text)):
         parts = line.split(None, 1)
         head = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
@@ -533,7 +599,7 @@ def obj_to_claydoc(
             if len(nums) < 3:
                 raise OpError(f"OBJ has a 'v' line with fewer than 3 numbers: {line!r}")
             try:
-                xyz = np.array([float(nums[0]), float(nums[1]), float(nums[2])], dtype="f8")
+                x, y, z = float(nums[0]), float(nums[1]), float(nums[2])
             except ValueError as exc:
                 raise OpError(f"OBJ has a non-numeric 'v' line: {line!r}") from exc
             # The 2026-09-26 audit's clay-io-07: Python's own ``float()`` reads
@@ -544,23 +610,15 @@ def obj_to_claydoc(
             # it, which is JSON, not the binary buffer: a NaN or an Infinity
             # there is not valid JSON at all, only a token Python's own
             # ``json.dumps`` emits anyway with its default ``allow_nan=True``.
-            if not np.isfinite(xyz).all():
+            if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
                 raise OpError(f"OBJ has a non-finite 'v' line: {line!r}")
-            placed = matrix @ xyz
-            # The 2026-10-07 audit's clay-18: the check above is float64, but
-            # ``flush`` stores float32, so ``v 1e39 0 0`` (or 1e30 under a 1e10
-            # import scale) passed it and became an infinite position that only
-            # failed later, naming a GLB bound, far from this line. Checked
-            # after the axis/scale transform and the same cast ``flush`` makes,
-            # as :mod:`.meshimport` does for STL and PLY.
-            with np.errstate(over="ignore"):
-                fits = bool(np.isfinite(placed.astype("f4")).all())
-            if not fits:
-                raise OpError(
-                    f"OBJ has a 'v' line too large for Clay's float32 positions "
-                    f"(after the import scale and axis): {line!r}"
-                )
-            positions_all.append(placed.tolist())
+            # The 2026-10-07 audit's clay-18 (a position that overflows float32
+            # *after* the scale and axis) is checked in ``_place_vertices``,
+            # in bulk, once the file has been read.
+            v_raw.append(x)
+            v_raw.append(y)
+            v_raw.append(z)
+            v_source.append(line_no)
         elif head == "vt":
             nums = rest.split()
             if not nums:
@@ -600,14 +658,13 @@ def obj_to_claydoc(
             if len(tokens) < 3:
                 raise OpError(f"OBJ face has fewer than 3 vertices: {line!r}")
             corners = [
-                _parse_corner(tok, len(positions_all), len(texcoords_all)) for tok in tokens
+                _parse_corner(tok, len(v_source), len(texcoords_all)) for tok in tokens
             ]
             for global_v, vt in corners:
-                local = current.local_index(global_v, positions_all[global_v])
-                current.loops.append(local)
+                current.corner_v.append(global_v)
                 if vt is None:
                     current.uv_ok = False
-                    current.corner_uv.append((0.0, 0.0))
+                    current.corner_uv.append(_NO_UV)
                 else:
                     current.corner_uv.append(texcoords_all[vt])
             current.counts.append(len(corners))
@@ -619,6 +676,31 @@ def obj_to_claydoc(
         # "mtllib" and anything else unrecognised: tolerated, does nothing.
 
     flush()
+
+    placed = _place_vertices(v_raw, v_source, text, matrix)
+    for building in finished:
+        used, loops = _localise(building.corner_v)
+        mesh = topo.rebuild(
+            placed[used],
+            loops.astype("i4"),
+            topo.starts_from_counts(np.frombuffer(building.counts, dtype="i4").astype("i8")),
+            np.frombuffer(building.material, dtype="i4").copy(),
+            np.frombuffer(building.smooth, dtype="i1").astype(bool),
+            uv=(
+                np.asarray(building.corner_uv, dtype="f4").reshape(-1, 2)
+                if building.uv_ok
+                else None
+            ),
+        )
+        objects.append(
+            Obj(
+                uid=new_uid(),
+                name=_unique(building.name, taken),
+                mesh=mesh,
+                generator=None,
+                material=building.material[0],
+            )
+        )
 
     if not objects:
         if not saw_face:

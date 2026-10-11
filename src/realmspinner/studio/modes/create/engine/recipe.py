@@ -888,7 +888,8 @@ def lora_options(ctx: Any, form: dict[str, Any]) -> list[tuple[str, str]]:
     if held and all(key != held for key, _ in options):
         known = {key for key, _ in ctx.style_loras or []}
         if held not in known:
-            options.append((held, f"{held} - removed"))
+            gone = modelslib.retired_choice("style_lora", held)
+            options.append((held, f"{gone.label if gone else held} - removed"))
     return options
 
 def lora_filter_note(ctx: Any, form: dict[str, Any]) -> str | None:
@@ -1083,7 +1084,7 @@ def _clear_img2img(form: dict[str, Any], base: str) -> list[str]:
         return ["The start image was cleared: this model cannot start from an image."]
     return []
 
-def model_options(ctx: Any) -> list[tuple[str, str]]:
+def model_options(ctx: Any, form: dict[str, Any] | None = None) -> list[tuple[str, str]]:
     """The Model combo's entries: Automatic, then every installed checkpoint.
 
     **One control where there were three.** The pane used to draw a Fast/Quality
@@ -1096,8 +1097,20 @@ def model_options(ctx: Any) -> list[tuple[str, str]]:
     ``""`` is Automatic, which is ``model_mode="auto"``; any other key is
     ``model_mode="advanced"`` with that key as the override. The two form
     fields are unchanged, because the door and the recipe registry read them.
+
+    **A held key the registry no longer has is listed, marked** (the 2026-10-11
+    audit, finding create-04), as :func:`lora_options` does for a style: the
+    combo falls back to index 0 for a value it cannot find, so a form holding a
+    removed model (Copy settings, Vary or a reopen of a creation made on one)
+    drew "Automatic" over a selection ``validate`` was refusing.
     """
-    return [("", "Automatic")] + list(ctx.base_models)
+    options = [("", "Automatic")] + list(ctx.base_models)
+    if form is not None and form.get("model_mode") == "advanced":
+        held = str(form.get("base_model") or "")
+        if held and all(key != held for key, _ in options):
+            gone = modelslib.retired_choice("base_model", held)
+            options.append((held, f"{gone.label if gone else held} - removed"))
+    return options
 
 def lora_default_weight(key: str) -> float:
     """The measured strength for one style LoRA, or the flat default.
@@ -1288,6 +1301,14 @@ def validate(form: dict[str, Any], ctx: Any = None) -> list[problem_types.Proble
     # with the pair split.
     pinned = tileset or is_character(form)
     base = form.get("base_model")
+    if form.get("model_mode") == "advanced" and form.get("model_override"):
+        # The 2026-10-11 audit, finding create-01: under Advanced the request
+        # loads ``model_override`` (``request_from_legacy`` prefers it to
+        # ``base_model``), but this function checked ``base_model`` alone, so a
+        # form holding a removed override passed here and was refused later on
+        # the ``recipe`` field, which no control rings. Every check below that
+        # compares against the base now compares against the one that loads.
+        base = form["model_override"]
     if ctx is not None and str(form.get("model_mode") or "auto") == "auto":
         # See the docstring: under Automatic, the resolved recipe's base is
         # what will actually load, not the stale ``form["base_model"]`` an
@@ -1299,11 +1320,26 @@ def validate(form: dict[str, Any], ctx: Any = None) -> list[problem_types.Proble
     # A tile set's fixed recipe does not read either selection. It validates
     # its pinned pair at its own service door.
     if not pinned and (not isinstance(base, str) or base not in modelslib.BASE_MODELS):
-        problems.append(problem_types.Problem("Choose a recognised image model.", "base_model"))
+        # The 2026-10-11 audit, finding create-04: a model the registry removed
+        # is a different sentence from a typo -- it names the model and says
+        # what to do, as every door does (``models.retired_message``).
+        gone = modelslib.retired_choice("base_model", base)
+        problems.append(
+            problem_types.Problem(
+                modelslib.retired_message(gone) if gone else "Choose a recognised image model.",
+                "base_model",
+            )
+        )
     if not pinned and (
         not isinstance(style, str) or (style and style not in modelslib.STYLE_LORAS)
     ):
-        problems.append(problem_types.Problem("Choose a recognised style LoRA.", "style_lora"))
+        gone = modelslib.retired_choice("style_lora", style)
+        problems.append(
+            problem_types.Problem(
+                modelslib.retired_message(gone) if gone else "Choose a recognised style LoRA.",
+                "style_lora",
+            )
+        )
     if not pinned and style:
         try:
             weight = float(form.get("lora_weight"))
@@ -1749,14 +1785,62 @@ def automatic_install(ctx: Any, form: dict[str, Any]) -> tuple[tuple[str, ...], 
     ``model_rows`` were installed, so the offer follows the registry's ranking
     rather than naming a checkpoint in this file. Only the rows that are absent
     are returned, in the recipe's own order.
+
+    **Memoised the way** :func:`resolved_recipe` **is** (the 2026-10-11 audit,
+    finding create-21): ``generation.resolve_recipe`` fingerprints every
+    installed checkpoint directory, and this runs on the frame thread from
+    ``weights_problem``, the preflight repair and the reference canvas -- two or
+    three times a frame, for as long as Automatic resolves to nothing, which is
+    exactly the state of a half-downloaded checkpoint directory. The answer is a
+    function of the routing fields, the rows (key, presence, label, size) and the
+    config, so it is keyed on those and recomputed the moment any of them moves;
+    a download that lands or a delete is a row change and shows on the next
+    frame. Held on ``ctx.state`` by ``setattr``, with the same "no state, no
+    memo" fallback for the headless note helpers.
     """
     rows = getattr(ctx, "model_rows", None) or []
     by_key = {str(row.get("row_key")): row for row in rows}
     if not by_key:
         return None
+    state = getattr(ctx, "state", None)
     try:
         request = generation.request_from_legacy(form)
-        would = generation.resolve_recipe(request, ctx.svc.config, installed=set(by_key))
+        config = ctx.svc.config
+        key = (
+            _routing_key(request),
+            id(config),
+            tuple(
+                sorted(
+                    (
+                        k,
+                        bool(r.get("present")),
+                        str(r.get("label") or ""),
+                        float(r.get("size_gib") or 0.0),
+                    )
+                    for k, r in by_key.items()
+                )
+            ),
+        )
+    except Exception:
+        # Silent on purpose, as ``resolved_recipe`` is: this runs every frame
+        # inside the draw, a partially restored form must make the footer say
+        # nothing rather than raise, and the service door still refuses it.
+        return None
+    cache = getattr(state, "_automatic_install_cache", None) if state is not None else None
+    if cache is not None and cache[0] == key:
+        return cache[1]
+    answer = _automatic_install_answer(request, config, by_key)
+    if state is not None:
+        state._automatic_install_cache = (key, answer)
+    return answer
+
+
+def _automatic_install_answer(
+    request: Any, config: Any, by_key: dict[str, dict[str, Any]]
+) -> tuple[tuple[str, ...], str, float] | None:
+    """:func:`automatic_install`'s computation, split out so the memo wraps it whole."""
+    try:
+        would = generation.resolve_recipe(request, config, installed=set(by_key))
     except Exception:
         # Silent on purpose, as ``resolved_recipe`` is: this runs every frame
         # inside the draw, a partially restored form must make the footer say

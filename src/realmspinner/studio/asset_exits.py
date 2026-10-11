@@ -3,10 +3,10 @@ answers "where does this row open" for, but the panel of buttons under "Take it
 somewhere".
 
 **There were two of these lists, and they disagreed.** The library's overflow
-menu (``panes.library._overflow``) offered the full run -- Inker, Plotter,
+menu (``modes/library/ui/panes/library.py``'s ``_overflow``) offered the full run -- Inker, Plotter,
 Packwright, Clay, Poser, Troupe, both directions -- because it grew one item at
 a time as each bridge shipped. The inspector's "Take it somewhere" section
-(``panes.inspector._edit_actions``) offered a hand-picked four, because it was
+(``studio/panes/inspector.py``'s ``_edit_actions``) offered a hand-picked four, because it was
 wired once, before Poser and the reopen doors existed, and nobody came back to
 widen it. A mesh selected in the Library could reach Poser from the overflow
 menu and not from the pane six inches to its right showing the same mesh. This
@@ -47,7 +47,7 @@ reimplement Clay's 200k-triangle confirm or Troupe's skeleton question; it
 calls the function that already asks them, so an exit taken from here behaves
 exactly as the one that already shipped from wherever it shipped first.
 
-**A near miss is not the same as absent.** ``create_rail.stage_rail``'s own
+**A near miss is not the same as absent.** ``modes/create/ui/rail.py``'s ``stage_rail``'s own
 docstring already makes the argument this borrows: "'Rig' missing entirely is
 a feature the user concludes does not exist; 'Rig -- Blender is not installed'
 is an answer." So a destination this asset is one step away from -- a mesh with
@@ -145,7 +145,7 @@ def _status_reason(job: Any) -> str:
 
     Built from ``service.validation.STATUS_SENTENCES``/``not_done_message``
     rather than a second hand-written mapping of the same four values --
-    ``create_stages.available``'s own docstring names the rule this used to
+    ``modes/create/ui/stages.py``'s ``available`` names, in its own docstring, the rule this used to
     violate: "the wording is the service's own, verbatim, so the tooltip on
     the disabled segment and the toast from the refusal it is predicting are
     one sentence and not two paraphrases." Before the 2026-09-11 audit
@@ -224,14 +224,14 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
 
     Resolved through ``ctx.cache.get`` -- a cached-row read, not a ``stat`` or
     a service call, so this survives the same filesystem ban every other gate
-    in this module does -- guarded the way ``create_stages.parent`` guards the
-    identical lookup: a ``ctx`` with no ``cache`` (the palette, a profile
-    sheet) answers "no mesh" rather than raising. None when the row's kind is
-    not in ``FOLLOWUP_STAGES``, there is no ``source_job``, the cache has
-    never loaded that row, or the resolved row is not itself a mesh (a
-    follow-up of a follow-up, or a source that has since been trashed) -- the
-    honest floor ``asset_open.open_asset`` already takes for the same reason:
-    a row this module cannot see is a row it offers nothing for.
+    in this module does -- guarded the way ``stages.parent``
+    (``modes/create/ui/stages.py``) guards the identical lookup: a ``ctx``
+    with no ``cache`` (the palette, a profile sheet) answers "no mesh" rather
+    than raising. None when the row's kind is not in ``FOLLOWUP_STAGES``,
+    there is no ``source_job``, the cache has never loaded that row, or the
+    resolved row is not itself a mesh (a follow-up of a follow-up, or a source
+    that has since been trashed) -- the honest floor ``asset_open.open_asset``
+    already takes for the same reason: a row this module cannot see is a row it offers nothing for.
     """
     if _is_mesh(job):
         return job
@@ -385,8 +385,9 @@ def _render_sheet(ctx: Any, job: Any) -> Exit | None:
     dialog, moved whole.
 
     The hint and tooltip wording is carried over verbatim from the two call
-    sites this module replaces (``inspector._edit_actions`` and
-    ``library._send_to_troupe_item``), which is why it names the rig step even
+    sites this module replaces (``studio/panes/inspector.py``'s ``_edit_actions``
+    and the Library overflow menu's Troupe item, since folded into Poser),
+    which is why it names the rig step even
     on the label's own line: for an unrigged mesh this button is minutes of
     CPU behind a button that is not called "Rig", and a user who is not told
     reads the quiet as a hang.
@@ -484,7 +485,7 @@ def _plotter_add(ctx: Any, job: Any) -> Exit | None:
     # ``_REFERENCE_STAGES`` (``"reference"``, ``"tile"``), which left out
     # ``"tilesheet"`` -- so a running tile *sheet* job showed no button at
     # all instead of a greyed one, the one near-miss shape this whole
-    # module exists to draw. ``create_stages.IMAGE_STAGES`` is the list
+    # module exists to draw. ``stages.IMAGE_STAGES`` (``modes/create/ui/stages.py``) is the list
     # that already carries all three "this row is a picture, not a mesh
     # yet" stages.
     if job.get("stage") not in near_miss_image_stages:
@@ -537,7 +538,7 @@ def _packwright_add(ctx: Any, job: Any) -> Exit | None:
         return Exit("packwright", label, hint, "", "", door)
 
     # The 2026-09-13 audit, finding create-08: same fix as ``_plotter_add``
-    # above -- ``create_stages.IMAGE_STAGES`` instead of ``_REFERENCE_STAGES``
+    # above -- ``stages.IMAGE_STAGES`` instead of ``_REFERENCE_STAGES``
     # so a running tile sheet job dims rather than vanishes.
     if job.get("stage") not in near_miss_image_stages:
         return None
@@ -568,9 +569,7 @@ def _mason_reopen(ctx: Any, job: Any) -> Exit | None:
     def door(ctx: Any, job: Any) -> None:
         mason_mode.edit_asset_in_mason(ctx, job)
 
-    return Exit(
-        "mason", verbs.open_in("mason"), "Reopens the authored scene.", "", "", door
-    )
+    return Exit("mason", verbs.open_in("mason"), "Reopens the authored scene.", "", "", door)
 
 
 def _mason_add(ctx: Any, job: Any) -> Exit | None:
@@ -663,7 +662,7 @@ def exits_for(ctx: Any, job: Any) -> list[Exit]:
 
     A trashed row gets none: every action a builder above could offer would
     either fail outright or quietly resurrect the row into the workshop
-    without saying so, which is the same reasoning ``library._overflow``
+    without saying so, which is the same reasoning the Library's ``_overflow``
     already applies (a trashed asset's menu offers exactly Restore and Delete
     permanently, and nothing else).
     """

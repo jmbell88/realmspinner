@@ -649,7 +649,7 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     #
     # Checked *before* ``enabled`` (the 2026-10-09 second audit's clay-73): most
     # element ops test the mode inside ``enabled`` too, so with the order the
-    # other way round every one of them answered "Switch to edge mode first."
+    # other way round every one of them answered "Switch to Edges mode first."
     # from ``reason_for`` with no ``recovery`` at all -- only the ops whose
     # ``enabled`` happened not to look at the mode got ``switch_mode``. The
     # declared ``op.modes`` is the one gate that makes the recovery true.
@@ -697,10 +697,15 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     except el.OpError as error:
         return fail(str(error), field="params", op=op.name)
     used_params = {p.name: used[p.name] for p in op.params}
+    # A *range* clamp only (the 2026-10-11 audit's clay-48): comparing the typed
+    # number with the value that ran also listed a plain rounding (a target of
+    # 50.7 ran as 50), and a below-floor ``refuse_below`` value never gets here
+    # at all -- ``resolve_params`` refused it above.
     clamped = [
         p.name
         for p in op.params
-        if p.name in params and float(params[p.name]) != used_params[p.name]
+        if p.name in params
+        and float(params[p.name]) != min(max(float(params[p.name]), p.low), p.high)
     ]
     proxy = _OpCtx()
     # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
@@ -739,17 +744,25 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
             messages=list(proxy.messages),
             changed=False,
         )
-    changed = [
-        {
+    changed = []
+    for obj in doc.objects:
+        prior = before.get(obj.uid)
+        if prior is obj.mesh:
+            continue
+        row: dict[str, Any] = {
             "uid": obj.uid,
             "stamp": doc.mesh_stamp(obj.uid),
             "faces": bm.face_count(obj.mesh),
             "verts": len(obj.mesh.positions),
             "selected": _sel_counts(doc.element_sel_of(obj.uid)),
         }
-        for obj in doc.objects
-        if before.get(obj.uid) is not obj.mesh
-    ]
+        # The 2026-10-11 audit's clay-50: only the toast sentence carried how far
+        # a Simplify (or any reducing op) went; the count beforehand is a number
+        # an agent can compare without parsing prose. Absent for an object the
+        # op created (Duplicate), which had no mesh before.
+        if prior is not None:
+            row["faces_before"] = bm.face_count(prior)
+        changed.append(row)
     reply: dict[str, Any] = {
         "op": op.name,
         "ran": ran,
@@ -760,6 +773,17 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         "clamped": clamped,
         "changed": changed,
     }
+    # The 2026-10-11 audit's clay-19: a multi-object press that was refused for
+    # one object and ran for another (``run_object_op`` toasts the refusal and
+    # carries on) answered ``ran: true, pushed: true`` with the refusal one
+    # anonymous string among the ``messages``, so an agent read it as "every
+    # selected object was done". The error-level subset is repeated as its own
+    # key -- at most one sentence per object, so it grows with the selection and
+    # no faster. Absent when nothing was refused. It cannot name the uid:
+    # ``run_object_op`` toasts the kernel's sentence with no object attached, and
+    # the proxy has no other way to know which object a toast came from.
+    if proxy.errors:
+        reply["errors"] = list(proxy.errors)
     # The 2026-10-10 audit's clay-31: ``select-all``/``select-invert`` replace no
     # mesh, so ``changed`` (built from meshes whose identity moved) was ``[]``
     # and the reply said nothing of what was now selected -- though the manual
@@ -949,6 +973,14 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             return fail(f"no reference named {compare!r}.", field="compare")
         if compare_mode not in ("beside", "overlay"):
             return fail("compare_mode must be 'beside' or 'overlay'.", field="compare_mode")
+        if compare_mode != "overlay" and "alpha" in args:
+            # The 2026-10-11 audit's clay-47: ``alpha`` is the overlay's blend and
+            # "beside" never reads it, so ``alpha=7`` was accepted and dropped --
+            # the class clay-64 closed for a render with no compare at all.
+            return fail(
+                "'alpha' only applies with compare_mode 'overlay'; give that or drop it.",
+                field="alpha",
+            )
         if compare_mode == "overlay":
             # The schema declares ``alpha`` a number, 0..1 -- a bare
             # ``float(alpha)`` only ever checked it converted, so a NaN, an
@@ -1127,9 +1159,11 @@ def _h_export(ctx: Any, session: Session, args: dict) -> dict:
         return fail("There is nothing visible to export.")
 
     # ``clay_mode.camera_of`` reads *whatever tab the interactive viewport is
-    # currently showing*, which is never this one -- an agent's document is
-    # never on screen by definition. Passing ``tab.view`` straight through
-    # avoids stamping the agent's document with the user's current camera.
+    # currently showing*, which is the person's own tab unless they have
+    # switched to the agent's one (an agent's tab opens behind theirs; the
+    # 2026-10-11 audit's clay-14). Passing ``tab.view`` straight through avoids
+    # stamping the agent's document with whichever camera the viewport is
+    # showing.
     #
     # The chain itself -- ``to_model``, the GLB write, ``import_mesh``, and the
     # ``.rblk`` source sidecar (``save_clay_source``) -- is

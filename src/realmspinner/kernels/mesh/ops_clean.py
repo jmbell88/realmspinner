@@ -37,6 +37,11 @@ correct signed contribution for *any* simple polygon, convex or not -- the same
 identity the shoelace formula rests on); an open shell has no volume to sign,
 so its global orientation is instead the majority of its own face normals
 pointing away from its centroid, the closest an open sheet has to "outward".
+**A flat sheet has no outward**: every face's reading is float round-off around
+zero, so only a face whose reading clears a floor relative to the shell's extent
+votes, and a shell no face clears -- a plane, a terrain tile, flat foliage -- is
+left exactly as it is, as is a closed shell whose volume is round-off (the
+2026-10-11 audit's clay-02: a tilted plane was reversed about as often as not).
 The walk is over faces of one shell with a queue, never a face pair matched
 against every other face, so it is linear in the mesh rather than quadratic.
 
@@ -52,9 +57,12 @@ for `recalc_outside`'s outer
 `for seed in range(n_faces)` restarting its BFS once per shell, and an imported
 mesh with many small separate shells (a decal, a kitbash, a scene flattened to
 one mesh) pays that restart far more often than one sphere does. Measured on
-many small boxes concatenated into one mesh (`n_faces = 300 * n`, one closed
-shell each), with the UV-bearing and UV-less cases within noise of each other
-(so one constant serves both):
+many small boxes concatenated into one mesh (each box 6 quads and 4 corners a
+face, so 24 corners and one closed shell apiece; 2,000 boxes are 12,000 faces and
+48,000 corners), with the UV-bearing and UV-less cases within noise of each other
+(so one constant serves both). The 2026-10-11 audit's clay-26: this sentence used
+to give three hundred faces a box, a shape the table below was never measured on,
+and a re-measure that followed it would not have reproduced the table:
 
 | boxes  | corners   | faces   | recalc  |
 |-------:|----------:|--------:|--------:|
@@ -463,6 +471,52 @@ def _fan_triangles(mesh: Mesh, shell: np.ndarray):
     return shell[tri_face], v0, v1 - v0, v2 - v0
 
 
+#: The noise floors :func:`_recalc` gives its two orientation tests (the 2026-10-11
+#: audit's clay-02). Not constants any stored file is keyed on: each only decides
+#: whether a shell's own geometry is distinguishable from float round-off, so a
+#: shell that fails the test is left exactly as it is.
+#:
+#: A face votes on an open shell's orientation only when its ``normal . (face
+#: centroid - shell centroid)`` is over this fraction of the shell's bounding-box
+#: diagonal; a flat sheet's is round-off around zero (about 1e-7 of the extent in
+#: float32), a bowl's is a good fraction of it. :data:`_DIRECTION_REACH_FLOOR`
+#: widens the floor for a shell far from the origin, where float32 positions
+#: cannot say better than a few ulps of their own magnitude.
+_DIRECTION_FLOOR = 1e-4
+_DIRECTION_REACH_FLOOR = 1e-6
+#: A closed shell's signed volume counts when it is over the largest of three
+#: floors: :data:`_VOLUME_FLOOR` of the bounding-box diagonal cubed; the volume a
+#: shell's own float32 positions can fake, which is its extent squared times the
+#: quantum of its reach (:data:`_VOLUME_QUANTUM`, about 16 ulps), because two faces
+#: back to back over a quad that float32 left a hair non-planar triangulate it two
+#: ways and enclose 1e-6 of nothing (measured: a tilted one-quad pillow 54 from the
+#: origin read -1.2e-6); and :data:`_VOLUME_ROUNDOFF` of reach cubed for float64's
+#: own sums.
+_VOLUME_FLOOR = 1e-9
+_VOLUME_QUANTUM = 1e-6
+_VOLUME_ROUNDOFF = 1e-15
+
+
+def _shell_scales(mesh: Mesh, a, shell: np.ndarray, n_shells: int) -> tuple[np.ndarray, np.ndarray]:
+    """``(extent, reach)`` per shell: the diagonal of its bounding box, and the
+    largest coordinate magnitude any of its corners has (how far from the origin
+    its float round-off is measured). Both are zero for a shell with no corners."""
+    if n_shells == 0:
+        return np.zeros(0), np.zeros(0)
+    pos = mesh.positions.astype("f8")[mesh.loops]
+    corner_shell = shell[a.corner_face]
+    lo = np.full((n_shells, 3), np.inf)
+    hi = np.full((n_shells, 3), -np.inf)
+    np.minimum.at(lo, corner_shell, pos)
+    np.maximum.at(hi, corner_shell, pos)
+    seen = np.isfinite(lo).all(axis=1)
+    lo = np.where(seen[:, None], lo, 0.0)
+    hi = np.where(seen[:, None], hi, 0.0)
+    extent = np.linalg.norm(hi - lo, axis=1)
+    reach = np.maximum(np.abs(lo).max(axis=1), np.abs(hi).max(axis=1))
+    return extent, reach
+
+
 def _recalc(mesh: Mesh) -> tuple[Mesh, int]:
     n_faces = face_count(mesh)
     if n_faces == 0:
@@ -474,6 +528,16 @@ def _recalc(mesh: Mesh) -> tuple[Mesh, int]:
     closed = _shell_closed(mesh, a, shell, n_shells)
     contrib = _face_fan_volume(mesh)
     volume = _shell_volume(contrib, shell, to_flip, n_shells)
+    extent, reach = _shell_scales(mesh, a, shell, n_shells)
+    # The 2026-10-11 audit's clay-02: a closed shell with no thickness (two faces
+    # back to back) has a volume that is round-off, and its sign was obeyed. Below
+    # the floor the shell has no volume to sign, so it reads as exactly zero -- not
+    # a candidate for a flip and not a container for the cavity test either.
+    floor = np.maximum(
+        np.maximum(_VOLUME_FLOOR * extent**3, _VOLUME_QUANTUM * extent**2 * reach),
+        _VOLUME_ROUNDOFF * reach**3,
+    )
+    volume = np.where(np.abs(volume) <= floor, 0.0, volume)
     # A closed shell is oriented by the sign of its volume -- except the wall of a
     # cavity, whose correct winding reads as negative (clay-95).
     cavity = _cavity_shells(mesh, a, shell, closed, volume, n_shells)
@@ -492,10 +556,16 @@ def _recalc(mesh: Mesh) -> tuple[Mesh, int]:
         face_totals = np.bincount(shell, minlength=n_shells)
         shell_centroid = sums / np.maximum(face_totals, 1)[:, None]
         direction = np.einsum("ij,ij->i", logical, centroids - shell_centroid[shell])
+        # The same audit finding: for a flat sheet every ``direction`` is float32
+        # round-off around zero, and counting it reversed a correctly facing sheet
+        # about as often as not. A face only votes when it clears a floor relative
+        # to its own shell's extent; a shell no face clears is left as it is.
+        floor_at = np.maximum(_DIRECTION_FLOOR * extent, _DIRECTION_REACH_FLOOR * reach)
+        votes = np.abs(direction) > floor_at[shell]
         inward = np.zeros(n_shells)
         outward = np.zeros(n_shells)
-        np.add.at(inward, shell, (direction < 0.0).astype("f8"))
-        np.add.at(outward, shell, (direction > 0.0).astype("f8"))
+        np.add.at(inward, shell, (votes & (direction < 0.0)).astype("f8"))
+        np.add.at(outward, shell, (votes & (direction > 0.0)).astype("f8"))
         shell_global_flip = shell_global_flip | (~closed & (inward > outward))
 
     final_flip = to_flip ^ shell_global_flip[shell]
@@ -516,6 +586,11 @@ def recalc_outside(mesh: Mesh) -> Mesh:
     volume, an open one by which way most of its faces already point relative
     to its own centroid. See the module docstring for why a fan-triangulated
     divergence theorem needs no concavity handling to get the sign right.
+
+    A flat sheet is left alone: with nothing curved to say which side is out,
+    neither vote nor volume is trusted below a floor relative to the shell's
+    own extent (see :data:`_DIRECTION_FLOOR`), so a plane you rotated, or an
+    imported sheet of foliage or terrain, comes back as the same object.
 
     UV **preserved**: every flip here is `ops_topo.flip_normals`, whose own
     documented policy is that a flipped face's corners keep their uvs, in the

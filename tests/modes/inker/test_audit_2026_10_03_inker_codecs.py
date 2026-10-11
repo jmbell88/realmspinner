@@ -129,7 +129,7 @@ def test_many_flourish_asset_ids_over_one_png_are_charged_by_pixels_not_count(
 def test_aseprite_round_trips_a_per_frame_table_on_frame_zero():
     # inker-06: _write_frame_palettes started at frame 1, so a recoloured
     # frame 0 reopened in the document's base colours.
-    from tests.modes.inker.test_frame_palettes import BLUE, HOLE, RED, _at, _indexed
+    from modes.inker.test_frame_palettes import BLUE, HOLE, RED, _at, _indexed
 
     doc = _indexed(frames=2)
     assert doc.set_frame_palette([HOLE, BLUE], 0) is True
@@ -160,7 +160,7 @@ def test_many_large_tilemap_cels_are_refused_before_they_are_inflated(monkeypatc
     import struct
 
     monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 10)
-    from tests.modes.inker.test_audit_2026_09_26_w1f2_modes_inker import (
+    from modes.inker.test_audit_2026_09_26_w1f2_modes_inker import (
         _ase_file,
         _ase_frame,
         _ase_header,
@@ -184,8 +184,8 @@ def _tilemap_file(
     """A one-tilemap-layer file whose one cel declares ``grid_w``x``grid_h``."""
     import struct
 
-    from tests.modes.inker.test_asein import _chunk as chunk
-    from tests.modes.inker.test_asein import (
+    from modes.inker.test_asein import _chunk as chunk
+    from modes.inker.test_asein import (
         _file,
         _frame,
         _header,

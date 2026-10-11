@@ -72,8 +72,9 @@ def test_a_glob_inside_a_code_span_keeps_its_asterisk():
 
 
 def test_slugify_matches_github_for_a_heading_with_punctuation_between_spaces():
+    from test_external_doc_links import _slug
+
     from realmspinner.kernels.manual.parser import slugify
-    from tests.test_external_doc_links import _slug
 
     # GitHub drops the "&" and keeps both spaces, one hyphen each.
     assert slugify("Setup & operations") == "setup--operations"

@@ -1,7 +1,7 @@
 """The worker specs -- pure dict construction, one function per op the
 Blender subprocess understands.
 
-Split out of the former ``rigging.py`` (P4 of ``dev/RESTRUCTURE.md``). Every
+Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure). Every
 function here builds the JSON payload ``pipelines.blender_run.run_worker``
 hands to ``pipelines/blender_worker.py`` on stdin; none of them touches a
 process, a file beyond reading a template, or Blender itself -- that split is

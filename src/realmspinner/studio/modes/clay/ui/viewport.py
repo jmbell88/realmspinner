@@ -142,15 +142,6 @@ class ClayViewport:
             body_h,
         )
         state = clay_mode.ensure(ctx)
-        if state.frame_pending:
-            # The other half of ``F``: the mode recorded the intent and this is
-            # the only place that has the viewport to act on it (B6).
-            state.frame_pending = False
-            whole, state.frame_whole = state.frame_whole, False
-            if whole:
-                self._frame_clay_whole()
-            else:
-                self._frame_clay_selection()
         # Textures painted in Inker land here, before anything below reads the
         # document: every tab with a link, not only the drawn one, and one undo
         # step per return (``texture_link``'s docstring says why the trigger is
@@ -169,6 +160,25 @@ class ClayViewport:
             clay_mode.apply_camera(ctx, tab)
             self._clay_camera_tab = tab.uid
         state.camera_tab = tab.uid
+        if state.frame_pending:
+            # The other half of ``F``: the mode recorded the intent and this is
+            # the only place that has the viewport to act on it (B6).
+            #
+            # After the hand-off above, never before it (the 2026-10-11 audit's
+            # clay-46): on the frame a tab switches the live camera still
+            # belongs to the *outgoing* tab until ``sync_active_camera`` and
+            # the hand-off have stored it there, and framing first put the
+            # incoming document's framing on it -- which the hand-off then
+            # stored as the outgoing tab's own camera. Framed here, the camera
+            # is the incoming tab's, ``camera_tab`` already names it, and the
+            # view exists (the old position consumed a frame request, and
+            # dropped it, on the very frame the view was first built).
+            state.frame_pending = False
+            whole, state.frame_whole = state.frame_whole, False
+            if whole:
+                self._frame_clay_whole()
+            else:
+                self._frame_clay_selection()
         # The shading mode decides two of the renderer's three switches and the
         # overlay decides the third: *Wire* is the surface replaced by its
         # edges, *Solid* is the surface drawn unlit, and the Wireframe overlay

@@ -153,12 +153,22 @@ class CacheOps:
             self._screens.pop(uid)
 
     def _build(self: ClayView, obj: Any, doc: Any, key: Any, mesh: Any) -> _Entry:
-        prims = bd.to_primitives(obj, doc.materials)
+        # The 2026-10-11 audit's clay-01: this converted ``obj.mesh`` and left
+        # *mesh* unused, so the op drag's ``_swap_preview`` (which passes the
+        # kernel's result for the entry's *old* key) redrew the document's own
+        # geometry at every value, and the Inset and Bevel drags never showed
+        # the picture the pointer was steering by. 112c69e2 dropped the
+        # argument with the modifier stack; ``sync`` passes ``obj.mesh``, so
+        # nothing but the preview ever noticed. The converted mesh is the one
+        # the caller names, and ``Entry.mesh`` below pins that same one.
+        prims = bd.to_primitives(obj, doc.materials, mesh)
         node = gltf.Node(name=obj.name, mesh=0)
         model = gltf.Model([node], [0], [prims], [])
         # *mesh* is the entry's pin: see ``_Entry.mesh``'s own comment for why
         # an id in the key must be held alive for as long as the entry claims
-        # to match it.
+        # to match it. (``_swap_preview`` takes only the fresh entry's ``gpu``
+        # and ``model`` and keeps the live entry's own pin and key, so the
+        # preview mesh is never what a key's id names.)
         # The 2026-10-07 audit's clay-28: every object's model shares the view's
         # one texture cache, so N objects over one palette picture are one GL
         # texture and a preview frame's fresh model finds it already uploaded.
@@ -186,3 +196,17 @@ class CacheOps:
             offscreen.clear()
         self.hover_object = None
         self._hover_pick_at = None
+        # The 2026-10-11 audit's clay-45: closing the last tab calls this and
+        # nothing else, and the overlays (GL buffers), ``_last_doc`` (the
+        # frame-skip key's pin) and the centre and bounds memos (each pins its
+        # document) all outlived it -- the closed ``ClayDoc`` stayed reachable,
+        # and its overlay VBOs resident, until another document happened to be
+        # drawn. ``_world_cache`` holds a weakref to its document and needs
+        # nothing. ``_render_dirty`` goes up with the key gone so the next draw
+        # is a real one rather than a skip over released buffers.
+        self._release_overlays()
+        self._last_doc = None
+        self._last_render_key = None
+        self._centre_memo = None
+        self._bounds_memo.clear()
+        self._render_dirty = True

@@ -116,7 +116,7 @@ def test_assign_material_is_gated_on_face_mode_and_a_face_selection_with_a_reaso
     doc, [uid] = _doc()
     op = _assign()
     assert not op.enabled(doc)
-    assert clay_ops.reason_for(op, doc) == "Switch to face mode first."
+    assert clay_ops.reason_for(op, doc) == "Switch to Faces mode first."
 
     doc.set_element_mode("face")
     assert not op.enabled(doc)

@@ -924,7 +924,11 @@ def test_the_retarget_panel_calls_the_service_function_that_had_no_caller():
     from realmspinner.studio.panes import retarget_panel
 
     source = inspect.getsource(retarget_panel._submit)
-    assert "svc_jobs.optimize_job" in source
+    # The 2026-10-11 audit, finding create-22: the submit path reaches the
+    # service function through ``_optimize_job``, which relabels the door's
+    # colliding field refusals; both hops are pinned.
+    assert "_optimize_job" in source
+    assert "svc_jobs.optimize_job" in inspect.getsource(retarget_panel._optimize_job)
     assert "custom_triangles" in source
 
 

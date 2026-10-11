@@ -535,6 +535,14 @@ def _apply_transform(doc: Any, obj: Any, ctx: Any, **fields: Any) -> bool:
     """
     from ......kernels.mesh.elements import OpError
 
+    # The 2026-10-11 audit's clay-18: Position, Rotation, Scale and the Size card all
+    # land here, and a transform typed during a live G/R/S or gizmo drag pushed a step
+    # the drag's commit then reverted against the head it started from. The fields are
+    # greyed by the Inspector (``inspector._one``); this is the door under them, for a
+    # caller that reaches it another way. Silent: the greyed card says why, and a toast
+    # per keystroke is the failure this door's docstring already avoids.
+    if ctx is not None and clay_ops.gesture_live(ctx):
+        return False
     try:
         doc.set_transform(obj.uid, **fields)
     except OpError as error:
@@ -1080,7 +1088,15 @@ def _edit_slot_note(doc: Any, obj: Any, index: int, tab: Any = None) -> str:
     two are kept separate on purpose (Ctrl+click on a swatch is the documented way
     to edit another slot from a face selection), so the fix is to name them.
     """
-    note = f"Editing {_slot_label(doc, index)}."
+    note = f"Editing {_slot_label(doc, index)}"
+    # The 2026-10-11 audit's clay-42: with several shapes selected the page edits the
+    # first of them (``inspector._page_object``) and its Add paints only that one, and
+    # nothing said so -- ``swatches.single_selected`` calls a panel that silently edits
+    # whichever shape sorts first worse than one that says it cannot.
+    count = len(doc.selection)
+    if count > 1:
+        note += f" of {obj.name or f'object {obj.uid}'}, the first of {count} selected shapes"
+    note += "."
     shown = _uv_view_slot(doc, obj, tab)
     if shown != index and 0 <= shown < len(doc.materials):
         note += (

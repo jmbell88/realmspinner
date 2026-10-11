@@ -158,8 +158,22 @@ def _best_in(section: dict[str, Any], param: str, min_n: int) -> tuple[str, dict
         return None
     best: tuple[str, dict[str, Any]] | None = None
     best_key: tuple[float, float, int] | None = None
+    # The 2026-10-11 audit, finding create-07: a corpus recorded before commit
+    # 800001dc removed eight image models and a style holds buckets for keys
+    # the registry no longer has, and the best of them was offered as "Use
+    # <value>" -- pressing the app's own suggestion wrote a removed model into
+    # the form. A bucket whose value is not a live choice is evidence about
+    # something that cannot be picked, so it is not offered. Other params
+    # carry numbers and words, not registry keys, and are untouched.
+    live: Any = None
+    if param in ("base_model", "style_lora"):
+        from .. import models
+
+        live = models.BASE_MODELS if param == "base_model" else models.STYLE_LORAS
     for value_str, entry in candidates.items():
         if not isinstance(entry, dict):
+            continue
+        if live is not None and value_str not in live:
             continue
         n = entry.get("n")
         if not isinstance(n, int) or isinstance(n, bool) or n < min_n:

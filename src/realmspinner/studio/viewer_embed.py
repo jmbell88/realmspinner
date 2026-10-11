@@ -137,6 +137,14 @@ class Viewer(PoseOps, FrameOps):
         self.pose_loading: Any = None
         # The direction strip being rendered a cell at a time, if any.
         self._strip: Any = None
+        # The 2026-10-11 audit, finding create-03: a library card's thumbnail
+        # was captured straight after ``adopt_model``, but adoption only uploads
+        # and frames -- the viewport texture still held the previous frame, so
+        # the card showed the previous asset. The request (a job id) waits here
+        # for ``render`` to draw the adopted model; ``adopt_model`` and
+        # ``clear`` drop it, so it can never be served from another model.
+        self._thumb_request: str | None = None
+        self._thumb_drawn = False
 
     # -- loading -----------------------------------------------------------
 
@@ -179,6 +187,9 @@ class Viewer(PoseOps, FrameOps):
         # editor with unsaved rotations in it, bypassing ``pose_panel.guard``,
         # the confirm every other way out of the editor goes through.
         self.pending = None
+        # A thumbnail asked for under the previous model is no longer this
+        # model's to take (``request_thumbnail`` is called after adoption).
+        self._thumb_request = None
         self._render_dirty = True
         self.model, self.gpu, self.path = model, gpu, Path(path)
         # The 2026-10-10 audit, finding create-33: ``stats`` memoises the
@@ -226,6 +237,28 @@ class Viewer(PoseOps, FrameOps):
         # See ``adopt_model``: an in-flight parse must not land on an emptied
         # viewport either.
         self.pending = None
+        self._thumb_request = None
+
+    def request_thumbnail(self, job_id: str) -> None:
+        """Ask for the card picture of the model just adopted, once it is drawn.
+
+        Keyed by job id and single-slot: a second adoption before the draw
+        replaces the request (``adopt_model`` clears it first), so the picture
+        is never filed under a job whose model is not the one on screen.
+        """
+        self._thumb_request = job_id
+        self._thumb_drawn = False
+
+    def take_thumbnail_request(self) -> str | None:
+        """The job id to photograph now, or None. Frame thread, after ``render``.
+
+        Only answers once ``render`` has actually drawn since the request was
+        made -- until then ``screenshot`` would read the previous frame.
+        """
+        if self._thumb_request is None or not self._thumb_drawn:
+            return None
+        job_id, self._thumb_request = self._thumb_request, None
+        return job_id
 
     def _release_model(self) -> None:
         if self.gpu is not None:
@@ -430,6 +463,12 @@ class Viewer(PoseOps, FrameOps):
             return self.viewport.texture
         self._last_render_key = key
         self._render_dirty = False
+        # Set only on this path: a skipped frame returns the texture the last
+        # draw left, which is the stale one ``request_thumbnail`` waits out.
+        # (``getattr``: a test drives ``render`` on a bare namespace, as it does
+        # for ``onion`` below.)
+        if getattr(self, "_thumb_request", None) is not None:
+            self._thumb_drawn = self.gpu is not None
         self._resize(width, height)
         self.camera.update(dt)
         self.renderer.draw(

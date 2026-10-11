@@ -26,7 +26,7 @@ import shutil
 import uuid
 from typing import Any
 
-from .. import guidance
+from .. import guidance, models
 from ..pipelines import recon, reference
 from ..provenance import file_fingerprint
 from . import matte
@@ -522,7 +522,6 @@ def rerun_job(
         # the registry has since re-declared -- and a reroll that skipped this
         # would spend the six Blender views and a ~16 GiB load to reach a
         # runtime refusal, exactly as the original did (MDL-15).
-        from .. import models
         from ._jobs_rework import _check_retexture_family
 
         # ``.get``, not ``[]``: a stored row may name a checkpoint the registry
@@ -799,7 +798,26 @@ def promote_to_model(
         raw["resolution"] = int(resolution)
     elif "platform" not in overrides:
         raw["resolution"] = guidance.PLATFORMS[guidance.DEFAULT_PLATFORM].resolution
+    # The 2026-10-11 audit, finding create-02: a promotion never runs the image
+    # model -- this child is an ``image`` job at the model stage -- so a retired
+    # ``base_model`` or ``style_lora`` on the reference is history, as it already
+    # is for a remesh (``rerun_job`` skips ``check_not_retired`` for
+    # ``kind == "image"``). ``guidance.normalize`` re-validates every model name
+    # and raised "pick another image model" here, a control the Mesh column does
+    # not have, so every reference drawn on a removed checkpoint was stuck at the
+    # Reference stage. The three model keys leave the normalize together, because
+    # a live style is checked against the base and the default base the
+    # normalize would substitute may not fit it; they go back afterwards,
+    # untouched, because the default base would otherwise be recorded on a row
+    # whose reference was drawn on something else (the History log labels a
+    # retired model from exactly these params).
+    history: dict[str, Any] = {}
+    if any(models.retired_choice(f, raw.get(f)) for f in ("base_model", "style_lora")):
+        history = {
+            key: raw.pop(key) for key in ("base_model", "style_lora", "lora_weight") if key in raw
+        }
     params.update(_normalize_guidance(svc, raw))
+    params.update(history)
     resolve_profile(svc, params, profile, custom_triangles)
     resolve_lowpoly(svc, params, profile, lowpoly_triangles)
     if mesh_finishing is not None:

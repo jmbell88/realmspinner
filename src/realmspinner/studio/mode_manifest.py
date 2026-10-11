@@ -24,7 +24,7 @@ deciding something, which is exactly what this is not: it is data about the
 *document* modes, a strict subset of ``modes.KEYS`` (Home, Library, Create,
 Review, Muse and Settings own no document and are not here); it needs
 :data:`.verbs.EXPORT_TO_LIBRARY`, a second import ``modes.py`` has no other
-reason to carry; and the plan this phase works from (``dev/RESTRUCTURE.md``,
+reason to carry; and the plan this phase works from (the 2026-09 restructure,
 P2) puts a mode's manifest inside that mode's own future package -- a shape a
 sibling list of dataclasses splits into seven files with no change to what
 each one declares, where a second section of ``modes.py`` would have to be

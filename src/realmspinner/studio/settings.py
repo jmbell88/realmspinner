@@ -502,8 +502,29 @@ def _safe_form_value(key: str, value: Any) -> bool:
         from ..models import LORA_WEIGHT_MAX, LORA_WEIGHT_MIN
 
         return LORA_WEIGHT_MIN <= value <= LORA_WEIGHT_MAX
+    if key == "model_override":
+        # The 2026-10-11 audit, finding create-01: this key had no arm here, so
+        # a stored Advanced form naming a model that commit 800001dc removed
+        # (``juggernaut``) restored intact while ``base_model`` -- which does
+        # have one -- fell back to the default. Generate then looked enabled
+        # and refused on ``recipe``, a field no control rings. ``""`` is
+        # Automatic's empty override; anything else must be a live key.
+        from ..models import BASE_MODELS
+
+        return value == "" or value in BASE_MODELS
     if key in {"ip_scale", "control_scale", "control_end"}:
-        return 0.0 <= value <= 1.5
+        # The 2026-10-11 audit, finding create-06: one 0.0..1.5 ceiling for all
+        # three silently reverted a Structure strength between 1.5 and 2.0 to
+        # 0.65 on every restart, although the slider, the door and the manual
+        # allow ``CONTROL_SCALE_MAX``. Each field answers to its own bounds.
+        from .. import models
+
+        low, high = {
+            "ip_scale": (models.IP_SCALE_MIN, models.IP_SCALE_MAX),
+            "control_scale": (models.CONTROL_SCALE_MIN, models.CONTROL_SCALE_MAX),
+            "control_end": (models.CONTROL_END_MIN, models.CONTROL_END_MAX),
+        }[key]
+        return low <= value <= high
     if key == "trellis_tex_res":
         # 0 is "unset"; anything else the door would refuse at every Accept.
         # A file saved before the field clamped can hold 64 (2026-09-18).

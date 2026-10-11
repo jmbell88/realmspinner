@@ -346,16 +346,21 @@ class Renderer:
         *,
         tint: tuple[float, float, float, float] | None = None,
     ) -> None:
-        """One pass over every primitive. ``tint`` overrides the material.
+        """One pass over every primitive. ``tint`` replaces the material.
 
         The override exists for the wire overlay and for nothing else: those
         lines are chrome, so they must not take the colour of whatever material
         happens to be under them -- a dark wireframe over a dark material is a
-        wireframe nobody can see. It is written *after* ``material.bind`` for
-        the same reason it is a parameter rather than a mutation of the
-        material: the material is the document's and this is the view's.
+        wireframe nobody can see. With a tint the pass runs the ``wire``
+        program and never binds the material at all (no maps, no alpha mode),
+        which is why it is a parameter rather than a mutation of the material:
+        the material is the document's and this is the view's.
         """
-        name = "unlit" if flat else "pbr"
+        # The 2026-10-11 audit, finding create-25: the tint used to ride on the
+        # material's own program, so its base-colour map multiplied it and its
+        # alpha mode overrode the tint's alpha. The wire pass has a program of
+        # its own that reads no material (see ``programs.WIRE_FRAG``).
+        name = "wire" if tint is not None else ("unlit" if flat else "pbr")
         # The per-frame constants -- view, projection, exposure, camera, the
         # environment -- are written once per *program* rather than once per
         # primitive (B15), mirroring the overlay pass. A frame draws dozens of
@@ -383,7 +388,13 @@ class Renderer:
                 # is just a Python attribute on the context and changes nothing.
                 fbo.depth_mask = False
                 depth_off = True
-            program = self.programs.get(name, primitive.defines)
+            if tint is None:
+                defines = primitive.defines
+            else:
+                # Only the skin: the material's map defines name samplers the
+                # wire program does not have.
+                defines = ("SKINNED",) if primitive.skinned else ()
+            program = self.programs.get(name, defines)
             world = model_matrix @ node.world
             program["u_model"].write(m3.gl_bytes(world))
             if id(program) not in seen:
@@ -423,9 +434,10 @@ class Renderer:
             # triangles flipped, so the front-face rule flips with it or the
             # part is culled and lit inside-out (create-04).
             self.ctx.front_face = "cw" if np.linalg.det(world[:3, :3]) < 0.0 else "ccw"
-            primitive.material.bind(program)
-            if tint is not None and "u_base_color_factor" in program:
-                program["u_base_color_factor"].value = tint
+            if tint is None:
+                primitive.material.bind(program)
+            else:
+                program["u_color"].value = tint
             if primitive.skinned and "u_joints" in program:
                 palette = gpu.palette(node)
                 if palette:

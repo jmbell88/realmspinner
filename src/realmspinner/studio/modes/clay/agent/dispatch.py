@@ -460,6 +460,7 @@ from .tools import (
 )
 from .tools_batch import (
     BATCH_DEADLINE_S,
+    BATCH_TOTAL_S,
     _h_batch,
     _h_program,
     _h_redo,
@@ -554,6 +555,16 @@ of the run even though nothing was idle. ``_h_program``'s own
 ``_make_entry`` now pushes the deadline out by exactly what each entry took
 to run, so a call that is actually running is never what trips this."""
 
+PROGRAM_TOTAL_S = 20.0
+"""The second, larger cap on one ``clay_program`` run: seconds elapsed since it
+started, checked between calls like :data:`PROGRAM_DEADLINE_S`. The 2026-10-11
+audit's clay-20: the idle deadline above forgives each call its own running
+time, so it never fired for slow calls -- six 0.2 s calls against a 0.05 s
+deadline all completed -- and a program of Simplify presses held the frame
+thread for as long as its slowest call times its length. This one counts busy
+time too. Read back through this module at call time, like the deadline, so a
+test can shrink it."""
+
 RECOVERY = frozenset(
     {
         "fix_arguments",
@@ -603,7 +614,7 @@ ceiling, never a default to fall back to.
   asked to run in an element mode it does not declare: ``_h_op`` tests
   ``op.modes`` *before* ``op.enabled`` (the 2026-10-09 second audit's clay-73
   -- most element ops test the mode inside ``enabled`` as well, and used to
-  answer "Switch to edge mode first." with no recovery). **Not** attached to
+  answer "Switch to Edges mode first." with no recovery). **Not** attached to
   ``clay_op``'s disabled-op refusal (via ``clay_ops.reason_for``) that follows
   that gate -- ``op.reason`` covers several unrelated predicates
   (``_has_objects_reason``, ``_selection_reason``, ``_has_two_visible_reason``
@@ -703,7 +714,7 @@ def instructions() -> str:
         "selection is not undoable by design.\n\n"
         "Element mode is document state, not a per-call flag. clay_op's "
         "inset/extrude and the rest of the element-only rows refuse by "
-        "name (\"Switch to face mode first.\") until it is set; "
+        "name (\"Switch to Faces mode first.\") until it is set; "
         "clay_element_mode sets it on its own, and clay_select_elements can "
         "set it in the same call as the selection it makes (clay_select_by "
         "takes no mode: switch first). Entering vertex/edge/face mode from object mode keeps the "
@@ -1249,8 +1260,11 @@ def tools() -> list[Any]:
                 "clay_catalog(topic='ops') for each one's own params, bounds "
                 "and element-mode gating. The result's 'params' gives each "
                 "declared param as it ran -- defaults filled in, a value "
-                "outside its range clamped -- and 'clamped' names the ones "
-                "that were changed."
+                "outside its range clamped, except one below its floor where "
+                "the catalogue says 'refused' -- and 'clamped' names the "
+                "clamped ones. A multi-object run refused for some objects "
+                "lists those sentences as 'errors'. Acts on the current "
+                "selection: clay_select first."
             ),
             schema={
                 "type": "object",
@@ -1677,6 +1691,8 @@ def tools() -> list[Any]:
                 "name, with no clay_scene read in between. "
                 f"{BATCH_DEADLINE_S:g}s wall-clock deadline, checked between "
                 "entries; past it the batch stops, keeping the prefix. "
+                f"The whole run is also capped at {BATCH_TOTAL_S:g}s, slow "
+                "entries included. "
                 "rollback_on_error "
                 "(default false): when true and the batch stops at a "
                 "refusal, the folded step is undone -- not left for a later "
@@ -1723,8 +1739,9 @@ def tools() -> list[Any]:
                 "rather than assembled call by call, and always atomic: "
                 "any failure rolls the whole attempt back rather than "
                 "keeping a prefix. "
-                f"{PROGRAM_DEADLINE_S:g}s wall-clock deadline between steps; "
-                "past it the run rolls back. 'variables' seeds named numbers; "
+                f"{PROGRAM_DEADLINE_S:g}s wall-clock deadline between steps, "
+                f"and the whole run is capped at {PROGRAM_TOTAL_S:g}s; "
+                "past either the run rolls back. 'variables' seeds named numbers; "
                 "'steps' is a list, each entry exactly one kind: add "
                 "(generator/params/translation/rotation/scale/id/material, "
                 "like clay_add_primitive), mesh (positions/faces/uv/"

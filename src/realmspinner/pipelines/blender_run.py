@@ -1,7 +1,7 @@
 """Run a spec-speaking child process and return its result JSON.
 
 Split out of the former ``src/realmspinner/rigging.py`` (P4 of
-``dev/RESTRUCTURE.md``): ``run_worker`` spawns and supervises a subprocess
+the 2026-09 restructure): ``run_worker`` spawns and supervises a subprocess
 (``winjob.assign``, a deadline, a drain thread) rather than deciding anything
 about a rig or a pose, so it is process control -- Layer 2, not the Layer 1
 ``kernels/rig/`` package the rest of the old file split into.

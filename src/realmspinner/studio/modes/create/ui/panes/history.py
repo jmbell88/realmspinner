@@ -56,14 +56,21 @@ def load(
     more) and, when asked, the options derived from the whole log. **Off the
     frame thread.**
 
-    The options are a second, unfiltered read because a filtered page cannot
-    name the models it filtered out; it runs only when the log itself changed
-    (a verdict, a finished or deleted job), never for a filter or a page.
+    The options come from the whole unfiltered log because a filtered page
+    cannot name the models it filtered out; they are asked for only when the log
+    itself changed (a verdict, a finished or deleted job), never for a filter or
+    a page. They ride the one pass that reads the page: the 2026-10-11 audit,
+    finding create-20, found a second ``history(limit=1_000_000)`` call here, so
+    every finished generation cost two whole-library joins.
     """
-    rows = generation_log.history(svc, **engine.service_filters(filters), limit=limit + 1, offset=0)
-    options = None
-    if want_options:
-        options = engine.options_from(generation_log.history(svc, limit=1_000_000))
+    rows, option_rows = generation_log.history_page(
+        svc,
+        **engine.service_filters(filters),
+        limit=limit + 1,
+        offset=0,
+        want_options=want_options,
+    )
+    options = engine.options_from(option_rows) if want_options else None
     return {"rows": rows, "options": options}
 
 

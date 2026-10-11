@@ -287,4 +287,14 @@ def test_manual_22_negative_prompt_inert_entries_match_the_registry():
     assert "the two four-step distilled defaults ignore it" not in flat
     assert "on the three four-step entries" not in flat
     assert "the five distilled entries" not in flat
-    assert "guidance is 1.0 or lower" in flat
+    # The guard's purpose survives the retirement: the manual states the rule
+    # (a negative prompt is encoded only above guidance 1.0) and the list of
+    # entries it fails on, and that list must be the registry's. Empty today,
+    # so the manual must say none ships; a future inert entry must be named.
+    assert "A **negative prompt** is only encoded when guidance is above 1.0" in flat
+    assert "none of the three models that ship does" in flat
+    for key, model in models.BASE_MODELS.items():
+        if model.guidance_scale <= 1.0:
+            assert model.label in flat or key in flat, (
+                f"{key} ignores a negative prompt but manual 22 does not name it"
+            )

@@ -231,6 +231,22 @@ def _same_geometry(a: bm.Mesh, b: bm.Mesh) -> bool:
     return a.uv is None or np.array_equal(a.uv, b.uv)
 
 
+def _canonical(value: Any) -> Any:
+    """*value* with every list, tuple and array read as one tuple type, at any
+    depth -- for comparing generator params, never for storing them.
+
+    The 2026-10-11 audit's clay-41: a document that went through its file holds
+    ``size`` as a list and a widget hands back a tuple; Python says
+    ``[1, 2] != (1, 2)``, so the same numbers read as an edit."""
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, (list, tuple)):
+        return tuple(_canonical(v) for v in value)
+    if isinstance(value, dict):
+        return {k: _canonical(v) for k, v in value.items()}
+    return value
+
+
 _TRIANGLES: weakref.WeakKeyDictionary[bm.Mesh, int] = weakref.WeakKeyDictionary()
 _TRIANGLES_LOCK = threading.Lock()
 
@@ -831,16 +847,31 @@ class ClayDoc:
         writer would refuse) is raised here, so a caller that computes every
         child's placement before its first assignment stays atomic.
 
-        **Not carried:** a sheared child's own *children* (and a sheared empty,
-        which has no mesh to bake into). Their worlds are ``W_child @ local``
-        and the child's frame is now the unsheared one, so they follow it
-        rather than the geometry; re-expressing a whole subtree is a separate
-        piece of work.
+        **Refused when the sheared object has children** (the 2026-10-11 audit's
+        clay-12). The shear is folded into the object's own mesh, but a child's
+        world is ``W_object @ local`` and the object's frame is now the
+        unsheared one, so its children followed the frame rather than the
+        geometry -- a grandchild moved by 0.8 in the probe, with no refusal and
+        no toast, against the manual's "nothing moves when you do it". Baking
+        the shear into a whole subtree is a separate piece of work, so this
+        says so instead: an :class:`~.elements.OpError` naming the object,
+        raised before the caller's first assignment like every other refusal
+        here. A sheared *empty* with children is the same case (its children
+        have no mesh to bake into either); one with none has nothing to lose.
         """
         target = self._relative_matrix(world, parent, by_uid)
         t, r, s, shear = m3.decompose_with_shear(target)
         trs = self._finite_place(child.name, (t, r, s))
-        if shear is None or len(child.mesh.positions) == 0:
+        if shear is None:
+            return trs, None
+        if any(o.parent == child.uid for o in self.objects):
+            raise el.OpError(
+                f"{child.name!r} cannot move there without moving its own children: "
+                "a rotated shape with children cannot move under a non-uniformly "
+                "scaled parent. Even out that parent's scale, or move the children "
+                "first."
+            )
+        if len(child.mesh.positions) == 0:
             return trs, None
         with np.errstate(over="ignore", invalid="ignore"):
             baked = bm.transformed(child.mesh, shear)
@@ -903,6 +934,9 @@ class ClayDoc:
         **Where the re-expressed placement is sheared** (a non-uniformly scaled
         parent over a rotated child) the residual shear is baked into the
         object's mesh and its generator freezes -- see :meth:`_kept_placement`.
+        An object that is sheared *and* has children of its own is refused
+        (:class:`~.elements.OpError`, nothing pushed): its children would be
+        left behind by the shear (the 2026-10-11 audit's clay-12).
         """
         obj = self.by_uid(uid)
         if parent is not None:
@@ -1058,7 +1092,9 @@ class ClayDoc:
         under its parent turned Select All -> Group into a flat list. Every
         parented member is checked for a finite re-expressed placement before
         anything is added (clay-10), so a refused member leaves no empty and no
-        half-applied group behind.
+        half-applied group behind. That includes a member whose re-expressed
+        placement is sheared while it has children of its own (the 2026-10-11
+        audit's clay-12, see :meth:`_kept_placement`).
         """
         from . import ops as mesh_ops
 
@@ -1289,8 +1325,9 @@ class ClayDoc:
 
         A child whose kept placement is sheared has the shear baked into its
         mesh (and its generator frozen), so it neither moves nor stores a
-        non-unit rotation -- :meth:`_kept_placement`. Its own children are not
-        carried, there.
+        non-unit rotation -- :meth:`_kept_placement`. A sheared child that has
+        children of its own is refused instead (an :class:`~.elements.OpError`
+        naming it, the 2026-10-11 audit's clay-12), and so is the delete.
         """
         self._remove_batch([uid], None)
         return True
@@ -1520,6 +1557,20 @@ class ClayDoc:
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         if select is not None:
             self.set_element_sel(uid, select)
+        elif uid in self.element_sel and (
+            len(mesh.positions) != len(before.positions)
+            or bm.face_count(mesh) != bm.face_count(before)
+        ):
+            # The 2026-10-11 audit's clay-13: only a caller that handed
+            # ``select`` reconciled the picks, so ``scratch.transplant`` (an
+            # applied Familiar preview that deleted forty faces) left ten picks
+            # standing past the end of the mesh and ``delete_faces`` then raised
+            # ``IndexError``. Every caller is covered here instead of each one
+            # remembering: when the counts moved, what the mesh no longer has
+            # is dropped (``el.restrict``, range-only because *prior* is not
+            # passed -- the counts already differ). A same-count replacement
+            # (an element drag) keeps its picks exactly as before.
+            self.set_element_sel(uid, el.restrict(mesh, self.element_sel[uid]))
         self.touch()
         self._carry_triangle_total(keyed, _triangles_of(mesh) - _triangles_of(before))
         return True
@@ -1764,12 +1815,18 @@ class ClayDoc:
         """
         obj = self.by_uid(uid)
         before = {"params": was.get("params", obj.params)}
+        # The 2026-10-11 audit's clay-41: a reopened box's ``size`` is a list
+        # (the file is JSON) and the widget hands back a tuple, so the same
+        # three numbers compared unequal and retyping them pushed a step. The
+        # comparison reads both through one container type; what is stored is
+        # untouched.
+        same_params = _canonical(before["params"]) == _canonical(params)
         # The 2026-10-09 second audit's clay-102: a rebuilt mesh is always a new
         # object, so ``mesh is not obj.mesh`` was the only no-op test and typing
         # the radius a field already held pushed a step and turned the document
         # dirty. Equal numbers that build array-equal geometry change nothing,
         # exactly as ``set_transform`` and ``set_props`` already answer.
-        if before == {"params": params} and (mesh is obj.mesh or _same_geometry(mesh, obj.mesh)):
+        if same_params and (mesh is obj.mesh or _same_geometry(mesh, obj.mesh)):
             return False
         # The 2026-10-09 audit's clay-01 and clay-02: this door assigned the
         # rebuilt mesh with neither of ``set_mesh``'s refusals, so a torus of
@@ -1783,7 +1840,7 @@ class ClayDoc:
         keyed = self._triangle_key()
         old_mesh = obj.mesh
         edits: list[Any] = []
-        if before != {"params": params}:
+        if not same_params:
             obj.params = params
             edits.append(ObjectPropsEdit(uid, before, {"params": params}))
         if mesh is not obj.mesh:
@@ -1827,7 +1884,7 @@ class ClayDoc:
                 changed = [
                     k
                     for k in set(old_params) | set(params)
-                    if old_params.get(k) != params.get(k)
+                    if _canonical(old_params.get(k)) != _canonical(params.get(k))
                 ]
                 same = len(mesh.starts) == len(was_mesh.starts) and (
                     len(changed) <= 1 or regen.same_faces(was_mesh, mesh)

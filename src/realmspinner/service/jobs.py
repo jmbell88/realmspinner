@@ -150,7 +150,12 @@ def create_generation_request(
     if not isinstance(request, generation.GenerationRequest):
         request = generation.GenerationRequest.from_dict(request)
     resolved = generation.resolve_recipe(request, svc.config)
-    issues = generation.validate_request(request, resolved)
+    # ``structure_forwarded=False``: this door builds its ``create_job`` call from
+    # ``request_to_legacy``, which does not carry ``structure_control``. The
+    # 2026-10-11 audit, finding create-09, found the request recorded as
+    # ControlNet-conditioned while the job ran without one; the Create pane,
+    # which forwards ``control`` itself, keeps the default.
+    issues = generation.validate_request(request, resolved, structure_forwarded=False)
     if issues:
         raise Invalid(issues[0].message, field=issues[0].field)
     legacy = generation.request_to_legacy(request, resolved)

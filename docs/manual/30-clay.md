@@ -151,13 +151,13 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has thirty-nine operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has forty operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
 | --- | --- |
 | Select | Select All (`Ctrl+A`), Select None, Invert Selection (`Ctrl+Shift+I`), Select Linked (`L`, element modes) |
-| Object | Duplicate (`Ctrl+J`), Merge Objects... (`Ctrl+M`), Recalculate Normals, Delete (`Delete`) |
+| Object | Duplicate (`Ctrl+J`), Merge Objects... (`Ctrl+M`), Recalculate Normals, Simplify..., Delete (`Delete`) |
 | Object ▸ Transform | Drop to Ground, Snap to Grid... |
 | Object ▸ Set Origin | Origin to Bounds, Origin to Base, Origin to World; Origin to Selection in an element mode |
 | Object ▸ Mirror | Mirror X, Mirror Y, Mirror Z, Mirror Copy... |
@@ -316,8 +316,8 @@ mode has no box select.
 Right-click opens the context menu, listing exactly the operations that apply in the current mode
 with the ones that cannot run greyed out. The same table drives the Inspector's action buttons and the
 palette's rows, so none of them can offer something another refuses. Operations that take a number — inset, bevel,
-weld, assign material, merge objects, snap to grid, mirror copy, pack islands — open a small dialog with the fields
-and an **Apply** button, and remember what you last used.
+weld, assign material, merge objects, snap to grid, mirror copy, pack islands, simplify — open a small dialog with
+the fields and an **Apply** button, and remember what you last used.
 
 Distances in the Inset, Weld and Bevel fields are world metres. Clay divides them by the object's own
 scale before applying them, so `0.1 m` is 10 cm on screen whatever the object's scale. For a non-uniform scale the
@@ -380,8 +380,9 @@ looks right and is not.
 **Merge Faces** is the way to get one face where there were several: a selection that falls into
 several disconnected blocks becomes one face *per block*, not one face overall — a face with a hole
 in it is not something this editor's meshes can hold, so there would be nothing to make. And a
-single face on its own is refused: there is no neighbour to merge it with. Clay has no dissolve or
-collapse for vertices and edges.
+single face on its own is refused: there is no neighbour to merge it with. When the faces you merge
+disagree about material or smoothing, the merged face takes the material and smooth/flat setting of the
+lowest-numbered of them. Clay has no dissolve or collapse for vertices and edges.
 
 ### Dragging an operation's number
 
@@ -530,6 +531,12 @@ A keyboard drag holds no mouse button, so a **press** is how it ends: left commi
 Everything else behaves exactly as it does under a handle drag — the axis lock, the typed value and
 `Esc` are the same code and are described next.
 
+While a move, rotate or scale is live — and the same for a rotate or scale in the UV view — whatever would
+land in the middle of it is greyed or refuses: the swatches, the **+**, every Add button, the outliner and
+the Inspector's Position, Rotation and Size cards all say "Finish the drag in progress first (Enter or click
+to commit, Esc to cancel)." An Inker texture pull waits for a live Clay gesture as well, and lands on the
+first frame after it ends.
+
 ### Locking an axis, and typing a number
 
 The keyboard joins a drag already under way. While a gizmo is held:
@@ -670,7 +677,7 @@ Then three folds, closed until you open them (the Inspector remembers which are 
 - **More actions** lists every whole-object operation, generated from the same table as the right-click menu,
   in groups: Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Separate and UV. Each button
   says what it does on hover, with its key, and is greyed with the plain reason when it cannot run. An
-  operation that takes numbers (Snap to Grid, Mirror Copy, Pack islands) opens its fields right below the
+  operation that takes numbers (Snap to Grid, Mirror Copy, Pack islands, Simplify) opens its fields right below the
   group with an **Apply** button, and remembers the values for next time; the same fields open from the
   right-click menu. **Texture mapping** opens the Unwrap page.
 
@@ -733,6 +740,13 @@ topmost selected object. Nothing moves when you do it — the child keeps exactl
 and from then on moving the parent moves the whole subtree. **Clear Parent** frees an object again,
 also without moving it.
 
+Parenting or grouping a shape that has children of its own is refused when the move would shear it: a
+rotated shape with children cannot move under a non-uniformly scaled parent, because its children would be
+left behind. Clay names the shape and changes nothing; even out the parent's scale, or move the children
+first. (A shape with no children still moves and keeps its place.) Parent to Last, Clear Parent, Group,
+an outliner drop, Delete of a parent whose sheared child has children of its own, and Merge Objects
+all follow the same rule.
+
 A child's position, rotation and scale are measured *relative to its parent*, so the Inspector's
 fields are labelled "local" once an object has one. That is why a wheel at local zero sits at the
 car's origin rather than the world's. An object can never become its own ancestor; a drop that would
@@ -743,16 +757,16 @@ what you selected, with everything parented to it. If you select an object and s
 parented to it, only the topmost of them is parented to the empty, so the hierarchy below it stays as
 it was. The empty has no geometry of its own — it draws
 nothing and exports as a bare node — so it is purely a handle for moving a set of things as one. Drop to Ground,
-Mirror, Origin to Bounds or Base, Box Unwrap, Pack UV Islands, Separate Loose Parts, Recalculate Normals and Shade
-Smooth or Flat tell you so when only groups
+Mirror, Origin to Bounds or Base, Box Unwrap, Pack UV Islands, Separate Loose Parts, Recalculate Normals, Simplify
+and Shade Smooth or Flat tell you so when only groups
 are selected. **Ungroup** dissolves it and leaves the children where they stand. Duplicate and Delete are greyed out,
 with a reason, when the only objects selected are hidden.
 
 Deleting a parent never takes its children with it: they attach to the parent's own parent, keeping
 their place in the world. If a child sits at an angle under a parent scaled unevenly, ungrouping or deleting the parent
 keeps the child's shape where it stood by baking the skew into its mesh: a shape built from a generator (box, sphere and
-so on) stops being a generator shape and loses its size fields, as after any other mesh edit. Such a child's own
-children are not carried.
+so on) stops being a generator shape and loses its size fields, as after any other mesh edit. If that child has
+children of its own the delete or ungroup is refused, with the rule above, and nothing changes.
 
 ## Separating and origins
 
@@ -906,8 +920,10 @@ picoCAD-style texture wants.
 **Box Unwrap** recomputes them for whatever is selected, projecting each face along whichever axis
 it points along most. It is the same projection the box primitive uses, and it is the right answer
 for the blockout geometry Clay makes: instant, predictable, and with no way to fail. It is the only
-unwrap Clay has — there are no seams and no conformal unwrap, because that is the right tool for an
-organic surface and the wrong one for a shape made of flat panels.
+unwrap Clay has — there is no conformal unwrap, because that is the right tool for an
+organic surface and the wrong one for a shape made of flat panels. A **seam**, in this chapter, is any edge
+whose two faces disagree about their texture coordinates; a box unwrap makes one on every edge between faces
+that project along different axes, and Clay has no seam marking to add or remove one by hand.
 
 Two things follow from it being a *projection*. Faces pointing opposite ways share the same square,
 so a texture applied to a box appears on both the front and the back (mirrored, so lettering reads
@@ -929,8 +945,9 @@ and lay on the object's material (see [Texturing](#texturing)).
 
 The **Unwrap** page of the Inspector shows the selected object's texture layout: its islands, with the element
 selection highlighted inside them. An object with no layout yet says so and offers **Box Unwrap** right
-there; it stays on the page once there is a layout, beside **Pack islands...**, which asks for its
-margin the way the right-click menu's Pack Islands does. The wheel zooms, the middle button pans,
+there; it stays on the page once there is a layout, beside **Pack islands...**, which asks for the same two
+numbers the right-click menu's Pack Islands does: the **margin** and **rotate islands**. The wheel zooms,
+the middle button pans,
 clicking an island selects it (a click on empty space deselects), and dragging either box-selects islands or moves
 whichever ones are selected. `R` and `S` rotate and
 scale what is selected — the same letters the viewport uses — following the mouse until you click to
@@ -942,12 +959,16 @@ exact number. Either way each island turns about its own centre.
 Faces that overlap another island are tinted: overlap means two parts of the model would be painted
 with the same patch of texture. That is exactly what a box projection does on purpose, so the tint is
 information rather than a warning. **Pack Islands** lays everything out inside the square with a
-margin you choose, keeping the relative sizes so nothing changes its texture density.
+margin you choose, keeping the relative sizes so nothing changes its texture density. With **rotate
+islands** on, each island that is wider than it is tall is turned 90 degrees first. Pack re-lays the whole
+layout, so a picture already painted no longer lines up with the faces: pack before you paint, or paint
+again after.
 
 When the material under the page has a base-colour texture, the picture fills the square behind
-the islands, so you can see which part of it each face lands on. It is the material of the first
-selected face while faces are selected, and the object's default slot otherwise, and it is drawn
-with the same filtering as in the viewport: hard texels for a crisp texture.
+the islands, so you can see which part of it each face lands on. While faces are selected it is the slot of
+the first selected face; otherwise it is the slot the Colours & textures page edits (the one you last
+Ctrl+clicked, else the one every face wears). It is drawn with the same filtering as in the viewport:
+hard texels for a crisp texture.
 
 ## Recalculating normals
 
@@ -958,11 +979,47 @@ imported meshes and hand-edited ones; every primitive already comes out facing o
 that needs nothing is left exactly as it was, generator and all, and nothing is said about it. A closed
 shell wound inward that sits inside another closed shell is read as the wall of a hollow and left facing into the
 hollow; the one thing this cannot tell apart is an inside-out shell that touches the wall that encloses it, so use
-**Flip Normals** there. A selection with more corners than one press can process without stalling is refused, and that
+**Flip Normals** there. A flat sheet, such as a plane you have rotated or imported foliage or terrain, has no
+outside to point to, so Recalculate Normals leaves it exactly as it is, and so it does for a closed shell with no
+thickness. Only a curved open shape, a bowl or a half-pipe, is turned so most of its faces point away from its
+middle. A selection with more corners than one press can process without stalling is refused, and that
 corner ceiling applies to the whole selection, not each object. For a
 few faces that are wrong, **Flip Normals** in face mode is the sharper tool.
 
 ![The Colours & textures page: the Stone slot with its base colour, flags and texture](img/30-clay-material.png)
+
+## Simplifying a mesh
+
+**Simplify...** (Clean Up, object mode) brings a mesh down toward a face count you choose, and it is meant for
+an imported or heavily subdivided object that has far more faces than its shape needs. Its one field is
+**Target faces** (4 or more, 100 to start). A number below 4 is refused rather than raised, and the dialog
+refuses it too instead of quietly using 4. It works in two
+stages. First it merges neighbouring faces that lie in one flat plane and share a material into single larger
+faces, so a cube that was subdivided to a thousand faces comes back as the six it always was, even with a target
+of a hundred. Only if the mesh is still over the target does it then collapse edges until it gets there. The
+collapse stage works in triangles: once the flat merge cannot reach the target, the target counts triangles, and
+what comes back is triangles, not quads.
+
+Neither stage crosses a seam. Faces never merge across a material change, a smooth-to-flat edge or a seam
+(see [Texture coordinates](#texture-coordinates)), and the collapse stage leaves those borders where they are,
+so the colours, the shading and the texture layout survive. The cost is that the result can stay above the
+target: when everything that is left is a seam or a border, Simplify stops and says so ("100 was not reachable
+without breaking seams or materials") rather than tear one. The four-face floor of a solid is kept per closed
+shell, so a mesh of several shells keeps at least four faces in each and can end above the number you typed.
+A merge also never leaves a vertex sitting in the middle of a neighbour's edge (a T-junction), which is what
+shows up as a crack when a mesh is lit.
+
+It acts on whole objects and applies the target to each selected one separately, and it is one undo step:
+`Ctrl`+`Z` brings every face back. A press that changed several objects ends "Simplified 1,200 faces to 310
+across 3 objects, each toward 100." An object already at or under the target is left exactly as it was, and the
+toast says so. Like every geometry change it freezes the shape's generator, so a box that has been simplified is
+a plain mesh from then on.
+
+One press takes at most 20,000 corners of work (10,000 with UVs: a mesh with UVs counts double, and so does
+a mesh of large polygons, which split into more triangles than their corners suggest). The ceiling is charged
+over the whole selection, counting only the objects that are above the target, since an object already at or
+under it is handed back untouched; a press over it is refused, and the sentence says what to do (select
+fewer objects, or split the mesh first).
 
 ## Materials
 
@@ -1048,7 +1105,8 @@ ask for. What a click does depends on the mode:
   on a slot only makes it the one the fields edit; switch to face mode to paint faces.
 
 Under a face selection the UV view draws the first selected face's slot, while the Colours & textures
-page edits the slot the palette outlines; the page names both.
+page edits the slot the palette outlines; the page names both. With several shapes selected the page edits
+the first of them and says so: "Editing slot 2 (Stone) of Crate, the first of 3 selected shapes."
 
 Painting is one undo step however many objects the selection spans, and faces that already wear the
 slot say so and push nothing. A face's material is not geometry, so a painted box is still a box;

@@ -56,7 +56,9 @@ def draw(ctx: Any, view: Any) -> None:
 
 
 def _rows(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
-    widgets.secondary(f"{doc.element_mode} mode")
+    # The header's word (Shape, Points, Edges, Faces), not the stored name: the
+    # 2026-10-11 audit's clay-43 found "vertex mode" over a menu whose switch says Points.
+    widgets.secondary(f"{clay_ops.mode_word(doc.element_mode)} mode")
     controls.menu_separator()
     if tab.saving:
         # The gate every other control in the app has, and the one this menu
@@ -101,6 +103,20 @@ def _row(ctx: Any, state: Any, tab: Any, doc: Any, op: Any) -> None:
         clay_ops.run(ctx, doc, op)
 
 
+def _clamped(param: Any, typed: float) -> float:
+    """What the field stores for *typed*: held to ``[low, high]``, or to ``high`` only.
+
+    A ``refuse_below`` param keeps a number under its floor, because the floor
+    is a refusal that :func:`~realmspinner.studio.modes.clay.ops.resolve_params`
+    raises with a sentence, and a clamp here turned a typed 2 into 4 before Apply
+    ever saw it (the 2026-10-11 audit's clay-04: Simplify's target and Snap to
+    Grid's step could never be refused from the dialog, the Inspector form or
+    the menu, only from a key path that skipped this widget).
+    """
+    low = float("-inf") if param.refuse_below else param.low
+    return min(max(typed, low), param.high)
+
+
 def param_widget(op_name: str, param: Any, value: float) -> tuple[bool, float]:
     """One parameter's label, field and warning. -> ``(changed, new value)``.
 
@@ -141,7 +157,7 @@ def param_widget(op_name: str, param: Any, value: float) -> tuple[bool, float]:
         # typed, silently becoming a different one.
         changed, typed = controls.input_int(label, int(value))
         if changed:
-            result = (True, float(int(min(max(typed, param.low), param.high))))
+            result = (True, float(int(_clamped(param, typed))))
     else:
         changed, typed = controls.input_float(
             label,
@@ -151,7 +167,7 @@ def param_widget(op_name: str, param: Any, value: float) -> tuple[bool, float]:
             clay_ops.format_for(param),
         )
         if changed:
-            result = (True, min(max(float(typed), param.low), param.high))
+            result = (True, _clamped(param, float(typed)))
     if param.warn:
         widgets.secondary(param.warn)
     return result

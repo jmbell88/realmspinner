@@ -51,14 +51,15 @@ def test_clay_program_does_not_roll_back_a_completed_slow_step_when_a_later_step
     # ``_make_entry`` makes for a two-step, no-refusal run:
     #   A: the initial deadline = 0.0 + PROGRAM_DEADLINE_S (4.0) = 4.0
     #   B: entry 0's ``started``                              = 0.0
-    #   C: entry 0's completion (a 100s "slow" step)           = 100.0
-    #      -> deadline pushed to 4.0 + (100.0 - 0.0) = 104.0
-    #   D: entry 1's deadline check: 100.0 > 104.0? No.
-    #      (the unfixed code checked 100.0 > 4.0 -- True -- and refused here)
-    #   E: entry 1's ``started``                               = 100.0
-    #   F: entry 1's completion                                = 100.1
+    #   C: entry 0's completion (a 10s "slow" step)            = 10.0
+    #      -> deadline pushed to 4.0 + (10.0 - 0.0) = 14.0
+    #   D: entry 1's deadline check: 10.0 > 14.0? No (and 10.0 s
+    #      elapsed is inside PROGRAM_TOTAL_S's 20 s, the 2026-10-11 cap).
+    #      (the unfixed code checked 10.0 > 4.0 -- True -- and refused here)
+    #   E: entry 1's ``started``                               = 10.0
+    #   F: entry 1's completion                                = 10.1
     monkeypatch.setattr(
-        agent_clay_tools_batch, "time", _FakeClock([0.0, 0.0, 100.0, 100.0, 100.0, 100.1])
+        agent_clay_tools_batch, "time", _FakeClock([0.0, 0.0, 10.0, 10.0, 10.0, 10.1])
     )
 
     result = agent_clay.call(

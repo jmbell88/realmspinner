@@ -119,9 +119,14 @@ def volume(mesh: bm.Mesh, world: np.ndarray | None = None) -> float:
 
 
 def is_closed(mesh: bm.Mesh) -> bool:
-    """No hole and no non-manifold edge -- the reading ``clay_add_mesh``'s own
-    ``closed`` uses, so a volume gate here agrees with it. An empty or
-    single-face-less mesh is not closed."""
+    """No hole and no non-manifold edge -- the closed reading
+    :func:`volume_if_closed` gates on, which adds the winding check on top. An
+    empty or single-face-less mesh is not closed.
+
+    The 2026-10-11 audit's clay-23: this used to say it was the reading the
+    agent's add-mesh door reports as ``closed``; that door no longer reports
+    it and nothing in ``src/`` calls this, so it is kept only as the bare
+    predicate a test or a script may ask."""
     return closed_facts(mesh)[0]
 
 

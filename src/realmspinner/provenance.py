@@ -105,7 +105,8 @@ _TRACKED = (
 
 
 def file_fingerprint(path: Path) -> str:
-    """``s{size}:{sha256(head||tail)[:32]}``, or "missing" when absent.
+    """``s{size}:{sha256(head||tail)[:32]}``, "missing" when absent, or
+    "unreadable" when the open fails (a lock) -- never raising either way.
 
     Cached on (path, size, mtime): a run over 160 benchmark items fingerprints
     the same checkpoint 160 times.
@@ -123,17 +124,27 @@ def file_fingerprint(path: Path) -> str:
         return hit
 
     h = hashlib.sha256()
-    with path.open("rb") as fh:
-        h.update(fh.read(HASH_BYTES))
-        # The 2026-10-10 audit, finding create-25: this read the tail only past
-        # ``2 * HASH_BYTES``, so a 1-2 MiB file was fingerprinted by its first
-        # MiB alone and a change in its last bytes (a retrained small adapter, a
-        # re-saved config) left the drift guard unmoved. Past one MiB there is a
-        # tail beyond the head; the head and tail overlap below two, which only
-        # re-reads bytes. Files over 2 MiB hash exactly as before.
-        if st.st_size > HASH_BYTES:
-            fh.seek(-HASH_BYTES, 2)
+    try:
+        with path.open("rb") as fh:
             h.update(fh.read(HASH_BYTES))
+            # The 2026-10-10 audit, finding create-25: this read the tail only past
+            # ``2 * HASH_BYTES``, so a 1-2 MiB file was fingerprinted by its first
+            # MiB alone and a change in its last bytes (a retrained small adapter, a
+            # re-saved config) left the drift guard unmoved. Past one MiB there is a
+            # tail beyond the head; the head and tail overlap below two, which only
+            # re-reads bytes. Files over 2 MiB hash exactly as before.
+            if st.st_size > HASH_BYTES:
+                fh.seek(-HASH_BYTES, 2)
+                h.update(fh.read(HASH_BYTES))
+    except OSError:
+        # The 2026-10-11 audit, finding create-18: ``stat`` above is guarded and
+        # this open was not, so a sharing violation or an antivirus lock on a
+        # checkpoint that is still being fetched raised out of a provenance-only
+        # read and failed the two-minute GPU job around it before it started
+        # (``generation._checksum`` and ``_file_sha256`` already swallow the same
+        # error). Said in the same style as "missing", and never cached: the lock
+        # is momentary, and the next read should get the real answer.
+        return "unreadable"
     out = f"s{st.st_size}:{h.hexdigest()[:32]}"
     _cache[key] = out
     return out

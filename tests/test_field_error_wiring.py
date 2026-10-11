@@ -123,16 +123,23 @@ def test_the_create_3d_budget_ids_are_each_cleared_by_name():
 
 
 def test_the_retarget_field_ids_are_the_refusals_own_names():
-    """The field id *is* the address. ``remesh_job`` -- the other rework door,
-    ``remesh_panel``'s own -- refuses with ``remesh_profile`` and
-    ``custom_triangles``, the literal name this pane's own custom-triangles
-    control also uses for an unrelated door (``optimize_job``, via
-    ``resolve_profile``, refuses with ``profile`` alone). This pane's source
-    still has to name both of the other door's fields, in prose, for a reader
-    to see the two must not be confused -- exactly the confusion
-    ``remesh_panel._FIELD_PREFIX`` exists to prevent on the other side."""
+    """The field id *is* the address. ``optimize_job`` (via ``resolve_profile``)
+    refuses with ``profile`` and ``custom_triangles``, the very ids Create's
+    Budget combo rings in the one flat ``field_errors`` dict, so the 2026-10-11
+    audit, finding create-22, had this pane's door relabel them --
+    ``_optimize_job`` -- to ``retarget_profile`` / ``retarget_custom_triangles``
+    (the ``remesh_panel._remesh_job`` pattern) and draw its controls under
+    those names. ``remesh_job``'s own ``remesh_profile`` stays another pane's."""
+    from realmspinner.studio.panes import retarget_panel
+
     source = _source("panes/retarget_panel.py")
-    assert '"remesh_profile"' in source and 'field="custom_triangles"' in source
+    assert retarget_panel._FIELD_PREFIX == {
+        "profile": "retarget_profile",
+        "custom_triangles": "retarget_custom_triangles",
+    }
+    drawn = _form_field_ids("panes/retarget_panel.py")
+    assert {"retarget_profile", "retarget_custom_triangles"} <= drawn
+    assert not {"profile", "custom_triangles"} & drawn
     # The form *dict* keys are the door's parameter names and are a different
     # vocabulary; they stay.
     assert 'profile=form["profile"]' in source
@@ -393,6 +400,13 @@ def test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws():
     for rel, fn in cases:
         drawn = _form_field_ids(rel)
         for name in sorted(_field_names(fn)):
+            if rel == "panes/retarget_panel.py":
+                # The pane's door relabels the two ids it shares with Create's
+                # Budget combo (create-22); the scan reads the door's source,
+                # not the runtime relabel, so it applies the same map.
+                from realmspinner.studio.panes import retarget_panel
+
+                name = retarget_panel._FIELD_PREFIX.get(name, name)
             assert name in drawn or name in ELSEWHERE, (
                 f"{rel} submits {fn.__name__}, which refuses with {name!r} -- "
                 "and nothing on that pane answers to the name"

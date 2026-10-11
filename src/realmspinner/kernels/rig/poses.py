@@ -1,7 +1,7 @@
 """A pose payload -- a bone -> local rotation quaternion map -- and the two
 rotation frames Poser and a clip library each speak.
 
-Split out of the former ``rigging.py`` (P4 of ``dev/RESTRUCTURE.md``). The
+Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure). The
 shipped pose libraries (the picker's presets and the deformation-QA battery)
 live here too rather than in :mod:`.templates`: both are read through
 :func:`validate_bones`, this module's own door, and a pose library is "a pose,

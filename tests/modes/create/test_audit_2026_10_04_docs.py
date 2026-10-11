@@ -53,14 +53,16 @@ def _section(text: str, heading: str, level: str = "##") -> str:
 # --- create-56 -------------------------------------------------------------------
 
 
-def test_picking_a_distilled_checkpoint_keeps_the_avoid_text_as_manual_12_says():
+def test_picking_flux_clears_the_structure_control_and_keeps_the_avoid_text_as_manual_12_says():
     """The pane behaves one way and the chapter has to say that way: the structure
-    control is cleared, the Avoid text is not."""
+    control is cleared, the Avoid text is not. The four-step models this once
+    described were removed by 800001dc; FLUX.2 klein is the one shipped model that
+    cannot take a ControlNet."""
     ctx = SimpleNamespace(guidance=guidance.catalog())
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)
     form.update(
-        base_model="turbo",
+        base_model="flux_klein",
         negative_prompt="blurry, watermark",
         ref_path="ref.png",
         control=guidance.catalog()["fields"]["control"][0]["key"],
@@ -74,7 +76,11 @@ def test_picking_a_distilled_checkpoint_keeps_the_avoid_text_as_manual_12_says()
     assert "clears the structure control" in para
     # The kept text is named by the box it lives in, as chapter 22 names it.
     assert "Avoid" in para
-    assert "hides" in para and "keeping its text" in para
+    assert "FLUX.2" in para and "cannot take a ControlNet" in para
+    assert "Avoid" in para and "honoured on each" in para
+    for entry in ("SDXL 1.0 at full CFG", "SDXL 1.0 with PAG", "FLUX.2 klein base"):
+        assert entry in para, f"chapter 12 does not name the shipped model {entry!r}"
+    assert "four-step" not in para and "hides" not in para
 
 
 # --- create-57 -------------------------------------------------------------------

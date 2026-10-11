@@ -239,7 +239,8 @@ def _commit_primitive(doc: Any, obj: Any) -> None:
 def place_primitive(ctx: Any, doc: Any, name: str) -> Any:
     """:func:`add_primitive` for a click: a refusal is a toast, never a raise.
 
-    -> the placed object, or ``None`` when the document refused it.
+    -> the placed object, or ``None`` when the document refused it or a live drag
+    is under way (``swatches.refused_by_drag``: its own toast, nothing pushed).
 
     The 2026-10-07 audit's clay-13: ``ClayDoc.add_object`` now refuses a shape
     that would take the document past the object or triangle ceiling the saver
@@ -267,7 +268,14 @@ def place_primitive(ctx: Any, doc: Any, name: str) -> Any:
     """
     from ......kernels.mesh.elements import OpError
     from ... import mode as clay_mode
+    from .swatches import refused_by_drag
 
+    # The 2026-10-11 audit's clay-17: the rail, the flyout, the Inspector's tiles and
+    # the empty-state button all land here, and none asked whether a G/R/S or gizmo
+    # drag was live -- the add pushed a step the drag's commit then reverted against
+    # the head it started from. One gate at the shared door covers every button.
+    if refused_by_drag(ctx):
+        return None
     first = not any(o.visible for o in doc.objects)
     try:
         obj = _new_primitive(doc, name)

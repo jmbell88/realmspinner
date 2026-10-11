@@ -193,6 +193,11 @@ def test_history_labels_a_retired_model_and_finds_the_thumbnail_only_when_it_exi
     assert row["thumbnail"] is None
     d = svc.job_dir(job_id)
     d.mkdir(parents=True, exist_ok=True)
+    # The 2026-10-11 audit, finding create-10: ``input.png`` is a source too
+    # (an image-only attempt has no ``reference.png``), and ``reference.png``
+    # wins when both are on disk.
+    (d / "input.png").write_bytes(b"x")
+    assert generation_log.history(svc)[0]["thumbnail"] == str(d / "input.png")
     (d / "reference.png").write_bytes(b"x")
     assert generation_log.history(svc)[0]["thumbnail"] == str(d / "reference.png")
 

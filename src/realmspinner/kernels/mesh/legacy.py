@@ -793,10 +793,65 @@ BAKE_WEIGHTS: dict[str, float] = {
 #: the faces the next one runs over.
 SUBDIVIDE_WEIGHTS: dict[int, float] = {1: 14.0, 2: 60.0, 3: 320.0}
 
+#: The least one modifier is charged, in smooth passes, whatever it runs over.
+#: **The per-triangle table cannot see a fixed cost.** The 2026-10-11 audit's
+#: clay-09: a modifier over a 12-triangle box costs 60 to 2,400 us no matter how
+#: few triangles it has (numpy setup, adjacency, the loop's own growth checks), and
+#: the table charged it 6 to 36 passes, about a microsecond, so a hand-made file of
+#: 2,000 tiny weld, triangulate or smooth modifiers measured 172, 135 and 119 us
+#: each while the budget admitted 166,666 to 641,025 of them -- 19 to 76 s to open
+#: one file, on a task with no cancel. A floor, not a surcharge: a modifier costs
+#: about the fixed figure until its per-triangle charge overtakes it, so a large
+#: mesh is priced exactly as before. Measured 2026-10-11 on this machine (a warm
+#: process, best of three) as one modifier through ``_bake`` over a 12-triangle box
+#: and a 48-triangle sphere, the worst of the two, in microseconds, then divided
+#: by 0.15 and rounded up (the 12 and 48 triangles it already pays for are inside
+#: the figure, which is why this is a floor and not an addend):
+#:
+#:   kind          worst us per modifier    floor, in passes
+#:   weld, smooth   60 / 135                1,000 (the default)
+#:   triangulate    150                     1,000
+#:   solidify       270                     2,000
+#:   radial-array   460                     3,000
+#:   subdivide      500                     3,500
+#:   mirror, array  1,070                   7,500
+#:   bevel          1,350                   9,500
+#:   boolean        2,400                   16,000
+#:
+#: Each floor admits a stack of its kind in about a second and a half or less
+#: (10,000,000 over 1,000 is 10,000 smooth modifiers at 135 us; over 16,000 it is
+#: 625 booleans at 2.4 ms). Bevel's *per-triangle* figure is a separate question:
+#: it was measured on spheres, which have no sharp edge to bevel, and a box costs
+#: it about a hundred microseconds a triangle.
+BAKE_FLOOR: dict[str, float] = {
+    "solidify": 2_000.0,
+    "radial-array": 3_000.0,
+    "subdivide": 3_500.0,
+    "mirror": 7_500.0,
+    "array": 7_500.0,
+    "bevel": 9_500.0,
+    "boolean": 16_000.0,
+}
+BAKE_FLOOR_DEFAULT = 1_000.0
+
+
+#: How a notice that already says what became of its modifiers ends; ``migrate``
+#: leaves the "and was dropped" tail off such a sentence.
+_DROPPED_WORD = "dropped"
+
 
 def _bake_cost(mod: _Modifier, triangles: int, target_triangles: int = 0) -> float:
     """What running *mod* over *triangles* (plus a boolean's *target_triangles*)
-    is charged against :data:`MAX_BAKE_WORK`, in smooth passes."""
+    is charged against :data:`MAX_BAKE_WORK`, in smooth passes: its per-triangle
+    cost, but never under its kind's :data:`BAKE_FLOOR`."""
+    return max(
+        _triangle_cost(mod, triangles, target_triangles),
+        BAKE_FLOOR.get(mod.kind, BAKE_FLOOR_DEFAULT),
+    )
+
+
+def _triangle_cost(mod: _Modifier, triangles: int, target_triangles: int = 0) -> float:
+    """:func:`_bake_cost` before the floor: what the modifier costs per triangle."""
     base = max(1, triangles)
     kind = mod.kind
     if kind == "smooth":
@@ -884,6 +939,8 @@ def _bake(
     counts = {o.uid: _triangle_count(o.mesh) for o in doc.objects}
     total = sum(counts.values())
     spent = 0
+    over_first: int | None = None
+    over_more = 0
     for uid in order:
         stack = stacks.get(uid, ())
         if not any(m.enabled for m in stack):
@@ -913,12 +970,22 @@ def _bake(
             cost = _bake_cost(
                 mod, counts[uid], counts[tid] if tid in present and tid != uid else 0
             )
-            try:
-                if spent + cost > MAX_BAKE_WORK:
-                    raise el.OpError(
-                        "this file's modifiers are past the "
-                        f"{MAX_BAKE_WORK:,} triangle passes Clay spends opening one"
+            if spent + cost > MAX_BAKE_WORK:
+                # The 2026-10-11 audit's clay-09: every modifier past the budget
+                # added its own copy of this sentence, so a stack of thousands
+                # opened under a screenful of identical notices. The first is
+                # named in full, on the object it first stopped; the rest are
+                # counted, and one "and N more" sentence is added at the end.
+                if over_first is None:
+                    over_first = uid
+                    errors.setdefault(uid, []).append(
+                        f"the {label} modifier could not run (this file's modifiers are "
+                        f"past the {MAX_BAKE_WORK:,} triangle passes Clay spends opening one)"
                     )
+                else:
+                    over_more += 1
+                continue
+            try:
                 spent += cost
                 if mod.kind == "boolean":
                     target = int(mod.get("target", 0))
@@ -953,6 +1020,12 @@ def _bake(
             counts[uid] = grown_count
         if mesh is not obj.mesh:
             result[uid] = mesh
+    if over_first is not None and over_more:
+        many = over_more != 1
+        errors[over_first].append(
+            f"{over_more:,} more modifier{'s' if many else ''} in this file could not run "
+            f"for the same reason, and {'were' if many else 'was'} {_DROPPED_WORD}"
+        )
     return result, errors
 
 
@@ -1013,7 +1086,10 @@ def migrate(doc: ClayDoc, fields: dict[int, LegacyFields]) -> list[str]:
         for sentence in fields.get(obj.uid, LegacyFields()).unreadable:
             notices.append(f'On "{obj.name}", {sentence}.')
         for sentence in errors.get(obj.uid, ()):
-            notices.append(f'On "{obj.name}", {sentence} and was dropped.')
+            # A sentence that already says what became of its modifiers (the "and N
+            # more" one) is not given the tail the single-modifier sentences get.
+            tail = "" if sentence.endswith(_DROPPED_WORD) else " and was dropped"
+            notices.append(f'On "{obj.name}", {sentence}{tail}.')
 
     changed: list[Obj] = []
     for obj in doc.objects:

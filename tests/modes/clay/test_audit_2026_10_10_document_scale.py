@@ -111,6 +111,34 @@ def test_parent_to_last_walks_the_document_a_constant_number_of_times(
     _assert_flat(monkeypatch, "parent-to-last", parented)
 
 
+@pytest.mark.parametrize("parented", [False, True])
+def test_duplicate_walks_the_document_a_constant_number_of_times(
+    monkeypatch: pytest.MonkeyPatch, parented: bool
+) -> None:
+    """The 2026-10-11 audit's clay-21: ``selection.with_descendants`` called
+    ``doc.descendants`` once per selected uid, each rebuilding the whole
+    parent -> children map."""
+    _assert_flat(monkeypatch, "duplicate", parented)
+
+
+def test_with_descendants_walks_the_document_a_constant_number_of_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from realmspinner.kernels.mesh import selection
+
+    counter = _Counter(monkeypatch)
+    totals = []
+    for n in (24, 96):
+        doc = _many(n, parented=True)
+        counter.reset()
+        selection.with_descendants(doc, [o.uid for o in doc.objects])
+        totals.append(counter.total())
+    assert totals[1] <= totals[0] + 1, (
+        f"with_descendants walked the whole document {totals[0]}x for 24 objects "
+        f"and {totals[1]}x for 96: {counter.counts}"
+    )
+
+
 @pytest.mark.parametrize("op_name", ["origin-to-world", "origin-to-bounds"])
 @pytest.mark.parametrize("parented", [False, True])
 def test_origin_ops_walk_the_document_a_constant_number_of_times(

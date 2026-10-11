@@ -12,8 +12,8 @@ An image model is a registry entry, not a directory on disk. `models.py` owns `B
 image size, step count, guidance scale, weight variant, scheduler, and any always-on
 step-distillation LoRA fused on at load.
 
-Those settings live with the checkpoint because they are properties of the checkpoint. A four-step
-distilled model run at twenty-five steps with classifier-free guidance produces mush, and a
+Those settings live with the checkpoint because they are properties of the checkpoint. A step-distilled
+model run at twenty-five steps with classifier-free guidance produces mush, and a
 step-distilled model can degrade quietly unless its scheduler uses the spacing it was trained for.
 Neither is a preference, and
 neither is something the person writing a prompt should have to know.
@@ -284,7 +284,8 @@ so Realmspinner itself only ever has to answer that one, versioned RPC rather th
 client might bring.
 
 **What an agent may touch is a two-part rule, not one.** In Clay it is unchanged: it gets a tab of
-its own when it connects, and every tool it has addresses that tab by name. A document you already
+its own when it connects, which opens behind your document and never takes the front (click it to look),
+and every tool it has addresses that tab by name. A document you already
 have open is not merely unlikely to be touched; there is no request the agent can make that names
 it. What the agent does
 goes onto that document's ordinary undo stack, one step per action, so taking over means switching
@@ -381,7 +382,13 @@ Clay tab and can address no other. `clay_scene` marks a palette slot that carrie
 `textured` (and `nearest` when it samples pixel-crisp), because its colour alone reads as white. The
 palette holds at most 1,024 entries and a name is at most 128 characters at every door that takes
 one; both are refused rather than clamped. `clay_op` answers with the `params` it actually ran with,
-defaults filled in and out-of-range values clamped, and names the clamped ones in `clamped`.
+defaults filled in and out-of-range values clamped, and names the clamped ones in `clamped` (a whole-number
+rounding is not a clamp). A value below a floor the catalogue marks "refused" (Simplify's target faces, Snap
+to Grid's step) is refused rather than clamped. When a multi-object run is refused for some objects and runs
+for others, the refusal sentences also arrive as an `errors` list; each changed object carries
+`faces_before`. `clay_op` acts on the current selection, so `clay_select` first. `clay_batch` and
+`clay_program` also stop at a total run time (60 s and 20 s), slow entries included, as well as at the
+deadline they check between entries (30 s and 4 s).
 
 The whole Clay surface is thirty-four tools. **Reading**: `clay_scene`, `clay_measure`, `clay_render`,
 `clay_elements` and `clay_catalog`, which answers one of four topics on demand — `ops`, `primitives`,
@@ -531,15 +538,18 @@ fits a float64 but not Clay's float32 positions once built an infinite mesh and 
 selects only the kind the document's element mode holds (give `mode`), `clay_select_by` refuses a zero
 `direction` and a `min` above `max`, and `clay_measure angle` refuses a zero-length ray instead of answering 0.
 A number argument is a number: `true` or `"0.2"` is refused by name rather than read as 1 or 0.2.
-`clay_op` run in an element mode it does not work in is refused with "Switch to object mode first." (or the mode the
-op needs) and `recovery: "switch_mode"`, for every such op, since the mode is checked before the op's own enabled test.
+`clay_op` run in an element mode it does not work in is refused with "Switch to Shape mode first." (or the
+modes the op needs, in the header's words: "Switch to Points, Edges or Faces mode first.") and
+`recovery: "switch_mode"`, for every such op, since the mode is checked before the op's own enabled test.
 An op that pushed no step and gave an error-level reason (a Delete that converts to no face, a bevel of width 0) is
 refused with that reason, so a `clay_batch` stops there. An info-level message (`assign-material` onto the slot the
 faces already wear) or a silent no-op (Frame with no viewport, Snap to Grid on points already on it) is `ran: false`
 without an error, and a batch carries on. `clay_select`, `clay_select_elements` and `clay_select_by` refuse a hidden
 object by name (field `uids` or `uid`; show it in Clay's outliner first). `clay_select_by`, `clay_uv`, `clay_measure`,
 `clay_render` and `clay_reference_add` refuse an
-argument the chosen query or action does not take, by field. `clay_uv transform` holds `translate` to 1e6, and
+argument the chosen query or action does not take, by field; `clay_render`'s `alpha` is refused unless
+`compare_mode` is `overlay`. Every `clay_uv pack` refusal (a mesh with no texture coordinates, a layout with
+more islands than Clay reads, a layout it cannot store) names a field. `clay_uv transform` holds `translate` to 1e6, and
 `clay_delete` is all-or-nothing. A `clay_checkpoint` entry inside a `clay_batch` is refused (set the checkpoint before
 or after the batch: one set inside would be buried by the batch's fold and could never be restored), and every tool
 except the read-only ones (`clay_scene`, `clay_elements`, `clay_measure`, `clay_render`, `clay_catalog`,

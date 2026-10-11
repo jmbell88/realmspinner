@@ -37,10 +37,24 @@ def with_descendants(doc: Any, uids: Any) -> set[int]:
     a group *is* an empty and its children are separate objects the selection
     does not name. Copying a parent without its children is never what pressing
     Duplicate on a group means.
+
+    One parent -> children map for the whole call, every selected uid's subtree
+    walked through it: the 2026-10-11 audit's clay-21 found a
+    ``doc.descendants`` call per selected uid, each rebuilding the map, which
+    was 0.8 s for a 4,096-object selection (the same shape the 2026-10-10
+    audit's clay-32 and clay-71 closed for Delete and ``descendants``). The
+    visited set also stops a hand-built cycle, as ``descendants`` does.
     """
     out: set[int] = set(uids)
-    for uid in list(out):
-        out.update(doc.descendants(uid))
+    kids: dict[int | None, list[int]] = {}
+    for obj in doc.objects:
+        kids.setdefault(obj.parent, []).append(obj.uid)
+    stack = list(out)
+    while stack:
+        for child in kids.get(stack.pop(), ()):
+            if child not in out:
+                out.add(child)
+                stack.append(child)
     return out
 
 
@@ -119,19 +133,22 @@ def delete_selected(doc: Any) -> list[str]:
     an element mode is the shape being edited, so the whole shape would go
     whether or not anything was picked inside it.
 
-    The object-mode branch folds one ``mark()``/``collapse_since()`` gesture
-    (see below) around one ``remove_object`` call per selected uid, so the
-    whole selection is one undo step -- the 2026-09-06 audit (finding clay-01)
-    found that selecting three objects and pressing Delete once took three
-    presses of Ctrl+Z to undo, landing on a two-deleted/one-restored state the
-    user never produced. The removals are processed in *descending* index
-    order for the same reason :meth:`~.document.ClayDoc.join_objects` records
-    its own doomed list that way: a ``CompoundEdit`` undoes in reverse, which
-    re-inserts them ascending, which is the only order in which every
-    recorded index is still correct. The 2026-09-26 audit (finding
-    clay-mesh-core-01) found this branch had drifted from ``remove_object`` by
-    reimplementing its bookkeeping inline instead of calling it -- see the
-    comment at the call site for what that cost.
+    The object-mode branch makes one :meth:`~.document.ClayDoc.remove_objects`
+    call for the whole selection and opens no gesture of its own: that door
+    pushes one step itself, so the whole selection is one undo step -- the
+    2026-09-06 audit (finding clay-01) found that selecting three objects and
+    pressing Delete once took three presses of Ctrl+Z to undo, landing on a
+    two-deleted/one-restored state the user never produced. ``remove_objects``
+    records the removals highest list index first, for the same reason
+    :meth:`~.document.ClayDoc.join_objects` records its own doomed list that
+    way: a ``CompoundEdit`` undoes in reverse, which re-inserts them ascending,
+    which is the only order in which every recorded index is still correct.
+    (The 2026-10-11 audit's clay-22: this paragraph described the older shape,
+    an undo gesture folded around one ``remove_object`` call per uid, which
+    the 2026-10-10 audit's clay-32 replaced.) The 2026-09-26
+    audit (finding clay-mesh-core-01) found this branch had drifted from
+    ``remove_object`` by reimplementing its bookkeeping inline instead of
+    calling it -- see the comment at the call site for what that cost.
 
     The element-mode branch below folds the same way, through
     ``UndoStack.mark``/``collapse_since``: each object's ``doc.set_mesh`` call

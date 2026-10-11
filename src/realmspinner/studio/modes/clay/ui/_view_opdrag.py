@@ -278,7 +278,11 @@ class OpDragOps:
         """Put *mesh* on screen for *uid* without telling the document.
 
         The cache entry keeps its key (so ``sync`` does not see a changed
-        document and rebuild it) and has its GPU model replaced.
+        document and rebuild it) and has its GPU model replaced. The model is
+        built from *mesh* itself -- the 2026-10-11 audit's clay-01 found
+        ``_build`` converting the document's own mesh instead, so every
+        preview drew the unedited geometry; the restore on a refusal passes
+        the base mesh through this same door.
         """
         entry = self._cache.get(uid)
         if entry is None:

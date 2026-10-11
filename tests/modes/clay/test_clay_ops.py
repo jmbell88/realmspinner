@@ -285,7 +285,7 @@ def test_a_reason_clears_the_moment_its_own_gate_passes() -> None:
 
     doc, uid = _doc()
     inset = clay_ops.get("inset")
-    assert "Switch to face mode" in clay_ops.reason_for(inset, doc)
+    assert "Switch to Faces mode" in clay_ops.reason_for(inset, doc)
     doc.set_element_mode("face")
     assert clay_ops.reason_for(inset, doc) == "Select something first."
     doc.set_element_sel(uid, el.ElementSel(faces=[0]))

@@ -92,7 +92,11 @@ def test_bake_budget_charges_a_boolean_for_its_targets_triangles(monkeypatch) ->
     monkeypatch.setattr(legacy, "MAX_BAKE_WORK", each * 2 + 1)
     _, errors = legacy._bake(doc, stacks)
     assert len(ran) == 2
-    assert sum(len(v) for v in errors.values()) == 4
+    # Four modifiers were refused, but the bake reports the first in full and
+    # folds the other three into one "3 more modifiers ..." sentence.
+    sentences = [s for v in errors.values() for s in v]
+    assert len(sentences) == 2
+    assert "3 more" in sentences[1]
 
 
 # --- clay-36 --------------------------------------------------------------------

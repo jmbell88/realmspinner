@@ -30,8 +30,12 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
     is still ``()``), which is why the re-freeze cost nothing. The cross-check
     against run A's own on-disk card lives in ``dev/tests/familiar/test_contract.py``
     where ``dev/measurements`` exists; it does not apply to ``clay-2``.
+
+    Re-frozen again 2026-10-11 when Clay gained ``simplify``: the only change is
+    that one word in ``clay_op``'s name enum, ``e42cf6b7...fb10`` ->
+    ``ee11d79e...910d``. Still free, for the same reason (``card_shas`` is ``()``).
     """
-    expected = "e42cf6b751be8826af8eee66ef608d970a1475e80f23b1a8d7c27549f130fb10"
+    expected = "ee11d79e89091afd1270c75d4bc357d868b365bf099189cc0df794c71ad0910d"
     assert contract.card_sha("clay") == expected
 
 

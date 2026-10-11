@@ -169,6 +169,19 @@ def _declared_reachable(doc: dict, nodes: list) -> set[int] | None:
     ``gltf._roots`` and ``Model.update_world`` make, tolerant of a malformed
     file because this runs before ``gltf.load``'s own named refusals.
     """
+    # The 2026-10-11 audit, finding clay-30: child references were bounded only
+    # by file size -- 2 M entries took 0.68 s to import, and a 100 MiB file of
+    # about 50 M of them 9-17 s and about 0.4 GB, on an import task that cannot
+    # be cancelled -- and the dedup in the walk below only keeps the *stack*
+    # small, not the entries it has to look at. Counted once, before either
+    # loop that visits them; ``gltf.load`` refuses the same count.
+    child_refs = gltf.child_reference_count(nodes)
+    if child_refs > gltf.child_reference_ceiling():
+        raise OpError(
+            f"This GLB's nodes hold {child_refs:,} child references between them, "
+            f"past the {gltf.child_reference_ceiling():,} Clay will read. It is a "
+            "scene rather than a model -- import the part you mean to edit."
+        )
     scenes = doc.get("scenes") or []
     if not isinstance(scenes, list):
         return None

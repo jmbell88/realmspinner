@@ -66,7 +66,7 @@ def test_clay_greys_a_refused_op_with_the_gate_that_refused_it():
     join = clay_ops.get("join")
     assert clay_ops.reason_for(join, doc) == "Select two visible objects first."
     inset = clay_ops.get("inset")
-    assert "Switch to face mode" in clay_ops.reason_for(inset, doc)
+    assert "Switch to Faces mode" in clay_ops.reason_for(inset, doc)
     duplicate = clay_ops.get("duplicate")
     assert clay_ops.reason_for(duplicate, doc) == "Select an object first."
     # And it disappears the instant the predicate it is derived from passes.

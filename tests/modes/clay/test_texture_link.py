@@ -477,3 +477,26 @@ def test_the_real_round_trip_opens_a_palette_locked_tab_links_it_and_a_stroke_la
     tl.edit_in_inker(ctx, tab, 0)
     assert ctx.keys == ["inker-open:pixels:Crate - Material (texture)"]
     assert ctx.state.inker.active_uid == inker_tab.uid
+
+
+def test_pull_all_waits_while_a_clay_gesture_is_live_and_lands_after():
+    """The 2026-10-11 audit's clay-15: ``pull_all`` gated on ``saving`` only, so
+    the pull's undo step landed inside an open G/R/S gesture mark and Esc then
+    reversed the person's Inker paint (or a commit folded it into "Rotate")."""
+    ctx = _Ctx()
+    tab = _clay_tab(ctx)
+    inker = _inker_tab(ctx)
+    link = _linked(ctx, tab, inker)
+    _paint(inker)
+    before = _steps(tab)
+
+    ctx.clay_view = SimpleNamespace(dragging=True)
+    tl.pull_all(ctx)
+    assert _steps(tab) == before, "nothing lands under a live gesture"
+    assert link in tab.inker_links, "the link is kept, not dropped"
+    assert link.pulled_rev != inker.doc.history.head, "and it still owes the picture"
+
+    ctx.clay_view.dragging = False
+    tl.pull_all(ctx)
+    assert _steps(tab) == before + 1, "it lands on the first frame after the gesture"
+    assert link.pulled_rev == inker.doc.history.head

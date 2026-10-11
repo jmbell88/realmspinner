@@ -6,7 +6,7 @@ on stdin (see ``blender_run.run_worker``). Writes its result to
 
 Why a subprocess at all is argued in ``kernels.rig``'s own docstring (the
 package the former single ``rigging.py`` split into, P4 of
-``dev/RESTRUCTURE.md``); the short version is that ``bpy`` is process-global,
+the 2026-09 restructure); the short version is that ``bpy`` is process-global,
 not thread-safe, and can take the interpreter down rather than raise on the
 kind of non-manifold geometry trellis-server routinely produces.
 

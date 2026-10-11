@@ -74,8 +74,24 @@ def _uv_pack(doc: Any, obj: Any, args: dict) -> dict:
     rotate_arg = args.get("rotate", False)
     if not isinstance(rotate_arg, bool):
         return fail("rotate must be a boolean.", field="rotate")
-    mesh = uvtools.pack_islands(obj.mesh, margin=margin, rotate=rotate_arg)
+    try:
+        mesh = uvtools.pack_islands(obj.mesh, margin=margin, rotate=rotate_arg)
+    except OpError as error:
+        # The 2026-10-11 audit's clay-49: this escaped to ``call()``'s backstop with
+        # no ``field`` and so no ``recovery``, while ``transform`` named "islands"
+        # for the same refusal, so the island ceiling is named the same way here;
+        # a non-finite uv is a fault of the object's own layout, so ``uid``.
+        return fail(str(error), field="islands" if _over_island_ceiling(obj) else "uid")
     return _set_uv_mesh(doc, obj, mesh, "pack")
+
+
+def _over_island_ceiling(obj: Any) -> bool:
+    """Whether *obj* has more uv islands than the kernels read. False when the
+    islands cannot be counted at all (a non-finite uv): that is the other refusal."""
+    try:
+        return len(np.unique(uvtools.islands(obj.mesh))) > uvtools.MAX_UV_ISLANDS
+    except OpError:
+        return False
 
 
 def _uv_transform(doc: Any, obj: Any, args: dict) -> dict:

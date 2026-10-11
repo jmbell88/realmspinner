@@ -168,6 +168,11 @@ RETIRED_PLANS = (
     # ``dev/CLAY-PLAN.md`` (the 2026-10-03 audit's clay-108) because this
     # tuple never named it. Rewritten to cite "Clay tranche N" instead.
     "CLAY-PLAN" ".md",
+    # The core-vs-subsystems restructure's plan (P0-P9, 2026-09-17/18): not in
+    # the tree, and about twenty modules under ``src`` still sent a reader to it
+    # as ``dev/RESTRUCTURE.md`` (the 2026-10-11 audit's create-15) because this
+    # tuple never named it. Rewritten to cite "the restructure, P<n>" instead.
+    "RESTRUCTURE" ".md",
 )
 
 
@@ -201,6 +206,86 @@ def test_no_module_cites_a_retired_plan_file():
         if token in line
     ]
     assert offenders == []
+
+
+def test_no_module_cites_the_retired_restructure_plan():
+    """``dev/RESTRUCTURE.md`` is gone; a module cites the programme, not the file.
+
+    The 2026-10-11 audit, finding create-15: about twenty docstrings under
+    ``src`` sent a reader to it because :data:`RETIRED_PLANS` did not name it,
+    so the sweep above passed. Pinned two ways, because the second half is the
+    one that rots: the token must be *in* the list (a future edit that drops it
+    re-opens the hole silently), and nothing under the scan roots may carry it.
+    """
+    token = "RESTRUCTURE" ".md"
+    assert token in RETIRED_PLANS
+    offenders = [
+        f"{path}:{n}"
+        for root in _SCAN_ROOTS
+        for path in sorted(root.rglob("*.py"))
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if token in line
+    ]
+    assert offenders == []
+
+
+#: Names Create's docstrings used for modules that were renamed, folded or
+#: never existed under that spelling. ``create_brief`` / ``create_stages`` /
+#: ``create_rail`` are *import aliases* other modules give ``modes/create/ui/``'s
+#: ``brief`` / ``stages`` / ``rail``; a docstring in the module itself (or in
+#: ``asset_exits``) naming the alias sends the reader to a module that has no
+#: such file. Split into two literals, as above, so this file is not an offender
+#: of its own sweep.
+_STALE_CREATE_NAMES = (
+    "create" "_brief",
+    "create" "_stages",
+    "create" "_rail",
+    "panes.library" "._overflow",
+    "inspector." "_edit_actions",
+    "library." "_send_to_troupe_item",
+    ":mod:`." "main`",
+)
+_CREATE_DOC_FILES = (
+    "studio/modes/create/ui/rail.py",
+    "studio/modes/create/ui/stages.py",
+    "studio/asset_exits.py",
+)
+
+
+def test_create_docstrings_name_modules_that_exist():
+    """The 2026-10-11 audit, finding create-16: the three files below named
+    ``create_brief.draw``, ``create_stages``, ``create_rail.stage_rail``,
+    ``panes.library._overflow``, ``panes.inspector._edit_actions`` and a
+    ``.main`` wiring module -- none of which is a place a reader can open. The
+    real homes are ``modes/create/ui/{brief,stages,rail}.py``,
+    ``modes/library/ui/panes/library.py``, ``studio/panes/inspector.py`` and
+    ``studio/shell/frame.py``; this scan fails on the old spellings, and the
+    second half checks the replacements are real so a rename cannot make the
+    docstrings stale a third time.
+    """
+    offenders = [
+        f"{rel}:{n} -> {token}"
+        for rel in _CREATE_DOC_FILES
+        for n, line in enumerate((SRC / rel).read_text(encoding="utf-8").splitlines(), 1)
+        for token in _STALE_CREATE_NAMES
+        if token in line
+    ]
+    assert offenders == []
+
+    homes = {
+        "studio/modes/create/ui/brief.py": "def draw(",
+        "studio/modes/create/ui/rail.py": "def stage_rail(",
+        "studio/modes/create/ui/stages.py": "def go(",
+        "studio/modes/library/ui/panes/library.py": "def _overflow(",
+        "studio/panes/inspector.py": "def _edit_actions(",
+        "studio/shell/frame.py": "def _stage_pane(",
+    }
+    missing = [
+        f"{rel}: {needle}"
+        for rel, needle in homes.items()
+        if needle not in (SRC / rel).read_text(encoding="utf-8")
+    ]
+    assert missing == []
 
 
 # --- a greyed button says why, in the places that were swept -----------------

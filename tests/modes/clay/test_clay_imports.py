@@ -60,9 +60,9 @@ OUTWARD_IMPORTS = {
     # clay-mesh-core-01 (2026-09-26 audit): the object-mode branch of
     # ``delete_selected`` used to hand-build its own ``CompoundEdit`` around a
     # hand-popped ``doc.objects.pop`` -- which never re-parented a removed
-    # object's children the way ``remove_object`` does. It now calls
-    # ``remove_object`` itself, per uid, inside a
-    # ``doc.history.mark()``/``collapse_since()`` gesture instead, so
+    # object's children the way ``remove_object`` does. It now makes one
+    # ``doc.remove_objects`` call for the whole selection (which pushes its own
+    # single step, so no gesture is opened) instead, so
     # ``selection.py`` no longer imports ``core.undo`` directly at all.
     # Removed from this table rather than left stale.
     # H01: the declared-count preflight reads a GLB's JSON chunk before

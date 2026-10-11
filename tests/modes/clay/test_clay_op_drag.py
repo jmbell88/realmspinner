@@ -116,6 +116,15 @@ def test_an_inset_drag_leaves_the_document_alone_until_it_commits(view, ctx) -> 
     assert doc.rev == rev and doc.by_uid(uid).mesh is mesh and len(doc.history) == steps
     assert view.rebuilds == rebuilds, "the preview is a swap, not a document rebuild"
     assert view._cache[uid].gpu is not entry_before, "the picture did change"
+    # The identity check above also passes when the preview redraws the document's
+    # own mesh (the 2026-10-11 audit's clay-01), so the geometry is compared too:
+    # an inset adds a ring of faces to the box.
+    drawn = [(len(p.positions), len(p.indices)) for p in view._cache[uid].model.meshes[0]]
+    base = [
+        (len(p.positions), len(p.indices))
+        for p in bd.to_primitives(doc.by_uid(uid), doc.materials, mesh)
+    ]
+    assert drawn != base, "the preview drew the document's own geometry"
     assert view._op_drag.value > 0.0
 
 

@@ -114,7 +114,92 @@ def test_every_modifier_kind_is_charged_what_it_costs_so_a_long_stack_opens_in_s
     assert seconds <= 3.0, f"{len(ran)} {kind} modifiers ran, about {seconds:.1f} s of work"
 
 
-# --- clay-87 --------------------------------------------------------------------
+# --- the 2026-10-11 audit's clay-09 ---------------------------------------------
+
+#: Measured 2026-10-11 on this machine, in microseconds for ONE modifier of each kind
+#: through ``_bake`` over a 12-triangle box (kernel plus the loop's own checks, best of
+#: three, the worst of a box and a 48-triangle sphere): a tiny mesh pays a fixed cost
+#: the per-triangle table below 1 us a triangle cannot see.
+_MEASURED_US_PER_TINY_MODIFIER = {
+    "smooth": 135,
+    "weld": 60,
+    "triangulate": 150,
+    "solidify": 270,
+    "radial-array": 460,
+    "subdivide": 500,
+    "mirror": 1070,
+    "array": 1070,
+    "bevel": 1350,
+    "boolean": 2400,
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_MEASURED_US_PER_TINY_MODIFIER))
+def test_a_stack_of_a_hundred_thousand_tiny_modifiers_is_refused_before_it_runs_for_seconds(
+    kind, monkeypatch
+) -> None:
+    # The audit's probe: 2,000 weld, triangulate and smooth modifiers on a box ran
+    # at 172, 135 and 119 us each, and the budget (6 to 16 passes a box) admitted
+    # 166,666 to 641,025 of them, 19 to 76 s to open one hand-made file. The budget
+    # is scaled to a hundredth here so the stack stays small enough to build; every
+    # figure below reads one hundred times over.
+    scale = 100
+    monkeypatch.setattr(legacy, "MAX_BAKE_WORK", legacy.MAX_BAKE_WORK // scale)
+    box = bp.box()
+    ran: list[int] = []
+
+    def stub(m, params, limit=None):
+        ran.append(1)
+        return m
+
+    kinds = {k: (v[0], v[1], stub if k == kind else v[2]) for k, v in legacy._KINDS.items()}
+    monkeypatch.setattr(legacy, "_KINDS", kinds)
+    monkeypatch.setattr(
+        legacy.ops_boolean, "boolean", lambda objs, op, world=None: ran.append(1) or objs[0].mesh
+    )
+    params = {p.name: p.default for p in legacy._KINDS[kind][1]}
+    if kind == "boolean":
+        params["target"] = 2
+    if kind == "array":
+        params["weld"] = 0.001
+    mods = tuple(
+        legacy._Modifier(id=i + 1, kind=kind, params=tuple(sorted(params.items())))
+        for i in range(8_000)
+    )
+    doc = bd.ClayDoc(
+        objects=[bd.Obj(uid=1, name="o", mesh=box), bd.Obj(uid=2, name="t", mesh=bp.box())]
+    )
+    legacy._bake(doc, {1: mods})
+    seconds = len(ran) * _MEASURED_US_PER_TINY_MODIFIER[kind] * 1e-6 * scale
+    assert seconds <= 3.0, f"{len(ran) * scale:,} tiny {kind} modifiers ran, about {seconds:.1f} s"
+
+
+def test_the_modifiers_past_the_bake_budget_are_named_in_one_sentence_not_one_each(
+    monkeypatch,
+) -> None:
+    # The same probe: every modifier past the budget added its own "could not run"
+    # notice, so a 2,000-modifier stack opened under a screenful of identical
+    # sentences. The first is kept in full; the rest are counted.
+    doc = bd.ClayDoc(objects=[bd.Obj(uid=1, name="b", mesh=bp.box())])
+    mods = tuple(
+        legacy._Modifier(id=i + 1, kind="weld", params=(("distance", 0.001),)) for i in range(30)
+    )
+    room = 3 * legacy._bake_cost(mods[0], legacy._triangle_count(bp.box()))
+    monkeypatch.setattr(legacy, "MAX_BAKE_WORK", room)
+    _, errors = legacy._bake(doc, {1: mods})
+    notices = legacy.migrate(
+        bd.ClayDoc(objects=[bd.Obj(uid=1, name="b", mesh=bp.box())]),
+        {1: legacy.LegacyFields(modifiers=mods)},
+    )
+    assert len(errors[1]) == 2, errors[1]
+    assert "past the" in errors[1][0]
+    assert "26 more" in errors[1][1]  # 27 refused: the first in full, the other 26 counted
+    refusals = [n for n in notices if "could not run" in n or "more modifiers" in n]
+    assert len(refusals) == 2, refusals
+    assert refusals[1].endswith("were dropped."), refusals[1]
+
+
+# --- clay-87--------------------------------------------------------------------
 
 
 def _backtracks(m: bm.Mesh) -> list[int]:

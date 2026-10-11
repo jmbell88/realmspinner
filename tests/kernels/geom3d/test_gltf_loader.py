@@ -2075,7 +2075,11 @@ def test_a_node_listing_the_same_child_a_million_times_does_not_blow_up_the_stac
     running out of memory, not as an exception), and checked for correctness
     too: the child's world transform must still come out right.
     """
-    n = 2_000_000
+    # The 2026-10-11 audit, finding clay-30: 2,000,000 child references is now
+    # refused at load (``gltf.child_reference_ceiling``), so this runs at the
+    # ceiling itself -- the most a file may hold, still hundreds of thousands
+    # of repeats of one index for ``update_world``'s ``queued`` set to absorb.
+    n = gltf.child_reference_ceiling()
     doc = {
         "asset": {"version": "2.0"},
         "scene": 0,

@@ -10,7 +10,7 @@ and its five functions -- fit, centre, to_image, to_screen, zoom_about -- are a
 zoomable, pannable 2D viewport and nothing about them is about pixels. A second
 copy would be a second set of clamping rules and a second Ctrl+0, drifting the
 first time either is touched. Promoted out of Inker to the shell in
-dev/RESTRUCTURE.md's P5, for exactly the reason this docstring already gave:
+P5 of the 2026-09 restructure, for exactly the reason this docstring already gave:
 none of it was ever Inker's.
 
 **Tool settings belong to the app; the view belongs to the document.** Switching

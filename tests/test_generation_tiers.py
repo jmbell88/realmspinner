@@ -45,6 +45,16 @@ def _request(**over):
     return generation.GenerationRequest(**base)
 
 
+def _structured_request(**over):
+    """A request naming a structure control. The 2026-10-11 audit, finding
+    create-09: a control with no reference to derive its hint from is refused
+    on its own field, so a request that is *about* the control's other
+    refusals has to carry one, as the pane's always does."""
+    return _request(
+        structure_control="canny", references=("ref.png",), reference_mode="single", **over
+    )
+
+
 def _ctx():
     """A pane ctx whose config is ``None``.
 
@@ -217,7 +227,7 @@ def test_automatic_routing_controlnet_refusal_names_a_control_that_still_exists(
     the repair button for). ``base_model`` is the field ``_model``
     (settings_2d.py) actually draws and shows a field error beside, under
     both routing modes, so that is what the refusal must name."""
-    request = _request(quality="fast", structure_control="canny")
+    request = _structured_request(quality="fast")
     resolved = generation.resolve_recipe(request, None)
     issues = generation.validate_request(request, resolved)
     assert [i.field for i in issues] == ["base_model"]
@@ -228,9 +238,8 @@ def test_automatic_routing_controlnet_refusal_names_a_control_that_still_exists(
 
 
 def test_the_refusal_names_the_model_when_the_user_picked_it(fast_tier):
-    request = _request(
+    request = _structured_request(
         quality="fast",
-        structure_control="canny",
         model_mode="advanced",
         model_override=fast_tier.key,
     )
@@ -240,7 +249,7 @@ def test_the_refusal_names_the_model_when_the_user_picked_it(fast_tier):
 
 
 def test_quality_plus_structure_control_is_accepted():
-    request = _request(quality="quality", structure_control="canny")
+    request = _structured_request(quality="quality")
     resolved = generation.resolve_recipe(request, None)
     assert generation.validate_request(request, resolved) == []
 

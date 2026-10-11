@@ -1,7 +1,7 @@
 """Everything about a rig, a pose, a sheet or a sprite draft that is a path
 or a record on disk.
 
-Split out of the former ``rigging.py`` (P4 of ``dev/RESTRUCTURE.md``): this is
+Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure): this is
 the storage half -- resource ids, the rig's own temp/served-name convention,
 and one file per pose/sheet/sprite-draft under a job directory, with no
 skeleton math and no template registry in it. Deliberately a leaf inside

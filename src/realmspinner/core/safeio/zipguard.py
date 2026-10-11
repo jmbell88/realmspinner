@@ -14,7 +14,7 @@ shell-08 (the 2026-09-14 audit) found this docstring naming only the
 original four (Mason and Sirens gained their doors later and were never
 added here); the regression test derives the caller list from the tree by
 grep rather than repeating a second hand-written copy of it, so it cannot go
-stale the same way again. (P3 of the restructure, ``dev/RESTRUCTURE.md``,
+stale the same way again. (P3 of the 2026-09 restructure,
 moved ``inker/ora.py`` and ``clay/serialize.py`` out from under ``studio/``
 into ``kernels/pixel/`` and ``kernels/mesh/`` respectively -- the names above
 are each caller's own directory, which is what stays stable across a move
@@ -46,7 +46,7 @@ door opened, so a new call site gets it by construction.
 A shared leaf under ``core/safeio/`` for the reason ``kernels/grid2d`` (né
 ``tilegrid``) and ``core/undo`` are shared leaves: several engines needed one
 rule, and another copy of a security bound is the kind of thing that drifts
-without any of them noticing. (P3 of the restructure, ``dev/RESTRUCTURE.md``,
+without any of them noticing. (P3 of the 2026-09 restructure,
 moved this module itself out from under ``studio/`` to sit beside the other
 shared, no-GL kernels the engines it guards were being moved out from under
 ``studio/`` to reach.)

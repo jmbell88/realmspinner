@@ -1,7 +1,7 @@
 """The rig kernel: skeleton templates, pose/clip validation and storage, and
 the pure spec builders for the Blender subprocess.
 
-Layer 1 ("pure domain, no UI, no process control", ``dev/RESTRUCTURE.md``'s
+Layer 1 ("pure domain, no UI, no process control", the 2026-09 restructure's
 table) -- this is the P4 split of the former ``src/realmspinner/rigging.py``
 (2,849 lines) into one module per concern. **No symbol is re-exported here**:
 a caller imports the submodule it needs and addresses the symbol through it

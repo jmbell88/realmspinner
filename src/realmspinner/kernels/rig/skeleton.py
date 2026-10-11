@@ -1,7 +1,7 @@
 """Fitting a template onto a mesh's bounding box, and editing a skeleton's
 structure once it is on there.
 
-Split out of the former ``rigging.py`` (P4 of ``dev/RESTRUCTURE.md``).
+Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure).
 :func:`fit_template` only ever scales a template's own normalized landmarks;
 everything below the "skeleton editing" banner lets Poser's skeleton editor
 change the *structure* too -- add or remove a pivot, split a bone, graft a

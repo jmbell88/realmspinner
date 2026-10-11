@@ -121,9 +121,11 @@ An asset built in Clay can never be rerolled or remeshed, because there is no re
 it. The app knows and the buttons are absent rather than broken. Clay does not turn a blockout back into
 a generation, either; the reconstruction pipeline starts from a picture, in [Create](22-generating-references.md).
 
-Clay does not reduce triangle counts or rebuild a mesh as quads. A budget on a finished asset is
-applied downstream, in the retarget panel, and you can read the triangle count you are working to on the
-**Statistics** overlay as you model.
+Clay does not rebuild a mesh as quads. It can bring an imported or heavily subdivided object down
+toward a face count: **Simplify...** (Clean Up, object mode) merges flat neighbouring faces into larger
+ones and, if that is not enough, collapses edges, as [Simplifying a mesh](30-clay.md#simplifying-a-mesh)
+describes. A triangle budget on a finished asset is still applied downstream, in the retarget panel, and
+you can read the triangle count you are working to on the **Statistics** overlay as you model.
 
 ## Round trips
 

@@ -665,11 +665,13 @@ def _finishing(ctx: Any, form: dict[str, Any]) -> None:
 
 # The ids the Budget rows ring. They are the service door's own field names
 # (``resolve_profile``/``resolve_lowpoly`` refuse with them), which is why they
-# are not namespaced here: ``retarget_panel`` rings the same ``profile`` and
-# ``custom_triangles`` for an unrelated door, and the 2026-10-10 audit's
-# create-18 found the two share the one flat ``field_errors`` dict. Telling them
-# apart wants the refusals' ``field=`` renamed in ``service/``, so for now a
-# pick on either side only clears what it can see.
+# are not namespaced here. ``retarget_panel`` used to ring the same ``profile``
+# and ``custom_triangles`` for an unrelated door, and the 2026-10-10 audit's
+# create-18 found the two share the one flat ``field_errors`` dict; the
+# 2026-10-11 audit, finding create-22, closed the collision from the other side:
+# ``retarget_panel._optimize_job`` relabels its door's refusals to
+# ``retarget_profile`` / ``retarget_custom_triangles`` and draws its controls
+# under those, so these four unprefixed ids belong to this pane alone.
 
 
 def _clear_budget_rings(ctx: Any) -> None:

@@ -1,11 +1,11 @@
 """The shipped/user clip *library* -- an ordered list of key poses that plays
 back as one of Troupe's walk cycles -- loaded, validated and merged.
 
-Split out of the former ``rigging.py`` (P4 of ``dev/RESTRUCTURE.md``).
+Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure).
 Deliberately named ``cliplib``, not ``clips``: ``realmspinner/clips.py`` is a
 different module already (the shipped library joined to Troupe's frame
 table), and a later restructure wave folds it into this same package
-(``dev/RESTRUCTURE.md``'s own table lists ``clips`` among ``rig/``'s
+(the 2026-09 restructure's own table lists ``clips`` among ``rig/``'s
 eventual members) -- so this file claims the name that will not collide with
 it, rather than costing that wave a second rename to get out of this one's way.
 

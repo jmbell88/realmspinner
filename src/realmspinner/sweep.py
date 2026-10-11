@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import doctor
+from . import doctor, guidance
 from .config import Config
 from .pipelines.trellis import TrellisServer
 
@@ -62,6 +62,12 @@ MEANINGFUL_MARGIN = 0.20
 DEGENERATE_FACE_RATIO = 0.25
 
 
+def _max_band() -> int:
+    from .service.validation import MAX_TRELLIS_BAND
+
+    return MAX_TRELLIS_BAND
+
+
 def parse_bands(raw: str) -> list[int | None]:
     """"auto,2,4" -> [None, 2, 4], preserving order and dropping duplicates."""
     bands: list[int | None] = []
@@ -77,6 +83,18 @@ def parse_bands(raw: str) -> list[int | None]:
         # named the actual bad input.
         if value is not None and value <= 0:
             raise ValueError(f"band must be a positive integer, got {part!r}")
+        # The 2026-10-11 audit, finding create-19: only ``> 0`` was checked, while
+        # the service door bounds the same launch flag at ``MIN_TRELLIS_BAND`` ..
+        # ``MAX_TRELLIS_BAND`` -- so ``--bands 2,99999999`` was accepted and failed
+        # inside the exe minutes into the run. The constants are the door's own,
+        # imported where the sweep runs rather than restated. Function scope: the
+        # service package is heavy and ``realmspinner sweep`` has to import (and
+        # refuse a bad ladder) on a host with no weights.
+        if value is not None and value > _max_band():
+            raise ValueError(
+                f"band must be at most {_max_band()} (the same ceiling a job's "
+                f"trellis_band has), got {part!r}"
+            )
         if value not in bands:
             bands.append(value)
     if not bands:
@@ -115,9 +133,20 @@ async def run_band(
         decim=config.trellis_decim,
         atlas=config.trellis_atlas,
     )
+    # The 2026-10-11 audit, finding create-13: no ``bg_removal`` was sent, so every
+    # band ran under the exe's own default matte while a real job gets the
+    # learned one wherever ``birefnet.gguf`` is on disk (``guidance.normalize``'s
+    # ``bg_default``) -- and the closing line tells a human to hard-code a band
+    # from these numbers. ``hole_fraction`` is corpus-dependent on exactly this
+    # (see ``print_table``), so a band picked under the other matte is a figure
+    # nobody may act on. The gate is the app's, and is a file check, so the sweep
+    # still needs no weights to import or to refuse bad arguments.
+    matte = guidance.default_bg_removal(config.trellis_models_dir)
     started = time.monotonic()
     try:
-        await server.generate(image, glb_path, seed=seed, resolution=resolution)
+        await server.generate(
+            image, glb_path, seed=seed, resolution=resolution, bg_removal=matte
+        )
     finally:
         await asyncio.to_thread(server.stop)
     generate_s = time.monotonic() - started
@@ -132,6 +161,7 @@ async def run_band(
         "faces": report["faces"],
         "seconds": generate_s,
         "glb": glb_path,
+        "matte": matte,
     }
 
 
@@ -211,7 +241,12 @@ def print_table(rows: list[dict[str, Any]], audit_resolution: int) -> None:
     # seed, so a band that opens holes in it genuinely is the worse band -- but
     # the header used to state the inverted rule as a general one, and this
     # table is where somebody would read it.
-    print(f"band sweep (hole_fraction @ {audit_resolution})")
+    # The matte every row was generated under, named because the metric's meaning
+    # moved with it (the paragraph above); rows from before the sweep recorded one
+    # simply have none to name.
+    matte = next((r["matte"] for r in rows if r.get("matte")), None)
+    matte_note = f", matte {matte}" if matte else ""
+    print(f"band sweep (hole_fraction @ {audit_resolution}{matte_note})")
     print("lower is better for one subject at one seed; it is not a quality score --")
     # The pointer used to name LEFTOVERS.md, deleted 2026-08-10, and after that
     # a dev/measurements/ document -- gitignored, so a public clone of this

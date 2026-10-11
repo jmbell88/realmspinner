@@ -67,6 +67,14 @@ from .validate import (
 # between entries the same way.
 BATCH_DEADLINE_S = 30.0
 
+# The 2026-10-11 audit's clay-20: the deadline above forgives every entry its own
+# running time (clay-16 of the 2026-09-23 audit, so a slow entry cannot discard
+# the finished work of the run), which meant it never fired for slow work at all:
+# six 0.2 s entries against a 0.05 s deadline all completed, and BATCH_MAX presses
+# of Simplify (up to ~1.9 s each) held the frame thread for about a minute. This
+# is the second cap, on elapsed-since-start, busy time included.
+BATCH_TOTAL_S = 60.0
+
 log = logging.getLogger(__name__)
 
 
@@ -474,17 +482,27 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # and a call already running is never cut off, so a long chain refuses
     # partway through rather than blocking the frame thread for the whole
     # batch with no ceiling at all.
-    deadline = time.monotonic() + BATCH_DEADLINE_S
+    start = time.monotonic()
+    deadline = start + BATCH_DEADLINE_S
 
     def _make_entry(index: int, name: str, arguments: dict) -> Any:
         def _run(doc: Any, session: Session) -> dict:
             nonlocal deadline
-            if index > 0 and time.monotonic() > deadline:
-                return fail(
-                    f"clay_batch exceeded its {BATCH_DEADLINE_S:g}s deadline "
-                    "before this call ran; split the batch into smaller "
-                    "clay_batch calls.",
-                )
+            if index > 0:
+                now = time.monotonic()
+                if now > deadline:
+                    return fail(
+                        f"clay_batch exceeded its {BATCH_DEADLINE_S:g}s deadline "
+                        "before this call ran; split the batch into smaller "
+                        "clay_batch calls.",
+                    )
+                # The total cap (clay-20), read off the same clock reading.
+                if now - start > BATCH_TOTAL_S:
+                    return fail(
+                        f"clay_batch exceeded its {BATCH_TOTAL_S:g}s total run time "
+                        "before this call ran; split the batch into smaller "
+                        "clay_batch calls.",
+                    )
             started = time.monotonic()
             result = _resolve_and_call(ctx, session, doc, name, arguments)
             # clay-16 (the 2026-09-23 audit, second run): mirrors
@@ -857,7 +875,9 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
     prior_selection = set(doc.selection)
 
     deadline_s = _core().PROGRAM_DEADLINE_S
-    deadline = time.monotonic() + deadline_s
+    total_s = _core().PROGRAM_TOTAL_S
+    start = time.monotonic()
+    deadline = start + deadline_s
 
     def _make_entry(index: int, compiled_call: tuple[Any, ...]) -> Any:
         def _run(doc: Any, session: Session) -> dict:
@@ -866,12 +886,23 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
             # is never cut off, and the very first call always gets to run
             # regardless of how close the budget already is, so a run that
             # does nothing at all can never be blamed on this.
-            if index > 0 and time.monotonic() > deadline:
-                return fail(
-                    f"clay_program exceeded its {deadline_s:g}s "
-                    "deadline before this step ran; split the program into "
-                    "smaller clay_program calls.",
-                )
+            if index > 0:
+                now = time.monotonic()
+                if now > deadline:
+                    return fail(
+                        f"clay_program exceeded its {deadline_s:g}s "
+                        "deadline before this step ran; split the program into "
+                        "smaller clay_program calls.",
+                    )
+                # The total cap (the 2026-10-11 audit's clay-20): the idle
+                # deadline is pushed out by every call's own run time below,
+                # so it cannot stop slow calls; elapsed-since-start can.
+                if now - start > total_s:
+                    return fail(
+                        f"clay_program exceeded its {total_s:g}s total run time "
+                        "before this step ran; split the program into "
+                        "smaller clay_program calls.",
+                    )
             started = time.monotonic()
             if compiled_call[0] == "live":
                 kind, arguments = compiled_call[1], compiled_call[2]

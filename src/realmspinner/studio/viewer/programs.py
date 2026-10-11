@@ -388,6 +388,29 @@ void main() {
 }
 """
 
+# The 2026-10-11 audit, finding create-25: the wire overlay used to draw through
+# the material's own ``unlit`` program with its base-colour map still bound, so
+# the tint was multiplied by the texture, alpha was forced to 1.0 for OPAQUE and
+# MASK (the documented 0.75 never applied on a textured mesh, which is every
+# trellis output) and a MASK material discarded the lines wherever the
+# *texture's* alpha was under the cutoff. This program reads no material at all:
+# one colour, its own alpha, tone-mapped like every other draw. It shares the
+# PBR vertex stage so a skinned primitive's overlay follows its pose.
+WIRE_VERT = PBR_VERT
+
+WIRE_FRAG = """
+#version 330 core
+out vec4 f_color;
+uniform vec4 u_color;
+uniform float u_exposure;
+__COLOR__
+void main() {
+    // Linear, as the unlit program treated the tint it replaced: a near-black
+    // chosen as a *chrome* colour, not an sRGB swatch like a marker's.
+    f_color = outputColor(u_color.rgb, u_color.a);
+}
+"""
+
 SOLID_VERT = """
 #version 330 core
 in vec3 a_position;
@@ -569,6 +592,7 @@ SOURCES: dict[str, tuple[str, str]] = {
     "pbr": (PBR_VERT, PBR_FRAG),
     "unlit": (UNLIT_VERT, UNLIT_FRAG),
     "solid": (SOLID_VERT, SOLID_FRAG),
+    "wire": (WIRE_VERT, WIRE_FRAG),
     "id": (SOLID_VERT, ID_FRAG),
     "lines": (LINES_VERT, LINES_FRAG),
     "ground": (GROUND_VERT, GROUND_FRAG),

@@ -60,7 +60,16 @@ from pathlib import Path
 from typing import Any
 
 from ....core.safeio import atomic, sizeguard
+from ....kernels.mesh.meshimport import SUPPORTED_SUFFIXES as SUPPORTED_MESH_SUFFIXES
 from ... import dialogs, docmodes, journal
+
+# Ctrl+digit axis views, on the numbers a modeller's hand already knows from
+# Blender's numpad. **Bound here rather than in ``App._shortcut``**: a global
+# binding is checked above the workspace modes and takes its key from them
+# permanently, which is the whole reason the mode switch moved to Alt. The
+# *binding* belongs to Clay; the table and the function do not, and live in
+# ``_view_frame`` -- Poser already called this one function rather than
+# restating it, so they are imported under the name both call sites already use.
 from ..._view_frame import AXIS_VIEW_KEYS, axis_view_key
 from . import state as clay_state
 from .state import ClayState, ClayTab
@@ -279,7 +288,13 @@ def adopt(
     path: Path | None = None,
     title: str | None = None,
     view: dict[str, Any] | None = None,
+    activate: bool = True,
 ) -> ClayTab:
+    """Open *doc* as a tab and (by default) bring it to the front.
+
+    ``activate=False`` is the agent door's: its tab opens in the tab bar behind
+    whatever the person is working on (the 2026-10-11 audit's clay-14).
+    """
     state = ensure(ctx)
     tab = ClayTab(
         doc=doc,
@@ -295,17 +310,20 @@ def adopt(
         # Already framed, which is the whole point of having stored one: an
         # auto-fit over the top would throw away the answer just read off disk.
         tab.view.fitted = True
-    state.add(tab)
+    if activate:
+        state.add(tab)
+    else:
+        state.add_in_background(tab)
     remember_path(ctx, path)
     persist(ctx)
     announce_migration(ctx, doc)
     return tab
 
 
-def new_document(ctx: Any) -> ClayTab:
+def new_document(ctx: Any, *, activate: bool = True) -> ClayTab:
     from ....kernels.mesh import document as bd
 
-    return adopt(ctx, bd.ClayDoc(), title="Untitled")
+    return adopt(ctx, bd.ClayDoc(), title="Untitled", activate=activate)
 
 
 def _within_ceiling(path: Path) -> bytes:
@@ -1106,10 +1124,11 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
 OBJ_FILTER = ["Wavefront OBJ (*.obj)", "*.obj"]
 #: Side of the square a screenshot is drawn at.
 SCREENSHOT_SIZE = 2048
-IMPORT_MESH_FILTER = [
-    "Mesh files (*.glb *.obj *.stl *.ply)",
-    "*.glb *.obj *.stl *.ply",
-]
+#: Built from ``meshimport.SUPPORTED_SUFFIXES``, the list the drop door reads
+#: (the 2026-10-11 audit's clay-35): a hand-typed copy here would let a format
+#: added to one door be refused by the other.
+_IMPORT_GLOBS = " ".join(f"*{suffix}" for suffix in SUPPORTED_MESH_SUFFIXES)
+IMPORT_MESH_FILTER = [f"Mesh files ({_IMPORT_GLOBS})", _IMPORT_GLOBS]
 
 
 #: The first line :func:`~.kernels.mesh.objexport.claydoc_to_obj` writes into
@@ -1561,9 +1580,10 @@ def on_task_failed(ctx: Any, done: Any) -> None:
 def guard(ctx: Any, verb: str, proceed: Any) -> bool:
     """Ask before losing unsaved work. -> whether it went ahead now.
 
-    One question for all of them: ``ConfirmQueue`` holds a single pending
-    question, so asking per dirty document would silently drop all but the
-    first. Only quitting and closing a tab are destructive -- switching modes
+    One question for all of them: ``ConfirmQueue`` really queues, so asking per
+    dirty document would not lose any -- it would park the person in front of a
+    run of modals they answer the same way each time (``docmodes.guard``'s own
+    reason). Only quitting and closing a tab are destructive -- switching modes
     is not, because Clay is a mode rather than a takeover and its tabs are
     still there when you come back.
     """
@@ -1661,14 +1681,6 @@ TOOL_KEYS = {
 # key, so the four modes are one contiguous run under four fingers.
 ELEMENT_KEYS = {"1": "vertex", "2": "edge", "3": "face", "4": "object"}
 
-# Ctrl+digit axis views, on the numbers a modeller's hand already knows from
-# Blender's numpad. **Bound here rather than in ``App._shortcut``**: a global
-# binding is checked above the workspace modes and takes its key from them
-# permanently, which is the whole reason the mode switch moved to Alt. The
-# *binding* belongs to Clay; the table and the function do not, and live in
-# ``_view_frame`` -- Poser already called this one function rather than
-# restating it, and they are imported above under the name both call sites
-# already use.
 # Ctrl-shortcuts that change the document. Serialising reads the live document
 # on a task thread, so anything that restructures it or moves the history head
 # the save captured waits for the save, exactly as a gizmo drag does.
@@ -1851,8 +1863,14 @@ def handle_key(ctx: Any, event: Any) -> bool:
     if event.type == pygame.KEYDOWN and pygame.key.name(event.key) == "f" and not (
         event.mod & (pygame.KMOD_CTRL | pygame.KMOD_ALT)
     ):
-        # Recorded, not done: see ``ClayState.frame_pending``.
-        ensure(ctx).frame_pending = True
+        # Recorded, not done: see ``ClayState.frame_pending``. Only with a
+        # document to frame (the 2026-10-11 audit's clay-32): the flag is
+        # consumed by the viewport's document branch, so an F pressed over the
+        # empty state stayed set and framed the *next* file opened, overwriting
+        # the camera an ``.rblk`` or a recovered copy carries.
+        state = ensure(ctx)
+        if state.docs:
+            state.frame_pending = True
         return True
 
     state = ctx.state.clay

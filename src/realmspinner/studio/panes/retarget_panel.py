@@ -60,6 +60,28 @@ TIERS: tuple[tuple[str, str], ...] = tuple(
 ) + (("custom", "Custom..."),)
 
 
+# The 2026-10-11 audit, finding create-22: ``optimize_job`` refuses with
+# ``profile`` and ``custom_triangles``, the very ids Create's Budget combo rings
+# in the one flat ``ctx.state.field_errors``. ``texture_panel``, ``remesh_panel``
+# and ``sheet_panel`` already prefix the ids that collide; this panel did not.
+_FIELD_PREFIX = {
+    "profile": "retarget_profile",
+    "custom_triangles": "retarget_custom_triangles",
+}
+
+
+def _optimize_job(svc: Any, job_id: str, **kwargs: Any) -> dict[str, Any]:
+    """``optimize_job``, with a colliding refusal's address renamed to this
+    panel's own control. See ``_FIELD_PREFIX`` above."""
+    try:
+        return svc_jobs.optimize_job(svc, job_id, **kwargs)
+    except Exception as exc:
+        renamed = _FIELD_PREFIX.get(getattr(exc, "field", None))
+        if renamed:
+            exc.field = renamed
+        raise
+
+
 def draw(ctx: Any, job: Any) -> None:
     files = job.get("files") or []
     if "source.glb" not in files:
@@ -86,27 +108,24 @@ def draw(ctx: Any, job: Any) -> None:
     # ``resolve_profile``, ``service/_jobs_create.py``) raises
     # ``field="profile"`` for both an unusable tier and an unusable custom
     # count -- ``remesh_job``'s own door, not this one, is what raises
-    # ``field="remesh_profile"``/``field="custom_triangles"``. This panel used
-    # to borrow that pair on the theory that it named "the other pane over the
-    # same service call", which was wrong on two counts: the calls are
-    # different (``optimize_job`` here, ``remesh_job`` there) and neither
-    # spelling is what this door actually raises -- so even with ``errors``
-    # wired the ring had nothing to land on, the defect this panel's own prior
-    # comment claimed to have fixed (the 2026-09-07 audit, finding create-04).
-    # ``profile`` and ``custom_triangles`` below are *this* door's own field
-    # names, and also its parameter names, so the form dict keys need no
-    # second vocabulary -- ``remesh_job`` raising the identical
-    # ``"custom_triangles"`` string for its own, unrelated custom count is
-    # exactly why ``remesh_panel._FIELD_PREFIX`` relabels that one to
-    # ``"remesh_custom_triangles"`` before it ever reaches this shared,
-    # unnamespaced dict.
+    # ``field="remesh_profile"``/``field="custom_triangles"`` (the 2026-09-07
+    # audit, finding create-04, is why this panel stopped borrowing that pair).
+    # ``profile`` and ``custom_triangles`` are also the ids Create's Budget
+    # combo (``settings_3d``) rings, and ``field_errors`` is one flat dict, so
+    # the 2026-10-11 audit, finding create-22, found a refusal on one control
+    # ringing the other and an edit of one clearing the other's ring.
+    # ``_optimize_job`` relabels the door's two colliding addresses to
+    # ``retarget_*`` -- the ``remesh_panel._remesh_job`` pattern -- and the
+    # controls below are drawn under those names. The form *dict* keys stay the
+    # door's parameter names; they are a different vocabulary and never reach
+    # ``field_errors``.
     with forms.Form(
         "retarget-settings",
         errors=ctx.state.field_errors,
         on_edit=ctx.state.clear_field_error,
     ) as form_ui:
         _changed, form["profile"] = form_ui.combo(
-            "profile",
+            "retarget_profile",
             "Budget",
             form["profile"],
             options,
@@ -119,7 +138,7 @@ def draw(ctx: Any, job: Any) -> None:
 
         if form["profile"] == "custom":
             changed, value = form_ui.number(
-                "custom_triangles",
+                "retarget_custom_triangles",
                 "Triangles",
                 int(form["custom_triangles"]),
                 helper=f"{optimize.CUSTOM_MIN:,} to {optimize.CUSTOM_MAX:,}",
@@ -305,7 +324,7 @@ def _submit(ctx: Any, job_id: str, form: dict[str, Any]) -> None:
         ctx.state.clear_field_errors()
         ctx.submit(
             key,
-            svc_jobs.optimize_job,
+            _optimize_job,
             ctx.svc,
             job_id,
             profile=form["profile"],

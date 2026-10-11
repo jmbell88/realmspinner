@@ -423,9 +423,27 @@ def _model_card(ctx: Any, tab: Any, doc: Any) -> None:
 # --- one shape ------------------------------------------------------------------
 
 
+def gesture_note(gesture: bool) -> str:
+    """The line over the one-shape cards while a live drag greys them, or ``""``.
+
+    Pure, so the sentence is checkable; it is :data:`~..doc_io.GESTURE_WHY`, the
+    words every other greyed Clay control says for the same reason.
+    """
+    return doc_io.GESTURE_WHY if gesture else ""
+
+
 def _one(ctx: Any, state: Any, tab: Any, doc: Any, obj: Any) -> None:
     _title(ctx, "Selected shape")
-    imgui.begin_disabled(bool(tab.saving))
+    # The 2026-10-11 audit's clay-18: Size, Position, Rotation, Scale and the shape's
+    # own settings all write ``doc.history``, and a live G/R/S, gizmo or UV drag
+    # reverts whatever lands under it at commit. Greyed for the drag as for a save,
+    # with the sentence once above (a disabled item swallows hover).
+    gesture = clay_mode._gesture_live(ctx, tab)
+    blocked = bool(tab.saving) or gesture
+    note = gesture_note(gesture and not tab.saving)
+    if note:
+        widgets.muted_wrapped(note)
+    imgui.begin_disabled(blocked)
     _header_row(doc, obj, tab)
     inspector_size.draw(ctx, state, doc, obj)
     _settings(ctx, state, doc, obj)
@@ -435,7 +453,7 @@ def _one(ctx: Any, state: Any, tab: Any, doc: Any, obj: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
     _action_row(ctx, tab, doc)
     imgui.dummy((0, sp(tokens.SP_2)))
-    imgui.begin_disabled(bool(tab.saving))
+    imgui.begin_disabled(blocked)
     if widgets.header("Position & turn", default_open=False, persist_key="clay/insp/position"):
         props._transform(
             doc, obj, ctx=ctx, state=state, show_unit=False, show_scale=False, show_size=False

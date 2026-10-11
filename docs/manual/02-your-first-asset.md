@@ -34,7 +34,7 @@ broken. You are at the end of stage one, and stage two is a button.
 ## Stage one: the reference
 
 Open **Create** in the rail on the left. The brief and settings are on the left, the canvas
-and attempts in the middle, and the inspector and recent creations on the right. The header shows
+and attempts in the middle, and the inspector and History on the right. The header shows
 Reference, Mesh, Rig, Pose and Export for a 3D model, plus New and Inspector controls. You are on Reference.
 
 Three controls matter for a first run, and everything else has a sensible default.
@@ -60,8 +60,9 @@ into one. Composition matters more than adjectives here.
 **Model.** Leave it on *Automatic*, which means the app picks the checkpoint and tells you which
 one underneath. For a first asset it resolves to SDXL 1.0 at full CFG — thirty steps, the default
 because it was measured against the alternatives rather than chosen for speed. Name a checkpoint
-yourself when you want a specific one; the four-step entries are for hunting, not for a picture you
-mean to reconstruct.
+yourself when you want a specific one: the list holds three, SDXL 1.0, the same SDXL weights with two
+sampling upgrades (PAG) and FLUX.2 klein, and
+[Tuning what you get](12-tuning-what-you-get.md#models-and-loras) says what each is for.
 
 Press **Generate reference** — the persistent button at the bottom of the left column.
 The job appears in this creation’s Attempts strip, immediately, as a queued result. A

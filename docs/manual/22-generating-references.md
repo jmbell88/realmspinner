@@ -2,7 +2,7 @@
 
 A reference is the picture the mesh will be reconstructed from. Everything in this chapter lives on
 the Reference stage. Your brief and settings are on the left, the canvas and attempts are in the middle,
-and the selected result and recent creations are on the right.
+and the selected result and History are on the right.
 
 ## The prompt
 
@@ -34,8 +34,7 @@ contain. It is pre-filled with the things that most often ruin a reconstruction,
 delete the text and the job runs with no negative prompt at all, which is a different request from
 the default rather than a way back to it. **Reset image settings…**, in the **New…** menu, brings the
 default text back along with the rest of the form. The box is hidden, not greyed, while the model
-in use ignores a negative prompt (any model that runs at guidance 1.0 or lower);
-the text is left as it was and reappears when you pick a model that reads it.
+in use ignores a negative prompt; none of the three models that ship does, so it is always there.
 
 ```text
 blurry, low quality, multiple objects, cropped, cut off,
@@ -44,10 +43,9 @@ text, watermark, signature, busy background, human hands
 
 A second subject, or a subject cut off by the frame edge, is the single most common cause of a mesh
 that comes out as nonsense — which is why this is a filled-in default rather than an empty field
-you have to discover. You can edit it freely, or empty it deliberately. Note that a negative prompt
-only has an effect on a model that runs with real classifier-free guidance (guidance above 1.0);
-a model that runs without it ignores the box.
-See [Models and style LoRAs](#models-and-style-loras).
+you have to discover. You can edit it freely, or empty it deliberately. A negative prompt only has an
+effect on a model that runs with real classifier-free guidance (guidance above 1.0), which is all
+three that ship. See [Models and style LoRAs](#models-and-style-loras).
 
 For the types that use a template, your text is composed into it before the image model sees it; an
 Image job's composed prompt is simply your text. The finished job records the result as
@@ -166,19 +164,17 @@ Naming a checkpoint replaces automatic routing. Three base models ship in the re
 | FLUX.2 klein-base 4B (full CFG) | A different architecture entirely, and the slowest thing here. | 1024 px, 50 steps, guidance 4.0 |
 
 The sampler settings travel with the checkpoint and are not yours to set. They are part of the
-model's identity: a distilled model run at 25 steps with guidance produces mush, and a checkpoint
-run at the wrong scheduler degrades silently.
+model's identity: a checkpoint run at the wrong step count or scheduler degrades silently.
 
 Three consequences are worth knowing. A **negative prompt** is only encoded when guidance is above
-1.0, so it does nothing on an entry whose guidance is 1.0 or lower. All three shipped entries run above
-that, so it is honoured on each.
-**Structure control** (see [Conditioning on an image](#conditioning-on-an-image)) is
-only offered on the SDXL models that run with real guidance, because a ControlNet at guidance 0
-fights the hint instead of following it. And **conditioning, seamless tiles and every style LoRA
-are SDXL-only**: they are all built against SDXL's internals, so on FLUX.2 the Style LoRA picker
-is disabled with a note saying so, and asking for a tile is refused rather than quietly producing one
-whose edges do not line up. The negative prompt does work on FLUX.2 — that is why the undistilled
-`klein-base` variant is the one that ships.
+1.0; all three shipped entries run above that, so it is honoured on each, FLUX.2 included — that is
+why the `klein-base` variant is the one that ships. **Structure control** (see [Conditioning on an
+image](#conditioning-on-an-image)) is a ControlNet, and FLUX.2 cannot take one: it is the one real
+refusal among the three, so picking FLUX.2 clears a chosen structure control and the Structure group
+is replaced by a note. And **conditioning, seamless tiles and every style LoRA are SDXL-only**: they
+are all built against SDXL's internals, so on FLUX.2 the Style LoRA picker is disabled with a note
+saying so, and asking for a tile is refused rather than quietly producing one whose edges do not
+line up.
 
 Only one base model is resident on the card at a time — a 32 GB card holds the reconstruction engine
 plus a single image pipeline, not two — so switching between models between jobs costs a reload of
@@ -208,8 +204,8 @@ than vanishing, and changing the model clears it with an explanation. That holds
 
 Choosing one reveals a **Strength** slider, from 0 to 1.5, defaulting to the LoRA's own tuned
 weight — 0.9 unless the entry says otherwise. The slider is hidden entirely when no LoRA is chosen.
-The SDXL LoRAs are trained against full SDXL at 20 to 25 steps with guidance, so they land
-noticeably stronger there than they would on a few-step distilled model.
+The SDXL LoRAs are trained against full SDXL at 20 to 25 steps with guidance, and both SDXL
+recipes run the same way.
 
 ## Seeds and candidates
 
@@ -348,12 +344,11 @@ traces the reference's edges and holds the new image to that shape. It has two c
 far into the drawing it keeps acting: ending early lets the last steps add detail the reference
 never had, while 1.0 holds the shape to the final step and tends to look traced.
 
-Structure needs a checkpoint that runs with real guidance, and the section says so rather than
-offering a control that cannot work. Which fix it names depends on which control chose the
-checkpoint: with a checkpoint named in the **Model** row it says which of the others could run it,
-and under Automatic it tells you to pick a full-CFG model there instead — because Automatic is what
-picked a guidance-zero checkpoint on your behalf, and the row is showing "Automatic" rather than
-that checkpoint's name.
+Structure needs a checkpoint that can take a ControlNet, which is either SDXL model and not FLUX.2
+klein, and the section says so rather than offering a control that cannot work. Which fix it names
+depends on which control chose the checkpoint: with a checkpoint named in the **Model** row it says
+which of the others could run it, and under Automatic it tells you to pick one of those in the
+Model row instead.
 
 Clearing the reference clears both selections with it, since neither can be submitted without an
 image.

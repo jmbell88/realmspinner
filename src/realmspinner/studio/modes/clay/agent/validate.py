@@ -359,7 +359,11 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
             "or clay_add_mesh first.",
             recovery="start_document",
         )
-    tab = clay_mode.new_document(ctx)
+    # Opened behind the person's own tab, never in front of it (the 2026-10-11
+    # audit's clay-14): ``new_document`` activates, which swapped their open
+    # document out of the viewport and Inspector mid-work and committed a live
+    # G/R/S drag on it. The tab is in the bar for them to switch to.
+    tab = clay_mode.new_document(ctx, activate=False)
     session.tab_uid = tab.uid
     return tab, None
 

@@ -404,7 +404,11 @@ def test_a_whole_live_rotate_drag_is_one_undo_step_and_undoes_to_the_exact_start
     before_history = len(doc.history)
 
     assert clay_uv.begin_live_transform(doc, view_state, "rotate", base, ids, (0.05, 0.05))
-    for now in [(0.1, 0.2), (0.3, 0.1), (0.5, 0.5)]:
+    # The last point sits off the pivot's own ray to the start. (It used to be
+    # the pivot itself, a zero angle; the 2026-10-11 audit's clay-36 made an
+    # identity transform hand back the very same mesh, so that drag now ends on
+    # ``base`` and the "something changed" check below could not hold.)
+    for now in [(0.1, 0.2), (0.3, 0.1), (0.9, 0.5)]:
         clay_uv.update_live_transform(doc, obj.uid, view_state, now)
     clay_uv.commit_live_transform(doc, view_state)
 
@@ -414,6 +418,22 @@ def test_a_whole_live_rotate_drag_is_one_undo_step_and_undoes_to_the_exact_start
     assert doc.by_uid(obj.uid).mesh is base, (
         "undo restores the exact starting mesh object, not a value-equal copy"
     )
+
+
+def test_a_live_rotate_drag_that_returns_to_its_start_ends_on_the_very_same_mesh() -> None:
+    """The frame that comes back to a zero angle writes the identity transform,
+    which is now the base mesh itself (clay-36), not a value-equal copy."""
+    doc, obj = _doc_with_two_islands()
+    base = obj.mesh
+    ids = np.array([0, 1], dtype="i4")
+    view_state = clay_uv.UvPaneState(selected_islands=frozenset({0, 1}))
+
+    assert clay_uv.begin_live_transform(doc, view_state, "rotate", base, ids, (0.05, 0.05))
+    for now in [(0.1, 0.2), (0.3, 0.1), (0.5, 0.5)]:
+        clay_uv.update_live_transform(doc, obj.uid, view_state, now)
+    clay_uv.commit_live_transform(doc, view_state)
+
+    assert doc.by_uid(obj.uid).mesh is base
 
 
 def test_a_whole_live_scale_drag_is_one_undo_step_and_undoes_to_the_exact_starting_mesh() -> None:

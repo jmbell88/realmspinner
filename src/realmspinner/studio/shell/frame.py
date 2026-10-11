@@ -1159,6 +1159,9 @@ class FrameMixin:
         halves = 2 if ctx.state.comparing else 1
         cell = (width - (8 if halves == 2 else 0)) / halves
         texture = self.viewer.render((pos.x, pos.y, cell, height), imgui.get_io().delta_time)
+        # After the draw, never before: a card picture requested on adoption
+        # is only true once the adopted model is in the viewport texture.
+        self._service_thumbnail_request()
         # UV flipped: GL's origin is bottom-left and imgui's is top-left.
         imgui.image(widgets.texture_ref(texture), (cell, height), (0, 1), (1, 0))
         self._viewport_hovered |= imgui.is_item_hovered()

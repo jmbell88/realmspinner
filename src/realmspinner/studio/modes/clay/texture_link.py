@@ -279,6 +279,17 @@ def pull_all(ctx: Any) -> None:
         # edits the document honours; the link keeps its old ``pulled_rev``, so
         # the same pull simply lands on the first frame after the save.
         if _links(tab) and not getattr(tab, "saving", False):
+            # The 2026-10-11 audit's clay-15: a pull is an undo step on the live
+            # document, and a G/R/S or UV gesture commits against the history
+            # head it started from -- landing inside it let Esc reverse the
+            # person's Inker paint and a commit fold it into "Rotate". The link
+            # keeps its old ``pulled_rev``, so the same pull lands on the first
+            # frame after the gesture. (Imported here: ``mode`` is the module
+            # that owns the gesture test, and it does not import this one.)
+            from . import mode as clay_mode
+
+            if clay_mode._gesture_live(ctx, tab):
+                continue
             pull(ctx, tab)
 
 

@@ -1,7 +1,7 @@
 """The process entry, the startup-geometry helpers, and the constants the
 whole shell shares.
 
-Until the P4 restructure (``dev/RESTRUCTURE.md``) this module *was* the shell
+Until the P4 restructure (2026-09) this module *was* the shell
 -- one 5,971-line file holding the window, the frame loop and every mixin it
 assembled. That split moved the class itself, and everything that draws
 through it, to ``shell/{app,frame,events,tasks,quit}.py`` and to one module

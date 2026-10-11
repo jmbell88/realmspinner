@@ -625,12 +625,22 @@ def _param_prose(p: clay_ops.Param) -> str:
     if p.choices:
         named = ", ".join(f"{i}={choice}" for i, choice in enumerate(p.choices))
         return f"{p.name} (choice: {named}, default {int(p.default)})"
+    # The 2026-10-11 audit's clay-48: a ``refuse_below`` floor (Simplify's target,
+    # Snap to Grid's step) is a sentence, not a clamp, and "from 4" read as one.
+    refused = f"refused (not clamped) below {p.low:g}" if p.refuse_below else ""
     if p.integer:
         # A whole number, and one whose real ceiling (a palette's length) is
         # the document's to enforce, so the 1e6 clamp is not worth printing.
-        span = f"from {int(p.low)}" if p.high >= 1e6 else f"{int(p.low)}-{int(p.high)}"
+        if p.refuse_below and p.high >= 1e6:
+            span = refused
+        else:
+            span = f"from {int(p.low)}" if p.high >= 1e6 else f"{int(p.low)}-{int(p.high)}"
+            span = f"{span}, {refused}" if refused else span
         return f"{p.name} (whole number {span}, default {int(p.default)})"
-    return f"{p.name} ({p.low}-{p.high}, default {p.default})"
+    span = f"{p.low}-{p.high}"
+    if refused:
+        span = f"{span}, {refused}"
+    return f"{p.name} ({span}, default {p.default})"
 
 
 def _op_catalog() -> str:
@@ -653,9 +663,16 @@ def _op_catalog() -> str:
         modes = "/".join(op.modes)
         if op.params:
             fields = ", ".join(_param_prose(p) for p in op.params)
-            parts.append(f"{op.name} [{modes}: {fields}]")
+            entry = f"{op.name} [{modes}: {fields}]"
         else:
-            parts.append(f"{op.name} [{modes}]")
+            entry = f"{op.name} [{modes}]"
+        # The 2026-10-11 audit's clay-51: ``Op.hint`` (what the op is for, and
+        # when its neighbour is the one meant) reached only the human's dialog, so
+        # an agent learned that Simplify may stay above its target from a reply.
+        # This topic is fetched on demand, not carried in every ``tools/list``.
+        if op.hint:
+            entry = f"{entry}: {op.hint}"
+        parts.append(entry)
     return "; ".join(parts)
 
 

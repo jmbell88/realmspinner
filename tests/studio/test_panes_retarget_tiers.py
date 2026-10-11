@@ -38,9 +38,13 @@ def test_the_budget_field_id_is_what_optimize_job_actually_raises():
     source = inspect.getsource(retarget_panel.draw)
     call = re.search(r'form_ui\.combo\(\s*"([^"]+)"', source)
     assert call is not None, "retarget_panel.draw no longer draws the budget combo"
-    assert call.group(1) == "profile", (
-        "the budget combo's field id must match what optimize_job raises "
-        f"(field='profile'), not {call.group(1)!r}"
+    # The 2026-10-11 audit, finding create-22: the door's ``profile`` is
+    # relabelled to ``retarget_profile`` by ``_optimize_job`` (Create's Budget
+    # combo rings the bare ``profile`` in the same flat dict), so the control
+    # is drawn under the relabelled name.
+    assert call.group(1) == retarget_panel._FIELD_PREFIX["profile"] == "retarget_profile", (
+        "the budget combo's field id must be what _optimize_job relabels "
+        f"optimize_job's field='profile' to, not {call.group(1)!r}"
     )
 
 
@@ -51,7 +55,8 @@ def test_the_custom_triangles_field_id_names_no_other_doors_control():
     source = inspect.getsource(retarget_panel.draw)
     call = re.search(r'form_ui\.number\(\s*"([^"]+)"', source)
     assert call is not None, "retarget_panel.draw no longer draws the custom-triangles field"
-    assert call.group(1) == "custom_triangles"
+    assert call.group(1) == retarget_panel._FIELD_PREFIX["custom_triangles"]
+    assert call.group(1) == "retarget_custom_triangles"
     assert call.group(1) != "custom_faces"
 
 

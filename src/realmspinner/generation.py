@@ -814,8 +814,20 @@ def validate_target_cell(
 
 
 def validate_request(
-    request: GenerationRequest, resolved: ResolvedRecipe | None = None
+    request: GenerationRequest,
+    resolved: ResolvedRecipe | None = None,
+    *,
+    structure_forwarded: bool = True,
 ) -> list[CompatibilityIssue]:
+    """The refusals a request document earns, in the order a person fixes them.
+
+    ``structure_forwarded`` says whether the door that will run this request
+    carries its ``structure_control`` through to the job. The Create pane does --
+    it sends ``control`` itself in ``create_job``'s guidance fields -- so the
+    default is True. ``jobs.create_generation_request`` does not (see
+    :func:`request_to_legacy`) and passes False, which turns a structure control
+    into a refusal there rather than a recorded claim the pixels never had.
+    """
     issues: list[CompatibilityIssue] = []
     if request.generation_type not in GENERATION_TYPES:
         issues.append(
@@ -824,7 +836,41 @@ def validate_request(
     if not request.prompt.strip():
         issues.append(CompatibilityIssue("prompt", "A prompt is required."))
     if request.quality not in QUALITY_TIERS:
-        issues.append(CompatibilityIssue("quality", "Quality must be Fast or Quality."))
+        # The 2026-10-11 audit, finding create-17: this said "Quality must be Fast
+        # or Quality." -- naming a Fast tier the shipped registry has not offered
+        # since the distilled models were retired (800001dc). The tiers named now
+        # are read off the registry, so the sentence cannot go stale again.
+        offered = sorted({r.quality for r in RECIPES})
+        issues.append(
+            CompatibilityIssue(
+                "quality",
+                f"No compatible quality tier is available; choose "
+                f"{' or '.join(t.capitalize() for t in offered)}.",
+            )
+        )
+    if request.structure_control:
+        # The 2026-10-11 audit, finding create-09: ``request_to_legacy`` never
+        # emits the control, so ``GenerationRequest(structure_control="canny")``
+        # passed validation, was recorded in ``params["generation_request"]`` as
+        # ControlNet-conditioned, and ran without one -- the document-versus-pixels
+        # mismatch ``output_profile`` and ``custom_triangles`` were refused to end.
+        # Refused rather than forwarded. And with no reference there is nothing for
+        # the hint to be derived from, whichever door is asked.
+        if not request.references:
+            issues.append(
+                CompatibilityIssue(
+                    "structure_control",
+                    "A structure control needs a reference image to take its shape from.",
+                )
+            )
+        elif not structure_forwarded:
+            issues.append(
+                CompatibilityIssue(
+                    "structure_control",
+                    "A structured generation request cannot carry a structure control; "
+                    "use the Create pane's Structure control, or drop it.",
+                )
+            )
     if request.model_mode not in MODEL_MODES:
         issues.append(CompatibilityIssue("model_mode", "Model mode must be automatic or Advanced."))
     if request.model.mesh_finishing not in ("preserve_shape", "repair"):

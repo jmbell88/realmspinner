@@ -316,6 +316,19 @@ class OverlayOps:
         :meth:`_hover_specs`, on their own key.
         """
         from .....kernels.mesh.adjacency import adjacency, cached_triangulation
+        from .....kernels.mesh.elements import restrict
+
+        # The 2026-10-11 audit's clay-44: ``sel`` is what the document stores
+        # and was trusted -- ``_face_outline`` indexed ``mesh.starts[faces + 1]``
+        # and the vertex mode sent ``sel.verts`` to the GPU as indices -- where
+        # ``_hover_specs`` bounds-checks the same kind of index. Every door
+        # that writes a selection is guarded today, but a pick left stale by
+        # one that is not (a raw ``doc.history.undo``, the path the repo names
+        # as unsafe) would be an ``IndexError`` out of ``draw`` on every frame
+        # for as long as the pick stood, rather than a highlight not drawn.
+        # Once per cache key, not per frame, so the restricted copy costs
+        # nothing a hover frame sees.
+        sel = restrict(obj.mesh, sel)
 
         adj = adjacency(obj.mesh)
         add, specs = self._collect(overlay, hover=False)

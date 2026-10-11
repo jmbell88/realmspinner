@@ -8,6 +8,6 @@ here may import the standard library and nothing else of Realmspinner's, so
 nothing in this package can drag a pipeline, a service or a window in
 behind it.
 
-See ``dev/RESTRUCTURE.md`` for the six layers and ``tests/test_layering.py``
+See the 2026-09 restructure for the six layers and ``tests/test_layering.py``
 for the pin that measures them.
 """

@@ -112,14 +112,14 @@ def test_an_op_of_another_mode_is_listed_greyed_and_names_the_mode_it_lives_in()
     ctx = _ctx()
     extrude = _clay(ctx)["clay-op:extrude"]
     assert not extrude.enabled(ctx)
-    assert extrude.why == "Switch to vertex, edge or face mode first."
+    assert extrude.why == "Switch to Points, Edges or Faces mode first."
 
     _doc(ctx).set_element_mode("face")
     found = _clay(ctx)
-    assert found["clay-op:extrude"].why != "Switch to vertex, edge or face mode first."
+    assert found["clay-op:extrude"].why != "Switch to Points, Edges or Faces mode first."
     mirror = found["clay-op:mirror-x"]
     assert not mirror.enabled(ctx)
-    assert mirror.why == "Switch to object mode first."
+    assert mirror.why == "Switch to Shape mode first."
 
 
 def test_every_greyed_clay_command_says_why():
@@ -407,7 +407,7 @@ def test_the_list_is_rebuilt_when_the_element_mode_changes():
     _doc(ctx).set_element_mode("face")
     found = _clay(ctx)
     assert _builds() == start + 1
-    assert found["clay-op:extrude"].why != "Switch to vertex, edge or face mode first."
+    assert found["clay-op:extrude"].why != "Switch to Points, Edges or Faces mode first."
 
 
 def test_the_list_is_rebuilt_when_the_selection_changes():

@@ -185,7 +185,7 @@ def test_a_stroke_that_snaps_back_to_the_old_colour_leaves_the_composite_matchin
 def test_recolouring_a_slot_on_a_frame_with_its_own_palette_changes_that_frames_table_only():
     # inker-14: recolour_slot rewrote the document table, so the frame that
     # had its own table kept its colours and every other frame changed.
-    from tests.modes.inker.test_frame_palettes import GREEN, _indexed
+    from modes.inker.test_frame_palettes import GREEN, _indexed
 
     doc = _indexed(frames=2)
     assert doc.set_frame_palette([HOLE, BLUE], 1)

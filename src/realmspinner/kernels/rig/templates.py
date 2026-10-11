@@ -1,6 +1,6 @@
 """The skeleton template registry, and the limb presets grafted onto one.
 
-Split out of the former ``rigging.py`` (P4 of ``dev/RESTRUCTURE.md``): this is
+Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure): this is
 the "read shipped JSON under ``templates/``" concern -- a skeleton template and
 a limb preset are the same file shape (named bones with head/tail landmarks,
 a parent graph, checked for one root and no cycle) read by the same capped

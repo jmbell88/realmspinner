@@ -34,16 +34,20 @@ than most people expect — so this is often the more valuable of the two.
 ## Models and LoRAs
 
 One dropdown decides this. Its first entry is *Automatic* — the app resolves a checkpoint and says
-which underneath — and every other entry is an installed checkpoint you name yourself. The four-step
-distilled entries cannot use the structure control or the negative prompt. Picking one clears the
-structure control, rather than leaving you a Generate button refusing on a hidden field, and hides
-the **Avoid** box while keeping its text, which reappears when you pick a model that reads it.
-See [Models and style LoRAs](22-generating-references.md#models-and-style-loras).
+which underneath — and every other entry is an installed checkpoint you name yourself. Three ship:
+SDXL 1.0 at full CFG, SDXL 1.0 with PAG, and FLUX.2 klein base. See
+[Models and style LoRAs](22-generating-references.md#models-and-style-loras).
 
 The default base model is SDXL 1.0 run at **full CFG**, and it is the default because it measured
 better than the alternatives as a source for reconstruction, not because it is fastest. The PAG
 recipe is the same weights run with two sampler upgrades and costs nothing extra; FLUX.2 klein is a
-separate checkpoint.
+separate checkpoint. All three run real classifier-free guidance, so the **Avoid** box is drawn and
+honoured on each of them.
+
+The one thing a model refuses is a structure control: FLUX.2 klein cannot take a ControlNet. Picking
+it clears the structure control, rather than leaving you a Generate button refusing on a hidden field,
+and the Structure group is replaced by a note until you pick an SDXL model again. The appearance
+reference, style LoRAs, Start from this image and seamless tiles are SDXL-only for the same reason.
 
 Style LoRAs are filtered to those that fit the chosen base's architecture, so you cannot pick an
 incompatible pair.
@@ -76,19 +80,18 @@ Two named ways to hand the model a picture, and they do different jobs.
 
 **Appearance** takes the *look* of a reference — colour, material, feel — without copying its shape.
 
-**Structure** takes the *shape*. It is only offered on base models that run real guidance, because a
-model at guidance zero has nothing for a structural signal to steer. It has a strength and an
-**until** value, the latter being how far through sampling the guidance keeps applying — releasing
-it early gives the model room to add detail the control image did not have.
+**Structure** takes the *shape*. It is offered on the two SDXL models, because it is a ControlNet and
+FLUX.2 klein cannot take one. It has a strength and an **until** value, the latter being how far
+through sampling the guidance keeps applying — releasing it early gives the model room to add detail
+the control image did not have.
 
 Both need a reference image loaded, and both refuse clearly if you have not.
 
 ## The negative prompt
 
-Worth stating plainly: **the negative prompt does nothing unless the base model runs guidance above
-1.0.** On a distilled, guidance-zero recipe it is inert. The pane says so beside the field. If you
-have carefully tuned a negative prompt and it seems to have no effect, check which base you are on
-before concluding anything about the words.
+The negative prompt is only encoded when the base model runs guidance above 1.0. All three models
+that ship run well above it (7.0 on both SDXL recipes, 4.0 on FLUX.2 klein), so the **Avoid** box is
+always drawn and always read.
 
 ## Mesh-side settings
 

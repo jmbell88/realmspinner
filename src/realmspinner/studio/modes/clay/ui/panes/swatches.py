@@ -25,6 +25,7 @@ from imgui_bundle import imgui
 
 from ..... import controls, icons, probe, theme, widgets
 from .....tokens import sp
+from ... import doc_io
 from ... import mode as clay_mode
 from ... import ops as clay_ops
 from ...state import tab_over
@@ -40,6 +41,30 @@ SWATCH = 22.0
 SLOT_ROWS_MAX = 3
 
 _SAVING = "This document is being written; the palette comes back when it lands."
+
+
+def refused_by_drag(ctx: Any) -> bool:
+    """Whether a live G/R/S, gizmo or UV drag shuts a human palette or Add door, said
+    in a toast.
+
+    The 2026-10-11 audit's clay-16 and clay-17: a swatch, the ``+`` and every Add
+    button called the document directly, so a press under a live drag added a slot or a
+    shape and pushed a step the drag's commit then reverted against the history head it
+    started from -- the shape of the 2026-10-10 audit's clay-19, which closed it for the
+    starter colours only (``starter_colours._refused_by_drag``, the same toast). Asked at
+    the top of each door, so nothing is added or pushed.
+    """
+    if not clay_ops.gesture_live(ctx):
+        return False
+    ctx.toast(doc_io.GESTURE_WHY, "error")
+    return True
+
+
+def add_reason(*, saving: bool, gesture: bool) -> str:
+    """Why the grid's ``+`` is greyed, or ``""``. Pure, so the sentence is checkable."""
+    if saving:
+        return _SAVING
+    return doc_io.GESTURE_WHY if gesture else ""
 
 
 def _swatch_colour(material: Any) -> tuple[float, float, float, float]:
@@ -197,6 +222,8 @@ def click_slot(ctx: Any, doc: Any, index: int) -> None:
     * **Ctrl, or vertex and edge mode** have no single slot to retarget, so the
       press does nothing -- the tooltip says to select one object.
     """
+    if refused_by_drag(ctx):
+        return
     obj = single_selected(doc)
     if obj is not None:
         _pick_slot(ctx, doc, obj, index)
@@ -292,8 +319,9 @@ def slot_rows(count: int, avail: float, side: float, gap: float) -> int:
     return max(1, -(-count // per_row))
 
 
-def add_slot_and_paint(ctx: Any, doc: Any) -> int:
-    """The grid's ``+``: append a grey slot and wear it, as **one** undo step. -> its index.
+def add_slot_and_paint(ctx: Any, doc: Any) -> int | None:
+    """The grid's ``+``: append a grey slot and wear it, as **one** undo step. -> its
+    index, or ``None`` under a live drag (nothing added; :func:`refused_by_drag`).
 
     "Wear" is :func:`click_slot`'s rule for whatever is selected -- the shapes
     repainted, the picked faces painted, or (nothing selected) the colour the next
@@ -301,6 +329,8 @@ def add_slot_and_paint(ctx: Any, doc: Any) -> int:
     click, a click on the swatch it made and the trip. The slot and the paint are
     folded so a Ctrl+Z takes both back, the way a starter colour's click does.
     """
+    if refused_by_drag(ctx):
+        return None
     mark = doc.history.mark()
     try:
         index = doc.add_material()
@@ -357,10 +387,12 @@ def draw_slots(
         if imgui.is_item_hovered():
             hovered = i
     widgets.same_line_or_wrap(plus_w)
+    gesture = clay_ops.gesture_live(ctx)
+    why_add = add_reason(saving=saving, gesture=gesture)
     add = controls.small_button(
         f"{icons.PLUS}##slot-add",
-        enabled=not saving,
-        reason=_SAVING,
+        enabled=not why_add,
+        reason=why_add,
         tooltip="Add a palette slot and use it. It starts as a grey; Edit colour changes it.",
     )
     if capped:

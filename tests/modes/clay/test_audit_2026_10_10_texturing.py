@@ -68,7 +68,9 @@ def test_touched_islands_for_a_vertex_selection_is_still_the_union() -> None:
 def test_pack_islands_is_greyed_with_a_reason_outside_object_mode() -> None:
     pack = clay_ops.get("pack-uv")
     why = clay_uv.unwrap_op_reason(pack, "face", saving=False)
-    assert why and "object" in why
+    # The greyed sentence speaks the header's words ("Shape", not "object"):
+    # ``ops.MODE_WORDS``.
+    assert why and "Shape" in why
     assert clay_uv.unwrap_op_reason(pack, "object", saving=False) == ""
     assert clay_uv.unwrap_op_reason(pack, "object", saving=True) == "Saving..."
     box = clay_ops.get("unwrap")
@@ -110,7 +112,7 @@ def test_the_unwrap_page_buttons_carry_a_reason_in_an_element_mode_and_while_sav
     seen = _toolbar_buttons(ui, monkeypatch, element_mode="face", saving=False)
     for suffix in ("##uvpack", "##uvunwrap-unwrap"):
         enabled, reason = next((v for k, v in seen.items() if k.endswith(suffix)), (None, None))
-        assert enabled is False and "object" in reason, (suffix, seen)
+        assert enabled is False and "Shape" in reason, (suffix, seen)
 
     seen = _toolbar_buttons(ui, monkeypatch, element_mode="object", saving=True)
     for suffix in ("##uvpack", "##uvunwrap-unwrap"):

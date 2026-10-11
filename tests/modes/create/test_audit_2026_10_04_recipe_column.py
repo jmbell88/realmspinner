@@ -73,13 +73,13 @@ def test_use_button_on_base_model_changes_model_override_and_clears_unusable_sel
     tmp_path, monkeypatch
 ):
     """The combo shows ``base_model`` and the request reads ``model_override``:
-    pressing "Use turbo" has to move both, and run the same clearing the combo's
-    own pick runs (a structure control turbo cannot run)."""
+    pressing "Use flux_klein" has to move both, and run the same clearing the combo's
+    own pick runs (a structure control flux_klein cannot run)."""
     _findings(
         tmp_path,
         {
             "base_model": {
-                "turbo": {"n": 8, "accepts": 7, "wilson_low": 0.55},
+                "flux_klein": {"n": 8, "accepts": 7, "wilson_low": 0.55},
                 "sdxl_cfg": {"n": 8, "accepts": 2, "wilson_low": 0.1},
             }
         },
@@ -94,10 +94,10 @@ def test_use_button_on_base_model_changes_model_override_and_clears_unusable_sel
 
     settings_2d._best_value_offer(ctx, form, "base_model", form["base_model"])
 
-    assert form["base_model"] == "turbo"
-    assert form["model_override"] == "turbo", "the request would still run the old model"
-    assert generation.request_from_legacy(form).model_override == "turbo"
-    assert form["control"] == "", "turbo cannot run a ControlNet; the combo's own pick clears it"
+    assert form["base_model"] == "flux_klein"
+    assert form["model_override"] == "flux_klein", "the request would still run the old model"
+    assert generation.request_from_legacy(form).model_override == "flux_klein"
+    assert form["control"] == "", "flux_klein cannot run a ControlNet; the combo clears it"
     assert any(
         "structure control was cleared" in n for n in ctx.state.preview[settings_2d.CLEARED_KEY]
     )
