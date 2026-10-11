@@ -66,7 +66,7 @@ def test_inherited_mesh_option_names_the_references_value():
     bg_options = settings_3d._bg_options(ctx)
 
     assert platform_options[0] == ("", "From reference: High detail")
-    assert bg_options[0] == ("", "From reference: birefnet")
+    assert bg_options[0] == ("", "From reference: BiRefNet cutout")
 
 
 def test_no_selected_source_falls_back_to_the_generic_wording():
@@ -118,7 +118,7 @@ def test_inherited_mesh_option_names_the_selected_meshs_reference_value():
     bg_options = settings_3d._bg_options(ctx)
 
     assert platform_options[0] == ("", "From reference: High detail")
-    assert bg_options[0] == ("", "From reference: birefnet")
+    assert bg_options[0] == ("", "From reference: BiRefNet cutout")
 
 
 # --- the engine disclosure ----------------------------------------------------

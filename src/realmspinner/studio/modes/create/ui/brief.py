@@ -51,27 +51,41 @@ _COUNTS: tuple[int, ...] = (1, 2, 4, 8)
 #: 3): the pills are the *same control*, and only their range is the stage's.
 _MESH_COUNTS: tuple[int, ...] = tuple(range(1, create_mesh.MAX_MESH_CANDIDATES + 1))
 
-#: The visible label above the pills (:func:`inputs` draws it), on both stages --
-#: four bare digits said nothing about what they choose.
-COUNT_LABEL = "Candidates"
+#: The visible labels above the pills (:func:`inputs` draws one), and they are
+#: **two controls with two names** (the 2026-10-11 Create review): one
+#: "Candidates" control meant "how many images to compare" on Reference and
+#: "how many meshes to try" on Mesh, and the user decided the two must not share
+#: a word. Each also has its own form key -- ``count`` on the image form,
+#: ``attempts`` on the mesh form -- and its own tooltip.
+IMAGES_LABEL = "Images"
+ATTEMPTS_LABEL = "Attempts"
 
-#: Per-pill hover text for the count control, the same shape as
-#: ``_TYPE_HINTS`` beside it. Four bare pills ("1 2 4 8") carried no label and
-#: no tooltip -- unlike the Type combo, which names each value on hover -- so
-#: a first-time user had nothing on screen or on hover saying they choose how
-#: many candidates one press draws. The 2026-09-05 audit, finding create-11.
+#: The captions' hover text, for the label as well as the pills.
+IMAGES_TIP = "How many images one press draws, so you can compare them side by side."
+ATTEMPTS_TIP = (
+    "How many meshes to try from this reference. Each uses a new seed and costs "
+    "about two minutes of GPU; you pick the best."
+)
+
+#: Per-pill hover text for the image count, the same shape as ``_TYPE_HINTS``
+#: beside it. Four bare pills ("1 2 4 8") carried no label and no tooltip --
+#: unlike the Type combo, which names each value on hover. The 2026-09-05
+#: audit, finding create-11.
 _COUNT_HINTS: dict[str, str] = {
-    "1": "Draw one candidate.",
-    "2": "Draw two candidates to compare.",
-    "4": "Draw four candidates to compare.",
-    "8": "Draw eight, the most one press can generate.",
+    "1": "Draw one image.",
+    "2": "Draw two images to compare.",
+    "4": "Draw four images to compare.",
+    "8": "Draw eight images, the most one press can generate.",
 }
 
 #: The same shape for Mesh, whose count is attempts on one reference.
 _MESH_COUNT_HINTS: dict[str, str] = {
     "1": "Reconstruct the reference once.",
-    "2": "Reconstruct it twice, each from a new seed, and keep the better one.",
-    "3": "Reconstruct it three times, each from a new seed -- the most one press buys.",
+    "2": "Reconstruct it twice, each from a new seed, and pick the best.",
+    "3": (
+        "Reconstruct it three times, each from a new seed, and pick the best -- "
+        "the most one press buys."
+    ),
 }
 
 #: The Create column's one key in the focus ring, shared by ``settings_2d`` and
@@ -125,6 +139,12 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
         if controls.button("New with previous settings"):
             session.new(ctx, reuse=True)
             imgui.close_current_popup()
+        # The stages that have a form to reset: Reference and Mesh. Named for
+        # the form it resets, since the popup is reachable from every stage.
+        for stage, noun in (("reference", "image"), ("mesh", "mesh")):
+            if state.create.stage == stage and controls.button(f"Reset {noun} settings..."):
+                ask_reset(ctx, mesh=stage == "mesh")
+                imgui.close_current_popup()
         imgui.end_popup()
     imgui.same_line()
     if controls.button(
@@ -153,27 +173,38 @@ def inputs(ctx: Any, *, mesh: bool = False) -> None:
         _prompt(ctx, form, imgui.get_content_region_avail().x, height=104)
         widgets.field_error(ctx.state, "prompt")
     if mesh or form.get("output") not in ("sheet", "character"):
-        widgets.secondary(COUNT_LABEL)
+        widgets.secondary(ATTEMPTS_LABEL if mesh else IMAGES_LABEL)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip(ATTEMPTS_TIP if mesh else IMAGES_TIP)
         _count(
             ctx,
             form,
             _MESH_COUNTS if mesh else _COUNTS,
             create_mesh.candidate_count(form) if mesh else int(form["count"]),
+            key="attempts" if mesh else "count",
         )
-    if controls.button("Reset settings...", role=controls.ButtonRole.GHOST):
-        from .panes import settings_2d, settings_3d
 
-        ctx.confirms.ask(
-            dialogs.Confirm(
-                title=_reset_title("mesh" if mesh else "image"),
-                message=_RESET_MESH_CONFIRM_MESSAGE if mesh else _RESET_CONFIRM_MESSAGE,
-                confirm_label="Reset",
-                cancel_label="Cancel",
-                on_confirm=(lambda: settings_3d._reset(ctx))
-                if mesh
-                else (lambda: settings_2d._reset(ctx)),
-            )
+
+def ask_reset(ctx: Any, *, mesh: bool) -> None:
+    """The Reset confirm for one stage's form.
+
+    It lived under the prompt as a ghost button, a destructive control one slip
+    from the field everyone types in; it is an item of the **New...** popup now
+    (the 2026-10-11 Create review), which is where "start over" belongs.
+    """
+    from .panes import settings_2d, settings_3d
+
+    ctx.confirms.ask(
+        dialogs.Confirm(
+            title=_reset_title("mesh" if mesh else "image"),
+            message=_RESET_MESH_CONFIRM_MESSAGE if mesh else _RESET_CONFIRM_MESSAGE,
+            confirm_label="Reset",
+            cancel_label="Cancel",
+            on_confirm=(lambda: settings_3d._reset(ctx))
+            if mesh
+            else (lambda: settings_2d._reset(ctx)),
         )
+    )
 
 
 def submit_control(ctx: Any, *, mesh: bool = False) -> None:
@@ -197,7 +228,7 @@ def submit_control(ctx: Any, *, mesh: bool = False) -> None:
         busy=ctx.busy("submit"),
         problems=problems,
         show_count=True,
-        count=int(form.get("count", 1)),
+        count=create_mesh.candidate_count(form) if mesh else int(form.get("count", 1)),
         press=(lambda: settings_3d.promote(ctx, source, form)) if mesh else None,
         width=imgui.get_content_region_avail().x,
     )
@@ -269,6 +300,8 @@ def _prompt(ctx: Any, form: dict[str, Any], width: float, *, height: float = PRO
     nowhere -- so everything after it vanished off the right-hand side
     entirely.
     """
+    from . import workspace
+
     before = form["prompt"]
     with focus.item(ctx.state, FOCUS_PANE, "prompt"):
         form["prompt"] = widgets.multiline(
@@ -278,6 +311,9 @@ def _prompt(ctx: Any, form: dict[str, Any], width: float, *, height: float = PRO
         widgets.char_count(form["prompt"], _max_prompt())
     if form["prompt"] != before:
         ctx.state.clear_field_error("prompt")
+        # The first edit is what lets an empty prompt turn red in the plan
+        # footer (``workspace.is_untouched_prompt_problem``).
+        workspace.touch_prompt(ctx, True)
     if imgui.is_item_hovered() and not str(form["prompt"]).strip():
         imgui.set_tooltip("Describe one subject -- a prop, a character, a surface.")
     _ring(ctx, "prompt")
@@ -288,8 +324,11 @@ def _count(
     form: dict[str, Any],
     counts: tuple[int, ...],
     current: int,
+    *,
+    key: str = "count",
 ) -> None:
-    """How many alternatives one press should draw -- Candidates, on both stages.
+    """How many alternatives one press should draw: **Images** on Reference
+    (``form["count"]``), **Attempts** on Mesh (``form["attempts"]``).
 
     Not drawn at all for a sheet: both sheet doors refuse a batch and say why,
     so four radios of which three are refusals would be a control offering
@@ -297,8 +336,9 @@ def _count(
     written ``count = 1`` for those. ``counts`` is the stage's range and
     ``current`` the value it reads back (Mesh clamps a stale stored one).
 
-    The caption is the caller's (:func:`inputs` draws ``COUNT_LABEL`` as the
-    column's own ``secondary`` line above the pills). This used to centre an
+    The caption is the caller's (:func:`inputs` draws ``IMAGES_LABEL`` or
+    ``ATTEMPTS_LABEL`` as the column's own ``secondary`` line above the pills).
+    The refusal ring keeps the door's field name, ``count``, on both stages. This used to centre an
     optional beside-the-pills label and the pills themselves inside the old
     one-row command bar with spacer dummies; the bar is the rail alone now, the
     pills sit on their own line in the column, and the 2026-10-04 audit
@@ -317,23 +357,23 @@ def _count(
             tooltips=hints,
         )
         if changed:
-            form["count"] = int(picked)
+            form[key] = int(picked)
             ctx.state.clear_field_error("count")
         # Hand-answered, as it was in the column: a row of radios is one
         # control to the keyboard even though it is four items to imgui.
         if focused:
             here = counts.index(current) if current in counts else 0
-            before_arrow = form["count"]
+            before_arrow = form[key]
             if imgui.is_key_pressed(imgui.Key.left_arrow):
-                form["count"] = counts[(here - 1) % len(counts)]
+                form[key] = counts[(here - 1) % len(counts)]
             if imgui.is_key_pressed(imgui.Key.right_arrow):
-                form["count"] = counts[(here + 1) % len(counts)]
+                form[key] = counts[(here + 1) % len(counts)]
             # The click branch above clears the ring on a change; this
             # hand-rolled branch edits ``form["count"]`` the same way and must
             # clear the same error, or a user who fixes an invalid count with
             # the keyboard instead of a click keeps a ring pointing at a value
             # that is no longer wrong. The 2026-09-05 audit, finding create-07.
-            if form["count"] != before_arrow:
+            if form[key] != before_arrow:
                 ctx.state.clear_field_error("count")
     imgui.pop_item_width()
     _ring(ctx, "count")
@@ -560,9 +600,13 @@ def _source_chip(ctx: Any, width: float) -> None:
     imgui.text(widgets.fit_text(title, text_w))
     widgets.muted(widgets.fit_text(sub, text_w))
     imgui.end_group()
-    # Back to the row: the next control continues from the chip's right edge,
-    # not from wherever the overlay left the cursor.
-    imgui.set_cursor_screen_pos((high.x, low.y))
+    # Back to the column: the overlay left the cursor inside the chip, and this
+    # used to put it at the chip's right edge on its *top* line -- so the next
+    # label (and everything under it) drew over the chip (the 2026-10-11
+    # review). The chip is a full-width row of its own, so the cursor goes to
+    # the line under it, at the column's left edge, and the dummy is the item
+    # that makes imgui accept the new position.
+    imgui.set_cursor_screen_pos((low.x, high.y + imgui.get_style().item_spacing.y))
     imgui.dummy((0.0, 0.0))
 
 

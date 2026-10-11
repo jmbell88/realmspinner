@@ -106,11 +106,15 @@ def test_a_database_at_the_previous_version_gains_the_table_on_open(tmp_path):
     conn.close()
 
 
-def test_the_migration_that_adds_the_table_is_the_last_one_and_is_idempotent(tmp_path):
+def test_the_migration_that_adds_the_table_is_migration_12_and_is_idempotent(tmp_path):
     """The statement is IF NOT EXISTS, so a replay on a database that already
     has the table (every fresh one, which gets it from the schema script too)
-    is a no-op rather than an error that stops the app starting."""
-    last = MIGRATIONS[-1]
+    is a no-op rather than an error that stops the app starting.
+
+    It was the last migration until migration 13 (the verdict and observation
+    ``snapshot`` and ``note`` columns); it is addressed by number now, so the
+    next one appended does not move this pin again."""
+    last = MIGRATIONS[11]
     assert any("job_embeddings" in stmt for stmt in last)
     path = tmp_path / "again.sqlite"
     JobStore(path).close()

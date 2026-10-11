@@ -679,6 +679,12 @@ def refresh_findings(ctx: Any) -> None:
     after it to pick anything up.
     """
     ctx.state.findings_dirty = True
+    # Every caller is a verdict landing (or a measured mesh finishing), which is
+    # also what changes Create's History rows; one signal rather than a second
+    # call at each site that files one.
+    create = getattr(ctx.state, "create", None)
+    if create is not None:
+        create.history_dirty = True
 
 
 def pump_findings(ctx: Any) -> None:

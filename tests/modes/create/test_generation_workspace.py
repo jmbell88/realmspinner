@@ -100,7 +100,7 @@ def test_make_3d_always_pairs_with_a_neighbour_on_a_candidate_card():
     assert "imgui.same_line()" not in keep_onward
 
     # Rerun and Make 3D are joined unconditionally, in that order.
-    after_rerun = source[source.index('"Rerun##result-rerun-{job_id}"') :]
+    after_rerun = source[source.index('"Try again##result-rerun-{job_id}"') :]
     same_line_pos = after_rerun.index("imgui.same_line()")
     make3d_pos = after_rerun.index('"Make 3D##result-3d-{job_id}"')
     assert same_line_pos < make3d_pos
@@ -140,7 +140,10 @@ def test_the_keeper_pill_is_not_the_ranker():
     )
     assert "likely a keeper" not in body
     assert "judge" not in body.lower()
-    assert 'f"rank {' in body
+    # "rank 37%" read as a quality score: it is the card's hover now, and it
+    # says what it is.
+    assert 'f"rank {' not in body
+    assert "Order hint" in body and "not a quality score" in body
 
 
 def _model_form(prompt):
@@ -335,11 +338,11 @@ def test_the_mesh_stage_draws_the_plan_footer():
 def test_the_mesh_plan_has_the_same_shape_as_the_2d_plan():
     from realmspinner.studio.modes.create.engine import mesh as create_mesh
 
-    one = create_mesh.plan({"count": 1})
+    one = create_mesh.plan({"attempts": 1})
     assert isinstance(one, generation_workspace.Plan)
     assert one.count_line == "1 candidate"
     assert one.duration == "about 2 minutes of GPU"
-    three = create_mesh.plan({"count": 3})
+    three = create_mesh.plan({"attempts": 3})
     assert three.count_line == "3 candidates"
     assert three.duration == "about 6 minutes of GPU"
 

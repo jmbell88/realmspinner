@@ -946,14 +946,14 @@ class FrameMixin:
                     _column_boundary(self.layouts, "create", "right")
 
                     if ctx.state.create.inspector_open:
-                        from ..modes.create.ui import workspace as generation_workspace
+                        from ..modes.create.ui.panes import history as create_history
 
                         _right_column(
                             ctx,
                             lay,
                             right_w,
                             inspector_draw=inspector.draw,
-                            library_draw=generation_workspace.history,
+                            library_draw=create_history.draw,
                         )
 
         imgui.end_child()
@@ -994,8 +994,6 @@ class FrameMixin:
         """
         from imgui_bundle import imgui
 
-        from ..modes.create.engine import assets as create_assets
-        from ..modes.create.engine import workspace as create_families
         from ..modes.create.ui import rail as create_rail
         from ..modes.create.ui import stages as create_stages
         from ..panes import inspector
@@ -1014,11 +1012,7 @@ class FrameMixin:
                 create_stages.ICONS[stage],
                 create_stages.available(stage, job, ctx),
             )
-            for stage in create_families.journey(
-                create_assets.selected(ctx.state.form_2d).key,
-                has_mesh=(job or {}).get("stage") == "model",
-                current=ctx.state.create.stage,
-            )
+            for stage in create_stages.rail_stages(ctx)
         ]
         picked = create_rail.stage_rail(
             "create-stages",
@@ -1044,7 +1038,6 @@ class FrameMixin:
         from imgui_bundle import imgui
 
         from .. import layout as layout_mod
-        from ..modes.create.ui import preview as create_preview
         from ..modes.create.ui import stages as create_stages
         from ..modes.create.ui import workspace as generation_workspace
         from ..panes import overlay
@@ -1101,38 +1094,55 @@ class FrameMixin:
                         False,
                         imgui.WindowFlags_.no_scroll_with_mouse.value,
                     ):
-                        if generation_workspace.image_comparison(
-                            ctx, width, canvas_height
-                        ) or create_preview.draw(ctx, width, canvas_height):
-                            pass
-                        elif not reference_stage and self.viewer.has_model:
-                            self._draw_viewport_image(
-                                imgui.get_cursor_screen_pos(),
-                                width,
-                                max(64, imgui.get_content_region_avail().y),
-                            )
-                        elif self.viewer.reference is not None:
-                            self._draw_reference(width, max(64, imgui.get_content_region_avail().y))
-                        else:
-                            generation_workspace.empty_canvas(ctx)
+                        self._canvas_body(ctx, stage, width, canvas_height, reference_stage, True)
                     imgui.end_child()
-                elif generation_workspace.image_comparison(
-                    ctx, width, height
-                ) or create_preview.draw(ctx, width, height):
-                    pass
-                elif not reference_stage and self.viewer.has_model:
-                    self._draw_viewport_image(
-                        imgui.get_cursor_screen_pos(),
-                        width,
-                        max(64, imgui.get_content_region_avail().y),
-                    )
-                elif reference_stage and self.viewer.reference is not None:
-                    self._draw_reference(width, max(64, imgui.get_content_region_avail().y))
                 else:
-                    generation_workspace.empty_canvas(ctx)
+                    self._canvas_body(ctx, stage, width, height, reference_stage, False)
                 if tray:
                     imgui.separator()
                     generation_workspace.draw(ctx, tray_height, stage)
+
+    def _canvas_body(
+        self,
+        ctx: Any,
+        stage: str,
+        width: float,
+        height: float,
+        reference_stage: bool,
+        tray: bool,
+    ) -> None:
+        """What fills Create's canvas, in the order they win.
+
+        The contact sheet of a finished batch, then a pinned image comparison,
+        then a sheet/tile preview, the mesh, the reference picture (with the
+        canvas's own Make 3D over it) and finally the stage's empty state.
+        One body for the tray-and-canvas layout and the bare one: they drew the
+        same chain twice with one difference (a reference is drawn on any
+        tray stage, but without a tray only on Reference), kept as ``tray``.
+        """
+        from imgui_bundle import imgui
+
+        from ..modes.create.ui import canvas as create_canvas
+        from ..modes.create.ui import preview as create_preview
+        from ..modes.create.ui import workspace as generation_workspace
+
+        if create_canvas.draw_grid(ctx, width, height):
+            return
+        if generation_workspace.image_comparison(
+            ctx, width, height
+        ) or create_preview.draw(ctx, width, height):
+            return
+        if not reference_stage and self.viewer.has_model:
+            self._draw_viewport_image(
+                imgui.get_cursor_screen_pos(),
+                width,
+                max(64, imgui.get_content_region_avail().y),
+            )
+        elif (tray or reference_stage) and self.viewer.reference is not None:
+            self._draw_reference(width, max(64, imgui.get_content_region_avail().y))
+            create_canvas.draw_overlay(ctx)
+        else:
+            generation_workspace.empty_canvas(ctx, stage)
 
     def _draw_viewport_image(self, pos: Any, width: float, height: float) -> None:
         from imgui_bundle import imgui

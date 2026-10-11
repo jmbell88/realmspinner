@@ -284,6 +284,12 @@ class TasksMixin:
                         self.viewer.pending = None
                         self.viewer.clear()
                         self.viewer.path = done.tag
+                elif done.key == "create-history":
+                    from ..modes.create.ui.panes import history as create_history
+
+                    # Left unset, the pane would say "Loading history..." for the
+                    # rest of the session.
+                    create_history.on_task_failed(ctx, done)
                 elif done.key.startswith("review-"):
                     from ..modes.review import mode as review_mode
 
@@ -453,6 +459,17 @@ class TasksMixin:
                     f"({format_bytes(int(out['store_bytes']))}).",
                     "success",
                 )
+            return
+        if key == "create-history":
+            from ..modes.create.ui.panes import history as create_history
+
+            create_history.land(ctx, done)
+            return
+        if key == "generation-log-export":
+            # ``None`` is the cancelled folder picker: nothing was written, so
+            # there is nothing to announce.
+            if done.result is not None:
+                ctx.toast(f"Generation log saved to {done.result}.", "success")
             return
         if key.startswith("lora:remove:"):
             # shell-05 (2026-09-18 audit): app_settings.py's Remove button
@@ -776,6 +793,12 @@ class TasksMixin:
                 and self._submit_is_current(done)
             ):
                 ctx.state.select(str(done.result.get("id") or "") or None)
+            if isinstance(done.result, dict) and self._submit_is_current(done):
+                # Where the selection stands as this press lands: the mark the
+                # finishing images follow (``follow_finished_reference``).
+                from ..modes.create.ui import workspace as create_workspace
+
+                create_workspace.note_submit_landed(ctx)
             if (
                 isinstance(done.result, dict)
                 and done.result.get("kind") == "character"
@@ -1060,6 +1083,12 @@ class TasksMixin:
             # only place a finished training run is noticed.
             self._refresh_style_lora_answers()
         if job["status"] == "done":
+            if job.get("stage") == "reference":
+                # The newest image of a press is selected as it finishes, unless
+                # the user has moved the selection since the app last set it.
+                from ..modes.create.ui import workspace as create_workspace
+
+                create_workspace.follow_finished_reference(ctx, job)
             # Incremental (C33): only this job's directory changed, so only
             # it is re-walked; delete and prune still trigger the full one.
             self._request_storage(job["id"])

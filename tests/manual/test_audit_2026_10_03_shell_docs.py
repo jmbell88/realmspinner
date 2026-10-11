@@ -26,6 +26,6 @@ def test_manual_12_budget_paragraph_describes_the_budget_combo_the_mesh_stage_dr
     text = (MANUAL / "12-tuning-what-you-get.md").read_text(encoding="utf-8")
     assert "currently offers only one tier" not in text
     assert "zero of twenty" not in text
-    assert "**Budget**" in text and "23-generating-meshes.md" in text
+    assert "**Triangle budget**" in text and "23-generating-meshes.md" in text
     # The label the paragraph names is the one the pane draws.
-    assert '"Budget"' in __import__("inspect").getsource(settings_3d._budget)
+    assert '"Triangle budget"' in __import__("inspect").getsource(settings_3d._budget)

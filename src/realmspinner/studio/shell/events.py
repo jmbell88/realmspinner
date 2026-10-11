@@ -801,7 +801,7 @@ class EventsMixin:
             # workshop while the viewer and inspector changed underfoot, with
             # nothing on screen to explain why (the 2026-10-03 audit, finding
             # shell-34). They are consumed and do nothing; the Library mode
-            # keeps its own arrows above, and the Creations pane is clicked.
+            # keeps its own arrows above, and the History pane is clicked.
             pass
         elif event.key == pygame.K_DELETE and ctx.state.selected:
             # The library keyboard used to stop at navigation: Up/Down/Enter
@@ -820,6 +820,21 @@ class EventsMixin:
             from ..modes.library.ui.panes import library
 
             library.delete_asset(ctx, ctx.state.selected)
+        elif (
+            mods & pygame.KMOD_ALT
+            and not mods & (pygame.KMOD_CTRL | pygame.KMOD_META)
+            and pygame.K_1 <= event.key <= pygame.K_5
+        ):
+            # Alt+1..5: the Nth segment of the stage rail (the 2026-10-11
+            # review: the rail was a mouse-only breadcrumb). Alt rather than a
+            # bare digit because a plain key here would be one a text field
+            # swallows half the time; ``_passes_text_field`` lets Alt chords
+            # through, so this works from the prompt too, and it collides with
+            # nothing -- Review's digits grade, Clay's pick element modes, and
+            # neither is this arm.
+            from ..modes.create.ui import stages as create_stages
+
+            create_stages.go_nth(ctx, event.key - pygame.K_1 + 1)
         # F, W and S are *plain* keys. The 2026-10-03 audit, finding shell-30:
         # they tested ``event.key`` alone, so Ctrl+S (save, everywhere else)
         # toggled the turntable, Ctrl+W (close tab) toggled wireframe and

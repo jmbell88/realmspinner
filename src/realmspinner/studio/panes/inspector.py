@@ -1593,24 +1593,74 @@ def clear_tags(state: Any) -> None:
     state.inspector_tags = []
 
 
-def record_verdict(ctx: Any, job_id: str, grade: int, tags: tuple[str, ...] = ()) -> bool:
+def staged_note(state: Any, job_id: str) -> str:
+    """The note being written for this asset's next verdict, ``""`` for any other.
+
+    Answered per job id for the reason :func:`staged_tags` is: a note typed about
+    one mesh must not ride onto the verdict for the next one selected.
+    """
+    return state.inspector_note if state.inspector_note_job == job_id else ""
+
+
+def stage_note(state: Any, job_id: str, text: str) -> None:
+    state.inspector_note_job = job_id
+    state.inspector_note = text
+
+
+def clear_note(state: Any) -> None:
+    state.inspector_note_job = None
+    state.inspector_note = ""
+
+
+def latest_note(ctx: Any, job_id: str) -> str:
+    """The newest note this person filed on this mesh, ``""`` if none. Memoised.
+
+    One tiny read per mesh the inspector opens (``is_graded``'s rule); a failing
+    query degrades to "no note" and is remembered, so a broken store is not
+    re-asked sixty times a second.
+    """
+    cached = ctx.state.inspector_notes.get(job_id)
+    if cached is not None:
+        return cached
+    try:
+        found = ctx.svc.store.verdicts_for([job_id], source="human", stage="model")
+        note = str((found.get((job_id, "human")) or {}).get("note") or "")
+    except Exception:  # noqa: BLE001 - see the docstring; never fail a frame
+        note = ""
+    ctx.state.inspector_notes[job_id] = note
+    return note
+
+
+def record_verdict(
+    ctx: Any,
+    job_id: str,
+    grade: int,
+    tags: tuple[str, ...] = (),
+    note: str | None = None,
+) -> bool:
     """File a graded verdict and queue the findings recompute. -> whether it
     landed.
 
     Inline on the frame thread for the reason Review's is: one INSERT under the
     store's lock. The recompute that follows reads every verdict and writes a
     file, so it is a task.
+
+    ``note`` is the person's own sentence about this grade; blank means none and
+    the service trims and caps it. It rides on the same row, so a note and its
+    grade can never disagree about which mesh they describe.
     """
     from ...service import verdicts as svc_verdicts
     from ...service.errors import ServiceError
     from ..modes.review import mode as review_mode
 
     try:
-        svc_verdicts.record_verdict(ctx.svc, job_id, grade=grade, reasons=tags)
+        svc_verdicts.record_verdict(ctx.svc, job_id, grade=grade, reasons=tags, note=note)
     except (ServiceError, OSError):
         ctx.toast("Could not record that verdict.", "error")
         return False
     clear_tags(ctx.state)
+    clear_note(ctx.state)
+    ctx.state.inspector_notes[job_id] = (note or "").strip()
     # The memo this invalidates is ``_verdict``'s open-by-default: with the
     # answer left stale the section would keep springing open on a mesh that
     # has just been graded.
@@ -1626,6 +1676,48 @@ def record_verdict(ctx: Any, job_id: str, grade: int, tags: tuple[str, ...] = ()
     # key: two spellings of one task key are two things to keep in step.
     review_mode.refresh_findings(ctx)
     ctx.toast(f"Recorded: {review_mode.grade_text(grade)}.")
+    return True
+
+
+def record_label(
+    ctx: Any,
+    job_id: str,
+    verdict: str,
+    tags: tuple[str, ...] = (),
+    note: str | None = None,
+) -> bool:
+    """File a binary label on a reference image and queue the findings recompute.
+    -> whether it landed.
+
+    The Good/Bad of Create's contact sheet: the call Review's labelling pass
+    makes (``stage="reference"``, ``source="human"``, a ``verdict`` and no
+    grade), here with tags and a note, which the service accepts on image stages
+    as it does on meshes. Inline on the frame thread for :func:`record_verdict`'s
+    reason -- one INSERT -- and followed by the same findings request, which also
+    raises the History pane's refresh so the row shows its new mark.
+    """
+    from ...service import verdicts as svc_verdicts
+    from ...service.errors import ServiceError
+    from ..modes.review import mode as review_mode
+
+    try:
+        svc_verdicts.record_verdict(
+            ctx.svc,
+            job_id,
+            verdict=verdict,
+            reasons=tags,
+            source=svc_verdicts.SOURCE_HUMAN,
+            stage="reference",
+            note=note,
+        )
+    except ServiceError as exc:
+        ctx.toast(exc.message or "Could not record that label.", "error")
+        return False
+    except OSError:
+        ctx.toast("Could not record that label.", "error")
+        return False
+    ctx.cache.invalidate()
+    review_mode.refresh_findings(ctx)
     return True
 
 
@@ -1670,10 +1762,43 @@ def is_graded(ctx: Any, job_id: str) -> bool:
     return graded
 
 
+#: The grade the three quick buttons file, by label. The same values the full
+#: row's +5, +3 and -5 carry -- ``record_verdict`` is called with them as they
+#: are, so a quick "Ship it" and a full-scale +5 are the one verdict.
+QUICK_GRADES: tuple[tuple[int, str, str], ...] = (
+    (5, "Ship it", "+5 - good as it is, ready to use."),
+    (3, "Usable", "+3 - usable, with some tidying."),
+    (-5, "Unusable", "-5 - not worth keeping."),
+)
+
+#: The ``ctx.settings`` key behind the "Full scale" switch.
+FULL_SCALE_SETTING = "inspector_full_scale_grade"
+
+
+def quick_grade_buttons(id_prefix: str) -> int | None:
+    """Ship it / Usable / Unusable. -> the grade clicked, or ``None``.
+
+    Three buttons across the pane. The -5..+5 row is eleven positions the
+    verdict corpus almost never uses the middle of, and a user asked "was this
+    any good?" has three answers; the full row is one switch away.
+    """
+    clicked: int | None = None
+    width = widgets.grid_width(len(QUICK_GRADES))
+    for index, (grade, label, tip) in enumerate(QUICK_GRADES):
+        if index:
+            imgui.same_line()
+        if widgets.disabled_button(
+            f"{label}##{id_prefix}-quick{grade}", True, (width, 0), tooltip=tip
+        ):
+            clicked = grade
+    return clicked
+
+
 def _verdict(ctx: Any, job: Any) -> None:
     if job.get("status") != "done" or job.get("stage") != "model":
         return
     job_id = job["id"]
+    full = bool(ctx.settings.get(FULL_SCALE_SETTING, False))
     # **Open on an ungraded mesh.** The corpus this feeds is the only unbiased
     # way to close the probe's ``MIN_PER_CLASS`` floor -- a corpus assembled by
     # going looking for one class is exactly what
@@ -1687,20 +1812,81 @@ def _verdict(ctx: Any, job: Any) -> None:
     # would be read once per session and every mesh after the first would
     # inherit whatever the user last did. Per job it means what it says, and
     # collapsing it on one mesh no longer collapses it on the next.
+    #
+    # **Only while the control is the short one.** With the full -5..+5 row on,
+    # a header that opened itself on every ungraded mesh put eleven buttons in
+    # front of someone who came to look at a mesh (the 2026-10-11 review); three
+    # buttons are fine to leave open.
     header = f"Was this any good?##verdict-{job_id}"
-    if not widgets.header(header, default_open=not is_graded(ctx, job_id)):
+    if not widgets.header(header, default_open=not full and not is_graded(ctx, job_id)):
         return
-    widgets.muted("Feeds the same findings a sweep does.")
     pending = staged_tags(ctx.state, job_id)
 
-    grade = widgets.grade_buttons(f"inspector-{job_id}", True)
+    if full:
+        # The legend that used to be a sentence under the row is on the three
+        # buttons it describes.
+        grade = widgets.grade_buttons(
+            f"inspector-{job_id}",
+            True,
+            anchors={5: "Ships as it is.", 3: "Usable.", -5: "Unusable."},
+        )
+    else:
+        grade = quick_grade_buttons(f"inspector-{job_id}")
     if grade is not None:
-        record_verdict(ctx, job_id, grade, tuple(pending))
-    widgets.muted_wrapped("+5 ships as-is, +3 usable, -5 unusable. Tags are optional.")
+        record_verdict(ctx, job_id, grade, tuple(pending), staged_note(ctx.state, job_id) or None)
+    changed, full_now = controls.checkbox(
+        f"Full scale (-5 to +5)##verdict-full-{job_id}",
+        full,
+        tooltip="Show all eleven grades instead of Ship it, Usable and Unusable.",
+    )
+    if changed:
+        ctx.settings.set(FULL_SCALE_SETTING, bool(full_now))
 
     tag = widgets.tag_toggles(f"inspector-{job_id}", pending, True)
     if tag is not None:
         toggle_tag(ctx.state, job_id, tag)
+    _note_control(ctx, job_id)
+
+
+def _note_control(ctx: Any, job_id: str) -> None:
+    """The note that goes with the next grade: a line, and a popup for more.
+
+    Staged like the tags and filed with whichever grade button is pressed next
+    -- quick or full scale, both through :func:`record_verdict` -- so there is
+    one place a note enters. The newest note already on file is shown beneath,
+    because a note you cannot see afterwards is not one you will write.
+    """
+    from ...service.verdicts import NOTE_MAX
+
+    widgets.field_label("Note")
+    typed = staged_note(ctx.state, job_id)
+    edited = widgets.input_text(
+        f"##verdict-note-{job_id}",
+        typed,
+        max_length=NOTE_MAX,
+        hint="Optional - filed with the next grade",
+    )
+    if edited != typed:
+        stage_note(ctx.state, job_id, edited)
+    popup = f"verdict-note-popup-{job_id}"
+    if controls.button(
+        f"Note...##verdict-note-more-{job_id}",
+        role=controls.ButtonRole.GHOST,
+        tooltip="Write a longer note.",
+    ):
+        imgui.open_popup(popup)
+    if imgui.begin_popup(popup):
+        longer = widgets.multiline(
+            f"##verdict-note-long-{job_id}", staged_note(ctx.state, job_id), sp(120), NOTE_MAX
+        )
+        if longer != staged_note(ctx.state, job_id):
+            stage_note(ctx.state, job_id, longer)
+        if controls.button(f"Done##verdict-note-done-{job_id}"):
+            imgui.close_current_popup()
+        imgui.end_popup()
+    latest = latest_note(ctx, job_id)
+    if latest and not typed:
+        widgets.muted_wrapped(f"Last note: {latest}")
 
 
 def downloads(ctx: Any, job: Any) -> None:

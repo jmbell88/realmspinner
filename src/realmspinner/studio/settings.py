@@ -46,6 +46,16 @@ VERSION = 1
 # dead path to fail silently at submit.
 VOLATILE = ("seed", "mesh_seed")
 
+# What :meth:`Settings.get` answers for a key nobody has ever set. Not a seed of
+# the file: an unset key stays unset on disk, so a later release can change the
+# answer for everyone who never made a choice, and a user who *did* choose keeps
+# it. ``skip_clean_matte_preview`` is the first (2026-10-11): Make 3D accepts a
+# cutout that is clean without asking, because the "Check the cutout" panel
+# opened on every press and the review found it asking about cutouts with
+# nothing wrong. Anything refused, warned or made by the corner-fill fallback
+# still opens it (``create_mesh.matte_is_clean``).
+DEFAULTS: dict[str, Any] = {"skip_clean_matte_preview": True}
+
 
 def as_dict(value: Any, default: dict[str, Any] | None = None) -> dict[str, Any]:
     """*value* if it is a mapping, else *default* (or ``{}``).
@@ -262,6 +272,8 @@ class Settings:
         value beats two that differ only in where the value came from. A scan
         test refuses the ``or {}`` form.
         """
+        if key not in self.data and key in DEFAULTS:
+            return DEFAULTS[key]
         return self.data.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
@@ -368,6 +380,16 @@ def restore_form(defaults: dict[str, Any], stored: Any) -> dict[str, Any]:
     out = dict(defaults)
     if isinstance(stored, dict):
         values = dict(stored)
+        # The Mesh form's "count" became "attempts" (2026-10-11): how many
+        # meshes to try is not how many images to draw, and the two shared a
+        # name and a control. A form saved before that keeps its number.
+        if (
+            "attempts" in out
+            and "count" not in out
+            and "attempts" not in values
+            and "count" in values
+        ):
+            values["attempts"] = values["count"]
         if "asset_type" in out:
             from .modes.create.engine import assets as create_assets
 
@@ -472,6 +494,10 @@ def _safe_form_value(key: str, value: Any) -> bool:
         from ..service.validation import MAX_REFERENCE_COUNT
 
         return 1 <= value <= MAX_REFERENCE_COUNT
+    if key == "attempts":
+        from ..service.validation import MAX_MESH_CANDIDATES
+
+        return 1 <= value <= MAX_MESH_CANDIDATES
     if key == "lora_weight":
         from ..models import LORA_WEIGHT_MAX, LORA_WEIGHT_MIN
 

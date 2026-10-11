@@ -2238,7 +2238,13 @@ GRADES_PER_ROW = 6
 GRADES = tuple(range(GRADE_MIN, GRADE_MAX + 1))
 
 
-def grade_buttons(id_prefix: str, enabled: bool, *, reason: str = "") -> int | None:
+def grade_buttons(
+    id_prefix: str,
+    enabled: bool,
+    *,
+    reason: str = "",
+    anchors: dict[int, str] | None = None,
+) -> int | None:
     """The -5..+5 mesh grade row. -> the grade clicked, or ``None``.
 
     Eleven buttons, worst on the left, so the control is the scale: a reviewer
@@ -2268,6 +2274,10 @@ def grade_buttons(id_prefix: str, enabled: bool, *, reason: str = "") -> int | N
     ungradeable candidate, a locked review) had nowhere to say why, and the
     row read as eleven dead buttons rather than one explained one
     (shell-widgets-02, the 2026-09-26 audit).
+
+    ``anchors`` maps a grade to what it means ("ships as-is"), added to that
+    button's tooltip. The inspector uses it to put the legend on the buttons it
+    describes instead of in a sentence under the row; Review passes none.
     """
     from .modes.review.mode import grade_text
 
@@ -2276,12 +2286,15 @@ def grade_buttons(id_prefix: str, enabled: bool, *, reason: str = "") -> int | N
     for index, grade in enumerate(GRADES):
         if index % GRADES_PER_ROW:
             imgui.same_line()
+        tip = grade_key_hint(grade)
+        if anchors and grade in anchors:
+            tip = anchors[grade] + ("\n" + tip if tip else "")
         if disabled_button(
             f"{grade_text(grade)}##{id_prefix}-grade{grade}",
             enabled,
             (width, 0),
             reason=reason,
-            tooltip=grade_key_hint(grade),
+            tooltip=tip,
         ):
             clicked = grade
     return clicked

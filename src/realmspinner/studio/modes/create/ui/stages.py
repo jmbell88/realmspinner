@@ -444,6 +444,46 @@ def available(stage: str, job: Any, ctx: Any = None, rig_meta: Any = None) -> st
     return None
 
 
+def rail_stages(ctx: Any) -> tuple[str, ...]:
+    """The stages the rail draws right now, in its order.
+
+    One answer for the rail and for the keyboard (:func:`go_nth`): Alt+N means
+    the Nth segment *on screen*, which is not the Nth of :data:`STAGES` when the
+    asset's journey skips some (an image has Reference and Export and nothing
+    between).
+    """
+    from ..engine import assets as create_assets
+    from ..engine import workspace as create_families
+
+    job = _current(ctx)
+    return create_families.journey(
+        create_assets.selected(ctx.state.form_2d).key,
+        has_mesh=(job or {}).get("stage") == "model",
+        current=ctx.state.create.stage,
+    )
+
+
+def go_nth(ctx: Any, number: int) -> bool:
+    """Alt+N: travel to the Nth segment of the rail (1-based). -> whether it did.
+
+    A segment the rail shows greyed answers with its reason, as a toast: the
+    keyboard has no tooltip to hover, and a key that does nothing at all reads
+    as a dead one.
+    """
+    order = rail_stages(ctx)
+    if not 1 <= number <= len(order):
+        return False
+    stage = order[number - 1]
+    why = available(stage, _current(ctx), ctx)
+    if why:
+        toast = getattr(ctx, "toast", None)
+        if callable(toast):
+            toast(why)
+        return False
+    go(ctx, stage)
+    return True
+
+
 def stage_for(job: Any) -> str:
     """Which stage opens ``job``. -> a key of :data:`STAGES`.
 

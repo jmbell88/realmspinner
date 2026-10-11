@@ -77,14 +77,35 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
                 "Generate on Reference, Make 3D on Mesh; not Rig, Pose, Export",
             ),
             ("Tab / Shift+Tab", "Move between the form's controls"),
-            ("Enter", "Press the stage's button when it is the one focused"),
-            # No Up / Down row: Create draws no library list, so events.py
-            # consumes those keys and moves nothing (2026-10-03 audit, shell-34).
+            (
+                "Enter",
+                "Press the stage's button when it is the one focused; on a contact "
+                "sheet, Make 3D on the chosen image",
+            ),
+            # Create draws no library list, so events.py consumes Up / Down
+            # for the library and moves nothing (2026-10-03 audit, shell-34);
+            # the arrows below are the contact sheet's own, read in its draw
+            # only while the canvas has the focus and no text field is active.
+            (
+                "Left / Right / Up / Down",
+                "Move the choice on a contact sheet (a finished batch of images)",
+            ),
+            # Labelling a reference: read in the canvas's draw only while it has
+            # the focus and no text field is active (``canvas.keys_enabled``), so
+            # a letter typed in the prompt never files a label. Bare letters: a
+            # Ctrl, Alt or Shift chord is left to the app's own shortcuts.
+            (
+                "G / B",
+                "Label the chosen image Good / Bad (a contact sheet or the single view)",
+            ),
+            ("N", "Tags and a note for the chosen image"),
+            # The stage rail used to be a mouse-only breadcrumb (2026-10-11).
+            ("Alt+1 - 5", "Go to the 1st - 5th stage on the rail; a greyed one says why"),
             ("Right-click a card", "Its actions menu"),
             ("F", "Frame the model"),
             ("W", "Toggle wireframe"),
             ("S", "Toggle turntable"),
-            ("Esc", "Exit comparison / pose edit"),
+            ("Esc", "Exit comparison / pose edit / the contact sheet"),
         ],
     )
     table(

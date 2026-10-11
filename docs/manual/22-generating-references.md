@@ -32,7 +32,7 @@ promotion](36-library-and-jobs.md#rerun-and-promotion).
 Under **Advanced → Avoid**, further down the pane, is a second box listing what the image must not
 contain. It is pre-filled with the things that most often ruin a reconstruction, and it is yours:
 delete the text and the job runs with no negative prompt at all, which is a different request from
-the default rather than a way back to it. **Reset settings…**, below the brief, brings the
+the default rather than a way back to it. **Reset image settings…**, in the **New…** menu, brings the
 default text back along with the rest of the form. The box is hidden, not greyed, while the model
 in use ignores a negative prompt (any model that runs at guidance 1.0 or lower);
 the text is left as it was and reappears when you pick a model that reads it.
@@ -66,28 +66,36 @@ tilesets and sprite sheets use Reference → Export. A 3D model or character als
 Unavailable stages explain their requirements on hover.
 
 The left column begins with **Your brief**: what you are making, a multiline description,
-and **Candidates** where the output supports multiple attempts. Output-specific artistic controls
+and **Images** (how many pictures one press draws) where the output supports several. Output-specific
+artistic controls
 follow, then the model and style recipe. Seed and Avoid are under **Advanced**; reference images
 are under **Conditioning**. Character has its own controls and uses no image model.
 
 The generation plan sits above a persistent **Create image**, **Generate reference** or other
-output-specific button at the bottom. The settings and plan each scroll within their own space;
-the submit button stays visible. The plan states stages, candidate count, recipe, estimated work,
-queue position and validation problems, with repair buttons where available. Ctrl+Enter still submits,
+output-specific button at the bottom. The settings and plan each scroll within their own space,
+and the plan is as tall as its own lines need; the submit button stays visible. The plan states
+stages, image count, recipe, estimated work, queue position and validation problems, with repair
+buttons where available. A brief with nothing typed yet says *Describe the asset to start* in the
+muted colour; the same line turns red once you have edited the prompt or pressed Generate on it. On a
+machine with no image model, the plan says *Recipe: none installed*, the button is greyed, and the
+problem carries **Download SDXL 1.0 (7.0 GiB)** (the model and its size), which ticks that download in
+Settings → Models for you. Ctrl+Enter still submits,
 and refuses for the same reasons the button is greyed: while a candidate batch is still undecided it says
 "Decide the pending candidates first" and queues nothing -- pick one on the Mesh stage, then generate again.
 
 Every new attempt belongs to the current creation and is saved. The **Attempts** strip below the
 canvas scrolls horizontally through that creation's results; it does not mix in unrelated recent jobs.
 Clicking an attempt inspects it without changing your draft or chosen reconstruction source.
-**Use these settings** explicitly loads a result's recipe. **Generate another attempt** uses a fresh
+**Load settings** explicitly loads a result's recipe. **Try again** uses a fresh
 seed; **Reproduce recorded attempt** reuses the recorded recipe and seed, with results still subject
 to runtime differences (it is greyed, with a reason, for a result that recorded no seed: a rig, a re-texture, a sheet or
 a music result). Pin one result, select another and choose **Compare with pinned** for a
-side-by-side comparison. **Mark preferred** records a favourite; it does not delete alternatives.
+side-by-side comparison. **Favourite**, in the inspector's header, records a favourite; it does not
+delete alternatives, and **Discard** moves an attempt you do not want to the trash (with an Undo in the
+toast).
 
-The right column holds the selected result's **Next step**, details and **Creations** history.
-**Inspector** hides this column to give the canvas more room. Choosing another creation restores its
+The right column holds the selected result's **Next step**, details and the **History** pane
+(below). **Inspector** hides this column to give the canvas more room. Choosing another creation restores its
 draft. **New… → New creation** starts with defaults; **New with previous settings** keeps the recipe
 but clears the selected result and source. Both preserve prior attempts.
 
@@ -122,7 +130,8 @@ rest) behind a "More options" reveal. It was retired on 2026-08-17: no taxonomy 
 a quality win, and your prompt is the brief. Assets generated under it are unaffected — rerolling
 or promoting one simply composes without the retired fragments.
 
-**Reset settings…**, below the brief, resets this stage's form after a confirmation. Image reset
+**Reset image settings…** and **Reset mesh settings…**, in the **New…** menu (the one for the stage you
+are on), reset that stage's form after a confirmation. Image reset
 includes the output type, description and all output-specific settings. Mesh reset keeps the chosen
 source. Neither reset deletes generated attempts or changes the other stage's form.
 
@@ -207,8 +216,8 @@ noticeably stronger there than they would on a few-step distilled model.
 Generation is deterministic in its seed: the same form and the same seed produce the same image
 every time. The **Seed** row, inside the collapsed **Advanced** header, is where you control that.
 
-The **Candidates** control below the brief picks how many candidates one submit queues: 1, 2, 4 or 8.
-Each is a real job holding
+The **Images** control below the brief picks how many images one submit queues: 1, 2, 4 or 8.
+(Mesh has its own, **Attempts**, for how many reconstructions to try.) Each is a real job holding
 a place in the serial queue, which is why eight is the ceiling. Because each one gets its own seed,
 a fan-out of four is the cheapest way to find out whether an idea works at all.
 
@@ -224,15 +233,71 @@ Seeds are whole numbers from 0 to 2147483647. The seed shown when the app opens 
 startup and is deliberately not remembered between sessions — otherwise every launch would open on
 the same seed and a first Generate would reproduce last week's image.
 
-Every candidate appears in the creation's **Attempts** strip under the canvas. Click a thumbnail
-to inspect it. Actions live in the inspector: **Use these settings**, **Generate another attempt**,
-**Reproduce recorded attempt**, pin and compare, and **Mark preferred**. These actions preserve
-other attempts. For a 3D reference, **Use as source for 3D** opens the Mesh stage with that image
-chosen explicitly; press **Make 3D** there to check the cutout and submit. While a job runs, the
-strip shows Working now, progress and Cancel.
+Every image appears in the creation's **Attempts** strip under the canvas. Click a thumbnail
+to inspect it. When a press of two or more images has finished, the canvas shows them all as a
+**contact sheet** (two side by side, three or four in a square, five to eight in two rows of four),
+scaled to fit. Click an image to choose it; the arrow keys move the choice, **Enter** is **Make 3D** on
+it, and **Esc** (or **Single view**) goes back to one image at a time, which **Compare all** brings
+back. The keys act only while the canvas has the focus and no text field is taking keystrokes. The
+newest image to finish is chosen for you, unless you have chosen another one in the meantime. **G**
+and **B** label the chosen image Good or Bad, and **N** opens its tags and note — see
+[Labelling a reference](#labelling-a-reference).
+
+Actions live in the inspector's **Next step**: for a finished 3D reference the one primary button is
+**Make 3D** (also over the picture on the canvas, and on the card in the tray), which opens the
+Mesh stage with that image chosen and checks the cutout. **More** holds **Load settings**,
+**Try again**, **Reproduce recorded attempt**, pin and compare, **Export…** and **Discard**. These
+actions preserve other attempts. While a job runs, the strip shows Working now, progress with the time
+it is expected to take (*about 15 seconds left*, or the time so far once it has run longer than that),
+and Cancel.
+
+On a machine with no image model and nothing selected, the empty canvas is a setup card: **Get the
+image model**, **Get the 3D engine** (each with its size, and each ticks its download in Settings) and
+*or make a Character (no GPU needed)* — a Character needs the Rigging pack, which the card says.
 
 The mesh has its own separate seed, at the Mesh stage. See
 [Mesh parameters](23-generating-meshes.md#mesh-parameters).
+
+### Labelling a reference
+
+The same canvas is where you say which pictures were any good. With an image chosen — on the contact
+sheet or on its own — **G** marks it **Good** and **B** marks it **Bad**, and **N** opens a small
+popup for **tags** (the same good and bad words the mesh grade uses, such as *clean-shape* or *holes*)
+and a **note** in your own words, with a **Save** button; the popup writes nothing until you press it.
+Each picture on the sheet shows its label as a green or red edge with the word and its tags, and
+the single view has **Good**, **Bad** and **Tags and note…** buttons at its top left. Pressing the
+key for the label a picture already has files nothing new.
+
+These are the same labels Review's labelling pass files, as you, so they feed the same
+[findings](04-judging-what-you-made.md). The keys are plain letters and are read only while the
+canvas has the focus and no text field is taking keystrokes, so typing a *g* in the prompt never
+labels anything, and a chord with Ctrl, Alt or Shift is left to the app's own shortcuts.
+
+### History
+
+The **History** pane, under the inspector, lists everything you have generated or judged, newest first
+— **including attempts you have since deleted**, which is the point of it. A row shows a thumbnail
+when the image still exists, the start of the prompt, the image label (*Image Good* or *Image Bad*)
+and the mesh grade, the tags, *note* when you wrote one (hover the row to read it), and a line of what
+ran: model, steps, guidance, style and seed. A muted *deleted* or *in trash* says the asset is gone,
+and its labels, notes and settings stay. The line above the filters is the corpus summary Review
+shows.
+
+Four small menus filter the list: model, style, type, and *All / Judged / Unjudged*. Their choices
+come from the rows themselves, so a model that has since been removed from the app is still there to
+filter by. **More** at the bottom adds another page. Clicking a row whose asset still exists opens it.
+
+**Load settings** on a row copies its recorded recipe back into the form — model (as an Advanced pick
+unless Automatic would have chosen it anyway), style and its strength, the Avoid text, the seed
+(locked) and the prompt, plus the mesh settings the attempt carried — and works on a deleted attempt
+too, from the settings its verdict stored. It is greyed, with the reason, for a deleted attempt whose
+verdict predates those settings being kept, and it is refused, with a toast naming the model, when the
+attempt used an image model or style that this version removed: loading it would put a choice in the
+form that nothing can run.
+
+**Export…** in the pane's header writes the whole log — every verdict and measurement, with its
+settings and your notes — to a JSON Lines file in a folder you pick, and says where it saved it. It is
+the same export as **Settings → Advanced → Export generation log**.
 
 ### Which candidate to look at first
 

@@ -92,6 +92,9 @@ class _Recorder:
                 return (False, args[1])
             if name in ("button", "disabled_button"):
                 return False
+            if name == "begin_popup":
+                # The inspector's "More" menu: open, so its rows are drawn.
+                return True
             return None
 
         return call
@@ -239,6 +242,7 @@ def _drive_selected_actions(monkeypatch, job: dict[str, Any]):
     from realmspinner.studio.modes.create.ui import workspace as mod
 
     widgets, controls = _Recorder(), _Recorder()
+    controls.ButtonRole = mod.controls.ButtonRole  # an enum, not a call to record
     monkeypatch.setattr(mod, "widgets", widgets)
     monkeypatch.setattr(mod, "controls", controls)
     monkeypatch.setattr(mod, "imgui", _Recorder())

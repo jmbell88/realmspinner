@@ -81,7 +81,7 @@ def candidate_count(form: dict[str, Any]) -> int:
     would arrive as an error toast on a control the user cannot see is wrong.
     """
     try:
-        count = int(form.get("count", 1))
+        count = int(form.get("attempts", 1))
     except (TypeError, ValueError):
         return 1
     return max(1, min(count, MAX_MESH_CANDIDATES))

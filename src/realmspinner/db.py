@@ -80,7 +80,9 @@ CREATE TABLE IF NOT EXISTS verdicts (
     -- it reads better: ALTER TABLE appends, so a migrated database puts it here,
     -- and ``tests/test_migrate.py`` compares the two schemas column-position and
     -- all. Fresh and migrated converging is the property, not the prose.
-    grade       INTEGER
+    grade       INTEGER,
+    snapshot    TEXT,                           -- JSON: vectors.settings_snapshot, NULL on old rows
+    note        TEXT                            -- the reviewer's free-text remark, NULL if none
 );
 CREATE INDEX IF NOT EXISTS idx_verdicts_job ON verdicts(job_id);
 
@@ -93,7 +95,8 @@ CREATE TABLE IF NOT EXISTS observations (
     prompt_hash TEXT NOT NULL DEFAULT '',
     vector      TEXT NOT NULL DEFAULT '{}',     -- JSON: config vector, verdicts' canonical form
     metrics     TEXT NOT NULL DEFAULT '{}',     -- JSON: vectors.observation_metrics output
-    created_at  REAL NOT NULL
+    created_at  REAL NOT NULL,
+    snapshot    TEXT                            -- JSON: vectors.settings_snapshot, NULL on old rows
 );
 CREATE INDEX IF NOT EXISTS idx_observations_job ON observations(job_id);
 
@@ -410,6 +413,24 @@ MIGRATIONS: list[list[str]] = [
         " dim INTEGER NOT NULL,"
         " text_hash TEXT NOT NULL,"
         " vec BLOB NOT NULL)",
+    ],
+    # 13 -- the generation log. A verdict used to keep only the config vector,
+    # which deliberately omits prompt, seed, steps, guidance and scheduler, and a
+    # hard delete takes the job row with every one of those. The 2026-10-11 look
+    # at the real store found 13 of 17 verdicts pointing at deleted jobs with
+    # nothing left to say what produced them. ``snapshot`` is that record: the
+    # settings that actually ran (``vectors.settings_snapshot``), written onto
+    # the verdict and observation row at the moment it is filed, so it outlives
+    # the job exactly as ``vector`` does. ``note`` is the reviewer's own
+    # sentence, part of the verdict row (append-only, newest wins). Neither is
+    # part of the vector and neither feeds ``vector_key``: the corpus is keyed
+    # on the vector, and widening it would re-key every stored bucket.
+    # Nullable and last, so old rows read back None and a migrated database has
+    # the columns in the position _SCHEMA declares them.
+    [
+        "ALTER TABLE verdicts ADD COLUMN snapshot TEXT",
+        "ALTER TABLE verdicts ADD COLUMN note TEXT",
+        "ALTER TABLE observations ADD COLUMN snapshot TEXT",
     ],
 ]
 
@@ -1778,6 +1799,8 @@ class JobStore:
         prompt_hash: str = "",
         stage: str = "model",
         grade: int | None = None,
+        snapshot: dict[str, Any] | None = None,
+        note: str | None = None,
     ) -> int:
         """Append one verdict. Append-only: a changed mind is a new row, and
         ``latest_verdicts`` takes the highest id per (job, source, stage), so the
@@ -1797,12 +1820,17 @@ class JobStore:
         has one owner, ``service.verdicts.record_verdict``, and a second one here
         would be the two-spellings hazard with a storage layer as one of the
         spellings.
+
+        ``snapshot`` and ``note`` (migration 13) ride on the row beside the
+        vector but are not part of it: the snapshot is what ran, kept so a hard
+        delete stops losing it, and the note is the reviewer's own sentence.
         """
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO verdicts (job_id, source, verdict, reasons, vector,"
-                " created_at, sweep_id, sweep_unit, seed, prompt_hash, stage, grade)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " created_at, sweep_id, sweep_unit, seed, prompt_hash, stage, grade,"
+                " snapshot, note)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job_id,
                     source,
@@ -1816,6 +1844,8 @@ class JobStore:
                     prompt_hash,
                     stage,
                     grade,
+                    json.dumps(snapshot) if snapshot is not None else None,
+                    note,
                 ),
             )
             self._commit()
@@ -1989,6 +2019,7 @@ class JobStore:
         prompt_hash: str,
         vector: dict[str, Any],
         metrics: dict[str, Any],
+        snapshot: dict[str, Any] | None = None,
     ) -> int:
         """Append one machine-evidence row -- what the worker measured about a
         finished model job, snapshotted with its config vector so it outlives
@@ -1996,8 +2027,8 @@ class JobStore:
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO observations (job_id, sweep_id, sweep_unit, seed,"
-                " prompt_hash, vector, metrics, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " prompt_hash, vector, metrics, created_at, snapshot)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job_id,
                     sweep_id,
@@ -2007,6 +2038,7 @@ class JobStore:
                     json.dumps(vector),
                     json.dumps(metrics),
                     time.time(),
+                    json.dumps(snapshot) if snapshot is not None else None,
                 ),
             )
             self._commit()
@@ -2023,6 +2055,37 @@ class JobStore:
                 " ORDER BY id"
             ).fetchall()
         return [self._observation_to_dict(r) for r in rows]
+
+    def history_jobs(self) -> list[dict[str, Any]]:
+        """Every text/image job, as the light columns the generation log reads.
+
+        One statement, params parsed, and no ``SELECT *``: the log wants the
+        job beside its verdicts, and fetching them per row is the N+1 this
+        method exists to avoid. Trashed rows are included (``deleted_at`` says
+        so) because a trashed job is still a job with a history.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, kind, status, stage, prompt, params, created_at,"
+                " deleted_at FROM jobs WHERE kind IN ('text', 'image')"
+            ).fetchall()
+        return [self._to_dict(r) for r in rows]
+
+    def log_rows(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Every verdict row and every observation row, oldest first, parsed.
+
+        The export's read: unlike ``latest_verdicts`` it keeps superseded rows,
+        because the log is a record of what was said and when.
+        """
+        with self._lock:
+            verdicts = self._conn.execute("SELECT * FROM verdicts ORDER BY id").fetchall()
+            observations = self._conn.execute(
+                "SELECT * FROM observations ORDER BY id"
+            ).fetchall()
+        return (
+            [self._verdict_to_dict(r) for r in verdicts],
+            [self._observation_to_dict(r) for r in observations],
+        )
 
     @staticmethod
     def _blob(text: Any, empty: Any) -> Any:
@@ -2053,6 +2116,7 @@ class JobStore:
         d = dict(row)
         d["vector"] = JobStore._blob(d["vector"], {})
         d["metrics"] = JobStore._blob(d["metrics"], {})
+        d["snapshot"] = JobStore._blob(d.get("snapshot"), None)
         return d
 
     @staticmethod
@@ -2060,6 +2124,7 @@ class JobStore:
         d = dict(row)
         d["reasons"] = JobStore._blob(d["reasons"], [])
         d["vector"] = JobStore._blob(d["vector"], {})
+        d["snapshot"] = JobStore._blob(d.get("snapshot"), None)
         return d
 
     @staticmethod

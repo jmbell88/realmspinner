@@ -49,12 +49,21 @@ judged shows up automatically in a bucket called **Recent, unreviewed** — dail
 experiments feed one pool.
 
 You do not have to go to Review to file one, either. When you open a finished mesh in the inspector
-and nobody has graded it, the **Was this any good?** section is already open, with the same grade
-buttons and the same tags. Once it has a verdict the section starts collapsed, because there is
-nothing left to ask. This is deliberate and it is worth cooperating with: the app's own accept/reject
+and nobody has graded it, the **Was this any good?** section is already open, with three buttons —
+**Ship it** (+5), **Usable** (+3) and **Unusable** (−5) — and the same tags. A **Full scale** switch
+under them shows the whole −5 to +5 row instead (hover a button for what it means), and the section
+stays shut on an ungraded mesh while that row is on. Once a mesh has a verdict the section starts
+collapsed, because there is nothing left to ask. This is deliberate and it is worth cooperating with:
+the app's own accept/reject
 probe cannot be fitted until there are enough graded meshes of *both* kinds, and a corpus assembled
 by going looking for failures would be worthless for the purpose. The only way to get an honest one
 is for ordinary work to be graded as it lands.
+
+Under the tags is a **Note** field and a **Note…** button that opens a larger box: whatever you write
+is filed with the next grade you press, quick or full scale, and the latest note on a mesh shows
+beneath so you can see what you said last time. A note is optional, capped at 2,000 characters, and
+never changes the grade or the findings; it exists so that "why" survives next to the number. Create's
+**History** pane and the exported generation log carry it.
 
 ## A judging pass
 

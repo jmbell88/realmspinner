@@ -54,6 +54,9 @@ _MAX_CITATION_TOKENS = 3 * _MAX_CHUNK_TOKENS
 _WORD = re.compile(r"[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+|[A-Za-z0-9]+")
 
 
+_IDENTIFIER_SEPARATOR = re.compile(r"[_-]")
+
+
 def _identifier_parts(token: str) -> list[str]:
     """Split ``clay_batch``/``mirror-copy``/``REALMSPINNER_HOME`` into pieces."""
     return [p for p in re.split(r"[_-]+", token) if p]
@@ -68,6 +71,17 @@ def tokenize(text: str) -> list[str]:
         if len(parts) > 1:
             tokens.extend(parts)
     return tokens
+
+
+#: Added to a chunk's score once per *whole* identifier of the query it contains
+#: (``REALMSPINNER_VRAM_BUDGET``, ``clay_batch``). The parts of an identifier are
+#: ordinary words too, so a short chunk that merely says "VRAM" and "budget" a few
+#: times could outscore the long reference chunk that names the variable: the
+#: 2026-10-11 rewording of the mesh chapter's opening did exactly that, by 0.08
+#: (``test_a_code_identifier_query_finds_the_paragraph_that_names_it``). Naming
+#: the identifier is the stronger evidence, and BM25's length normalisation is
+#: what penalised it.
+_WHOLE_IDENTIFIER_BONUS = 4.0
 
 
 def _whitespace_token_count(text: str) -> int:
@@ -290,10 +304,15 @@ class Index:
         query_terms = tokenize(query)
         if not query_terms or self._n == 0:
             return []
+        # Terms that are a whole identifier, not one of its parts: the ones with a
+        # separator in them (``tokenize`` emits those first, then the pieces).
+        wholes = [t for t in dict.fromkeys(query_terms) if _IDENTIFIER_SEPARATOR.search(t)]
         scored: list[tuple[float, int]] = []
         for i in range(self._n):
             score = self._score(i, query_terms)
             if score > 0:
+                freqs = self._doc_freqs[i]
+                score += _WHOLE_IDENTIFIER_BONUS * sum(1 for t in wholes if t in freqs)
                 scored.append((score, i))
         # Deterministic tie-break: score descending, then source order (the
         # chunk index), so equal scores never depend on sort stability across

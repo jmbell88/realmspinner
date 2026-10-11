@@ -149,7 +149,9 @@ def test_picking_a_budget_clears_the_profile_and_triangle_rings(monkeypatch):
     _hosts(monkeypatch, blender=True, gltfpack=True)
     _quiet_widgets(
         monkeypatch,
-        lambda label, value, options, **kw: "lowpoly:10k" if label == "Budget" else value,
+        lambda label, value, options, **kw: (
+            "lowpoly:10k" if label == "Triangle budget" else value
+        ),
     )
     ctx = _ringed(_ctx(), *_RINGS, "platform")
     settings_3d._budget(ctx, dict(DEFAULT_FORM_3D))
@@ -167,7 +169,8 @@ def test_editing_the_finishing_combo_clears_its_ring(monkeypatch):
     )
     ctx = _ringed(_ctx(), "mesh_finishing")
     form = dict(DEFAULT_FORM_3D)
-    settings_3d._budget(ctx, form)
+    # Finishing moved into "Advanced" (2026-10-11); ``_finishing`` is its draw.
+    settings_3d._finishing(ctx, form)
     assert form["mesh_finishing"] == "repair"
     assert "mesh_finishing" not in ctx.state.field_errors
 

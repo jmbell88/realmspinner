@@ -30,7 +30,17 @@ from imgui_bundle import imgui
 
 from ...... import fetch, models, vram
 from ......service import library as svc_library
-from ..... import app_ctx, controls, dialogs, forms, icons, theme, tokens, widgets
+from ..... import (
+    app_ctx,
+    controls,
+    dialogs,
+    forms,
+    generation_log_export,
+    icons,
+    theme,
+    tokens,
+    widgets,
+)
 from ..... import layouts as layouts_mod
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -365,6 +375,7 @@ def _category_body(ctx: Any, category: str) -> None:
         _layout(ctx)
         _layouts(ctx)
         _agents(ctx)
+        _generation_log(ctx)
         _config(ctx)
     else:
         _interface(ctx)
@@ -497,7 +508,7 @@ def _interface(ctx: Any, form_ui: forms.Form | None = None) -> None:
     # ever lets Make 3D skip the question when the composition gate raised
     # nothing at all and BiRefNet made the cut, never a refused, warned, or
     # corner-fill-fallback matte (``create_mesh.matte_is_clean``).
-    skip_matte = bool(ctx.settings.get(settings_3d.SKIP_CLEAN_MATTE_SETTING, False))
+    skip_matte = bool(ctx.settings.get(settings_3d.SKIP_CLEAN_MATTE_SETTING, True))
     changed, skip_matte = form_ui.switch(
         "skip_clean_matte_preview",
         "Don't ask for clean cutouts",
@@ -507,7 +518,10 @@ def _interface(ctx: Any, form_ui: forms.Form | None = None) -> None:
             "nothing to say and the cut came from BiRefNet. Anything refused, "
             "warned, or made by the corner-fill fallback still opens it."
         ),
-        helper="Off by default: the preview is the one place a bad cutout is still cheap to catch.",
+        helper=(
+            "On by default. Turn it off to see the preview every time: it is the one "
+            "place a bad cutout is still cheap to catch."
+        ),
     )
     if changed:
         ctx.settings.set(settings_3d.SKIP_CLEAN_MATTE_SETTING, skip_matte)
@@ -827,6 +841,21 @@ def _agents(ctx: Any) -> None:
         "Turning this off revokes it at once. Deleting the file only stops new "
         "connections: an agent that is already attached, or already holds the "
         "key, keeps working until you turn this off."
+    )
+
+
+def _generation_log(ctx: Any) -> None:
+    widgets.section("Generation log")
+    if widgets.disabled_button(
+        "Export generation log...",
+        not ctx.busy(generation_log_export.KEY),
+        reason="An export is already running.",
+    ):
+        generation_log_export.request(ctx)
+    widgets.muted_wrapped(
+        "Writes every verdict and measurement, with the settings that produced "
+        "it and your notes, to a JSONL file in a folder you pick. The same "
+        "export is on Create's History pane."
     )
 
 

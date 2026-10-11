@@ -69,20 +69,23 @@ def test_migration_8_indexes_exist_on_fresh_and_pre_existing_dbs(tmp_path):
         assert "WHERE sweep_id IS NOT NULL" in _index_sql(path, "idx_jobs_sweep")
 
 
-def test_migration_12_is_the_last_entry(tmp_path):
+def test_migration_13_is_the_last_entry_and_12_is_still_job_embeddings(tmp_path):
     """Append-only bookkeeping: user_version lands on len(MIGRATIONS), and the
-    last entry is number 12 (``job_embeddings``, the Library's meaning index)
-    -- anything planned as 'migration 12' elsewhere is now 13. Migration 11 is
+    last entry is number 13 (the ``snapshot`` and ``note`` columns on verdicts
+    and observations, which let a verdict outlive the job that produced it).
+    Number 12 is still ``job_embeddings``, the Library's meaning index; 11 is
     still ``idx_jobs_created_id``, the composite index the newest-first list
-    sorts on, and migration *10* is still the mesh ``grade``, which is what
-    every 'migration 10' comment across the tree means; this pin moved because
-    the Library gained a table, not because either of those did."""
-    assert len(MIGRATIONS) == 12
+    sorts on, and *10* is still the mesh ``grade``, which is what every
+    'migration 10' comment across the tree means. This pin moved because the
+    verdict tables gained columns, not because any of those did."""
+    assert len(MIGRATIONS) == 13
+    assert any("job_embeddings" in stmt for stmt in MIGRATIONS[11])
+    assert any("verdicts ADD COLUMN snapshot" in stmt for stmt in MIGRATIONS[12])
     path = tmp_path / "jobs.sqlite"
     store = JobStore(path)
     store.close()
     conn = sqlite3.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
     conn.close()
 
 

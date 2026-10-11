@@ -103,7 +103,7 @@ row and Left and Right by one card, over the same filtered, sorted list the card
 and it is **clamped** rather than wrapped, because that list is the newest N of many and one press
 at the top landing on the oldest asset the window happens to hold is a jump the other arrow will not
 undo. Create draws no library list, so Up and Down do nothing there: pick an asset by clicking it in
-the Creations pane.
+the History pane.
 
 ## Create
 
@@ -111,16 +111,27 @@ the Creations pane.
 | --- | --- |
 | Ctrl+Enter | Generate on Reference, Make 3D on Mesh; not Rig, Pose, Export (the menu and palette rows are greyed on those stages too) |
 | Tab / Shift+Tab | Move between the form's controls |
-| Enter | Press the stage's button when it is the one focused |
+| Enter | Press the stage's button when it is the one focused; on a contact sheet, **Make 3D** on the chosen image |
+| Left / Right / Up / Down | Move the choice on a contact sheet (a finished batch of images on the Reference stage) |
+| G / B | Label the chosen image **Good** / **Bad**, on a contact sheet or in the single view |
+| N | Open the tags-and-note popup for the chosen image |
+| Alt+1 – 5 | Go to the 1st to 5th segment of the stage rail; a greyed one says why in a toast |
 | Right-click a card | The same actions menu the `...` button opens |
 | F | Frame the model |
 | W | Toggle wireframe |
 | S | Toggle turntable |
-| Esc | Exit comparison / pose edit |
+| Esc | Exit comparison / pose edit / the contact sheet |
 | Ctrl+Z / Ctrl+Y | Undo / redo a pose edit (Ctrl+Shift+Z also redoes) |
 
 `F`, `W` and `S` are plain keys: with `Ctrl`, `Alt` or `Meta` held they do nothing in Create, so
 `Ctrl+S` and `Ctrl+W` never toggle the turntable or the wireframe.
+
+`Alt+1` to `Alt+5` count the segments the rail is **showing**, not the five possible stages: an
+image's rail is Reference and Export, so there `Alt+2` is Export. They work from inside the prompt
+too, since an Alt chord is never typed text. The contact sheet's arrow keys, `Enter` and `Esc`, and
+the labelling keys `G`, `B` and `N`, act only while the canvas has the focus (click a picture on it)
+and no text field is taking keystrokes; `G`, `B` and `N` are plain letters, so a chord with `Ctrl`, `Alt`
+or `Shift` never labels.
 
 The undo row applies **while pose edit is open**, and only there. It is the pose editor's own
 history — one step per gizmo drag, per preset, per mirror and per reset — and it is the same

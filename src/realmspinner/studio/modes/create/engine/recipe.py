@@ -1725,6 +1725,59 @@ def tile_sheet_kwargs(form: dict[str, Any]) -> dict[str, Any]:
         kwargs["allow_grid"] = True
     return kwargs
 
+#: The sentence for a host where Automatic resolves to no installed checkpoint.
+#: A constant because the footer, the disabled Generate's tooltip, the setup
+#: card and the repair's match all key on it (the repair also keys on the
+#: ``base_model`` field, never on prose alone -- ``_preflight_fix``'s rule).
+NO_MODEL_PROBLEM = "No image model is installed yet."
+
+#: What the plan's "Recipe:" line says on such a host, instead of the
+#: "Automatic recipe" it says while one will actually run.
+NO_MODEL_RECIPE = "none installed"
+
+
+def automatic_install(ctx: Any, form: dict[str, Any]) -> tuple[tuple[str, ...], str, float] | None:
+    """What fetching Automatic's recipe would take. -> ``(rows, label, GiB)``, or None.
+
+    ``None`` when there is nothing to offer: this host's answers have not landed
+    (``model_rows`` empty -- ``weights_problem``'s doctrine: say nothing rather
+    than everything-is-missing), the recipe Automatic would pick is not known,
+    or every row it needs is already here (Automatic then failed for some other
+    reason this cannot repair).
+
+    The recipe is what :func:`generation.resolve_recipe` picks if every row in
+    ``model_rows`` were installed, so the offer follows the registry's ranking
+    rather than naming a checkpoint in this file. Only the rows that are absent
+    are returned, in the recipe's own order.
+    """
+    rows = getattr(ctx, "model_rows", None) or []
+    by_key = {str(row.get("row_key")): row for row in rows}
+    if not by_key:
+        return None
+    try:
+        request = generation.request_from_legacy(form)
+        would = generation.resolve_recipe(request, ctx.svc.config, installed=set(by_key))
+    except Exception:
+        # Silent on purpose, as ``resolved_recipe`` is: this runs every frame
+        # inside the draw, a partially restored form must make the footer say
+        # nothing rather than raise, and the service door still refuses it.
+        return None
+    if would is None:
+        return None
+    absent = [
+        key
+        for key in would.recipe.required_downloads
+        if key in by_key and not by_key[key].get("present")
+    ]
+    if not absent:
+        return None
+    gib = sum(float(by_key[key].get("size_gib") or 0.0) for key in absent)
+    labels = [str(by_key[key].get("label") or key) for key in absent]
+    # One row is named; several are the recipe, whose label says more than a list.
+    label = labels[0] if len(labels) == 1 else str(would.recipe.label)
+    return tuple(absent), label, gib
+
+
 _WEIGHT_FIELDS = (
     ("base_model", "base", "The image model"),
     ("style_lora", "lora", "The style LoRA"),
@@ -1790,6 +1843,16 @@ def weights_problem(ctx: Any, form: dict[str, Any]) -> problem_types.Problem | N
         resolved = resolved_recipe(ctx, form)
         if resolved is not None:
             resolved_base = resolved.base_model
+        else:
+            # **Automatic found nothing to load.** The loop below would name the
+            # stale ``form["base_model"]`` as "selected but not downloaded",
+            # which is a sentence about a choice the user never made, and a
+            # repair ("Open model setup") that only switched mode. This one
+            # names the recipe Automatic *would* have used and what fetching it
+            # costs, and carries the rows the repair ticks.
+            missing = automatic_install(ctx, form)
+            if missing is not None:
+                return problem_types.Problem(NO_MODEL_PROBLEM, "base_model", missing[0])
     for field, kind, noun in _WEIGHT_FIELDS:
         chosen = str((resolved_base if field == "base_model" else form.get(field)) or "")
         if not chosen:
@@ -1802,6 +1865,7 @@ def weights_problem(ctx: Any, form: dict[str, Any]) -> problem_types.Problem | N
             f"{noun} {label!r} is selected but not downloaded. "
             f"Install it in Settings, or pick another.",
             field,
+            (f"{kind}:{chosen}",),
         )
     if form.get("output") == "sheet" and form.get("sheet_type") == "sprite":
         # Only after the visible preliminary recipe has passed: both stages

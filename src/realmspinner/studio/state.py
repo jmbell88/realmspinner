@@ -439,7 +439,13 @@ DEFAULT_FORM_3D: dict[str, Any] = {
     # cheapest answer to a hole through the shoulder. Bounded at
     # validation.MAX_MESH_CANDIDATES, because each one is two minutes of a
     # serial worker.
-    "count": 1,
+    #
+    # **Its own key, "attempts"** (the 2026-10-11 Create review): this was
+    # "count", the same word the Reference form uses for how many *images* a
+    # press draws, behind one control labelled "Candidates" that meant two
+    # different things. The stored "count" of a form saved before the rename is
+    # read as "attempts" by ``settings.restore_form``.
+    "attempts": 1,
     "rig": False,
     "rig_template": "",
     # Whether the host recentres and rescales the subject before the trellis
@@ -1404,6 +1410,13 @@ class AppState:
     # verdict is filed, which is the only thing that can change the answer while
     # the app is running.
     inspector_graded: dict[str, bool] = field(default_factory=dict)
+    # The note being written for the next verdict, keyed by the job it was
+    # typed against like the staged tags above (a different selection simply has
+    # none), and the newest note already on file per mesh -- memoised for the
+    # reason ``inspector_graded`` is, and replaced whenever a verdict is filed.
+    inspector_note_job: str | None = None
+    inspector_note: str = ""
+    inspector_notes: dict[str, str] = field(default_factory=dict)
     form_2d: dict[str, Any] = field(default_factory=default_form_2d)
     form_3d: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_FORM_3D))
     filters: Filters = field(default_factory=Filters)

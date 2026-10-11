@@ -69,8 +69,8 @@ defaults to on (such as `REALMSPINNER_NATIVE`) means an unrecognised word leaves
 
 The seven `REALMSPINNER_TRELLIS_BAND`/`TEX_RES`/`GSS`/`GSH`/`MAX_TOKENS`/`DECIM`/`ATLAS` rows above are
 process-wide defaults, applied to every job that does not say otherwise. Each now has a UI twin: the
-Mesh stage's collapsed **Engine (advanced)** header (see
-[Generating meshes](23-generating-meshes.md#engine-advanced)) sets the identical flag for one job
+Mesh stage's collapsed **Advanced** header, in its **Engine** group (see
+[Generating meshes](23-generating-meshes.md#advanced)) sets the identical flag for one job
 only, and an unset control there falls back to whatever the variable above is set to, exactly as the
 API's own `trellis_*` job parameters already did. Neither changes the other — the environment variable
 is still what a headless run or an unattended batch sees.

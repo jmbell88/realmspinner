@@ -144,9 +144,9 @@ FIRST_HOUR = Tour(
             id="generate",
             title="Generate",
             body=(
-                "Press it if the image model is installed. If it is not, press it "
-                "anyway -- the refusal names what is missing and offers to fetch it, "
-                "which is worth seeing once.\n\n"
+                "Press it if the image model is installed. If it is not, the button "
+                "is greyed and the plan under the form says so, with a button that "
+                "offers to download the model and shows its size -- worth seeing once.\n\n"
                 "Either way, press Next when you are ready."
             ),
             mode="create",

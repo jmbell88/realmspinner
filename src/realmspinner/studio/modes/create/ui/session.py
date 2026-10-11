@@ -206,6 +206,8 @@ def new(ctx: Any, *, reuse: bool = False, then: Any = None) -> None:
         ctx.state.create.workspace_selection = None
         ctx.state.create.comparison_pin = ctx.state.create.image_comparing = None
         ctx.state.create.preview_mode = "result"
+        ctx.state.create.prompt_touched = False
+        ctx.state.create.follow_selection = None
         ctx.state.select(None)
         viewer = getattr(ctx, "viewer", None)
         if viewer is not None:

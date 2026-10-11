@@ -304,8 +304,8 @@ appear, and carries muted lines of its machine measurements and its tag tallies 
 Before any configuration has that many, the section says how close the nearest one is — "the closest
 is 2 verdicts away" — rather than only that nothing has ranked yet.
 "Apply to forms" writes one into the Reference and Mesh stage forms, the seven engine axes under
-**Engine (advanced)** included — a configuration ranked from sweep units necessarily carries whatever
-those units were launched with (see [Generating meshes](23-generating-meshes.md#engine-advanced)).
+**Advanced** fold's engine group included — a configuration ranked from sweep units necessarily carries whatever
+those units were launched with (see [Generating meshes](23-generating-meshes.md#advanced)).
 
 While you are judging a sweep unit whose subject has five or more verdicts of its own, the ranking
 above leads with "Top configurations for this subject" instead of the pooled list — what makes a good

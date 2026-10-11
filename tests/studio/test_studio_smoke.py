@@ -161,7 +161,8 @@ def test_create_workspace_controls_and_exported_previews_fit(
     from PIL import Image, ImageDraw
 
     from realmspinner.studio import anchors, layout, probe, widgets
-    from realmspinner.studio.modes.create.ui import brief, preview, session, workspace
+    from realmspinner.studio.modes.create.ui import brief, preview, session
+    from realmspinner.studio.modes.create.ui.panes import history as create_history
     from realmspinner.studio.panes import inspector
     from realmspinner.studio.shell import frame
 
@@ -292,7 +293,7 @@ def test_create_workspace_controls_and_exported_previews_fit(
                 lay,
                 layout.sidebar_width("right"),
                 inspector_draw=inspector.draw,
-                library_draw=workspace.history,
+                library_draw=create_history.draw,
             )
             imgui.end()
             imgui.render()
@@ -7363,3 +7364,23 @@ def test_leaving_the_unwrap_page_commits_an_armed_live_transform(app_ctx, imgui_
     _frame(imgui_ctx, lambda: clay_inspector.draw(app_ctx))
 
     assert tab.uv_view.drag_mode == ""
+
+
+def test_the_advanced_category_offers_the_generation_log_export(app_ctx, imgui_ctx, monkeypatch):
+    """Settings -> Advanced draws an export button that submits the work to the
+    task runner (never the frame thread) under its own key."""
+    from realmspinner.studio import widgets
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    submitted: list[str] = []
+    monkeypatch.setattr(
+        app_ctx, "submit", lambda key, fn, *a, **k: submitted.append(key) or True
+    )
+    monkeypatch.setattr(
+        widgets, "disabled_button",
+        lambda label, enabled, *a, **k: label == "Export generation log..." and enabled,
+    )
+
+    _frame(imgui_ctx, lambda: app_settings._generation_log(app_ctx))
+
+    assert submitted == ["generation-log-export"]

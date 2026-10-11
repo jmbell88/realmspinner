@@ -365,44 +365,39 @@ def test_the_create_columns_do_not_keep_unused_footer_height_state():
     assert "No press is drawn here" not in (settings_3d.draw.__doc__ or "")
 
 
-# --- create-44: the Creations list is memoised with the index --------------------
+# --- create-44: the History list is not rebuilt on a quiet frame ------------------
 
 
-def test_creations_history_is_not_rebuilt_on_a_frame_that_changed_nothing(monkeypatch):
-    """``history`` sorted every family by its newest created_at and ran
-    ``families.results`` over each one on every frame the Creations list was on
-    screen, although the index beneath it is memoised on the cache generation."""
+def test_history_is_not_reloaded_on_a_frame_that_changed_nothing(monkeypatch):
+    """The Creations list sorted every family and ran ``families.results`` over each
+    one on every frame; its successor is a task-loaded cache, so a frame where
+    nothing moved (same jobs-cache signature, no verdict, no filter) must submit
+    nothing."""
     from _ui_context import imgui_context
 
-    from realmspinner.studio.modes.create.engine import workspace as families
-    from realmspinner.studio.modes.create.ui import workspace as create_workspace
+    from realmspinner.studio.modes.create.ui.panes import history
     from realmspinner.studio.state import AppState
 
-    jobs = [
-        {"id": f"j{i}", "kind": "text", "stage": "reference", "status": "done",
-         "created_at": float(i), "files": [], "params": {}}
-        for i in range(5)
-    ]
-    cache = SimpleNamespace(
-        jobs=jobs, _generation=1, can_load_more=lambda: False, get=lambda _id: None,
+    submitted: list[str] = []
+    cache = SimpleNamespace(jobs=[], _generation=1, get=lambda _id: None)
+    state = AppState(mode="create")
+    ctx = SimpleNamespace(
+        state=state,
+        cache=cache,
+        svc=SimpleNamespace(config=SimpleNamespace(bench_dir="nowhere")),
+        textures=None,
+        submit=lambda key, *a, **k: submitted.append(key) or True,
+        toast=lambda *a, **k: None,
     )
-    ctx = SimpleNamespace(state=AppState(mode="create"), cache=cache)
-    calls: list[int] = []
-    real = families.results
-    monkeypatch.setattr(
-        families, "results", lambda *a, **k: calls.append(1) or real(*a, **k)
-    )
+    state.create.history_rows = []
     with imgui_context(monkeypatch) as imgui:
-        for _frame in range(2):
+        for _frame in range(3):
             imgui.new_frame()
             imgui.begin("test")
-            create_workspace.history(ctx)
+            history.draw(ctx)
             imgui.end()
             imgui.render()
-            if _frame == 0:
-                after_first = len(calls)
-    assert after_first >= 5, "the first frame has to build the list"
-    assert len(calls) == after_first, "an unchanged second frame rebuilt it"
+    assert submitted == ["create-history"], "one load on the first frame, none after"
 
 
 # --- create-46: the tray's stage filter is asserted on what draw calls ----------

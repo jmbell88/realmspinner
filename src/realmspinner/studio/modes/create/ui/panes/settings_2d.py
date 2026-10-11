@@ -35,6 +35,7 @@ from ..... import controls, dialogs, focus, forms, theme, widgets
 from ..... import problems as problem_types
 from .....formvalues import coerce_form_value
 from .....manual import render as manual_render
+from .....panes import model_gate
 from .....tokens import sp
 from .....widgets import field_options as _options
 from ...engine import assets as create_assets
@@ -79,13 +80,16 @@ def draw(ctx: Any) -> None:
     with forms.Form("create-2d", errors=ctx.state.field_errors) as form_ui:
         # The plan block is pinned and does not scroll (K92): the statement of
         # what a press will cost must not be at the bottom of a scrolled column
-        # when the press itself is right under it. The column reserves a fixed
-        # ``-sp(220)`` for the plan, its refusals and Generate; there is no
-        # frame-late height feedback (the audit's create-40 removed the unused
-        # ``_submit_px`` list that said there was).
+        # when the press itself is right under it. It used to be a fixed
+        # ``-sp(220)``/``-sp(52)`` pair, so a footer with a refusal and a repair
+        # button lost its last line to the clip (the 2026-10-11 review); the
+        # height is the footer's own measured content now, one frame late
+        # (``generation_workspace.plan_height``), clamped so it can never eat
+        # the form.
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
-        if imgui.begin_child("2d-form", (0, -sp(220))):
+        plan_h = generation_workspace.plan_height(ctx, "2d")
+        if imgui.begin_child("2d-form", (0, -(plan_h + sp(52)))):
             # The block scope opens *inside* the child: section() fills go to
             # the current window's draw list, and a scope opened outside would
             # paint onto the parent pane's list, where this child's opaque
@@ -171,6 +175,7 @@ def draw(ctx: Any) -> None:
         imgui.end_child()
         if imgui.begin_child("2d-plan", (0, -sp(52))):
             _plan_footer(ctx, form)
+            generation_workspace.note_plan_height(ctx, "2d")
         imgui.end_child()
         create_brief.submit_control(ctx)
 
@@ -808,6 +813,7 @@ def _reset(ctx: Any) -> None:
     from .....state import default_form_2d
 
     ctx.state.form_2d = default_form_2d()
+    generation_workspace.touch_prompt(ctx, False)
     # The 2026-10-03 audit, finding create-24: the rings and copy a refusal
     # recorded belong to the form just discarded; "The prompt is over 1000
     # characters." kept ringing an empty prompt until it was edited.
@@ -1118,6 +1124,14 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOA
                 widgets.muted_wrapped(resolved.recipe.note)
             if resolved.warning:
                 widgets.wrapped(theme.WARN, resolved.warning)
+            # **The licence too, in this path as well** (the 2026-10-11 review):
+            # this branch returned before ``_licence_note`` was reached, so a
+            # non-commercial checkpoint that Automatic picked was never flagged
+            # while the same checkpoint chosen by hand was. Automatic filters
+            # non-commercial recipes out today, which is exactly why nothing
+            # noticed; the day a registry row says otherwise, this is the line
+            # that tells the user their output is not theirs to sell.
+            _licence_note(resolved.base_model)
         return
     for note in ctx.state.preview.get(CLEARED_KEY) or ():
         widgets.muted_wrapped(note)
@@ -1177,8 +1191,15 @@ def _lora(
         # submit is now refused.
         imgui.begin_disabled()
     was_lora = form["style_lora"]
+    # The "fitted to one architecture" sentence is a hover now, not a line of
+    # muted text under the combo on every frame (the 2026-10-11 review): it
+    # explains why the list is short, which is a question asked once.
+    narrowed = None if no_lora is not None else create_recipe.lora_filter_note(ctx, form)
     form["style_lora"] = widgets.combo(
-        "##style_lora", form["style_lora"], create_recipe.lora_options(ctx, form)
+        "##style_lora",
+        form["style_lora"],
+        create_recipe.lora_options(ctx, form),
+        tooltip=narrowed,
     )
     widgets.field_error(ctx.state, "style_lora")
     if form["style_lora"] != was_lora:
@@ -1191,13 +1212,11 @@ def _lora(
     if no_lora is not None:
         imgui.end_disabled()
         widgets.muted_wrapped(no_lora)
-    else:
-        # One sentence at a time: create_recipe.lora_note explains a control that cannot act,
-        # create_recipe.lora_filter_note one acting on less than the whole list, and both
-        # under a disabled combo would be one control saying two things.
-        narrowed = create_recipe.lora_filter_note(ctx, form)
-        if narrowed is not None:
-            widgets.muted_wrapped(narrowed)
+    # One sentence at a time: ``lora_note`` explains a control that cannot act
+    # (drawn under it, because a greyed control with no visible reason is a
+    # dead end) and ``lora_filter_note`` one acting on less than the whole list
+    # (its tooltip, above); both under a disabled combo would be one control
+    # saying two things.
 
 
 def _lora_strength(
@@ -1330,7 +1349,14 @@ def _generation_plan(
     The drawing is ``workspace.plan_footer``, shared with the Mesh stage; what
     is 2D's own is the plan it describes and the repairs it offers.
     """
-    plan = generation_workspace.plan_for(form, create_recipe.resolved_recipe(ctx, form))
+    no_model = any(
+        getattr(problem, "field", "") == "base_model"
+        and str(problem) == create_recipe.NO_MODEL_PROBLEM
+        for problem in problems
+    )
+    plan = generation_workspace.plan_for(
+        form, create_recipe.resolved_recipe(ctx, form), installed=not no_model
+    )
     generation_workspace.plan_footer(
         ctx,
         plan,
@@ -1370,6 +1396,21 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Proble
     # ``recipe.py``'s own -- field ``base_model``, message naming
     # "full-CFG" -- so the field is now part of the match rather than
     # trusting prose alone to say which control the repair changes.
+    if field == "base_model" and message == create_recipe.NO_MODEL_PROBLEM:
+        # **The repair that does the thing** (the 2026-10-11 review): the
+        # sibling below only switched to Settings and left the user to find the
+        # row. This ticks exactly the rows Automatic needs -- the Mesh column's
+        # engine repair does the same -- and names what it will fetch and how
+        # big that is, so the press is an informed one.
+        offer = create_recipe.automatic_install(ctx, form)
+        if offer is not None:
+            rows, label, gib = offer
+            size = f" ({gib:.1f} GiB)" if gib > 0.0 else ""
+            if controls.button(
+                f"Download {label}{size}##preflight-download", role=controls.ButtonRole.GHOST
+            ):
+                model_gate.request_install(ctx, rows)
+        return
     if field == "base_model" and "full-CFG" in message:
         if controls.button(
             "Switch to Automatic##preflight-quality", role=controls.ButtonRole.GHOST
@@ -1390,6 +1431,12 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Proble
     if "not downloaded" in message and controls.button(
         "Open model setup##preflight-models", role=controls.ButtonRole.GHOST
     ):
+        rows = tuple(getattr(problem, "rows", ()) or ())
+        if rows:
+            # Ticks the rows first, as the Mesh column's twin does, so the
+            # download is one press away rather than a hunt through the list.
+            model_gate.request_install(ctx, rows)
+            return
         from .....state import set_mode
 
         set_mode(ctx.state, "settings")
@@ -1459,6 +1506,9 @@ def refuse(ctx: Any, problems: list[problem_types.Problem]) -> None:
     and the ring below marks the rest.
     """
     ctx.state.clear_field_errors()
+    # A refused press is the other thing that turns the empty-prompt line red
+    # (``workspace.is_untouched_prompt_problem``): the user asked for something.
+    generation_workspace.touch_prompt(ctx, True)
     for problem in problems:
         ctx.state.note_field_error(getattr(problem, "field", ""), str(problem))
     if problems:

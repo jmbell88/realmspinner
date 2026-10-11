@@ -78,5 +78,63 @@ class CreateState:
     synced: Any = None
     comparison_pin: str | None = None
     image_comparing: str | None = None
+    # Whether the prompt has been edited, or a press refused, since the form was
+    # last fresh. Until then an empty prompt is "not started", not "wrong", and
+    # the plan footer says so in the muted colour rather than red. Volatile.
+    prompt_touched: bool = False
+    # Batches (by their first member's id) whose contact sheet the user closed
+    # with Esc or the toggle. The sheet shows by itself when a batch finishes;
+    # this is what keeps it from reopening on the next frame. Volatile.
+    grid_dismissed: set[str] = field(default_factory=set)
+    # The id the selection was last put on by the app itself -- a submit's
+    # first row, then each reference as it finishes. A finishing reference
+    # takes the selection only while it is still there: a click on a sibling
+    # mid-batch moves it, and nothing afterwards fights that choice.
+    follow_selection: str | None = None
+    # --- the History pane (``ui/panes/history.py``). All volatile: the rows are a
+    # cache of ``generation_log.history`` and the filters are this session's.
+    # The loaded page, newest first; ``None`` until the first load lands.
+    history_rows: list[dict[str, Any]] | None = None
+    # Raised by a verdict (``review_mode.refresh_findings``), by a job finishing
+    # or being deleted (the jobs-cache signature below) and by a filter or page
+    # change; cleared when a load is *accepted*, the ``findings_dirty`` rule.
+    history_dirty: bool = True
+    # Whether the filter options need re-deriving from the whole log. Not on a
+    # filter or page change: those are the options' own consumers.
+    history_options_stale: bool = True
+    history_options: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
+    history_filters: dict[str, Any] = field(
+        default_factory=lambda: {
+            "base_model": None,
+            "style_lora": None,
+            "generation_type": None,
+            "judged": None,
+        }
+    )
+    # How many rows are asked for; "More" adds a page.
+    history_limit: int = 50
+    # ``(jobs-cache generation, signature)`` as last compared.
+    history_seen: Any = None
+    # The request a landed load is checked against, so a slow load that was
+    # overtaken by a filter change is dropped rather than shown.
+    history_request: Any = None
+    history_error: str = ""
+    # Whether the last load returned more than a page, i.e. "More" has something to add.
+    history_more: bool = False
+    # --- labelling a reference (``ui/canvas.py``): the latest human label per
+    # job, read once and kept current by the writes that follow it (the
+    # inspector's ``inspector_graded`` idiom -- one tiny read, never per frame).
+    label_memo: dict[str, Any] = field(default_factory=dict)
+    # The label popup: which job it is open on, whether it was just asked for
+    # (``open_popup`` must be called at the id scope ``begin_popup`` is), and the
+    # verdict, tags and note being edited. Nothing is written until Save.
+    label_popup_job: str | None = None
+    label_popup_ask: bool = False
+    label_verdict: str = ""
+    label_tags: list[str] = field(default_factory=list)
+    label_note: str = ""
+    # The plan footer's measured content height in pixels, per column ("2d",
+    # "3d"), one frame late. See ``workspace.plan_height``.
+    plan_heights: dict[str, float] = field(default_factory=dict)
     inspector_open: bool = True
     preview_mode: str = "result"

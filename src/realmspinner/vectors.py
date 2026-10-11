@@ -232,6 +232,137 @@ def prompt_hash(text: str | None) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
+#: Bumped when a key's meaning changes, never when one is added: readers treat
+#: a missing key as "unknown", so an addition needs no version.
+SNAPSHOT_VERSION = 1
+
+# Cap on any one free-text value in a snapshot. A prompt is a sentence, not a
+# document; the cap exists so a pasted essay cannot bloat every verdict row.
+_SNAPSHOT_TEXT_CAP = 4000
+
+
+def _scalar(value: Any) -> Any:
+    """A JSON scalar kept as-is (strings capped), anything else dropped.
+
+    A snapshot is read years later by code that does not know what shape a
+    future param took, so only plain values survive; a stray bytes or tensor
+    costs its own key and nothing else.
+    """
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, float):
+        return round(value, 6)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return value[:_SNAPSHOT_TEXT_CAP]
+    return _MISSING
+
+
+_MISSING = object()
+
+
+def settings_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    """What actually ran for this job, as a small versioned dict.
+
+    The config vector answers "which bucket is this in" and so omits prompt,
+    seed, steps, guidance and scheduler on purpose. A hard delete takes the job
+    row with all of them, and the 2026-10-11 look at the real store found 13 of
+    17 verdicts pointing at deleted jobs with nothing left to say what had
+    produced them. This is the record written onto the verdict and observation
+    row at filing time so it outlives the job. It is **not** part of the vector
+    and never feeds ``vector_key``.
+
+    Pure, and defensive in the way ``observation_metrics`` is: params that
+    crossed a disk can be any shape, so a malformed piece costs its own key.
+    Missing keys are omitted rather than ``None``. No images or blobs: scalars,
+    short lists of scalars, and the two fingerprint dicts only.
+    """
+    params = job.get("params")
+    params = params if isinstance(params, dict) else {}
+    out: dict[str, Any] = {"v": SNAPSHOT_VERSION}
+
+    def put(key: str, value: Any) -> None:
+        value = _scalar(value)
+        if value is not _MISSING and value is not None and value != "":
+            out[key] = value
+
+    put("kind", job.get("kind"))
+    put("stage", job.get("stage"))
+    put("created_at", job.get("created_at"))
+    put("prompt_raw", job.get("prompt"))
+    put("generation_type", params.get("generation_type"))
+
+    recipe = params.get("recipe")
+    recipe = recipe if isinstance(recipe, dict) else {}
+    ref = recipe.get("reference")
+    ref = ref if isinstance(ref, dict) else {}
+    for key in (
+        "base_model",
+        "family",
+        "steps",
+        "guidance_scale",
+        "scheduler",
+        "seed",
+        "negative_prompt",
+        "style_lora",
+        "lora_weight",
+        "pag_scale",
+        "guidance_rescale",
+        "image_size",
+    ):
+        put(key, ref.get(key))
+    # Params remember what was asked for; the recipe what was applied. Fall back
+    # so a job that never reached the reference stage still says what it chose.
+    for key in ("base_model", "style_lora", "lora_weight", "negative_prompt"):
+        if key not in out:
+            put(key, params.get(key))
+    if "seed" not in out:
+        put("seed", params.get("seed"))
+    put("prompt", ref.get("prompt") or params.get("composed_prompt"))
+    for key in ("models", "versions"):
+        block = ref.get(key)
+        if isinstance(block, dict):
+            kept = {
+                str(k): v for k, v in block.items() if isinstance(v, (str, int, float))
+            }
+            if kept:
+                out[key] = kept
+
+    resolved = params.get("resolved_recipe")
+    inner = resolved.get("recipe") if isinstance(resolved, dict) else None
+    if isinstance(inner, dict):
+        put("recipe_key", inner.get("key"))
+
+    trellis = recipe.get("trellis")
+    if isinstance(trellis, dict):
+        kept = {}
+        for key in ("seed", "band", "tex_res", "mesh_profile", "engine_version",
+                    "platform", "size_m"):
+            value = _scalar(trellis.get(key))
+            if value is not _MISSING and value is not None and value != "":
+                kept[key] = value
+        if kept:
+            out["trellis"] = kept
+
+    attempts = params.get("reference_attempts")
+    if isinstance(attempts, list):
+        out["reference_attempts"] = len(attempts)
+    report = params.get("reference_report")
+    if isinstance(report, dict) and isinstance(report.get("ok"), bool):
+        codes = report.get("codes")
+        out["reference_report"] = {
+            "ok": report["ok"],
+            "codes": [c for c in codes if isinstance(c, str)][:16]
+            if isinstance(codes, list)
+            else [],
+        }
+
+    for key in ("mesh_finishing", "lowpoly_triangles", "profile", "bg_removal", "matte"):
+        put(key, params.get(key))
+    return out
+
+
 def observation_metrics(params: dict[str, Any]) -> dict[str, Any]:
     """The machine measurements an observation row snapshots, keys absent
     when unmeasured. ``faces``/``resolution`` stay behind on purpose -- they

@@ -43,13 +43,14 @@ from .. import workspace
 
 MATTE_TITLE = "Check the cutout"
 
-# The 2026-09-07 review, item 5.4: an opt-in ``ctx.settings`` key (not a
-# ``Config`` field -- this is a per-user UI preference, not a process setting,
-# and app_settings.py's own toggles read and write ``ctx.settings`` directly
-# the same way). Off by default, on purpose: "Put the matte in front of the
-# two minutes of GPU" (see ``promote``'s docstring) does not change, and this
-# key only ever lets a *clean* result skip the question, never a refused,
-# warned or fallback-sourced one.
+# The 2026-09-07 review, item 5.4: a ``ctx.settings`` key (not a ``Config``
+# field -- this is a per-user UI preference, not a process setting, and
+# app_settings.py's own toggles read and write ``ctx.settings`` directly the
+# same way). **On by default since 2026-10-11** (``settings.DEFAULTS``; a user
+# who switched it either way keeps their answer): the cutout is still put in
+# front of the two minutes of GPU (see ``promote``'s docstring) whenever there
+# is anything to look at, and this key only ever lets a *clean* result skip the
+# question, never a refused, warned or fallback-sourced one.
 SKIP_CLEAN_MATTE_SETTING = "skip_clean_matte_preview"
 
 # Where the last matte the setting above skipped past is kept, so the Mesh
@@ -94,12 +95,11 @@ def draw(ctx: Any) -> None:
     """The Mesh column: the brief's inputs, the settings, the plan footer
     pinned under them and *Make 3D* under that.
 
-    ``brief.inputs(ctx, mesh=True)`` draws the Source chip, Candidates and
-    Reset at the head of this column and ``brief.submit_control`` draws Make 3D
+    ``brief.inputs(ctx, mesh=True)`` draws the Source chip and Attempts at the
+    head of this column and ``brief.submit_control`` draws Make 3D
     at its foot (``ui/brief.py``, shared with the Reference stage's column). The
-    column reserves a fixed ``-sp(220)`` for the plan, its refusals and the
-    press -- there is no frame-late height feedback; the audit's create-40
-    removed the unused ``_footer_px`` list that said there was.
+    footer's height is its own measured content, one frame late
+    (``workspace.plan_height``), where it used to be a fixed ``-sp(220)``.
     """
     state = ctx.state
     form = state.form_3d
@@ -116,7 +116,8 @@ def draw(ctx: Any) -> None:
         # controls and the press record into this same ring as they draw.
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
-        if imgui.begin_child("3d-form", (0, -sp(220))):
+        plan_h = workspace.plan_height(ctx, "3d")
+        if imgui.begin_child("3d-form", (0, -(plan_h + sp(52)))):
             from .. import brief
 
             brief.inputs(ctx, mesh=True)
@@ -124,6 +125,7 @@ def draw(ctx: Any) -> None:
         imgui.end_child()
         if imgui.begin_child("3d-plan", (0, -sp(52))):
             _footer(ctx, form, source)
+            workspace.note_plan_height(ctx, "3d")
         imgui.end_child()
         from .. import brief
 
@@ -148,32 +150,17 @@ def _draw_form(
     manual_render.help_button(ctx, "settings-3d")
     if source is not None:
         _auto_matte_preview(ctx, source)
+    # **The basic view is three things** (the 2026-10-11 Create review): the
+    # triangle budget with its unit, the size in metres, and the rig. Resolution,
+    # finishing, background, seed, reference normalising and the engine's launch
+    # flags were all at the top level, which put eleven controls between a user
+    # and the one button; they are one fold, "Advanced", below.
+    #
     # Labels above rather than beside: a combo here is drawn at -1 width, and
     # imgui puts a widget's label to its *right* -- so every one of these was
-    # a full-width select with its name clipped off the edge of the panel, and
-    # "Detail", "Budget" and "Background" were invisible. ``labeled_combo`` is
-    # the widget that already answers this, and the 2D pane's guidance grid
-    # uses the same small-caps line above each control.
-    # "Mesh resolution", not "Detail" (UX.md Phase 3). It and the 2D pane's own
-    # ``platform`` control were called "Detail" and "platform detail", two
-    # near-identical names for a geometry resolution and a prompt fragment, and
-    # the whole of what kept them apart was a tooltip on each apologising for
-    # the other. A name that says what the control *is* ends that; the tooltip
-    # below keeps only the half that is still worth saying.
-    before = form["platform"]
-    with focus.item(ctx.state, FOCUS_PANE, "platform"):
-        _changed, form["platform"] = form_ui.combo(
-            "platform",
-            mesh_resolution_label,
-            form["platform"],
-            _platform_options(ctx),
-            help_text=(
-                "How much geometry trellis is asked for. Higher costs more GPU and more triangles."
-            ),
-        )
-    if form["platform"] != before:
-        ctx.state.clear_field_error("platform")
-    _hint(ctx, form, "platform", form["platform"], findings_doc)
+    # a full-width select with its name clipped off the edge of the panel.
+    # ``labeled_combo`` is the widget that already answers this, and the 2D
+    # pane's guidance grid uses the same small-caps line above each control.
     _budget(ctx, form, findings_doc)
 
     _size(ctx, form)
@@ -182,12 +169,60 @@ def _draw_form(
     # a threshold of five would essentially never be met.
     widgets.help_marker("0 keeps whatever the reference recorded.")
 
+    _rig(ctx, form)
+    _engine(
+        ctx,
+        form,
+        form_ui,
+        findings_doc,
+        leading=lambda: _advanced_basics(ctx, form, form_ui, mesh_resolution_label, findings_doc),
+    )
+    _turnaround(ctx)
+
+
+def _advanced_basics(
+    ctx: Any,
+    form: dict[str, Any],
+    form_ui: forms.Form,
+    mesh_resolution_label: str,
+    findings_doc: Any,
+) -> None:
+    """The controls that used to sit at the top of the column, now inside
+    "Advanced": resolution, finishing, background, seed and reference
+    normalising. Drawn first in the fold, ahead of the engine's launch flags.
+    """
+    # "Mesh resolution", not "Detail" (UX.md Phase 3). It and the 2D pane's own
+    # ``platform`` control were called "Detail" and "platform detail", two
+    # near-identical names for a geometry resolution and a prompt fragment. A
+    # name that says what the control *is* ends that.
+    before = form["platform"]
+    with focus.item(ctx.state, FOCUS_PANE, "platform"):
+        _changed, form["platform"] = form_ui.combo(
+            "platform",
+            mesh_resolution_label,
+            form["platform"],
+            _platform_options(ctx),
+            help_text=(
+                "How much geometry the reconstruction is asked for. Higher costs "
+                "more GPU and more triangles."
+            ),
+        )
+    if form["platform"] != before:
+        ctx.state.clear_field_error("platform")
+    _hint(ctx, form, "platform", form["platform"], findings_doc)
+
+    _finishing(ctx, form)
+
     with focus.item(ctx.state, FOCUS_PANE, "bg_removal"):
         _changed, form["bg_removal"] = form_ui.combo(
             "bg_removal",
             "Background",
             form["bg_removal"],
             _bg_options(ctx),
+            help_text=(
+                "How the subject is cut out of the reference. Automatic uses the "
+                "best method this machine has."
+            ),
         )
     _hint(ctx, form, "bg_removal", form["bg_removal"], findings_doc)
 
@@ -195,10 +230,11 @@ def _draw_form(
 
     changed, prep = form_ui.switch(
         "reference_prep",
-        "Normalise the reference",
+        "Centre and enlarge the reference",
         bool(form["reference_prep"]),
         help_text=(
-            "Recentre the subject and scale it to fill the frame before the mesh engine sees it."
+            "Recentre the subject and scale it to fill the frame before the mesh "
+            "engine sees it."
         ),
         helper=(
             "Off by default: the engine does its own cropping, and whether doing "
@@ -208,10 +244,6 @@ def _draw_form(
     if changed:
         form["reference_prep"] = prep
     _hint(ctx, form, "reference_prep", form["reference_prep"], findings_doc)
-
-    _rig(ctx, form)
-    _engine(ctx, form, form_ui, findings_doc)
-    _turnaround(ctx)
 
 
 # --- pieces -----------------------------------------------------------------
@@ -462,7 +494,7 @@ def _stale_lowpoly_entry(form: dict[str, Any] | None) -> tuple[str, str] | None:
     triangles = int(form.get("lowpoly_triangles") or 0)
     if triangles <= 0 or triangles in remesh.TRIANGLE_PROFILES.values():
         return None
-    return (f"lowpoly:stale:{triangles}", f"Game-ready ({triangles:,})")
+    return (f"lowpoly:stale:{triangles}", f"Game-ready · {triangles:,} triangles")
 
 
 def _budget_options(ctx: Any, form: dict[str, Any] | None = None) -> list[tuple[str, str]]:
@@ -486,18 +518,22 @@ def _budget_options(ctx: Any, form: dict[str, Any] | None = None) -> list[tuple[
     """
     options: list[tuple[str, str]] = []
     if remesh_panel.blender_available(ctx):
-        options += [(f"lowpoly:{key}", f"Game-ready ({key})") for key in remesh.TRIANGLE_PROFILES]
+        # The unit is in the label: "Game-ready (5k)" said a number with no noun.
+        options += [
+            (f"lowpoly:{key}", f"Game-ready · {count:,} triangles")
+            for key, count in remesh.TRIANGLE_PROFILES.items()
+        ]
         stale = _stale_lowpoly_entry(form)
         if stale is not None:
             options.append(stale)
     if retarget_panel.gltfpack_available(ctx):
         options += [
-            (key, f"Simplify: {key.capitalize()}")
-            for key, _ in retarget_panel.TIERS
+            (key, f"Simplify · {label}")
+            for key, label in retarget_panel.TIERS
             if key not in ("raw", "custom")
         ]
         options.append(("custom", "Custom..."))
-    options.append(("raw", "Raw"))
+    options.append(("raw", "Raw (as reconstructed)"))
     return options
 
 
@@ -584,7 +620,7 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
     # the combo shows, and ``promote`` sends, the fallback.
     view = host_budget_form(ctx, form)
     current = _budget_current(view)
-    picked = widgets.labeled_combo("Budget", current, _budget_options(ctx, view))
+    picked = widgets.labeled_combo("Triangle budget", current, _budget_options(ctx, view))
     # Gated on an actual gesture (the 2026-09-23 audit, finding create-07):
     # ``widgets.combo`` returns the value it was handed, unchanged, on an
     # untouched draw, so calling ``_apply_budget_choice`` unconditionally
@@ -596,16 +632,6 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
         view = host_budget_form(ctx, form)
     widgets.field_error(ctx.state, "profile")
     widgets.field_error(ctx.state, "lowpoly_triangles")
-    if view.get("lowpoly_triangles"):
-        before = form.get("mesh_finishing", create_mesh.DEFAULT_MESH_FINISHING)
-        form["mesh_finishing"] = widgets.labeled_combo(
-            "Finishing",
-            before,
-            [("preserve_shape", "Preserve shape"), ("repair", "Repair and close holes")],
-        )
-        if form["mesh_finishing"] != before:
-            ctx.state.clear_field_error("mesh_finishing")
-        widgets.field_error(ctx.state, "mesh_finishing")
     _hint(ctx, form, "profile", view["profile"], findings_doc)
     if view["profile"] == "custom":
         # The same control the retarget panel draws, appearing under exactly
@@ -619,6 +645,22 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
             form["custom_triangles"] = max(0, value)
             ctx.state.clear_field_error("custom_triangles")
         widgets.field_error(ctx.state, "custom_triangles")
+
+
+def _finishing(ctx: Any, form: dict[str, Any]) -> None:
+    """How a Game-ready remesh is finished. Drawn in "Advanced", and only while
+    a Game-ready budget is the one in force (it is the remesh's setting)."""
+    if not host_budget_form(ctx, form).get("lowpoly_triangles"):
+        return
+    before = form.get("mesh_finishing", create_mesh.DEFAULT_MESH_FINISHING)
+    form["mesh_finishing"] = widgets.labeled_combo(
+        "Finishing",
+        before,
+        [("preserve_shape", "Preserve shape"), ("repair", "Repair and close holes")],
+    )
+    if form["mesh_finishing"] != before:
+        ctx.state.clear_field_error("mesh_finishing")
+    widgets.field_error(ctx.state, "mesh_finishing")
 
 
 # The ids the Budget rows ring. They are the service door's own field names
@@ -713,9 +755,20 @@ def _platform_options(ctx: Any) -> list[tuple[str, str]]:
     ]
 
 
+#: What the background methods are called on screen. The keys are the
+#: reconstruction engine's own words ("auto", "birefnet", "threshold"), and a
+#: combo that said them aloud (the 2026-10-11 review) taught nobody anything;
+#: the BiRefNet name is the one ``MATTE_SOURCES`` already uses for the same cut.
+BG_LABELS = {
+    "auto": "Automatic",
+    "birefnet": MATTE_SOURCES["birefnet"],
+    "threshold": "Plain-background threshold",
+}
+
+
 def _bg_options(ctx: Any) -> list[tuple[str, str]]:
-    return [("", _inherit_label(ctx, "bg_removal"))] + [
-        (key, key) for key in (ctx.guidance.get("bg_removal") or [])
+    return [("", _inherit_label(ctx, "bg_removal", BG_LABELS))] + [
+        (key, BG_LABELS.get(key, key)) for key in (ctx.guidance.get("bg_removal") or [])
     ]
 
 
@@ -810,12 +863,16 @@ def _engine(
     form: dict[str, Any],
     form_ui: forms.Form,
     findings_doc: Any = LOAD_FINDINGS,
+    *,
+    leading: Any = None,
 ) -> None:
-    """The seven trellis-server launch flags -- a findings sweep could already
-    set every one of these (``service.sweeps.KWARG_AXES``); until this door
-    existed no ordinary Create job could.
+    """The column's one fold, "Advanced": ``leading`` (resolution, finishing,
+    background, seed, reference normalising), then the seven trellis-server
+    launch flags -- a findings sweep could already set every one of these
+    (``service.sweeps.KWARG_AXES``); until this door existed no ordinary Create
+    job could. It was "Engine (advanced)" and held the flags alone.
 
-    Collapsed by default, under "Engine (advanced)": these are not mesh
+    Collapsed by default, under "Advanced": these are not mesh
     settings the way ``platform`` or ``bg_removal`` are, they are how the
     reconstruction *process* is launched, and every one of them restarts
     trellis-server for this job (``service.sweeps.SERVER_AXES`` is exactly
@@ -831,9 +888,13 @@ def _engine(
     verdict filed under one of these axes shows up against it exactly as one
     filed under ``resolution`` does.
     """
-    opened = controls.collapsing_header("Engine (advanced)##engine")
+    opened = controls.collapsing_header("Advanced##engine")
     if not opened:
         return
+    if leading is not None:
+        leading()
+        widgets.divider()
+        widgets.secondary("Engine")
     widgets.muted_wrapped(
         "Launch flags for the reconstruction engine itself, not the mesh. "
         "Changing any of these restarts it for this job."
@@ -1113,7 +1174,7 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
                 host_budget_form(ctx, form),
                 rig_available=create_stages.blender_reason("rig", ctx) is None,
             ),
-            "count": create_mesh.candidate_count(form),
+            "count": create_mesh.candidate_count(form),  # the door's word; the form's is "attempts"
             **_workspace_metadata(ctx),
         },
     )
@@ -1187,7 +1248,7 @@ def _wants_auto_accept(ctx: Any, state: Any) -> bool:
     shown. False means draw the modal exactly as before, which is also the
     answer whenever the setting is off.
     """
-    if not ctx.settings.get(SKIP_CLEAN_MATTE_SETTING, False):
+    if not ctx.settings.get(SKIP_CLEAN_MATTE_SETTING, True):
         return False
     if state.preview is None:
         # A failure still has to reach the modal -- its Cancel is the only

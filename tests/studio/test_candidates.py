@@ -799,13 +799,13 @@ def test_the_candidate_count_is_clamped_to_what_the_service_admits():
     from realmspinner.service.validation import MAX_MESH_CANDIDATES
     from realmspinner.studio.modes.create.engine import mesh as create_mesh
 
-    assert create_mesh.candidate_count({"count": 1}) == 1
-    assert create_mesh.candidate_count({"count": 3}) == 3
+    assert create_mesh.candidate_count({"attempts": 1}) == 1
+    assert create_mesh.candidate_count({"attempts": 3}) == 3
     # A persisted settings file written under a higher ceiling, or edited by
     # hand, must not send a number the service refuses.
-    assert create_mesh.candidate_count({"count": 99}) == MAX_MESH_CANDIDATES
-    assert create_mesh.candidate_count({"count": 0}) == 1
-    assert create_mesh.candidate_count({"count": "three"}) == 1
+    assert create_mesh.candidate_count({"attempts": 99}) == MAX_MESH_CANDIDATES
+    assert create_mesh.candidate_count({"attempts": 0}) == 1
+    assert create_mesh.candidate_count({"attempts": "three"}) == 1
     assert create_mesh.candidate_count({}) == 1
 
 
@@ -819,7 +819,7 @@ def test_the_count_rides_the_matte_preview_into_the_promotion(svc):
 
     source = _reference(svc)
     ctx = _Ctx(svc)
-    ctx.state.form_3d = {**DEFAULT_FORM_3D, "count": 3}
+    ctx.state.form_3d = {**DEFAULT_FORM_3D, "attempts": 3}
     # Through get_job, because the pane's own validate() reads the attached
     # file list rather than the row.
     row = svc_jobs.get_job(svc, source)

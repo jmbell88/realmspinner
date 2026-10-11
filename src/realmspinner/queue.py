@@ -838,8 +838,19 @@ def _observe_finished(store: JobStore, job_id: str) -> bool:
         prompt_hash=vectors.prompt_hash(job.get("prompt")),
         vector=vectors.config_vector(job),
         metrics=metrics,
+        # What ran, kept on the row so it outlives a hard delete of the job;
+        # a snapshot that cannot be built costs itself, never the observation.
+        snapshot=_safe_snapshot(job),
     )
     return True
+
+
+def _safe_snapshot(job: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        return vectors.settings_snapshot(job)
+    except Exception:
+        log.exception("could not snapshot settings for job %s", job.get("id"))
+        return None
 
 
 def _sheet_root_offsets(

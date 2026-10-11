@@ -78,7 +78,7 @@ def test_an_imported_source_goes_through_the_cutout_check_and_submits_count(monk
     ref |= {"files": ["input.png"], "params": {}}
     ctx = _Ctx({"ref9": ref})
     ctx.state.source_job = "ref9"
-    ctx.state.form_3d["count"] = 3
+    ctx.state.form_3d["attempts"] = 3
 
     settings_3d.promote(ctx, ctx.cache.get("ref9"), ctx.state.form_3d)
     assert matte_preview.is_open(ctx), "Make 3D on an imported source opens the cutout check"

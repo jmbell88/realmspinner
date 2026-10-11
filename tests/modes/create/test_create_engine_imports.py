@@ -41,6 +41,11 @@ OUTWARD_IMPORTS = {
     ("character.py", "realmspinner.characters"),
     ("character.py", "realmspinner.service"),
     ("character.py", "realmspinner.studio.problems"),
+    # ``history.py`` (the History pane's pure half) reads the retired-model ledger
+    # and ``service.generation_log``'s label helpers; the rows themselves are
+    # loaded by the pane's task, never here.
+    ("history.py", "realmspinner.models"),
+    ("history.py", "realmspinner.service"),
     ("mesh.py", "realmspinner.bench"),
     ("mesh.py", "realmspinner.service.validation"),
     ("mesh.py", "realmspinner.studio.problems"),

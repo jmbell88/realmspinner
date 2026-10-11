@@ -179,7 +179,7 @@ def test_manual_23_documents_the_finishing_choice_beside_budget():
 
     text = _chapter("23-generating-meshes.md")
     budget = _flat(_section(text, "Mesh parameters"))
-    source = inspect.getsource(settings_3d._budget)
+    source = inspect.getsource(settings_3d._finishing)
     for label in ("Finishing", "Preserve shape", "Repair and close holes"):
         assert f'"{label}"' in source, f"the pane no longer draws {label!r}"
         assert label in budget, f"chapter 23's Budget text never names {label!r}"

@@ -32,11 +32,15 @@ class Problem(str):
     toast".
     """
 
-    __slots__ = ("field",)
+    __slots__ = ("field", "rows")
 
-    def __new__(cls, text: str, field: str = "") -> Problem:
+    def __new__(cls, text: str, field: str = "", rows: tuple[str, ...] = ()) -> Problem:
         self = super().__new__(cls, text)
         self.field = field
+        # The download rows (``model_rows`` keys) whose absence this problem is
+        # about, when it is about a download: the repair ticks exactly these
+        # instead of sending the user to find them in Settings.
+        self.rows = tuple(rows)
         return self
 
 

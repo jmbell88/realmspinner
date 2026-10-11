@@ -106,7 +106,7 @@ def test_before_you_begin_manual_names_the_show_me_around_button():
 # --- create-06: the Count row lives in the command bar ---------------------
 
 
-def test_manual_chapter_12_places_the_count_control_in_the_command_bar():
+def test_manual_chapter_12_places_the_images_control_under_the_brief():
     # Derived from the module rather than spelled as a path: the file moved
     # once already (studio/create_brief.py -> modes/create/ui/brief.py).
     from realmspinner.studio.modes.create.ui import brief as create_brief
@@ -116,7 +116,10 @@ def test_manual_chapter_12_places_the_count_control_in_the_command_bar():
 
     text = _chapter("12-tuning-what-you-get.md")
     assert "beside the seed field" not in text
-    assert "command bar" in text
+    # The Count pills are **Images** since 2026-10-11 and live in the column,
+    # under the brief, not in a command bar (which is the stage rail now).
+    assert "**Images** control under the brief" in text
+    assert "**Count**" not in text
 
 
 # --- packwright-02: Add to Packwright parks a pending tileset import -------

@@ -100,7 +100,7 @@ def test_budget_row_is_absent_without_blender_and_gltfpack(monkeypatch):
 
     text = _chapter("23-generating-meshes")
     assert "collapses to Raw alone" not in text
-    assert "draws no **Budget** row" in text
+    assert "draws no **Triangle budget** row" in text
     # The retarget panel's default, which the chapter states beside it.
     assert "Standard is this panel's default" in text
     assert "Raw when `gltfpack` is absent" in text
@@ -206,6 +206,7 @@ def test_every_documented_caller_in_rail_and_brief_docstrings_exists():
         "form",
         "counts",
         "current",
+        "key",  # which form field the pills write: count (Images) or attempts (Mesh)
     ]
     count_src = inspect.getsource(create_brief._count)
     assert "imgui.dummy" not in count_src

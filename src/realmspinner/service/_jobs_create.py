@@ -752,9 +752,17 @@ def create_job(
     ids: list[str] = []
     made_dirs: list[Path] = []
     candidates: list[tuple[str, dict]] = []
+    # One id for one press, written on every member of a Count > 1 press. Create's
+    # contact sheet groups "the newest press" by it (``reference_batch``); before
+    # it, the sheet guessed from creation time and prompt. Not ``candidate_group``:
+    # that column is the mesh picker's, hides its rows from the Library and
+    # opens a Keep/Discard picker, none of which a batch of images should do.
+    press_id = uuid.uuid4().hex[:12] if count > 1 else None
     try:
         for i in range(count):
             candidate = dict(params)
+            if press_id is not None:
+                candidate["press_id"] = press_id
             if i > 0:
                 # Candidate 0 keeps the requested seed so a pinned seed
                 # still reproduces; the rest fan out from it. mesh_seed

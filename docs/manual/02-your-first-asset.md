@@ -21,7 +21,7 @@ the image it is handed.
 So the pipeline is split, and the split is visible in the app rather than hidden inside it:
 
 1. **The reference stage** draws an image and stops. It takes a few seconds, and you can ask for
-   several candidates from different seeds at once.
+   several images from different seeds at once.
 2. **The mesh stage** runs only once you have looked at a reference and approved it.
 
 A text job never falls through into a mesh by accident. Going straight from a prompt to a mesh would
@@ -80,33 +80,44 @@ reconstruct, the inspector's **Reference** section says so. Those rules are heur
 composition, and you can see the picture they are arguing about, so treat them as a second opinion
 rather than a verdict.
 
-If you do not like it, press **Reroll** for another seed, or edit the prompt and generate again.
-This is the cheap half of the pipeline; spend time here rather than on the expensive half.
+If you do not like it, press **Try again** on it for another seed (it is on the picture's card in the
+Attempts tray, and under **More** in the inspector's **Next step**), or edit the prompt and generate
+again. This is the cheap half of the pipeline; spend time here rather than on the expensive half.
+
+To compare, set **Images** to 2, 4 or 8 under the brief before you generate. When the whole batch has
+finished the canvas shows every image at once, as a contact sheet. Click one to choose it, move with
+the arrow keys, press **Enter** to take the chosen one forward, or **Esc** to see one picture at a time
+(**Compare all** on the canvas brings the sheet back).
 
 If the image is *nearly* right, you can fix it by hand instead of rerolling: **Open in Inker** on
 the viewport toolbar opens the reference as a layered drawing, and saving writes it back in place.
 
 ## Stage two: the mesh
 
-When the picture is right, select its thumbnail in **Attempts** and choose **Use as source for 3D**
-in the inspector. This opens the Mesh stage with that reference chosen. Check the Source chip near
-the top of the left column, then press the persistent **Make 3D** button at its bottom.
+When the picture is right, press **Make 3D**. It is the button over the bottom of the picture on the
+canvas, and it is the same button on the picture's card in the Attempts tray and at the top of the
+inspector's **Next step**. It opens the Mesh stage with that reference chosen and starts the cutout
+check; nothing is spent until the check passes.
 
-A panel opens showing a **cutout** — the subject with its background removed. This is not a preview
-of the model; it is the actual image the reconstruction will be run against, and it is shown before
+The check is a **cutout** — the subject with its background removed. This is not a preview of the
+model; it is the actual image the reconstruction will be run against, and it is checked before
 anything is spent because the cutout is where most bad reconstructions come from. A halo of leftover
 background becomes geometry. A subject with its feet cut off reconstructs without feet.
 
-Four ways out of that panel:
+When the cutout is clean — no warnings, and made by the background-removal model itself — Realmspinner
+accepts it for you and the two minutes begin. You will not see the panel. When something is worth
+looking at (the composition rules object, the reference is very thin or touches the edge, or the
+fallback cut it because the model is not installed) the panel opens, with four ways out:
 
 | Button | What it does |
 | --- | --- |
 | **Accept** | Queue the reconstruction against this cutout. |
 | **Build anyway** | The same thing, shown instead of Accept when the composition gate has an objection. It is styled as a destructive action because you are overriding a refusal, not dismissing a warning. |
-| **Fix matte** | Change how the background was removed and look again. |
+| **Fix matte** | Opens the reference in Inker with the cutout already in its alpha, so you can erase and brush the edge by hand. Save, then press **Make 3D** again. |
 | **Cancel** | Nothing is spent. |
 
-Press Accept. Now the two minutes happen.
+Press Accept. Now the two minutes happen. If you would rather see the panel every time, switch off
+**Don't ask for clean cutouts** in Settings.
 
 ## What comes back
 
@@ -134,11 +145,16 @@ cached, so they cost nothing until you ask.
 Reconstruction is not reliable, and a bad result is ordinary rather than exceptional. The two useful
 responses:
 
-**Remesh** runs the reconstruction again from the same reference with a fresh seed. Use it when the
-picture was good and the mesh was not — geometry varies a lot between seeds.
+**Try again** on the mesh (on its card in the Attempts tray, or under **More** in the inspector) runs the
+reconstruction again from the same reference with a fresh seed. Use it when the picture was good and
+the mesh was not — geometry varies a lot between seeds. To get several at once, set **Attempts** to 2
+or 3 before you press **Make 3D**, and pick the best.
 
-**Reroll** goes back to stage one for a different picture. Use it when, looking again, the picture
-was the problem. It usually was.
+**Try again** on the reference picture draws a different picture instead. Use it when, looking again,
+the picture was the problem. It usually was.
+
+A result you do not want can be moved to the trash with **Discard**, under **More**; the toast it
+raises can undo it.
 
 The inspector's mesh report carries measurements about what came back, and it is worth reading
 [Mesh audit and mesh report](23-generating-meshes.md#mesh-audit-and-mesh-report) before trusting any
@@ -149,7 +165,7 @@ single number in it — several of them mean less than their names suggest, and 
 - A prompt produces a picture, and the mesh is a second, deliberate press.
 - The cutout is shown before the GPU is spent, because that is where reconstructions go wrong.
 - `model.glb` is the one everything uses; `source.glb` is the evidence behind it.
-- Rerolling the picture is cheap and remeshing is not, so judge the picture hard.
+- Trying the picture again is cheap and trying the mesh again is not, so judge the picture hard.
 
 ## What to read next
 

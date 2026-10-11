@@ -71,7 +71,7 @@ def test_manual_22_places_the_brief_in_the_asset_workspace_sidebar():
     text = _read("22-generating-references")
     assert "Your brief and settings are on the left" in text
     assert "submit button stays visible" in text
-    assert "**Use these settings**" in text
+    assert "**Load settings**" in text
     assert "the 2D reference mode's settings pane, in the left sidebar" not in text, (
         "docs/manual/22-generating-references.md still describes the whole "
         "brief as living in the left sidebar, which is now only true of the "

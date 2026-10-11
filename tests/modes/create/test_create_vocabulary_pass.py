@@ -52,12 +52,16 @@ def test_focus_pane_is_defined_once_in_settings_2d():
 # --- the 3D form's vocabulary ----------------------------------------------
 
 
-def test_the_3d_form_calls_its_attempt_count_count():
-    assert DEFAULT_FORM_3D["count"] == 1
+def test_the_3d_form_calls_its_attempt_count_attempts():
+    """Its own key since 2026-10-11: ``count`` is how many *images* the
+    Reference form draws, and the two used to share the word and the control."""
+    assert DEFAULT_FORM_3D["attempts"] == 1
+    assert "count" not in DEFAULT_FORM_3D
     assert "candidates" not in DEFAULT_FORM_3D
-    assert create_mesh.candidate_count({"count": 3}) == 3
-    # The old key is no longer read.
+    assert create_mesh.candidate_count({"attempts": 3}) == 3
+    # The old keys are no longer read.
     assert create_mesh.candidate_count({"candidates": 3}) == 1
+    assert create_mesh.candidate_count({"count": 3}) == 1
 
 
 def test_an_unset_mesh_seed_is_none_and_never_sent():

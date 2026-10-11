@@ -184,7 +184,7 @@ def test_both_resets_are_behind_a_confirm_dialog():
     # confirm clears -- the Mesh column draws no Reset at all.
     # ``inputs`` is where the live Reset is drawn; the second copy that used to
     # sit in ``create_brief._reset`` was dead code (2026-10-03 audit, create-33).
-    source = _row_source(create_brief.inputs)
+    source = _row_source(create_brief.ask_reset)
     assert "dialogs.Confirm(" in source
     assert "on_confirm=" in source
     assert "settings_2d._reset(ctx)" in source

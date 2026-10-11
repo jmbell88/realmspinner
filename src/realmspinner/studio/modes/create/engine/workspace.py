@@ -7,7 +7,7 @@ groups siblings, and cycles cannot hang a frame.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 WORKSPACE_PARAM = "create_workspace"
@@ -22,14 +22,6 @@ FOLLOWUP_KINDS = frozenset(
 class Index:
     by_job: dict[str, str]
     families: dict[str, list[dict[str, Any]]]
-    #: :func:`ordered_creations`' answer, filled on first ask. It lives on the
-    #: index because the index is exactly as long-lived as the cache generation
-    #: it was built from (``session.index`` rebuilds it when jobs change), so
-    #: the list is rebuilt on the same key and never on a frame that changed
-    #: nothing (the 2026-10-03 audit, finding create-44).
-    _ordered: list[tuple[str, list[dict[str, Any]]]] | None = field(
-        default=None, repr=False, compare=False
-    )
 
 
 def build_index(jobs: list[dict[str, Any]]) -> Index:
@@ -113,19 +105,99 @@ def results(index: Index, key: str | None, stage: str | None = None) -> list[dic
     ]
 
 
-def ordered_creations(index: Index) -> list[tuple[str, list[dict[str, Any]]]]:
-    """Every creation that has a result, newest activity first, as
-    ``(family key, its results)``. Memoised on the index; do not mutate."""
-    if index._ordered is None:
-        ordered = sorted(
-            index.families.items(),
-            key=lambda pair: max(j.get("created_at") or 0 for j in pair[1]),
-            reverse=True,
-        )
-        index._ordered = [
-            (key, assets) for key, _family in ordered if (assets := results(index, key))
+#: How far apart, in seconds, two reference rows of one press can be created. A
+#: Count of 8 inserts its rows inside one transaction (``_jobs_create``), so
+#: they land milliseconds apart; a person pressing Generate again is seconds at
+#: the very least. Two seconds is wide enough for a slow disk and narrow enough
+#: that the next press is never folded in.
+BATCH_WINDOW_S = 2.0
+
+#: The largest batch ``MAX_REFERENCE_COUNT`` allows, which the grid is laid out for.
+GRID_MAX = 8
+
+
+def reference_batch(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The newest press's reference images, in the order they were drawn. **Pure.**
+
+    ``rows`` is one creation's results (``results(..., "reference")``, newest
+    first). A press with Count above 1 writes N independent rows and no
+    ``candidate_group`` (that column is the *mesh* picker's), so the submit door
+    stamps ``params["press_id"]`` on every image of the press and a batch is the
+    rows sharing it. Rows from before that fall back to the clock: the newest row
+    and every image-kind sibling made within :data:`BATCH_WINDOW_S` of it from the
+    same prompt. A creation's older
+    presses, a rerun and a hand-made reference are never folded in.
+    Returns ``[]`` when there is nothing to group, and a single row for an
+    ordinary press: the caller decides that one image is not a contact sheet.
+    """
+    members = [
+        j for j in rows if j.get("stage") == "reference" and j.get("kind") in ("text", "image")
+    ]
+    if not members:
+        return []
+    newest = members[0]
+    newest_params = newest.get("params") or {}
+    press = newest_params.get("press_id")
+    if press and not newest_params.get("rerun_of"):
+        # The submit door stamped one id on every image of the press: exact, and
+        # immune to a slow submit spreading the rows past the window.
+        batch = [
+            j
+            for j in members
+            if (j.get("params") or {}).get("press_id") == press
+            and not (j.get("params") or {}).get("rerun_of")
         ]
-    return index._ordered
+        batch.sort(key=lambda j: (j.get("created_at") or 0, str(j["id"])))
+        return batch[:GRID_MAX]
+    stamp = float(newest.get("created_at") or 0.0)
+    batch = [
+        j
+        for j in members
+        if abs(stamp - float(j.get("created_at") or 0.0)) <= BATCH_WINDOW_S
+        and (j.get("prompt") or "") == (newest.get("prompt") or "")
+        and not (j.get("params") or {}).get("rerun_of")
+        # A row of some other press is never folded into an older one by
+        # proximity alone; only rows from before ``press_id`` rely on the clock.
+        and not (j.get("params") or {}).get("press_id")
+    ]
+    if not batch:
+        batch = [newest]
+    batch.sort(key=lambda j: (j.get("created_at") or 0, str(j["id"])))
+    return batch[:GRID_MAX]
+
+
+def batch_settled(batch: list[dict[str, Any]]) -> bool:
+    """Whether every member has reached a terminal status. **Pure.**"""
+    return bool(batch) and all(j.get("status") in ("done", "error", "cancelled") for j in batch)
+
+
+def grid_shape(count: int) -> tuple[int, int]:
+    """``(rows, columns)`` of the contact sheet for ``count`` images. **Pure.**
+
+    Two sit side by side, three or four make a square, five to eight two rows
+    of four -- the shapes the review asked for, chosen so a landscape canvas
+    keeps its images large. Anything outside 2..8 is clamped into that range.
+    """
+    n = max(2, min(int(count), GRID_MAX))
+    if n == 2:
+        return 1, 2
+    if n <= 4:
+        return 2, 2
+    return 2, 4
+
+
+def grid_step(index: int, key: str, count: int) -> int:
+    """Where an arrow key moves the grid's selection. **Pure.**
+
+    Clamped, not wrapped: the grid's edges mean something and a wrap would
+    jump the eye across the sheet. Up and Down move by a row, so they only
+    change anything when the shape has two.
+    """
+    rows, cols = grid_shape(count)
+    step = {"left": -1, "right": 1, "up": -cols, "down": cols}.get(key, 0)
+    if rows == 1 and key in ("up", "down"):
+        return index
+    return max(0, min(index + step, count - 1))
 
 
 #: The five stages in rail order. ``ui/stages.STAGES`` is the same tuple; the

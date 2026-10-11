@@ -464,7 +464,7 @@ def test_vary_on_a_mesh_resets_form_keys_the_job_never_recorded(monkeypatch):
     # The live form still holds the last session's hand-edited engine values.
     form = dict(DEFAULT_FORM_3D)
     form.update(
-        {"trellis_band": 6, "size_m": 2.5, "count": 3, "rig": True, "lowpoly_triangles": 999}
+        {"trellis_band": 6, "size_m": 2.5, "attempts": 3, "rig": True, "lowpoly_triangles": 999}
     )
     ctx = SimpleNamespace(
         state=SimpleNamespace(form_3d=form, source_job=None),
@@ -486,5 +486,5 @@ def test_vary_on_a_mesh_resets_form_keys_the_job_never_recorded(monkeypatch):
     assert out["trellis_band"] == DEFAULT_FORM_3D["trellis_band"]
     assert out["size_m"] == DEFAULT_FORM_3D["size_m"]
     # How many and whether to rig are not part of a recipe: left as the user had them.
-    assert out["count"] == 3 and out["rig"] is True
+    assert out["attempts"] == 3 and out["rig"] is True
     assert ctx.state.source_job == "r1"

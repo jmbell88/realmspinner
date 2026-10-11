@@ -9,6 +9,7 @@ job cache and services; it does not introduce another generation state.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -22,16 +23,23 @@ from ....manual import render as manual_render
 from ....panes import thumbs
 from ....tokens import sp
 from ..engine import assets as create_assets
+from ..engine import recipe as create_recipe_engine
 from ..engine import workspace as families
 from ..engine.plan import Plan
 from . import session
 
 
-def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
+def plan_for(form: dict[str, Any], resolved: Any = None, *, installed: bool = True) -> Plan:
     """Describe the actual work using the same form values the door receives.
 
     Kept presentation-only and safe for partially restored forms, so it can be
     called every frame before the service performs its final validation.
+
+    ``installed=False`` is the caller saying Automatic resolved to nothing on
+    this host: the recipe line then reads "none installed" rather than the
+    "Automatic recipe" that promised a press would run (the 2026-10-11 review:
+    the footer said "Recipe: Automatic recipe" and "Queue: ready" on a machine
+    that could draw nothing).
     """
     spec = create_assets.selected(form)
     candidates = max(1, _integer(form.get("count"), 1))
@@ -98,6 +106,8 @@ def plan_for(form: dict[str, Any], resolved: Any = None) -> Plan:
         # model -- so without this the plan would name an SDXL checkpoint under
         # a press that never loads one.
         recipe = "Character registry - no image model"
+    elif not installed:
+        recipe = create_recipe_engine.NO_MODEL_RECIPE
     elif resolved is not None:
         recipe = str(getattr(resolved, "base_model", "") or "Automatic recipe")
     return Plan(candidates, generations, duration, stages, recipe)
@@ -131,6 +141,7 @@ def plan_footer(
         widgets.muted(plan.duration)
     if plan.recipe:
         widgets.muted_wrapped(f"Recipe: {plan.recipe}")
+    refusal = str(getattr(ctx.state.create, "submit_refusal", "") or "")
     active = getattr(ctx.cache, "active", None)
     if active is not None:
         position = queue_position(ctx, str(active.get("id") or ""))
@@ -138,9 +149,11 @@ def plan_footer(
             widgets.muted(f"Queue: position {position}" if position else "Queue: waiting")
         else:
             widgets.muted_wrapped("Queue: one local generation is running")
-    else:
+    elif not problems and not refusal:
+        # Only while a press would actually be taken: "Queue: ready" under a red
+        # problem (or on a host with no image model at all) told the reader the
+        # opposite of the line beneath it.
         widgets.muted("Queue: ready")
-    refusal = str(getattr(ctx.state.create, "submit_refusal", "") or "")
     advisories = advisories or []
     if not problems and not refusal:
         # "Ready to generate" is still true with an advisory standing -- that
@@ -158,11 +171,76 @@ def plan_footer(
         imgui.text_wrapped(f"Refused: {refusal}")
         imgui.pop_style_color()
     for problem in problems:
+        if is_untouched_prompt_problem(ctx, problem) and not refusal:
+            # A form nobody has touched is not in error, it is empty. Red waits
+            # for an edit or a press (``CreateState.prompt_touched``).
+            widgets.muted(PRISTINE_PROMPT_HINT)
+            continue
         imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
         imgui.text_wrapped(f"Needs attention: {problem}")
         imgui.pop_style_color()
         repairs(problem)
     _advisories(advisories, advisory_repairs)
+
+
+#: What an empty, untouched brief says instead of the red refusal.
+PRISTINE_PROMPT_HINT = "Describe the asset to start"
+
+
+def touch_prompt(ctx: Any, touched: bool) -> None:
+    """Record that the prompt was edited (or a press refused), or that the form
+    is fresh again. Tolerates a stand-in ``ctx`` with no Create state."""
+    create = getattr(getattr(ctx, "state", None), "create", None)
+    if create is not None:
+        create.prompt_touched = touched
+
+
+def is_untouched_prompt_problem(ctx: Any, problem: Any) -> bool:
+    """Whether ``problem`` is the empty-prompt refusal on a form no one has edited.
+
+    The 2026-10-11 Create review: a fresh Create opened under a red "Needs
+    attention: A prompt is required." -- an error shown to someone who had done
+    nothing. The prompt's own message and field are matched together so no
+    other refusal is softened, and ``prompt_touched`` is set by the first edit
+    of the prompt or the first refused press.
+    """
+    return (
+        getattr(problem, "field", "") == "prompt"
+        and str(problem) == "A prompt is required."
+        and not getattr(ctx.state.create, "prompt_touched", False)
+    )
+
+
+#: The plan footer's height before it has been measured, and its floor, in
+#: design pixels. 168 is the old fixed ``-sp(220)`` less the Generate row.
+PLAN_DEFAULT_DP = 168.0
+PLAN_MIN_DP = 96.0
+
+#: The most of the column the footer may take before it scrolls instead.
+_PLAN_MAX_FRACTION = 0.55
+
+
+def plan_height(ctx: Any, key: str) -> float:
+    """Pixels to give the pinned plan footer of column ``key`` ("2d" or "3d").
+
+    **Its own measured content**, one frame late (:func:`note_plan_height` writes
+    the figure from inside the footer's child), clamped between a floor and a
+    share of the column. The column used to reserve a fixed ``-sp(220)`` /
+    ``-sp(52)`` split, so a footer with a refusal, a repair button and an
+    advisory lost its last line to the clip (the 2026-10-11 review), and a
+    footer with one line wasted a hundred pixels of form.
+    """
+    measured = ctx.state.create.plan_heights.get(key)
+    height = sp(PLAN_DEFAULT_DP) if measured is None else float(measured)
+    ceiling = max(sp(PLAN_MIN_DP), float(imgui.get_content_region_avail().y) * _PLAN_MAX_FRACTION)
+    return max(sp(PLAN_MIN_DP), min(height, ceiling))
+
+
+def note_plan_height(ctx: Any, key: str) -> None:
+    """Record how tall the footer just drawn turned out to be. Call it inside
+    the footer's child, after its last item."""
+    content = imgui.get_cursor_pos_y() + imgui.get_scroll_y() + sp(6)
+    ctx.state.create.plan_heights[key] = float(content)
 
 
 def _advisories(advisories: list[Any], repair: Callable[[Any], None] | None) -> None:
@@ -287,6 +365,44 @@ def draw(ctx: Any, height: float = 0.0, stage: str | None = None) -> None:
         imgui.end_child()
 
 
+def note_submit_landed(ctx: Any) -> None:
+    """A press was taken and the shell put the selection on its first row (or
+    left it where it was). Remember where, so the finishing images can follow it.
+    """
+    ctx.state.create.follow_selection = ctx.state.selected
+
+
+def follow_finished_reference(ctx: Any, job: dict[str, Any]) -> bool:
+    """Put the selection on a reference that has just finished. -> whether it did.
+
+    The user's decision: the newest attempt of a press is selected when it
+    finishes, so a Count of 4 ends with the sheet showing and the last image
+    chosen. **It does not fight a choice**: the selection only moves while it is
+    still where the app last put it (:func:`note_submit_landed`, then each
+    landing). A click on an earlier sibling mid-batch moves the selection off
+    that mark, and nothing after it takes it back. Also only for this creation
+    and only while standing on the Reference stage -- a finished image must not
+    pull a user who has gone to Mesh, or to another creation, back.
+    """
+    from ...library.ui.panes import library
+    from . import stages
+
+    state = ctx.state
+    if job.get("status") != "done" or job.get("stage") != "reference":
+        return False
+    if job.get("kind") not in ("text", "image") or not stages.at(state, "reference"):
+        return False
+    if state.create.workspace is None or session.index(ctx).by_job.get(
+        str(job["id"])
+    ) != state.create.workspace:
+        return False
+    if state.selected is not None and state.selected != state.create.follow_selection:
+        return False
+    library.select(ctx, str(job["id"]))
+    state.create.follow_selection = str(job["id"])
+    return True
+
+
 def inspect_result(ctx: Any, job: dict[str, Any]) -> None:
     """Inspect without editing the draft or choosing a reconstruction source."""
     asset_open.open_asset(ctx, job, inspect_only=True)
@@ -356,7 +472,7 @@ def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
             elif ctx.state.create.comparison_pin == job["id"]:
                 widgets.muted("Pinned for comparison")
             elif job.get("favorite"):
-                widgets.muted("Preferred")
+                widgets.muted("Favourite")
             imgui.end_group()
             imgui.pop_id()
         if last < len(jobs):
@@ -365,54 +481,92 @@ def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
     imgui.end_child()
 
 
-def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
-    """Actions act on the result; loading settings is an explicit operation."""
+def next_step(ctx: Any, job: dict[str, Any]) -> tuple[str, bool, str, Callable[[], None]] | None:
+    """The one thing most likely to come next for ``job``. **Not drawn.**
+
+    -> ``(label, enabled, why not, press)``, or ``None`` when the stage has no
+    next step of its own. A finished reference image offers **Make 3D** -- the
+    tray card's verb, through the same :func:`make_3d`, cutout check included --
+    a sprite sheet its export, and anything else the first live exit
+    ``asset_exits`` names. The old panel drew all of these, plus seven more,
+    as full-width buttons of equal weight; the rest are :func:`_more_actions`.
+    """
     from .... import asset_exits
+    from . import stages
+
+    done = job.get("status") == "done"
+    why = _why_not_finished(job, str(job.get("status") or ""))
+    kind = create_assets.asset_type_from_params(job.get("params") or {}, stage=job.get("stage", ""))
+    if (
+        job.get("stage") == "reference"
+        and kind in canvas_kinds()
+        and "input.png" in (job.get("files") or [])
+    ):
+        return "Make 3D", done, why, lambda: make_3d(ctx, job)
+    if kind == "sprite_sheet":
+        return "Export sprite sheet...", done, why, lambda: stages.go(ctx, "export", follow=False)
+    exits = [e for e in asset_exits.exits_for(ctx, job) if not e.reason]
+    if exits:
+        first = exits[0]
+        return first.label, True, "", lambda: first.open(ctx, job)
+    return None
+
+
+def canvas_kinds() -> tuple[str, ...]:
+    """The asset kinds a finished reference can be reconstructed from."""
+    from . import canvas
+
+    return canvas.MAKE_3D_KINDS
+
+
+def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
+    """The inspector's **Next step**: one primary button and a **More** menu.
+
+    It was up to eight full-width buttons of equal weight, two of which did what
+    a tray card's button already did under another name (the 2026-10-11 Create
+    review). The names are one vocabulary now: **Make 3D**, **Try again**,
+    **Load settings**, **Favourite** (the header's) and **Discard**.
+    """
+    widgets.section("Next step")
+    step = next_step(ctx, job)
+    if step is not None:
+        label, enabled, why, press = step
+        if widgets.primary_button(label, (-1, 0), enabled=enabled, reason=why):
+            press()
+    if controls.button("More##next-step-more", (-1, 0), role=controls.ButtonRole.GHOST):
+        imgui.open_popup("create-next-step-more")
+    if imgui.begin_popup("create-next-step-more"):
+        _more_actions(ctx, job)
+        imgui.end_popup()
+
+
+def _more_actions(ctx: Any, job: dict[str, Any]) -> None:
+    """What the **More** menu holds: everything the primary button is not.
+
+    Load settings, Try again, Reproduce, the pairwise comparison, Export and
+    Discard. Favourite is not here: the inspector's header has it, and a flag
+    toggled from two places under two names was one of the review's findings.
+    """
     from ...library.ui.panes import library
     from . import stages
 
     job_id = str(job["id"])
-    done = job.get("status") == "done"
-    widgets.section("Next step")
-    kind = create_assets.asset_type_from_params(job.get("params") or {}, stage=job.get("stage", ""))
-    if (
-        job.get("stage") == "reference"
-        and kind in ("", "image", "3d_model")
-        and "input.png" in (job.get("files") or [])
-    ):
-        if widgets.primary_button(
-            "Use as source for 3D",
-            (-1, 0),
-            enabled=done,
-            reason=_why_not_finished(job, str(job.get("status") or "")),
-        ):
-            ctx.state.source_job = job_id
-            stages.go(ctx, "mesh", follow=False)
-    elif kind == "sprite_sheet":
-        if widgets.primary_button(
-            "Export sprite sheet...",
-            (-1, 0),
-            enabled=done,
-            reason=_why_not_finished(job, str(job.get("status") or "")),
-        ):
-            stages.go(ctx, "export", follow=False)
-    else:
-        exits = [e for e in asset_exits.exits_for(ctx, job) if not e.reason]
-        if exits and widgets.primary_button(exits[0].label, (-1, 0)):
-            exits[0].open(ctx, job)
+    status = str(job.get("status") or "")
+    done = status == "done"
+    not_ready = _why_not_finished(job, status)
     if widgets.disabled_button(
-        "Use these settings",
-        done,
-        (-1, 0),
-        reason=_why_not_finished(job, str(job.get("status") or "")),
+        "Load settings", done, (-1, 0), reason=not_ready,
+        tooltip="Copy this attempt's recipe back into the form, to change one thing.",
     ):
         _vary(ctx, job)
+        imgui.close_current_popup()
     if svc_jobs.rerollable(job) and controls.button(
-        "Generate another attempt",
+        "Try again",
         (-1, 0),
         tooltip="Reuse this attempt's recipe with a fresh seed. Your draft stays unchanged.",
     ):
         ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
+        imgui.close_current_popup()
     # The 2026-10-10 audit, finding create-28: this was offered for every
     # rerollable row, but a rig, retexture, sheet, charsheet or music row
     # records no seed, and ``rerun_job(seed=None)`` draws a random one -- so
@@ -428,6 +582,7 @@ def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
     ):
         seed = recorded_seed(job)
         ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll", seed=seed)
+        imgui.close_current_popup()
     pin = ctx.state.create.comparison_pin
     if controls.button("Unpin comparison" if pin == job_id else "Pin for comparison", (-1, 0)):
         ctx.state.create.comparison_pin = None if pin == job_id else job_id
@@ -447,16 +602,7 @@ def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
                 library.compare(ctx, str(baseline["id"]))
             else:
                 ctx.state.create.image_comparing = str(baseline["id"])
-    if done and controls.button(
-        "Unmark preferred" if job.get("favorite") else "Mark preferred", (-1, 0)
-    ):
-        ctx.submit(
-            f"fav:{job_id}",
-            svc_jobs.update_job,
-            ctx.svc,
-            job_id,
-            {"favorite": not job.get("favorite")},
-        )
+            imgui.close_current_popup()
     if widgets.disabled_button(
         "Export...",
         stages.available("export", job, ctx) is None,
@@ -464,67 +610,45 @@ def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
         reason=stages.available("export", job, ctx) or "",
     ):
         stages.go(ctx, "export", follow=False)
+        imgui.close_current_popup()
+    imgui.separator()
+    if controls.button(
+        "Discard",
+        (-1, 0),
+        tooltip="Move this attempt to the trash. The toast that follows can undo it.",
+    ):
+        discard(ctx, job)
+        imgui.close_current_popup()
 
 
-#: ``(label, width in px, scale)`` -> the label fitted to that width. Bounded: a
-#: widened history holds up to 5000 creations and only ever asks about the few
-#: on screen, but a long session scrolls through all of them.
-_FIT_MEMO: dict[tuple[str, int, int], str] = {}
-_FIT_MEMO_LIMIT = 1024
+def discard(ctx: Any, job: dict[str, Any]) -> None:
+    """Move one attempt to the trash -- the Library's own door, with its Undo.
 
-
-def _fitted(label: str, width: float) -> str:
-    """:func:`widgets.fit_text`, remembered per label and width.
-
-    The 2026-10-04 audit, finding create-18: the history measured every
-    creation's label every frame. The clipper below bounds that to the rows on
-    screen; this makes those rows free once seen. The scale is in the key so a
-    UI-scale change cannot serve a label fitted to the old one.
+    ``library.delete_asset`` is what the Delete key and the Library's card menu
+    call: it clears the tick and the selection, submits ``trash_job`` (a soft
+    delete; the row can be restored) and raises the "Moved to trash" toast with
+    its Undo action. One path, so a discarded attempt comes back the same way
+    from either place.
     """
-    key = (label, round(width), round(sp(100)))
-    fitted = _FIT_MEMO.get(key)
-    if fitted is None:
-        if len(_FIT_MEMO) >= _FIT_MEMO_LIMIT:
-            _FIT_MEMO.clear()
-        fitted = _FIT_MEMO[key] = widgets.fit_text(label, width)
-    return fitted
+    from ...library.ui.panes import library
+
+    library.delete_asset(ctx, str(job["id"]))
 
 
-def history(ctx: Any) -> None:
-    """Recent creations, grouped by lineage, rather than a second Library."""
-    widgets.pane_header("Creations")
-    idx = session.index(ctx)
-    # Memoised on the index (finding create-44): this used to sort every family
-    # and run ``results`` over each one on every frame the list was on screen.
-    ordered = families.ordered_creations(idx)
-    # Clipped (finding create-18, the half create-44 left): "Load older
-    # creations" widens this to 5000 rows, and each row was a button, a measured
-    # label and a muted line submitted every frame. Every row is the same height
-    # -- one button and one line -- so the clipper's own measurement of the
-    # first is exact, and the scrollbar is what it would have been.
-    width = imgui.get_content_region_avail().x - sp(20)
-    clipper = imgui.ListClipper()
-    clipper.begin(len(ordered))
-    while clipper.step():
-        for index in range(clipper.display_start, clipper.display_end):
-            key, assets = ordered[index]
-            job = assets[0]
-            label = str(job.get("name") or job.get("prompt") or job["id"])
-            if controls.button(
-                _fitted(label, width) + f"##creation-{key}",
-                (-1, 0),
-                tooltip=f"{label}\n{len(assets)} attempts",
-            ):
-                asset_open.open_asset(ctx, job)
-            widgets.muted(f"{len(assets)} attempts")
-    clipper.end()
-    if not ordered:
-        widgets.muted_wrapped("Your creations will appear here. Every attempt is saved.")
-    if ordered and ctx.cache.can_load_more() and controls.button("Load older creations", (-1, 0)):
-        ctx.cache.load_more()
+def empty_canvas(ctx: Any, stage: str = "reference") -> None:
+    """The canvas with nothing on it. Which empty state is the stage's: see
+    :func:`canvas.empty` (the setup card, the Mesh drop zone, or the type cards
+    -- :func:`type_cards` -- while the brief is still blank)."""
+    from . import canvas
+
+    canvas.empty(ctx, stage)
 
 
-def empty_canvas(ctx: Any) -> None:
+def type_cards(ctx: Any) -> None:
+    """The six output cards. Drawn only while the Reference form is pristine --
+    no prompt typed, nothing loaded -- because the column's "What are you
+    making?" combo is the same choice and the cards were a second control for it
+    (the 2026-10-11 review)."""
     from . import brief
 
     widgets.pane_header("What would you like to make?")
@@ -624,12 +748,63 @@ def _progress(ctx: Any, job: dict[str, Any]) -> None:
         _cancel(ctx, str(job.get("id") or ""))
         return
     progress = ctx.runtime.progress(str(job.get("id") or ""))
+    left = eta_phrase(job, time.time())
     if progress is not None:
         widgets.progress_bar(float(progress.get("percent") or 0.0))
-        widgets.muted(str(progress.get("label") or "Generating…"))
+        label = str(progress.get("label") or "Generating…")
+        widgets.muted(f"{label} · {left}" if left else label)
     else:
-        widgets.muted("Starting generation…")
+        widgets.muted(f"Starting generation… · {left}" if left else "Starting generation…")
     _cancel(ctx, str(job.get("id") or ""))
+
+
+#: Seconds one running job is expected to take, by what it is. Reference images
+#: are one SDXL pass (``svc_sprites.SECONDS_PER_GENERATION``, the figure the
+#: plan footer already promises); a mesh is the "about 2 minutes of GPU" the Mesh
+#: plan states. Anything else has no honest estimate, and gets none.
+MESH_SECONDS = 120.0
+
+
+def estimated_seconds(job: dict[str, Any]) -> float | None:
+    """How long this job is expected to run, or ``None`` when nothing says. **Pure.**"""
+    if job.get("kind") not in ("text", "image"):
+        return None
+    params = job.get("params") or {}
+    if job.get("stage") == "model":
+        return MESH_SECONDS
+    if job.get("stage") == "reference" and not (params.get("sprite_sheet") or params.get("troupe")):
+        return float(svc_sprites.SECONDS_PER_GENERATION)
+    return None
+
+
+def eta_phrase(job: dict[str, Any], now: float) -> str:
+    """"about 20 seconds left", or the time so far. **Pure.**
+
+    The plan's estimate less the job's own elapsed time. Never negative and
+    never a guess past the estimate: once the job has run longer than it was
+    expected to (or the clock is wrong, or there is no estimate) the phrase is
+    the elapsed time alone, which is a fact rather than a promise. ``""`` while
+    the job has not started.
+    """
+    try:
+        started = float(job.get("started_at") or 0.0)
+    except (TypeError, ValueError):
+        return ""
+    if started <= 0.0:
+        return ""
+    elapsed = now - started
+    if elapsed < 0.0 or elapsed > 24 * 3600:
+        return ""
+    expected = estimated_seconds(job)
+    remaining = None if expected is None else expected - elapsed
+    if remaining is not None and remaining >= 5.0:
+        if remaining < 90.0:
+            return f"about {int(round(remaining / 5.0) * 5)} seconds left"
+        minutes = round(remaining / 60.0)
+        return f"about {minutes} minute{'s' if minutes != 1 else ''} left"
+    if elapsed < 90.0:
+        return f"{int(elapsed)} s so far"
+    return f"{int(elapsed // 60)} min {int(elapsed % 60)} s so far"
 
 
 def _cancel(ctx: Any, job_id: str) -> None:
@@ -713,6 +888,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         widgets.muted(f"seed {seed}")
     rank = params.get("rank")
     score = rank.get("score") if isinstance(rank, dict) else None
+    order_hint = ""
     if score is not None:
         # **The ranker, and it says so.** This used to read "judge: N% likely a
         # keeper", which named the wrong instrument twice over: the value is
@@ -732,8 +908,13 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         #
         # "rank" is what it orders and all it claims: where this candidate sits
         # in its strip, not whether it is any good.
-        widgets.muted(f"rank {float(score) * 100:.0f}%")
+        # Not drawn as a number on the card: "rank 37%" read as a quality score
+        # (the 2026-10-11 review), and it is only where this candidate sits in
+        # its strip. It is the card's hover, named for what it is.
+        order_hint = f"Order hint {float(score) * 100:.0f}% - a sorting aid, not a quality score."
     imgui.end_group()
+    if order_hint and imgui.is_item_hovered():
+        imgui.set_tooltip(order_hint)
     # **Two per row, not one per row.** Four full-width buttons stacked under a
     # 72 dp thumbnail make a card taller than the tray that holds it, and the
     # tray is the bottom of a column whose height is a fraction of the window --
@@ -751,7 +932,9 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         # result opened this way showed ``input.png`` on the Reference stage.
         asset_open.open_asset(ctx, job)
     imgui.same_line()
-    if widgets.disabled_button(f"Vary##result-vary-{job_id}", done, half, reason=not_ready):
+    if widgets.disabled_button(
+        f"Load settings##result-vary-{job_id}", done, half, reason=not_ready
+    ):
         _vary(ctx, job)
 
     if group is not None:
@@ -816,7 +999,9 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     # deliberately does not (it is a pure predicate's sentence, not a log
     # line).
     reason = rerollable_reason(job) if status in ("done", "error", "cancelled") else not_ready
-    if widgets.disabled_button(f"Rerun##result-rerun-{job_id}", can_rerun, half, reason=reason):
+    if widgets.disabled_button(
+        f"Try again##result-rerun-{job_id}", can_rerun, half, reason=reason
+    ):
         ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
     imgui.same_line()
     from . import stages as create_stages
@@ -843,7 +1028,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
             half,
             reason="A finished reference image is required.",
         ):
-            _make_3d(ctx, job)
+            make_3d(ctx, job)
 
 
 #: Statuses a job can end in without producing artifacts.
@@ -888,8 +1073,10 @@ def _half_width() -> float:
     return (imgui.get_content_region_avail().x - imgui.get_style().item_spacing.x) * 0.5
 
 
-def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
-    """Move to Mesh, *then* open the cutout check.
+def make_3d(ctx: Any, job: dict[str, Any]) -> None:
+    """**Make 3D**, everywhere it is offered: the tray card, the canvas, the
+    contact sheet, the inspector and Enter. Move to Mesh, *then* open the cutout
+    check.
 
     This used to start the check from wherever the card was drawn, so the
     matte dialog appeared over the Reference stage and the job it queued
@@ -904,6 +1091,9 @@ def _make_3d(ctx: Any, job: dict[str, Any]) -> None:
     create_stages.go(ctx, "mesh", follow=False)
     ctx.state.source_job = str(job["id"])
     settings_3d.promote(ctx, job, ctx.state.form_3d)
+
+
+_make_3d = make_3d  # the name tests and older callers used
 
 
 def _rig(ctx: Any, job: dict[str, Any]) -> None:
@@ -933,14 +1123,14 @@ def _vary(ctx: Any, job: dict[str, Any]) -> None:
         # key it left unset kept whatever the live form held, and "Change one
         # thing, then make it again" re-ran a recipe that differed from the card
         # in ways nothing showed. Start from the defaults, as ``session.resume``
-        # does; ``count`` and ``rig`` are not part of a recipe and stay as the
+        # does; ``attempts`` and ``rig`` are not part of a recipe and stay as the
         # user has them.
-        keep = {key: form[key] for key in ("count", "rig") if key in form}
+        keep = {key: form[key] for key in ("attempts", "rig") if key in form}
         form.clear()
         form.update(DEFAULT_FORM_3D)
         form.update(keep)
         for key in DEFAULT_FORM_3D:
-            if key in params and key not in ("count", "rig"):
+            if key in params and key not in ("attempts", "rig"):
                 form[key] = params[key]
         parent = job.get("parent_id")
         if parent:

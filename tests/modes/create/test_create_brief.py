@@ -347,7 +347,9 @@ def test_the_count_pills_take_their_range_from_the_stage(frames, monkeypatch):
     assert offered["mesh"] == tuple(str(n) for n in range(1, MAX_MESH_CANDIDATES + 1))
 
 
-def test_both_stages_show_a_visible_candidates_label(frames, monkeypatch):
+def test_each_stage_names_its_own_count_control(frames, monkeypatch):
+    """The review's decision: Reference counts **Images**, Mesh counts
+    **Attempts**, and they are not one "Candidates" control with two meanings."""
     texts: dict[str, list[str]] = {}
     real = create_brief.widgets.secondary
     for stage in ("reference", "mesh"):
@@ -359,9 +361,11 @@ def test_both_stages_show_a_visible_candidates_label(frames, monkeypatch):
         )
         ctx = _real_ctx(stage=stage, source=_SOURCE)
         frames(lambda ctx=ctx: create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh"))
-    assert "Candidates" in texts["reference"]
-    assert "Candidates" in texts["mesh"]
-    assert create_brief.COUNT_LABEL == "Candidates"
+    assert "Images" in texts["reference"]
+    assert "Attempts" in texts["mesh"]
+    assert "Candidates" not in texts["reference"] + texts["mesh"]
+    assert (create_brief.IMAGES_LABEL, create_brief.ATTEMPTS_LABEL) == ("Images", "Attempts")
+    assert create_brief.IMAGES_TIP != create_brief.ATTEMPTS_TIP
 
 
 def test_the_recipe_is_not_in_the_bar():
@@ -639,12 +643,11 @@ def test_the_bar_fits_with_the_count_hidden_too(frames):
 # --- Reset moved into the bar's own pane -------------------------------------
 
 
-def test_reset_is_censused_against_the_bars_own_pane(frames, monkeypatch):
-    """``probe``'s per-frame census -- the mechanism ``dev/scripts/exercise_mode.py``
-    drives every control through -- must attribute Reset to the bar's own
-    child window once it is drawn through ``layout.pane``, not to whatever
-    happened to be current when it was a bare row.
-    """
+def test_reset_is_not_drawn_under_the_prompt(frames, monkeypatch):
+    """The 2026-10-11 review: a destructive ghost button one slip below the
+    field everyone types in. It is an item of the New... popup now
+    (``test_the_new_popup_carries_the_stages_reset``), so the column draws no
+    control that starts with "Reset"."""
     monkeypatch.setattr(probe, "ENABLED", True)
     for stage in ("reference", "mesh"):
         ctx = _real_ctx(stage=stage, source=_SOURCE)
@@ -659,8 +662,7 @@ def test_reset_is_censused_against_the_bars_own_pane(frames, monkeypatch):
         frames(build)
 
         census = probe.census()
-        reset = next(c for c in census if c.text.startswith("Reset"))
-        assert reset.where == "settings_2d", (stage, census)
+        assert not [c for c in census if c.text.startswith("Reset")], (stage, census)
 
 
 def test_reset_no_longer_draws_from_the_settings_column():
@@ -682,20 +684,14 @@ def test_reset_no_longer_draws_from_the_settings_column():
     assert 'widgets.section("Source")' not in mesh and "def _source(" not in mesh
 
 
-def test_both_stages_reset_in_one_pattern(frames, monkeypatch):
+def test_both_stages_reset_in_one_pattern():
     """ "Reset the {image|mesh} settings?" for the confirm's title and "The
     {image|mesh} settings are back to their defaults." for the toast -- the
-    same sentence with the stage's own noun, read off a real press."""
-    real = create_brief.controls.button
-
-    def press_reset(label, *a, **k):
-        real(label, *a, **k)
-        return str(label).startswith("Reset")
-
-    monkeypatch.setattr(create_brief.controls, "button", press_reset)
+    same sentence with the stage's own noun, asked through the one door the
+    New... popup's item calls."""
     for stage, noun in (("reference", "image"), ("mesh", "mesh")):
         ctx = _real_ctx(stage=stage, source=_SOURCE)
-        frames(lambda ctx=ctx: create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh"))
+        create_brief.ask_reset(ctx, mesh=stage == "mesh")
         dialog = ctx.asked[0]
         assert dialog.title == f"Reset the {noun} settings?"
         dialog.on_confirm()
@@ -707,10 +703,10 @@ def test_mesh_reset_puts_the_seed_back_to_unset():
     from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     ctx = _real_ctx(stage="mesh")
-    ctx.state.form_3d.update(mesh_seed=7, mesh_seed_locked=True, count=3)
+    ctx.state.form_3d.update(mesh_seed=7, mesh_seed_locked=True, attempts=3)
     settings_3d._reset(ctx)
     assert ctx.state.form_3d["mesh_seed"] is None
-    assert ctx.state.form_3d["count"] == 1
+    assert ctx.state.form_3d["attempts"] == 1
 
 
 def test_a_second_undecided_group_does_not_hide_the_older_one():

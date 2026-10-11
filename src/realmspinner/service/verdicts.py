@@ -35,6 +35,14 @@ that only pointed at a job id would evaporate the first time a workshop was
 tidied up -- taking with it every finding the user spent an afternoon
 recording.
 
+**The snapshot and the note ride on the row, outside the vector.** ``snapshot``
+is ``vectors.settings_snapshot(job)``: the steps, guidance, scheduler, seed,
+prompt and adapters that actually ran, written at filing time so a hard delete
+stops losing them (the 2026-10-11 finding: 13 of 17 stored verdicts pointed at
+deleted jobs with only the vector left). ``note`` is the reviewer's own
+sentence. Neither feeds ``vector_key``; both are append-only with the row, so
+a new note is a new row and the newest wins.
+
 **The AI-judge seam is unchanged.** ``source`` is a free string, not an enum:
 ``latest_verdicts`` keys on (job_id, source, stage), so a future judge writing
 ``ai:<model>`` sits beside a human's verdict rather than overwriting it, and
@@ -75,6 +83,7 @@ from ..vectors import (
     TAGS,
     USABLE_GRADE,
     prompt_hash,
+    settings_snapshot,
     verdict_for_grade,
 )
 from . import findings
@@ -93,6 +102,7 @@ __all__ = [
     "STAGES",
     "TAGS",
     "USABLE_GRADE",
+    "NOTE_MAX",
     "VERDICTS",
     "record_verdict",
     "verdict_for_grade",
@@ -104,6 +114,10 @@ __all__ = [
 VERDICTS = ("accept", "reject")
 
 SOURCE_HUMAN = "human"
+
+# A note is a remark, not a document: the cap keeps one pasted essay from
+# riding along on a row that is read in a list.
+NOTE_MAX = 2000
 
 # Which question a verdict answers. ``model`` first because it is the default
 # and every row written before migration 7 is one.
@@ -143,6 +157,7 @@ def record_verdict(
     reasons: Iterable[str] = (),
     source: str = SOURCE_HUMAN,
     stage: str = "model",
+    note: str | None = None,
 ) -> dict[str, Any]:
     """File one verdict against a job, with a snapshot of its config vector.
 
@@ -155,6 +170,11 @@ def record_verdict(
     """
     if stage not in STAGES:
         raise Invalid(f"stage must be one of {list(STAGES)}", field="stage")
+    if note is not None and not isinstance(note, str):
+        raise Invalid("note must be text", field="note")
+    # Trimmed, and blank means none: a row whose note is "  " would read as a
+    # remark in the log and say nothing.
+    note = (note or "").strip()[:NOTE_MAX] or None
 
     if stage in IMAGE_STAGES:
         # Binary, permanently: these feed binary logistic probes, so a grade
@@ -247,6 +267,8 @@ def record_verdict(
         prompt_hash=prompt_hash(job.get("prompt")),
         stage=stage,
         grade=grade,
+        snapshot=settings_snapshot(job),
+        note=note,
     )
     return {
         "id": row_id,
@@ -255,4 +277,5 @@ def record_verdict(
         "grade": grade,
         "reasons": reason_list,
         "stage": stage,
+        "note": note,
     }

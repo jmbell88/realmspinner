@@ -396,6 +396,12 @@ re-rig, delete or rerun one, and it can cancel only the jobs it started itself. 
 [Extending Realmspinner](46-extending.md#driving-realmspinner-from-an-ai-agent) for the tools it is
 given and how to point one at the app.
 
+**Generation log.** *Export generation log...* asks for a folder and writes every verdict and
+measurement the app has recorded, with the settings that produced it and any note you wrote, to a
+`realmspinner-generation-log-YYYYMMDD-HHMMSS.jsonl` file there, one JSON object per line, and says where it
+saved it. Deleting a job does not remove its verdicts, so the log reaches back past what is still in
+your library. The same button is on Create's **History** pane.
+
 **Configuration.** *Effective configuration* lists every environment variable the app reads and what
 this process resolved it to, with the ones actually set by the environment first and named by their
 variable. It is the same table `realmspinner doctor` prints, and *Copy as text* puts it on the clipboard

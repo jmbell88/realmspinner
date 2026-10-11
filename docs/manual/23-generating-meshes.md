@@ -3,18 +3,24 @@
 The mesh stage is where the reconstruction engine runs. It costs roughly two minutes of GPU per
 attempt, so everything in this chapter is arranged around deciding what to spend that on. All of it
 lives at Create's **Mesh** stage. The left column starts with the **Source** chip and
-**Candidates** (1, 2 or 3), followed by reconstruction settings. The generation plan has its own
-scrollable space above the persistent **Make 3D** button. **Reset settings…** resets mesh controls
-after confirmation while keeping the chosen source.
+**Attempts** (1, 2 or 3), followed by the reconstruction settings: **Triangle budget**, **Size** and
+**Rig**, with everything else in one **Advanced** fold. The generation plan has its own
+scrollable space, as tall as its lines, above the persistent **Make 3D** button. **Reset mesh
+settings…**, in the **New…** menu, resets mesh controls after confirmation while keeping the chosen
+source.
 
 ## Starting from a reference
 
 The normal path is promotion: take a finished 2D asset and run the mesh stage from its image.
 
-Inspect a finished reference in the Attempts strip, then choose **Use as source for 3D** in
-the inspector. This explicitly chooses the source and opens the Mesh stage; it does not spend GPU
-time until you press **Make 3D**. Inspecting a different attempt keeps the chosen source and draft.
+Press **Make 3D** on a finished reference — over the picture on the canvas, on its card in the
+Attempts tray, or at the top of the inspector's **Next step**; it is one button. This explicitly
+chooses the source, opens the Mesh stage and starts the cutout check; it does not spend GPU
+time until the check passes. Inspecting a different attempt keeps the chosen source and draft.
 Library promotion remains available too.
+
+With no reference chosen the Mesh canvas is a drop zone: *Drop an image here, or pick a reference*,
+with a thumbnail for each finished reference in this creation — click one to make it the source.
 
 The **Source** chip names and previews the image that Make 3D will use. It accepts a library card
 drop or an image file. With no explicit source, a selected mesh can use the reference it came from.
@@ -30,7 +36,7 @@ recorded value for the field, the entry names it — "From reference: High detai
 with nothing recorded for that field (an older job, say) still gets the generic wording.
 
 Two settings are exceptions and are always sent explicitly: the rig checkbox and the
-normalise-the-reference checkbox. Both are the Mesh stage's own decisions, and an omission would let
+centre-and-enlarge checkbox. Both are the Mesh stage's own decisions, and an omission would let
 the promotion inherit whatever the reference happened to record.
 
 Derived values never carry across. Anything the worker recorded about the *source* run's artifacts
@@ -40,7 +46,8 @@ wears a quality verdict about a mesh that does not exist yet. See
 
 ## Checking the cutout
 
-**Make 3D** does not submit straight away. It opens **Check the cutout**: the subject cut out of the
+**Make 3D** does not submit straight away. It checks the cutout first, and opens **Check the
+cutout** when there is anything to see: the subject cut out of the
 reference, drawn over a checkerboard so transparency reads as transparency, with the panel naming
 which matte produced it — the reference's own alpha, the BiRefNet model, or the corner fill that
 answers when BiRefNet's weights are not installed.
@@ -70,27 +77,29 @@ Three buttons:
   arguing about. What you must not do is spend two minutes of GPU by accident. The override is
   recorded against those exact pixels, so it applies to a rerun of the same job and to nothing else;
   edit the image and the composition rules apply again.
-- **Fix matte** opens the reference in Inker with the cutout already folded into its alpha, as one
-  undoable step. The eraser and the brush then edit the matte directly; see
-  [Inker](28-inker.md#fixing-a-matte).
+- **Fix matte** does not re-remove the background. It opens the reference in Inker with the cutout
+  already folded into its alpha, as one undoable step, and the eraser and the brush then edit the
+  matte directly; see [Inker](28-inker.md#fixing-a-matte). Save, then press **Make 3D** again.
 - **Cancel** leaves everything as it was.
 
 A matte you edited and saved travels to the engine as the image's own alpha, and the job records
 that it was approved — the engine is told to keep the alpha rather than cut its own. A soft edge you
 painted stays soft; nothing along this path flattens it to a hard cut.
 
-Settings has an opt-in **Don't ask for clean cutouts** switch, off by default, that skips this panel
-for the case it exists to catch the least: a cutout with no report warnings or refusals, made by the
+Settings has a **Don't ask for clean cutouts** switch, **on by default**, that skips this panel for
+the case it exists to catch the least: a cutout with no report warnings or refusals, made by the
 BiRefNet model itself rather than the corner-fill fallback. Anything the report flags, or anything the
 fallback made, still opens the panel whether the switch is on or not — and the skipped submission is
-the identical **Accept**, not a different route to the same job.
+the identical **Accept**, not a different route to the same job. Switch it off to see the panel before
+every Make 3D; a choice you have made either way is kept.
 
-## Candidates
+## Attempts
 
 The reconstruction engine is deterministic in its seed, and its failure mode is a lottery: the same
-reference comes back clean at one seed and with a hole through the shoulder at another. **Candidates**,
-near the top of the left column (the same control the Reference stage has, with this stage's range), is
-how many attempts one press buys — 1, 2 or 3. The **generation plan** pinned under the column (the
+reference comes back clean at one seed and with a hole through the shoulder at another. **Attempts**,
+near the top of the left column (the Reference stage's equivalent is **Images**, which counts
+pictures rather than meshes), is how many meshes one press tries — 1, 2 or 3 — so you can pick the
+best. The **generation plan** pinned under the column (the
 same footer the Reference stage draws) changes with the choice: it says "N candidates ·
 about N×2 minutes of GPU", because this is the one control in the pane that multiplies what the button
 spends. Under that it shows the queue, then either *Ready to generate.* or, in red, why Make 3D is off
@@ -105,8 +114,8 @@ keeps the mesh seed you pinned, so a pinned seed still reproduces; the rest draw
 
 New candidate batches are saved immediately as attempts in the current creation, and remain
 visible in the Library. The horizontally scrolling **Attempts** strip contains every loaded attempt
-for this creation. Click one to inspect it; **Use these settings** loads its mesh settings and source
-explicitly. Mark a preferred result without discarding the rest, or pin one and compare it with another
+for this creation. Click one to inspect it; **Load settings** loads its mesh settings and source
+explicitly. **Favourite** a result without discarding the rest, or pin one and compare it with another
 finished mesh using synchronised views. Rig and Export remain stages on the header's rail.
 
 Older undecided candidate batches retain their Keep/Discard picker so existing work can still be
@@ -120,8 +129,8 @@ You can skip the reference stage entirely. Press the **Source** chip (it reads *
 while nothing is chosen), or
 drop an image file onto the window. Nothing is queued: the image is imported as a finished reference,
 the Source chip shows it, and it appears in the Library like any other reference. Then **Make 3D** works
-as it does for a generated one: it opens the cutout check, and once you accept, makes as many candidates
-as **Candidates** says.
+as it does for a generated one: it checks the cutout, and once that passes, makes as many meshes
+as **Attempts** says.
 
 Uploads are bounded at the door, and both limits are checked before anything is written:
 
@@ -138,9 +147,13 @@ on a plain background.
 
 ## Mesh parameters
 
-The **Mesh** section holds the reconstruction settings.
+The **Mesh** section shows three things: **Triangle budget**, **Size** and **Rig**. The rest of the
+reconstruction settings — **Mesh resolution**, **Finishing**, **Background**, **Seed**, **Centre and
+enlarge the reference** and the engine's launch flags — are in one **Advanced** fold below them, closed
+until you open it.
 
-**Mesh resolution** is the geometry resolution handed to the engine, supplied by a platform preset:
+**Mesh resolution** (in **Advanced**) is the geometry resolution handed to the engine, supplied by a
+platform preset:
 
 | Platform | Resolution |
 | --- | --- |
@@ -152,17 +165,17 @@ and small, a 3D one in a scene. Higher resolutions cost more VRAM and more time,
 hold both models at once they may need the exclusive VRAM mode (`REALMSPINNER_VRAM_EXCLUSIVE=1`), which
 stops the reconstruction engine while the image model runs.
 
-**Budget** picks how the finished mesh gets to a game-sized triangle count, and it offers up to four
-families of entry, each drawn only when this machine can actually run it:
+**Triangle budget** picks how the finished mesh gets to a game-sized triangle count, and it offers up
+to four families of entry, each drawn only when this machine can actually run it:
 
-- **Game-ready — 2k, 5k, 10k or 20k** brings the surface down to that triangle count inside the
+- **Game-ready · 2,000 / 5,000 / 10,000 / 20,000 triangles** brings the surface down to that count inside the
   model job, in Blender, and what it does on the way depends on the **Finishing** choice just
   below it. This is what turns the engine's ~300k-face output into something an engine actually
   budgets for, and **5k is the default** — Crash-Bandicoot-range fidelity on a whole-character
   reconstruction. That figure came from a measurement document that is now lost (the backup it
   lived on is gone), so treat it as the shipped default rather than a number you can check. It
   needs Blender (the `rig` extra); without it, this family does not appear.
-  **Finishing** is a combo drawn under Budget whenever a Game-ready rung is chosen, and it is not
+  **Finishing** is a combo drawn in **Advanced** whenever a Game-ready rung is chosen, and it is not
   drawn for Simplify, Raw or Custom. **Preserve shape**, the default, welds coincident vertices and
   then collapses triangles, keeping the mesh's own UVs and its existing colour, roughness and
   normal maps: no voxel pass, no new unwrap, no rebake, so it does not close holes. **Repair and
@@ -172,7 +185,7 @@ families of entry, each drawn only when this machine can actually run it:
   materials, because one atlas cannot carry both; it says so before the bakes start rather than
   after minutes of them, and an opaque mesh skips the opacity bake it would not use. A job saved
   before the choice existed ran Repair, and keeps that reading.
-- **Simplify: Draft/Standard/Detailed** are the gltfpack tiers (20k/50k/100k) — a plain triangle
+- **Simplify · Draft/Standard/Detailed** are the gltfpack tiers (20k/50k/100k) — a plain triangle
   reduction of the reconstruction's own surface, no rebake. They need `gltfpack`
   (a one-time manual drop into `vendor/gltfpack/`, or `REALMSPINNER_GLTFPACK` pointed at a copy you
   keep elsewhere — see [Installation](40-installation.md#gltfpack)); without it, this family does
@@ -184,13 +197,13 @@ families of entry, each drawn only when this machine can actually run it:
   Simplify tiers. Picking Custom starts the count at 50,000, and a count outside 5,000 to 250,000
   is refused in the plan footer, naming the **Triangles** field, before the cutout check.
 
-With neither Blender nor `gltfpack` on this machine, the pane draws no **Budget** row at all, not
+With neither Blender nor `gltfpack` on this machine, the pane draws no **Triangle budget** row at all, not
 a combo with one entry, and the mesh ships as Raw; `realmspinner doctor` says why. Your saved Game-ready choice is not
 overwritten: while the tool is missing the pane shows and sends Simplify: Standard (or Raw with neither tool), and the
 saved rung comes back once Blender is installed.
 
 A saved Game-ready budget that is not one of the four rungs, say 7,500 from before the ladder
-last changed, is kept as it is. It shows as its own **Game-ready (7,500)** entry until you pick
+last changed, is kept as it is. It shows as its own **Game-ready · 7,500 triangles** entry until you pick
 something else, because opening the pane never changes the budget by itself.
 
 Every gltfpack pass (Simplify, Raw excepted, and Custom) checks its own output before publishing —
@@ -222,8 +235,9 @@ lowest point put at Y = 0, whether or not a size was asked for. A pivot sitting 
 reconstruction volume is a manual fixup on every Godot or Unity import, so the app does it for you
 on every job.
 
-**Background** chooses how the engine mattes the input image: `auto`, `birefnet` or `threshold`.
-`auto` is the default and is right almost always; the other two exist for images `auto` gets wrong.
+**Background** (in **Advanced**) chooses how the engine mattes the input image: **Automatic**,
+**BiRefNet cutout** or **Plain-background threshold**. Automatic is the default and is right almost
+always; the other two exist for images it gets wrong.
 A cutout you approved in the panel overrides this and pins `auto`, which is the mode that keeps an
 existing alpha — any other setting would re-cut the matte you just approved and make the approval a
 lie.
@@ -236,18 +250,20 @@ Unlocked, every Generate draws a fresh seed for the next one — the engine is d
 so pressing the button twice on the same reference with the seed left alone would give you the
 identical mesh twice. Lock it when you want exactly that.
 
-**Normalise the reference** recentres the subject and scales it to fill the frame before the engine
-sees it. It is off by default: the engine does its own cropping, and whether doing it twice helps or
-hurts has not been measured. Treat it as an experiment rather than an improvement.
+**Centre and enlarge the reference** (in **Advanced**) recentres the subject and scales it to fill the
+frame before the engine sees it. It is off by default: the engine does its own cropping, and whether
+doing it twice helps or hurts has not been measured. Treat it as an experiment rather than an improvement.
 
 The **Rig** section holds **Rig when the mesh lands** and a skeleton picker. Without Blender it stays on
 screen, greyed, and its tooltip gives the same reason as the Rig segment in the stage rail. Without
 Blender, Make 3D also never requests a rig, even if the setting was on when it was saved.
 See [Rigging and posing](25-rigging-and-posing.md).
 
-## Engine (advanced)
+## Advanced
 
-Below Rig is a collapsed **Engine (advanced)** header, closed by default. It holds the seven launch
+Below Rig is a collapsed **Advanced** header, closed by default. It opens onto the settings listed
+under [Mesh parameters](#mesh-parameters) (resolution, finishing, background, seed and centring), then
+an **Engine** group holding the seven launch
 flags the reconstruction engine (`trellis-server.exe`) itself accepts: **Band**, **Texture resolution**,
 **Sparse-structure guidance**, **Structured-latent guidance**, **Token budget**, **Decimation** and
 **Atlas resolution**. A findings sweep could already set every one of these — they are exactly
@@ -290,7 +306,7 @@ reconstruction engine, it is never a Settings → Models download, and not somet
 checkout brings with it; see [Installation](40-installation.md#gltfpack). When it is there this panel
 offers the whole list, and Custom gains a triangle-count field with its own valid range. When it is
 not, `realmspinner doctor` says so and every tier ships the engine's own output instead of failing.
-This is the gltfpack half of the same ladder **Budget**, described under
+This is the gltfpack half of the same ladder **Triangle budget**, described under
 [Mesh parameters](#mesh-parameters), offers on the generate form under "Simplify:" — Standard is
 this panel's default when `gltfpack` is present (Raw when `gltfpack` is absent, the only tier it
 then offers), and it is also what a new job falls back to when Blender is missing and no
@@ -326,7 +342,7 @@ output into something an engine budgets for, and it is what every commercial gen
 "game-ready". Because the high-resolution geometry ends up in a tangent-space normal map, even a
 2k-triangle prop keeps most of the detail the budget threw away.
 
-**This is now the default, not an extra step.** Create's **Budget** combo (see
+**This is now the default, not an extra step.** Create's **Triangle budget** combo (see
 [Mesh parameters](#mesh-parameters)) offers Game-ready 2k/5k/10k/20k, and 5k runs automatically on
 every new mesh whenever Blender (the `rig` extra) is installed — chosen on a full reconstruction
 to keep silhouette, face markings and other small detail intact (the measurement document behind

@@ -17,17 +17,16 @@ mean something.
 
 That is the whole discipline: unlock while hunting, lock while comparing.
 
-A result's **Use these settings** (and the Library's **Copy settings to form**) loads its recorded seed and locks it, so
-the first Generate after you change one thing reuses that seed instead of rolling a new one; a mesh's **Use these
+A result's **Load settings** (and the Library's **Copy settings to form**) loads its recorded seed and locks it, so
+the first Generate after you change one thing reuses that seed instead of rolling a new one; a mesh's **Load
 settings** does the same with the mesh seed. A result that recorded no seed leaves your seed alone.
 
-The segmented 1 / 2 / 4 / 8 **Count** control in the command bar has no caption of its own — each
-value carries its own tooltip — and asks for several candidates at once from different seeds.
-Generating four and picking
+The segmented 1 / 2 / 4 / 8 **Images** control under the brief asks for several images at once from
+different seeds; each value carries its own tooltip. Generating four and picking
 one is usually a better use of the same time than generating one and rerolling it four times,
 because you see the spread rather than a sequence.
 
-The mesh stage has its own separate **Seed** (same label, its own field), and its own **Candidates**
+The mesh stage has its own separate **Seed** (same label, its own field), and its own **Attempts**
 control offering up to three
 reconstruction attempts to pick the best from. Mesh geometry varies a great deal between seeds — more
 than most people expect — so this is often the more valuable of the two.
@@ -93,13 +92,16 @@ before concluding anything about the words.
 
 ## Mesh-side settings
 
-**Mesh resolution** sets the reconstruction's geometry resolution. **Size** sets the real-world scale
-in metres, where zero means "keep whatever the reference implied". **Background** chooses the
-matting method. **Normalise the reference** recentres and rescales the subject before upload.
+The Mesh column shows three things: **Triangle budget**, **Size** and **Rig**. **Size** sets the
+real-world scale in metres, where zero means "keep whatever the reference implied". Everything else is
+in the **Advanced** fold below them. **Mesh resolution** sets the reconstruction's geometry
+resolution. **Background** chooses the matting method (Automatic, BiRefNet cutout or a
+plain-background threshold). **Centre and enlarge the reference** recentres and rescales the subject
+before upload.
 
-**Budget** is the Mesh column's control for how the finished mesh reaches a game-sized triangle
-count. It offers Game-ready rungs (2k, 5k, 10k and 20k, with 5k the default), the gltfpack
-"Simplify:" tiers, Custom... and Raw, each drawn only when this machine can run it. Every pass is
+**Triangle budget** is the Mesh column's control for how the finished mesh reaches a game-sized
+triangle count. It offers Game-ready rungs (2k, 5k, 10k and 20k triangles, with 5k the default), the
+gltfpack "Simplify" tiers, Custom... and Raw, each drawn only when this machine can run it. Every pass is
 checked per job rather than qualified in advance. [Generating meshes](23-generating-meshes.md)
 describes each family and what it needs.
 

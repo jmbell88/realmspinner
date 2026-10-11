@@ -19,6 +19,9 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # block (why the species picker is empty, what "no GPU needed" means, what
     # happens to a creature Realmspinner does not model) are all in one place.
     "settings-character": ("22-generating-references", "characters"),
+    # Create's History pane: every attempt made or judged, deleted ones included,
+    # with Load settings and the generation-log export.
+    "create-history": ("22-generating-references", "history"),
     "settings-3d": ("23-generating-meshes", None),
     # The Rig stage's own column (the UI redesign, wave 5). Rigging was three
     # buttons in three places and no pane of its own, so it had no (?) either.
@@ -80,7 +83,7 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # the *directions* are explained, which is what somebody standing in front
     # of a greyed "Revert to original" is asking about.
     "inker-generate": ("28-inker", "pipeline-bridges"),
-    "candidates": ("23-generating-meshes", "candidates"),
+    "candidates": ("23-generating-meshes", "attempts"),
     # The viewport toolbar. The ~5k-LOC subsystem in the middle of the window
     # was chrome as far as this map was concerned -- exempted in
     # ``tests/manual/test_coverage.py`` for having "no titled section" -- while
