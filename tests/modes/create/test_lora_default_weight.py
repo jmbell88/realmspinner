@@ -4,19 +4,33 @@
 ``guidance.normalize`` applies it only when the caller omits ``lora_weight``.
 The 2D pane always sends a number, so without a seed at selection time every
 adapter ran at the flat ``DEFAULT_LORA_WEIGHT`` -- which for pixel-art-klein
-is ~14x the top of its usable band, i.e. black frames.
+(retired 2026-10-11; an rslora adapter whose usable band was 0.02-0.08) was
+~14x the top of its band, i.e. black frames. The rslora cases below run on a
+synthetic adapter of that shape, because the mechanism outlived the entry.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from realmspinner import models
 from realmspinner.studio.modes.create.engine import recipe as create_recipe
 from realmspinner.studio.modes.create.ui.panes import settings_2d
 
 
-def test_each_adapter_reports_its_own_tuned_weight():
+@pytest.fixture
+def rslora(monkeypatch):
+    """A style LoRA whose measured strength is far below the flat default."""
+    spec = models.StyleLora(
+        "rslora_test", "rslora test", "rslora-test.safetensors", trigger="x", default_weight=0.0625
+    )
+    monkeypatch.setitem(models.STYLE_LORAS, spec.key, spec)
+    return spec
+
+
+def test_each_adapter_reports_its_own_tuned_weight(rslora):
     assert create_recipe.lora_default_weight("pixelxl") == 1.2
-    assert create_recipe.lora_default_weight("pixelklein") == 0.0625
+    assert create_recipe.lora_default_weight(rslora.key) == 0.0625
 
 
 def test_no_selection_falls_back_to_the_flat_default():
@@ -29,21 +43,21 @@ def test_every_registered_adapter_is_reachable_through_the_helper():
         assert create_recipe.lora_default_weight(key) == spec.default_weight
 
 
-def test_the_klein_default_sits_inside_its_usable_band():
-    """The band is measured in dev/measurements/2026-08-10-pixel-art-klein.md;
-    the flat default does not sit in it, which is the whole defect."""
-    assert 0.02 <= create_recipe.lora_default_weight("pixelklein") <= 0.08
+def test_an_rslora_default_sits_inside_its_usable_band(rslora):
+    """The retired pixel-art-klein's band was measured at 0.02-0.08; the flat
+    default does not sit in it, which is the whole defect."""
+    assert 0.02 <= create_recipe.lora_default_weight(rslora.key) <= 0.08
     assert not 0.02 <= models.DEFAULT_LORA_WEIGHT <= 0.08
 
 
-def test_the_reseed_writes_the_tuned_weight_only_when_the_selection_changed():
+def test_the_reseed_writes_the_tuned_weight_only_when_the_selection_changed(rslora):
     """The rule itself, called directly now that both forms share it."""
-    form = {"style_lora": "pixelklein", "lora_weight": 0.9}
+    form = {"style_lora": rslora.key, "lora_weight": 0.9}
     create_recipe.reseed_lora_weight(form, "")
     assert form["lora_weight"] == 0.0625
     # A redraw with no change must not stomp a weight the user set by hand.
     form["lora_weight"] = 0.05
-    create_recipe.reseed_lora_weight(form, "pixelklein")
+    create_recipe.reseed_lora_weight(form, rslora.key)
     assert form["lora_weight"] == 0.05
 
 

@@ -50,7 +50,7 @@ def test_missing_weights_raise_actionable_error(tmp_path):
     # Load-bearing ordering: the existence check precedes the torch import,
     # so this passes (fast) even without the text2image extra installed.
     with pytest.raises(RuntimeError, match="hf download"):
-        Text2Image(models.BASE_MODELS["turbo"], tmp_path / "nope").load()
+        Text2Image(models.BASE_MODELS["sdxl_cfg"], tmp_path / "nope").load()
 
 
 def test_vram_exclusive_flag_parses_from_env(monkeypatch):

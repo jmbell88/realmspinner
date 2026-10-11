@@ -488,7 +488,7 @@ def test_the_remove_control_counts_the_sdxl_recipes_from_the_registry():
 
     sdxl_dir = BASE_MODELS["sdxl_cfg"].dir_name
     count = len([m for m in BASE_MODELS.values() if m.dir_name == sdxl_dir])
-    word = {4: "four", 5: "five", 6: "six", 7: "seven"}[count]
+    word = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven"}[count]
     doc = re.sub(r"\s+", " ", app_settings._remove_control.__doc__ or "")
 
     assert f"one of the {word} SDXL 1.0 recipes" in doc

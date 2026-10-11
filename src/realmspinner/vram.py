@@ -161,10 +161,11 @@ def _trellis_cost(params: dict[str, Any] | None) -> float:
     return TRELLIS_GIB * TRELLIS_RES_MULT[_resolution(params)]
 
 
-# A step-distillation LoRA's device footprint, in GiB. Hyper-SDXL-4steps is
+# A step-distillation LoRA's device footprint, in GiB. Hyper-SDXL-4steps was
 # 787 MB on disk and the weights are what land on the card, so 0.8 rounded up.
-# The three distilled recipes are within a few tens of MB of each other, which
-# is why this is one number and not a per-entry field.
+# The three distilled recipes (all retired 2026-10-11; the mechanism stays for
+# the next ``BaseModel.base_lora``) were within a few tens of MB of each other,
+# which is why this is one number and not a per-entry field.
 BASE_LORA_GIB = 0.8
 
 
@@ -962,14 +963,13 @@ def fits(plan_: Plan, spec: Any) -> str:
     return FIT_OK
 
 
-# Which base to suggest, best first. Quality order, from the 2026-08-09
-# re-baseline's marginal accept rates (`sdxl_cfg` 3/3, baseline `sdxl` 2/4,
-# `turbo` 1/5) with `lightning` placed beside `sdxl` as the other distillation
-# arm over the same weights. Only SDXL-family entries, and only ones that share
-# a download with the shipped default or are a plain checkpoint of their own --
-# a recommendation that named a 16 GB model the user has not got would be a
-# worse answer than the one they already picked.
-RECOMMENDED_BASES: tuple[str, ...] = ("sdxl_cfg", "sdxl", "lightning", "turbo")
+# Which base to suggest, best first. Only SDXL-family entries that share a
+# download with the shipped default or are a plain checkpoint of their own -- a
+# recommendation that named a 16 GB model the user has not got would be a worse
+# answer than the one they already picked. A list of one since the distilled
+# tiers (`sdxl`, `lightning`, `turbo`) were retired on 2026-10-11; it stays a
+# list so the next cheaper recipe is a one-word addition, not a new mechanism.
+RECOMMENDED_BASES: tuple[str, ...] = ("sdxl_cfg",)
 
 
 def recommended_base(plan_: Plan) -> str:

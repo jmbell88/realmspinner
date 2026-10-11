@@ -593,7 +593,7 @@ def test_a_sweep_naming_a_base_model_that_is_not_on_disk_is_refused(svc, monkeyp
     from realmspinner import fetch
 
     monkeypatch.setattr(fetch, "base_model_state", lambda *a, **k: (False, None))
-    plan = _plan(seeds=(1,), base={"base_model": "sdxl"})
+    plan = _plan(seeds=(1,), base={"base_model": "sdxl_cfg_pag"})
     with pytest.raises(Invalid) as caught:
         svc_sweeps.create_sweep(svc, plan)
     assert caught.value.field == "base_model"

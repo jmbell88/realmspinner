@@ -206,7 +206,9 @@ class _FakePipe:
         self.loaded.append(adapter_name)
 
 
-def test_a_directory_where_the_base_lora_file_belongs_is_reported_missing(tmp_path: Path) -> None:
+def test_a_directory_where_the_base_lora_file_belongs_is_reported_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
     """``_load_loras`` and ``_ensure_adapter`` used ``path.exists()``, which is
     True for a directory -- a partial/broken download that left a directory
     where the LoRA file belongs read as "present" and would fall through into
@@ -214,7 +216,9 @@ def test_a_directory_where_the_base_lora_file_belongs_is_reported_missing(tmp_pa
     low-level traceback) instead of this module's clear remedy message. The
     three sibling checks fixed by pipelines-06 (2026-09-11 audit) were already
     ``is_file()``; these two were the ones it missed."""
-    base_spec = models.BASE_MODELS["sdxl"]
+    from _synthetic_models import install
+
+    base_spec = install(monkeypatch)
     assert base_spec.base_lora is not None
     loras_dir = tmp_path / "loras"
     loras_dir.mkdir()

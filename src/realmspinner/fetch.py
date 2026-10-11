@@ -12,19 +12,19 @@ Two rules this file exists to own, both of which had already been got wrong
 once as prose:
 
 * **Paths resolve through one helper.** ``base_model_dir`` is the canonical
-  rule -- only ``turbo`` honours ``REALMSPINNER_T2I_DIR``, everything else is
+  rule -- only ``sdxl_cfg`` honours ``REALMSPINNER_T2I_DIR``, everything else is
   ``t2i_model_root / dir_name`` -- and ``doctor`` imports it rather than
   keeping a second copy. The literal ``models/...`` in a download *string* is
   the README's spelling of the default root, never where a fetch actually
   goes.
 * **Dedupe is on (repo_id, destination), never on model key.** ``dir_name`` is
-  not unique: ``sdxl``, ``sdxl_cfg``, ``sdxl_cfg_pag``, ``pixel`` and ``lightning`` are
-  five recipes over one copy of ``sdxl-base-1.0``, and a key-keyed plan would
-  fetch 7 GB five times.
+  not unique: ``sdxl_cfg`` and ``sdxl_cfg_pag`` are two recipes over one copy of
+  ``sdxl-base-1.0``, and a key-keyed plan would fetch 7 GB twice.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 from collections.abc import Sequence
@@ -188,13 +188,13 @@ def find(row_key: str) -> Entry | None:
 def base_model_dir(config: Config, spec: models.BaseModel) -> Path:
     """Where this checkpoint's weights are, honouring the one legacy override.
 
-    ``REALMSPINNER_T2I_DIR`` relocates the ``turbo`` entry *only* -- it predates the
+    ``REALMSPINNER_T2I_DIR`` relocates the ``sdxl_cfg`` entry *only* -- it predates the
     registry and is kept so existing setups keep working. Every other model is
     ``t2i_model_root / dir_name``. This is the canonical rule; doctor and the
     download planner both call it rather than re-deriving it.
 
     The entry is named by name (``models.T2I_DIR_MODEL``), never the default:
-    the override is about turbo's settings, so it must not follow the default
+    the override is about one entry's settings, so it must not follow the default
     to another checkpoint.
     """
     if spec.key == models.T2I_DIR_MODEL and config.t2i_turbo_dir is not None:
@@ -263,7 +263,7 @@ def familiar_dir(config: Config, spec: Any) -> Path:
 def destination(config: Config, entry: Entry, one: models.Fetch) -> Path:
     """Where ``one`` actually lands, as opposed to what its command string says.
 
-    A base model's *own* directory goes through ``base_model_dir`` so the turbo
+    A base model's *own* directory goes through ``base_model_dir`` so the legacy
     override is honoured; anything else -- a step-distillation LoRA into the
     flat ``loras/``, an adapter, a metric -- resolves under the model root. Both
     halves relocate with ``REALMSPINNER_T2I_ROOT``, which the hardcoded
@@ -307,7 +307,7 @@ def download_text(config: Config, kind: str, spec: Any) -> str:
     documented default home. Every caller that has a ``Config`` in its hand
     should come here instead, because the two can differ by a whole volume --
     ``REALMSPINNER_T2I_ROOT`` relocates everything and ``REALMSPINNER_T2I_DIR`` relocates
-    the ``turbo`` entry alone, and a command naming neither is a command that
+    the ``sdxl_cfg`` entry alone, and a command naming neither is a command that
     downloads gigabytes into a directory the app will not look in. Doctor's
     paste-able remedies are the sharpest case: doctor reports a model missing
     *at a resolved path* and then used to print a command targeting a different
@@ -576,7 +576,7 @@ def volume_refusal(items: Sequence[tuple[Path, float]]) -> Shortfall | None:
 
     * **Grouped per volume.** A plan's whole size compared against one
       destination's free space is right only while every write lands on one
-      drive. ``REALMSPINNER_T2I_DIR`` relocates the turbo entry by itself, so a
+      drive. ``REALMSPINNER_T2I_DIR`` relocates the ``sdxl_cfg`` entry by itself, so a
       roomy first volume approved a large write to a nearly full second one,
       and a tight first volume refused a plan whose bytes were mostly going
       elsewhere (MDL-09).
@@ -696,10 +696,10 @@ def removal_plan(config: Config, chosen: list[Entry]) -> Removal:
     downloaded later, is still a claim, and deleting out from under it would
     turn "not installed yet" into "mysteriously broken".
 
-    The practical shape of that: ``sdxl``, ``sdxl_cfg``, ``sdxl_cfg_pag``,
-    ``pixel`` and ``lightning`` are five recipes over one 7 GiB directory, so uninstalling
-    any one of them frees only its own small distillation LoRA. The directory
-    goes when all five are chosen together, and not before.
+    The practical shape of that: ``sdxl_cfg`` and ``sdxl_cfg_pag`` are two
+    recipes over one 7 GiB directory, so uninstalling one of them frees nothing
+    the other still stands on. The directory goes when both are chosen
+    together, and not before.
 
     Two whole-plan refusals, all-or-nothing in ``disk_refusal``'s style, because
     a partial delete is the outcome with no good description:
@@ -801,6 +801,58 @@ def removal_plan(config: Config, chosen: list[Entry]) -> Removal:
         if any(p == job.dest or job.dest in p.parents for p in removable):
             freed += job.size_gib
     return Removal(removable, freed, ())
+
+
+# --- what the registry no longer lists --------------------------------------
+
+
+def retired_paths(config: Config, retired: models.RetiredModel) -> list[Path]:
+    """The absolute paths one ``models.RETIRED_MODELS`` entry stands for."""
+    root = Path(config.t2i_model_root)
+    return [root.joinpath(*rel.split("/")) for rel in retired.paths]
+
+
+def path_bytes(path: Path) -> int:
+    """Bytes under ``path`` (a file or a tree). Unreadable entries count as 0."""
+    try:
+        if path.is_file():
+            return path.stat().st_size
+        total = 0
+        for child in path.rglob("*"):
+            with contextlib.suppress(OSError):
+                if child.is_file():
+                    total += child.stat().st_size
+        return total
+    except OSError:
+        return 0
+
+
+def retired_on_disk(config: Config) -> list[dict[str, Any]]:
+    """Retired models with something still on this disk, measured. Blocking.
+
+    One walk for two readers -- Settings -> Models' Retired section
+    (``service.downloads.retired_present``) and ``doctor`` -- so the app and
+    the diagnostics cannot disagree about what is left over. An entry appears
+    only when one of its paths exists.
+    """
+    out: list[dict[str, Any]] = []
+    for entry in models.RETIRED_MODELS.values():
+        present = [p for p in retired_paths(config, entry) if p.exists()]
+        if not present:
+            continue
+        size = sum(path_bytes(p) for p in present)
+        out.append(
+            {
+                "key": entry.key,
+                "kind": entry.kind,
+                "label": entry.label,
+                "retired_in": entry.retired_in,
+                "paths": [str(p) for p in present],
+                "size_bytes": size,
+                "size_gib": size / (1024**3),
+            }
+        )
+    return out
 
 
 # --- is it already here ------------------------------------------------------

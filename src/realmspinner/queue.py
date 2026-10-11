@@ -1,12 +1,11 @@
 """Single-worker GPU job queue.
 
 One job runs at a time. By default an SDXL-class image pipe (~7 GB; the
-default checkpoint is ``sdxl_cfg``, SDXL 1.0 at full CFG, with Turbo as the
-fast option) and the trellis server (~16 GB) coexist in VRAM — neither is
-stopped for the other. **The image pipe is unloaded when the stage that loaded
-it ends**, though (see ``_release_t2i`` for why the host, not the card, decides
-that); trellis is a subprocess with a far larger startup cost and is evicted on
-its own idle timeout. With Config.vram_exclusive set
+default checkpoint is ``sdxl_cfg``, SDXL 1.0 at full CFG) and the trellis server
+(~16 GB) coexist in VRAM — neither is stopped for the other. **The image pipe is
+unloaded when the stage that loaded it ends**, though (see ``_release_t2i`` for
+why the host, not the card, decides that); trellis is a subprocess with a far
+larger startup cost and is evicted on its own idle timeout. With Config.vram_exclusive set
 (REALMSPINNER_VRAM_EXCLUSIVE=1, for small cards or a resident Flux), text jobs
 instead use the sequential handoff: the trellis server is stopped before the
 image model loads, and the image model is unloaded before trellis restarts.
@@ -1596,11 +1595,22 @@ class Worker(
 
         Without one, the general chain: what the row asked for, then the host's
         configured model, then the registry's own default, warning at each
-        step. Params can predate a registry entry being renamed or removed, and
+        step. Params can predate a registry entry being renamed, and
         ``REALMSPINNER_T2I_MODEL`` itself can name a key that does not exist -- so
         falling back beats failing a job the user cannot fix, and beats a bare
         KeyError in the worker.
+
+        **One exception: a key in ``models.RETIRED_MODELS`` fails the job.** A
+        removed checkpoint was a real choice, and falling back to the host's
+        model would write a finished row whose ``base_model`` says Juggernaut
+        and whose pixels are SDXL -- evidence in the findings corpus about a
+        model that never ran. The service door refuses the same rerun before it
+        is queued (``validation.check_not_retired``); this is the worker's half
+        for a row queued by an older build or written by hand.
         """
+        retired = models.retired_choice("base_model", params.get("base_model"))
+        if retired is not None:
+            raise ValueError(models.retired_message(retired))
         if default is not None:
             base_key = str(params.get("base_model") or default)
             return base_key if base_key in models.BASE_MODELS else default

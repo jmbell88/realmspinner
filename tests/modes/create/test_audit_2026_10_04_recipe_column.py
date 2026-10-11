@@ -175,13 +175,22 @@ def test_the_sprite_arm_draws_no_cell_target_and_does_not_validate_one():
 # --- create-24 -----------------------------------------------------------------
 
 
-def test_switching_to_automatic_clears_a_style_lora_the_resolved_base_cannot_take():
+def test_switching_to_automatic_clears_a_style_lora_the_resolved_base_cannot_take(monkeypatch):
     """Config None resolves to ``sdxl_cfg``, which a Klein adapter is not fitted
     to: the Automatic branch has to say so and clear it, as picking the model
-    under Advanced does."""
+    under Advanced does. (A synthetic Klein adapter: the shipped
+    ``pixelklein`` was retired 2026-10-11.)"""
+    klein_lora = models.StyleLora(
+        "klein_lora_test",
+        "klein lora test",
+        "klein-lora-test.safetensors",
+        trigger="x",
+        family=models.FAMILY_FLUX2_KLEIN,
+    )
+    monkeypatch.setitem(models.STYLE_LORAS, klein_lora.key, klein_lora)
     form = _form(
-        style_lora="pixelklein",
-        lora_weight=0.0625,
+        style_lora="klein_lora_test",
+        lora_weight=0.9,
         model_mode="auto",
         base_model="flux_klein",
         model_override="",
@@ -195,7 +204,7 @@ def test_switching_to_automatic_clears_a_style_lora_the_resolved_base_cannot_tak
 
 
 def test_switching_to_automatic_clears_a_start_image_the_resolved_base_cannot_take(monkeypatch):
-    flux = "flux_klein_distilled"
+    flux = "flux_klein"
     assert models.BASE_MODELS[flux].family != models.FAMILY_SDXL
     recipe = generation.Recipe(
         key="x",
@@ -364,11 +373,29 @@ def test_the_model_cleared_note_goes_when_the_user_picks_a_style(monkeypatch):
 
 
 def test_the_inert_negative_note_does_not_claim_guidance_zero_for_lcm(monkeypatch):
-    """LCM and FLUX.2 klein distilled run at guidance 1.0, and the manual says
-    "guidance 1.0 or lower"."""
-    assert models.BASE_MODELS["pixel"].guidance_scale == 1.0
+    """LCM and FLUX.2 klein distilled ran at guidance 1.0, and the manual says
+    "guidance 1.0 or lower". (Synthetic entries of those shapes: all three
+    shipped ones, with Turbo, were retired 2026-10-11.)"""
+    from _synthetic_models import distilled_base, install
+
+    install(monkeypatch, distilled_base("turbo_test", guidance_scale=0.0))
+    install(monkeypatch, distilled_base("lcm_test", scheduler="lcm", guidance_scale=1.0))
+    install(
+        monkeypatch,
+        distilled_base(
+            "klein_distilled_test",
+            dir_name="flux2-klein-4b-test",
+            guidance_scale=1.0,
+            scheduler=None,
+            base_lora=None,
+            variant=None,
+            family=models.FAMILY_FLUX2_KLEIN,
+            fetch=(),
+        ),
+    )
+    assert models.BASE_MODELS["lcm_test"].guidance_scale == 1.0
     ctx = _catalog_ctx()
-    for key in ("turbo", "pixel", "flux_klein_distilled"):
+    for key in ("turbo_test", "lcm_test", "klein_distilled_test"):
         form = _form(model_mode="advanced", base_model=key, model_override=key)
         note = create_recipe.negative_prompt_note(ctx, form)
         assert note is not None
@@ -382,11 +409,11 @@ def test_the_inert_negative_note_does_not_claim_guidance_zero_for_lcm(monkeypatc
         label="X",
         generation_types=("image", "3d_model"),
         quality="fast",
-        base_model="flux_klein_distilled",
+        base_model="klein_distilled_test",
         negative_prompt=False,
     )
     resolved = generation.ResolvedRecipe(
-        recipe=recipe, base_model="flux_klein_distilled", style_lora=None
+        recipe=recipe, base_model="klein_distilled_test", style_lora=None
     )
     monkeypatch.setattr(create_recipe, "resolved_recipe", lambda ctx, form: resolved)
     form = _form(model_mode="auto", control="canny", negative_prompt="no hats")

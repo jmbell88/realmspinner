@@ -335,7 +335,7 @@ def test_a_failure_partway_installs_nothing_at_all(svc, monkeypatch):
 
     monkeypatch.setattr(downloads, "_run_worker", _run)
     with pytest.raises(Invalid) as caught:
-        downloads.download(svc, ["base:sdxl"])
+        downloads.download(svc, ["base:sdxl_cfg", "lora:pixelxl"])
 
     message = caught.value.message
     assert "Nothing was installed" in message
@@ -357,7 +357,7 @@ def test_the_journal_is_gone_once_the_transaction_commits(svc, monkeypatch):
     from realmspinner.service import downloads
 
     monkeypatch.setattr(downloads, "_run_worker", lambda job, **_kw: stage_for(job))
-    downloads.download(svc, ["base:sdxl"])
+    downloads.download(svc, ["base:sdxl_cfg", "lora:pixelxl"])
     root = svc.config.t2i_model_root
     assert not publish.journal_path(svc.config.home).exists()
     assert list(root.glob("*/w.safetensors")), "the files really were published"
@@ -436,7 +436,7 @@ def test_a_journal_write_failure_prevents_every_publish(svc, monkeypatch):
 
     monkeypatch.setattr(publish, "_write_required", fail)
     with pytest.raises(OSError, match="disk full"):
-        downloads.download(svc, ["base:sdxl"])
+        downloads.download(svc, ["base:sdxl_cfg", "lora:pixelxl"])
 
     assert list(svc.config.t2i_model_root.glob("*/w.safetensors")) == []
     assert list(svc.config.t2i_model_root.glob(".*.fetch.part")) == []
@@ -631,7 +631,7 @@ def test_staging_left_by_a_killed_fetch_is_swept_before_the_next_one(svc, monkey
     orphan_backup.mkdir()
 
     monkeypatch.setattr(downloads, "_run_worker", lambda job, **_kw: stage_for(job))
-    downloads.download(svc, ["base:sdxl"])
+    downloads.download(svc, ["base:sdxl_cfg", "lora:pixelxl"])
 
     assert not stranded.exists()
     assert not orphan_backup.exists()
@@ -668,7 +668,7 @@ def test_the_journal_names_every_file_before_the_first_one_moves(svc, monkeypatc
 
     monkeypatch.setattr(downloads, "_run_worker", lambda job, **_kw: stage_for(job))
     monkeypatch.setattr(publish, "move_into", spy)
-    downloads.download(svc, ["base:sdxl"])
+    downloads.download(svc, ["base:sdxl_cfg", "lora:pixelxl"])
 
     assert seen, "the publish loop never ran"
     assert "w.safetensors" in seen[0], (

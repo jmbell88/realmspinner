@@ -201,6 +201,12 @@ def test_typing_in_the_prompt_does_not_re_resolve_the_recipe(monkeypatch):
 )
 def test_a_routing_field_still_re_resolves_the_recipe(monkeypatch, key, value):
     """The narrower key must still notice every field routing reads."""
+    if key == "quality":
+        # "fast" is only a distinct request while a Fast recipe is registered;
+        # the shipped registry has none since 2026-10-11, so install one.
+        from _synthetic_models import install_fast_tier
+
+        install_fast_tier(monkeypatch)
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)
     ctx = SimpleNamespace(state=AppState(), svc=SimpleNamespace(config=None))

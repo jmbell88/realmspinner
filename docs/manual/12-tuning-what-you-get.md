@@ -42,10 +42,9 @@ the **Avoid** box while keeping its text, which reappears when you pick a model 
 See [Models and style LoRAs](22-generating-references.md#models-and-style-loras).
 
 The default base model is SDXL 1.0 run at **full CFG**, and it is the default because it measured
-better than the alternatives as a source for reconstruction, not because it is fastest. The faster
-distilled recipes — Hyper-SD, LCM, Lightning — are the same weights run differently and cost only a
-small adapter each. Turbo, Playground, Juggernaut, DreamShaper and FLUX.2 klein are separate
-checkpoints.
+better than the alternatives as a source for reconstruction, not because it is fastest. The PAG
+recipe is the same weights run with two sampler upgrades and costs nothing extra; FLUX.2 klein is a
+separate checkpoint.
 
 Style LoRAs are filtered to those that fit the chosen base's architecture, so you cannot pick an
 incompatible pair.

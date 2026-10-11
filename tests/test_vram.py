@@ -260,8 +260,8 @@ def test_an_image_model_is_charged_its_own_footprint():
     assert spec.vram_gib != vram.SDXL_GIB
     at_flux = vram.estimate("text", "reference", {"base_model": "flux_klein"}, exclusive=True)
     assert at_flux == pytest.approx(spec.vram_gib)
-    at_turbo = vram.estimate("text", "reference", {"base_model": "turbo"}, exclusive=True)
-    assert at_turbo == pytest.approx(vram.SDXL_GIB)
+    at_sdxl = vram.estimate("text", "reference", {"base_model": "sdxl_cfg"}, exclusive=True)
+    assert at_sdxl == pytest.approx(vram.SDXL_GIB)
 
 
 @pytest.mark.parametrize("params", [{}, {"base_model": ""}, {"base_model": "gone"}])
@@ -283,11 +283,11 @@ def test_the_dispatch_credit_reads_the_registry_when_torch_cannot_answer():
     from realmspinner import models
     from realmspinner.queue import _resident_t2i_gib
 
-    klein = models.BASE_MODELS["flux_klein_distilled"]
+    klein = models.BASE_MODELS["flux_klein"]
     assert klein.vram_gib != vram.SDXL_GIB
-    assert _resident_t2i_gib("flux_klein_distilled") == pytest.approx(klein.vram_gib)
-    assert _resident_t2i_gib("turbo") == pytest.approx(
-        models.BASE_MODELS["turbo"].vram_gib
+    assert _resident_t2i_gib("flux_klein") == pytest.approx(klein.vram_gib)
+    assert _resident_t2i_gib("sdxl_cfg") == pytest.approx(
+        models.BASE_MODELS["sdxl_cfg"].vram_gib
     )
     assert _resident_t2i_gib("gone") == pytest.approx(vram.SDXL_GIB)
     assert _resident_t2i_gib(None) == pytest.approx(vram.SDXL_GIB)
@@ -649,7 +649,7 @@ def test_an_offloaded_base_is_priced_sequentially_whatever_the_flag_says():
     """
     params = {"base_model": "flux_klein"}
     assert vram.offloaded_base(params) is True
-    assert vram.offloaded_base({"base_model": "sdxl"}) is False
+    assert vram.offloaded_base({"base_model": "sdxl_cfg"}) is False
     assert vram.offloaded_base({}) is False
 
     coexist = vram.estimate("text", "model", params, exclusive=False)
@@ -661,13 +661,17 @@ def test_an_offloaded_base_is_priced_sequentially_whatever_the_flag_says():
     )
 
 
-def test_a_resident_base_is_still_priced_by_the_flag():
+def test_a_resident_base_is_still_priced_by_the_flag(monkeypatch):
     # The other half: nothing about SDXL's *residency* accounting moved.
-    # ``sdxl`` is the Hyper-SD recipe, so it carries a required
-    # step-distillation LoRA that is loaded unconditionally inside load() and
-    # was charged nowhere until 2026-08-12 (MDL-17).
-    params = {"base_model": "sdxl"}
-    assert models.BASE_MODELS["sdxl"].base_lora
+    # A distilled recipe (here a synthetic one -- the shipped Hyper-SD ``sdxl``
+    # entry was retired 2026-10-11) carries a required step-distillation LoRA
+    # that is loaded unconditionally inside load() and was charged nowhere
+    # until 2026-08-12 (MDL-17).
+    from _synthetic_models import install
+
+    spec = install(monkeypatch)
+    params = {"base_model": spec.key}
+    assert spec.base_lora
     assert vram.estimate("text", "model", params, exclusive=False) == (
         vram.SDXL_GIB + vram.BASE_LORA_GIB + vram.TRELLIS_GIB
     )

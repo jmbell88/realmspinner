@@ -5313,6 +5313,54 @@ def test_starting_a_removal_submits_under_the_remove_prefix(app_ctx):
     assert app_ctx.tasks.is_busy(key) or app_ctx.tasks.collect()
 
 
+def test_the_retired_section_is_hidden_when_nothing_is_left_and_draws_when_something_is(
+    app_ctx, imgui_ctx
+):
+    """Settings -> Models' Retired section: absent for an empty scan (every
+    session after one cleanup), built for a populated one, with the confirm the
+    Delete button raises."""
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    app_ctx.model_rows = _model_rows()
+    app_ctx.retired_models = []
+    _frame(imgui_ctx, lambda: app_settings.draw(app_ctx))
+    app_ctx.retired_models = [
+        {
+            "key": "juggernaut",
+            "kind": "base",
+            "label": "Juggernaut XL v9",
+            "retired_in": "2026-10-11",
+            "paths": ["C:/m/juggernaut-xl-v9"],
+            "size_bytes": 7 * 1024**3,
+            "size_gib": 7.0,
+        }
+    ]
+    _frame(imgui_ctx, lambda: app_settings.draw(app_ctx))
+    app_settings._confirm_retired_removal(app_ctx, app_ctx.retired_models[0])
+    assert app_ctx.confirms.pending is not None
+
+
+def test_starting_a_retired_removal_submits_under_the_remove_prefix(app_ctx):
+    """The prefix is load-bearing for the same two readers as a registered
+    row's: every Delete greys under ``any_busy("remove:")``, and the landing
+    handler re-probes the rows and re-measures storage on it."""
+    from realmspinner.studio import app_ctx as app_ctx_mod
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    app_settings._start_retired_removal(app_ctx, "juggernaut")
+    key = app_ctx_mod.remove_key("retired:juggernaut")
+    assert key == "remove:retired:juggernaut"
+    assert app_ctx.tasks.is_busy(key) or app_ctx.tasks.collect()
+
+
+def test_a_landed_removal_makes_the_retired_section_scan_again(app_ctx):
+    from realmspinner.studio.modes.settings.ui.panes import app_settings
+
+    app_settings._RETIRED_SCANNED = True
+    app_settings._stale_model_storage()
+    assert app_settings._RETIRED_SCANNED is False
+
+
 def test_a_present_row_with_nothing_to_free_draws_no_trash_button(app_ctx, imgui_ctx):
     """A recipe whose every file is shared has nothing to offer, and a button
     that refused on click would be worse than no button."""

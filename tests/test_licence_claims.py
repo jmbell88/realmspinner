@@ -53,6 +53,10 @@ def _registry_dataclasses() -> dict[str, type]:
         if (
             dataclasses.is_dataclass(cls)
             and cls.__module__ == models_mod.__name__
+            # ``RETIRED_MODELS`` is a ledger of leftovers to delete, built with
+            # ``_table()`` for its duplicate-key check but not a weights
+            # registry: nothing in it is downloadable or licensed.
+            and cls.__name__ != "RetiredModel"
             and all(type(v) is cls for v in value.values())
         ):
             found[cls.__name__] = cls

@@ -141,8 +141,9 @@ def test_security_md_file_format_inventory_includes_every_native_document_suffix
 def test_installation_chapter_sdxl_recipe_count_matches_the_registry():
     """docs-04: ch. 40's "The SDXL 1.0 weights serve N entries" sentence
     must count every ``BASE_MODELS`` entry sharing the ``sdxl-base-1.0``
-    weights (five: Hyper-SD, full-CFG, PAG, pixel-art/LCM and Lightning),
-    and must name PAG and Lightning rather than silently counting them.
+    weights (two since 2026-10-11: full-CFG and PAG; it was five with the
+    Hyper-SD, pixel-art/LCM and Lightning tiers), and must name PAG rather than
+    silently counting it.
     """
     count = _sdxl_sharing_count()
     assert count in _NUMBER_WORDS, f"no number word registered for {count} -- extend _NUMBER_WORDS"
@@ -151,7 +152,7 @@ def test_installation_chapter_sdxl_recipe_count_matches_the_registry():
     chapter = (MANUAL / "40-installation.md").read_text(encoding="utf-8")
     match = re.search(
         r"The SDXL 1\.0 weights serve ([a-z]+) entries in the model list.*?"
-        r"Downloading them once gets you all [a-z]+\.",
+        r"Downloading them once gets you (?:all [a-z]+|both)\.",
         chapter,
         re.DOTALL,
     )
@@ -165,8 +166,8 @@ def test_installation_chapter_sdxl_recipe_count_matches_the_registry():
         f"'serve {word} entries'"
     )
     assert "PAG" in paragraph, "ch. 40's SDXL entry-count paragraph still doesn't name PAG"
-    assert "Lightning" in paragraph, (
-        "ch. 40's SDXL entry-count paragraph still doesn't name Lightning"
+    assert "Lightning" not in paragraph, (
+        "ch. 40's SDXL entry-count paragraph still names the retired Lightning tier"
     )
 
 

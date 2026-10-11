@@ -27,6 +27,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 from collections import deque
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -941,6 +942,99 @@ def _delete_staged(path: Path, trash: Path) -> None:
         ) from exc
     except OSError as exc:
         raise Failed(f"Could not remove {path.name}: {exc}") from exc
+
+
+# --- what the registry no longer lists --------------------------------------------
+
+
+def retired_present(svc: RealmspinnerService) -> list[dict[str, Any]]:
+    """The retired models (``models.RETIRED_MODELS``) still on this disk. Blocking.
+
+    A walk, so it goes through ``TaskRunner`` like :func:`disk_usage`. An entry
+    appears only when at least one of its paths exists -- a user who never
+    downloaded Juggernaut sees nothing about it -- and ``size_gib`` is measured,
+    not the registry's declared figure, because the registry no longer has one.
+
+    This is the *only* way these folders are reachable from the app:
+    ``uninstall`` works on registered rows, and the rows are gone.
+    """
+    return fetch_mod.retired_on_disk(svc.config)
+
+
+def _live_claims(config: Any) -> set[Path]:
+    """Every path a registered row stands on -- what a retired path must never be."""
+    out: set[Path] = set()
+    for entry in fetch_mod.entries():
+        for path in fetch_mod.claims(config, entry):
+            out.add(Path(path).resolve())
+    return out
+
+
+def remove_retired(
+    svc: RealmspinnerService,
+    key: str,
+    *,
+    on_progress: Progress | None = None,
+) -> dict[str, Any]:
+    """Delete one retired model's files. Blocking; refuses rather than half-deletes.
+
+    ``uninstall``'s posture, for rows the registry has dropped: refused while
+    any job is queued or running, the resident pipe released first (a mapped
+    safetensors file cannot be deleted on Windows), then each path renamed to a
+    ``.trash-`` sibling and only then deleted -- so the folder is either all
+    there or all gone, never a half-emptied checkpoint.
+
+    Two refusals ``uninstall`` gets from ``fetch.removal_plan`` and this must
+    make for itself, because it has no entry to plan over: the key must be in
+    the ledger (a caller cannot name an arbitrary path), and no ledger path may
+    coincide with, or contain, one a live row claims -- the retired SDXL tiers
+    shared ``sdxl-base-1.0`` with ``sdxl_cfg``, and a ledger entry that listed
+    it would delete the default model.
+    """
+    from .. import models
+
+    entry = models.RETIRED_MODELS.get(str(key))
+    if entry is None:
+        raise NotFound(f"No such retired model: {key}")
+    if svc.store.active_jobs():
+        raise Conflict(
+            "Jobs are still queued or running; wait for them to finish before "
+            "removing a model."
+        )
+    root = Path(svc.config.t2i_model_root).resolve()
+    live = _live_claims(svc.config)
+    paths: list[Path] = []
+    for path in fetch_mod.retired_paths(svc.config, entry):
+        resolved = path.resolve()
+        if resolved == root or root not in resolved.parents:
+            raise Invalid(
+                f"{path.name} is outside the model root ({svc.config.t2i_model_root}), "
+                "so removing it is refused."
+            )
+        if any(
+            resolved == one or resolved in one.parents or one in resolved.parents
+            for one in live
+        ):
+            raise Invalid(
+                f"{path.name} is still used by a model that is installed, so removing "
+                "it is refused."
+            )
+        if path.exists():
+            paths.append(path)
+    if not paths:
+        raise Invalid(f"{entry.label} is not on this disk; there is nothing to remove.")
+
+    if svc.worker is not None and not svc.call_on_loop(
+        lambda: _release_if_idle(svc.worker, stop_engine=False)
+    ):
+        raise Conflict(
+            "A job started while the model was being removed. Nothing has "
+            "been deleted -- wait for it to finish and try again."
+        )
+    freed = sum(fetch_mod.path_bytes(p) for p in paths) / (1024**3)
+    removal = types.SimpleNamespace(paths=tuple(paths), freed_gib=freed)
+    with _maintenance("removing a model"):
+        return _uninstall(svc, removal, on_progress)
 
 
 # How much of a dead child's stderr to quote. A traceback's last few lines are

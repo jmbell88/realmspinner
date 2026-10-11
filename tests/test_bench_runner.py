@@ -40,7 +40,7 @@ def config(tmp_path, materialize_weights):
 
 
 def test_a_plan_is_items_times_seeds(config):
-    s, r = suite_mod.load(), recipe_mod.load("baseline-turbo-raw")
+    s, r = suite_mod.load(), recipe_mod.load("sdxl-cfg-raw")
     _dir, todo, doc = runner_mod.plan_run(
         config, s, r, stage="reference", started="t", limit=3, seeds=(1, 2)
     )
@@ -51,7 +51,7 @@ def test_a_plan_is_items_times_seeds(config):
 
 def test_the_full_default_plan_is_a_hundred_and_sixty_jobs(config):
     _dir, todo, _doc = runner_mod.plan_run(
-        config, suite_mod.load(), recipe_mod.load("baseline-turbo-raw"),
+        config, suite_mod.load(), recipe_mod.load("sdxl-cfg-raw"),
         stage="reference", started="t",
     )
     assert len(todo) == 160
@@ -59,7 +59,7 @@ def test_the_full_default_plan_is_a_hundred_and_sixty_jobs(config):
 
 def test_a_unit_key_names_its_item_and_seed(config):
     _dir, todo, _doc = runner_mod.plan_run(
-        config, suite_mod.load(), recipe_mod.load("baseline-turbo-raw"),
+        config, suite_mod.load(), recipe_mod.load("sdxl-cfg-raw"),
         stage="reference", started="t", ids=("prop-01",), seeds=(42,),
     )
     assert todo[0].key == "prop-01--s42"
@@ -68,7 +68,7 @@ def test_a_unit_key_names_its_item_and_seed(config):
 def test_the_run_directory_leads_with_its_timestamp(config):
     """prune sorts by name, so the timestamp has to come first."""
     directory, _todo, _doc = runner_mod.plan_run(
-        config, suite_mod.load(), recipe_mod.load("baseline-turbo-raw"),
+        config, suite_mod.load(), recipe_mod.load("sdxl-cfg-raw"),
         stage="reference", started="20260803-120000",
     )
     assert directory.name.startswith("20260803-120000-")
@@ -81,7 +81,7 @@ def test_the_run_directory_leads_with_its_timestamp(config):
 def _run(config, **kwargs):
     return runner_mod.run(
         config,
-        recipe_key="baseline-turbo-raw",
+        recipe_key="sdxl-cfg-raw",
         stage="reference",
         started="20260803-120000",
         ids=("prop-01",),
@@ -140,7 +140,7 @@ def test_a_run_never_leaves_more_than_one_job_in_flight(config, fake_pipelines, 
 def test_the_recipe_reaches_the_stored_params(config, fake_pipelines):
     run_dir = _run(config)
     job = json.loads((run_dir / "items" / "prop-01--s42" / "job.json").read_text("utf-8"))
-    assert job["params"]["base_model"] == "turbo"
+    assert job["params"]["base_model"] == "sdxl_cfg"
     assert job["params"]["seed"] == 42
     assert job["stage"] == "reference"
 

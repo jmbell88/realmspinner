@@ -129,9 +129,16 @@ def test_models_md_counts_the_sdxl_recipes_that_share_the_base_checkpoint():
 
     manual = _squash((ROOT / "docs" / "manual" / "42-app-settings.md").read_text(encoding="utf-8"))
     assert f"{word} of the image models share one set of SDXL 1.0 weights" in manual
-    assert f"picking all {word} downloads them once" in manual
+    # "picking all N" reads wrong for two, and the retirement of the other three
+    # recipes (2026-10-11) is what made two the count.
+    picking = f"picking all {word}" if count > 2 else "picking both"
+    assert f"{picking} downloads them once" in manual
     assert f"the {word} SDXL 1.0 recipes share one 7 GB checkpoint" in manual
-    assert f"the weights the other {rest} are still standing on" in manual
+    assert (
+        f"the weights the other {rest} are still standing on"
+        if count > 2
+        else "the weights stay for as long as either is in use"
+    ) in manual
 
 
 def test_no_comment_still_counts_four_sdxl_recipes():

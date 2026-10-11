@@ -224,6 +224,11 @@ class Ctx:
     # Every downloadable registry row, with a real ``present`` flag rather than
     # the word "missing" inside a label -- see ``service.downloads.rows``.
     model_rows: list[dict[str, Any]] = field(default_factory=list)
+    # The retired models (``models.RETIRED_MODELS``) still on this disk, as
+    # ``service.downloads.retired_present`` measured them. ``None`` is "not
+    # scanned yet" -- the walk is off the frame thread -- and an empty list is
+    # the answer that hides Settings -> Models' Retired section.
+    retired_models: list[dict[str, Any]] | None = None
     # Every dependency pack, with a real ``present`` flag and what installing
     # it would cost -- see ``service.packs.rows``. Refreshed wholesale beside
     # ``model_rows``, because an install changes what this interpreter can

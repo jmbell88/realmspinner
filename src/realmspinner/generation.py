@@ -54,6 +54,22 @@ GENERATION_TYPE_OPTIONS = (
     ("sprite_sheet", "Sprite Sheet"),
 )
 QUALITY_TIERS = ("fast", "quality")
+
+
+def _stored_quality(value: Any) -> str:
+    """The tier a stored request or form names, read for today's registry.
+
+    ``"fast"`` named the ``image_fast`` recipe, retired with its model on
+    2026-10-11. A job or settings file written before then still says it, and
+    left alone it resolves to no recipe at all -- a rerun refused as "nothing
+    installed" on a machine that has the default model. Read it as Quality
+    while no registered recipe is Fast; the tier machinery itself stays, so a
+    registry that ships a Fast recipe again gets the word back unchanged.
+    """
+    quality = str(value or "quality")
+    if quality == "fast" and not any(r.quality == "fast" for r in RECIPES):
+        return "quality"
+    return quality
 MODEL_MODES = ("auto", "advanced")
 REFERENCE_MODES = ("none", "single", "multi")
 TARGET_CELL_PRESETS = (16, 24, 32, 48, 64, 96, 128, 256)
@@ -226,7 +242,7 @@ class GenerationRequest:
     #: because the structured door has never carried structure control and
     #: growing it one here would be a new capability rather than the honesty
     #: fix this field exists for. What it is for is :func:`validate_request` --
-    #: a recipe whose base has ``controlnet=False`` (Fast) must refuse the
+    #: a recipe whose base has ``controlnet=False`` (FLUX.2) must refuse the
     #: pairing in a sentence naming a control the user can see, rather than
     #: letting the legacy params carry the selection to ``guidance.normalize``
     #: and come back naming ``base_model``, which under automatic routing is
@@ -257,7 +273,7 @@ class GenerationRequest:
             generation_type=str(generation_type or "3d_model"),
             prompt=str(raw.get("prompt") or ""),
             negative_prompt=str(raw.get("negative_prompt") or ""),
-            quality=str(raw.get("quality") or "quality"),
+            quality=_stored_quality(raw.get("quality")),
             model_mode=str(raw.get("model_mode") or "auto"),
             model_override=(str(raw["model_override"]) if raw.get("model_override") else None),
             style_lora=(str(raw["style_lora"]) if raw.get("style_lora") else None),
@@ -404,10 +420,10 @@ class ResolvedRecipe:
     #: The fingerprint of the step-distillation adapter fused onto the base
     #: (``BaseModel.base_lora``), or None when the base has none. The 2026-10-10
     #: audit, finding create-26: ``model_checksum`` fingerprints the base's
-    #: *first* fetch destination, which Fast (``sdxl``) shares with Quality
-    #: (``sdxl_cfg``) -- the Hyper-SD file that makes Fast a different picture
-    #: lives in the second and was never hashed, so the two tiers recorded the
-    #: same checkpoint identity. Its own field rather than a change to
+    #: *first* fetch destination, which the Fast tier (``sdxl``, retired
+    #: 2026-10-11) shared with Quality (``sdxl_cfg``) -- the Hyper-SD file that
+    #: made Fast a different picture lived in the second and was never hashed,
+    #: so the two tiers recorded the same checkpoint identity. Its own field rather than a change to
     #: ``model_checksum``, whose stored values the corpus is keyed on.
     base_lora_checksum: str | None = None
 
@@ -459,54 +475,13 @@ def _recipe_table() -> tuple[Recipe, ...]:
     run; this table describes which asset outcome that run is qualified for.
     """
     return (
-        # Fast is ``sdxl`` -- SDXL 1.0 with Hyper-SD on top, four steps at
-        # guidance 0 -- and Quality is ``sdxl_cfg``, the same base weights run
-        # at 30 steps with real CFG. Both tiers named ``sdxl_cfg`` until
-        # 2026-08-29, which made the Fast/Quality control a label over one
-        # picture: two recipe *names*, identical checkpoint, identical
-        # sampler, identical resolution. A control that changes nothing is the
-        # defect; the fix is to let it change something and say what.
-        #
-        # The trade is measured, not guessed.
-        # ``dev/measurements/2026-08-11-default-base-model.md`` scores this
-        # exact arm: ``sdxl`` took 2 of 4 accepted and ``sdxl_cfg`` 3 of 3 --
-        # tiny n, no significance claimed, and a documented quality trade is
-        # precisely what "Fast" is supposed to mean. ``sdxl`` and not
-        # ``turbo``/``lightning``: those are 512 px, non-commercial or their
-        # own 7 GB checkpoint, while this shares Quality's base weights and is
-        # the backend where style LoRAs behave as trained.
-        #
-        # ``base_model`` is in ``vectors.VECTOR_PARAMS``, so this changes what
-        # a job records. Nothing stored is invalidated: until today *both*
-        # tiers wrote ``base_model=sdxl_cfg`` and no finding in the corpus can
-        # tell a Fast job from a Quality one, so the corpus gets more truthful
-        # rather than less.
-        Recipe(
-            "image_fast",
-            "Fast image",
-            ("image",),
-            "fast",
-            "sdxl",
-            working_resolution=(1024, 1024),
-            # Inert here and therefore declared inert. ``sdxl`` runs at
-            # guidance 0 and ``text2image`` encodes the negative branch only
-            # above 1.0 (``models.cfg_bases``), so a True here would have moved
-            # the lie out of the tier and into the field: an Avoid box that
-            # takes text, stores it in params and changes no pixel.
-            negative_prompt=False,
-            **_registry_facts("sdxl"),
-            # One row covers it: ``sdxl``'s ``fetch`` tuple already carries the
-            # shared SDXL 1.0 base *and* the 0.8 GB Hyper-SD LoRA, so there is
-            # no second key to name here.
-            required_downloads=("base:sdxl",),
-            note=(
-                "Four steps instead of thirty, on the same SDXL weights. No "
-                "structure control and no negative prompt: it runs at guidance "
-                "0, so there is no unconditioned branch for either to steer. "
-                "Quality is measurably better at holding a shape."
-            ),
-            rank=20,
-        ),
+        # There is no Fast tier. ``image_fast`` named ``sdxl`` (SDXL 1.0 with
+        # Hyper-SD on top, four steps at guidance 0) and was retired on
+        # 2026-10-11 with the rest of the distilled and fine-tune checkpoints
+        # (``models.RETIRED_MODELS``): Quality is the one SDXL recipe, and the
+        # only one where a ControlNet and a negative prompt do anything. A
+        # stored ``resolved_recipe`` naming ``image_fast`` is history, read
+        # as data and never re-resolved.
         Recipe(
             "image_quality",
             "Quality image",
@@ -694,9 +669,9 @@ def resolve_recipe(
         # ``request.quality`` too -- but the Model combo folded Fast/Quality
         # into itself with the promise that "nothing is lost by folding
         # them" (``settings_2d.model_options``), and nothing sets
-        # ``quality="fast"`` any more. Picking the fast checkpoint (``sdxl``)
-        # through Advanced therefore never matched the curated
-        # ``quality="fast"`` recipe and always fell through to the synthetic
+        # ``quality="fast"`` any more. Picking a checkpoint that only a
+        # ``quality="fast"`` recipe named (the retired ``sdxl``) through Advanced
+        # therefore never matched it and always fell through to the synthetic
         # ``Recipe`` below, silently losing its curated label and note.
         # Advanced names a checkpoint, not a tier, so the lookup here is by
         # ``base_model`` within this generation type only.
@@ -1131,8 +1106,9 @@ def validate_request(
                     "base_model",
                     # The 2026-10-04 audit, finding create-54's sibling: "guidance 0"
                     # was true of Turbo/Hyper/Lightning and false of LCM and FLUX.2
-                    # klein distilled, which run at 1.0 -- "1.0 or lower" is true of
-                    # every model this refuses (``recipe.py``'s notes say the same).
+                    # klein distilled, which ran at 1.0 (all retired 2026-10-11) --
+                    # "1.0 or lower" is true of every model this refuses
+                    # (``recipe.py``'s notes say the same).
                     f"{resolved.recipe.label} runs at guidance 1.0 or lower and cannot "
                     "run a ControlNet. Choose a full-CFG model.",
                 )
@@ -1270,7 +1246,7 @@ def request_from_legacy(form: Mapping[str, Any]) -> GenerationRequest:
         generation_type=generation_type,
         prompt=str(form.get("prompt") or ""),
         negative_prompt=str(form.get("negative_prompt") or ""),
-        quality=str(form.get("quality") or "quality"),
+        quality=_stored_quality(form.get("quality")),
         model_mode=str(form.get("model_mode") or "auto"),
         # ``.get()`` on both keys, not bare indexing: an advanced form is
         # allowed to carry only one of the two (the 2026-09-23 audit,

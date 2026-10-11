@@ -211,7 +211,7 @@ def test_prompt_history_outlives_the_process_and_a_corrupt_file_reads_as_empty(
 # --- 5.5.1: prose points at controls that exist -----------------------------
 
 
-def test_structure_notes_do_not_name_a_recipe_switch_that_does_not_exist():
+def test_structure_notes_do_not_name_a_recipe_switch_that_does_not_exist(monkeypatch):
     """The Fast/Quality tier folded into the Model combo on 2026-08-17-ish
     (``model_options``); a "Recipe" control to "switch to Quality" has not
     existed since. Both notes used to say it anyway.
@@ -221,7 +221,11 @@ def test_structure_notes_do_not_name_a_recipe_switch_that_does_not_exist():
     for the ``model_mode`` value, which is real -- only the words a reader
     sees have to name a control that exists.
     """
-    note = create_recipe.structure_note(_note_ctx(), {"base_model": "turbo"})
+    # A synthetic Fast tier: the shipped one (and Turbo) were retired 2026-10-11.
+    from _synthetic_models import install_fast_tier
+
+    fast = install_fast_tier(monkeypatch)
+    note = create_recipe.structure_note(_note_ctx(), {"base_model": fast.key})
     assert note is not None
     assert "Switch the Recipe to Quality" not in note
     assert "under Advanced" not in note

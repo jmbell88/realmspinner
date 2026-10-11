@@ -1,0 +1,10 @@
+{
+  "key": "klein-raw",
+  "label": "FLUX.2 klein-base 4B, no LoRA",
+  "notes": "The non-SDXL architecture as a reference source, at its base (full-CFG) recipe. Replaced klein-distilled-raw when the distilled checkpoint was retired; 50 steps is a different time class from the SDXL arms, so compare quality, not seconds.",
+  "guidance": {
+    "base_model": "flux_klein",
+    "platform": "3d"
+  },
+  "profile": "raw"
+}

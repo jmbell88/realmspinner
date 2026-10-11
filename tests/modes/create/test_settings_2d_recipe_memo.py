@@ -99,7 +99,7 @@ def test_an_edit_and_undo_resolves_again_rather_than_reading_a_sticky_cache():
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)
     ctx = _ctx()
-    original_quality = form["quality"]
+    original_style = form.get("style_lora")
 
     calls: list[int] = []
     counting, original = _counting_resolve_recipe(calls)
@@ -112,11 +112,13 @@ def test_an_edit_and_undo_resolves_again_rather_than_reading_a_sticky_cache():
         # prompt edit deliberately no longer resolves again (see
         # test_audit_2026_10_10_recipe_column). This test's point -- the key
         # is content, not ``id(form)`` -- needs a field the answer depends on.
-        form["quality"] = "fast"
+        # Not ``quality``: with no Fast recipe registered (2026-10-11) "fast"
+        # reads as Quality, so that edit no longer changes the request.
+        form["style_lora"] = "ps1"
         ctx.state.frame_index += 1
         create_recipe.resolved_recipe(ctx, form)
 
-        form["quality"] = original_quality
+        form["style_lora"] = original_style
         ctx.state.frame_index += 1
         restored = create_recipe.resolved_recipe(ctx, form)
         assert restored == first

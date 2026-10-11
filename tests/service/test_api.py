@@ -620,12 +620,42 @@ def test_rerun_carries_the_model_selection_forward(svc):
         kind="text",
         prompt="a barrel",
         lora_weight=0.6,
-        guidance_fields={"base_model": "sdxl", "style_lora": "ps1"},
+        guidance_fields={"base_model": "sdxl_cfg_pag", "style_lora": "ps1"},
     )["id"]
     params = _params(svc, svc_jobs.rerun_job(svc, first)["id"])
-    assert params["base_model"] == "sdxl"
+    assert params["base_model"] == "sdxl_cfg_pag"
     assert params["style_lora"] == "ps1"
     assert params["lora_weight"] == 0.6
+
+
+def test_rerun_of_job_with_retired_base_model_is_refused_not_substituted(svc):
+    """A stored ``base_model`` outlives the registry row it named. Rerunning it
+    used to queue a job the worker then quietly ran on the configured model;
+    now the door refuses, naming the model and the control to change."""
+    src = svc.store.create(
+        "text", "a barrel", {"seed": 1, "base_model": "juggernaut", "style_lora": "ps1"}
+    )
+    before = len(svc.store.list(limit=50))
+    with pytest.raises(Invalid, match="Juggernaut XL v9 was removed in this version") as caught:
+        svc_jobs.rerun_job(svc, src)
+    assert caught.value.field == "base_model"
+    assert len(svc.store.list(limit=50)) == before, "nothing may be queued"
+
+
+def test_rerun_of_job_with_retired_style_lora_is_refused_not_dropped(svc):
+    src = svc.store.create("text", "a barrel", {"seed": 1, "style_lora": "pixelklein"})
+    with pytest.raises(Invalid, match="was removed in this version") as caught:
+        svc_jobs.rerun_job(svc, src)
+    assert caught.value.field == "style_lora"
+
+
+def test_a_remesh_of_a_job_with_a_retired_base_is_still_allowed(svc):
+    """A remesh never runs the image model, so the retired name is history."""
+    src = svc.store.create("text", "a barrel", {"seed": 1, "base_model": "juggernaut"})
+    (svc.job_dir(src)).mkdir(parents=True, exist_ok=True)
+    (svc.job_dir(src) / "input.png").write_bytes(b"png")
+    out = svc_jobs.rerun_job(svc, src, mode="remesh")
+    assert out["id"]
 
 
 def test_rerun_strips_every_derived_param_not_just_the_original_three(svc):
@@ -657,10 +687,10 @@ def test_the_model_selection_is_stored_on_the_job(svc):
         kind="text",
         prompt="a plasma rifle",
         lora_weight=1.1,
-        guidance_fields={"base_model": "sdxl", "style_lora": "render3d"},
+        guidance_fields={"base_model": "sdxl_cfg_pag", "style_lora": "render3d"},
     )["id"]
     params = _params(svc, job_id)
-    assert params["base_model"] == "sdxl"
+    assert params["base_model"] == "sdxl_cfg_pag"
     assert params["style_lora"] == "render3d"
     assert params["lora_weight"] == 1.1
 

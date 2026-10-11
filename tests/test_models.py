@@ -5,6 +5,7 @@ that lands in the wrong place, or a LoRA that silently never loads."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -91,31 +92,17 @@ def test_catalog_is_json_safe_and_covers_both_tables():
     json.dumps(catalog)
 
 
-def test_sdxl_cfg_reuses_sdxl_weights_without_the_distillation_lora():
-    """It exists for a sampler contract, not for new weights: full CFG so the
-    negative prompt is encoded at all, and no Hyper-SD because a 4-step
-    distilled base gives a ControlNet nothing to steer."""
-    cfg, hyper = models.BASE_MODELS["sdxl_cfg"], models.BASE_MODELS["sdxl"]
-    assert cfg.dir_name == hyper.dir_name
-    assert cfg.base_lora is None
+def test_sdxl_cfg_and_pag_share_one_checkpoint_and_neither_has_a_distillation_lora():
+    """The two SDXL entries left are two recipes over one download: full CFG
+    so the negative prompt is encoded at all, and no step-distillation LoRA
+    because a 4-step distilled base gives a ControlNet nothing to steer."""
+    cfg, pag = models.BASE_MODELS["sdxl_cfg"], models.BASE_MODELS["sdxl_cfg_pag"]
+    assert cfg.dir_name == pag.dir_name
+    assert cfg.fetch == pag.fetch
+    assert cfg.base_lora is None and pag.base_lora is None
     assert cfg.scheduler is None
     assert cfg.guidance_scale > 1.0
     assert cfg.steps >= 20
-
-
-def test_pixel_base_reuses_sdxl_weights_with_lcm_not_hyper():
-    """Same weights as the other SDXL 1.0 entries -- it exists for a sampler
-    contract (LCM at 8 steps, guidance 1.0), which is the pixel-art-xl author's
-    documented recipe and the arm the preset names until a bench says otherwise.
-    """
-    pixel, hyper = models.BASE_MODELS["pixel"], models.BASE_MODELS["sdxl"]
-    assert pixel.dir_name == hyper.dir_name
-    assert pixel.scheduler == "lcm"
-    assert pixel.base_lora is not None and "lcm" in pixel.base_lora.lower()
-    # <= 1.0 keeps it out of cfg_bases(): there is no negative branch to steer.
-    assert pixel.guidance_scale <= 1.0
-    assert "pixel" not in models.cfg_bases()
-    assert not pixel.controlnet
 
 
 def test_pixel_lora_weight_matches_the_author_recipe():
@@ -208,7 +195,6 @@ def test_cfg_bases_are_exactly_the_ones_that_encode_a_negative_prompt():
     assert all(
         m.key in bases for m in models.BASE_MODELS.values() if m.guidance_scale > 1.0
     )
-    assert "turbo" not in bases
 
 
 def test_catalog_stays_json_safe():
@@ -217,11 +203,13 @@ def test_catalog_stays_json_safe():
     json.dumps(models.catalog())
 
 
-def test_every_named_scheduler_is_one_text2image_can_build():
+def test_every_scheduler_text2image_names_builds_and_registry_names_are_known():
     """A BaseModel naming a scheduler _scheduler() does not know fails at load
     time with the weights already in VRAM, which is the most expensive place to
-    find out. diffusers is an optional extra, so build the ones that are
-    nameable and only assert the name is known when it is absent."""
+    find out. No registry entry names one since the distilled and fine-tune
+    checkpoints were retired (2026-10-11), but the mechanism is what the next
+    entry will use, so every name it knows is built here directly rather than
+    through a registry row. diffusers is an optional extra."""
     pytest.importorskip("diffusers")
     from diffusers import (
         DDIMScheduler,
@@ -235,20 +223,22 @@ def test_every_named_scheduler_is_one_text2image_can_build():
 
     base = DDIMScheduler()
     built = {
-        m.scheduler: text2image._scheduler(m.scheduler, base)
-        for m in models.BASE_MODELS.values()
-        if m.scheduler
+        name: text2image._scheduler(name, base)
+        for name in ("lcm", "ddim_trailing", "euler_trailing", "dpm_karras", "deis")
     }
     assert isinstance(built["lcm"], LCMScheduler)
     assert built["ddim_trailing"].config.timestep_spacing == "trailing"
-    # Both distillation arms need trailing spacing, and neither says so at
-    # runtime -- the failure is a washed-out image, not an error.
+    # Trailing spacing is required by every step-distillation arm, and nothing
+    # says so at runtime -- the failure is a washed-out image, not an error.
     assert isinstance(built["euler_trailing"], EulerDiscreteScheduler)
     assert built["euler_trailing"].config.timestep_spacing == "trailing"
     assert isinstance(built["dpm_karras"], DPMSolverMultistepScheduler)
     assert built["dpm_karras"].config.use_karras_sigmas
     assert built["dpm_karras"].config.algorithm_type == "dpmsolver++"
     assert isinstance(built["deis"], DEISMultistepScheduler)
+    for m in models.BASE_MODELS.values():
+        if m.scheduler:
+            text2image._scheduler(m.scheduler, base)
 
 
 @pytest.mark.parametrize("key", sorted(models.BASE_MODELS))
@@ -362,28 +352,60 @@ def test_flux_download_skips_the_redundant_single_file_checkpoint():
     assert spec.key not in models.tile_bases()
 
 
-def test_the_distilled_klein_is_the_mirror_of_klein_base():
-    """Same architecture, opposite recipe -- and the negative prompt is inert
-    on it, which needs no new code because cfg_bases() filters on the guidance
-    scale and 1.0 excludes it."""
-    spec = models.BASE_MODELS["flux_klein_distilled"]
-    base = models.BASE_MODELS["flux_klein"]
-    assert spec.family == base.family == models.FAMILY_FLUX2_KLEIN
-    assert spec.dir_name != base.dir_name
-    assert spec.steps == 4 and spec.guidance_scale == 1.0
-    assert spec.key not in models.cfg_bases()
-    assert '--exclude "flux-2-klein-4b.safetensors"' in spec.download
-    # Every SDXL-only feature is off on it too.
-    assert not spec.controlnet
-    assert spec.key not in models.tile_bases()
+# --- the retirement ledger ----------------------------------------------------
+
+RETIRED_BASES = (
+    "turbo", "sdxl", "playground", "pixel", "lightning", "juggernaut", "dreamshaper",
+    "flux_klein_distilled",
+)
 
 
-def test_lightning_is_a_second_distillation_arm_over_the_same_weights():
-    lightning, hyper = models.BASE_MODELS["lightning"], models.BASE_MODELS["sdxl"]
-    assert lightning.dir_name == hyper.dir_name
-    assert lightning.base_lora != hyper.base_lora
-    # Trailing spacing on both arms, for the same silent-failure reason.
-    assert lightning.scheduler == "euler_trailing"
-    assert lightning.steps == 4
-    assert lightning.guidance_scale == 0.0
-    assert "lightning" not in models.cfg_bases()
+def test_every_retired_base_and_the_pixelklein_lora_left_the_registry():
+    for key in RETIRED_BASES:
+        assert key not in models.BASE_MODELS, key
+        entry = models.RETIRED_MODELS[key]
+        assert entry.kind == "base"
+    assert "pixelklein" not in models.STYLE_LORAS
+    assert models.RETIRED_MODELS["pixelklein"].kind == "style_lora"
+    assert set(models.BASE_MODELS) == {"sdxl_cfg", "sdxl_cfg_pag", "flux_klein"}
+    assert set(models.STYLE_LORAS) == {"render3d", "redmond3d", "ps1", "pixelxl"}
+
+
+def test_the_ledger_also_names_the_two_folders_stranded_before_it():
+    assert models.RETIRED_MODELS["familiar-q2"].paths == ("familiar-q2",)
+    assert models.RETIRED_MODELS["prompt-expander-fooocus"].paths == ("prompt-expander-fooocus",)
+    # Familiar's own live directory must never be offered for removal.
+    assert not any(p == "familiar" for e in models.RETIRED_MODELS.values() for p in e.paths)
+
+
+def test_no_retired_path_is_one_a_live_registry_row_stands_on(tmp_path):
+    """The retired SDXL tiers shared ``sdxl-base-1.0`` with ``sdxl_cfg``: a
+    ledger entry listing it would put the default model behind a Remove
+    button. Checked against every row ``fetch`` knows, not a hand list."""
+    from realmspinner import fetch
+    from realmspinner.config import Config
+
+    cfg = Config(t2i_model_root=tmp_path / "models")
+    live = {Path(p).resolve() for entry in fetch.entries() for p in fetch.claims(cfg, entry)}
+    for entry in models.RETIRED_MODELS.values():
+        for path in fetch.retired_paths(cfg, entry):
+            resolved = path.resolve()
+            assert resolved not in live, (entry.key, resolved)
+            assert not any(resolved in one.parents or one in resolved.parents for one in live), (
+                entry.key,
+                resolved,
+            )
+
+
+def test_a_retired_choice_is_told_apart_from_an_unknown_one():
+    entry = models.retired_choice("base_model", "juggernaut")
+    assert entry is not None and entry.label == "Juggernaut XL v9"
+    assert models.retired_message(entry) == (
+        "Juggernaut XL v9 was removed in this version; pick another image model."
+    )
+    assert models.retired_choice("base_model", "never-existed") is None
+    assert models.retired_choice("base_model", "sdxl_cfg") is None
+    assert models.retired_choice("base_model", "") is None
+    # A kind mismatch is not a retirement: a LoRA key given as a base is a typo.
+    assert models.retired_choice("base_model", "pixelklein") is None
+    assert models.retired_choice("style_lora", "pixelklein") is not None

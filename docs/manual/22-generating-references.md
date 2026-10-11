@@ -34,7 +34,7 @@ contain. It is pre-filled with the things that most often ruin a reconstruction,
 delete the text and the job runs with no negative prompt at all, which is a different request from
 the default rather than a way back to it. **Reset settings…**, below the brief, brings the
 default text back along with the rest of the form. The box is hidden, not greyed, while the model
-in use ignores a negative prompt (the distilled fast models, which run at guidance 1.0 or lower);
+in use ignores a negative prompt (any model that runs at guidance 1.0 or lower);
 the text is left as it was and reappears when you pick a model that reads it.
 
 ```text
@@ -46,7 +46,7 @@ A second subject, or a subject cut off by the frame edge, is the single most com
 that comes out as nonsense — which is why this is a filled-in default rather than an empty field
 you have to discover. You can edit it freely, or empty it deliberately. Note that a negative prompt
 only has an effect on a model that runs with real classifier-free guidance (guidance above 1.0);
-the five distilled entries (Turbo, Hyper-SD, Lightning, LCM and FLUX.2 klein distilled) ignore it.
+a model that runs without it ignores the box.
 See [Models and style LoRAs](#models-and-style-loras).
 
 For the types that use a template, your text is composed into it before the image model sees it; an
@@ -138,14 +138,9 @@ is a control refusing to tell you what it did.
 
 This used to be three controls: a *Fast*/*Quality* tier, an *Automatic*/*Advanced* switch, and the
 checkpoint list. They were three controls for one decision, and the first two only ever chose which
-checkpoint. Nothing was lost in folding them — the only *Fast* recipe resolved to the **SDXL 1.0 +
-Hyper-SD** entry, so choosing *Fast* and choosing that checkpoint were the same act said two ways.
-Pick it from the list when you want four-step draws: eight cheap ones to find out whether an idea is
-worth a real one. It gives up structure control and the negative prompt, both of which need a
-guidance branch it does not have.
-
-*Quality* is measurably better at holding a shape, which is the property the mesh stage depends on,
-so automatic routing chooses it for anything you mean to reconstruct.
+checkpoint. There is no *Fast* tier any more: the four-step distilled recipes it chose between were
+retired, and what is left is full-guidance models that hold a shape, which is the property the mesh
+stage depends on, so automatic routing chooses among those for anything you mean to reconstruct.
 
 A **Tileset** has no model row at all. Its recipe and its style LoRA are fixed, because a sheet
 whose cells have to share a palette and a light direction is not a place to vary the machinery, and
@@ -153,38 +148,28 @@ the pane says so where the controls would be.
 
 ### The model registry
 
-Naming a checkpoint replaces automatic routing. Eleven base models ship in the registry:
+Naming a checkpoint replaces automatic routing. Three base models ship in the registry:
 
 | Model | What it is | Runs at |
 | --- | --- | --- |
-| SDXL-Turbo (fast) | Small and quick, at a quarter of the resolution. Its own separate download. | 512 px, 4 steps, guidance 0 |
-| SDXL 1.0 + Hyper-SD (best LoRA response) | Full SDXL weights with a step-distillation LoRA fused on. | 1024 px, 4 steps, guidance 0 |
-| SDXL 1.0 + Lightning (4-step) | The same weights and the same idea, distilled a different way — an alternative to compare Hyper-SD against. | 1024 px, 4 steps, guidance 0 |
-| Playground v2.5 (highest fidelity, slow) | The best-looking output, and correspondingly slow. | 1024 px, 25 steps, guidance 3.0 |
-| SDXL 1.0 (full CFG, structural control) | **The default.** The same weights as the Hyper-SD entry, run the way the checkpoint was trained — the negative prompt and ControlNet both work here. | 1024 px, 30 steps, guidance 7.0 |
+| SDXL 1.0 (full CFG, structural control) | **The default.** The checkpoint run the way the checkpoint was trained — the negative prompt and ControlNet both work here. | 1024 px, 30 steps, guidance 7.0 |
 | SDXL 1.0 + PAG (full CFG, cleaner structure) | The default's weights and recipe with two training-free sampling upgrades: perturbed-attention guidance and CFG rescale, which counters the washed-out look of high guidance. No new download. | 1024 px, 30 steps, guidance 7.0 |
-| SDXL 1.0 + LCM (pixel art) | The same weights again, under a consistency adapter — the recipe the pixel-art LoRA was trained against. | 1024 px, 8 steps, guidance 1.0 |
-| Juggernaut XL v9 (photoreal) | A photoreal SDXL finetune, at its own documented recipe. | 1024 px, 35 steps, guidance 4.0 |
-| DreamShaper XL (stylised) | The stylised counterpart to Juggernaut. | 1024 px, 25 steps, guidance 7.0 |
 | FLUX.2 klein-base 4B (full CFG) | A different architecture entirely, and the slowest thing here. | 1024 px, 50 steps, guidance 4.0 |
-| FLUX.2 klein 4B (distilled, 4-step) | The same architecture at the opposite recipe — the negative prompt is inert on it, and it exists so the FLUX.2 pixel-art style can run at the recipe it was trained on. | 1024 px, 4 steps, guidance 1.0 |
 
 The sampler settings travel with the checkpoint and are not yours to set. They are part of the
-model's identity: a four-step distilled model run at 25 steps with guidance produces mush, and both
-Hyper-SD and Lightning degrade silently without the right timestep spacing.
+model's identity: a distilled model run at 25 steps with guidance produces mush, and a checkpoint
+run at the wrong scheduler degrades silently.
 
 Three consequences are worth knowing. A **negative prompt** is only encoded when guidance is above
-1.0, so it does nothing on any entry whose guidance is 1.0 or lower — SDXL-Turbo, Hyper-SD, Lightning,
-LCM and FLUX.2 klein distilled — so pick one of the full-CFG models if you want it honoured.
+1.0, so it does nothing on an entry whose guidance is 1.0 or lower. All three shipped entries run above
+that, so it is honoured on each.
 **Structure control** (see [Conditioning on an image](#conditioning-on-an-image)) is
 only offered on the SDXL models that run with real guidance, because a ControlNet at guidance 0
-fights the hint instead of following it. And **conditioning, seamless tiles, and every style LoRA but
-one are SDXL-only**: they are all built against SDXL's internals, so on FLUX.2 the Style LoRA picker
+fights the hint instead of following it. And **conditioning, seamless tiles and every style LoRA
+are SDXL-only**: they are all built against SDXL's internals, so on FLUX.2 the Style LoRA picker
 is disabled with a note saying so, and asking for a tile is refused rather than quietly producing one
-whose edges do not line up. The one exception is **Pixel art (FLUX.2 klein)** below — the only adapter
-here trained against FLUX.2's own internals rather than SDXL's — which the picker offers exactly on
-the two FLUX.2 klein entries and nowhere else. The negative prompt does work on FLUX.2 — that is why
-the undistilled `klein-base` variant is the one that ships.
+whose edges do not line up. The negative prompt does work on FLUX.2 — that is why the undistilled
+`klein-base` variant is the one that ships.
 
 Only one base model is resident on the card at a time — a 32 GB card holds the reconstruction engine
 plus a single image pipeline, not two — so switching between models between jobs costs a reload of
@@ -195,7 +180,7 @@ still listed, with "— weights missing" appended to its name, so you learn at p
 job-failure time. Run `realmspinner doctor` for the exact download command.
 
 **Style LoRAs** are the opposite: they are adapters on whatever pipeline is already resident and
-switch for free, with no reload. Five ship:
+switch for free, with no reload. Four ship:
 
 - **3D render** — a general 3D-render look.
 - **3D render (Redmond)** — a second, differently trained take on the same idea.
@@ -204,13 +189,7 @@ switch for free, with no reload. Five ship:
 - **Pixel art (pixel-art-xl)** — generates on a pixel grid rather than producing a smooth image that
   is later downscaled into one. It defaults to a strength of 1.2 rather than the usual 0.9: below
   that the output keeps SDXL's anti-aliased gradients, and no downscale recovers a clean grid from
-  them. It pairs naturally with the LCM base, the recipe it was trained against.
-- **Pixel art (FLUX.2 klein)** — the same idea for the other architecture, and the only adapter here
-  that is not an SDXL one. It is offered on the two FLUX.2 klein entries and on nothing else. Its
-  default strength is 0.0625, far below every other entry, because the adapter declares a trained
-  scale of 16 where an ordinary one declares about 2 — the slider means the same thing it always
-  did, and this adapter's own strength is simply much larger. Anything above about 0.13 smears and
-  the range its model card recommends produces black frames.
+  them. It runs on full-CFG SDXL.
 
 An adapter is fitted to one architecture, so the picker offers a model only the styles that fit it.
 Choosing a model no style fits disables the picker with a note; choosing one that some styles fit
@@ -221,7 +200,7 @@ than vanishing, and changing the model clears it with an explanation. That holds
 Choosing one reveals a **Strength** slider, from 0 to 1.5, defaulting to the LoRA's own tuned
 weight — 0.9 unless the entry says otherwise. The slider is hidden entirely when no LoRA is chosen.
 The SDXL LoRAs are trained against full SDXL at 20 to 25 steps with guidance, so they land
-noticeably stronger on the SDXL entries than on Turbo.
+noticeably stronger there than they would on a few-step distilled model.
 
 ## Seeds and candidates
 

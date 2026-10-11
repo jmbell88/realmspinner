@@ -25,7 +25,7 @@ def _doc(tmp_path, **overrides):
     return manifest_mod.build_manifest(
         config,
         suite_mod.load(),
-        recipe_mod.load("baseline-turbo-raw"),
+        recipe_mod.load("sdxl-cfg-raw"),
         stage="reference",
         items=["prop-01"],
         seeds=[42],
@@ -40,7 +40,7 @@ def test_a_manifest_is_json_safe(tmp_path):
 def test_a_manifest_records_what_can_move_a_pixel(tmp_path):
     doc = _doc(tmp_path)
     assert doc["suite"]["key"] == "core-v2"
-    assert doc["recipe"]["key"] == "baseline-turbo-raw"
+    assert doc["recipe"]["key"] == "sdxl-cfg-raw"
     assert set(doc["config"]) == set(manifest_mod.CONFIG_FIELDS)
     assert "trellis_server_exe" in doc["models"]
     assert doc["versions"]["recipe"]

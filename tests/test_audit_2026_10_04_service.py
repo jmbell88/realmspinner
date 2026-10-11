@@ -50,12 +50,18 @@ def test_rerolling_a_mesh_keeps_the_reference_seed_of_the_reference_it_reuses(sv
 
 
 def test_create_generation_request_does_not_record_an_inert_negative_prompt_on_a_distilled_recipe(
-    svc, installed_recipes
+    svc, installed_recipes, monkeypatch
 ):
     """Fast resolves to a distilled checkpoint (guidance 0) that never encodes a
     negative branch; every other path records ``effective_negative_prompt``, but
     this arm passed ``request.negative_prompt`` raw, so findings credited a
-    no-op value."""
+    no-op value. (A synthetic Fast tier: the shipped one was retired.)"""
+    from _synthetic_models import install_fast_tier
+
+    from realmspinner import fetch
+
+    install_fast_tier(monkeypatch)
+    monkeypatch.setattr(fetch, "base_model_state", lambda *a, **k: (True, None))
     made = svc_jobs.create_generation_request(
         svc, {
             "generation_type": "image",

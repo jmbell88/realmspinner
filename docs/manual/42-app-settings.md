@@ -81,8 +81,8 @@ stem separation) — as a table of four columns: **Model**, **Size**, **Descript
 A tick beside the name means the weights are on disk; a hollow mark
 with a checkbox means they are not, and **Install** fetches them. It is the same information the
 startup diagnostics report, in a place you can look at without opening the log. Tick several rows
-and *Download selected* fetches them together; five of the image models share one set of SDXL 1.0
-weights, and picking all five downloads them once.
+and *Download selected* fetches them together; two of the image models share one set of SDXL 1.0
+weights, and picking both downloads them once.
 
 The **Familiar** group is the in-app assistant's own rows: its runtime (llama.cpp, two rows because
 upstream ships it as two archives), its weights, and two optional extras — a vision projector, and a
@@ -115,10 +115,9 @@ checkpoint alone is larger than the VRAM budget. Both carry the measured figure 
 hold. All of it is skipped on a host with no measurable GPU: an unknown budget is not a shortfall.
 
 **Deleting a model.** A downloaded row carries a **Delete** button, and hovering it says how much
-removing would actually free. That figure is usually smaller than the download was, and deliberately: the five SDXL 1.0
-recipes share one 7 GB checkpoint, so removing *SDXL 1.0 + Hyper-SD* deletes only its own 0.8 GB
-adapter and leaves the weights the other four are still standing on. The checkpoint goes when the
-last model using it does. A recipe with no files of its own — *SDXL 1.0 (full CFG)* is the plain
+removing would actually free. That figure is usually smaller than the download was, and deliberately: the two SDXL 1.0
+recipes share one 7 GB checkpoint, so the weights stay for as long as either is in use. The checkpoint
+goes when the last model using it does. A recipe with no files of its own — *SDXL 1.0 (full CFG)* is the plain
 case — has nothing to remove and shows no button at all.
 
 Removal asks first, and refuses in three cases rather than doing something surprising. It will not
@@ -127,6 +126,15 @@ that is a folder you pointed the app at, not one it downloaded. And it never del
 outside the model root. Removing the *default* base model **is** allowed, and the consequence is
 that generation refuses every job that does not name another model until you reinstall one or pick a
 different base — the refusal says so and links back to this pane.
+
+**Retired.** Models the app used to offer and no longer registers (Juggernaut, DreamShaper, Playground,
+SDXL-Turbo, FLUX.2 klein distilled, the Hyper-SD, Lightning and LCM adapter files and the FLUX.2
+pixel-art LoRA, plus the stranded `familiar-q2` and `prompt-expander-fooocus` folders) can still be
+sitting on your disk. When any is, a **Retired** section appears under the model list naming each one
+with its size and a **Delete** button; nothing is deleted until you press it. The section is hidden
+when there is nothing to list, and `realmspinner doctor` shows the same leftovers as informational
+rows labelled `retired:` followed by the model name. A job stored with a retired model is refused on
+Reroll with a sentence naming it, and is never run on a substitute.
 
 Downloading does not make the app itself online. The button starts a separate process that fetches
 one repository and exits, into a staging folder beside the destination that is only moved into place

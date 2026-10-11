@@ -688,6 +688,30 @@ def check_base_model_weights(
     )
 
 
+def check_not_retired(params: dict[str, Any]) -> None:
+    """Refuse a job whose stored image model or style has been removed.
+
+    The door for what a *stored* row can still name: a rerun reads
+    ``base_model``/``style_lora`` back out of params written by an older build,
+    and a checkpoint that has left the registry (``models.RETIRED_MODELS``) must
+    stop here with a sentence naming it. The worker used to fall back to the
+    host's configured model for an unknown key, which let "give me another"
+    quietly run a *different* model and file the result under the old name.
+    Fresh submissions never reach this with a retired key -- ``guidance`` 400s
+    them first, with the same words.
+
+    Stored params are not migrated and the retired keys are not aliased
+    (dev/INVARIANTS.md): the way forward from a refusal is to pick a current
+    model on a new submission.
+    """
+    from .. import models
+
+    for field in ("base_model", "style_lora"):
+        entry = models.retired_choice(field, params.get(field))
+        if entry is not None:
+            raise Invalid(models.retired_message(entry), field=field)
+
+
 def check_weights(svc: Any, kind: str, params: dict[str, Any]) -> None:
     """Refuse a job whose selected weights are not on this host (F55).
 
@@ -775,6 +799,7 @@ def check_weights(svc: Any, kind: str, params: dict[str, Any]) -> None:
         return
     if kind != "text":
         return
+    check_not_retired(params)
     # The pack door before the weights door, for ``check_pack``'s reason: the
     # base checkpoint is what ``base_model`` names, so a missing ``text2image``
     # pack is refused on the same control rather than surfacing only once the

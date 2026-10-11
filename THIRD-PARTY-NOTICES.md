@@ -134,16 +134,12 @@ are worth calling out:
 **Not bundled.** Every checkpoint is downloaded by the user, on request — the
 installer ships none of them and this project redistributes none of them. Most
 come from Hugging Face; the one exception is noted below. They are licensed by
-their publishers, and two of them restrict commercial use of what you generate.
+their publishers, and one of them restricts commercial use of what you generate.
 
 | Model | Publisher | Source | Licence | Commercial use of output |
 |---|---|---|---|---|
 | SDXL 1.0 | Stability AI | Hugging Face | OpenRAIL++-M | Permitted, subject to the use restrictions |
-| SDXL-Turbo | Stability AI | Hugging Face | Stability AI Non-Commercial Research Community License | **No** — commercial use requires a paid Stability membership |
-| Playground v2.5 | Playground | Hugging Face | Playground v2.5 Community License | Permitted below 1M monthly active users; requires shipping the licence and its attribution string |
-| Juggernaut XL v9 | RunDiffusion | Hugging Face | OpenRAIL-M | Permitted, subject to the use restrictions |
-| DreamShaper XL | Lykon | Hugging Face | OpenRAIL++-M | Permitted, subject to the use restrictions |
-| FLUX.2 klein / klein-base 4B | Black Forest Labs | Hugging Face | Apache-2.0 | Permitted |
+| FLUX.2 klein-base 4B | Black Forest Labs | Hugging Face | Apache-2.0 | Permitted |
 | TRELLIS.2-4B | Microsoft | Hugging Face | MIT | Permitted |
 | BiRefNet weights | ZhengPeng7 | Hugging Face | MIT | Permitted |
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |

@@ -192,10 +192,13 @@ def test_the_fingerprint_of_a_file_over_two_mib_is_unchanged(tmp_path):
 # --- create-26: Fast and Quality record different checkpoint provenance -------
 
 
-def test_the_fast_tier_records_a_checksum_that_differs_when_the_hyper_sd_file_changes(
-    svc, installed_recipes
+def test_the_fast_tier_records_a_checksum_that_differs_when_the_step_lora_file_changes(
+    svc, installed_recipes, monkeypatch
 ):
-    spec = models.BASE_MODELS["sdxl"]
+    # A synthetic Fast tier: the shipped Hyper-SD ``sdxl`` entry was retired.
+    from _synthetic_models import install_fast_tier
+
+    spec = install_fast_tier(monkeypatch)
     assert spec.base_lora
     lora = Path(svc.config.t2i_model_root) / "loras" / spec.base_lora
     lora.parent.mkdir(parents=True, exist_ok=True)
@@ -208,7 +211,7 @@ def test_the_fast_tier_records_a_checksum_that_differs_when_the_hyper_sd_file_ch
             ),
             svc.config,
         )
-        assert resolved is not None and resolved.base_model == "sdxl"
+        assert resolved is not None and resolved.base_model == spec.key
         return resolved
 
     lora.write_bytes(b"hyper-sd v1")

@@ -302,6 +302,11 @@ def _lookup(field: str, value: Any) -> Any | None:
     table = _TABLES[field]
     option = table.get(_canonical(field, str(value)))
     if option is None:
+        retired = models.retired_choice(field, value)
+        if retired is not None:
+            # A removed model is not a typo: say which one and what to do, in
+            # the sentence the rerun door uses (``validation.check_not_retired``).
+            raise GuidanceError(models.retired_message(retired), field=field)
         # service-05 (the 2026-09-23 audit): this used to `sorted(table)`
         # straight over the live `models.STYLE_LORAS` mapping to build the
         # "expected one of" list, so a plain unknown-style-name lookup could

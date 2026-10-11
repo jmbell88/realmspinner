@@ -1165,6 +1165,10 @@ def _layout(ctx: Any) -> None:
 
 _MEASURED = False
 
+#: Whether this session has asked for the retired-models walk. Cleared with
+#: ``_MEASURED`` by :func:`_stale_model_storage`, for the same landing.
+_RETIRED_SCANNED = False
+
 #: ``_MEASURED``'s twin, for the evidence archive. Module-level for its reason
 #: exactly: the walk is once per session, not once per frame.
 _EVIDENCE_MEASURED = False
@@ -1192,8 +1196,11 @@ def _stale_model_storage() -> None:
     matter how many downloads or removals actually changed what was on disk.
     Called by ``shell.tasks`` once a ``download:``/``remove:`` task lands.
     """
-    global _MEASURED
+    global _MEASURED, _RETIRED_SCANNED
     _MEASURED = False
+    # The same landing changes what the Retired section lists: a removal
+    # empties a row, and a download can in principle refill one.
+    _RETIRED_SCANNED = False
 
 
 def _stale_evidence_storage() -> None:
@@ -1489,6 +1496,7 @@ def _models(ctx: Any) -> None:
     _selection_progress(ctx)
 
     _loras(ctx)
+    _retired(ctx, busy)
 
     imgui.dummy((0, sp(tokens.SP_1)))
     if getattr(ctx, "rigging_available", False):
@@ -1503,6 +1511,107 @@ def _models(ctx: Any) -> None:
         "A download runs in a separate process; this one stays offline. The "
         "startup diagnostics still give the exact command for a missing model."
     )
+
+
+# --- models the app no longer lists ------------------------------------------------
+
+
+def _retired(ctx: Any, busy: bool) -> None:
+    """Models that left the registry but are still on this disk, with a Remove.
+
+    Their rows are gone, so the table above cannot offer a Delete -- without
+    this section a retired checkpoint's gigabytes would be unreachable from
+    the app. Hidden entirely when nothing retired is on disk, which after one
+    cleanup is every session; the walk runs off the frame thread and is asked
+    again after any download or removal lands (``_stale_model_storage``).
+    """
+    global _RETIRED_SCANNED
+    if not _RETIRED_SCANNED:
+        from ......service import downloads as svc_downloads
+
+        # Latched on acceptance only -- see ``_model_storage`` (shell-68).
+        _RETIRED_SCANNED = bool(ctx.submit("retired-scan", svc_downloads.retired_present, ctx.svc))
+    found = list(getattr(ctx, "retired_models", None) or [])
+    if not found:
+        return
+    imgui.dummy((0, sp(tokens.SP_1)))
+    widgets.muted("Retired")
+    widgets.muted_wrapped(
+        "These are no longer part of Realmspinner and nothing uses them. They are "
+        "still taking space on this disk."
+    )
+    flags = (
+        imgui.TableFlags_.row_bg.value
+        | imgui.TableFlags_.borders_inner_h.value
+        | imgui.TableFlags_.sizing_stretch_prop.value
+    )
+    if not imgui.begin_table("##models-retired", 3, flags):
+        return
+    try:
+        imgui.table_setup_column("Model", imgui.TableColumnFlags_.width_stretch.value)
+        imgui.table_setup_column("Size", imgui.TableColumnFlags_.width_fixed.value, sp(84.0))
+        imgui.table_setup_column("Actions", imgui.TableColumnFlags_.width_fixed.value, sp(132.0))
+        imgui.table_headers_row()
+        for item in found:
+            key = str(item["key"])
+            imgui.table_next_row()
+            imgui.table_next_column()
+            widgets.text_colored(theme.MUTED, str(item.get("label") or key))
+            if imgui.is_item_hovered():
+                imgui.set_tooltip("\n".join(str(p) for p in item.get("paths") or ()))
+            imgui.table_next_column()
+            widgets.muted(f"{float(item.get('size_gib') or 0.0):.1f} GB")
+            imgui.table_next_column()
+            rkey = app_ctx.remove_key(f"retired:{key}")
+            if ctx.tasks.is_busy(rkey):
+                found_progress = ctx.progress(rkey)
+                widgets.progress_bar(
+                    float(found_progress.get("percent") or 0.0) if found_progress else 0.0
+                )
+            elif widgets.disabled_button(
+                f"{icons.TRASH} Delete##retired-{key}", not busy, reason=_MODEL_BUSY_REASON
+            ):
+                _confirm_retired_removal(ctx, item)
+    finally:
+        imgui.end_table()
+
+
+def _confirm_retired_removal(ctx: Any, item: dict[str, Any]) -> None:
+    key = str(item["key"])
+    label = str(item.get("label") or key)
+    dialogs.ask_delete(
+        ctx,
+        title="Remove retired model",
+        message=(
+            f"{label} will be deleted from disk, freeing about "
+            f"{float(item.get('size_gib') or 0.0):.1f} GB.\n\n"
+            "It is no longer part of Realmspinner, so it cannot be downloaded "
+            "again from this pane."
+        ),
+        on_confirm=lambda: _start_retired_removal(ctx, key),
+    )
+
+
+def _start_retired_removal(ctx: Any, key: str) -> None:
+    """Submit :func:`downloads.remove_retired` under a ``remove:`` task key.
+
+    The prefix is the point: every row's buttons already grey under
+    ``any_busy("remove:")``, and the landing handler that re-probes the rows
+    and re-measures storage keys on it.
+    """
+    from ......service import downloads as svc_downloads
+
+    task_key = app_ctx.remove_key(f"retired:{key}")
+
+    def run() -> Any:
+        return svc_downloads.remove_retired(
+            ctx.svc,
+            key,
+            on_progress=lambda percent, label: ctx.tasks.set_progress(task_key, percent, label),
+        )
+
+    if ctx.submit(task_key, run):
+        ctx.toast("Removing...")
 
 
 # --- style LoRAs the user brings ---------------------------------------------------
@@ -1950,8 +2059,10 @@ def _remove_control(ctx: Any, row: dict[str, Any], busy: bool) -> None:
     that refused on click would be worse than no button.
 
     The freed figure is ``removal_plan``'s, not the download size, and that is
-    the whole reason it is shown: uninstalling one of the five SDXL 1.0 recipes
-    frees 0.8 GB, and a row that implied 7 would be lying about a delete. It
+    the whole reason it is shown: uninstalling one of the two SDXL 1.0 recipes
+    frees nothing the other still stands on (a recipe with its own step adapter
+    would free only that 0.8 GB), and a row that implied 7 would be lying about
+    a delete. It
     is on this button's tooltip since the rows became a table, and the confirm
     dialog repeats it before anything is removed.
     """

@@ -378,6 +378,11 @@ class TasksMixin:
             if isinstance(done.result, dict):
                 ctx.evidence_storage = done.result
             return
+        if key == "retired-scan":
+            # Settings -> Models' Retired section; an empty list hides it.
+            if isinstance(done.result, list):
+                ctx.retired_models = done.result
+            return
         if key == "settings-staged-installer":
             # ``app_settings.STAGED_TASK_KEY``, restated as a literal here the
             # way "model-storage"/"evidence-storage" just above already are,

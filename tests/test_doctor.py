@@ -366,7 +366,7 @@ def test_every_image_model_and_lora_gets_its_own_non_fatal_row(tmp_path):
 
 def test_base_model_check_passes_with_local_weights(tmp_path):
     root = tmp_path / "m"
-    spec = model_registry.BASE_MODELS["turbo"]
+    spec = model_registry.BASE_MODELS["sdxl_cfg"]
     (root / spec.dir_name / "unet").mkdir(parents=True)
     (root / spec.dir_name / "model_index.json").write_text("{}")
     (root / spec.dir_name / "unet" / "diffusion_pytorch_model.fp16.safetensors").write_bytes(b"x")
@@ -411,7 +411,7 @@ def test_a_probe_driven_row_checks_every_file_it_names(tmp_path):
     assert row().ok is True
 
 
-def test_turbo_dir_override_is_still_honoured(tmp_path):
+def test_t2i_dir_override_is_still_honoured(tmp_path):
     # REALMSPINNER_T2I_DIR predates the registry; existing setups point it at an
     # arbitrary diffusers dir and must keep working.
     override = tmp_path / "elsewhere"
@@ -420,7 +420,8 @@ def test_turbo_dir_override_is_still_honoured(tmp_path):
     (override / "unet" / "diffusion_pytorch_model.fp16.safetensors").write_bytes(b"x")
     config = _config(tmp_path, t2i_model_root=tmp_path / "m", t2i_turbo_dir=override)
     checks = {c.name: c for c in run_checks(config)}
-    assert checks[f"image model: {model_registry.BASE_MODELS['turbo'].label}"].ok is True
+    pinned = model_registry.BASE_MODELS[model_registry.T2I_DIR_MODEL]
+    assert checks[f"image model: {pinned.label}"].ok is True
 
 
 def test_gltfpack_check_is_non_fatal_when_missing(tmp_path, monkeypatch):
@@ -653,14 +654,19 @@ def test_the_two_birefnet_rows_are_told_apart(tmp_path):
     assert any(n.startswith("host matting:") for n in birefnet)
 
 
-def test_a_base_model_missing_its_distillation_lora_is_not_reported_ready(tmp_path):
+def test_a_base_model_missing_its_distillation_lora_is_not_reported_ready(
+    tmp_path, monkeypatch
+):
     """A base LoRA raises at load where a style LoRA is skipped, so it is part
     of the checkpoint as far as this file is concerned. Reporting the model
-    ready meant finding out at job time with the weights already in VRAM."""
-    from realmspinner import doctor, models
+    ready meant finding out at job time with the weights already in VRAM.
+    (A synthetic entry: no shipped registry row carries a base LoRA now.)"""
+    from _synthetic_models import install
+
+    from realmspinner import doctor
     from realmspinner.config import Config
 
-    spec = next(s for s in models.BASE_MODELS.values() if s.base_lora)
+    spec = install(monkeypatch)
     config = Config(t2i_model_root=tmp_path)
     root = tmp_path / spec.dir_name
     (root / "unet").mkdir(parents=True)
@@ -1213,3 +1219,36 @@ def test_text2image_deps_check_appears_in_run_checks(monkeypatch, tmp_path):
     monkeypatch.setattr(doctor, "_t2i_deps", None)
     checks = {c.name: c for c in run_checks(_config(tmp_path), probe_slow=False)}
     assert checks["Create (dependencies)"].fatal is False
+
+
+def test_retired_models_still_on_disk_are_listed_as_informational_rows(tmp_path):
+    """Their registry rows are gone, so doctor is the one place besides
+    Settings -> Models that can say the folders are still there. One line each,
+    with the size, never a failure."""
+    from realmspinner import doctor
+
+    root = tmp_path / "m"
+    (root / "juggernaut-xl-v9").mkdir(parents=True)
+    (root / "juggernaut-xl-v9" / "w.bin").write_bytes(b"x" * 2048)
+    (root / "loras").mkdir()
+    (root / "loras" / "lcm-lora-sdxl.safetensors").write_bytes(b"x" * 10)
+    (root / "familiar-q2").mkdir()
+    config = _config(tmp_path, t2i_model_root=root)
+    rows = [c for c in doctor.run_checks(config) if c.name.startswith("retired: ")]
+    names = sorted(c.name for c in rows)
+    assert names == [
+        "retired: Familiar test weights (Q2)",
+        "retired: Juggernaut XL v9",
+        "retired: SDXL 1.0 + LCM (pixel art)",
+    ]
+    for row in rows:
+        assert row.ok is True and row.fatal is False and not row.pending_install
+        assert "Settings -> Models" in row.detail
+    assert "juggernaut-xl-v9" in next(c for c in rows if "Juggernaut" in c.name).detail
+
+
+def test_a_clean_models_directory_has_no_retired_rows(tmp_path):
+    from realmspinner import doctor
+
+    config = _config(tmp_path, t2i_model_root=tmp_path / "empty")
+    assert not [c for c in doctor.run_checks(config) if c.name.startswith("retired: ")]

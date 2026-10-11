@@ -31,30 +31,30 @@ def _state_with(field_name: str, message: str, rows=(), gib=0.0) -> AppState:
 
 
 def test_a_refusal_carries_its_rows_and_its_deduped_figure():
-    state = _state_with("base_model", "no weights", ("base:sdxl", "lora:pixelxl"), 7.2)
+    state = _state_with("base_model", "no weights", ("base:sdxl_cfg", "lora:pixelxl"), 7.2)
     assert state.field_errors["base_model"] == "no weights"
-    assert state.field_error_rows["base_model"] == ("base:sdxl", "lora:pixelxl")
+    assert state.field_error_rows["base_model"] == ("base:sdxl_cfg", "lora:pixelxl")
     assert state.field_error_gib["base_model"] == 7.2
 
 
 def test_a_refusal_with_nothing_to_install_displaces_an_earlier_one():
     """Otherwise the ring for "that seed is out of range" keeps the Install
     button the previous missing-weights refusal on the same control left."""
-    state = _state_with("base_model", "no weights", ("base:sdxl",), 7.0)
+    state = _state_with("base_model", "no weights", ("base:sdxl_cfg",), 7.0)
     state.note_field_error("base_model", "that is not a number")
     assert "base_model" not in state.field_error_rows
     assert "base_model" not in state.field_error_gib
 
 
 def test_editing_the_control_forgets_the_offer_with_the_ring():
-    state = _state_with("base_model", "no weights", ("base:sdxl",), 7.0)
+    state = _state_with("base_model", "no weights", ("base:sdxl_cfg",), 7.0)
     state.clear_field_error("base_model")
     assert not state.field_error_rows
     assert not state.field_error_gib
 
 
 def test_a_new_submit_clears_every_offer():
-    state = _state_with("base_model", "no weights", ("base:sdxl",), 7.0)
+    state = _state_with("base_model", "no weights", ("base:sdxl_cfg",), 7.0)
     state.clear_field_errors()
     assert not state.field_error_rows
     assert not state.field_error_gib
@@ -188,7 +188,7 @@ def test_the_progress_label_carries_a_pace(rate, remaining, expected):
 
 def test_a_row_names_the_repositories_it_comes_from(svc):
     by_key = {r["row_key"]: r for r in svc_downloads.rows(svc)}
-    row = by_key["base:sdxl"]
+    row = by_key["base:sdxl_cfg"]
     assert row.get("repos")
     assert all("/" in repo for repo in row["repos"])
 
@@ -205,8 +205,8 @@ def test_a_base_row_carries_the_vram_number_not_only_the_verdict(svc):
     by_key = {r["row_key"]: r for r in svc_downloads.rows(svc)}
     from realmspinner import models
 
-    row = by_key["base:sdxl"]
-    assert row["vram_gib"] == models.BASE_MODELS["sdxl"].vram_gib
+    row = by_key["base:sdxl_cfg"]
+    assert row["vram_gib"] == models.BASE_MODELS["sdxl_cfg"].vram_gib
 
 
 def test_every_registry_entry_says_what_it_is_for(svc):

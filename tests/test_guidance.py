@@ -143,7 +143,7 @@ def test_base_model_defaults_and_is_always_present():
 
 
 def test_base_model_is_carried_through():
-    assert guidance.normalize({"base_model": "sdxl"})["base_model"] == "sdxl"
+    assert guidance.normalize({"base_model": "sdxl_cfg_pag"})["base_model"] == "sdxl_cfg_pag"
 
 
 def test_unknown_base_model_is_rejected():
@@ -273,10 +273,10 @@ def test_model_selection_never_leaks_into_the_prompt():
     """A checkpoint name is not creative direction. The LoRA's trigger words
     are prepended in text2image.generate(), next to PROMPT_TEMPLATE, so they
     must not appear here either."""
-    params = guidance.normalize({"base_model": "sdxl", "style_lora": "render3d"})
+    params = guidance.normalize({"base_model": "sdxl_cfg", "style_lora": "render3d"})
     prompt = guidance.compose_prompt("a barrel", params)
     assert prompt == "a barrel"
-    for token in ("sdxl", "render3d", "3d render", "Hyper"):
+    for token in ("sdxl_cfg", "render3d", "3d render", "Hyper"):
         assert token.lower() not in prompt.lower()
 
 
@@ -378,12 +378,29 @@ def test_an_out_of_range_conditioning_scale_is_rejected(field, value):
         )
 
 
-def test_a_control_on_a_distilled_base_is_refused_by_name():
+def test_a_control_on_a_distilled_base_is_refused_by_name(monkeypatch):
     """A ControlNet at guidance 0 on a 4-step base fights the hint instead of
     honouring it, so this is an error rather than a silent no-op -- and the
-    message has to say which bases do work."""
+    message has to say which bases do work. (A synthetic distilled entry: the
+    registry no longer ships one.)"""
+    from _synthetic_models import install
+
+    spec = install(monkeypatch)
     with pytest.raises(ValueError, match="sdxl_cfg"):
-        guidance.normalize({"control": "canny", "base_model": "turbo"})
+        guidance.normalize({"control": "canny", "base_model": spec.key})
+
+
+def test_a_retired_base_or_style_is_named_not_called_unknown():
+    """A removed model is not a typo: the sentence says which one went and what
+    to do, and it is still a refusal (never an alias to a replacement)."""
+    with pytest.raises(ValueError, match="Juggernaut XL v9 was removed in this version") as err:
+        guidance.normalize({"base_model": "juggernaut"})
+    assert err.value.field == "base_model"
+    with pytest.raises(ValueError, match="Pixel art \\(FLUX.2 klein\\) was removed") as err:
+        guidance.normalize({"style_lora": "pixelklein"})
+    assert err.value.field == "style_lora"
+    with pytest.raises(ValueError, match="unknown base_model"):
+        guidance.normalize({"base_model": "never-existed"})
 
 
 def _mismatched_pair() -> tuple[str, str]:

@@ -57,28 +57,30 @@ def test_the_download_text_is_what_doctor_prints():
     does; a test that only asserted "starts with uvx" would let the derivation
     quietly change the words a person is told to paste.
     """
-    assert models.BASE_MODELS["turbo"].download == (
-        "uvx hf download stabilityai/sdxl-turbo "
-        "--revision 71153311d3dbb46851df1931d3ca6e939de83304 "
-        '--include "*.json" --include "*.txt" --include "*fp16.safetensors" '
-        '--exclude "sd_xl_turbo_1.0*" --local-dir $HOME/.realmspinner/models/sdxl-turbo'
-    )
-    # Two commands, joined by the two-space continuation doctor's
-    # "download with:\n  " prefix lines up with.
-    assert models.BASE_MODELS["sdxl"].download == (
+    assert models.BASE_MODELS["sdxl_cfg"].download == (
         "uvx hf download stabilityai/stable-diffusion-xl-base-1.0 "
         "--revision 462165984030d82259a11f4367a4eed129e94a7b "
         '--include "*.json" --include "*.txt" --include "*fp16.safetensors" '
-        "--local-dir $HOME/.realmspinner/models/sdxl-base-1.0\n"
-        "  uvx hf download ByteDance/Hyper-SD "
-        "--revision bc08d970a87c74c71209491d64e3525845698863 "
-        "Hyper-SDXL-4steps-lora.safetensors "
-        "--local-dir $HOME/.realmspinner/models/loras"
+        "--local-dir $HOME/.realmspinner/models/sdxl-base-1.0"
     )
-    # The rename, which is why the string could never simply be executed.
-    assert models.BASE_MODELS["pixel"].download.endswith(
+    # Two commands, joined by the two-space continuation doctor's
+    # "download with:\n  " prefix lines up with. The IP-Adapter is the registry
+    # entry that still carries two records (weights, then the CLIP encoder).
+    plus = models.IP_ADAPTERS["plus"].download
+    assert plus.count("uvx hf download h94/IP-Adapter ") == 2
+    assert "\n  uvx hf download h94/IP-Adapter " in plus
+    # The rename, which is why the string could never simply be executed. No
+    # registry entry renames since the LCM and FLUX.2 pixel adapters were
+    # retired (2026-10-11), so the shape is pinned on a record of its own.
+    renamed = models.Fetch(
+        "acme/lora",
+        "loras",
+        filenames=("pytorch_lora_weights.safetensors",),
+        rename=("pytorch_lora_weights.safetensors", "acme-lora.safetensors"),
+    )
+    assert models.download_text([renamed]).endswith(
         "  then rename $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors "
-        "to lcm-lora-sdxl.safetensors"
+        "to acme-lora.safetensors"
     )
     # The non-shell step, which the button deliberately does not run.
     assert models.MATTING_MODELS["birefnet"].download.endswith(
@@ -357,7 +359,8 @@ def test_the_installation_chapter_names_every_repository_too():
 
 def test_the_readme_counts_the_registered_base_models():
     """It said "Ten" for the whole life of the ``flux_klein`` /
-    ``flux_klein_distilled`` split that pushed it to eleven. A number in prose
+    ``flux_klein_distilled`` split that pushed it to eleven (and the retirement
+    of eight entries on 2026-10-11 took it to three). A number in prose
     beside a registry is a number that goes stale silently, so it is spelled
     out here and read back off the registry."""
     from pathlib import Path
@@ -365,6 +368,7 @@ def test_the_readme_counts_the_registered_base_models():
     from realmspinner import models
 
     words = {
+        2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight",
         9: "Nine", 10: "Ten", 11: "Eleven", 12: "Twelve", 13: "Thirteen",
         14: "Fourteen", 15: "Fifteen", 16: "Sixteen",
     }
@@ -393,9 +397,10 @@ def test_the_authoritative_docs_agree_with_the_registry_about_the_default():
     one keeps the two that stayed public.
     """
     assert config_module.DEFAULT_BASE_MODEL == "sdxl_cfg"
-    turbo = models.BASE_MODELS["turbo"]
+    # SDXL-Turbo left the registry, so what is checked is that its directory is
+    # not the default's and that no prose still claims it is.
     default = models.BASE_MODELS[config_module.DEFAULT_BASE_MODEL]
-    assert turbo.dir_name not in default.dir_name
+    assert "sdxl-turbo" not in default.dir_name
 
     root = Path(__file__).resolve().parents[1]
     claims = (
@@ -441,21 +446,22 @@ def _config(tmp_path: Path, turbo: Path | None = None) -> Config:
     return cfg
 
 
-def test_only_turbo_honours_the_legacy_override(tmp_path):
+def test_only_the_pinned_entry_honours_the_legacy_override(tmp_path):
     elsewhere = tmp_path / "elsewhere"
     cfg = _config(tmp_path, turbo=elsewhere)
-    assert fetch.base_model_dir(cfg, models.BASE_MODELS["turbo"]) == elsewhere
+    assert fetch.base_model_dir(cfg, models.BASE_MODELS["sdxl_cfg"]) == elsewhere
     assert (
-        fetch.base_model_dir(cfg, models.BASE_MODELS["sdxl"])
+        fetch.base_model_dir(cfg, models.BASE_MODELS["sdxl_cfg_pag"])
         == cfg.t2i_model_root / "sdxl-base-1.0"
+    )
+    assert (
+        fetch.base_model_dir(cfg, models.BASE_MODELS["flux_klein"])
+        == cfg.t2i_model_root / "flux2-klein-base-4b"
     )
     # Pinned by name rather than to the default, so the redirect stays about
-    # turbo's settings even once another entry is the shipped default.
-    assert models.T2I_DIR_MODEL == "turbo"
-    assert (
-        fetch.base_model_dir(cfg, models.BASE_MODELS["sdxl_cfg"])
-        == cfg.t2i_model_root / "sdxl-base-1.0"
-    )
+    # one entry's settings even once another entry is the shipped default. It
+    # moved from ``turbo`` to ``sdxl_cfg`` when SDXL-Turbo was retired.
+    assert models.T2I_DIR_MODEL == "sdxl_cfg"
 
 
 def test_a_plan_resolves_under_the_model_root_not_the_literal_models_dir(tmp_path):
@@ -463,13 +469,12 @@ def test_a_plan_resolves_under_the_model_root_not_the_literal_models_dir(tmp_pat
     default root; REALMSPINNER_T2I_ROOT has to relocate a fetch the way it already
     relocates a load."""
     cfg = _config(tmp_path)
-    entry = fetch.find("base:sdxl")
-    jobs = fetch.plan(cfg, [entry])
+    jobs = fetch.plan(cfg, [fetch.find("base:sdxl_cfg"), fetch.find("lora:pixelxl")])
     dests = {job.repo_id: job.dest for job in jobs}
     assert dests["stabilityai/stable-diffusion-xl-base-1.0"] == (
         cfg.t2i_model_root / "sdxl-base-1.0"
     )
-    assert dests["ByteDance/Hyper-SD"] == cfg.t2i_model_root / "loras"
+    assert dests["nerijs/pixel-art-xl"] == cfg.t2i_model_root / "loras"
 
 
 def test_a_rendered_command_names_the_directory_the_fetch_actually_lands_in(tmp_path):
@@ -484,9 +489,9 @@ def test_a_rendered_command_names_the_directory_the_fetch_actually_lands_in(tmp_
     ever reads.
     """
     cfg = _config(tmp_path)
-    spec = models.BASE_MODELS["sdxl"]
-    text = fetch.download_text(cfg, "base", spec)
-    # Both halves of a two-command entry, each against its own destination.
+    text = fetch.download_text(cfg, "base", models.BASE_MODELS["sdxl_cfg"])
+    text += "\n" + fetch.download_text(cfg, "lora", models.STYLE_LORAS["pixelxl"])
+    # A base and a style LoRA, each against its own destination.
     assert str(cfg.t2i_model_root / "sdxl-base-1.0") in text
     assert str(cfg.t2i_model_root / "loras") in text
     # And nothing left rendering the default, or the relative literal.
@@ -494,20 +499,23 @@ def test_a_rendered_command_names_the_directory_the_fetch_actually_lands_in(tmp_
     assert "--local-dir models/" not in text
     # Every rendered destination is exactly what ``plan`` will use, because both
     # resolve through ``destination``.
-    dests = {job.dest for job in fetch.plan(cfg, [fetch.find("base:sdxl")])}
+    dests = {
+        job.dest
+        for job in fetch.plan(cfg, [fetch.find("base:sdxl_cfg"), fetch.find("lora:pixelxl")])
+    }
     for dest in dests:
         assert str(dest) in text
 
 
-def test_a_rendered_command_honours_the_turbo_only_override(tmp_path):
+def test_a_rendered_command_honours_the_override_for_its_one_entry(tmp_path):
     """``REALMSPINNER_T2I_DIR`` moves one entry, and the text has to move with it."""
     elsewhere = tmp_path / "elsewhere"
     cfg = _config(tmp_path, turbo=elsewhere)
-    turbo = fetch.download_text(cfg, "base", models.BASE_MODELS["turbo"])
-    assert str(elsewhere) in turbo
-    # ...and only that entry: sdxl still resolves under the root.
-    sdxl = fetch.download_text(cfg, "base", models.BASE_MODELS["sdxl"])
-    assert str(elsewhere) not in sdxl
+    pinned = fetch.download_text(cfg, "base", models.BASE_MODELS["sdxl_cfg"])
+    assert str(elsewhere) in pinned
+    # ...and only that entry: FLUX.2 still resolves under the root.
+    klein = fetch.download_text(cfg, "base", models.BASE_MODELS["flux_klein"])
+    assert str(elsewhere) not in klein
 
 
 def test_a_rendered_command_survives_a_space_in_the_path(tmp_path):
@@ -521,29 +529,28 @@ def test_a_rendered_command_survives_a_space_in_the_path(tmp_path):
     assert quoted in text
 
 
-def test_the_override_moves_the_turbo_download_too(tmp_path):
+def test_the_override_moves_the_pinned_entrys_download_too(tmp_path):
     elsewhere = tmp_path / "elsewhere"
     cfg = _config(tmp_path, turbo=elsewhere)
-    jobs = fetch.plan(cfg, [fetch.find("base:turbo")])
+    jobs = fetch.plan(cfg, [fetch.find("base:sdxl_cfg")])
     assert [job.dest for job in jobs] == [elsewhere]
 
 
 # --- dedupe ------------------------------------------------------------------
 
 
-def test_four_recipes_over_one_checkpoint_are_one_download(tmp_path):
-    """dir_name is not unique, so a key-keyed plan would fetch 7 GB four times."""
+def test_two_recipes_over_one_checkpoint_are_one_download(tmp_path):
+    """dir_name is not unique, so a key-keyed plan would fetch 7 GB twice."""
     cfg = _config(tmp_path)
-    chosen = [fetch.find(k) for k in ("base:sdxl", "base:sdxl_cfg", "base:pixel", "base:lightning")]
+    chosen = [fetch.find(k) for k in ("base:sdxl_cfg", "base:sdxl_cfg_pag")]
     jobs = fetch.plan(cfg, chosen)
     repos = [job.repo_id for job in jobs]
     assert repos.count("stabilityai/stable-diffusion-xl-base-1.0") == 1
     # ...and the size is counted once, which is the difference between
-    # "this needs 7 GB" and "this needs 28 GB".
+    # "this needs 7 GB" and "this needs 14 GB".
     base = next(j for j in jobs if j.repo_id.endswith("stable-diffusion-xl-base-1.0"))
     assert base.size_gib == pytest.approx(7.0)
-    # The three distinct LoRA repos survive.
-    assert len(jobs) == 4
+    assert len(jobs) == 1
 
 
 def test_two_records_against_one_repository_merge_their_patterns(tmp_path):
@@ -601,13 +608,13 @@ def test_disk_admission_is_per_volume_not_charged_to_the_first_one(tmp_path, mon
     """MDL-09: the plan's whole size was compared against ``jobs[0].dest``.
 
     Right only while every fetch lands on one drive -- and ``REALMSPINNER_T2I_DIR``
-    relocates the ``turbo`` entry by itself, so a plan can straddle two. A roomy
+    relocates the ``sdxl_cfg`` entry by itself, so a plan can straddle two. A roomy
     first volume approved a large write to a nearly full second one; the inverse
     falsely refused.
     """
     elsewhere = tmp_path / "other-volume"
     cfg = _config(tmp_path, turbo=elsewhere)
-    jobs = fetch.plan(cfg, [fetch.find("base:turbo"), fetch.find("lora:pixelxl")])
+    jobs = fetch.plan(cfg, [fetch.find("base:sdxl_cfg"), fetch.find("lora:pixelxl")])
     dests = {job.dest for job in jobs}
     assert elsewhere in dests, "the override has to actually split the plan"
 
@@ -652,8 +659,8 @@ def test_free_space_answers_for_a_directory_that_does_not_exist_yet(tmp_path):
 
 def test_a_partial_directory_is_absent(tmp_path):
     cfg = _config(tmp_path)
-    entry = fetch.find("base:playground")
-    root = cfg.t2i_model_root / "playground-v2.5"
+    entry = fetch.find("base:sdxl_cfg")
+    root = cfg.t2i_model_root / "sdxl-base-1.0"
     root.mkdir(parents=True)
     (root / "model_index.json").write_text("{}", encoding="utf-8")
     assert not entry.is_present(cfg)
@@ -678,7 +685,7 @@ def test_a_directory_in_place_of_a_named_weight_file_is_not_present(tmp_path):
     assert not fetch.present(cfg, "lora", spec)
 
     # The base-model probe files go through the same helper.
-    base_spec = models.BASE_MODELS["sdxl"]
+    base_spec = models.BASE_MODELS["sdxl_cfg"]
     base_dir = fetch.base_model_dir(cfg, base_spec)
     (base_dir / "model_index.json").mkdir(parents=True)
     ok, _missing = fetch.base_model_state(cfg, base_spec)
@@ -686,13 +693,19 @@ def test_a_directory_in_place_of_a_named_weight_file_is_not_present(tmp_path):
 
 
 def test_a_checkpoint_without_its_step_distillation_lora_is_absent(tmp_path):
+    """No registry entry carries a ``base_lora`` since the distilled tiers were
+    retired, so the rule is exercised on a synthetic entry over the same
+    weights -- the mechanism is what the next such entry will use."""
+    from _synthetic_models import distilled_base
+
     cfg = _config(tmp_path)
     root = cfg.t2i_model_root / "sdxl-base-1.0"
     (root / "unet").mkdir(parents=True)
     (root / "model_index.json").write_text("{}", encoding="utf-8")
     (root / "unet" / "diffusion_pytorch_model.fp16.safetensors").write_bytes(b"x")
-    ok, missing = fetch.base_model_state(cfg, models.BASE_MODELS["sdxl"])
-    assert not ok and missing is not None and missing.name.startswith("Hyper-SDXL")
+    synthetic = distilled_base()
+    ok, missing = fetch.base_model_state(cfg, synthetic)
+    assert not ok and missing is not None and missing.name == synthetic.base_lora
     # sdxl_cfg is the same weights with no distillation LoRA, so it is ready.
     assert fetch.base_model_state(cfg, models.BASE_MODELS["sdxl_cfg"])[0]
 
@@ -988,7 +1001,7 @@ def test_a_rename_whose_source_never_arrived_fails_the_fetch(tmp_path):
     """fetch_one applies a rename unconditionally, and loudly. A repo that
     stopped shipping the declared filename must fail the whole fetch rather
     than move in a directory missing the file the presence probes key on --
-    ``pixelklein`` (the first ``filenames=`` plus ``rename=`` entry) would
+    the retired ``pixelklein`` (the first ``filenames=`` plus ``rename=`` entry) would
     otherwise read as downloaded forever while loading nothing."""
     dest = tmp_path / "models" / "loras"
     result = tmp_path / "result.json"
@@ -1146,7 +1159,7 @@ def test_a_download_reports_overall_progress_across_its_fetches(tmp_path, monkey
     monkeypatch.setattr(downloads, "_run_worker", fake)
     downloads.download(
         _Svc(_config(tmp_path)),
-        ["base:sdxl"],
+        ["base:sdxl_cfg", "lora:pixelxl"],
         on_progress=lambda percent, _label: seen.append(percent),
     )
     # Monotone, never past 100, and ending exactly at it.
@@ -1367,28 +1380,36 @@ def _entries(*row_keys: str) -> list[fetch.Entry]:
     return chosen
 
 
-def test_one_shared_recipe_frees_only_its_own_adapter(tmp_path):
-    """Five recipes over one 7 GiB directory. Uninstalling ``sdxl`` alone must
-    not take the checkpoint the other four are standing on -- and the freed
-    figure has to say 0.8, not 7, or the label is a lie."""
+def test_one_shared_recipe_frees_nothing_the_other_stands_on(tmp_path):
+    """Two recipes over one 7 GiB directory. Uninstalling ``sdxl_cfg`` alone
+    must not take the checkpoint ``sdxl_cfg_pag`` is standing on."""
     cfg = _config(tmp_path)
-    removal = fetch.removal_plan(cfg, _entries("base:sdxl"))
+    removal = fetch.removal_plan(cfg, _entries("base:sdxl_cfg"))
     assert removal.blocked == ()
-    assert [p.name for p in removal.paths] == ["Hyper-SDXL-4steps-lora.safetensors"]
+    assert removal.paths == ()
+    assert removal.freed_gib == 0.0
+
+
+def test_a_recipe_with_its_own_step_lora_frees_only_that_adapter(tmp_path, monkeypatch):
+    """The ``sdxl`` shape (a distillation LoRA beside shared weights), on a
+    synthetic entry: the freed figure has to say 0.8, not 7, or the label is a
+    lie."""
+    from _synthetic_models import distilled_base
+
+    synthetic = distilled_base()
+    monkeypatch.setitem(models.BASE_MODELS, synthetic.key, synthetic)
+    cfg = _config(tmp_path)
+    removal = fetch.removal_plan(cfg, _entries(f"base:{synthetic.key}"))
+    assert removal.blocked == ()
+    assert [p.name for p in removal.paths] == [synthetic.base_lora]
     assert removal.freed_gib == pytest.approx(0.8)
 
 
-def test_all_five_recipes_together_do_take_the_checkpoint(tmp_path):
+def test_both_recipes_together_do_take_the_checkpoint(tmp_path):
     cfg = _config(tmp_path)
-    removal = fetch.removal_plan(
-        cfg,
-        _entries(
-            "base:sdxl", "base:sdxl_cfg", "base:sdxl_cfg_pag", "base:pixel",
-            "base:lightning",
-        ),
-    )
+    removal = fetch.removal_plan(cfg, _entries("base:sdxl_cfg", "base:sdxl_cfg_pag"))
     assert cfg.t2i_model_root / "sdxl-base-1.0" in removal.paths
-    assert removal.freed_gib == pytest.approx(7.0 + 0.8 + 0.4 + 0.4)
+    assert removal.freed_gib == pytest.approx(7.0)
 
 
 def test_a_style_lora_is_one_file_and_never_the_flat_directory(tmp_path):
@@ -1413,7 +1434,7 @@ def test_a_directory_the_env_var_points_at_is_never_deleted(tmp_path):
     """It is a directory the user pointed us at, not one we fetched."""
     elsewhere = tmp_path / "models" / "elsewhere"
     cfg = _config(tmp_path, turbo=elsewhere)
-    removal = fetch.removal_plan(cfg, _entries("base:turbo"))
+    removal = fetch.removal_plan(cfg, _entries("base:sdxl_cfg"))
     assert removal.paths == ()
     assert removal.freed_gib == 0.0
     assert any("REALMSPINNER_T2I_DIR" in reason for reason in removal.blocked)
@@ -1421,7 +1442,7 @@ def test_a_directory_the_env_var_points_at_is_never_deleted(tmp_path):
 
 def test_nothing_outside_the_model_root_may_be_removed(tmp_path):
     cfg = _config(tmp_path, turbo=tmp_path / "somewhere-else")
-    removal = fetch.removal_plan(cfg, _entries("base:turbo"))
+    removal = fetch.removal_plan(cfg, _entries("base:sdxl_cfg"))
     assert removal.paths == ()
     assert removal.blocked
     assert any("model root" in reason for reason in removal.blocked)

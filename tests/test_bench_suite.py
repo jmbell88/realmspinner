@@ -143,7 +143,7 @@ def test_every_shipped_recipe_is_valid(key):
 
 
 def test_the_baseline_recipe_exists():
-    assert "baseline-turbo-raw" in recipe_mod.available()
+    assert "sdxl-cfg-raw" in recipe_mod.available()
 
 
 def test_a_recipe_naming_an_unknown_model_is_refused(tmp_path):
@@ -158,7 +158,7 @@ def test_job_kwargs_is_exactly_what_create_job_takes():
 
     from realmspinner.service import jobs as svc_jobs
 
-    s, r = suite_mod.load(), recipe_mod.load("sdxl-hyper-render3d")
+    s, r = suite_mod.load(), recipe_mod.load("sdxl-cfg-render3d")
     kwargs = recipe_mod.job_kwargs(r, s.items[0], 42)
     accepted = set(inspect.signature(svc_jobs.create_job).parameters) - {"svc"}
     assert set(kwargs) <= accepted
@@ -181,24 +181,24 @@ def test_the_item_wins_over_the_recipe_on_a_shared_field():
 
 def test_the_backend_comes_from_the_recipe():
     s = suite_mod.load()
-    kwargs = recipe_mod.job_kwargs(recipe_mod.load("playground-fidelity"), s.items[0], 7)
-    assert kwargs["guidance_fields"]["base_model"] == "playground"
+    kwargs = recipe_mod.job_kwargs(recipe_mod.load("sdxl-cfg-pag-raw"), s.items[0], 7)
+    assert kwargs["guidance_fields"]["base_model"] == "sdxl_cfg_pag"
     assert kwargs["seed"] == 7
     assert kwargs["output"] == "reference"
 
 
 def test_a_lora_weight_rides_only_with_a_lora():
     s = suite_mod.load()
-    plain = recipe_mod.job_kwargs(recipe_mod.load("baseline-turbo-raw"), s.items[0], 1)
+    plain = recipe_mod.job_kwargs(recipe_mod.load("sdxl-cfg-raw"), s.items[0], 1)
     assert "lora_weight" not in plain
-    styled = recipe_mod.job_kwargs(recipe_mod.load("sdxl-hyper-render3d"), s.items[0], 1)
+    styled = recipe_mod.job_kwargs(recipe_mod.load("sdxl-cfg-render3d"), s.items[0], 1)
     assert styled["lora_weight"] == 0.9
 
 
 def test_the_model_stage_asks_for_a_mesh():
     s = suite_mod.load()
     kwargs = recipe_mod.job_kwargs(
-        recipe_mod.load("baseline-turbo-raw"), s.items[0], 1, stage="model"
+        recipe_mod.load("sdxl-cfg-raw"), s.items[0], 1, stage="model"
     )
     assert kwargs["output"] == "model"
 

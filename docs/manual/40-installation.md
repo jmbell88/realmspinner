@@ -143,10 +143,8 @@ uvx hf download stabilityai/stable-diffusion-xl-base-1.0 --revision 462165984030
   --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/sdxl-base-1.0
 ```
 
-That second download is the default image model, and it is also three others: the Hyper-SD, LCM
-and Lightning recipes are the same weights run differently, so each of them costs only a small
-adapter on top. SDXL-Turbo is a separate checkpoint and is optional now — the models page has its
-command.
+That second download is the default image model, and it is also the PAG recipe: the same weights
+run with two sampler upgrades, at no extra download.
 
 Familiar, the in-app assistant, is optional and separate from both: its runtime is llama.cpp's own CUDA
 Windows release (`ggml-org/llama.cpp`, two zips upstream splits apart — the server binaries and the CUDA
@@ -184,25 +182,6 @@ SDXL-class pipeline, not two, so switching between jobs costs a reload. Style Lo
 opposite — adapters on the resident pipeline, switched for free.
 
 ```powershell
-# SDXL-Turbo (~7 GB): the 4-step fast option, at 512 px and guidance 0. Its own
-# checkpoint rather than a recipe over the base weights, so it is a full second
-# download -- worth it when iteration speed matters more than fidelity. This is
-# also the entry REALMSPINNER_T2I_DIR redirects.
-uvx hf download stabilityai/sdxl-turbo --revision 71153311d3dbb46851df1931d3ca6e939de83304 `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" `
-  --exclude "sd_xl_turbo_1.0*" --local-dir $HOME/.realmspinner/models/sdxl-turbo
-
-# SDXL 1.0 + Hyper-SD (~7 GB + 787 MB). Style LoRAs are trained against full
-# SDXL at 20-25 steps with CFG, so they land noticeably stronger here than on
-# Turbo's 4 steps at guidance 0. Hyper-SD buys the step count back.
-uvx hf download stabilityai/stable-diffusion-xl-base-1.0 --revision 462165984030d82259a11f4367a4eed129e94a7b `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/sdxl-base-1.0
-uvx hf download ByteDance/Hyper-SD --revision bc08d970a87c74c71209491d64e3525845698863 Hyper-SDXL-4steps-lora.safetensors --local-dir $HOME/.realmspinner/models/loras
-
-# Playground v2.5 (~7 GB): highest fidelity, ~25 steps with CFG, correspondingly slower.
-uvx hf download playgroundai/playground-v2.5-1024px-aesthetic --revision 1e032f13f2fe6db2dc49947dbdbd196e753de573 `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/playground-v2.5
-
 # FLUX.2 klein-base 4B (~16 GB): a different architecture entirely -- one Qwen3
 # text encoder at 512 tokens instead of two CLIPs at 77, and a DiT instead of a
 # UNet. Honours a negative prompt, 50 steps at guidance 4. Offloaded rather than
@@ -210,38 +189,6 @@ uvx hf download playgroundai/playground-v2.5-1024px-aesthetic --revision 1e032f1
 uvx hf download black-forest-labs/FLUX.2-klein-base-4B --revision a3b4f4849157f664bdbc776fd7453c2783562f4d `
   --include "*.json" --include "*.txt" --include "*.jinja" --include "*.safetensors" `
   --exclude "flux-2-klein-base-4b.safetensors" --local-dir $HOME/.realmspinner/models/flux2-klein-base-4b
-
-# FLUX.2 klein 4B distilled (~16 GB): the 4-step sibling, at guidance 1.0. It
-# registers as distilled, so the negative prompt is inert on it -- pick
-# klein-base when you want one. It exists so the pixel-art klein LoRA below can
-# run at the recipe it was trained on.
-uvx hf download black-forest-labs/FLUX.2-klein-4B --revision e7b7dc27f91deacad38e78976d1f2b499d76a294 `
-  --include "*.json" --include "*.txt" --include "*.jinja" --include "*.safetensors" `
-  --exclude "flux-2-klein-4b.safetensors" --local-dir $HOME/.realmspinner/models/flux2-klein-4b
-
-# SDXL 1.0 + LCM (pixel art): the same base weights again, run at 8 steps with
-# guidance 1.0 -- the recipe the pixel-art LoRA below was trained against. The
-# LCM LoRA has to be renamed: loras/ is flat, and the upstream filename is
-# generic enough that any other repo's default-named adapter would overwrite it.
-uvx hf download latent-consistency/lcm-lora-sdxl --revision a18548dd4956b174ec5b0d78d340c8dae0a129cd `
-  pytorch_lora_weights.safetensors --local-dir $HOME/.realmspinner/models/loras
-Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors lcm-lora-sdxl.safetensors
-
-# SDXL 1.0 + Lightning (394 MB on top of the base weights): a second 4-step
-# distillation, adversarial where Hyper-SD is trajectory-consistency -- so the
-# two are directly comparable with everything else held fixed.
-uvx hf download ByteDance/SDXL-Lightning --revision c9a24f48e1c025556787b0c58dd67a091ece2e44 `
-  sdxl_lightning_4step_lora.safetensors --local-dir $HOME/.realmspinner/models/loras
-
-# Juggernaut XL v9 (~6.9 GB): a photoreal SDXL finetune, DPM++ 2M Karras at 35
-# steps with CFG 4.0. Materials and lighting read as photographed rather than
-# illustrated, which suits a prop that will be reconstructed and then lit.
-uvx hf download RunDiffusion/Juggernaut-XL-v9 --revision cf419233522daa0b9ea36c3aff98fa2cab1fb0fb `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/juggernaut-xl-v9
-
-# DreamShaper XL (~6.9 GB): the stylised counterpart, DEIS at 25 steps per its card.
-uvx hf download Lykon/dreamshaper-xl-1-0 --revision 41e6644752a8c9aa63930e6043c4fd83c7708420 `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/dreamshaper-xl
 
 # Style LoRAs -> ~/.realmspinner/models/loras/
 uvx hf download goofyai/3d_render_style_xl --revision 5ec74a57db5e244a2157173781a7b29045f88237 3d_render_style_xl.safetensors --local-dir $HOME/.realmspinner/models/loras
@@ -251,19 +198,11 @@ uvx hf download artificialguybr/ps1redmond-ps1-game-graphics-lora-for-sdxl --rev
   PS1Redmond-PS1Game-Playstation1Graphics.safetensors --local-dir $HOME/.realmspinner/models/loras
 # Pixel art: generates on a pixel grid rather than being downscaled into one.
 uvx hf download nerijs/pixel-art-xl --revision 8bf4a4d9ea283e00a51fafda8e0539f8248ea037 pixel-art-xl.safetensors --local-dir $HOME/.realmspinner/models/loras
-# Pixel art for FLUX.2 klein. Renamed for the same reason the LCM LoRA above is:
-# loras/ is flat and shared across architectures, and this repo ships the same
-# generic filename. It is offered only on the two klein entries.
-uvx hf download Limbicnation/pixel-art-lora --revision 0ac8e5c3400af68228811edc324721e25fc26777 `
-  pytorch_lora_weights.safetensors --local-dir $HOME/.realmspinner/models/loras
-Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors pixel-art-klein.safetensors
 ```
 
-The SDXL 1.0 weights serve five entries in the model list — the Hyper-SD one above, a full-CFG
-one that runs the same checkpoint at 30 steps with real classifier-free guidance, that same full-CFG
-recipe again with PAG's two training-free sampling upgrades on top, a pixel-art one that runs it at
-8 steps under an LCM adapter, and Lightning, a second 4-step distillation for comparison with
-Hyper-SD. Downloading them once gets you all five.
+The SDXL 1.0 weights serve two entries in the model list — a full-CFG one that runs the checkpoint
+at 30 steps with real classifier-free guidance (the default), and that same recipe with PAG's two
+training-free sampling upgrades on top. Downloading them once gets you both.
 
 ### Optional conditioning models
 
@@ -350,7 +289,7 @@ pair above is neither gated nor 12B, which is why those two are ordinary entries
 
 Because klein is a different architecture, the controls fitted to SDXL do not apply to it, and the
 pane says so rather than letting a submit fail: the style-LoRA picker lists only adapters fitted to
-the architecture you have chosen — for klein, the pixel-art LoRA above and nothing else — and
+the architecture you have chosen — for klein, there are none — and
 structure control explains that it needs a full-CFG model. Changing the base model clears a
 selection the new one cannot run and tells you which one it cleared, so switching to klein and back
 never leaves a stale choice behind.

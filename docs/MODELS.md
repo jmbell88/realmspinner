@@ -3,8 +3,8 @@
 Everything on this page is optional and independently skippable. The core setup in the
 [README](../README.md) — TRELLIS.2 plus SDXL 1.0 — is enough to generate assets; what follows
 widens the choices. SDXL 1.0 is the shipped default because it measured best on the maintainer's
-own benchmark corpus, and because its 7 GB is the one base download five registered recipes share, so most of this page
-is a small adapter over weights you already have rather than another checkpoint.
+own benchmark corpus, and because its 7 GB is the one base download two registered recipes share (full CFG and PAG), so this page
+is mostly the optional extras around weights you already have rather than more checkpoints.
 
 One thing on the generation side is **not** on this page and never will be: Create's **Character**
 type needs no weights at all. A character is built from an authored family of body plans and species
@@ -192,19 +192,14 @@ P53 holds, so this page does not say, and the fine-tune is not published until i
 
 **Read this before you sell anything you generated.** These weights are not part
 of Realmspinner: you download them from their publishers, under their terms,
-and two of them restrict commercial use of what they produce. The app shows the
+and one of them restricts commercial use of what it produces. The app shows the
 row below in the model picker and in **Settings → Models**, and marks the
 restricted ones; this table is the same information in full.
 
 | Model | Licence | Output may be sold? |
 |---|---|---|
-| **SDXL 1.0** (the default, and the Hyper-SD / Lightning / PAG recipes over it) | OpenRAIL++-M (Hyper-SD and SDXL-Lightning adapters are OpenRAIL++-M too) | Yes, subject to the licence's use restrictions |
-| **SDXL 1.0 + LCM** (the pixel-art recipe) | OpenRAIL++-M (SDXL 1.0) + OpenRAIL-M (LCM-LoRA) | Yes, subject to the use restrictions of both |
-| **SDXL-Turbo** | Stability AI Non-Commercial Research Community License | **No** — commercial use requires a paid Stability AI membership |
-| **Playground v2.5** | Playground v2.5 Community License | Yes below 1M monthly active users, and you must ship the licence text plus its attribution string |
-| **Juggernaut XL v9** | OpenRAIL-M | Yes, subject to the use restrictions |
-| **DreamShaper XL** | OpenRAIL++-M | Yes, subject to the use restrictions |
-| **FLUX.2 klein / klein-base 4B** | Apache-2.0 | Yes |
+| **SDXL 1.0** (the default, and the PAG recipe over it) | OpenRAIL++-M | Yes, subject to the licence's use restrictions |
+| **FLUX.2 klein-base 4B** | Apache-2.0 | Yes |
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
 | **llama.cpp** (Familiar's runtime) | MIT | Yes |
 | **Familiar weights, Gemma 4 12B QAT Q4_0** (stock pin) | Pending a human licence review (P53) | Not yet decided -- read the repository's own licence page |
@@ -217,7 +212,7 @@ restricted ones; this table is the same information in full.
 The OpenRAIL family is commercially permissive but carries *use* restrictions —
 a list of things you may not generate. They are short; read them once.
 
-**Hybrid Demucs is the second restricted one, and it is the only optional
+**Hybrid Demucs is the restricted one, and it is the only optional
 model Muse has.** The Demucs code is MIT, but Meta has stated the trained
 weights are provided for scientific purposes only, and the checkpoint here was
 trained the same way with no new grant. So stems you make with it are not
@@ -248,47 +243,9 @@ it bundles are in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
 # which counters high-CFG washout). The opt-in arm the bench compares against
 # the default before any flip.
 
-# SDXL-Turbo (~7 GB): the 4-step fast option, at 512 px and guidance 0. Its own
-# checkpoint rather than a recipe -- nothing else in the registry shares it --
-# and no longer part of the core setup. Worth having when iteration speed
-# matters more than fidelity, and the entry REALMSPINNER_T2I_DIR redirects.
-uvx hf download stabilityai/sdxl-turbo --revision 71153311d3dbb46851df1931d3ca6e939de83304 --include "*.json" --include "*.txt" --include "*fp16.safetensors" `
-  --exclude "sd_xl_turbo_1.0*" --local-dir $HOME/.realmspinner/models/sdxl-turbo
-
-# SDXL 1.0 + Hyper-SD (787 MB on top of the base above). Style LoRAs are
-# trained against full SDXL at 20-25 steps with CFG, so they land noticeably
-# stronger here than on Turbo's 4 steps at guidance 0. Hyper-SD buys the step
-# count back. If you skipped the README's step 4, the base line comes first:
+# If you skipped the README's step 4, the base line comes first:
 uvx hf download stabilityai/stable-diffusion-xl-base-1.0 --revision 462165984030d82259a11f4367a4eed129e94a7b `
   --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/sdxl-base-1.0
-uvx hf download ByteDance/Hyper-SD --revision bc08d970a87c74c71209491d64e3525845698863 Hyper-SDXL-4steps-lora.safetensors --local-dir $HOME/.realmspinner/models/loras
-
-# Playground v2.5 (~7 GB): highest fidelity, ~25 steps with CFG, correspondingly slower.
-uvx hf download playgroundai/playground-v2.5-1024px-aesthetic --revision 1e032f13f2fe6db2dc49947dbdbd196e753de573 `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/playground-v2.5
-
-# SDXL 1.0 + LCM (pixel art): the same base weights again, run at 8 steps with
-# guidance 1.0 -- the recipe the pixel-art LoRA below was trained against. The
-# LCM LoRA has to be renamed: loras/ is flat, and the upstream filename is
-# generic enough that any other repo's default-named adapter would overwrite it.
-uvx hf download latent-consistency/lcm-lora-sdxl --revision a18548dd4956b174ec5b0d78d340c8dae0a129cd `
-  pytorch_lora_weights.safetensors --local-dir $HOME/.realmspinner/models/loras
-Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors lcm-lora-sdxl.safetensors
-
-# SDXL 1.0 + Lightning (394 MB, reuses the sdxl-base-1.0 weights above): a
-# second 4-step distillation, adversarial where Hyper-SD is trajectory-
-# consistency, so the two are directly comparable with everything else fixed.
-uvx hf download ByteDance/SDXL-Lightning --revision c9a24f48e1c025556787b0c58dd67a091ece2e44 `
-  sdxl_lightning_4step_lora.safetensors --local-dir $HOME/.realmspinner/models/loras
-
-# Juggernaut XL v9 (~6.9 GB): a photoreal SDXL finetune, DPM++ 2M Karras at 35
-# steps with CFG 4.0 -- the middle of the ranges its own model card gives.
-uvx hf download RunDiffusion/Juggernaut-XL-v9 --revision cf419233522daa0b9ea36c3aff98fa2cab1fb0fb `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/juggernaut-xl-v9
-
-# DreamShaper XL (~6.9 GB): the stylised counterpart, DEIS at 25 steps per its card.
-uvx hf download Lykon/dreamshaper-xl-1-0 --revision 41e6644752a8c9aa63930e6043c4fd83c7708420 `
-  --include "*.json" --include "*.txt" --include "*fp16.safetensors" --local-dir $HOME/.realmspinner/models/dreamshaper-xl
 
 # FLUX.2 klein-base 4B (~16 GB): the one non-SDXL architecture -- one Qwen3 text
 # encoder at 512 tokens instead of two CLIPs at 77, and a DiT instead of a UNet.
@@ -296,25 +253,14 @@ uvx hf download Lykon/dreamshaper-xl-1-0 --revision 41e6644752a8c9aa63930e6043c4
 # LoRAs are per-architecture rather than SDXL-only: an adapter declares the
 # family it was fitted to, and the picker offers a base only the ones that fit.
 # The negative prompt does work here, which is why this is the undistilled
-# -base variant rather than the distilled FLUX.2-klein-4B below (that one
-# hardwires is_distilled=True, which switches classifier-free guidance off
-# entirely).
+# -base variant rather than the distilled FLUX.2-klein-4B (that one hardwires
+# is_distilled=True, which switches classifier-free guidance off entirely).
 # Streamed onto the card a submodule at a time, so it peaks near 10 GB rather
 # than 16 and still coexists with trellis. The --exclude skips a redundant
 # 7.75 GB single-file checkpoint the repo ships beside the diffusers layout.
 uvx hf download black-forest-labs/FLUX.2-klein-base-4B --revision a3b4f4849157f664bdbc776fd7453c2783562f4d `
   --include "*.json" --include "*.txt" --include "*.jinja" --include "*.safetensors" `
   --exclude "flux-2-klein-base-4b.safetensors" --local-dir $HOME/.realmspinner/models/flux2-klein-base-4b
-
-# FLUX.2 klein 4B distilled (~16 GB): the same architecture at the opposite
-# recipe -- 4 steps at guidance 1.0 rather than 50 at 4.0. It registers
-# is_distilled=True, so classifier-free guidance never runs and the negative
-# prompt is inert on it; pick klein-base above when a negative prompt is
-# wanted. It is here because the FLUX.2 pixel-art LoRA below was trained
-# against it.
-uvx hf download black-forest-labs/FLUX.2-klein-4B --revision e7b7dc27f91deacad38e78976d1f2b499d76a294 `
-  --include "*.json" --include "*.txt" --include "*.jinja" --include "*.safetensors" `
-  --exclude "flux-2-klein-4b.safetensors" --local-dir $HOME/.realmspinner/models/flux2-klein-4b
 
 # Style LoRAs -> ~/.realmspinner/models/loras/
 uvx hf download goofyai/3d_render_style_xl --revision 5ec74a57db5e244a2157173781a7b29045f88237 3d_render_style_xl.safetensors --local-dir $HOME/.realmspinner/models/loras
@@ -323,14 +269,14 @@ uvx hf download artificialguybr/3DRedmond-V1 --revision f4b4b980972566aea7c71af9
 uvx hf download artificialguybr/ps1redmond-ps1-game-graphics-lora-for-sdxl --revision 74bb3a6e2efd47ead698ff3ac2695ab63bbd2d5c `
   PS1Redmond-PS1Game-Playstation1Graphics.safetensors --local-dir $HOME/.realmspinner/models/loras
 # Pixel art: generates on a pixel grid rather than being downscaled into one.
+# Runs on SDXL 1.0 full CFG; FLUX.2 has no style LoRA.
 uvx hf download nerijs/pixel-art-xl --revision 8bf4a4d9ea283e00a51fafda8e0539f8248ea037 pixel-art-xl.safetensors --local-dir $HOME/.realmspinner/models/loras
-# Pixel art for FLUX.2 klein -- the one non-SDXL adapter, offered only on the two
-# klein entries above. Renamed on the way in because loras/ is flat and shared
-# across families, and lcm-lora-sdxl ships the same generic filename.
-uvx hf download Limbicnation/pixel-art-lora --revision 0ac8e5c3400af68228811edc324721e25fc26777 `
-  pytorch_lora_weights.safetensors --local-dir $HOME/.realmspinner/models/loras
-Rename-Item $HOME/.realmspinner/models/loras/pytorch_lora_weights.safetensors pixel-art-klein.safetensors
 ```
+
+**Retired models.** Juggernaut XL v9, DreamShaper XL, Playground v2.5, SDXL-Turbo, FLUX.2 klein 4B
+distilled and the Hyper-SD, Lightning and LCM adapters (and the FLUX.2 pixel-art LoRA) are no longer
+registered. If you downloaded any of them earlier, **Settings → Models → Retired** lists what is still on
+disk with a Delete button each; nothing is deleted for you.
 
 **FLUX.1 is not offered; FLUX.2 klein is.** The two `FLUX.1` checkpoints — `dev` and `schnell` —
 are not in the registry above at all, for the two reasons below. FLUX.2 klein is a different
@@ -340,9 +286,9 @@ Both `dev` and `schnell` are click-through gated on Hugging Face, and 12B parame
 coexist with trellis on one card. To use a local FLUX copy anyway: download it yourself
 (`uvx hf auth login` for the download only), point `REALMSPINNER_T2I_DIR` at it, and set
 `REALMSPINNER_VRAM_EXCLUSIVE=1`. Note that `REALMSPINNER_T2I_DIR` only redirects *where* the built-in
-`turbo` entry loads from — the redirect is pinned to that entry *by name*, so the 2026-08-11 move
-of the default onto SDXL 1.0 does not affect it. It still runs at turbo's settings (512 px, 4 steps, guidance 0),
-which suit schnell-like distilled checkpoints and nothing else. A model that needs different
+`sdxl_cfg` entry (SDXL 1.0 full CFG, the default) loads from — the redirect is pinned to that entry *by name*.
+It still runs at that entry's settings (1024 px, 30 steps, guidance 7.0), which suit SDXL-class checkpoints and
+nothing else. A model that needs different
 settings wants a `models.py` entry, not this variable.
 
 ## Conditioning, matting and measurement models
@@ -455,5 +401,5 @@ curl -L -o $HOME/.realmspinner/models/hdemucs-high/hdemucs_high_trained.pt --cre
 door, because there is no fallback and there is not supposed to be one. This missing means only
 that the *Stems* button refuses; everything else about a take is unaffected.
 
-See the licence note above before you use its output commercially — it is, with SDXL-Turbo, one of
-the two downloads in this document whose weights are non-commercial.
+See the licence note above before you use its output commercially — it is the one
+download in this document whose weights are non-commercial.

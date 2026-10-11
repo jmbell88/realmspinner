@@ -178,7 +178,7 @@ async def test_a_stored_klein_base_restyles_bare_and_the_sidecar_says_so(
     job_id = worker.store.create(
         "pixel_sheet", "a knight",
         {"source_job": source, "sheet_id": sheet_id, "logical_size": 32,
-         "colors": 8, "seed": 3, "base_model": "flux_klein_distilled"},
+         "colors": 8, "seed": 3, "base_model": "flux_klein"},
     )
     # klein is an OFFLOAD base, so the restyle's finally unloads the pipe and
     # clears worker._text2image -- reading it afterwards would be reading the
@@ -200,7 +200,7 @@ async def test_a_stored_klein_base_restyles_bare_and_the_sidecar_says_so(
     assert len(pipes) == 1
     assert {lora for lora, _weight in pipes[0].lora_calls} == {None}
     doc = rig_store.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
-    assert doc["restyle"]["base_model"] == "flux_klein_distilled"
+    assert doc["restyle"]["base_model"] == "flux_klein"
     assert "style_lora" not in doc["restyle"]
 
 

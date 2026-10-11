@@ -162,15 +162,19 @@ def test_models_md_flux1_note_sits_under_the_image_models_heading():
     assert heading == "Image models and style LoRAs"
 
 
-def test_models_md_licence_row_agrees_with_the_registry_for_the_lcm_recipe():
+def test_models_md_licence_table_agrees_with_the_registry_and_drops_the_retired_recipes():
+    """The LCM recipe once had a licence row of its own (OpenRAIL-M for the
+    adapter, not plain OpenRAIL++-M). The recipe was retired 2026-10-11 with
+    Hyper-SD and Lightning, so the table now has to carry exactly the
+    registered licences and none of the retired rows."""
     from realmspinner import models
 
-    lcm = next(m for m in models.BASE_MODELS.values() if "LCM" in m.label)
     text = _models_md()
     table = text[text.index("| Model | Licence"):text.index("The OpenRAIL family")]
-    row = next(line for line in table.splitlines() if "LCM" in line)
-    assert lcm.license in row
-    # And the combined row no longer sweeps the LCM recipe in under plain OpenRAIL++-M.
+    for base in models.BASE_MODELS.values():
+        assert base.license in table, base.key
+    for retired in ("LCM", "Lightning", "Hyper-SD", "SDXL-Turbo", "Playground", "Juggernaut"):
+        assert retired not in table, retired
     assert "Hyper-SD / LCM / Lightning" not in table
 
 
@@ -273,12 +277,14 @@ def test_retexture_docstrings_state_the_view_count():
 def test_manual_22_negative_prompt_inert_entries_match_the_registry():
     from realmspinner import models
 
+    # Five entries once ignored it (Turbo, Hyper-SD, Lightning, LCM, FLUX.2 klein
+    # distilled); all five were retired 2026-10-11, so the manual must say it
+    # is honoured on every shipped entry and no longer list the distilled five.
     inert = [m for m in models.BASE_MODELS.values() if m.guidance_scale <= 1.0]
-    assert len(inert) == 5
+    assert inert == []
     text = _text(ROOT / "docs" / "manual" / "22-generating-references.md")
     flat = " ".join(text.split())
     assert "the two four-step distilled defaults ignore it" not in flat
     assert "on the three four-step entries" not in flat
-    assert "the five distilled entries" in flat
-    for label in ("Turbo", "Hyper-SD", "Lightning", "LCM", "FLUX.2 klein distilled"):
-        assert label in flat
+    assert "the five distilled entries" not in flat
+    assert "guidance is 1.0 or lower" in flat

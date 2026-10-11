@@ -1,0 +1,12 @@
+{
+  "key": "pixel-cfg-xl",
+  "label": "SDXL 1.0 full CFG, pixel-art-xl LoRA",
+  "notes": "The pixel-art-xl arm on the shipped default. Replaced pixel-hyper-xl and pixel-lcm-xl when the Hyper-SD and LCM bases were retired.",
+  "guidance": {
+    "base_model": "sdxl_cfg",
+    "style_lora": "pixelxl",
+    "platform": "2d"
+  },
+  "lora_weight": 1.2,
+  "profile": "raw"
+}

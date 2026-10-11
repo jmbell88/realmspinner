@@ -32,11 +32,14 @@ from typing import Any
 
 # The one key REALMSPINNER_T2I_DIR redirects. Pinned by name, not to the default:
 # the variable predates the registry and docs/MODELS.md documents it as the
-# FLUX-proper workaround against the turbo entry's settings specifically. Tying
-# it to config.DEFAULT_BASE_MODEL made the redirect follow whichever model
-# happened to be the default, which would silently point an existing setup's
-# override at a checkpoint it was never about.
-T2I_DIR_MODEL = "turbo"
+# FLUX-proper workaround, written when the override named the SDXL-Turbo entry.
+# Turbo was retired from the registry (see ``RETIRED_MODELS``), so the redirect
+# now relocates ``sdxl_cfg``'s checkpoint -- the one directory every remaining
+# SDXL recipe shares. Pinned by name rather than tied to
+# config.DEFAULT_BASE_MODEL: tying it to the default made the redirect follow
+# whichever model happened to be the default, which would silently point an
+# existing setup's override at a checkpoint it was never about.
+T2I_DIR_MODEL = "sdxl_cfg"
 
 # Which architecture a checkpoint is, and therefore which encode/sample path
 # runs. Declared per model rather than sniffed, for the same reason
@@ -142,7 +145,7 @@ class Fetch:
     ``DEFAULT_MODEL_ROOT_TEXT`` when nobody supplies one --
     ``fetch.download_text(config, kind, spec)`` is the caller that does, and it
     resolves through ``fetch.destination`` so ``REALMSPINNER_T2I_ROOT`` and the
-    ``turbo``-only ``REALMSPINNER_T2I_DIR`` override are both honoured.
+    ``sdxl_cfg``-only ``REALMSPINNER_T2I_DIR`` override are both honoured.
 
     The literal used to be ``models/<local_dir>``, which was a *relative* path:
     pasting a command from the docs into any shell whose working directory was
@@ -311,14 +314,14 @@ def fetch_dests(
 
     The rule, in one place: a base model's own weights go to that model's
     directory -- which is not always ``root / dir_name``, because the legacy
-    ``REALMSPINNER_T2I_DIR`` relocates the ``turbo`` entry alone -- and everything
+    ``REALMSPINNER_T2I_DIR`` relocates the ``sdxl_cfg`` entry alone -- and everything
     else (a step-distillation LoRA into the flat ``loras/``, an adapter, a
     metric) resolves flat under the root.
 
     Taking resolved paths rather than a ``Config`` is what lets both callers
     share it: ``fetch.destination`` resolves them from config, and
     ``pipelines/text2image.py`` already holds its own two directories and must
-    not import config (no pipeline does). A second copy of "where does turbo
+    not import config (no pipeline does). A second copy of "where does sdxl_cfg
     live" is exactly how the paste-able command and the button came to disagree
     in the first place.
     """
@@ -353,8 +356,9 @@ class BaseModel:
     """A diffusers text2image checkpoint plus the settings it must be run at.
 
     Sampler settings are part of the model's identity, not user preference: a
-    4-step distilled model run at 25 steps with CFG produces mush, and Hyper-SD
-    silently degrades unless its scheduler uses trailing timestep spacing. So
+    4-step distilled model run at 25 steps with CFG produces mush, and a
+    step-distilled base silently degrades unless its scheduler uses trailing
+    timestep spacing. So
     steps/guidance/scheduler travel with the checkpoint.
     """
 
@@ -461,10 +465,11 @@ class BaseModel:
     #: This exists because a tool whose entire purpose is producing assets
     #: people will sell shipped two checkpoints that restrict exactly that and
     #: said so nowhere -- not in ``docs/MODELS.md``, not at download time, not
-    #: in the picker. SDXL-Turbo is Stability's non-commercial research licence
-    #: and was promoted in the README as "the fast option"; Playground v2.5
-    #: permits commercial use only below 1M monthly users and requires shipping
-    #: its licence and attribution string.
+    #: in the picker. SDXL-Turbo (Stability's non-commercial research licence,
+    #: promoted in the README as "the fast option") and Playground v2.5
+    #: (commercial use only below 1M monthly users, licence and attribution
+    #: string to ship) were the two; both have since left the registry, and the
+    #: field stays so the next restricted checkpoint cannot be added silently.
     #:
     #: ``commercial`` is the field the UI actually branches on, because it is
     #: the only question a user generating a game asset is really asking.
@@ -474,7 +479,7 @@ class BaseModel:
     commercial: bool = True
     #: The sentence the picker appends after the licence: the condition when
     #: ``commercial`` is True but not unconditionally so, or the reason when
-    #: it is False (``turbo`` names its non-commercial clause here).
+    #: it is False (the entry names its non-commercial clause here).
     license_note: str = ""
 
     @property
@@ -1115,11 +1120,11 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
 # tokenizer vocabularies, and the fp16 weight files only.
 _SDXL_FILES = ("*.json", "*.txt", "*fp16.safetensors")
 
-# Written once and referenced by five entries rather than repeated, because it
-# genuinely *is* one download: sdxl, sdxl_cfg, sdxl_cfg_pag, pixel and
-# lightning are five recipes over the same weights. Identity here is what
-# makes the dedupe in realmspinner.fetch obvious rather than a coincidence of
-# equal strings.
+# Written once and referenced by two entries rather than repeated, because it
+# genuinely *is* one download: sdxl_cfg and sdxl_cfg_pag are two recipes over
+# the same weights (five, until the distilled and LCM tiers were retired).
+# Identity here is what makes the dedupe in realmspinner.fetch obvious rather
+# than a coincidence of equal strings.
 _SDXL_BASE_1_0 = Fetch(
     "stabilityai/stable-diffusion-xl-base-1.0",
     "sdxl-base-1.0",
@@ -1131,108 +1136,11 @@ _SDXL_BASE_1_0 = Fetch(
 
 BASE_MODELS: dict[str, BaseModel] = _table(
     BaseModel(
-        "turbo",
-        "SDXL-Turbo (fast)",
-        "sdxl-turbo",
-        image_size=512,
-        steps=4,
-        guidance_scale=0.0,
-        fetch=(
-            Fetch(
-                "stabilityai/sdxl-turbo",
-                "sdxl-turbo",
-                revision="71153311d3dbb46851df1931d3ca6e939de83304",
-                allow_patterns=_SDXL_FILES,
-                ignore_patterns=("sd_xl_turbo_1.0*",),
-                size_gib=7.0,
-            ),
-        ),
-        description=(
-            "The fast option: four steps at 512 px, guidance off.\n\n"
-            "Its own checkpoint rather than a recipe over the base weights, and "
-            "worth having when iteration speed matters more than fidelity -- a "
-            "draft in seconds instead of most of a minute. Style LoRAs land "
-            "weakly here: they are trained against full SDXL at 20-25 steps with "
-            "CFG. This is also the entry REALMSPINNER_T2I_DIR redirects."
-        ),
-        license="Stability AI Non-Commercial Research Community License",
-        commercial=False,
-        license_note="Commercial use of generated images requires a paid Stability AI membership.",
-    ),
-    BaseModel(
-        # The backend where style LoRAs behave as trained: they are fitted
-        # against full SDXL at 20-25 steps with CFG, and Turbo's 4 steps at
-        # guidance 0 applies them only weakly. Hyper-SD buys back the step
-        # count without changing the base weights the LoRAs were fitted to.
-        "sdxl",
-        "SDXL 1.0 + Hyper-SD (best LoRA response)",
-        "sdxl-base-1.0",
-        image_size=1024,
-        steps=4,
-        guidance_scale=0.0,
-        scheduler="ddim_trailing",
-        base_lora="Hyper-SDXL-4steps-lora.safetensors",
-        fetch=(
-            _SDXL_BASE_1_0,
-            Fetch(
-                "ByteDance/Hyper-SD",
-                "loras",
-                revision="bc08d970a87c74c71209491d64e3525845698863",
-                filenames=("Hyper-SDXL-4steps-lora.safetensors",),
-                size_gib=0.8,
-            ),
-        ),
-        description=(
-            "Full SDXL in four steps, where style LoRAs behave as trained.\n\n"
-            "The base weights with Hyper-SD on top. Style LoRAs are fitted "
-            "against full SDXL at 20-25 steps with CFG and apply only weakly at "
-            "Turbo's four steps at guidance 0; Hyper-SD buys the step count back "
-            "without changing the weights they were fitted to."
-        ),
-        license="OpenRAIL++-M (SDXL 1.0) + OpenRAIL++-M (Hyper-SD)",
-        commercial=True,
-    ),
-    BaseModel(
-        # Its own scheduler_config.json is already EDMDPMSolverMultistep, so no
-        # override. The card recommends 50 steps; 25 is the point where extra
-        # steps stop visibly changing a plain-background single object, and
-        # this is a reference image for TRELLIS, not a final render.
-        "playground",
-        "Playground v2.5 (highest fidelity, slow)",
-        "playground-v2.5",
-        image_size=1024,
-        steps=25,
-        guidance_scale=3.0,
-        controlnet=True,
-        fetch=(
-            Fetch(
-                "playgroundai/playground-v2.5-1024px-aesthetic",
-                "playground-v2.5",
-                revision="1e032f13f2fe6db2dc49947dbdbd196e753de573",
-                allow_patterns=_SDXL_FILES,
-                size_gib=7.0,
-            ),
-        ),
-        description=(
-            "The highest-fidelity option, and correspondingly the slowest.\n\n"
-            "Its own checkpoint, about 25 steps with CFG. Reach for it when the "
-            "reference is the deliverable rather than a step on the way to a "
-            "mesh."
-        ),
-        license="Playground v2.5 Community License",
-        commercial=True,
-        license_note=(
-            "Free below 1M monthly active users. Requires shipping the licence "
-            "text and its attribution string with anything you distribute."
-        ),
-    ),
-    BaseModel(
-        # The same weights as "sdxl", run the way the checkpoint was trained:
-        # 30 steps with real classifier-free guidance and no Hyper-SD. This is
-        # the only reason it exists as a separate entry -- a distilled 4-step
-        # base at guidance 0 discards the negative prompt entirely
-        # (text2image encodes it only when guidance_scale > 1.0) and gives a
-        # ControlNet nothing to steer. No new weights: same dir_name.
+        # SDXL 1.0 run the way the checkpoint was trained: 30 steps with real
+        # classifier-free guidance. A distilled 4-step base at guidance 0 (the
+        # retired "sdxl"/Hyper-SD tier) discarded the negative prompt entirely
+        # (text2image encodes it only when guidance_scale > 1.0) and gave a
+        # ControlNet nothing to steer.
         "sdxl_cfg",
         "SDXL 1.0 (full CFG, structural control)",
         "sdxl-base-1.0",
@@ -1243,11 +1151,11 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         fetch=(_SDXL_BASE_1_0,),
         description=(
             "The default: full CFG, so structure is actually controllable.\n\n"
-            "No extra download -- the same base weights as the entry above, run "
-            "the way SDXL was trained, with ControlNet and a full-weight "
-            "negative prompt, the way this registry's other full-CFG bases "
-            "(Playground, PAG and the fine-tunes) also run. Slower than the "
-            "distilled options and measurably better at holding a silhouette."
+            "SDXL 1.0 run the way it was trained, with ControlNet and a "
+            "full-weight negative prompt, thirty steps at guidance 7. The "
+            "reference recipe the rest of this registry is measured against: "
+            "measurably better at holding a silhouette than any distilled "
+            "option was."
         ),
         license="OpenRAIL++-M",
         commercial=True,
@@ -1277,149 +1185,6 @@ BASE_MODELS: dict[str, BaseModel] = _table(
             "rescale at 0.7, which counters the washout high CFG produces. "
             "Cleaner structure for the same weights, and about a third more time "
             "per image."
-        ),
-        license="OpenRAIL++-M",
-        commercial=True,
-    ),
-    BaseModel(
-        # The pixel-art profile's null hypothesis: the same SDXL 1.0 weights as
-        # "sdxl"/"sdxl_cfg" (no new checkpoint), run the way the pixel-art-xl
-        # author documents -- LCM at 8 steps, guidance 1.0. Distinct from the
-        # Hyper-SD arm because stacking a 1.0-weight distillation LoRA under a
-        # 1.2-weight style LoRA is unproven; both arms exist so bench/pixel-v1
-        # can decide which the preset keeps.
-        #
-        # No VAE override on purpose. sdxl-vae-fp16-fix patches fp16's
-        # overflow-to-NaN, and everything here loads bfloat16 (see
-        # pipelines/text2image; variant="fp16" only names the weight *files*),
-        # which has fp32's exponent range -- so that failure mode does not
-        # exist here. If bench images ever show VAE decode artifacts, add a
-        # BaseModel.vae field then, with a dev/measurements/ note.
-        "pixel",
-        "SDXL 1.0 + LCM (pixel art)",
-        "sdxl-base-1.0",
-        image_size=1024,
-        steps=8,
-        guidance_scale=1.0,
-        scheduler="lcm",
-        base_lora="lcm-lora-sdxl.safetensors",
-        fetch=(
-            _SDXL_BASE_1_0,
-            Fetch(
-                "latent-consistency/lcm-lora-sdxl",
-                "loras",
-                revision="a18548dd4956b174ec5b0d78d340c8dae0a129cd",
-                filenames=("pytorch_lora_weights.safetensors",),
-                # Renamed because the upstream filename is generic: any other
-                # repo's default-named LoRA downloaded into the flat loras/
-                # directory would silently overwrite it.
-                rename=("pytorch_lora_weights.safetensors", "lcm-lora-sdxl.safetensors"),
-                size_gib=0.4,
-            ),
-        ),
-        description=(
-            "The recipe the pixel-art LoRA was trained against.\n\n"
-            "The base weights again with LCM on top: eight steps at guidance 1.0. "
-            "Pair it with the pixel-art style LoRA -- alone it is simply a fast "
-            "SDXL."
-        ),
-        license="OpenRAIL++-M (SDXL 1.0) + OpenRAIL-M (LCM-LoRA)",
-        commercial=True,
-    ),
-    BaseModel(
-        # The second distillation arm, and the reason it is worth a row: it is
-        # a genuinely different method from "sdxl"'s Hyper-SD -- adversarial
-        # rather than trajectory-consistency -- over the same base weights, so
-        # the sweep/verdict machinery can compare the two with everything else
-        # held fixed. 394 MB of new download, and no new checkpoint.
-        #
-        # Trailing timestep spacing is not optional, exactly as it is not for
-        # Hyper-SD: on the default leading spacing a Lightning LoRA produces a
-        # washed-out image and no error saying so. Euler rather than DDIM
-        # because that is the pairing the model card documents.
-        "lightning",
-        "SDXL 1.0 + Lightning (4-step)",
-        "sdxl-base-1.0",
-        image_size=1024,
-        steps=4,
-        guidance_scale=0.0,
-        scheduler="euler_trailing",
-        base_lora="sdxl_lightning_4step_lora.safetensors",
-        fetch=(
-            _SDXL_BASE_1_0,
-            Fetch(
-                "ByteDance/SDXL-Lightning",
-                "loras",
-                revision="c9a24f48e1c025556787b0c58dd67a091ece2e44",
-                filenames=("sdxl_lightning_4step_lora.safetensors",),
-                size_gib=0.4,
-            ),
-        ),
-        description=(
-            "A second four-step distillation, for comparison with Hyper-SD.\n\n"
-            "Reuses the base weights. Adversarial where Hyper-SD is trajectory- "
-            "consistency, so the two are directly comparable with everything else "
-            "held fixed."
-        ),
-        license="OpenRAIL++-M (SDXL 1.0) + OpenRAIL++-M (SDXL-Lightning)",
-        commercial=True,
-    ),
-    BaseModel(
-        # A photoreal SDXL finetune, run at its card's own recipe: DPM++ 2M
-        # Karras, 30-40 steps, CFG 3-7. 35/4.0 is the middle of both ranges.
-        # Full CFG, so the negative prompt is live and a ControlNet has
-        # something to steer.
-        "juggernaut",
-        "Juggernaut XL v9 (photoreal)",
-        "juggernaut-xl-v9",
-        image_size=1024,
-        steps=35,
-        guidance_scale=4.0,
-        scheduler="dpm_karras",
-        controlnet=True,
-        fetch=(
-            Fetch(
-                "RunDiffusion/Juggernaut-XL-v9",
-                "juggernaut-xl-v9",
-                revision="cf419233522daa0b9ea36c3aff98fa2cab1fb0fb",
-                allow_patterns=_SDXL_FILES,
-                size_gib=6.9,
-            ),
-        ),
-        description=(
-            "A photoreal SDXL finetune.\n\n"
-            "Its own checkpoint, DPM++ 2M Karras at 35 steps with CFG 4.0 -- the "
-            "middle of the ranges its model card gives. Materials and lighting "
-            "read as photographed rather than illustrated, which suits props that "
-            "will be reconstructed and then lit in an engine."
-        ),
-        license="OpenRAIL-M",
-        commercial=True,
-    ),
-    BaseModel(
-        # The stylised counterpart to juggernaut, and the card's own snippet is
-        # DEIS at 25 steps. It states no CFG, so this takes SDXL's own 7.0
-        # rather than inventing one.
-        "dreamshaper",
-        "DreamShaper XL (stylised)",
-        "dreamshaper-xl",
-        image_size=1024,
-        steps=25,
-        guidance_scale=7.0,
-        scheduler="deis",
-        controlnet=True,
-        fetch=(
-            Fetch(
-                "Lykon/dreamshaper-xl-1-0",
-                "dreamshaper-xl",
-                revision="41e6644752a8c9aa63930e6043c4fd83c7708420",
-                allow_patterns=_SDXL_FILES,
-                size_gib=6.9,
-            ),
-        ),
-        description=(
-            "The stylised counterpart to the photoreal finetune above.\n\n"
-            "Its own checkpoint, DEIS at 25 steps per its card."
         ),
         license="OpenRAIL++-M",
         commercial=True,
@@ -1491,68 +1256,9 @@ BASE_MODELS: dict[str, BaseModel] = _table(
             "The one non-SDXL architecture, at full CFG.\n\n"
             "A 4B model with a Qwen3 text encoder, so it reads long prompts far "
             "more literally than SDXL does. The -base variant rather than the "
-            "distilled one below, because a negative prompt is inert on the "
+            "distilled one, because a negative prompt is inert on the "
             "distilled weights. Large -- budget the VRAM before running it beside "
             "a reconstruction."
-        ),
-        license="Apache-2.0",
-        commercial=True,
-    ),
-    BaseModel(
-        # The distilled sibling of flux_klein above, and the other side of that
-        # entry's argument. This one *does* register is_distilled=True, so
-        # Flux2KleinPipeline.do_classifier_free_guidance is permanently False
-        # and the negative prompt is inert on it -- which needs no new code,
-        # because cfg_bases() filters on guidance_scale > 1.0 and 1.0 excludes
-        # it. Pick klein-base when a negative prompt is wanted.
-        #
-        # It exists so the pixel-art style LoRA can run at the recipe it was
-        # trained on: 4 steps at CFG 1.0. The two checkpoints are the same
-        # architecture, so an adapter fitted to either loads onto both; which
-        # one *expresses* a style is a recipe fact, measured rather than
-        # assumed (dev/measurements/2026-08-10-pixel-art-klein.md).
-        #
-        # Same layout, same probe, same offload argument, same redundant
-        # single-file checkpoint to ignore as klein-base.
-        "flux_klein_distilled",
-        "FLUX.2 klein 4B (distilled, 4-step)",
-        "flux2-klein-4b",
-        image_size=1024,
-        steps=4,
-        guidance_scale=1.0,
-        variant=None,
-        family=FAMILY_FLUX2_KLEIN,
-        residency=OFFLOAD,
-        vram_gib=10.0,
-        # The whole checkpoint stays in host memory for the pipe's life -- that
-        # is what offload means, and it is why vram_gib above is 10 rather than
-        # 16. Admission has to have the host number by name.
-        #
-        # 24.0, not the checkpoint's ~16: measured 2026-08-22 end to end, a load
-        # charged 18.3 GiB of private commit and one 1024x1024 sample took it to
-        # **24.1**, which is the figure admission is actually standing in front
-        # of. The old number priced the weights and forgot the sample
-        # (dev/measurements/2026-08-22-trampoline-child-pids.md).
-        host_peak_gib=24.0,
-        probe=(
-            "transformer/diffusion_pytorch_model.safetensors",
-            "text_encoder/model-00001-of-00002.safetensors",
-        ),
-        fetch=(
-            Fetch(
-                "black-forest-labs/FLUX.2-klein-4B",
-                "flux2-klein-4b",
-                revision="e7b7dc27f91deacad38e78976d1f2b499d76a294",
-                allow_patterns=("*.json", "*.txt", "*.jinja", "*.safetensors"),
-                ignore_patterns=("flux-2-klein-4b.safetensors",),
-                size_gib=16.0,
-            ),
-        ),
-        description=(
-            "The same architecture at four steps; no negative prompt.\n\n"
-            "Guidance is baked in, so a negative prompt does nothing at all here "
-            "-- pick klein-base when you want one. It is here because the FLUX.2 "
-            "pixel-art LoRA was trained against these weights."
         ),
         license="Apache-2.0",
         commercial=True,
@@ -1651,77 +1357,8 @@ STYLE_LORAS: dict[str, StyleLora] = _table(
         description=(
             "Draws on a pixel grid rather than being downscaled onto one.\n\n"
             "The difference is the whole point: a downscaled render has soft, "
-            "resampled edges, and this generates the blocks. SDXL only -- pair it "
-            "with the LCM pixel recipe it was trained against."
-        ),
-    ),
-    StyleLora(
-        # The registry's first non-SDXL adapter, and the reason StyleLora has a
-        # ``family`` at all. Trained against the *distilled* FLUX.2-klein-4B;
-        # klein-base is the same architecture, so it loads onto both, and which
-        # one expresses the style is a recipe fact rather than an architecture
-        # one -- measured in dev/measurements/2026-08-10-pixel-art-klein.md.
-        #
-        # "pixelklein" names the architecture the way "pixelxl" does. A bare
-        # "pixel" is banned: it is a BASE_MODELS key, and keys are adapter
-        # names on one pipeline.
-        #
-        # The trigger is the card's declared trigger_word, so like every other
-        # trigger here it is model-facing scaffolding and may never appear in
-        # guidance.py's fragments -- which tests/test_guidance.py already pins
-        # for the word "pixel", the word this one contains.
-        #
-        # The rename is mandatory rather than tidy: loras/ is flat and shared
-        # across families, and "pytorch_lora_weights.safetensors" is also what
-        # latent-consistency/lcm-lora-sdxl ships. Two generic names in one flat
-        # directory is one file, silently the wrong weights under one of the
-        # keys. fetch_worker performs the rename inside staging, before the
-        # move, so the generic name never lands in loras/ at all.
-        #
-        # The repo also ships a .comfyui.safetensors variant, deliberately not
-        # used: it carries no lora_adapter_metadata and no kohya .alpha keys,
-        # so peft would load it at scale 1.0 against a trained alpha/sqrt(r) of
-        # 16.0 -- a 16x under-application no strength slider could reach. The
-        # diffusers file declares r=64, alpha=128, use_rslora=True in its own
-        # header and is restored exactly.
-        "pixelklein",
-        "Pixel art (FLUX.2 klein)",
-        "pixel-art-klein.safetensors",
-        trigger="pixel art sprite",
-        family=FAMILY_FLUX2_KLEIN,
-        # Measured, and far below every other entry here for one declared
-        # reason: this adapter trained with use_rslora=True, so peft restores a
-        # scale of alpha/sqrt(r) = 128/8 = 16.0 where an ordinary alpha/r LoRA
-        # restores about 2. The slider's meaning is unchanged -- it has always
-        # been a multiplier on whatever the checkpoint declares -- so 0.0625 is
-        # the number that puts this one at an effective 1.0.
-        #
-        # The model card's own 0.85-1.4 assumes a loader that ignores rslora;
-        # honoured, that range is an effective 13.6-22.4 and every image in it
-        # is a black frame. The usable band is 0.02-0.08, and by 0.125 the
-        # lattice is already smearing. All of that is measured, per prompt and
-        # per weight, in dev/measurements/2026-08-10-pixel-art-klein.md.
-        default_weight=0.0625,
-        fetch=(
-            Fetch(
-                "Limbicnation/pixel-art-lora",
-                "loras",
-                # Unconfirmed against local bytes: this adapter is in the
-                # registry but has never been downloaded on the host the
-                # pins were recovered from, so the SHA comes from the hub's
-                # refs/main rather than from a .metadata beside real files.
-                # Re-check it against the HF API the next time this box is
-                # online; every other pin here was read off downloaded data.
-                revision="0ac8e5c3400af68228811edc324721e25fc26777",
-                filenames=("pytorch_lora_weights.safetensors",),
-                rename=("pytorch_lora_weights.safetensors", "pixel-art-klein.safetensors"),
-                size_gib=0.3,
-            ),
-        ),
-        description=(
-            "Pixel art for the FLUX.2 klein family.\n\n"
-            "The one non-SDXL adapter here, and it is offered only on the two "
-            "klein entries because a LoRA cannot cross architectures."
+            "resampled edges, and this generates the blocks. SDXL only -- it "
+            "applies at full strength on the full-CFG SDXL recipes."
         ),
     ),
 )
@@ -1749,6 +1386,131 @@ def style_loras_snapshot() -> dict[str, StyleLora]:
     """
     with STYLE_LORAS_LOCK:
         return dict(STYLE_LORAS)
+
+
+@dataclass(frozen=True, slots=True)
+class RetiredModel:
+    """One thing that left the registry but may still sit on a user's disk.
+
+    **Why a ledger and not just a deletion.** ``service.downloads.uninstall``
+    works on registered rows only, reference-counted over the registry, so the
+    moment a row leaves ``BASE_MODELS`` its folder is undeletable from the app:
+    seven gigabytes with no button. ``familiar-q2`` and
+    ``prompt-expander-fooocus`` were already stranded that way. This record
+    keeps the *address* of what was retired so Settings → Models can offer a
+    Remove for it and ``doctor`` can say it is there.
+
+    ``kind`` is what ``key`` names: ``"base"`` and ``"style_lora"`` are keys of
+    the tables they left (stored job params may still hold them -- see
+    :func:`retired_choice`), ``"folder"`` is a leftover directory that was never
+    a registry key at all.
+
+    ``paths`` are relative to ``Config.t2i_model_root``, POSIX-separated, and
+    are only what the retired entry owned *alone*: a distilled SDXL tier's own
+    folder was the shared ``sdxl-base-1.0``, which ``sdxl_cfg`` still stands on,
+    so those entries list just their step-distillation adapter file.
+    ``tests/test_models.py`` pins that no retired path is one a live row uses.
+    """
+
+    key: str
+    kind: str
+    label: str
+    retired_in: str
+    paths: tuple[str, ...] = ()
+
+
+#: What was removed on 2026-10-11 (the image-model pruning) plus the two
+#: directories that were stranded before it. Not migrated, not aliased: a
+#: stored job that names one of these keys is *refused* on rerun
+#: (:func:`retired_choice`), because silently substituting the default would
+#: write a row claiming one checkpoint while running another.
+RETIRED_MODELS: dict[str, RetiredModel] = _table(
+    RetiredModel("turbo", "base", "SDXL-Turbo", "2026-10-11", ("sdxl-turbo",)),
+    RetiredModel(
+        "sdxl",
+        "base",
+        "SDXL 1.0 + Hyper-SD (Fast)",
+        "2026-10-11",
+        ("loras/Hyper-SDXL-4steps-lora.safetensors",),
+    ),
+    RetiredModel("playground", "base", "Playground v2.5", "2026-10-11", ("playground-v2.5",)),
+    RetiredModel(
+        "pixel",
+        "base",
+        "SDXL 1.0 + LCM (pixel art)",
+        "2026-10-11",
+        ("loras/lcm-lora-sdxl.safetensors",),
+    ),
+    RetiredModel(
+        "lightning",
+        "base",
+        "SDXL 1.0 + Lightning (4-step)",
+        "2026-10-11",
+        ("loras/sdxl_lightning_4step_lora.safetensors",),
+    ),
+    RetiredModel("juggernaut", "base", "Juggernaut XL v9", "2026-10-11", ("juggernaut-xl-v9",)),
+    RetiredModel("dreamshaper", "base", "DreamShaper XL", "2026-10-11", ("dreamshaper-xl",)),
+    RetiredModel(
+        "flux_klein_distilled",
+        "base",
+        "FLUX.2 klein 4B (distilled)",
+        "2026-10-11",
+        ("flux2-klein-4b",),
+    ),
+    RetiredModel(
+        "pixelklein",
+        "style_lora",
+        "Pixel art (FLUX.2 klein)",
+        "2026-10-11",
+        ("loras/pixel-art-klein.safetensors",),
+    ),
+    # Stranded before this ledger existed: nothing in the registry has named
+    # either since Familiar's removal and return (CHANGELOG 0.0.x). Familiar's
+    # own live directory is ``config.familiar_models_dir`` -- ``models/familiar``
+    # -- and is deliberately NOT here.
+    RetiredModel(
+        "familiar-q2",
+        "folder",
+        "Familiar test weights (Q2)",
+        "2026-09-26",
+        ("familiar-q2",),
+    ),
+    RetiredModel(
+        "prompt-expander-fooocus",
+        "folder",
+        "Prompt expander (Fooocus)",
+        "2026-09-26",
+        ("prompt-expander-fooocus",),
+    ),
+)
+
+
+def retired_choice(field: str, value: Any) -> RetiredModel | None:
+    """The ledger entry for a ``base_model``/``style_lora`` value, or None.
+
+    The one question the doors and the worker ask about a stored key: "was this
+    a real choice that has since been removed?". Distinct from "unknown" on
+    purpose -- an unknown key is a typo and keeps its generic refusal, a retired
+    one gets a sentence that names the model and says what to do. Neither is
+    aliased to a replacement (dev/INVARIANTS.md: retired keys are tolerated,
+    never mapped).
+    """
+    kind = {"base_model": "base", "style_lora": "style_lora"}.get(field)
+    if kind is None or not value:
+        return None
+    live = BASE_MODELS if kind == "base" else STYLE_LORAS
+    if str(value) in live:
+        # A key that is registered again is a live choice, whatever the ledger
+        # remembers about an earlier row of the same name.
+        return None
+    entry = RETIRED_MODELS.get(str(value))
+    return entry if entry is not None and entry.kind == kind else None
+
+
+def retired_message(entry: RetiredModel) -> str:
+    """The refusal sentence for a retired choice, shared by every door."""
+    what = "image model" if entry.kind == "base" else "style"
+    return f"{entry.label} was removed in this version; pick another {what}."
 
 
 IP_ADAPTERS: dict[str, IPAdapter] = _table(

@@ -5,7 +5,7 @@ properties are that it resolves through the registry rather than a hand-written
 list (so a feature naming a row that does not exist is a loud failure, not a
 quiet "nothing missing"), and that it deliberately does *not* dedupe sizes --
 the dedupe is a composition with ``plan_for``, and the whole point of that split
-is the five SDXL recipes sharing one 7 GiB checkpoint.
+is the SDXL recipes sharing one 7 GiB checkpoint.
 """
 
 from __future__ import annotations
@@ -63,30 +63,32 @@ def test_an_unknown_row_raises_rather_than_reporting_nothing_missing(svc):
         svc_downloads.needed_rows(svc, ("base:no-such-model",))
 
 
-def test_the_size_is_deduped_only_when_composed(svc):
+def test_the_size_is_deduped_only_when_composed(svc, monkeypatch):
     """The split the docstring promises, measured on the shared checkpoint.
 
     Five recipes over one ``sdxl-base-1.0`` directory: summing the per-row
     figures counts 7 GiB four times, and ``needed_gib`` -- which composes with
     ``plan_for`` -- counts it once.
     """
-    shared = ("base:sdxl", "base:sdxl_cfg", "base:pixel", "base:lightning")
+    # Two shipped recipes plus a synthetic distilled one (the shipped
+    # Hyper-SD/LCM/Lightning tiers were retired 2026-10-11): three rows, one
+    # checkpoint, one small adapter.
+    from _synthetic_models import install
+
+    spec = install(monkeypatch)
+    shared = (f"base:{spec.key}", "base:sdxl_cfg", "base:sdxl_cfg_pag")
     for row_key in shared:
         entry = fetch.find(row_key)
         assert entry is not None
-    (fetch.base_model_dir(svc.config, fetch.find("base:sdxl").spec) / "model_index.json").unlink()
-    for name in ("Hyper-SDXL-4steps-lora.safetensors", "lcm-lora-sdxl.safetensors",
-                 "sdxl_lightning_4step_lora.safetensors"):
-        (svc.config.t2i_model_root / "loras" / name).unlink()
+    (fetch.base_model_dir(svc.config, spec) / "model_index.json").unlink()
 
     rows = svc_downloads.needed_rows(svc, shared)
     assert [r["row_key"] for r in rows] == list(shared)
     naive = sum(r["size_gib"] for r in rows)
     deduped = svc_downloads.needed_gib(svc, shared)
-    # 7 + 0.8 + 7 + 7 + 0.4 + 7 + 0.4 counted per row, against one 7 plus the
-    # three small adapters once each.
-    assert naive > 25.0
-    assert deduped == pytest.approx(7.0 + 0.8 + 0.4 + 0.4)
+    # 7 + 0.8 + 7 + 7 counted per row, against one 7 plus the adapter once.
+    assert naive > 20.0
+    assert deduped == pytest.approx(7.0 + 0.8)
 
 
 # --- the refusals carry the rows --------------------------------------------

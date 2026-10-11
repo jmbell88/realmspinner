@@ -262,6 +262,13 @@ class GenerateOps:
         if job["kind"] == "text":
             base_key = self._resolve_base_key(params)
             style_lora = params.get("style_lora") or None
+            retired_style = models.retired_choice("style_lora", style_lora)
+            if retired_style is not None:
+                # Not the "key the registry no longer holds" tolerance below: a
+                # *retired* style was a real choice, and dropping it quietly
+                # would finish a row whose params claim a look that never ran
+                # (style_lora is a VECTOR_PARAM -- corpus evidence).
+                raise ValueError(models.retired_message(retired_style))
             lora_weight = float(params.get("lora_weight", models.DEFAULT_LORA_WEIGHT))
             spec = models.BASE_MODELS[base_key]
             style = models.STYLE_LORAS.get(style_lora or "")
@@ -1113,7 +1120,7 @@ class GenerateOps:
             self._text2image = build(
                 spec,
                 self.config.t2i_model_root,
-                # Honoured for turbo only -- see Config.t2i_turbo_dir.
+                # Honoured for models.T2I_DIR_MODEL only -- see Config.t2i_turbo_dir.
                 self.config.t2i_turbo_dir if base_key == models.T2I_DIR_MODEL else None,
             )
             self._t2i_key = base_key

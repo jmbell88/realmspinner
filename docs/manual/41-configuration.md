@@ -44,7 +44,7 @@ defaults to on (such as `REALMSPINNER_NATIVE`) means an unrecognised word leaves
 | `REALMSPINNER_BENCH_DIR` | `~/.realmspinner/bench` | Where the benchmark writes its runs. Outside the data directory on purpose, so a run survives pruning. |
 | `REALMSPINNER_EVIDENCE_DIR` | `~/.realmspinner/evidence` | Where a bulk delete copies the files of anything you graded, or a benchmark tagged, before removing it. Outside the data directory for `BENCH_DIR`'s reason, and for a measured one: finishing a grading pass is what fires the automatic sweep cleanup, so it was also what deleted the meshes that pass had just judged. `realmspinner doctor` prints the size. |
 | `REALMSPINNER_T2I_ROOT` | `~/.realmspinner/models` | Where every image model lives, with style LoRAs under its `loras/` subdirectory. |
-| `REALMSPINNER_T2I_DIR` | unset | Redirects the built-in `turbo` entry (by name; not the default model) at an arbitrary local diffusers directory. It changes *where* that entry loads from and nothing else. |
+| `REALMSPINNER_T2I_DIR` | unset | Redirects the built-in `sdxl_cfg` entry (by name; it is the default model) at an arbitrary local diffusers directory. It changes *where* that entry loads from and nothing else. |
 | `REALMSPINNER_T2I_MODEL` | `sdxl_cfg` | The base model key used when a job does not name one. |
 | `REALMSPINNER_T2I_IN_PROCESS` | `0` | Loads the image model inside the app process instead of the usual child. Not a speed switch and not recommended: the child costs one spawn per unload cycle and buys back what the in-process loader cannot give, since the allocator's arenas outlive every reference (klein charged +21.1 GiB of host commit on 2026-08-22 and `unload()` returned 0.1 GiB of it). Setting this restores that leak. |
 | `REALMSPINNER_PALETTE_DIR` | `~/.realmspinner/palettes` | Where palette files live (`.hex` from Lospec, `.gpl` from GIMP, `.pal` from Paint Shop Pro, `.txt` from Paint.NET). Ships empty; a missing directory simply means the palette control offers nothing. |
@@ -221,13 +221,14 @@ refusing to start; the console handler is always there.
 
 ## Using a different image model
 
-`REALMSPINNER_T2I_DIR` points the built-in `turbo` entry at a local diffusers directory of your choosing.
+`REALMSPINNER_T2I_DIR` points the built-in `sdxl_cfg` entry (SDXL 1.0 full CFG, the default) at a local
+diffusers directory of your choosing.
 It is the pre-registry override, still honoured so existing setups keep working, and its limit
 matters: it redirects *where* that entry loads from, and the entry still runs at its own settings —
-512 pixels, 4 steps, guidance 0. Those suit schnell-like distilled checkpoints and nothing else. A
-25-step model run at 4 steps with no classifier-free guidance produces mush.
+1024 pixels, 30 steps, guidance 7.0. Those suit SDXL-class checkpoints and nothing else. A
+few-step distilled model run at 30 steps with full guidance produces mush.
 
-So the variable is the right tool for exactly one case: swapping in another distilled checkpoint
+So the variable is the right tool for exactly one case: swapping in another SDXL-class checkpoint
 that wants the same sampler settings. A model that needs different settings wants a registry entry
 in `models.py` instead, which carries its own image size, step count, guidance scale, variant,
 scheduler and always-on step-distillation LoRA — because those are properties of the checkpoint, not

@@ -129,14 +129,17 @@ def test_exe_check_fails_when_a_sibling_runtime_dll_is_missing(tmp_path):
 # --- pipelines-install-04: suspect_files must also weigh a base's own LoRA --
 
 
-def test_a_zero_byte_base_lora_makes_the_base_model_suspect(tmp_path):
+def test_a_zero_byte_base_lora_makes_the_base_model_suspect(tmp_path, monkeypatch):
     """``suspect_files``'s ``base`` branch scanned the checkpoint directory
     for empty weight files but never looked at ``loras/<base_lora>`` --
     exactly the file ``base_model_state`` refuses without -- so a killed
     download that left a zero-byte ``Hyper-SDXL-4steps-lora.safetensors``
     kept every doctor row green."""
-    spec = model_registry.BASE_MODELS["sdxl"]
-    assert spec.base_lora, "fixture assumption: sdxl carries a step-distillation LoRA"
+    from _synthetic_models import install
+
+    # Synthetic: the shipped Hyper-SD ``sdxl`` entry was retired 2026-10-11.
+    spec = install(monkeypatch)
+    assert spec.base_lora, "fixture assumption: the entry carries a step-distillation LoRA"
 
     config = _config(tmp_path)
     base_dir = fetch.base_model_dir(config, spec)

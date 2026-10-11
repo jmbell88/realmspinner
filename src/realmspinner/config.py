@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # ``config.py`` -- layer 0, imported by nearly everything -- reach up into
 # ``models`` -- layer 2, the weights registry -- for a single string.
 #
-# Not turbo, and measured rather than preferred: in the 2026-08-09 re-baseline
+# Not turbo (since retired), and measured rather than preferred: in the 2026-08-09 re-baseline
 # `base_model=turbo` took 1 of 5 -- the weakest checkpoint that produced data --
 # while `base_model=sdxl_cfg` took 3 of 3, the best survival rate of any arm
 # with data. The two rank oppositely on refusals and on quality (both of that
@@ -25,9 +25,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # minutes of the serial worker spent on something they will discard.
 #
 # It is also the distribution decision. One 7 GiB download of
-# stabilityai/stable-diffusion-xl-base-1.0 is shared by five recipes -- sdxl,
-# sdxl_cfg, sdxl_cfg_pag, pixel, lightning -- so shipping this one entry unlocks the speed
-# recipes for a small LoRA each, and pixel sheets for 0.2 GB more. Recorded in
+# stabilityai/stable-diffusion-xl-base-1.0 is shared by two recipes --
+# sdxl_cfg and sdxl_cfg_pag (three more, the distilled tiers, until they were
+# retired 2026-10-11) -- and pixel sheets cost 0.2 GB more. Recorded in
 # dev/measurements/2026-08-11-default-base-model.md.
 #
 # The key is only meaningful against ``models.BASE_MODELS``, which this module
@@ -617,13 +617,14 @@ class Config:
     t2i_model_root: Path = field(
         default_factory=lambda: _env_path("REALMSPINNER_T2I_ROOT", _home() / "models")
     )
-    # Pre-registry override, still honoured: points the *turbo* entry at an
-    # arbitrary local diffusers dir so existing setups keep working. Other base
+    # Pre-registry override, still honoured: points the ``models.T2I_DIR_MODEL``
+    # entry (``sdxl_cfg``; it was ``turbo`` until that checkpoint was retired)
+    # at an arbitrary local diffusers dir so existing setups keep working. Other base
     # models always resolve under t2i_model_root.
     #
     # ``_env_opt_path``, not a truthiness test on the raw variable: a whitespace-
     # only value is truthy but ``_env_path`` strips it and falls back to its
-    # default -- here the checkout -- so the turbo row's download destination,
+    # default -- here the checkout -- so that row's download destination,
     # presence probe and journal root silently became the repository root (the
     # 2026-10-03 audit, finding service-20; ``export_dir`` had the same shape and
     # was fixed in 2026-09-26, service-gates-05). Blank means unset.

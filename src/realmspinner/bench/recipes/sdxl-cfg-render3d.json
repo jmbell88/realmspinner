@@ -1,0 +1,12 @@
+{
+  "key": "sdxl-cfg-render3d",
+  "label": "SDXL 1.0 full CFG, 3D-render LoRA",
+  "notes": "The style-LoRA arm on the shipped default. Replaced sdxl-hyper-render3d when the Hyper-SD base was retired.",
+  "guidance": {
+    "base_model": "sdxl_cfg",
+    "style_lora": "render3d",
+    "platform": "3d"
+  },
+  "lora_weight": 0.9,
+  "profile": "raw"
+}

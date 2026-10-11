@@ -40,6 +40,7 @@ from .validation import (
     DERIVED_PARAMS,
     MAX_MESH_CANDIDATES,
     check_job_id,
+    check_not_retired,
     check_recon_views,
     check_seed,
     check_trellis_atlas,
@@ -425,6 +426,12 @@ def rerun_job(
     # bad picture but a poisoned neighbourhood of them. Unconditional for every
     # kind, as at create_job's door -- check_weights makes the text-only
     # decision itself.
+    if kind != "image":
+        # An image job (a remesh, or a reroll of a model-stage row) never runs
+        # the image model, so a retired name in its params is history and does
+        # not block the 3D stage it is actually asking for. Every other kind
+        # reloads the checkpoint, and must not be admitted onto a substitute.
+        check_not_retired(params)
     check_weights(svc, kind, params)
     check_vram(svc, kind, stage, params)
     if kind == "tile_sheet":

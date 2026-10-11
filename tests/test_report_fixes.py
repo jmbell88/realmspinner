@@ -524,25 +524,18 @@ def test_every_base_model_declares_its_licence():
         assert spec.license, f"{key} declares no licence"
 
 
-def test_the_two_restricted_models_are_marked_as_such():
-    """SDXL-Turbo is Stability's non-commercial research licence -- and was
-    promoted in the README as "the fast option". Playground v2.5 permits
-    commercial use only below 1M monthly users and requires an attribution
-    string this project owes."""
+def test_no_registered_model_restricts_commercial_use_and_the_two_that_did_are_retired():
+    """SDXL-Turbo (Stability's non-commercial research licence, promoted in the
+    README as "the fast option") and Playground v2.5 (commercial use only below
+    1M monthly users, attribution string owed) were the two restricted
+    checkpoints; both left the registry on 2026-10-11. The ``commercial`` /
+    ``license_note`` fields stay so the next restricted entry cannot be added
+    without saying so, and this pins that nothing restricted is registered."""
     from realmspinner import models
 
-    turbo = models.BASE_MODELS["turbo"]
-    assert not turbo.commercial
-    assert "Non-Commercial" in turbo.license
-    assert turbo.license_note
-
-    playground = models.BASE_MODELS["playground"]
-    assert playground.commercial and playground.license_note
-    assert "1M monthly active users" in playground.license_note
-
-    # And nothing else claims a restriction it does not have.
     restricted = {k for k, m in models.BASE_MODELS.items() if not m.commercial}
-    assert restricted == {"turbo"}
+    assert restricted == set()
+    assert {"turbo", "playground"} <= set(models.RETIRED_MODELS)
 
 
 def test_the_licence_reaches_the_row_the_download_button_is_on():

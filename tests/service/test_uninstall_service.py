@@ -35,32 +35,43 @@ def test_removing_a_style_lora_takes_one_file_and_says_what_it_freed(svc):
     assert not fetch.find("lora:pixelxl").is_present(svc.config)
 
 
-def test_one_shared_recipe_leaves_the_checkpoint_the_others_stand_on(svc):
-    """The rule the whole feature turns on. Removing ``sdxl`` must take its
-    Hyper-SD adapter and *not* the 7 GiB directory ``sdxl_cfg``, ``sdxl_cfg_pag``,
-    ``pixel`` and ``lightning`` are all still standing on."""
-    base_dir = fetch.base_model_dir(svc.config, fetch.find("base:sdxl").spec)
-    hyper = _lora(svc, "Hyper-SDXL-4steps-lora.safetensors")
+def _distilled(svc, monkeypatch):
+    """A registered distilled entry whose step LoRA is on disk. -> the spec.
 
-    result = svc_downloads.uninstall(svc, ["base:sdxl"])
+    The shipped registry has no entry with a ``base_lora`` since the Hyper-SD
+    tier was retired, and the ``svc`` fixture only materialises what the
+    registry held when it ran, so the file is written here.
+    """
+    from _synthetic_models import SYNTHETIC_BASE_LORA, install
 
-    assert not hyper.exists()
+    spec = install(monkeypatch)
+    _lora(svc, SYNTHETIC_BASE_LORA).write_bytes(b"x")
+    return spec
+
+
+def test_one_shared_recipe_leaves_the_checkpoint_the_others_stand_on(svc, monkeypatch):
+    """The rule the whole feature turns on. Removing a distilled recipe must
+    take its step adapter and *not* the 7 GiB directory ``sdxl_cfg`` and
+    ``sdxl_cfg_pag`` are still standing on."""
+    spec = _distilled(svc, monkeypatch)
+    base_dir = fetch.base_model_dir(svc.config, spec)
+    adapter = _lora(svc, spec.base_lora)
+
+    result = svc_downloads.uninstall(svc, [f"base:{spec.key}"])
+
+    assert not adapter.exists()
     assert base_dir.is_dir(), "the shared checkpoint must survive"
     assert result["freed_gib"] == pytest.approx(0.8)
-    # And the four siblings still read as present.
-    for key in ("base:sdxl_cfg", "base:sdxl_cfg_pag", "base:pixel", "base:lightning"):
+    # And the siblings still read as present.
+    for key in ("base:sdxl_cfg", "base:sdxl_cfg_pag"):
         assert fetch.find(key).is_present(svc.config), key
 
 
-def test_all_five_recipes_together_do_take_the_checkpoint(svc):
-    base_dir = fetch.base_model_dir(svc.config, fetch.find("base:sdxl").spec)
-    result = svc_downloads.uninstall(
-        svc,
-        ["base:sdxl", "base:sdxl_cfg", "base:sdxl_cfg_pag", "base:pixel",
-         "base:lightning"],
-    )
+def test_both_recipes_together_do_take_the_checkpoint(svc):
+    base_dir = fetch.base_model_dir(svc.config, fetch.find("base:sdxl_cfg").spec)
+    result = svc_downloads.uninstall(svc, ["base:sdxl_cfg", "base:sdxl_cfg_pag"])
     assert not base_dir.exists()
-    assert result["freed_gib"] == pytest.approx(8.6)
+    assert result["freed_gib"] == pytest.approx(7.0)
     # The directory went via a rename, and nothing of it is left behind.
     leftovers = [
         p.name
@@ -93,12 +104,12 @@ def test_the_env_var_override_is_refused_with_nothing_deleted(svc, monkeypatch, 
     monkeypatch.setattr(svc.config, "t2i_turbo_dir", elsewhere)
 
     with pytest.raises(Invalid, match="REALMSPINNER_T2I_DIR"):
-        svc_downloads.uninstall(svc, ["base:turbo"])
+        svc_downloads.uninstall(svc, ["base:sdxl_cfg"])
     assert elsewhere.is_dir()
 
 
 def test_a_selection_that_frees_nothing_is_refused_rather_than_reported_done(svc):
-    """``base:sdxl_cfg`` shares its whole footprint with three siblings and has
+    """``base:sdxl_cfg`` shares its whole footprint with ``sdxl_cfg_pag`` and has
     no adapter of its own, so there is genuinely nothing to delete."""
     with pytest.raises(Invalid, match="nothing to remove"):
         svc_downloads.uninstall(svc, ["base:sdxl_cfg"])
@@ -229,7 +240,7 @@ def test_a_locked_file_fails_loudly_and_the_trash_is_swept_next_time(svc, monkey
     rename -- and the next uninstall clears the residue."""
     import shutil as shutil_mod
 
-    base_dir = fetch.base_model_dir(svc.config, fetch.find("base:juggernaut").spec)
+    base_dir = fetch.base_model_dir(svc.config, fetch.find("base:flux_klein").spec)
     real = shutil_mod.rmtree
     boom = {"armed": True}
 
@@ -241,11 +252,11 @@ def test_a_locked_file_fails_loudly_and_the_trash_is_swept_next_time(svc, monkey
 
     monkeypatch.setattr(svc_downloads.shutil, "rmtree", once)
     with pytest.raises(Failed, match="another process holds"):
-        svc_downloads.uninstall(svc, ["base:juggernaut"])
+        svc_downloads.uninstall(svc, ["base:flux_klein"])
 
     # Renamed out of the way, so the row already reads absent.
     assert not base_dir.exists()
-    assert not fetch.find("base:juggernaut").is_present(svc.config)
+    assert not fetch.find("base:flux_klein").is_present(svc.config)
     trash = [
         p for p in svc.config.t2i_model_root.iterdir()
         if p.name.startswith(svc_downloads.TRASH_PREFIX)
@@ -289,11 +300,7 @@ def test_removing_the_default_base_model_is_allowed(svc):
     from realmspinner.service import jobs as svc_jobs
 
     # Everything sharing sdxl-base-1.0, so the directory actually goes.
-    svc_downloads.uninstall(
-        svc,
-        ["base:sdxl", "base:sdxl_cfg", "base:sdxl_cfg_pag", "base:pixel",
-         "base:lightning"],
-    )
+    svc_downloads.uninstall(svc, ["base:sdxl_cfg", "base:sdxl_cfg_pag"])
     assert config_module.DEFAULT_BASE_MODEL == "sdxl_cfg"
     with pytest.raises(Invalid) as caught:
         svc_jobs.create_job(svc, kind="text", prompt="a rock", output="reference")
@@ -301,11 +308,13 @@ def test_removing_the_default_base_model_is_allowed(svc):
     assert caught.value.rows == ("base:sdxl_cfg",)
 
 
-def test_rows_carry_what_a_removal_would_free(svc):
+def test_rows_carry_what_a_removal_would_free(svc, monkeypatch):
+    spec = _distilled(svc, monkeypatch)
     rows = {r["row_key"]: r for r in svc_downloads.rows(svc)}
-    # One of five recipes: 0.8, not 7. The honesty risk the feature carries.
-    assert rows["base:sdxl"]["removable"] is True
-    assert rows["base:sdxl"]["freed_gib"] == pytest.approx(0.8)
+    # One of three recipes on a shared checkpoint: 0.8, not 7. The honesty
+    # risk the feature carries.
+    assert rows[f"base:{spec.key}"]["removable"] is True
+    assert rows[f"base:{spec.key}"]["freed_gib"] == pytest.approx(0.8)
     # And the recipe with no adapter of its own frees nothing, so no button.
     assert rows["base:sdxl_cfg"]["removable"] is False
     assert rows["base:sdxl_cfg"]["freed_gib"] == pytest.approx(0.0)

@@ -1165,7 +1165,7 @@ async def test_a_resident_base_still_coexists(tmp_path, fake_pipelines):
     worker = _make_worker(tmp_path)
     try:
         job_id = worker.store.create(
-            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "sdxl"}
+            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "sdxl_cfg"}
         )
         worker.start()
         await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
@@ -2104,19 +2104,19 @@ async def test_same_base_model_across_jobs_reuses_the_resident_pipe(tmp_path, fa
     worker = _make_worker(tmp_path)
     try:
         first = worker.store.create(
-            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "turbo"}
+            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "sdxl_cfg"}
         )
         second = worker.store.create(
-            "text", "a crate", {"seed": 2, "resolution": 512, "base_model": "turbo"}
+            "text", "a crate", {"seed": 2, "resolution": 512, "base_model": "sdxl_cfg"}
         )
         worker.start()
         await _wait_until(lambda: worker.store.get(second)["status"] == "done")
         assert worker.store.get(first)["status"] == "done"
         pipe = worker._text2image
-        assert pipe.spec.key == "turbo"
+        assert pipe.spec.key == "sdxl_cfg"
         assert pipe.seeds == [1, 2], "both jobs generated through the one object"
         assert pipe.unload_calls == 2, "and each released its checkpoint when it ended"
-        assert worker._t2i_key == "turbo", "the key must still name the reused object"
+        assert worker._t2i_key == "sdxl_cfg", "the key must still name the reused object"
         await worker.shutdown()
     finally:
         worker.store.close()
@@ -2131,23 +2131,23 @@ async def test_switching_base_model_unloads_the_previous_one_exactly_once(
     worker = _make_worker(tmp_path)
     try:
         first = worker.store.create(
-            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "turbo"}
+            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "sdxl_cfg"}
         )
         worker.start()
         # Queued only after the first finishes, so grabbing the resident pipe
         # here cannot race the swap.
         await _wait_until(lambda: worker.store.get(first)["status"] == "done")
         first_pipe = worker._text2image
-        assert first_pipe.spec.key == "turbo"
+        assert first_pipe.spec.key == "sdxl_cfg"
         second = worker.store.create(
-            "text", "a crate", {"seed": 2, "resolution": 512, "base_model": "sdxl"}
+            "text", "a crate", {"seed": 2, "resolution": 512, "base_model": "sdxl_cfg_pag"}
         )
         await _wait_until(lambda: worker.store.get(second)["status"] == "done")
 
         assert first_pipe is not worker._text2image, "the switch must build a new pipe"
         assert first_pipe.unload_calls == 1
-        assert worker._t2i_key == "sdxl"
-        assert worker._text2image.spec.key == "sdxl"
+        assert worker._t2i_key == "sdxl_cfg_pag"
+        assert worker._text2image.spec.key == "sdxl_cfg_pag"
         # The new pipe released its own checkpoint when its job ended, like
         # every other t2i stage. What "exactly once" is about is the *previous*
         # pipe above: the switch must not unload it twice, and it does not --
@@ -2164,7 +2164,7 @@ async def test_base_model_switch_unloads_off_the_event_loop(tmp_path, fake_pipel
     worker = _make_worker(tmp_path)
     try:
         first = worker.store.create(
-            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "turbo"}
+            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "sdxl_cfg"}
         )
         loop_thread = threading.get_ident()
         worker.start()
@@ -2173,7 +2173,7 @@ async def test_base_model_switch_unloads_off_the_event_loop(tmp_path, fake_pipel
         # to it before queueing the job that triggers the switch.
         first_pipe = worker._text2image
         second = worker.store.create(
-            "text", "a crate", {"seed": 2, "resolution": 512, "base_model": "sdxl"}
+            "text", "a crate", {"seed": 2, "resolution": 512, "base_model": "sdxl_cfg_pag"}
         )
         await _wait_until(lambda: worker.store.get(second)["status"] == "done")
         await worker.shutdown()
@@ -2327,8 +2327,12 @@ async def test_a_pipeline_fed_control_reaching_a_text_job_is_dropped_not_run(wor
     assert not (worker.config.job_dir(job_id) / "control.png").exists()
 
 
-async def test_a_control_on_a_distilled_base_is_dropped_not_run(worker):
-    params = {"seed": 1, "base_model": "turbo", "control": "canny"}
+async def test_a_control_on_a_distilled_base_is_dropped_not_run(worker, monkeypatch):
+    # A synthetic distilled entry: the registry no longer ships one.
+    from _synthetic_models import install
+
+    spec = install(monkeypatch)
+    params = {"seed": 1, "base_model": spec.key, "control": "canny"}
     job_id = worker.store.create("text", "a barrel", params, stage="reference")
     _ref_png(worker.config.job_dir(job_id) / "ref.png")
     worker.start()
@@ -4189,3 +4193,62 @@ async def test_cancel_stopping_is_false_once_committed():
         "stopping must read False once committed, even with the event set -- "
         "the tail after a publish is bookkeeping and QA, not work to abandon"
     )
+
+
+async def test_a_job_naming_a_retired_base_model_fails_instead_of_running_a_substitute(
+    tmp_path, fake_pipelines
+):
+    """``_resolve_base_key`` used to log a warning and fall back to the host's
+    configured model for any key the registry lacked, so a queued row naming
+    the removed ``juggernaut`` finished "done" with SDXL pixels under a
+    Juggernaut ``base_model`` -- corpus evidence about a model that never ran.
+    A retired key now fails the job with the sentence that names it."""
+    worker = _make_worker(tmp_path)
+    try:
+        job_id = worker.store.create(
+            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "juggernaut"}
+        )
+        worker.start()
+        await _wait_until(lambda: worker.store.get(job_id)["status"] in ("done", "error"))
+        job = worker.store.get(job_id)
+        assert job["status"] == "error"
+        assert "Juggernaut XL v9 was removed in this version" in job["error"]
+        await worker.shutdown()
+    finally:
+        worker.store.close()
+
+
+async def test_a_job_naming_a_retired_style_lora_fails_instead_of_running_bare(
+    tmp_path, fake_pipelines
+):
+    worker = _make_worker(tmp_path)
+    try:
+        job_id = worker.store.create(
+            "text", "a barrel", {"seed": 1, "resolution": 512, "style_lora": "pixelklein"}
+        )
+        worker.start()
+        await _wait_until(lambda: worker.store.get(job_id)["status"] in ("done", "error"))
+        job = worker.store.get(job_id)
+        assert job["status"] == "error"
+        assert "was removed in this version" in job["error"]
+        await worker.shutdown()
+    finally:
+        worker.store.close()
+
+
+async def test_an_unknown_base_model_still_falls_back_to_the_configured_one(
+    tmp_path, fake_pipelines
+):
+    """The tolerance that stays: a key that never existed (a typo, a row from a
+    build with a different registry) is not a retirement."""
+    worker = _make_worker(tmp_path)
+    try:
+        job_id = worker.store.create(
+            "text", "a barrel", {"seed": 1, "resolution": 512, "base_model": "never-existed"}
+        )
+        worker.start()
+        await _wait_until(lambda: worker.store.get(job_id)["status"] in ("done", "error"))
+        assert worker.store.get(job_id)["status"] == "done"
+        await worker.shutdown()
+    finally:
+        worker.store.close()

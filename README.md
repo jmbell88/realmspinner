@@ -5,7 +5,7 @@ A local, fully offline indie art studio for game assets — one desktop window, 
 The generation pipeline:
 
 - **Image → 3D**: reference image → textured GLB (base colour plus a combined metallic/roughness texture; surface detail rides on vertex normals, not a normal map), powered by Microsoft **TRELLIS.2-4B** running natively via [trellis.cpp](https://github.com/pwilkin/trellis.cpp) (C++/GGML, CUDA).
-- **Text → 3D**: prompt → reference image via a diffusers pipeline, loaded from a local weights dir. **SDXL 1.0 at full CFG** is the default and the one base download the setup below asks for — 30 steps at 1024 px, with the negative prompt and ControlNet live; the same 7 GB also powers three faster recipes over the same weights, and **SDXL-Turbo** remains the 4-step fast option one install away. Eleven base models are registered (`src/realmspinner/models.py`) from 4-step distillations to full-CFG SDXL, Playground, Juggernaut, DreamShaper and FLUX.2 klein, with per-job style LoRAs, IP-Adapter appearance conditioning, ControlNet silhouette lock, and a seamless-tile mode with seam measurement. See [docs/MODELS.md](docs/MODELS.md).
+- **Text → 3D**: prompt → reference image via a diffusers pipeline, loaded from a local weights dir. **SDXL 1.0 at full CFG** is the default and the one base download the setup below asks for — 30 steps at 1024 px, with the negative prompt and ControlNet live; the same 7 GB also powers the PAG recipe. Three base models are registered (`src/realmspinner/models.py`): full-CFG SDXL, SDXL + PAG and FLUX.2 klein-base, with per-job style LoRAs, IP-Adapter appearance conditioning, ControlNet silhouette lock, and a seamless-tile mode with seam measurement. See [docs/MODELS.md](docs/MODELS.md).
 - **Text → 2D sheets**: the same prompt as a **tileset**, in one of three layouts — *Materials* (1–16 surface descriptions × 1–4 draws, capped at 64 cells, each cell its own **seamless** generation, so the tiles genuinely repeat), *Terrain set* (an inside and an outside surface composited into a complete 47-case blob autotile that lands in Plotter with the Terrain tool live, by record, with no import prompt), or *Grid (legacy)* (the original 8×8 single generation onto a ControlNet grid guide — the only layout offering 3/4 and 2:1 isometric, and the only one offering a 48 px tile; the seamless two are top-down at 16/32/64 px, since a seamless tile must divide the 1024 px material and must wrap a square). Or as a **sprite sheet**: pick an action (idle, walk, run, attack, cast, hurt, jump) and a direction count, and it draws the character first, keeps it as its own asset, then imagines candidate sheets from it with animation tags and frame durations baked in. Neither is reconstructed into a mesh; a tileset goes on to Plotter or Packwright. The legacy grid mechanism is measured on the maintainer's own corpus; its art direction is not settled.
 - **Rig → pose → sprite sheet**: fit one of eight template skeletons (humanoid, quadruped, bird, blob, fish, insect, serpent, tailed biped), pose it with 3D gizmos or reusable poses from the Poser's global library, and bake poses into sprite sheets — flat or lit, 4/8/16 directions, optionally restyled into pixel art. Beyond single poses, Poser's own character-sheet section renders whole animation clips: keyframes authored in the Poser, interpolated into a 256-cell character sheet of five animations across eight directions.
 - **The approval gate**: text jobs stop at the reference by default — the image is shown full-size for approval (with candidate fan-out and per-stage seeds) before anything pays for a trellis run.
@@ -173,7 +173,7 @@ downloads on first run, and nothing is owed if you decline** — a first-run pan
 downloading with the combined size, and refuses up front if the disk cannot
 hold it. The same rows live in **Settings → Models** afterwards, where you can
 add or remove individual models; a removal tells you what it would actually
-free before you confirm, which matters because five of the registered recipes
+free before you confirm, which matters because two of the registered recipes
 share one 7 GB checkpoint.
 
 Nothing above is required to *run* Realmspinner, and since 2026-09-10 that includes
@@ -187,9 +187,9 @@ rather than as failures. What the weights buy is generation: **Create** and
 **Muse** are greyed out in the rail until theirs are present, and clicking a
 greyed one opens Settings -> Models with those rows already ticked.
 
-> Some models restrict what you may do with what they generate. SDXL-Turbo is
-> under a **non-commercial** research licence and Playground v2.5 has a
-> monthly-active-user cap; both are labelled in the picker and listed in
+> Some models restrict what you may do with what they generate. The optional
+> Hybrid Demucs stem-separation weights are under a **non-commercial** licence;
+> they are labelled in the picker and listed in
 > [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The default, SDXL 1.0, is
 > OpenRAIL++-M and commercially permissive.
 
@@ -226,11 +226,9 @@ accepted by the CLI but only the last pattern takes effect, which fetches the
 safetensors and silently leaves out every `config.json` — producing a directory
 that looks downloaded and fails the `model_index.json` check.
 
-This one SDXL download powers five of the registered recipes — full CFG (the
-default), PAG, Hyper-SD, LCM and Lightning are the same weights run five ways: PAG is
-two training-free sampler tweaks over the default and costs nothing extra, and
-Hyper-SD, LCM and Lightning each cost only a small LoRA. SDXL-Turbo is a separate 7 GB
-checkpoint and is optional; its command is in [docs/MODELS.md](docs/MODELS.md).
+This one SDXL download powers two of the registered recipes — full CFG (the
+default) and PAG are the same weights run two ways: PAG is two training-free
+sampler tweaks over the default and costs nothing extra.
 
 These downloads are the only network use a source checkout has — the packaged
 installer adds one more, the dependency-pack worker described above. The
@@ -239,7 +237,7 @@ set at import, all model loads are `local_files_only`), and a missing weight
 produces a clear error and a `doctor` warning naming the exact command rather
 than a silent fetch.
 
-**Optional models** — alternative base models (SDXL-Turbo, the Hyper-SD/LCM/Lightning recipes over the base you already have, Playground, Juggernaut, DreamShaper, FLUX.2 klein), style LoRAs (3D render, PS1, pixel art), IP-Adapter, ControlNet, BiRefNet matting, DINOv2, ViTPose — live in [docs/MODELS.md](docs/MODELS.md) with the exact commands and the rationale for each recipe.
+**Optional models** — alternative base models (FLUX.2 klein-base), style LoRAs (3D render, PS1, pixel art), IP-Adapter, ControlNet, BiRefNet matting, DINOv2, ViTPose — live in [docs/MODELS.md](docs/MODELS.md) with the exact commands and the rationale for each recipe.
 
 ### Optional: rigging
 

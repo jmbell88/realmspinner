@@ -109,7 +109,7 @@ def test_a_reference_stage_run_is_scored_rather_than_skipped(tmp_path, scored, m
     run_dir = _run_dir(
         tmp_path,
         [_record("prop-01--s1")],
-        manifest={"stage": "reference", "suite": "pixel-v1", "recipe": "pixel-lcm-xl"},
+        manifest={"stage": "reference", "suite": "pixel-v1", "recipe": "pixel-cfg-xl"},
     )
 
     doc = score_mod.score_run(run_dir)
@@ -126,7 +126,7 @@ def test_a_model_stage_run_keeps_the_view_metrics(tmp_path, scored):
         tmp_path,
         [_record("prop-01--s1")],
         views_for=("prop-01--s1",),
-        manifest={"stage": "model", "suite": "core-v1", "recipe": "baseline-turbo-raw"},
+        manifest={"stage": "model", "suite": "core-v1", "recipe": "sdxl-cfg-raw"},
     )
     doc = score_mod.score_run(run_dir)
     assert doc["metrics"] == ["silhouette_iou"]

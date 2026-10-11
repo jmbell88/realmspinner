@@ -1,5 +1,14 @@
 """The Fast/Quality tier, and what picking Fast actually costs.
 
+**The shipped registry has no Fast tier any more.** ``image_fast`` (SDXL 1.0 +
+Hyper-SD) was retired on 2026-10-11 with the other distilled checkpoints, so
+every test below that is about what a *fast* recipe does runs against the
+``fast_tier`` fixture: a synthetic distilled base (``_synthetic_models``) and a
+``quality="fast"`` recipe over it, installed for the one test. The behaviours
+-- tiers resolve to different runs, a guidance-0 recipe has no negative prompt
+and no ControlNet, the door says so -- are properties of the machinery, which
+the next distilled entry will use again.
+
 Both tiers named ``sdxl_cfg`` until 2026-08-29 -- same checkpoint, same steps,
 same resolution -- so the control changed the recipe's *name* and nothing a
 user could see. These are the pins that would have caught that, plus the pins
@@ -22,6 +31,14 @@ from realmspinner import generation, models
 from realmspinner.studio.modes.create.engine import recipe as create_recipe
 
 
+@pytest.fixture
+def fast_tier(monkeypatch):
+    """A synthetic Fast recipe over a synthetic distilled base. -> the base spec."""
+    from _synthetic_models import install_fast_tier
+
+    return install_fast_tier(monkeypatch)
+
+
 def _request(**over):
     base = {"generation_type": "image", "prompt": "a wooden crate"}
     base.update(over)
@@ -42,7 +59,16 @@ def _ctx():
 # --- the two tiers are two pictures -------------------------------------------
 
 
-def test_fast_and_quality_resolve_to_different_recipes():
+def test_the_shipped_registry_has_no_fast_tier():
+    """``image_fast`` named a retired model (``sdxl``); a recipe naming a key
+    the registry lacks would KeyError ``_registry_facts`` at import."""
+    assert [r.key for r in generation.RECIPES if r.quality == "fast"] == []
+    assert generation.resolve_recipe(_request(quality="fast"), None) is None
+    for recipe in generation.RECIPES:
+        assert recipe.base_model in models.BASE_MODELS, recipe.key
+
+
+def test_fast_and_quality_resolve_to_different_recipes(fast_tier):
     fast = generation.resolve_recipe(_request(quality="fast"), None)
     quality = generation.resolve_recipe(_request(quality="quality"), None)
     assert fast is not None and quality is not None
@@ -72,31 +98,30 @@ def test_no_two_tiers_of_one_generation_type_name_the_same_base():
         )
 
 
-def test_fast_names_the_hyper_sd_recipe_over_the_shared_sdxl_weights():
+def test_fast_names_a_distilled_recipe_over_the_shared_sdxl_weights(fast_tier):
     fast = generation.resolve_recipe(_request(quality="fast"), None)
-    assert fast.base_model == "sdxl"
-    spec = models.BASE_MODELS["sdxl"]
-    # The same base weights as Quality, run differently -- which is why Fast
-    # costs no second 7 GB download.
-    assert spec.dir_name == models.BASE_MODELS["sdxl_cfg"].dir_name
-    assert spec.steps < models.BASE_MODELS["sdxl_cfg"].steps
-    assert spec.commercial
+    assert fast.base_model == fast_tier.key
+    # The same base weights as Quality, run differently -- which is why a Fast
+    # tier costs no second 7 GB download.
+    assert fast_tier.dir_name == models.BASE_MODELS["sdxl_cfg"].dir_name
+    assert fast_tier.steps < models.BASE_MODELS["sdxl_cfg"].steps
+    assert fast_tier.commercial
 
 
-def test_advanced_selection_of_the_fast_checkpoint_keeps_its_curated_note():
+def test_advanced_selection_of_the_fast_checkpoint_keeps_its_curated_note(fast_tier):
     """The 2026-09-07 audit, finding create-03.
 
     ``create_recipe.model_options`` folded the retired Fast/Quality switch into
     the Model combo on the claim that "nothing is lost by folding them" --
-    picking the ``sdxl`` checkpoint through Advanced is supposed to be the
+    picking the fast checkpoint through Advanced is supposed to be the
     same act picking Fast used to be. But nothing sets ``quality="fast"``
     any more, so a request built the way the pane actually builds one
-    (``model_mode="advanced"``, ``model_override="sdxl"``, ``quality`` left
+    (``model_mode="advanced"``, ``model_override=<fast key>``, ``quality`` left
     at its default) must still resolve the curated ``image_fast`` recipe,
     not the label-less synthetic one ``resolve_recipe`` falls back to when no
     curated recipe matches.
     """
-    request = _request(model_mode="advanced", model_override="sdxl")
+    request = _request(model_mode="advanced", model_override=fast_tier.key)
     assert request.quality == "quality"  # nothing in the pane sets "fast" any more
     resolved = generation.resolve_recipe(request, None)
     assert resolved is not None
@@ -105,7 +130,7 @@ def test_advanced_selection_of_the_fast_checkpoint_keeps_its_curated_note():
     assert resolved.recipe.note
 
 
-def test_both_tiers_say_what_they_trade():
+def test_both_tiers_say_what_they_trade(fast_tier):
     keyed = {r.key: r for r in generation.RECIPES}
     assert keyed["image_fast"].note and keyed["image_quality"].note
     note = keyed["image_fast"].note.lower()
@@ -117,7 +142,7 @@ def test_both_tiers_say_what_they_trade():
 # --- the negative prompt is inert on Fast, and declared inert ------------------
 
 
-def test_the_fast_recipe_reports_no_negative_prompt_support():
+def test_the_fast_recipe_reports_no_negative_prompt_support(fast_tier):
     fast = generation.resolve_recipe(_request(quality="fast"), None)
     assert not fast.recipe.supports_negative_prompt
     # And the declaration agrees with the registry's own derivation rather
@@ -125,18 +150,35 @@ def test_the_fast_recipe_reports_no_negative_prompt_support():
     assert fast.base_model not in models.cfg_bases()
 
 
-def test_the_form_does_not_offer_avoid_under_fast():
+def test_the_form_does_not_offer_avoid_under_fast(fast_tier):
     form = {"asset_type": "image", "generation_type": "image", "quality": "fast"}
     assert create_recipe.negative_supported(_ctx(), form) is False
     form["quality"] = "quality"
     assert create_recipe.negative_supported(_ctx(), form) is True
 
 
-def test_klein_distilled_accepts_a_saved_negative_prompt():
-    """A prior full-CFG brief must not prevent a Klein run from starting."""
+def test_a_distilled_klein_accepts_a_saved_negative_prompt(monkeypatch):
+    """A prior full-CFG brief must not prevent a Klein run from starting. (A
+    synthetic distilled FLUX.2 entry: the shipped one was retired.)"""
+    from _synthetic_models import distilled_base, install
+
+    spec = install(
+        monkeypatch,
+        distilled_base(
+            "klein_distilled_test",
+            dir_name="flux2-klein-4b-test",
+            guidance_scale=1.0,
+            scheduler=None,
+            base_lora=None,
+            variant=None,
+            family=models.FAMILY_FLUX2_KLEIN,
+            residency=models.OFFLOAD,
+            fetch=(),
+        ),
+    )
     request = _request(
         model_mode="advanced",
-        model_override="flux_klein_distilled",
+        model_override=spec.key,
         negative_prompt="blurry, watermark",
     )
     resolved = generation.resolve_recipe(request, None)
@@ -146,7 +188,7 @@ def test_klein_distilled_accepts_a_saved_negative_prompt():
     assert generation.request_to_legacy(request, resolved)["negative_prompt"] is None
 
 
-def test_avoid_text_typed_under_quality_is_cleared_by_switching_to_fast():
+def test_avoid_text_typed_under_quality_is_cleared_by_switching_to_fast(fast_tier):
     """The dead end the clear exists to prevent.
 
     The field is hidden under Fast, and ``validate_request`` refuses a request
@@ -167,7 +209,7 @@ def test_avoid_text_typed_under_quality_is_cleared_by_switching_to_fast():
 # --- Fast and structure control are incompatible ------------------------------
 
 
-def test_automatic_routing_controlnet_refusal_names_a_control_that_still_exists():
+def test_automatic_routing_controlnet_refusal_names_a_control_that_still_exists(fast_tier):
     """The 2026-09-18 audit, finding create-05: under automatic routing this
     refusal used to name ``quality`` and say "Switch the recipe to Quality"
     -- a control that has not existed since the Fast/Quality tier folded
@@ -185,12 +227,12 @@ def test_automatic_routing_controlnet_refusal_names_a_control_that_still_exists(
     assert "full-CFG" in message
 
 
-def test_the_refusal_names_the_model_when_the_user_picked_it():
+def test_the_refusal_names_the_model_when_the_user_picked_it(fast_tier):
     request = _request(
         quality="fast",
         structure_control="canny",
         model_mode="advanced",
-        model_override="sdxl",
+        model_override=fast_tier.key,
     )
     resolved = generation.resolve_recipe(request, None)
     issues = generation.validate_request(request, resolved)
@@ -203,7 +245,7 @@ def test_quality_plus_structure_control_is_accepted():
     assert generation.validate_request(request, resolved) == []
 
 
-def test_the_pane_hides_the_structure_picker_under_fast():
+def test_the_pane_hides_the_structure_picker_under_fast(fast_tier):
     form = {"asset_type": "image", "generation_type": "image", "quality": "fast"}
     note = create_recipe.recipe_structure_note(_ctx(), form)
     assert note is not None and "ControlNet" in note
@@ -211,7 +253,7 @@ def test_the_pane_hides_the_structure_picker_under_fast():
     assert create_recipe.recipe_structure_note(_ctx(), form) is None
 
 
-def test_switching_to_fast_clears_a_structure_control():
+def test_switching_to_fast_clears_a_structure_control(fast_tier):
     form = {
         "asset_type": "image",
         "generation_type": "image",
@@ -365,28 +407,41 @@ def test_capability_controls_reports_img2img_only_for_the_sdxl_family():
 # --- what the tier needs downloaded ---------------------------------------------
 
 
-def test_fast_is_satisfied_by_the_base_row_alone():
+def test_fast_is_satisfied_by_the_base_row_alone(fast_tier):
     fast = next(r for r in generation.RECIPES if r.key == "image_fast")
-    assert fast.required_downloads == ("base:sdxl",)
+    assert fast.required_downloads == (f"base:{fast_tier.key}",)
     resolved = generation.resolve_recipe(
         _request(quality="fast"), None, installed=set(fast.required_downloads)
     )
     assert resolved is not None and resolved.recipe.key == "image_fast"
 
 
-def test_the_one_row_covers_the_hyper_sd_lora_too():
-    """Why there is no second key: ``sdxl``'s own fetch tuple carries both the
-    shared SDXL 1.0 base and the 0.8 GB Hyper-SD adapter, so naming the base
-    row names the whole download."""
+def test_the_one_row_covers_the_step_lora_too(fast_tier):
+    """Why there is no second key: a distilled entry's own fetch tuple carries
+    both the shared SDXL 1.0 base and the step-distillation adapter, so naming
+    the base row names the whole download."""
     from realmspinner import fetch
 
-    entry = fetch.find("base:sdxl")
+    entry = fetch.find(f"base:{fast_tier.key}")
     assert entry is not None
     repos = {one.repo_id for one in entry.spec.fetch}
     assert "stabilityai/stable-diffusion-xl-base-1.0" in repos
-    assert "ByteDance/Hyper-SD" in repos
+    assert "acme/test-distill" in repos
 
 
 @pytest.mark.parametrize("installed", [set(), {"base:sdxl_cfg"}])
-def test_a_host_without_the_fast_row_does_not_qualify_it(installed):
+def test_a_host_without_the_fast_row_does_not_qualify_it(fast_tier, installed):
     assert generation.resolve_recipe(_request(quality="fast"), None, installed=installed) is None
+
+
+def test_a_stored_fast_request_resolves_automatic_instead_of_nothing():
+    """Settings and job params written before the Fast tier folded into the
+    Model combo still carry ``quality="fast"``. With the Fast recipe retired
+    on 2026-10-11 that tier has no recipe at all, so a rerun of such a job --
+    or a Create form restored from such a settings file -- resolved to
+    nothing and was refused as "no installed recipe" on a machine that has
+    the default model. Both parse sites read the legacy word as Quality."""
+    from_job = generation.GenerationRequest.from_dict({"quality": "fast", "prompt": "a crate"})
+    from_form = generation.request_from_legacy({"quality": "fast", "prompt": "a crate"})
+    assert from_job.quality == "quality"
+    assert from_form.quality == "quality"

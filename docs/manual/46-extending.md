@@ -13,8 +13,9 @@ image size, step count, guidance scale, weight variant, scheduler, and any alway
 step-distillation LoRA fused on at load.
 
 Those settings live with the checkpoint because they are properties of the checkpoint. A four-step
-distilled model run at twenty-five steps with classifier-free guidance produces mush, and Hyper-SD
-degrades quietly unless its scheduler uses trailing timestep spacing. Neither is a preference, and
+distilled model run at twenty-five steps with classifier-free guidance produces mush, and a
+step-distilled model can degrade quietly unless its scheduler uses the spacing it was trained for.
+Neither is a preference, and
 neither is something the person writing a prompt should have to know.
 
 Adding one means adding an entry. The fields worth thinking about:
@@ -22,8 +23,9 @@ Adding one means adding an entry. The fields worth thinking about:
 - `dir_name` — resolved under `REALMSPINNER_T2I_ROOT`, so the model is found by name rather than by path.
 - `image_size`, `steps`, `guidance_scale` — the sampler settings the checkpoint was distilled or
   trained for.
-- `scheduler` — a key into the scheduler table in `pipelines/text2image.py` (`ddim_trailing` for
-  Hyper-SD, `lcm` for a consistency adapter), or left unset to keep whatever the checkpoint's own
+- `scheduler` — a key into the scheduler table in `pipelines/text2image.py` (for example
+  trailing timestep spacing for a step-distilled model, or a consistency scheduler for a consistency
+  adapter), or left unset to keep whatever the checkpoint's own
   config specifies. A name that table does not know raises — with the weights already in VRAM,
   which is why every shipped entry's name is covered by a test.
 - `base_lora` — a step-distillation adapter loaded under a reserved adapter name, so it can never
@@ -46,7 +48,7 @@ before building the next, because the card holds the reconstruction engine plus 
 pipeline and not two. See [VRAM modes](41-configuration.md#vram-modes).
 
 A registry entry is also the right answer when `REALMSPINNER_T2I_DIR` is not — that variable redirects
-where the built-in `turbo` entry loads from and changes nothing about how it is run. See
+where the built-in `sdxl_cfg` entry loads from and changes nothing about how it is run. See
 [Using a different image model](41-configuration.md#using-a-different-image-model).
 
 ## Adding a style LoRA

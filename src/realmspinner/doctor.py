@@ -155,6 +155,7 @@ def static_checks(config: Config, *, probe_slow: bool = True, force: bool = Fals
         _cuda_check(probe=probe_slow),
         *_familiar_checks(config),
         *_t2i_checks(config),
+        *_retired_checks(config),
         text2image_deps_check(probe=probe_slow, force=force),
         *_matting_checks(config, probe_slow=probe_slow, force=force),
         *_text_checks(config),
@@ -1051,7 +1052,7 @@ def _port_check(config: Config, trellis_running: bool = False) -> Check:
 
 # The path rule and every presence probe live in realmspinner.fetch now, because the
 # download button has to answer exactly the same questions and a second copy of
-# "where does turbo live" is how the two would come to disagree. What stays here
+# "where does the legacy-override entry live" is how the two would come to disagree. What stays here
 # is the *wording*: a Check's detail is a sentence for a person, and that is
 # doctor's business rather than the planner's.
 _base_model_dir = fetch.base_model_dir
@@ -1150,6 +1151,34 @@ def _t2i_checks(config: Config) -> list[Check]:
         checks.append(_registry_row(config, "control", cn, ok, detail))
     checks.extend(_metric_checks(config))
     return checks
+
+
+def _retired_checks(config: Config) -> list[Check]:
+    """One informational row per retired model still on disk. Never a failure.
+
+    ``models.RETIRED_MODELS`` names what left the registry; its folders are
+    orphans the app can no longer uninstall through a row, so doctor says they
+    are there, how big, and where the Remove button is. ``ok`` is
+    unconditionally True for the reason ``_evidence_check``'s is: leftover
+    weights are not a fault, and a red row for them would teach the user to
+    ignore the real ones. Nothing listed -> no rows at all.
+    """
+    try:
+        found = fetch.retired_on_disk(config)
+    except Exception:
+        # A diagnostic that cannot walk a folder is not a reason to lose the
+        # other rows.
+        return []
+    return [
+        Check(
+            f"retired: {item['label']}",
+            True,
+            f"{item['size_gib']:.1f} GB still on disk ({'; '.join(item['paths'])}) -- "
+            "no longer used; remove it in Settings -> Models",
+            fatal=False,
+        )
+        for item in found
+    ]
 
 
 def _metric_checks(config: Config) -> list[Check]:

@@ -155,26 +155,21 @@ def test_models_section_overview_names_every_fetch_group_heading():
 # describes the FLUX.2 klein pixel-art LoRA the picker offers. -------------
 
 
-def test_manual_style_lora_sdxl_only_claim_does_not_contradict_the_flux2_entry():
+def test_manual_style_lora_sdxl_only_claim_holds_now_that_no_flux2_adapter_ships():
+    """Chapter 22 said every style LoRA is SDXL-only and had to name the one
+    exception ("Pixel art (FLUX.2 klein)") in the same breath. That adapter was
+    retired on 2026-10-11, so the claim is simply true again -- and the manual
+    must not keep describing an exception that is no longer offered."""
     from realmspinner import models
 
     non_sdxl = [
-        lora
-        for lora in models.STYLE_LORAS.values()
-        if lora.family != models.FAMILY_SDXL
+        lora for lora in models.STYLE_LORAS.values() if lora.family != models.FAMILY_SDXL
     ]
-    assert len(non_sdxl) == 1, non_sdxl
-    exception_label = non_sdxl[0].label
-    assert exception_label == "Pixel art (FLUX.2 klein)"
+    assert non_sdxl == []
 
     text = _normalize_ws(_read("docs/manual/22-generating-references.md"))
-    idx = text.index("SDXL-only")
-    window = text[max(0, idx - 400) : idx + 600]
-    # The sentence claiming SDXL-only must, in the same breath, name the one
-    # style LoRA that is not -- not merely be contradicted pages later by the
-    # per-style description.
-    assert exception_label in window, window
-    assert "exception" in window.lower()
+    assert "SDXL-only" in text
+    assert "Pixel art (FLUX.2 klein)" not in text
 
 
 # --- packwright-02: chapter 33 lists three refusal ceilings but not

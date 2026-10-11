@@ -55,9 +55,26 @@ def test_use_button_on_the_3d_profile_goes_through_the_budget_choice_path(tmp_pa
     assert not kwargs.get("lowpoly_triangles")
 
 
-def test_the_controlnet_refusal_does_not_claim_guidance_zero_for_lcm():
-    # LCM (``pixel``) and FLUX.2 klein distilled both run at guidance 1.0.
-    for key in ("pixel", "flux_klein_distilled"):
+def test_the_controlnet_refusal_does_not_claim_guidance_zero_for_lcm(monkeypatch):
+    # LCM and FLUX.2 klein distilled both ran at guidance 1.0 (both retired
+    # 2026-10-11, so synthetic entries of those shapes stand in).
+    from _synthetic_models import distilled_base, install
+
+    install(monkeypatch, distilled_base("lcm_test", scheduler="lcm", guidance_scale=1.0))
+    install(
+        monkeypatch,
+        distilled_base(
+            "klein_distilled_test",
+            dir_name="flux2-klein-4b-test",
+            guidance_scale=1.0,
+            scheduler=None,
+            base_lora=None,
+            variant=None,
+            family=models.FAMILY_FLUX2_KLEIN,
+            fetch=(),
+        ),
+    )
+    for key in ("lcm_test", "klein_distilled_test"):
         spec = models.BASE_MODELS[key]
         assert spec.guidance_scale == 1.0, key
         assert not spec.controlnet, key

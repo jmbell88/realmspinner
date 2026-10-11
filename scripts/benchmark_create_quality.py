@@ -23,7 +23,7 @@ def main() -> None:
     parser.add_argument("--edits-only", action="store_true")
     parser.add_argument("--reference-run", type=Path)
     parser.add_argument(
-        "--only-recipe", choices=("sdxl-cfg-raw", "sdxl-cfg-pag-raw", "klein-distilled-raw")
+        "--only-recipe", choices=("sdxl-cfg-raw", "sdxl-cfg-pag-raw", "klein-raw")
     )
     args = parser.parse_args()
     root = args.root.resolve()
@@ -41,7 +41,7 @@ def main() -> None:
     image_ids = ("image-landscape", "image-interior")
     outputs = {}
     text_recipes = (
-        () if args.edits_only else ("sdxl-cfg-raw", "sdxl-cfg-pag-raw", "klein-distilled-raw")
+        () if args.edits_only else ("sdxl-cfg-raw", "sdxl-cfg-pag-raw", "klein-raw")
     )
     if args.only_recipe and not args.edits_only:
         parser.error("--only-recipe requires --edits-only")
@@ -63,7 +63,7 @@ def main() -> None:
         )
         quality.report(outputs[recipe])
     edits = {}
-    for recipe in ("sdxl-cfg-raw", "sdxl-cfg-pag-raw", "klein-distilled-raw"):
+    for recipe in ("sdxl-cfg-raw", "sdxl-cfg-pag-raw", "klein-raw"):
         if args.only_recipe and recipe != args.only_recipe:
             continue
         if not args.edits_only and recipe != "sdxl-cfg-raw":
@@ -83,7 +83,7 @@ def main() -> None:
         )
         quality.report(edited)
         edits[recipe] = edited
-    for recipe in ("sdxl-cfg-pag-raw", "klein-distilled-raw"):
+    for recipe in ("sdxl-cfg-pag-raw", "klein-raw"):
         if "sdxl-cfg-raw" not in edits or recipe not in edits:
             continue
         quality.blind_review(edits["sdxl-cfg-raw"], edits[recipe], root / f"review-edit-{recipe}")

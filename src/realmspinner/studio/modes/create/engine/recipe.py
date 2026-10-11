@@ -1113,9 +1113,10 @@ def reseed_lora_weight(form: dict[str, Any], was_lora: str) -> None:
     """Put the newly-picked adapter's tuned strength into ``form``.
 
     One copy of the rule, which is the point of the function.
-    Each adapter carries its own measured strength -- pixel-art-klein restores
-    an rslora scale of 16, so the flat ``DEFAULT_LORA_WEIGHT`` is ~14x its
-    usable band and returns black frames -- and ``guidance.normalize`` only
+    Each adapter carries its own measured strength -- pixel-art-xl's is 1.2
+    and the retired pixel-art-klein's was 0.0625 (an rslora scale of 16, so the
+    flat ``DEFAULT_LORA_WEIGHT`` was ~14x its usable band and returned black
+    frames) -- and ``guidance.normalize`` only
     applies ``default_weight`` when the caller *omits* the field. Both of these
     forms always send a number, so the seed has to happen at the widget. It
     lives here because the deleted profile editor already had this bug once by
