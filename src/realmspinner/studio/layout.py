@@ -717,12 +717,18 @@ def pane(
     edge: PaneEdge | str = PaneEdge.NONE,
     window_flags: int = 0,
     title: str = "",
+    padding: float | None = None,
 ):
     """Begin a role-aware major pane and close it reliably.
 
     ``title`` is what the user is told stopped drawing when this pane raises;
     ``column`` passes ``slot.label``, so the twenty panes drawn through the
     layout get real names from the one table rather than a second label map.
+
+    ``padding`` is the pane's inset in design px (scaled here, like
+    :data:`PANE_PADDING`). ``None`` keeps ``PANE_PADDING`` so every existing pane
+    is untouched; a column of ``widgets.group`` cards passes ``tokens.SP_2``, so
+    the card edges sit one gutter from the pane edge instead of two.
 
     Child borders stay disabled.  A caller names at most the one edge that
     separates this pane from another major region, which avoids turning every
@@ -745,7 +751,7 @@ def pane(
         resolved_edge = edge if isinstance(edge, PaneEdge) else PaneEdge(edge)
     except ValueError:
         resolved_edge = PaneEdge.NONE
-    pad = sp(PANE_PADDING)
+    pad = sp(PANE_PADDING if padding is None else padding)
     imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
     imgui.push_style_color(
         imgui.Col_.child_bg.value, imgui.ImVec4(*theme.rgba(_pane_fill(resolved_role)))
@@ -794,7 +800,12 @@ FILL_SIZING = "fill"
 """``layout_skeleton.FILL``, spelled here so this module imports it lazily."""
 
 
-def pane_child(pane_id: str, size: tuple[float, float], window_flags: int = 0) -> bool:
+def pane_child(
+    pane_id: str,
+    size: tuple[float, float],
+    window_flags: int = 0,
+    padding: float | None = None,
+) -> bool:
     """Compatibility entry point for third-party panes and older tests.
 
     Realmspinner code uses :func:`pane`; this retains the old begin/end shape for
@@ -803,7 +814,7 @@ def pane_child(pane_id: str, size: tuple[float, float], window_flags: int = 0) -
     :func:`pane` does.
     """
 
-    pad = sp(PANE_PADDING)
+    pad = sp(PANE_PADDING if padding is None else padding)
     imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
     visible = imgui.begin_child(
         pane_id, size, imgui.ChildFlags_.always_use_window_padding.value, window_flags

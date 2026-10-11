@@ -73,6 +73,24 @@ def help_button(ctx: Any, pane: str) -> None:
     # the ``sp(26)`` this used to reserve -- a settings rail 184dp wide and
     # right-padded by the child's own window padding overflowed by the
     # difference, clipping the glyph's right edge against the divider.
+    if widgets.group_header_row():
+        # On a card's header row (nothing drawn in the body yet, so ``same_line``
+        # still lands on the header): the 26 dp compact square, ghost, to the
+        # left of any header actions. A 30 dp (?) would be taller than the row it
+        # is meant to be centred in and push the card's header gap out by 4.
+        side = sp(tokens.CONTROL_HEIGHT_COMPACT)
+        offset = (
+            imgui.get_cursor_pos_x()
+            + imgui.get_content_region_avail().x
+            - side
+            - widgets.group_header_trailing()
+        )
+        imgui.same_line(max(offset, 0.0))
+        if widgets.icon_button(
+            f"{icons.INFO}##help-{pane}", "Open the manual section", borderless=True, compact=True
+        ):
+            open_at(ctx, target)
+        return
     offset = (
         imgui.get_cursor_pos_x() + imgui.get_content_region_avail().x - imgui.get_frame_height()
     )

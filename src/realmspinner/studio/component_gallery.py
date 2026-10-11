@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 from imgui_bundle import imgui
 
 from . import controls, fonts, forms, icons, theme, tokens, toolbar, widgets
+from .manual import render as manual_render
 from .tokens import sp
 
 ENV_KEY = "REALMSPINNER_DEV_COMPONENTS"
@@ -245,6 +247,58 @@ def _badges() -> None:
     widgets.stage_badge({"kind": "text", "stage": "reference"}, inline=True)
 
 
+def _noop_ctx() -> SimpleNamespace:
+    """Just enough of the app context for a (?) to be pressed without effect."""
+    return SimpleNamespace(
+        state=SimpleNamespace(
+            manual=SimpleNamespace(open=False, open_at=lambda *_args: None),
+        )
+    )
+
+
+def _group_fields(prefix: str) -> None:
+    with forms.Form(f"gallery-group-{prefix}") as form:
+        form.text("name", "Name", "Goblin", helper="Shown in the library.")
+        form.text("seed", "Mesh seed", "42")
+
+
+def _groups() -> None:
+    """Cards: every kind ``widgets.group`` makes, and ``card_sections``."""
+    widgets.pane_title("Groups")
+    widgets.muted_wrapped(
+        "One card is one fill, 12 dp padding, a 26 dp header row, 8 dp between cards."
+    )
+    ctx = _noop_ctx()
+    help_key = "settings-2d"
+    with widgets.group_stack():
+        with widgets.group("Plain group", id="gallery-plain"):
+            manual_render.help_button(ctx, help_key)
+            _group_fields("plain")
+        with widgets.group(
+            "With actions",
+            id="gallery-actions",
+            actions=(("recent", "Recent...", _noop), ("clear", "Clear", _noop)),
+        ):
+            controls.button("Secondary##gallery-group-secondary")
+            widgets.segmented_control("gallery-group-seg", [("a", "One"), ("b", "Two")], "a")
+        with widgets.group(
+            "Collapsible group", id="gallery-fold", key="gallery/fold", collapsible=True
+        ) as opened:
+            if opened:
+                _group_fields("fold")
+        with widgets.group(None, id="gallery-bare"):
+            widgets.muted("A header-less group: the identity card.")
+        with widgets.card_sections():
+            widgets.section("Section as a card")
+            widgets.muted("section() opens a card inside card_sections().")
+            widgets.section("Another section")
+            _group_fields("sections")
+            if widgets.header("Header as a fold", default_open=True, persist_key="gallery/hdr"):
+                widgets.muted("header() opens a collapsible card.")
+                widgets.section("A sub-label inside the fold")
+                widgets.muted("A section inside an open fold is a sub-label.")
+
+
 # The five roles ``fonts`` exposes, largest first, so the ramp reads as a ramp.
 _TYPE_RAMP = (
     ("display", fonts.display),
@@ -321,5 +375,8 @@ def draw() -> None:
             _document_header()
             _badges()
             _type_ramp()
+        # After the block scope: a card is a surface of its own and a block
+        # behind it would be the same fill twice.
+        _groups()
     imgui.end_child()
     imgui.end_popup()

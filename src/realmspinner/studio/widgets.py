@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any
 
 from imgui_bundle import imgui
@@ -244,6 +244,10 @@ def end_section() -> None:
     round. The content genuinely has no heading; inventing "Updates" over the
     release note would be labelling a thing to fix a rectangle.
     """
+    card = _card_scope_here()
+    if card is not None:
+        card.close()
+        return
     scope = _scope_here()
     if scope is not None:
         scope.close()
@@ -304,6 +308,12 @@ def section(label: str) -> None:
     exactly the heading-and-a-gap it has always been, which is what a heading in
     a popup, a tooltip or the manual's own body still wants.
     """
+    card = _card_scope_here()
+    if card is not None:
+        # A ``card_sections`` scope owns this window: the heading is a card (or,
+        # inside an open fold, a sub-label), not a block fill. See ``_CardScope``.
+        card.section(label)
+        return
     scope = _scope_here()
     # Closed *before* the gap and opened *after* it, which is the whole of the
     # ordering: the gap belongs between two blocks and to neither of them. Doing
@@ -1879,7 +1889,14 @@ def header(label: str, default_open: bool = True, persist_key: str | None = None
     is disabled, so this rides the app's Settings instead. FORCE_SECTIONS_OPEN
     still wins: the smoke test needs every section built regardless of what
     last session left closed.
+
+    Inside a :func:`card_sections` scope this starts a collapsible card instead
+    (see :func:`group`); the card draws the header row *through this function*
+    with ``_PLAIN_HEADER`` set, so the persistence rules below stay in one place.
     """
+    card = None if _PLAIN_HEADER else _card_scope_here()
+    if card is not None:
+        return card.fold_header(label, default_open, persist_key)
     stored: dict[str, Any] = {}
     if persist_key and _SETTINGS is not None:
         stored = settings_mod.as_dict(_SETTINGS.get("panels_open"))
@@ -1916,6 +1933,452 @@ def header(label: str, default_open: bool = True, persist_key: str | None = None
     ):
         _SETTINGS.set("panels_open", {**stored, persist_key: opened})
     return opened
+
+
+# --- groups: a card is a child window -----------------------------------------
+#
+# ``section_blocks`` paints a fill on a split draw list and bleeds it *outward* by
+# SP_2 from the content, which is why it can give a block no inner padding on the
+# right: ``-1`` widths, ``avail.x`` and a right-aligned (?) all run to the window
+# edge and the fill extends past them. A card with a real 12 px inset on all four
+# sides therefore cannot be a fill; it has to be a **child window**, whose
+# ``WindowPadding`` is what every one of those measurements already respects.
+# (``modal_body`` is the precedent for an auto-sized child.)
+#
+# The cost of that is one imgui quirk worth stating once: an ``auto_resize_y``
+# child's height is the previous frame's content height, so a card is a frame
+# late after anything that changes its content (a fold toggling, a field
+# appearing). ``always_auto_resize`` is what stops a card that is *scrolled out
+# of view* keeping the height it had when it was last on screen.
+#
+# ``widgets.card`` is a different thing (an elevated fixed-size tile for Home,
+# Library and Muse), hence the name.
+
+#: A group's header row, in design px. The compact control height, so a ghost
+#: action and the (?) are exactly as tall as the row they sit in.
+GROUP_HEADER_H = tokens.CONTROL_HEIGHT_COMPACT
+
+#: True only while a group draws its collapsible header row through
+#: :func:`header`, so ``header`` does not hand the call back to the card scope
+#: that is in the middle of making this very card.
+_PLAIN_HEADER = False
+
+
+class _GroupFrame:
+    """One open group. See :func:`group`."""
+
+    __slots__ = ("owner", "body_y", "trailing", "field_end")
+
+    def __init__(self, owner: str) -> None:
+        self.owner = owner
+        #: Screen y where the body starts. Nothing has been drawn in the body
+        #: while the cursor is still here, which is how ``group_header_row`` knows
+        #: a (?) called first thing in the body belongs on the header row.
+        self.body_y: float | None = None
+        #: Width, in px, the header's actions have taken from the right edge.
+        self.trailing = 0.0
+        #: Screen y the cursor was left at by the last ``Form`` field.
+        self.field_end: float | None = None
+
+
+_GROUPS: list[_GroupFrame] = []
+
+#: How many ``group_stack`` scopes are open, and where the last group in this
+#: window ended: ``(window owner, screen y of the cursor just after it)``.
+_STACK_DEPTH = 0
+_LAST_GROUP_END: tuple[str, float] | None = None
+
+
+def _window_owner() -> str:
+    return getattr(imgui.get_window_draw_list(), "_owner_name", "")
+
+
+def nudge_cursor_y(dy: float) -> None:
+    """Move the cursor down by ``dy`` px (up when negative) without drawing.
+
+    The way a gap that is not ``ItemSpacing`` is made exact **without touching
+    the global style**: ``ItemSpacing.y`` is one number for the whole app
+    (``theme``: SP_2) and a card wants 4, 8 and 12 in different places. Skipped
+    below half a pixel, because ``set_cursor_pos_y`` marks the window's cursor as
+    hand-placed and imgui then insists an item follow it -- which is only true
+    of the callers in this module, each of which draws one next.
+    """
+    if abs(dy) >= 0.5:
+        imgui.set_cursor_pos_y(imgui.get_cursor_pos_y() + dy)
+
+
+def in_group() -> bool:
+    """Whether a :func:`group` card is open around the cursor."""
+    return bool(_GROUPS)
+
+
+def group_header_row() -> bool:
+    """Whether the cursor is on a group's header row, with nothing yet in its body.
+
+    Exactly then a right-aligned (?) belongs on the header: ``same_line`` goes back
+    to the previous item, which is still the header. The first body item moves the
+    cursor and this turns false, so the same call anywhere else is untouched.
+    ``manual.render.help_button`` is the reader.
+    """
+    if not _GROUPS:
+        return False
+    frame = _GROUPS[-1]
+    if frame.body_y is None or frame.owner != _window_owner():
+        return False
+    return abs(imgui.get_cursor_screen_pos().y - frame.body_y) < 0.5
+
+
+def group_header_trailing() -> float:
+    """Px the open group's header actions occupy at its right edge.
+
+    A (?) drawn on the header sits to the **left** of the actions rather than on
+    top of them; the actions were drawn when the group opened, before the caller
+    could say a (?) was coming.
+    """
+    return _GROUPS[-1].trailing if _GROUPS else 0.0
+
+
+def group_field_begin() -> None:
+    """A ``Form`` field is about to start: open the 12 px field gap if one is due.
+
+    Due only when the cursor is exactly where the previous field left it, i.e.
+    nothing else was drawn between the two. The gap is applied *before* the label
+    rather than after the control as a trailing dummy, because a trailing dummy
+    on the last field would count towards the card's height and give it a 16 px
+    bottom inset instead of 12.
+    """
+    if not _GROUPS:
+        return
+    frame = _GROUPS[-1]
+    if frame.field_end is None:
+        return
+    if abs(imgui.get_cursor_screen_pos().y - frame.field_end) < 0.5:
+        nudge_cursor_y(sp(tokens.SP_3) - imgui.get_style().item_spacing.y)
+
+
+def group_field_end() -> None:
+    """A ``Form`` field just finished: remember where, for :func:`group_field_begin`."""
+    if _GROUPS:
+        _GROUPS[-1].field_end = imgui.get_cursor_screen_pos().y
+
+
+def tighten(gap: float) -> None:
+    """Set the space above the next item to ``gap`` design px.
+
+    From the ``ItemSpacing`` the previous item left behind. For the 4 px between
+    a field's label and its control, which the global 8 px would otherwise make.
+    """
+    nudge_cursor_y(sp(gap) - imgui.get_style().item_spacing.y)
+
+
+def sub_label(label: str) -> None:
+    """A label for a run of fields *inside* a card: 12 px uppercase, Medium, TEXT.
+
+    ``field_label``'s register in the text colour rather than muted, because it
+    names a group of fields where ``field_label`` names one (Mesh's "Engine"
+    inside Advanced). Not a card, so a card can hold one without becoming a card
+    in a card. 12 px above it when it follows a field, 4 px to what it names.
+    """
+    group_field_begin()
+    text = label.split("##")[0].upper()
+    with fonts.push(imgui, fonts.MEDIUM, tokens.TEXT_SMALL):
+        size = imgui.calc_text_size(text)
+        imgui.get_window_draw_list().add_text(
+            imgui.get_cursor_screen_pos(), imgui.get_color_u32(theme.rgba(theme.TEXT)), text
+        )
+    # The text is painted on the draw list and a dummy takes its place in the
+    # layout, sized so that the 4 px to what follows comes out of imgui's own
+    # item spacing. ``tighten`` after a text item would leave the cursor
+    # hand-placed, and a sub-label that is the last thing in its card would then
+    # trip imgui's "SetCursorPos extends the window" check.
+    imgui.dummy((size.x, max(size.y + sp(tokens.SP_1) - imgui.get_style().item_spacing.y, 0.0)))
+
+
+@contextmanager
+def group(
+    title: str | None = None,
+    *,
+    id: str | None = None,
+    key: str | None = None,
+    collapsible: bool = False,
+    default_open: bool = True,
+    actions: Sequence[tuple[str, str, Any]] = (),
+):
+    """A card: the app's one grouping surface. -> whether its body is open.
+
+    Fill ELEV_2 at 0.5 over PANEL (what ``section_blocks`` already paints),
+    RADIUS_M, **12 px of padding on all four sides**. Inside it:
+
+    * a 26 px header row -- ``title`` in the label face centred in it, ``actions``
+      (``(key, label, callback)``) as compact ghost buttons at the right -- and
+      8 px from the row to the first body item. ``title=None`` and no actions is a
+      header-less card;
+    * with ``collapsible=True`` the row *is* :func:`header` (persisted under
+      ``key``, honouring ``FORCE_SECTIONS_OPEN`` and one-shot open requests),
+      restyled to sit in the card: 26 tall, transparent until pointed at. Closed,
+      the body is skipped and the card is 12 + 26 + 12 = 50 px;
+    * controls one rung up the elevation ramp (:func:`controls.push_elevation`)
+      and the field frames at ELEV_2 / EDGE, because ELEV_1 -- where they rest
+      outside a card -- is about 1% off the card's own wash in every palette;
+    * ``Form.field`` rhythm of 4 px label to control and 12 px between fields.
+
+    ``id`` pins the child's identity. By default it is the text after ``##`` in
+    ``title``, else ``key``, else the title: a title that grows a tail (" - seed
+    locked") must pass ``##`` or ``id`` or the card is a new window each time the
+    tail changes. Two cards in one window need two ids.
+
+    The body runs even when imgui reports the child clipped (scrolled out of
+    view): imgui skips the items, and yielding ``False`` there would be
+    indistinguishable from a collapsed fold to a caller that acts on the answer.
+    Only a collapsible card yields the fold's state.
+
+    Balanced in a ``finally``: an exception in the body still ends the child and
+    pops every style and the elevation, since an unbalanced imgui stack is an
+    access violation on a release build, not a log line.
+    """
+    global _PLAIN_HEADER, _LAST_GROUP_END
+    shown = (title or "").split("##")[0]
+    tail = title.split("##", 1)[1] if title and "##" in title else None
+    ident = id or tail or key or shown or "card"
+    if _STACK_DEPTH > 0 and _LAST_GROUP_END is not None:
+        owner, y = _LAST_GROUP_END
+        if owner == _window_owner() and abs(imgui.get_cursor_screen_pos().y - y) < 0.5:
+            # The gutter between two stacked cards, made exact: imgui separates
+            # two children by ItemSpacing.y, which is one global number and not
+            # a promise about cards.
+            nudge_cursor_y(sp(tokens.SP_2) - imgui.get_style().item_spacing.y)
+    pad = sp(tokens.SP_3)
+    imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
+    imgui.push_style_var(imgui.StyleVar_.child_rounding.value, sp(tokens.RADIUS_M))
+    imgui.push_style_color(
+        imgui.Col_.child_bg.value, imgui.ImVec4(*theme.rgba(theme.ELEV_2, 0.5))
+    )
+    imgui.begin_child(
+        f"##group/{ident}",
+        (0.0, 0.0),
+        imgui.ChildFlags_.auto_resize_y.value
+        | imgui.ChildFlags_.always_use_window_padding.value
+        | imgui.ChildFlags_.always_auto_resize.value,
+        imgui.WindowFlags_.no_scrollbar.value | imgui.WindowFlags_.no_scroll_with_mouse.value,
+    )
+    imgui.pop_style_color()
+    imgui.pop_style_var(2)
+    frame = _GroupFrame(_window_owner())
+    _GROUPS.append(frame)
+    controls.push_elevation()
+    imgui.push_style_color(imgui.Col_.frame_bg.value, imgui.ImVec4(*theme.rgba(theme.ELEV_2)))
+    imgui.push_style_color(
+        imgui.Col_.frame_bg_hovered.value, imgui.ImVec4(*theme.rgba(theme.EDGE))
+    )
+    imgui.push_style_color(
+        imgui.Col_.frame_bg_active.value, imgui.ImVec4(*theme.rgba(theme.EDGE))
+    )
+    try:
+        opened = True
+        if title is not None or actions:
+            row_h = sp(GROUP_HEADER_H)
+            start_x = imgui.get_cursor_pos_x()
+            width = imgui.get_content_region_avail().x
+            if collapsible:
+                with fonts.label(imgui):
+                    pad_y = max((row_h - imgui.get_text_line_height()) * 0.5, 0.0)
+                imgui.push_style_var(
+                    imgui.StyleVar_.frame_padding.value,
+                    (imgui.get_style().frame_padding.x, pad_y),
+                )
+                imgui.push_style_color(imgui.Col_.header.value, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
+                imgui.push_style_color(
+                    imgui.Col_.header_hovered.value, imgui.ImVec4(*theme.rgba(theme.EDGE, 0.6))
+                )
+                imgui.push_style_color(
+                    imgui.Col_.header_active.value, imgui.ImVec4(*theme.rgba(theme.EDGE, 0.9))
+                )
+                _PLAIN_HEADER = True
+                try:
+                    opened = header(f"{shown}##{ident}", default_open, key)
+                finally:
+                    _PLAIN_HEADER = False
+                    imgui.pop_style_color(3)
+                    imgui.pop_style_var()
+            else:
+                low = imgui.get_cursor_screen_pos()
+                imgui.dummy((width, row_h))
+                if shown:
+                    with fonts.label(imgui):
+                        imgui.get_window_draw_list().add_text(
+                            (low.x, low.y + (row_h - imgui.get_text_line_height()) * 0.5),
+                            imgui.get_color_u32(theme.rgba(theme.TEXT)),
+                            shown,
+                        )
+            if actions:
+                with fonts.label(imgui):
+                    widths = [button_width(text) for _k, text, _cb in actions]
+                spacing = imgui.get_style().item_spacing.x
+                total = sum(widths) + spacing * (len(widths) - 1)
+                frame.trailing = total + spacing
+                imgui.same_line(max(start_x + width - total, 0.0))
+                for index, (action_key, text, callback) in enumerate(actions):
+                    if index:
+                        imgui.same_line()
+                    # ``small_button`` is the compact ghost, so the shared layer
+                    # does not hand-spell a role (tests/test_button_vocabulary.py).
+                    if controls.small_button(f"{text.split('##')[0]}##{ident}/{action_key}"):
+                        callback()
+            # 8 px from the row to the body. The natural spacing after the row
+            # is ItemSpacing.y, which is exactly that today; the nudge only makes
+            # it true if the style ever stops saying so.
+            tighten(tokens.SP_2)
+            frame.body_y = imgui.get_cursor_screen_pos().y
+        yield opened
+    finally:
+        imgui.pop_style_color(3)
+        controls.pop_elevation()
+        _GROUPS.pop()
+        imgui.end_child()
+        _LAST_GROUP_END = (_window_owner(), imgui.get_cursor_screen_pos().y)
+
+
+@contextmanager
+def group_stack():
+    """Cards opened inside are separated by exactly SP_2 (8 px) vertically.
+
+    imgui puts ItemSpacing.y between two children, which is 8 only because the
+    global style says so; this makes the gutter a property of the cards, not of
+    whatever the style happens to be. Only two cards with nothing drawn between
+    them are touched, in the same window.
+    """
+    global _STACK_DEPTH, _LAST_GROUP_END
+    _STACK_DEPTH += 1
+    _LAST_GROUP_END = None
+    try:
+        yield
+    finally:
+        _STACK_DEPTH -= 1
+
+
+# --- card sections: section()/header() as cards --------------------------------
+#
+# ``section_blocks`` taught ``section`` to open a *fill*; this teaches it, and
+# ``header``, to open a *card* (a child window), so a pane that already reads
+# "section, rows, section, rows" becomes cards with no per-call rewrite. Same
+# rules as the block scope: it is opt-in per window, and a heading drawn in a
+# *different* window (a nested child, a popup) is untouched -- the ownership test
+# is ``_scope_here``'s, extended by one case: the card's own child window is also
+# this scope's window, because that is where the caller's code is running while a
+# card is open.
+
+
+class _CardScope:
+    """The open card (if any) of one window's :func:`card_sections`."""
+
+    __slots__ = ("owner", "stack", "frame", "is_fold", "opened", "used")
+
+    def __init__(self, owner: str) -> None:
+        self.owner = owner
+        self.stack: ExitStack | None = None
+        self.frame: _GroupFrame | None = None
+        #: Whether the open card was started by ``header`` (a fold), and whether
+        #: that fold is open. Both decide what a ``section`` inside it means.
+        self.is_fold = False
+        self.opened = True
+        self.used: dict[str, int] = {}
+
+    def close(self) -> None:
+        """End the open card. Idempotent."""
+        stack, self.stack = self.stack, None
+        self.frame = None
+        self.is_fold = False
+        self.opened = True
+        if stack is not None:
+            stack.close()
+
+    def _ident(self, label: str, key: str | None) -> str:
+        base = label.split("##", 1)[1] if "##" in label else (key or label)
+        count = self.used.get(base, 0)
+        self.used[base] = count + 1
+        return base if not count else f"{base}/{count}"
+
+    def _open(
+        self, label: str, *, fold: bool, key: str | None = None, default_open: bool = True
+    ) -> bool:
+        self.close()
+        stack = ExitStack()
+        self.stack = stack
+        opened = stack.enter_context(
+            group(
+                label,
+                id=self._ident(label, key),
+                key=key,
+                collapsible=fold,
+                default_open=default_open,
+            )
+        )
+        self.frame = _GROUPS[-1]
+        self.is_fold = fold
+        self.opened = bool(opened)
+        return bool(opened)
+
+    def section(self, label: str) -> None:
+        """A heading: a new card, or -- inside an *open* fold -- a sub-label.
+
+        The rule, because a heading nested in a fold is the one case two
+        readings fight over ("Take it somewhere" inside "Open in..."): a section
+        reached while a fold started by ``header`` is **open** is a heading
+        *within* that fold and draws as :func:`sub_label`; a card in a card is
+        never made. A section reached after a card started by ``section``, or
+        after a *closed* fold (whose body was skipped, so the call cannot be
+        part of it), starts a sibling card. A caller who wants a sibling card
+        straight after an open fold calls :func:`end_section` first.
+        """
+        if self.stack is not None and self.is_fold and self.opened:
+            sub_label(label)
+            return
+        self._open(label, fold=False)
+
+    def fold_header(self, label: str, default_open: bool, persist_key: str | None) -> bool:
+        """``header`` inside the scope: always a new sibling card, never nested."""
+        return self._open(label, fold=True, key=persist_key, default_open=default_open)
+
+
+_CARD_SCOPES: list[_CardScope] = []
+
+
+def _card_scope_here() -> _CardScope | None:
+    """The innermost card scope **if the current window is its pane or its card**."""
+    if not _CARD_SCOPES:
+        return None
+    scope = _CARD_SCOPES[-1]
+    owner = _window_owner()
+    if owner == scope.owner or (scope.frame is not None and owner == scope.frame.owner):
+        return scope
+    return None
+
+
+@contextmanager
+def card_sections():
+    """Draw every :func:`section` and :func:`header` in this window as a card.
+
+    ``section(label)`` ends the open card and opens ``group(label)``;
+    ``header(label, default_open, persist_key)`` ends it and opens a collapsible
+    card whose header row is the persisted disclosure, returning its open state;
+    :func:`end_section` closes the open card. Outside the scope all three behave
+    exactly as before. Closes any open card in a ``finally``.
+
+    Pair with :func:`group_stack` for the 8 px gutter between them.
+    """
+    owner = _window_owner()
+    if _CARD_SCOPES and _CARD_SCOPES[-1].owner == owner:
+        yield _CARD_SCOPES[-1]
+        return
+    scope = _CardScope(owner)
+    _CARD_SCOPES.append(scope)
+    try:
+        yield scope
+    finally:
+        try:
+            scope.close()
+        finally:
+            _CARD_SCOPES.pop()
 
 
 def tab_bar(bar_id: str, tabs: list[tuple[str, Any]]) -> None:
@@ -2587,6 +3050,10 @@ def segmented_control(
     draw = imgui.get_window_draw_list()
     pad_x, pad_y = sp(14), sp(6)
     gap = sp(tokens.SP_2)
+    # Inside a card the track steps up to ELEV_2 (ELEV_1 is invisible on the
+    # card's wash) and the pill, which was ELEV_2, to EDGE so it still stands
+    # off its own track.
+    raised = controls.elevation_depth() > 0
     breaks = frozenset(breaks)
     titles: dict[str, str] = {}
     with fonts.label(imgui):
@@ -2618,7 +3085,7 @@ def segmented_control(
             draw.add_rect_filled(
                 (origin.x + offsets[start], origin.y),
                 (origin.x + offsets[index] + widths[index], origin.y + height),
-                imgui.get_color_u32(theme.rgba(theme.ELEV_1)),
+                imgui.get_color_u32(theme.rgba(theme.ELEV_2 if raised else theme.ELEV_1)),
                 height * 0.5,
             )
             start = index + 1
@@ -2638,7 +3105,7 @@ def segmented_control(
         draw.add_rect_filled(
             (origin.x + x + sp(2), origin.y + sp(2)),
             (origin.x + x + w - sp(2), origin.y + height - sp(2)),
-            imgui.get_color_u32(theme.rgba(theme.ELEV_2)),
+            imgui.get_color_u32(theme.rgba(theme.EDGE if raised else theme.ELEV_2)),
             (height - sp(4)) * 0.5,
         )
         selected = current
@@ -2875,8 +3342,13 @@ def icon_button(
     borderless: bool = False,
     selected: bool = False,
     reason: str = "",
+    compact: bool = False,
 ) -> bool:
     """A square glyph button with its meaning in the tooltip.
+
+    ``compact`` makes it the 26 dp square of a compact control rather than a
+    frame-height one: the (?) on a card's 26 px header row, which a 30 px button
+    would push taller than the row it is centred in.
 
     ``tooltip`` is required, and that is the accessible-name rule rather than a
     tidiness one (UX-02): a glyph button carries no visible label, so the
@@ -2891,7 +3363,7 @@ def icon_button(
     """
     return _glyph_button(
         icon,
-        imgui.get_frame_height(),
+        sp(tokens.CONTROL_HEIGHT_COMPACT) if compact else imgui.get_frame_height(),
         tooltip,
         danger=danger,
         enabled=enabled,
@@ -3333,9 +3805,13 @@ def list_row(
     high = (origin.x + width, origin.y + row_h)
     radius = sp(tokens.RADIUS_S)
     lift = _hover_amount(f"row/{row_id}")
+    raised = controls.elevation_depth() > 0
     if stripe:
         draw.add_rect_filled(
-            low, high, imgui.get_color_u32(theme.rgba(theme.ELEV_1)), radius
+            low,
+            high,
+            imgui.get_color_u32(theme.rgba(theme.ELEV_2 if raised else theme.ELEV_1)),
+            radius,
         )
     if lift > 0.0 and not selected:
         # ``theme.mix``'s own documented case: a row lifting from PANEL to
@@ -3344,7 +3820,11 @@ def list_row(
         draw.add_rect_filled(
             low,
             high,
-            imgui.get_color_u32(theme.rgba(theme.mix(theme.PANEL, theme.ELEV_2, lift))),
+            # ``mix`` already returns an rgba tuple; this used to wrap it in
+            # ``theme.rgba`` again, which raises the moment a row is hovered.
+            imgui.get_color_u32(
+                theme.mix(theme.PANEL, theme.EDGE if raised else theme.ELEV_2, lift)
+            ),
             radius,
         )
     if selected:

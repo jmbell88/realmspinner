@@ -271,11 +271,66 @@ def _disabled(enabled: bool) -> Iterator[None]:
             imgui.end_disabled()
 
 
+# --- elevation inside a card ---------------------------------------------------
+#
+# A ``widgets.group`` card is filled with ELEV_2 at 0.5 over PANEL, and a control
+# that rests at ELEV_1 (a SECONDARY button, a field's frame) is about 1% off that
+# wash in every palette -- the measured reason a checkbox vanished on a section
+# block (INVARIANTS: "A Boolean in a forms.Form grid is a switch"). So inside a
+# card every control steps *one rung up* the ramp: resting ELEV_2, hovering EDGE.
+#
+# A depth rather than a flag because cards do not nest today but a group's
+# ``finally`` has to undo exactly what it did, and a counter cannot be left
+# wrong by an exception the way a toggled bool can. Module state because the
+# colours are chosen deep inside ``_button_colours``, which pushes its own on
+# every call: a ``push_style_color`` from the card would never reach a button
+# (it is overwritten), so the card has to tell this module instead.
+_ELEVATION_DEPTH = 0
+
+
+def elevation_depth() -> int:
+    """How many cards are open around the control being drawn. 0 outside any."""
+    return _ELEVATION_DEPTH
+
+
+def push_elevation() -> None:
+    """A card opened: controls drawn from here step one rung up the ramp."""
+    global _ELEVATION_DEPTH
+    _ELEVATION_DEPTH += 1
+
+
+def pop_elevation() -> None:
+    """The matching close. Never below zero, so a stray pop cannot invert the rule."""
+    global _ELEVATION_DEPTH
+    _ELEVATION_DEPTH = max(_ELEVATION_DEPTH - 1, 0)
+
+
+@contextmanager
+def _combo_cap(name: str) -> Iterator[None]:
+    """A combo's arrow cap, one rung up inside a card.
+
+    The cap is drawn from ``Col_.button`` (theme: ELEV_2) on top of the frame --
+    which a card has just moved to ELEV_2 -- so it would disappear into the field
+    it is the handle of. Pushed around the one call, not by the card: every other
+    button pushes its own colours and a card-wide ``Col_.button`` would only be
+    inherited by the raw widgets that do not, which is this one.
+    """
+    if name != "combo" or _ELEVATION_DEPTH <= 0:
+        yield
+        return
+    imgui.push_style_color(imgui.Col_.button.value, imgui.ImVec4(*theme.rgba(theme.EDGE)))
+    try:
+        yield
+    finally:
+        imgui.pop_style_color()
+
+
 @contextmanager
 def _button_colours(
     role: ButtonRole, selected: bool, preview: ControlState
 ) -> Iterator[None]:
     c = imgui.Col_
+    raised = _ELEVATION_DEPTH > 0
     if role is ButtonRole.PRIMARY:
         normal = theme.rgba(theme.ACCENT)
         hovered = theme.mix(theme.ACCENT, theme.TEXT, tokens.HOVER_WASH_ALPHA)
@@ -286,15 +341,15 @@ def _button_colours(
         active = theme.mix(theme.ERR, theme.BG, tokens.PRESSED_WASH_ALPHA)
     elif role is ButtonRole.GHOST:
         normal = theme.rgba(theme.ACCENT, tokens.SELECTION_WASH_ALPHA) if selected else (0, 0, 0, 0)
-        hovered = theme.rgba(theme.ELEV_2)
+        hovered = theme.rgba(theme.EDGE if raised else theme.ELEV_2)
         active = theme.rgba(theme.ACCENT, tokens.PRESSED_WASH_ALPHA)
     else:
         normal = (
             theme.rgba(theme.ACCENT, tokens.SELECTION_WASH_ALPHA)
             if selected
-            else theme.rgba(theme.ELEV_1)
+            else theme.rgba(theme.ELEV_2 if raised else theme.ELEV_1)
         )
-        hovered = theme.rgba(theme.ELEV_2)
+        hovered = theme.rgba(theme.EDGE if raised else theme.ELEV_2)
         active = theme.rgba(theme.ACCENT, tokens.PRESSED_WASH_ALPHA)
     if preview is ControlState.HOVER:
         normal = hovered
@@ -498,7 +553,7 @@ def _field_call(
         frame, value = _drag_held.pop(held_key)
         if frame == imgui.get_frame_count() - 1 and len(args) > 1:
             args = (args[0], value, *args[2:])
-    with _disabled(enabled), _field_colours(bool(error)):
+    with _disabled(enabled), _field_colours(bool(error)), _combo_cap(name):
         result = getattr(imgui, name)(*args, **kwargs)
     if commit:
         # Read here, while the field is still imgui's "last item" -- before
@@ -982,7 +1037,7 @@ def combo(
     labels = dict(options)
     changed = False
     picked = current
-    with _disabled(enabled), _field_colours(bool(error)):
+    with _disabled(enabled), _field_colours(bool(error)), _combo_cap("combo"):
         opened = imgui.begin_combo(control_id, labels.get(current, current))
     _finish_item(
         tooltip=tooltip,

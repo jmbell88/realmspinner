@@ -143,8 +143,21 @@ class Form:
 
         resolved = self._error(field, error)
         start_x = imgui.get_cursor_pos_x()
+        # Inside a ``widgets.group`` card the rhythm is 4 px label -> control and
+        # 12 px field -> field (it is 8 and 20 outside). Done with cursor
+        # nudges rather than a pushed ``ItemSpacing``: that is one number for the
+        # whole style and it also spaces the label from the (?) beside it, the
+        # control from its helper line, and everything a caller draws between
+        # two fields. The 12 is a *leading* gap (``group_field_begin``) instead of
+        # a longer trailing dummy because a trailing dummy on a card's last field
+        # would lengthen the card, leaving 16 px under it instead of 12.
+        in_card = widgets.in_group()
+        if in_card:
+            widgets.group_field_begin()
         if self.layout.stacked:
             self._label(label, help_text)
+            if in_card:
+                widgets.tighten(tokens.SP_1)
             imgui.set_next_item_width(-1.0)
             control_x = start_x
         else:
@@ -160,6 +173,8 @@ class Form:
             # treatment for just this field is cheaper than guessing widths
             # up front, and it degrades one field instead of the whole form.
             if imgui.get_item_rect_size().x > self.layout.label_width:
+                if in_card:
+                    widgets.tighten(tokens.SP_1)
                 imgui.set_next_item_width(-1.0)
                 control_x = start_x
             else:
@@ -171,6 +186,8 @@ class Form:
             controls.fold_undo(history)
         note = resolved or helper
         if note:
+            if in_card:
+                widgets.tighten(tokens.SP_1)
             imgui.set_cursor_pos_x(control_x)
             imgui.push_text_wrap_pos(0.0)
             with fonts.small(imgui):
@@ -179,7 +196,10 @@ class Form:
                     note,
                 )
             imgui.pop_text_wrap_pos()
-        imgui.dummy((0, sp(tokens.SP_1)))
+        if in_card:
+            widgets.group_field_end()
+        else:
+            imgui.dummy((0, sp(tokens.SP_1)))
 
     def text(
         self,
