@@ -183,10 +183,10 @@ def stage_rail(
     default font. Handing a taller ``row_height`` does **not** stretch the track
     to fill it (a pill rail the height of a text field reads as broken, not
     tall); it centres the rail's own natural-height content inside the reserved
-    band instead. The bar no longer shares its row, so ``brief.draw``
-    passes none and ``None`` (the live caller) keeps the reserved height equal
-    to the content height; the argument stays for ``App._stage_rail``'s
-    pass-through and the tests that centre against it.
+    band instead. ``brief.draw`` passes the frame height again (2026-10-11,
+    concept 03's band): the rail shares one 30 dp row with New and Inspector, and
+    left at its natural ~25 dp it sat at the row's top while the buttons filled
+    it. ``None`` keeps the reserved height equal to the content height.
     """
     draw = imgui.get_window_draw_list()
     pad_y = sp(6)

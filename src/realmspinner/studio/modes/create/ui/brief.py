@@ -14,22 +14,24 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .... import anchors, controls, dialogs, focus, icons, theme, widgets
+from .... import anchors, controls, dialogs, focus, icons, theme, tokens, widgets
 from ....tokens import SP_1, sp
 from ..engine import assets as create_assets
 from ..engine import character as create_character
 from ..engine import mesh as create_mesh
 from ..engine import recipe as create_recipe
 
-#: The header pane's height in design pixels: the stage rail alone, on every
-#: stage. Measured rather than derived -- the naive arithmetic fell short of
-#: imgui's own trailing ``item_spacing`` after the row's last item, which a bare
-#: guess has no way to know to add (the same way Muse's own ``BAR_H`` was wrong
-#: before it grew a version of this test). ``test_the_bar_fits_the_height_it_declares``
-#: draws the row for real and this is what it measured. The bar used to carry a
-#: taller press row on Reference and Mesh; the press moved into the settings
-#: column (:func:`inputs`, :func:`submit_control`), so there is one height now.
-RAIL_ONLY_H = 72.0
+#: The header pane's height in design pixels: one regular control row with the
+#: pane's own :data:`tokens.SP_2` inset above and below (8 + 30 + 8 = 46, concept
+#: 03's band). **Derived, not measured.** It was a measured 72 -- the naive sum
+#: fell short of imgui's own trailing ``item_spacing`` after the row's last item,
+#: so the number was found by drawing the bar and copying what came out -- and a
+#: measured guess is how the band came to be 26 dp taller than the one 30 dp row
+#: it holds, with the rail pill floating at the top of the extra. The frame
+#: passes ``padding=tokens.SP_2`` to the pane, so the content area *is* the row
+#: and nothing is left over for a trailing spacing to fall into
+#: (``test_the_bar_fits_the_height_it_declares`` draws the row for real).
+RAIL_ONLY_H = tokens.CONTROL_HEIGHT_REGULAR + 2 * tokens.SP_2
 
 #: The prompt field's height, and the height of every text area in Create's
 #: columns that is the *subject* of its card. Six lines rather than one because
@@ -116,9 +118,10 @@ FOCUS_PANE = "brief"
 
 
 def bar_height(ctx: Any) -> float:
-    """This frame's header height: the rail's own band, on every stage. An
-    inert strip under a bare rail would be the same complaint the module
-    docstring makes about a bar with dead controls, so nothing more is reserved.
+    """This frame's header height: one control row inside the pane's inset
+    (:data:`RAIL_ONLY_H`), on every stage. An inert strip under a bare rail
+    would be the same complaint the module docstring makes about a bar with dead
+    controls, so nothing more is reserved.
     """
     return sp(RAIL_ONLY_H)
 
@@ -144,8 +147,25 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     if "asset_type" not in form_2d:
         form_2d["asset_type"] = create_assets.legacy_asset_type(form_2d)
     create_assets.sync_legacy_fields(form_2d)
-    reserve = widgets.button_width("New...") + widgets.button_width("Inspector") + sp(24)
-    rail(ctx, max_width=max(sp(160), imgui.get_content_region_avail().x - reserve))
+    # The two buttons and the two same_line gaps that separate them from the
+    # rail and each other -- the item spacing imgui really inserts, not a
+    # hand-typed slack (it was sp(24), three gaps' worth, so the rail gave up a
+    # gap's width for nothing).
+    reserve = (
+        widgets.button_width("New...")
+        + widgets.button_width("Inspector")
+        + 2 * imgui.get_style().item_spacing.x
+    )
+    # ``row_height`` is the regular control height -- what New and Inspector
+    # really are, which is the frame height only while the body font is 14 px --
+    # so the rail capsule is centred on the same 30 dp line as they are: left to
+    # its natural ~25 dp it sat at the row's top while the buttons filled it,
+    # three centres on one band.
+    rail(
+        ctx,
+        max_width=max(sp(160), imgui.get_content_region_avail().x - reserve),
+        row_height=controls.control_height(),
+    )
     imgui.same_line()
     if controls.button("New...", role=controls.ButtonRole.GHOST):
         imgui.open_popup("create-new")

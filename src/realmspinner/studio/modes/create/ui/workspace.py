@@ -18,7 +18,7 @@ from imgui_bundle import imgui
 
 from .....service import jobs as svc_jobs
 from .....service import sprites as svc_sprites
-from .... import asset_open, controls, theme, widgets
+from .... import asset_open, controls, fonts, theme, tokens, widgets
 from .... import candidates as candidates_mod
 from ....manual import render as manual_render
 from ....panes import thumbs
@@ -346,6 +346,64 @@ def tray_extra(ctx: Any) -> float:
     return _PROGRESS_DP if getattr(getattr(ctx, "cache", None), "active", None) else 0.0
 
 
+#: An attempt's thumbnail side, in design pixels. 80 rather than the 82 it was:
+#: 82 is on no scale, 80 is ten of the 8 px unit.
+ATTEMPT_THUMB_DP = 80.0
+
+#: What the tray's card spends around its body, in design pixels: padding above,
+#: the 26 px header row, the 8 px to the body, padding below (12 + 26 + 8 + 12).
+#: Derived from the card's own constants so a change to the card moves the tray's
+#: height with it.
+TRAY_CHROME_DP = 2 * tokens.SP_3 + widgets.GROUP_HEADER_H + tokens.SP_2
+
+#: The share of the viewport pane the tray may take. The canvas above it is what
+#: the tray is *for*, so the tray gives way before the picture does.
+TRAY_MAX_FRACTION = 0.48
+
+
+def strip_height() -> float:
+    """The attempt strip's height in physical px: the tallest cell it can draw.
+
+    A cell is the thumbnail, the compact name button, the status pill and one
+    note line ("Chosen source", "Favourite"), each one item spacing apart, and
+    the horizontal scrollbar under them. **Explicit, because the card is
+    ``auto_resize_y``**: the strip used to be ``(0, 0)`` -- "whatever is left" --
+    which inside a child that sizes itself to its content is a circle, and the
+    cell's last line was the first thing the circle lost. The note line and the
+    scrollbar are reserved whether or not they show, so the card does not change
+    height when the first attempt is favourited or the tenth one arrives.
+    """
+    style = imgui.get_style()
+    gap = float(style.item_spacing.y)
+    with fonts.small(imgui):
+        pill = float(imgui.get_text_line_height()) + 2 * sp(3)
+    return (
+        sp(ATTEMPT_THUMB_DP)
+        + gap
+        + sp(tokens.CONTROL_HEIGHT_COMPACT)
+        + gap
+        + pill
+        + gap
+        + float(imgui.get_text_line_height())
+        + float(style.scrollbar_size)
+    )
+
+
+def tray_height(ctx: Any, height: float) -> float:
+    """The tray's height in physical px, inside a viewport pane ``height`` tall.
+
+    The card's chrome plus its body (the attempt strip -- the candidate grid
+    takes the same room, and scrolls inside it) plus the progress row while one
+    is drawn, **capped at** :data:`TRAY_MAX_FRACTION` **of the pane**. It was a
+    guessed ``sp(186)`` with a pane header over it; the card's chrome is 58 dp of
+    its own, and a floor that ignores the chrome clips the strip's last line at
+    every window size (the 2026-10-11 Create review). Where the cap binds, the
+    tray's outer child scrolls rather than the strip losing its bottom edge.
+    """
+    wanted = sp(TRAY_CHROME_DP) + strip_height() + sp(tray_extra(ctx))
+    return min(wanted, height * TRAY_MAX_FRACTION)
+
+
 def should_draw(ctx: Any, stage: str | None = None) -> bool:
     """Whether Create has work worth reserving central space for.
 
@@ -388,21 +446,31 @@ def draw(ctx: Any, height: float = 0.0, stage: str | None = None) -> None:
     if height > 0 and not imgui.begin_child("generation-results", (0, height), False):
         imgui.end_child()
         return
-    widgets.pane_header("Attempts")
-    active = progress_row(ctx)
-    group = candidates_mod.pending_cached(ctx.cache) if stage in (None, "mesh") else None
-    if group is not None:
-        _candidate_grid(ctx, group)
-    else:
-        jobs = families.results(session.index(ctx), ctx.state.create.workspace, stage)
-        if jobs:
-            _attempt_strip(ctx, jobs)
-        elif not active:
-            # Only reachable from a caller that draws the tray without asking
-            # ``should_draw`` first; the shell always asks.
-            widgets.muted_wrapped(
-                "Your completed generations will appear here for comparison and variation."
-            )
+    top = float(imgui.get_cursor_screen_pos().y)
+    # **One card, not a heading over a list.** "Attempts" was a 20 px
+    # ``pane_header`` (the one place in Create's centre that spoke in a second
+    # register) over bare controls; it is the same ``widgets.group`` every other
+    # Create column is made of. The empty-state heroes ("What would you like to
+    # make?", "Ready when you are") keep ``pane_header`` on purpose: each is the
+    # only thing on the screen, not one group among several.
+    with widgets.group("Attempts", id="attempts"):
+        active = progress_row(ctx)
+        group = candidates_mod.pending_cached(ctx.cache) if stage in (None, "mesh") else None
+        if group is not None:
+            # What is left of the tray under the lines already drawn, so the
+            # scrolling grid ends exactly at the card's bottom padding.
+            room = height - (float(imgui.get_cursor_screen_pos().y) - top) - sp(tokens.SP_3)
+            _candidate_grid(ctx, group, room if height > 0 else 0.0)
+        else:
+            jobs = families.results(session.index(ctx), ctx.state.create.workspace, stage)
+            if jobs:
+                _attempt_strip(ctx, jobs)
+            elif not active:
+                # Only reachable from a caller that draws the tray without asking
+                # ``should_draw`` first; the shell always asks.
+                widgets.muted_wrapped(
+                    "Your completed generations will appear here for comparison and variation."
+                )
     if height > 0:
         imgui.end_child()
 
@@ -476,8 +544,8 @@ def strip_window(count: int, scroll_x: float, view_w: float, cell_w: float) -> t
 
 def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
     flags = imgui.WindowFlags_.horizontal_scrollbar.value
-    if imgui.begin_child("create-attempt-strip", (0, 0), False, flags):
-        side = sp(82)
+    if imgui.begin_child("create-attempt-strip", (0, strip_height()), False, flags):
+        side = sp(ATTEMPT_THUMB_DP)
         gap = float(imgui.get_style().item_spacing.x)
         first, last = strip_window(
             len(jobs),
@@ -505,6 +573,7 @@ def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
                 widgets.fit_text(name, side) + "##select",
                 (side, 0),
                 role=controls.ButtonRole.PRIMARY if selected else controls.ButtonRole.GHOST,
+                control_size=controls.ControlSize.COMPACT,
                 tooltip=name,
             ):
                 inspect_result(ctx, job)
@@ -653,7 +722,7 @@ def _more_actions(ctx: Any, job: dict[str, Any]) -> None:
     ):
         stages.go(ctx, "export", follow=False)
         imgui.close_current_popup()
-    imgui.separator()
+    widgets.divider()
     if controls.button(
         "Discard",
         (-1, 0),
@@ -782,7 +851,7 @@ def progress_row(ctx: Any) -> bool:
 def _progress(ctx: Any, job: dict[str, Any]) -> None:
     status = str(job.get("status") or "queued")
     name = str(job.get("name") or job.get("prompt") or "Current generation")
-    widgets.secondary("Working now")
+    widgets.field_label("Working now")
     imgui.text_wrapped(name)
     if status == "queued":
         position = queue_position(ctx, str(job.get("id") or ""))
@@ -865,16 +934,22 @@ def _cancel(ctx: Any, job_id: str) -> None:
         ctx.submit(f"cancel:{job_id}", svc_jobs.cancel_job, ctx.svc, job_id)
 
 
-def _candidate_grid(ctx: Any, group: Any) -> None:
+def _candidate_grid(ctx: Any, group: Any, room: float = 0.0) -> None:
     """Every candidate, in a strip that scrolls.
 
     Unlike the results grid this one cannot be trimmed to a row: a count of 8
     means eight candidates and choosing between them is the entire purpose, so
     the grid is put in a scrolling child rather than being cut short.
+
+    ``room`` is the height the scrolling child gets, from the tray (what is left
+    of it under the lines above). **Explicit**, because the card around it is
+    ``auto_resize_y`` and a ``(0, 0)`` child inside a window that sizes itself to
+    its content is "as tall as I already am" -- never taller, so the grid could
+    not grow into room the tray had. Floored at a few rows' worth.
     """
     from ....panes import candidates_panel
 
-    widgets.secondary("Compare candidates")
+    widgets.field_label("Compare candidates")
     manual_render.help_button(ctx, "candidates")
     widgets.muted_wrapped(
         "Choose one when every candidate settles. Seeds and scores stay with each result."
@@ -882,7 +957,8 @@ def _candidate_grid(ctx: Any, group: Any) -> None:
     nudge = candidates_panel.nudge_text(group, candidates_panel.grades_for(ctx, group))
     if nudge is not None:
         widgets.muted(nudge)
-    if not imgui.begin_child("generation-candidate-scroll", (0, 0), False):
+    floor = sp(tokens.SP_6 * 4)
+    if not imgui.begin_child("generation-candidate-scroll", (0, max(room, floor)), False):
         imgui.end_child()
         return
     if imgui.begin_table("generation-candidates", 2, imgui.TableFlags_.sizing_stretch_same.value):

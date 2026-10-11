@@ -189,8 +189,6 @@ def _stage_pane(ctx: Any) -> None:
     The fall-through is Reference: the front of the pipeline, and the only
     stage that says something with nothing selected at all.
     """
-    from imgui_bundle import imgui
-
     from .. import icons, widgets
     from ..modes.create.ui import workspace as generation_workspace
     from ..modes.create.ui.panes import settings_2d, settings_3d
@@ -203,7 +201,7 @@ def _stage_pane(ctx: Any) -> None:
     # a rig bake started from its own stage still shows more than the floating
     # card (2026-09-07 review, item 5.7).
     if stage not in generation_workspace.TRAY_STAGES and generation_workspace.progress_row(ctx):
-        imgui.separator()
+        widgets.divider()
     if stage == "mesh":
         settings_3d.draw(ctx)
     elif stage == "rig":
@@ -923,12 +921,16 @@ class FrameMixin:
                     # longer decides whether the pane opens -- the rail is a
                     # breadcrumb for every stage, so it always does, and
                     # ``create_brief.bar_height`` sizes it per stage instead.
+                    # The band is 8 + 30 + 8: the pane's inset is one gutter, so
+                    # its content area is exactly the one control row
+                    # ``bar_height`` is derived from.
                     with layout_mod.pane(
                         "brief",
                         (0, create_brief.bar_height(ctx)),
                         layout_mod.PaneRole.CONTENT,
                         edge=layout_mod.PaneEdge.BOTTOM,
                         title="The brief bar",
+                        padding=tokens_mod.SP_2,
                     ) as visible:
                         if visible:
                             create_brief.draw(ctx, self._stage_rail)
@@ -1049,6 +1051,8 @@ class FrameMixin:
         from imgui_bundle import imgui
 
         from .. import layout as layout_mod
+        from .. import tokens as tokens_mod
+        from .. import widgets
         from ..modes.create.ui import stages as create_stages
         from ..modes.create.ui import workspace as generation_workspace
         from ..panes import overlay
@@ -1066,11 +1070,16 @@ class FrameMixin:
             (width, 0),
             layout_mod.PaneRole.CONTENT,
             window_flags=imgui.WindowFlags_.no_scroll_with_mouse.value,
+            # Every Create pane shares one 8 px inset, so the canvas, the tray
+            # card and the columns either side all sit one gutter from the seams.
+            padding=tokens_mod.SP_2,
         ) as visible:
             if visible:
                 overlay.toolbar(ctx)
                 avail = imgui.get_content_region_avail()
-                height = max(avail.y, 64)
+                # ``sp(64)``, not 64: the floor is a length on screen, and a bare
+                # 64 was a different fraction of the window at every UI scale.
+                height = max(avail.y, sp(64))
                 reference_stage = create_stages.at(ctx.state, "reference")
                 # Once a Create run exists, the canvas gains an in-context
                 # results tray.  The viewer remains above it, so a reference
@@ -1080,21 +1089,29 @@ class FrameMixin:
                 tray = stage in generation_workspace.TRAY_STAGES and (
                     generation_workspace.should_draw(ctx, stage)
                 )
-                # The floor is **one whole card**, not a round number: heading,
-                # caption, a 72 dp thumbnail and the two rows of actions under
-                # it come to a little over 200 dp, and at the old 180 the
-                # actions sat below the tray's fold on every card. A button
-                # nobody can reach without scrolling a strip they cannot see
-                # scrolls is a button that does nothing; ``/exercise-mode
-                # create`` reported twelve of them, and no test can, because a
-                # clipped button is still drawn.
+                # The floor is **one whole strip**, not a round number: a guessed
+                # ``sp(186)`` once sat under the heading and clipped the cell's
+                # actions; a button nobody can reach without scrolling a strip
+                # they cannot see scrolls is a button that does nothing
+                # (``/exercise-mode create`` reported twelve of them, and no
+                # test can, because a clipped button is still drawn).
                 # The progress row is drawn inside the tray on both stages, so a
                 # running job adds its own height to the floor rather than
                 # pushing a card's actions below the fold.
-                extra = sp(generation_workspace.tray_extra(ctx))
-                tray_height = min(sp(186) + extra, height * 0.48) if tray else 0.0
-                gap = imgui.get_style().item_spacing.y if tray else 0
+                #
+                # The tray is one card now (``workspace.tray_height`` derives its
+                # height from the card's chrome and the attempt strip, capped at
+                # 48% of the pane), and the gap above it is the 8 px gutter every
+                # card is separated by, counted exactly: the raw separator that
+                # used to sit here added an item spacing either side of a 1 px
+                # rule, which ``canvas_height`` never subtracted, so the tray was
+                # always about 17 px lower than the arithmetic said.
+                tray_height = generation_workspace.tray_height(ctx, height) if tray else 0.0
+                gap = sp(tokens_mod.SP_2) if tray else 0.0
                 canvas_height = max(height - tray_height - gap, sp(64))
+                # Everything below draws in the pane's content width, not the
+                # column's outer one: the pane's own inset comes out of it.
+                width = avail.x
                 if tray:
                     # ``placeholder`` centres itself by consuming the available
                     # height, so it needs its own top child; otherwise it would
@@ -1110,7 +1127,9 @@ class FrameMixin:
                 else:
                     self._canvas_body(ctx, stage, width, height, reference_stage, False)
                 if tray:
-                    imgui.separator()
+                    # imgui puts ItemSpacing.y between the two children; this
+                    # makes that gap the gutter whatever the style says.
+                    widgets.nudge_cursor_y(gap - imgui.get_style().item_spacing.y)
                     generation_workspace.draw(ctx, tray_height, stage)
 
     def _canvas_body(

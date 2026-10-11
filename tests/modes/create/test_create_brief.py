@@ -172,6 +172,8 @@ def test_the_header_is_the_rail_band_on_every_stage():
     for stage in create_stages.STAGES:
         ctx = SimpleNamespace(state=_state(stage))
         assert create_brief.bar_height(ctx) == create_brief.sp(create_brief.RAIL_ONLY_H), stage
+        # ...and that height is the derived 46 (8 + 30 + 8), not a measured guess.
+        assert create_brief.RAIL_ONLY_H == 46.0
 
 
 # --- what it holds ----------------------------------------------------------
@@ -506,6 +508,9 @@ def test_the_bar_is_a_registered_pane_not_a_bare_row():
     source = inspect.getsource(main.App._build_ui)
     assert 'layout_mod.pane(\n                        "brief",' in source
     assert "create_brief.bar_height(ctx)" in source
+    # The pane's inset is one gutter, so its content area is the one 30 dp row
+    # ``bar_height`` is derived from.
+    assert "padding=tokens_mod.SP_2" in source.split('"brief",', 1)[1].split("as visible", 1)[0]
     assert "create_brief.draw(ctx, self._stage_rail)" in source
     # The gate moved *into* create_brief.draw, not away entirely.
     assert "create_brief.shows(ctx)" not in source
@@ -586,18 +591,28 @@ def test_the_bar_only_reaches_the_settings_door_on_the_generating_stages(frames)
     assert busy_calls == []
 
 
-def test_the_bar_fits_the_height_it_declares(frames):
-    """``RAIL_ONLY_H`` is measured, not derived -- this is the thing that
-    measures it: a real frame draws the header into a bare
-    ``imgui.begin("smoke")`` window, and the content span plus the padding
-    ``layout.pane`` would spend on top of it (added back on both edges, since
-    this window has none of its own) must fit the pane height ``bar_height``
-    declares for that stage.
+def _content_height(positions: dict[str, float]) -> float:
+    """What the header needs inside a pane with Create's 8 px inset: the cursor's
+    travel, less the item spacing imgui leaves under a row's last item (it is not
+    part of the window's content extent, so it never scrolls), plus the inset on
+    both edges. This window has no padding of its own to reuse, so the pane's is
+    added back."""
+    spacing = imgui.get_style().item_spacing.y
+    inset = create_brief.sp(create_brief.tokens.SP_2)
+    return (positions["after"] - positions["before"]) - spacing + 2 * inset
 
-    Muse's own ``BAR_H`` was wrong exactly this way before its own version of
-    this test existed -- 118 declared against ~142 dp actually drawn, because
-    neither figure ever charged for that padding and nothing drew the bar for
-    real to catch it.
+
+def test_the_bar_fits_the_height_it_declares(frames):
+    """``RAIL_ONLY_H`` is derived, and this is the thing that proves the
+    derivation is the truth: a real frame draws the header into a bare
+    ``imgui.begin("smoke")`` window, and the content span plus the inset
+    ``layout.pane(..., padding=SP_2)`` spends on both edges must equal the pane
+    height ``bar_height`` declares for that stage -- not merely fit under it, or
+    the band would carry dead space the way the measured 72 did.
+
+    Muse's own ``BAR_H`` was wrong the other way before its own version of this
+    test existed -- 118 declared against ~142 dp actually drawn, because nothing
+    drew the bar for real to catch it.
     """
     for stage in create_stages.STAGES:
         ctx = _real_ctx(stage=stage, source=_SOURCE)
@@ -610,13 +625,11 @@ def test_the_bar_fits_the_height_it_declares(frames):
 
         frames(build)
 
-        pad = imgui.get_style().window_padding.y
-        content_h = (positions["after"] - positions["before"]) + 2 * pad
         declared = create_brief.bar_height(ctx)
         assert declared == create_brief.sp(create_brief.RAIL_ONLY_H), stage
-        assert content_h <= declared, (
-            f"stage={stage}: the header drew {content_h:.1f}px of content against "
-            f"a declared {declared:.1f}px (RAIL_ONLY_H = {create_brief.RAIL_ONLY_H})"
+        assert _content_height(positions) == pytest.approx(declared, abs=1.0), (
+            f"stage={stage}: the header drew {_content_height(positions):.1f}px of content "
+            f"against a declared {declared:.1f}px (RAIL_ONLY_H = {create_brief.RAIL_ONLY_H})"
         )
 
 
@@ -635,9 +648,7 @@ def test_the_bar_fits_with_the_count_hidden_too(frames):
 
     frames(build)
 
-    pad = imgui.get_style().window_padding.y
-    content_h = (positions["after"] - positions["before"]) + 2 * pad
-    assert content_h <= create_brief.bar_height(ctx)
+    assert _content_height(positions) <= create_brief.bar_height(ctx) + 1.0
 
 
 # --- Reset moved into the bar's own pane -------------------------------------

@@ -30,7 +30,7 @@ from typing import Any
 from imgui_bundle import imgui
 
 from .....service import verdicts as svc_verdicts
-from .... import controls, dialogs, theme, widgets
+from .... import controls, dialogs, theme, tokens, widgets
 from ....panes import model_gate, thumbs
 from ....tokens import sp
 from ..engine import assets as create_assets
@@ -560,6 +560,19 @@ def handle_keys(ctx: Any, batch: list[dict[str, Any]], index: int) -> None:
 
 # --- the single view's overlay ---------------------------------------------------
 
+#: Where the overlay's controls sit inside the picture, in design pixels, every
+#: one a step of the spacing scale. The top inset clears the 38 dp toolbar row
+#: (an 8 dp pane inset over a 30 dp row) on the stages that have no tray, where
+#: the window these draw into *is* the viewport pane; it was a literal 40 and the
+#: bottom one a literal 18, neither on the scale.
+_OVERLAY_SIDE_DP = tokens.SP_4
+_OVERLAY_TOP_DP = tokens.SP_6 + tokens.SP_4
+_OVERLAY_BOTTOM_DP = tokens.SP_4
+
+#: Make 3D's size: a regular control tall (it was 38, a one-off), wide enough for
+#: its label with room to spare.
+MAKE_3D_SIZE_DP = (168.0, tokens.CONTROL_HEIGHT_REGULAR)
+
 
 def make_3d_job(ctx: Any) -> dict[str, Any] | None:
     """The selected reference when it is a finished image Make 3D applies to."""
@@ -586,14 +599,16 @@ def draw_overlay(ctx: Any) -> None:
     if batch is not None:
         label = f"Compare all {len(batch)}##canvas-grid"
         reach = widgets.button_width(f"Compare all {len(batch)}")
-        imgui.set_cursor_screen_pos((pos.x + size.x - reach - sp(16), pos.y + sp(40)))
+        imgui.set_cursor_screen_pos(
+            (pos.x + size.x - reach - sp(_OVERLAY_SIDE_DP), pos.y + sp(_OVERLAY_TOP_DP))
+        )
         if controls.button(
             label, role=controls.ButtonRole.GHOST, tooltip="Show every image of this press at once."
         ):
             reopen(ctx, batch)
     selected = ctx.job()
     if labelable(selected):
-        imgui.set_cursor_screen_pos((pos.x + sp(16), pos.y + sp(40)))
+        imgui.set_cursor_screen_pos((pos.x + sp(_OVERLAY_SIDE_DP), pos.y + sp(_OVERLAY_TOP_DP)))
         label_row(ctx, selected)
         if keys_enabled(ctx):
             handle_label_keys(ctx, selected)
@@ -601,9 +616,12 @@ def draw_overlay(ctx: Any) -> None:
     job = make_3d_job(ctx)
     if job is None:
         return
-    button = (sp(168), sp(38))
+    button = (sp(MAKE_3D_SIZE_DP[0]), sp(MAKE_3D_SIZE_DP[1]))
     imgui.set_cursor_screen_pos(
-        (pos.x + (size.x - button[0]) / 2, pos.y + size.y - button[1] - sp(18))
+        (
+            pos.x + (size.x - button[0]) / 2,
+            pos.y + size.y - button[1] - sp(_OVERLAY_BOTTOM_DP),
+        )
     )
     if widgets.primary_button(
         "Make 3D##canvas-make-3d",
