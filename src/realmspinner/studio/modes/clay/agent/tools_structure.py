@@ -403,6 +403,17 @@ def _resolve_point(doc: Any, value: Any, field: str) -> tuple[np.ndarray | None,
     )
 
 
+#: What each ``clay_measure`` kind reads besides ``kind`` itself -- the
+#: published description's own table, held here so a stray argument can be
+#: refused against it (the 2026-10-10 audit's clay-64).
+_MEASURE_KIND_ARGS = {
+    "distance": ("a", "b"),
+    "angle": ("a", "b", "c"),
+    "area": ("uid", "faces"),
+    "volume": ("uid",),
+}
+
+
 def _h_measure(ctx: Any, session: Session, args: dict) -> dict:
     """Distance, angle, area or volume -- pure numbers, never a selection or
     an edit -- ``kernels.mesh.measure``'s own agent door.
@@ -428,6 +439,19 @@ def _h_measure(ctx: Any, session: Session, args: dict) -> dict:
     kind = args.get("kind")
     if kind not in MEASURE_KINDS:
         return fail(f"kind must be one of {', '.join(MEASURE_KINDS)}.", field="kind")
+    # The 2026-10-10 audit's clay-64: an argument another kind takes (``uid``
+    # and ``faces`` with ``distance``, ``faces`` or ``a`` with ``volume``) was
+    # read and dropped, so a request that named a nonexistent uid was answered
+    # as if it had been honoured. Refused against the kind's own set, the
+    # clay-134 rule ``_h_select_by`` and ``_h_uv`` already follow.
+    allowed = {"kind", *_MEASURE_KIND_ARGS[kind]}
+    stray = next((k for k in args if k not in allowed), None)
+    if stray is not None:
+        return fail(
+            f"{stray!r} is not an argument of the {kind!r} kind "
+            f"(it takes {', '.join(_MEASURE_KIND_ARGS[kind])}).",
+            field=stray,
+        )
 
     if kind == "distance":
         a, failure = _resolve_point(doc, args.get("a"), "a")

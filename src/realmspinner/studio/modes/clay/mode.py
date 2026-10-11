@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import dataclasses
 import hashlib
 import logging
 import math
@@ -431,7 +432,12 @@ def open_path(ctx: Any, path: Path) -> None:
         # Focus rather than fork: two tabs over one path would race on save.
         state.activate(existing.uid)
         return
-    ctx.submit(f"clay-open:{_path_key(path)}", _load, path)
+    # Keyed by the path itself, as Mason, Packwright and Sirens do, not by a hash
+    # of it: the 2026-10-10 audit's clay-21 -- ``on_task_failed`` cannot recover a
+    # path from a sha1, so a moved, deleted or corrupt ``.rblk`` stayed in File >
+    # Open Recent, the empty-viewport list and the Model page for ever, each click
+    # raising the same generic failure toast.
+    ctx.submit(f"clay-open:{path}", _load, path)
 
 
 # --- importing --------------------------------------------------------------
@@ -964,14 +970,31 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
     doc, title = tab.doc, tab.title
     rev = doc.history.head
     snap = serialize.snapshot(doc, view=camera_of(ctx, tab))
+    state = ensure(ctx)
 
     def run() -> dict[str, Any] | None:
+        from ....service.errors import Conflict
+
         path = dialogs.save_file(
             "Save Clay document", f"{title}{clay_state.RBLK_SUFFIX}", RBLK_FILTER
         )
         if path is None:
             return None
         path = _with_extension(path, clay_state.RBLK_SUFFIX)
+        # The 2026-10-10 audit's clay-49: ``open_path`` and the ``clay-open``
+        # landing focus a document that is already open ("two tabs over one path
+        # would race on save"), but a Save As retitled onto such a path and the
+        # later saves of the two tabs silently overwrote each other. Refused here,
+        # before the write -- by the time the result lands the other tab's file is
+        # already replaced. A read of ``state.docs`` from the task thread, the same
+        # one ``find_path`` does on the frame thread.
+        other = state.find_path(path)
+        if other is not None and other is not tab:
+            raise Conflict(
+                f"{other.title} is already open on {path.name}. Pick another file "
+                "name, or close that tab first.",
+                field="export",
+            )
         # Staged, as ``save_to`` is: a picker aimed at an existing document is
         # the ordinary way to overwrite one, and a write that dies partway
         # through would leave that file truncated with no copy of it anywhere.
@@ -1103,9 +1126,14 @@ def _refuse_foreign_sidecars(targets: dict[Path, bytes], primary: Path) -> None:
     the export also writes ``crate.mtl`` and each ``crate_<n>.png`` beside it,
     so a user's own ``crate_0.png`` was replaced with no prompt. An ``.mtl``
     is ours when it opens with the export header; a PNG carries no marker, so
-    it counts as ours only when an ``.mtl`` of ours is among the existing files
-    being replaced alongside it. Raises ``Conflict`` (``field="export"``), which
-    reaches the person as a toast naming the file.
+    it counts as ours only when the previous Clay ``.mtl`` beside it names it
+    (:func:`_previous_textures`, the same set the stale-file sweep deletes). The
+    2026-10-10 audit's clay-03: the first cut counted every PNG as ours as soon as
+    *any* Clay ``.mtl`` was among the files, so a user's own ``barrel_2.png`` next
+    to a previous export that never mentioned it was replaced with no prompt --
+    the manual promises Clay "never replaces a file it did not write". Raises
+    ``Conflict`` (``field="export"``), which reaches the person as a toast naming
+    the file.
     """
     from ....service.errors import Conflict
 
@@ -1117,9 +1145,12 @@ def _refuse_foreign_sidecars(targets: dict[Path, bytes], primary: Path) -> None:
             return False
 
     existing = [t for t in targets if t != primary and t.is_file()]
-    owns_textures = any(t.suffix == ".mtl" and ours(t) for t in existing)
+    named: set[str] = set()
+    for target in targets:
+        if target.suffix == ".mtl":
+            named |= _previous_textures(primary, target.stem)
     for target in existing:
-        if not (ours(target) if target.suffix == ".mtl" else owns_textures):
+        if not (ours(target) if target.suffix == ".mtl" else target.name in named):
             raise Conflict(
                 f"{target.name} already exists beside {primary.name} and is not a "
                 "Clay export -- exporting would replace it. Pick another file name "
@@ -1508,6 +1539,11 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     write makes the tab permanently read-only with no way back short of
     closing it.
     """
+    if done.key.startswith("clay-open:"):
+        # Before the tab lookup: an open that failed has no tab, only a path that
+        # does not open (the 2026-10-10 audit's clay-21).
+        forget_path(ctx, done.key.split(":", 1)[1])
+        return
     state = ctx.state.clay
     if state is None or ":" not in done.key:
         return
@@ -1680,15 +1716,22 @@ def undo(ctx: Any, tab: Any) -> None:
     can still reach mid-G/R/S, rewound the history under a drag whose ``was``
     snapshot predated it and the commit then left a state no history position
     held -- a user step silently lost.
+
+    Refused while the tab is ``saving`` too (the 2026-10-10 audit's clay-18): the
+    chord, the header buttons and the history popover all gated on it, but
+    Ctrl+K's Document Undo/Redo rows call straight here, and an undo during an
+    Export mutated the document the task thread was reading in ``to_model`` /
+    ``claydoc_to_obj``. The gate lives in the mode function so every surface
+    shares the one.
     """
-    if _gesture_live(ctx, tab):
+    if tab.saving or _gesture_live(ctx, tab):
         return
     tab.doc.undo()
 
 
 def redo(ctx: Any, tab: Any) -> None:
     """One step forward. :func:`undo`'s twin, and its reasoning."""
-    if _gesture_live(ctx, tab):
+    if tab.saving or _gesture_live(ctx, tab):
         return
     tab.doc.redo()
 
@@ -1708,10 +1751,11 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     is live only while the history head is the step the op pushed, so moving
     the head hides it by itself.
 
-    Refused (-> ``False``) under a live gesture, for :func:`undo`'s reason.
+    Refused (-> ``False``) under a live gesture, for :func:`undo`'s reason, and
+    while the tab is saving, for the one in :func:`undo`'s docstring.
     """
 
-    if _gesture_live(ctx, tab):
+    if tab.saving or _gesture_live(ctx, tab):
         return False
     return tab.doc.step_history(index)
 
@@ -2072,9 +2116,17 @@ def _extrude_and_drag(ctx: Any, doc: Any, op: Any) -> bool:
     before = recent_op.snapshot(doc)
     mark = history.mark()
     head = history.head
-    ran = clay_ops.run(ctx, doc, op)
-    if ran and history.head != head and view.begin_extrude_drag(doc, mark, before):
-        return True
+    try:
+        ran = clay_ops.run(ctx, doc, op)
+        if ran and history.head != head and view.begin_extrude_drag(doc, mark, before):
+            return True
+    except BaseException:
+        # The 2026-10-10 audit's clay-20: ``ops.run`` re-raises MemoryError and
+        # numpy bugs on purpose, and the mark opened above stayed open -- an open
+        # gesture switches the undo budget off for the document for the session
+        # (the clay-62 incident one level up).
+        history.collapse_since(mark)
+        raise
     history.collapse_since(mark)
     return ran
 
@@ -2359,6 +2411,22 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-JOURNAL = journal.tab_provider(
+_JOURNAL_BASE = journal.tab_provider(
     "clay", ".rblk", "model", encode=_journal_snapshot, adopt=_journal_adopt
 )
+
+
+def _journal_slots(ctx: Any) -> list[Any]:
+    """The base provider's dirty, idle tabs, minus any under a live G/R/S drag.
+
+    The 2026-10-10 audit's clay-47: ``save_to``/``save_as`` refuse a live gesture
+    (the second audit's clay-60), but the provider did not, so a copy taken when
+    the 120 s debounce expired mid-drag encoded the half-dragged TRS -- and, the
+    drag then cancelled, the head gate (nothing in the history moved) never wrote
+    a corrected one. A skipped slot keeps its mark, so the copy is written on the
+    first pump after the drag ends.
+    """
+    return [tab for tab in _JOURNAL_BASE.slots(ctx) if not _gesture_live(ctx, tab)]
+
+
+JOURNAL = journal.register(dataclasses.replace(_JOURNAL_BASE, slots=_journal_slots))

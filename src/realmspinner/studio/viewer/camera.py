@@ -193,7 +193,16 @@ class Camera:
         # create-19 -- F twice on one asset moved the view, and a 10 cm asset
         # adopted after a 2 m one was framed from below the ground. Now the
         # result is a function of the box alone.
-        target = m3.vec3(0.0, size[1] * 0.5, 0.0)
+        #
+        # The target is the box's own centre. It was ``(0, height/2, 0)``, which
+        # is the centre of a box standing on the ground at the origin and of
+        # nothing else: the 2026-10-10 audit's create-32 found a caller-supplied
+        # box (Poser's skeleton preview, via ``Viewer.frame_bounds``, which is
+        # not placed the way a loaded model is) framed around the wrong point,
+        # the hidden blank template's centre landing off-screen. For a grounded,
+        # centred model the two are the same point, so nothing that was right
+        # moves.
+        target = (np.asarray(lo, dtype="f8") + np.asarray(hi, dtype="f8")) * 0.5
         self.set_target(target)
         if keep_angles:
             theta, phi = self._goal_theta, self._goal_phi

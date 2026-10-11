@@ -448,7 +448,12 @@ def run(ctx: Any, doc: Any, op: Op, *, during_gesture: bool = False, **params: A
     if result is False:
         doc.history.collapse_since(mark)
         return False
-    _one_step(doc, op, mark, head)
+    # An op that is another op's run under a different button (Repeat Last) has
+    # already had its step named by the nested ``run``; naming it again here
+    # overwrote "Inset Faces" with "Repeat Last" (the 2026-10-10 audit's
+    # clay-54), so the history panel and the Ctrl+Z toast said nothing about
+    # what was undone.
+    _one_step(doc, op, mark, head, relabel=op.name not in _NAMES_ITS_OWN_STEP)
     # What the Last action card and Repeat Last read. Only a parameterised op that
     # started in an element mode and actually pushed a step: a bare action has
     # nothing to adjust, an object-level op is a different selection model, and
@@ -478,7 +483,13 @@ wrong_mode_reason = _wrong_mode_reason
 only answers for a mode the op *does* declare)."""
 
 
-def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
+#: Ops whose ``run`` is another registered op's :func:`run`, which has already
+#: folded and named the step it pushed. :func:`_one_step` folds for them but keeps
+#: the name the nested run gave.
+_NAMES_ITS_OWN_STEP = frozenset({"repeat-last"})
+
+
+def _one_step(doc: Any, op: Op, mark: int, head: int, *, relabel: bool = True) -> None:
     """Fold everything the op pushed into a single, named step.
 
     **One press, one Ctrl+Z.** An op is free to push whatever steps it needs and
@@ -511,22 +522,28 @@ def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
     # Only when the op actually pushed something: a select-all or a frame
     # changes no document, and labelling the *previous* step with this op's
     # name would be a lie in the one place a user goes to read what happened.
-    if top is not None and history.head != head:
+    if relabel and top is not None and history.head != head:
         top.label = op.label.rstrip(".")
 
 
 #: The metre-labelled distances each mesh kernel takes, by the dotted name
 #: ``DragSpec.kernel`` and ``_element`` already share. The 2026-10-09 second
-#: audit's clay-55: Inset, Weld, Bevel and Extrude-with-offset handed their
-#: field's number straight to a kernel that works in the mesh's *local* units, so
-#: "0.100 m" slid a rim 0.4 m on an object scaled 4x, and a 0.02 m weld welded
-#: nothing on a 1 cm box and answered ``ran``. Only Merge Objects converted
-#: (``ops._local_eps``). A name in this table is converted by
-#: :func:`run_mesh_op` and by the op-drag preview (:func:`localise`), so the
-#: dialog, the Inspector, the agent, the drag preview and the commit agree.
+#: audit's clay-55: Inset, Weld and Bevel handed their field's number straight to
+#: a kernel that works in the mesh's *local* units, so "0.100 m" slid a rim 0.4 m
+#: on an object scaled 4x, and a 0.02 m weld welded nothing on a 1 cm box and
+#: answered ``ran``. Only Merge Objects converted (``ops._local_eps``). A name in
+#: this table is converted by :func:`run_mesh_op` and by the op-drag preview
+#: (:func:`localise`), so the dialog, the Inspector, the agent, the drag preview
+#: and the commit agree.
+#:
+#: **Only a param an op actually declares belongs here.** The 2026-10-10 audit's
+#: clay-53: this table (and, copied from it, the manual) named an
+#: "Extrude-offset" field. ``ops_topo.extrude_faces`` takes an ``offset``, but
+#: the Extrude row has never declared one, so the entry was unreachable and the
+#: manual described a control nobody could see.
+#: ``test_every_metre_param_named_in_metre_params_is_declared_by_an_op`` holds it.
 METRE_PARAMS: dict[str, tuple[str, ...]] = {
     "ops_topo.inset_faces": ("thickness", "depth"),
-    "ops_topo.extrude_faces": ("offset",),
     "ops_topo.weld": ("eps",),
     "ops_bevel.bevel_edges": ("width",),
 }
@@ -622,8 +639,14 @@ def run_mesh_op(
         try:
             local = localise(doc, uid, kernel, params)
             mesh, sel = func(obj.mesh, doc.element_sel_of(uid), **local)
-            # A position past float32 is ``set_mesh``'s refusal too; taken here, as
-            # this object's own, so it cannot surface half way through phase two.
+            # A mesh that is not a valid CSR and a position past float32 are
+            # ``set_mesh``'s refusals too; taken here, as this object's own, so
+            # neither can surface half way through phase two. The 2026-10-10
+            # audit's clay-22: only the second was taken, so a later object's
+            # invalid result raised from ``set_mesh`` after the earlier objects
+            # had been rewritten -- ``run`` answered False over a document that
+            # had changed and carried a step.
+            doc._refuse_invalid(obj.name, mesh)
             doc._refuse_unstorable(obj.name, mesh)
         except OpError as error:
             toast(ctx, str(error))
@@ -645,6 +668,28 @@ def run_mesh_op(
         except OpError as error:
             toast(ctx, str(error))
             return False
+    # Shrinking writes first. ``set_mesh`` judges each growing write against the
+    # document as it stands *at that moment*, so an object that grows before
+    # another one shrinks can trip the triangle ceiling for a run whose end state
+    # is inside it -- refused half way, after the earlier objects were written
+    # (the 2026-10-10 audit's clay-22, the near-ceiling half). Ordered by
+    # triangle delta, the running total only ever climbs on the last writes, and
+    # the simulation below replays exactly the check ``set_mesh`` will make, so
+    # a refusal here is a refusal of the whole run and not of its tail.
+    built.sort(key=lambda item: bd._triangles_of(item[2]) - bd._triangles_of(item[1].mesh))
+    from ....kernels.mesh.glbimport import MAX_TRIANGLES
+
+    running = doc._triangle_total()
+    for _, obj, mesh, _ in built:
+        now, was = bd._triangles_of(mesh), bd._triangles_of(obj.mesh)
+        if now > was and running - was + now > MAX_TRIANGLES:
+            toast(
+                ctx,
+                f"That would make {running - was + now:,} triangles, past the "
+                f"{MAX_TRIANGLES:,} a Clay document can hold and save.",
+            )
+            return False
+        running += now - was
     for uid, _, mesh, sel in built:
         doc.set_mesh(uid, mesh, select=sel)
     return True
@@ -661,12 +706,10 @@ def refuse_if_no_geometry(ctx: Any, doc: Any, uids: Iterable[int]) -> bool:
     ops. Only when *every* object lacks geometry: a mixed selection still acts on
     its shapes, and the group in it is skipped as before.
     """
-    objs = []
-    for uid in uids:
-        try:
-            objs.append(doc.by_uid(uid))
-        except KeyError:
-            continue
+    # One uid map for the batch, not a ``by_uid`` scan per uid (the 2026-10-10
+    # audit's clay-23).
+    by_uid = doc._uid_map()
+    objs = [by_uid[uid] for uid in uids if uid in by_uid]
     if objs and not any(len(obj.mesh.positions) for obj in objs):
         toast(ctx, GROUP_HAS_NO_GEOMETRY)
         return True
@@ -799,6 +842,37 @@ def has_two_visible(doc: Any) -> bool:
     """Two selected objects the user can actually see. Merge's predicate, and
     the only one that has to look past ``selection`` at what is in it."""
     return sum(1 for obj in doc.objects if obj.uid in doc.selection and obj.visible) >= 2
+
+
+def has_visible_selected(doc: Any) -> bool:
+    """At least one selected object the user can see -- Duplicate's gate, and
+    Delete's in object mode. A hidden object is left untouched by both (it is
+    not rendered, exported or picked), so a selection of only those is no
+    selection (the 2026-10-10 audit's clay-51)."""
+    return any(obj.visible for obj in doc.objects if obj.uid in doc.selection)
+
+
+def _hidden_only_sentence(doc: Any) -> str:
+    return "" if has_visible_selected(doc) else "The selected objects are hidden; show one first."
+
+
+def _has_visible_selected_reason(doc: Any) -> str:
+    if not doc.selection:
+        return "Select an object first."
+    return _hidden_only_sentence(doc)
+
+
+def can_delete(doc: Any) -> bool:
+    """Delete's gate: a visible object in object mode, a pick in an element mode."""
+    if doc.element_mode == "object":
+        return has_visible_selected(doc)
+    return has_elements(doc)
+
+
+def _can_delete_reason(doc: Any) -> str:
+    if doc.element_mode == "object" and doc.selection:
+        return _hidden_only_sentence(doc)
+    return _has_any_selection_reason(doc)
 
 
 def has_two_or_more_selected(doc: Any) -> bool:
@@ -1014,11 +1088,47 @@ def _inset_check(values: dict[str, Any]) -> None:
         )
 
 
-def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
+def _with_descendants_in(doc: Any, uids: Iterable[int]) -> set[int]:
+    """*uids* and every object under any of them, from one parent -> children map.
+
+    ``selection.with_descendants`` calls ``doc.descendants`` per uid, and each of
+    those builds a map of the whole document -- the 2026-10-10 audit's clay-23:
+    quadratic in the selection at 4,000 objects. Same set, one pass.
+    """
+    kids: dict[Any, list[int]] = {}
+    for obj in doc.objects:
+        kids.setdefault(obj.parent, []).append(obj.uid)
+    out = set(uids)
+    stack = list(out)
+    while stack:
+        for child in kids.get(stack.pop(), ()):
+            if child not in out:  # also the cycle guard, as ``ClayDoc.descendants``
+                out.add(child)
+                stack.append(child)
+    return out
+
+
+def _duplicate(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Copy the selection. -> whether anything was copied.
+
+    The 2026-10-10 audit's clay-51: a selection of only hidden objects copies
+    nothing (``visible=False`` means it is not duplicated), but the closure
+    answered ``None``, which ``run`` reads as "ran" -- True, no step, no toast.
+    ``False`` is the honest answer, and ``enabled`` no longer offers it.
+
+    The object ceiling is taken before the first copy is built (clay-23): the
+    refusal used to come from ``add_objects``, after every copy of a 4,000-object
+    selection had been made.
+    """
     from ....kernels.mesh import selection
 
     del ctx
-    selection.duplicate_selected(doc)
+    by_uid = doc._uid_map()
+    chosen = [uid for uid in doc.selection if uid in by_uid and by_uid[uid].visible]
+    if not chosen:
+        return False
+    doc._refuse_past_ceilings([by_uid[uid] for uid in _with_descendants_in(doc, chosen)])
+    return bool(selection.duplicate_selected(doc))
 
 
 def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
@@ -1060,8 +1170,9 @@ def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
 
     visible = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
     uids = _in_outliner_order(doc, visible)
-    objs = [doc.by_uid(uid) for uid in uids]
-    worlds = [doc.world_matrix(uid) for uid in uids]
+    by_uid = doc._uid_map()
+    objs = [by_uid[uid] for uid in uids]
+    worlds = [doc._world_in(uid, by_uid) for uid in uids]
     mesh = clay_ops_geom.join(objs, eps=float(weld), world=worlds)
     # The 2026-10-07 audit's clay-43: the distance used to go up to 1e6 and a
     # merge at it welded every vertex into one point -- an object with no
@@ -1122,7 +1233,6 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     from ....kernels.geom3d import math3d as m3
     from ....kernels.mesh import document as bd
     from ....kernels.mesh import ops as clay_ops_geom
-    from ....kernels.mesh import selection as selection_mod
 
     del ctx
     taken = clay_ops_geom.UsedNames(obj.name for obj in doc.objects)
@@ -1144,19 +1254,30 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     # the parents-first order below also puts each child's copy under its
     # parent's copy. ``chosen`` is what the user picked; only it and its copies
     # are selected afterwards, never a child riding inside a picked group.
-    chosen = [u for u in doc.selection if doc.by_uid(u).visible]
+    #
+    # The 2026-10-10 audit's clay-23: one uid map for the whole press. Every
+    # ``by_uid``/``ancestors``/``index_of``/``world_matrix``/``descendants`` here
+    # used to rebuild or scan the document per selected object (3.8 s at 4,000
+    # objects), and the object ceiling was only met by ``add_objects`` after
+    # every copy had been built. The ceiling is taken first now.
+    by_uid = doc._uid_map()
+    position: dict[int, int] = {}
+    for index, obj in enumerate(doc.objects):
+        position.setdefault(obj.uid, index)
+    chosen = [u for u in doc.selection if by_uid[u].visible]
     originals = sorted(
-        selection_mod.with_descendants(doc, chosen),
-        key=lambda u: (len(doc.ancestors(u)), doc.index_of(u)),
+        _with_descendants_in(doc, chosen),
+        key=lambda u: (len(doc._ancestors_in(u, by_uid)), position[u]),
     )
+    doc._refuse_past_ceilings([by_uid[u] for u in originals])
     fresh = {uid: bd.new_uid() for uid in originals}
     copy_worlds: dict[int, Any] = {}
     made: list[Any] = []
     for uid in originals:
-        source = doc.by_uid(uid)
+        source = by_uid[uid]
         copy = clay_ops_geom.duplicate(source, fresh[uid], taken=taken)
         taken.add(copy.name)
-        world = doc.world_matrix(uid)
+        world = doc._world_in(uid, by_uid)
         mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset, world=world)
         new_world = m3.compose(mirrored.translation, mirrored.rotation, mirrored.scale)
         parent = source.parent
@@ -1167,13 +1288,13 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
                 from ....kernels.mesh.elements import OpError
 
                 raise OpError(
-                    f"{doc.by_uid(parent).name!r} has a zero scale, so nothing can be "
+                    f"{by_uid[parent].name!r} has a zero scale, so nothing can be "
                     "placed relative to its copy."
                 ) from error
             t, r, s = m3.decompose(inverse @ new_world)
             parent = fresh[parent]
         else:
-            t, r, s = doc.local_from_world(uid, new_world)
+            t, r, s = _local_from_world(doc, by_uid, source, new_world)
         copy_worlds[uid] = new_world
         made.append(
             replace(
@@ -1220,13 +1341,43 @@ def _world_boxes(doc: Any, uids: Iterable[int]) -> dict[int, tuple[np.ndarray, n
     """
     from ....kernels.mesh import ops as clay_ops_geom
 
+    # One uid map for the batch (the 2026-10-10 audit's clay-23): ``by_uid`` and
+    # ``world_matrix`` per uid scanned, and rebuilt a map of, the whole document
+    # each time.
+    by_uid = doc._uid_map()
     out: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for uid in uids:
-        obj = doc.by_uid(uid)
-        box = clay_ops_geom.world_box(obj, world=doc.world_matrix(uid))
+        box = clay_ops_geom.world_box(by_uid[uid], world=doc._world_in(uid, by_uid))
         if box is not None:
             out[uid] = box
     return out
+
+
+def _local_from_world(
+    doc: Any, by_uid: dict[int, Any], obj: Any, world: np.ndarray
+) -> tuple[Any, Any, Any]:
+    """*world* as local ``(t, r, s)`` under *obj*'s own current parent --
+    ``ClayDoc.local_from_world`` over a uid map the caller built once.
+
+    The door re-scans for the object and rebuilds the map to invert its parent's
+    world, per call; a loop over a whole selection (Drop to Ground, Snap to Grid,
+    Mirror Copy) paid that per object (the 2026-10-10 audit's clay-23). The
+    arithmetic is the door's, and so is its refusal of a zero-scale parent.
+    """
+    from ....kernels.geom3d import math3d as m3
+    from ....kernels.mesh.elements import OpError
+
+    world = np.asarray(world, dtype="f8")
+    if obj.parent is None:
+        return m3.decompose(world)
+    try:
+        inverse = np.linalg.inv(doc._world_in(obj.parent, by_uid))
+    except np.linalg.LinAlgError as error:
+        raise OpError(
+            f"{by_uid[obj.parent].name!r} has a zero scale, so nothing can be "
+            "placed relative to it."
+        ) from error
+    return m3.decompose(inverse @ world)
 
 
 def _apply_deltas(ctx: Any, doc: Any, deltas: dict[int, np.ndarray]) -> bool:
@@ -1272,11 +1423,17 @@ def _apply_deltas(ctx: Any, doc: Any, deltas: dict[int, np.ndarray]) -> bool:
     from ....kernels.mesh.elements import OpError
 
     ran = False
-    world_before = {uid: np.array(doc.world_matrix(uid), dtype="f8", copy=True) for uid in deltas}
-    order = sorted(deltas, key=lambda uid: len(doc.ancestors(uid)))
+    # One uid map for the batch (the 2026-10-10 audit's clay-23). The map holds
+    # the live objects, which ``set_transform`` edits in place, so a parent's
+    # world is still read as it stands when its child is converted back.
+    by_uid = doc._uid_map()
+    world_before = {
+        uid: np.array(doc._world_in(uid, by_uid), dtype="f8", copy=True) for uid in deltas
+    }
+    order = sorted(deltas, key=lambda uid: len(doc._ancestors_in(uid, by_uid)))
     for uid in order:
         delta = deltas[uid]
-        obj = doc.by_uid(uid)
+        obj = by_uid[uid]
         try:
             if obj.parent is None:
                 translation = np.asarray(obj.translation, dtype="f8") + delta
@@ -1285,7 +1442,7 @@ def _apply_deltas(ctx: Any, doc: Any, deltas: dict[int, np.ndarray]) -> bool:
                 continue
             world = world_before[uid].copy()
             world[:3, 3] = world[:3, 3] + np.asarray(delta, dtype="f8")
-            t, r, s = doc.local_from_world(uid, world)
+            t, r, s = _local_from_world(doc, by_uid, obj, world)
             if doc.set_transform(uid, translation=t, rotation=r, scale=s):
                 ran = True
         except OpError as error:
@@ -1359,19 +1516,24 @@ def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> bool:
             )
         return clay_ops_geom.snap_translation(position, step)
 
+    # One uid map for the press (the 2026-10-10 audit's clay-23: 1.4 s at 4,000
+    # objects, a map rebuilt per object for the depth sort, and an ``any()`` scan
+    # of every object per selected uid for the liveness test).
+    by_uid = doc._uid_map()
+
     def one(doc: Any, obj: Any) -> bool:
         if obj.parent is None:
             snapped = on_grid(obj.translation)
         else:
-            world = np.array(doc.world_matrix(obj.uid), dtype="f8", copy=True)
+            world = np.array(doc._world_in(obj.uid, by_uid), dtype="f8", copy=True)
             world[:3, 3] = on_grid(world[:3, 3])
-            snapped = doc.local_from_world(obj.uid, world)[0]
+            snapped = _local_from_world(doc, by_uid, obj, world)[0]
         # The 2026-10-07 audit's clay-41: ``set_transform`` pushes nothing for a
         # position already on the grid, and says so.
         return doc.set_transform(obj.uid, translation=snapped)
 
-    live = [uid for uid in doc.selection if any(o.uid == uid for o in doc.objects)]
-    order = sorted(live, key=lambda uid: len(doc.ancestors(uid)))
+    live = [uid for uid in doc.selection if uid in by_uid]
+    order = sorted(live, key=lambda uid: len(doc._ancestors_in(uid, by_uid)))
     return run_object_op(ctx, doc, one, uids=order)
 
 
@@ -1514,7 +1676,9 @@ def _separate_loose(ctx: Any, doc: Any, **_: Any) -> bool:
     def one(doc: Any, obj: Any) -> None:
         doc.separate(obj.uid, sep.by_loose_parts(obj.mesh))
 
-    return run_object_op(ctx, doc, one)
+    # ``needs_geometry`` for the 2026-10-10 audit's clay-52: a lone group was told
+    # "this object is one connected piece", which is not what is wrong with it.
+    return run_object_op(ctx, doc, one, needs_geometry=True)
 
 
 def _pickable_uids(doc: Any) -> list[int]:
@@ -1659,11 +1823,20 @@ def _repeat_last(ctx: Any, doc: Any, **_: Any) -> bool:
     return run(ctx, doc, get(recent.op_name), **recent.params)
 
 
-def _delete(ctx: Any, doc: Any, **_: Any) -> None:
+def _delete(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Delete what is selected. -> whether anything was removed.
+
+    The 2026-10-10 audit's clay-51: hidden objects are left alone by Delete, so a
+    selection of only those removed nothing and the closure still answered
+    ``None`` -- "ran", no step, no toast. A press whose only result is a refusal
+    sentence is the same case: the sentence is shown, and the answer is False.
+    """
     from ....kernels.mesh import selection
 
+    head = doc.history.head
     for message in selection.delete_selected(doc):
         toast(ctx, message)
+    return doc.history.head != head
 
 
 def _unwrap(ctx: Any, doc: Any, **_: Any) -> bool:
@@ -1941,7 +2114,10 @@ def _pack_uv(ctx: Any, doc: Any, margin: float = 0.005, rotate: float = 0.0, **_
         packed = uvtools.pack_islands(obj.mesh, margin=float(margin), rotate=bool(rotate))
         return doc.set_mesh(obj.uid, packed, keep_generator=True)
 
-    return run_object_op(ctx, doc, one)
+    # The 2026-10-10 audit's clay-52: without ``needs_geometry`` a lone group
+    # answered with the kernel's own sentence ("pack_islands needs texture
+    # coordinates -- unwrap this object first"), and a group cannot be unwrapped.
+    return run_object_op(ctx, doc, one, needs_geometry=True)
 
 
 def _register_defaults() -> None:
@@ -2009,8 +2185,8 @@ def _register_defaults() -> None:
             label="Duplicate",
             modes=("object",),
             run=_duplicate,
-            enabled=has_objects,
-            reason=_has_objects_reason,
+            enabled=has_visible_selected,
+            reason=_has_visible_selected_reason,
             key="Ctrl+J",
         )
     )
@@ -2482,8 +2658,8 @@ def _register_defaults() -> None:
             # Delete there deletes picks -- a gate on the object selection
             # enabled it, ran over nothing and answered ``ran`` (found by the
             # selection fuzz test).
-            enabled=has_any_selection,
-            reason=_has_any_selection_reason,
+            enabled=can_delete,
+            reason=_can_delete_reason,
             key="Del",
         )
     )

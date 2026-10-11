@@ -151,6 +151,10 @@ class UndoStack:
         # bar compares it against what it last saw -- with ``!=`` and not
         # ``>``, since ``clear`` puts it back to zero along with the history.
         self.trimmed = 0
+        # The serial of the step most recently evicted off the front, 0 while
+        # nothing has been. ``head`` falls back to it when every remaining step
+        # is undone: see ``head``.
+        self._floor = 0
         self._done: list[Edit] = []
         self._undone: list[Edit] = []
         # Gestures open via ``mark()`` and not yet folded by ``collapse_since``.
@@ -230,8 +234,26 @@ class UndoStack:
         saved step and the head is that step's serial again. Serials are
         per-edit, so a *new* branch of the same length is a different head --
         which a plain depth count would miss.
+
+        **An empty ``_done`` is the evicted floor, not always 0.** The 2026-10-10
+        audit's clay-05/06: 0 meant both "this history never had a step" and
+        "everything still on the stack is undone, after the oldest steps were
+        evicted", so a document saved at 0, edited past the depth cap and undone
+        back down to the bottom of what was left read *clean* with the evicted
+        work still in it, and a checkpoint named at 0 restored to a state that
+        had never been. With nothing evicted the floor is 0 and this is exactly
+        what it always was.
         """
-        return self._done[-1].serial if self._done else 0
+        return self._done[-1].serial if self._done else self._floor
+
+    @property
+    def floor(self) -> int:
+        """The serial of the newest step evicted off the front of the stack, or
+        0 when nothing ever was. What :attr:`head` reads when ``_done`` is
+        empty; exposed so a caller holding a recorded serial can tell "the
+        position under the oldest step I still have" from "a position that was
+        trimmed away"."""
+        return self._floor
 
     def position_of(self, serial: int) -> int | None:
         """The done-count :meth:`step_to` would need to reach *serial*'s
@@ -324,14 +346,14 @@ class UndoStack:
 
     def _evict(self) -> None:
         while len(self._done) > UNDO_MAX_DEPTH:
-            self._done.pop(0)
+            self._floor = self._done.pop(0).serial
         while len(self._done) > UNDO_MIN_DEPTH and self.bytes > self.budget:
-            self._done.pop(0)
+            self._floor = self._done.pop(0).serial
             self.trimmed += 1
         # And here the floor loses. Every loop above stops at UNDO_MIN_DEPTH;
         # this one stops at one step. See UNDO_HARD_BYTES for why.
         while len(self._done) > 1 and self.bytes > self.hard:
-            self._done.pop(0)
+            self._floor = self._done.pop(0).serial
             self.trimmed += 1
 
     def undo(self, doc: Any, *, redoable: bool = True) -> bool:
@@ -449,6 +471,7 @@ class UndoStack:
     def clear(self) -> None:
         self._done.clear()
         self._undone.clear()
+        self._floor = 0
         # With the history rather than alongside it: a stack that reports steps
         # trimmed from a history it no longer holds is describing nothing.
         self.trimmed = 0

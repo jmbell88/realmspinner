@@ -313,6 +313,29 @@ def merge_by_distance(mesh: Mesh, distance: float) -> Mesh:
 #: mesh with thousands of inside-out closed shells *and* thousands of others.
 MAX_CAVITY_PAIRS = 4_000_000
 
+#: The most ray-test work :func:`_cavity_shells` will do, in triangle-tests,
+#: where one containment test of a candidate against a container is charged
+#: :data:`_CAVITY_TEST_BASE` plus the container's triangle count. Counted over
+#: the pairs whose container box holds the candidate -- the only ones that cost
+#: anything -- *before* a ray is cast, and past it a mesh keeps the plain
+#: "volume decides" rule, exactly as past :data:`MAX_CAVITY_PAIRS`.
+#:
+#: The 2026-10-10 audit's clay-11: ``MAX_CAVITY_PAIRS`` alone let 80 inside-out
+#: cubes beside 800 tetrahedra (70,400 pairs, 11,520 corners) take 9.9 s on the
+#: frame thread, ~140 us a pair. Re-measured with the per-test triangle mask
+#: replaced by a slice of a shell-sorted triangle list: one ``_inside`` call
+#: (three points) costs 90 us on a 4-triangle container and 0.18 ms, 2.2 ms,
+#: 32 ms on 1,000, 10,000 and 100,000 triangles, i.e. about 90 us + 0.22 us per
+#: triangle, which is where the base and the unit come from. At 1,000,000 a
+#: mesh of the audit's shape (4-triangle containers, 404 charged a test) gets
+#: ~2,500 tests and a single 100,000-triangle container gets ~10. Measured on
+#: that shape, whole ``recalc_outside`` just under the budget: 0.23 s for 10
+#: cubes beside 230 tetrahedra (2,390 tests) and 0.24 s for 5 beside 480
+#: (2,420). The box pre-count itself, with 1,000 candidates against 3,000
+#: containers (the 4,000,000-pair ceiling) and no box holding anything, is 0.21 s.
+MAX_CAVITY_WORK = 1_000_000
+_CAVITY_TEST_BASE = 400
+
 #: Not along an axis: an axis-aligned ray from a vertex of a box-like shell runs
 #: along coincident faces, and its parity count is then a coin toss.
 _RAY = np.array([0.5773502691896258, 0.3719341103420411, 0.7241543960115787])
@@ -372,24 +395,52 @@ def _cavity_shells(
     hi = np.full((n_shells, 3), -np.inf)
     np.minimum.at(lo, corner_shell, corner_pos)
     np.maximum.at(hi, corner_shell, corner_pos)
-    # The fan triangles of every face, grouped by shell, built once on first use.
-    tris: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None
-    for s in candidates:
+
+    def holders(s: int) -> np.ndarray:
+        """The closed shells whose bounding box holds shell *s*'s."""
         holds = (
             (lo[containers] <= lo[s]).all(axis=1) & (hi[containers] >= hi[s]).all(axis=1)
         ) & (containers != s)
-        found = containers[holds]
+        return containers[holds]
+
+    # The 2026-10-10 audit's clay-11: MAX_CAVITY_PAIRS counts every candidate
+    # x container pair, but the pairs that cost anything are the ones whose box
+    # holds the candidate -- each is a ray test -- and 80 inside-out cubes
+    # beside 800 tetrahedra (70,400 pairs, far under that ceiling) took 9.9 s.
+    # The work those tests would do is totted up from the same box test the
+    # loop below runs, before any ray is cast, so a mesh under
+    # MAX_CAVITY_WORK gets the answer it always did.
+    face_tris = np.maximum(np.diff(mesh.starts.astype("i8")) - 2, 0)
+    shell_tris = np.bincount(shell, weights=face_tris, minlength=n_shells)
+    held_by: list[np.ndarray] = []
+    work = 0.0
+    for s in candidates:
+        found = holders(int(s))
+        work += len(found) * _CAVITY_TEST_BASE + float(shell_tris[found].sum())
+        if work > MAX_CAVITY_WORK:
+            return wall
+        held_by.append(found)
+    corner_order = np.argsort(corner_shell, kind="stable")
+    corner_spans = np.searchsorted(corner_shell[corner_order], np.arange(n_shells + 1))
+    # The fan triangles of every face, grouped by shell (a stable sort, so each
+    # shell's triangles keep their order), with each shell's span, built once on
+    # first use. The loop used to mask every triangle in the mesh once per test.
+    tris: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+    spans: np.ndarray | None = None
+    for s, found in zip(candidates, held_by, strict=True):
         if len(found) == 0:
             continue
-        verts = np.unique(mesh.loops[corner_shell == s])
+        verts = np.unique(mesh.loops[corner_order[corner_spans[s] : corner_spans[s + 1]]])
         picks = pos[verts[[0, len(verts) // 2, len(verts) - 1]]]
         if tris is None:
-            tris = _fan_triangles(mesh, shell)
-        tri_shell, tri0, edge1, edge2 = tris
+            tri_shell, tri0, edge1, edge2 = _fan_triangles(mesh, shell)
+            order = np.argsort(tri_shell, kind="stable")
+            tris = (tri0[order], edge1[order], edge2[order])
+            spans = np.searchsorted(tri_shell[order], np.arange(n_shells + 1))
         around = []
         for t in found[np.argsort(np.abs(volume[found]))]:
-            pick = tri_shell == t
-            if _inside(picks, tri0[pick], edge1[pick], edge2[pick]) >= 2:
+            pick = slice(spans[t], spans[t + 1])
+            if _inside(picks, tris[0][pick], tris[1][pick], tris[2][pick]) >= 2:
                 around.append(t)
                 break
         if around:

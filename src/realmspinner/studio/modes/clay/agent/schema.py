@@ -3,14 +3,14 @@ every prose catalogue :func:`agent_clay.tools`/:func:`agent_clay.instructions`
 compose into the published tool list, plus the numeric ceilings that shape
 both a tool's declared schema and the handler that enforces it.
 
-Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``dev/RESTRUCTURE.md``)
+Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure
 -- that module's own "# --- the tools" and "# --- output schemas" sections,
 minus the pieces that turned out on a close read to belong elsewhere (see
 below). **This module holds no dispatch state and calls no handler**: every
 function here is a pure builder, taking at most a registry entry and
 returning a ``dict``/``str``, which is what makes it safe to import from
 both ``studio/modes/clay/agent/dispatch.py`` (to build the published tool list) and the handler
-modules (``agent_clay_tools*.py``, to enforce the same ceiling a tool's own
+modules (``agent/tools*.py``, to enforce the same ceiling a tool's own
 schema advertises) with no import cycle between any of the three -- this
 module reaches back into neither.
 
@@ -57,7 +57,7 @@ from .. import ops as clay_ops
 #
 # See the module docstring for why these live here rather than in
 # ``studio/modes/clay/agent/dispatch.py``: each is a ceiling or a count a published tool schema or
-# description names, read back by the matching handler in ``agent_clay_tools*.py``
+# description names, read back by the matching handler in ``agent/tools*.py``
 # to enforce the identical number -- never a second, hand-copied ceiling.
 
 BATCH_MAX = 32
@@ -87,7 +87,7 @@ description now interpolates this tuple instead of restating it, and
 that keeps every tool classified.
 
 The three prose refusals that also name these two (``agent_clay._tab``'s two
-and ``agent_clay_tools_batch._h_batch``'s own) are left as English rather than
+and ``agent/tools_batch._h_batch``'s own) are left as English rather than
 interpolated: "call clay_add_primitive or clay_add_mesh" is a sentence, not a
 list, and the test below is what catches one of them going stale.
 """
@@ -123,6 +123,32 @@ name in ``PREVIEW_EXCLUDED``, the same set a *direct* call already checks --
 closing the preview-only hole without touching what an ordinary MCP client
 may batch."""
 
+SAVE_SAFE_TOOLS = frozenset(
+    {
+        "clay_scene",
+        "clay_elements",
+        "clay_measure",
+        "clay_render",
+        "clay_catalog",
+        "clay_checkpoint",  # names a history position; touches nothing the save reads
+        "clay_export",  # carries its own "a save is already in progress" refusal
+        "clay_reference_add",
+        "clay_reference_list",
+        "clay_reference_get",
+        "clay_reference_remove",
+    }
+)
+"""The tools that still run while the session's tab is ``saving`` -- the ones
+that only read the document (or, for the references and ``clay_checkpoint``,
+touch nothing the save task reads). Every other tool is refused by
+``dispatch.call`` until the save finishes: the 2026-10-10 audit's clay-48
+found a user could switch to the agent's tab and start Save/Export while the
+agent went on mutating the document the task thread was reading. A *read-only*
+list rather than a mutating one on purpose: a tool added later and forgotten
+here is refused during a save, a harmless annoyance, where the other way round
+it would race the save silently. Gated both ways by
+``tests/modes/clay/test_audit_2026_10_10_agent.py``."""
+
 BATCH_EXCLUDED = frozenset(
     {
         "clay_batch",  # nesting buys nothing and bounds nothing
@@ -150,14 +176,14 @@ BATCH_EXCLUDED = frozenset(
         "clay_restore",
     }
 )
-"""Tools ``clay_batch`` refuses to run -- see ``agent_clay_tools_batch._h_batch``'s
+"""Tools ``clay_batch`` refuses to run -- see ``agent/tools_batch._h_batch``'s
 docstring for the derivation, and the comments above for why each one is
 excluded. See ``REFERENCE_TOOLS``'s own docstring for why the other three
 reference tools stay off this particular list."""
 
 MAX_REFERENCES = 8
 """How many pictures one session may hold at once. A session's references
-live in memory for the session's whole life (``agent_clay_validate.Session.
+live in memory for the session's whole life (``agent/validate.Session.
 references``) and nothing ever evicts one on its own, so a ceiling is what
 keeps a client that forgets ``clay_reference_remove`` from growing an
 unbounded set of decoded PNGs behind a session nobody is watching."""
@@ -221,7 +247,7 @@ RENDER_SHADINGS = (
 is what the schema's own ``enum`` is built from below, so a seventh value
 added here reaches the wire with no second edit. ``unlit`` is first because
 it is the default -- ``args.get("shading", RENDER_SHADINGS[0])`` in
-``agent_clay_tools_ops._h_render`` reads that position rather than a
+``agent/tools_ops._h_render`` reads that position rather than a
 duplicated literal, so the two cannot name a different default by accident.
 The first five map onto ``ClayView.render_png``'s own ``shading`` (see
 ``clay_view._SHADING_DRAW_KWARGS`` for that table); ``object_id`` is answered
@@ -268,7 +294,10 @@ docstring for what each kind reads and in which space."""
 
 UV_ACTIONS: dict[str, str] = {
     "unwrap": "box-project every face along the axis its normal is closest to, "
-    "into one normalised square -- replaces any uv the object already has []",
+    "into one normalised square -- replaces any uv the object already has "
+    # Not an empty ``[]`` (the 2026-10-10 audit's clay-69): the sibling actions
+    # list their arguments in brackets, and a test reads the bracket.
+    "[no further arguments]",
     "pack": "shelf-pack every island into the unit square, preserving relative "
     "scale [margin (0.0-0.5, default 0.005), rotate (boolean true/false, default false)]",
     "transform": "rotate and scale each chosen island about its own centre, then "
@@ -340,7 +369,7 @@ def _params_value_schema() -> dict:
     derivation paragraphs exist to rule out for everything else in this file.
     A cylinder's ``radius`` is one number and a box's ``size`` is three. A
     schema declaring this shape is not enforcement of it;
-    ``agent_clay_validate._validate_number_or_vec`` is the handler-side half
+    ``agent/validate._validate_number_or_vec`` is the handler-side half
     both tools already call.
     """
     return {
@@ -387,7 +416,7 @@ _QUERY_ARG_SCHEMAS: dict[str, dict] = {
 }
 
 # The two query arguments that are optional -- ``max_angle`` (``_q_normal``'s
-# own default) and ``space`` (``agent_clay_tools_ops``'s own default of
+# own default) and ``space`` (``agent/tools_ops``'s own default of
 # "world", see ``_h_select_by``). Every other name in ``_QUERY_ARG_SCHEMAS`` is
 # required whenever a query declares it.
 _QUERY_OPTIONAL_ARGS = frozenset({"max_angle", "space"})
@@ -418,7 +447,7 @@ _QUERY_OPTIONAL_ARGS = frozenset({"max_angle", "space"})
 
 
 def _sel_counts_schema() -> dict:
-    """The shape ``agent_clay_validate._sel_counts`` returns -- three counts."""
+    """The shape ``agent/validate._sel_counts`` returns -- three counts."""
     return {
         "type": "object",
         "properties": {
@@ -430,7 +459,7 @@ def _sel_counts_schema() -> dict:
 
 
 def _object_row_output_schema() -> dict:
-    """The JSON Schema for one row of ``agent_clay_validate._scene_row`` --
+    """The JSON Schema for one row of ``agent/validate._scene_row`` --
     read that function, not this one, when deciding what belongs here: every
     key it returns must appear below with the right type, or this schema has
     drifted from the function that actually builds the row. That is the
@@ -469,7 +498,7 @@ def _object_row_output_schema() -> dict:
     null for a mesh past uvtools' own overlap ceilings -- clay_scene reads
     every visible object's row on every call, so this is a read that must
     degrade rather than refuse the whole reply for one dense mesh (see
-    agent_clay_validate._uv_facts).
+    agent/validate._uv_facts).
     """
     vec3 = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
     nullable_vec3 = {"anyOf": [{"type": "null"}, vec3]}
@@ -529,7 +558,7 @@ def _object_row_output_schema() -> dict:
 
 def _clay_scene_output_schema() -> dict:
     """``clay_scene``'s declared ``outputSchema`` -- built from what
-    ``agent_clay_tools._h_scene`` actually returns (``objects``, ``selection``,
+    ``agent/tools._h_scene`` actually returns (``objects``, ``selection``,
     ``element_mode``, ``dirty``, ``object_count``, ``bounds``, ``materials``),
     with ``objects`` built from the one shared :func:`_object_row_output_schema`
     rather than a second, hand-written copy of the row shape."""
@@ -641,7 +670,14 @@ def _generator_catalog() -> str:
     parts = []
     for name in sorted(bp.CLAY_GENERATOR_NAMES):
         defaults = bp.GENERATORS[name][0]
-        fields = ", ".join(f"{key}={value!r}" for key, value in defaults.items())
+        # A boolean default prints as 0/1: the params door takes numbers
+        # only and refuses a JSON boolean, so ``closed_underside=True`` was a
+        # default an agent could copy and be refused for (the 2026-10-10
+        # audit's clay-30).
+        fields = ", ".join(
+            f"{key}={int(value) if isinstance(value, bool) else value!r}"
+            for key, value in defaults.items()
+        )
         parts.append(f"{name} [{fields}]")
     return "; ".join(parts)
 

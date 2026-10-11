@@ -1696,30 +1696,28 @@ def _bind_asset_root(state: PoserState, viewer: Any) -> None:
 
 
 def _bind_asset_now(ctx: Any, state: PoserState, viewer: Any, job_id: str) -> None:
-    """Load ``job_id``'s rig.glb and enter pose mode, right now, both halves.
+    """Start binding ``job_id``'s rig.glb: parse on a task, adopt on landing.
 
     The click-driven half of binding an asset (the 2026-09-11 audit, finding
     create-04) -- called only from :func:`open_asset`'s own proceed, which
     runs from nowhere but that door's press or the confirm answering it.
-    Exactly the case ``viewer_embed.Viewer.load_model``'s own docstring
-    sanctions ("the wait is the point... because the user just pressed
-    something"), the same precedent ``pose_panel._enter`` stands on. A load
-    with no click behind it -- a queued re-rig landing while the user is doing
-    nothing in particular -- goes through :func:`sync_asset`'s own split
-    instead; see its docstring.
+
+    The 2026-10-10 audit, finding create-34: this was the last caller of
+    ``viewer_embed.Viewer.load_model``, justified by the precedent that "the
+    wait is the point" and by ``pose_panel._enter``. The 2026-10-04 audit's
+    create-50 had already moved ``_enter`` onto a task, which left this as
+    the only place a click parsed a rig's whole glTF and decoded its textures
+    on the frame thread. It now goes through the same split
+    :func:`sync_asset` uses for the automatic case -- ``Viewer.parse_model``
+    on the ``ASSET_LOAD_KEY`` task, adopted by :func:`_land_asset_load`
+    against ``viewer.pending`` -- and a refused submit (a parse still in
+    flight) is retried by the next frame's :func:`sync_asset` rather than
+    dropped.
     """
-    rig_path = ctx.job_dir(job_id) / "rig.glb"
-    try:
-        viewer.load_model(rig_path)
-    except Exception:
-        log.exception("could not open the rig for job %s", job_id)
-        state.asset_error = "Could not open the rig."
-        return
-    if not viewer.enter_pose_mode(state.asset_rig, job_id):
-        state.asset_error = "That GLB carries no skeleton."
-        return
-    _bind_asset_root(state, viewer)
-    viewer.frame()
+    if sync_asset(ctx, viewer):
+        # Already showing this asset's rig: nothing to parse, but the root bone
+        # is part of "bound" (poser-03, 2026-10-03), so make sure of it.
+        _bind_asset_root(state, viewer)
 
 
 def sync_asset(ctx: Any, viewer: Any) -> bool:
@@ -1727,12 +1725,12 @@ def sync_asset(ctx: Any, viewer: Any) -> bool:
 
     Frame thread only for the upload half; the parse is off it (the 2026-09-11
     audit, finding create-04). Called from ``_poser_viewport``'s draw on
-    *every* frame Poser is open with an asset bound -- not only the frame
-    :func:`open_asset` was pressed on (which already bound synchronously,
-    right there, and is caught by the short-circuit below before this
-    function does anything) but also the frame a queued re-rig lands
-    (:func:`_land_rerig`) while the user is doing nothing in particular. That
-    automatic arrival is what this dispatches for: ``main.App._sync_viewer``'s
+    *every* frame Poser is open with an asset bound -- the frame
+    :func:`open_asset` was pressed on (whose proceed dispatches through
+    :func:`_bind_asset_now`, which is this function; the 2026-10-10 audit's
+    create-34 took the blocking parse out of that door) and the frame a queued
+    re-rig lands (:func:`_land_rerig`) while the user is doing nothing in
+    particular. Both are what this dispatches for: ``main.App._sync_viewer``'s
     parse-on-a-task/adopt-on-this-frame split, landed by
     :func:`_land_asset_load` and checked there against ``viewer.pending`` so a
     parse that lands after the session has moved to a different asset (or

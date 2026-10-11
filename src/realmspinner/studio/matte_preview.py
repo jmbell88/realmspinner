@@ -178,7 +178,12 @@ def pump(ctx: Any) -> MatteState | None:
         # Already tried these exact bytes and it failed. The toast has been
         # shown once; asking again would only show it again.
         return state
-    ctx.submit(key(state.job_id), svc_matte.preview, ctx.svc, state.job_id)
+    # Tagged with the stamp this submit is asking about. The 2026-10-10 audit,
+    # finding create-29: ``on_task_failed`` latched ``state.stamp``, which
+    # ``pump`` may have advanced (an ``input.png`` rewrite while the task ran)
+    # to bytes this task never read -- so the failure of the old bytes
+    # suppressed the ask for the new ones. The tag comes back on the ``Done``.
+    ctx.submit(key(state.job_id), svc_matte.preview, ctx.svc, state.job_id, tag=(stamp,))
     return state
 
 
@@ -215,7 +220,12 @@ def on_task_failed(ctx: Any, done: Any) -> None:
         # current one is untouched -- latching here would suppress a submit
         # that has never been tried.
         return
-    state.failed_stamp = state.stamp
+    # The stamp the failed task was submitted for, not ``state.stamp``: see
+    # ``pump``'s submit (the 2026-10-10 audit, finding create-29). A ``Done``
+    # with no tag (a caller that predates it) falls back to the current stamp,
+    # which is the old behaviour and exact whenever the file did not move.
+    tag = getattr(done, "tag", None)
+    state.failed_stamp = tag[0] if isinstance(tag, tuple) and len(tag) == 1 else state.stamp
     state._tried_and_failed = True
 
 
@@ -225,7 +235,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
     preview = done.result
     if preview is None or not hasattr(preview, "job_id"):
         return
-    svc_matte.remember(state.cache, preview)
+    remembered = svc_matte.remember(state.cache, preview)
     # create-03 (see ``_MAX_CACHE_ENTRIES`` above): bound the cache instead of
     # pruning it to one entry. A plain dict is insertion-ordered, so moving a
     # just-touched key to the end and then trimming from the front is an LRU
@@ -239,6 +249,15 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # The user closed the modal, or moved to another reference, while the
         # cutout was being computed. Still cached above (bounded, not
         # dropped) -- just not shown.
+        return
+    if not remembered:
+        # The 2026-10-10 audit, finding create-29: ``remember`` refused this as
+        # racily clean -- the file was written inside its own mtime tick, so a
+        # later write could be invisible to the stamp forever -- and adopting it
+        # anyway put exactly that cutout on screen, matching every later
+        # ``pump``. Left unadopted, the next ``pump`` finds no preview and asks
+        # again, which is the one recomputation ``remember`` documents as the
+        # price of a refusal.
         return
     state.preview = preview
     state.stamp = preview.stamp

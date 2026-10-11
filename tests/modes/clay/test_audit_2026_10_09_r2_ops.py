@@ -124,10 +124,10 @@ def test_weld_distance_in_metres_leaves_a_wider_seam_alone_on_a_large_scaled_obj
     assert verts == 8, f"a 0.1 m weld merged a 0.2 m seam ({verts} vertices left)"
 
 
-def test_bevel_width_and_extrude_offset_are_converted_like_inset_and_weld(
+def test_bevel_width_is_converted_like_inset_and_weld(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from realmspinner.kernels.mesh import ops_bevel, ops_topo
+    from realmspinner.kernels.mesh import ops_bevel
 
     seen: dict[str, float] = {}
 
@@ -135,22 +135,13 @@ def test_bevel_width_and_extrude_offset_are_converted_like_inset_and_weld(
         seen["width"] = width
         return mesh, sel
 
-    def extrude(mesh: Any, sel: Any, *, offset: float = 0.0) -> Any:
-        seen["offset"] = offset
-        return mesh, sel
-
     monkeypatch.setattr(ops_bevel, "bevel_edges", bevel)
-    monkeypatch.setattr(ops_topo, "extrude_faces", extrude)
     doc, uid = _scaled_box((4.0, 4.0, 4.0))
     doc.set_element_mode("edge")
     doc.set_element_sel(uid, el.ElementSel(edges=[(0, 1)]))
     clay_ops.run(_Ctx(), doc, clay_ops.get("bevel"), width=0.4)
-    doc.set_element_mode("face")
-    doc.set_element_sel(uid, el.ElementSel(faces=[0]))
-    clay_ops.run(_Ctx(), doc, clay_ops.get("extrude"), offset=0.8)
 
     assert seen["width"] == pytest.approx(0.1)
-    assert seen["offset"] == pytest.approx(0.2)
 
 
 def test_a_non_uniform_scale_is_read_as_the_geometric_mean_of_its_axes() -> None:

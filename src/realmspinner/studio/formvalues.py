@@ -25,6 +25,17 @@ def coerce_form_value(default: Any, value: Any) -> Any:
     """
     try:
         if isinstance(default, bool):
+            if isinstance(value, str):
+                # The 2026-10-10 audit found a bool control's "Use False" offer
+                # did nothing: findings buckets are keyed ``str(value)``, and
+                # ``bool("False")`` is True, so the suggestion wrote back the
+                # value the control already held.
+                word = value.strip().lower()
+                if word in ("true", "1", "yes", "on"):
+                    return True
+                if word in ("false", "0", "no", "off", ""):
+                    return False
+                return default
             return bool(value)
         if isinstance(default, float):
             return float(value)

@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import weakref
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -151,6 +152,16 @@ class PreviewDiff:
     both sides), which the three value checks alone would miss entirely.
     Identity is the only thing that actually distinguishes "the same document,
     edited" from "a different document that happens to match".
+
+    **A bare ``id()`` outlives the object it names.** The 2026-10-10 audit's
+    clay-40: once the base was freed CPython could hand its address to a new
+    ``ClayDoc``, so a stale preview passed the "same document" check onto a
+    different document with the same head, selection and mode. The diff now also
+    holds a ``weakref`` to the base, and the moment the base is collected the
+    ref's callback zeroes ``base_doc_id`` (no live object has address 0), so the
+    outside consumers that compare ``id(doc) != diff.base_doc_id`` keep working
+    unchanged and a recycled address can no longer match. :meth:`is_base` is the
+    check to prefer: it compares identity through the ref.
     """
 
     added: set[int] = field(default_factory=set)
@@ -171,6 +182,23 @@ class PreviewDiff:
     base_selection: set[int] = field(default_factory=set)
     base_element_mode: str = "object"
     base_doc_id: int = 0
+    _base_ref: weakref.ref | None = field(default=None, repr=False, compare=False)
+
+    def bind_base(self, base: bd.ClayDoc) -> None:
+        """Remember *base* weakly, and zero ``base_doc_id`` when it is freed."""
+        self.base_doc_id = id(base)
+        me = weakref.ref(self)
+
+        def _gone(_ref: weakref.ref, me: weakref.ref = me) -> None:
+            diff_ = me()
+            if diff_ is not None:
+                diff_.base_doc_id = 0
+
+        self._base_ref = weakref.ref(base, _gone)
+
+    def is_base(self, doc: bd.ClayDoc) -> bool:
+        """Whether *doc* is the very document this preview was built from."""
+        return self._base_ref is not None and self._base_ref() is doc
 
     @property
     def changed(self) -> set[int]:
@@ -224,6 +252,11 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
     -- exactly what ``set_transform``/``set_props`` already decide for a
     person's edit.
     """
+    # The 2026-10-10 audit's clay-39: ``by_uid`` per common uid was a linear
+    # scan each, quadratic at the object ceiling (0.49 s at 4,000, on the frame
+    # thread). One map per document per call, the shape clay-71 gave
+    # ``ClayDoc._uid_map`` for the same reason.
+    base_map, scratch_map = base._uid_map(), scratch._uid_map()
     base_uids = [obj.uid for obj in base.objects]
     scratch_uids = [obj.uid for obj in scratch.objects]
     base_set, scratch_set = set(base_uids), set(scratch_uids)
@@ -236,7 +269,7 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
     props_changed: dict[int, set[str]] = {}
     parent_changed: dict[int, int | None] = {}
     for uid in common:
-        b, s = base.by_uid(uid), scratch.by_uid(uid)
+        b, s = base_map[uid], scratch_map[uid]
         if b.mesh is not s.mesh:
             mesh_changed.add(uid)
         if not (
@@ -265,7 +298,7 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         a is not b for a, b in zip(base.materials, scratch.materials, strict=False)
     )
 
-    return PreviewDiff(
+    result = PreviewDiff(
         added=added,
         removed=removed,
         mesh_changed=mesh_changed,
@@ -277,8 +310,9 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         base_head=base.history.head,
         base_selection=set(base.selection),
         base_element_mode=base.element_mode,
-        base_doc_id=id(base),
     )
+    result.bind_base(base)
+    return result
 
 
 def _transplant_materials(doc: bd.ClayDoc, scratch: bd.ClayDoc) -> list[int]:
@@ -296,6 +330,14 @@ def _transplant_materials(doc: bd.ClayDoc, scratch: bd.ClayDoc) -> list[int]:
     letting the palette silently fail to shrink.
     """
     shared = min(len(doc.materials), len(scratch.materials))
+    # The 2026-10-10 audit's clay-12: this was read *after* the adds below, so
+    # the trailing-removal loop started at ``shared`` and tried to drop the
+    # slots the preview had just added -- an unused one vanished (the document
+    # ended a slot short of what the preview showed) and a used one was
+    # refused and reported as a slot the document would not drop. Only
+    # document slots beyond the scratch's palette, counted before any add,
+    # are the scratch's own removals.
+    doc_count = len(doc.materials)
     for index in range(shared):
         if doc.materials[index] is not scratch.materials[index]:
             doc.set_material(index, scratch.materials[index])
@@ -305,7 +347,7 @@ def _transplant_materials(doc: bd.ClayDoc, scratch: bd.ClayDoc) -> list[int]:
     # dropped -- removed highest index first, so an earlier removal cannot
     # renumber an index this loop has not visited yet.
     kept: list[int] = []
-    for index in range(len(doc.materials) - 1, shared - 1, -1):
+    for index in range(doc_count - 1, shared - 1, -1):
         if not doc.remove_material(index):
             kept.append(index)
     return kept
@@ -353,9 +395,13 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
     if diff_.empty:
         return False
     mark = doc.history.mark()
+    # The 2026-10-10 audit's clay-39: a uid set rebuilt per removed object and a
+    # ``by_uid`` scan per touched one made Apply quadratic on the frame thread.
+    scratch_map = scratch._uid_map()
     try:
+        live = {o.uid for o in doc.objects}
         for uid in diff_.removed:
-            if uid in {o.uid for o in doc.objects}:
+            if uid in live:
                 # The 2026-09-22 audit's clay-17: this loop runs first, ahead
                 # of the mesh/transform loops below that tolerate a refusal
                 # the same way -- the base object may have moved since the
@@ -363,6 +409,7 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                 # the whole Apply before its siblings get a chance.
                 with contextlib.suppress(el.OpError):
                     doc.remove_object(uid)
+                    live.discard(uid)
 
         if diff_.added:
             # The 2026-10-07 audit's clay-53: ``diff_.added`` is a ``set``, so
@@ -437,16 +484,27 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
 
         touched = (diff_.mesh_changed | set(diff_.props_changed)) - diff_.added
         for uid in touched:
-            s = scratch.by_uid(uid)
+            s = scratch_map[uid]
+            mesh_landed = True
             if uid in diff_.mesh_changed:
                 # The 2026-09-20 audit's clay-13: state can move between
                 # preview and apply, and an uncaught refusal here aborted
                 # the whole transplant against this docstring's own "the
                 # rest of the transplant still lands" -- so it is
                 # tolerated, and the loop moves on.
-                with contextlib.suppress(el.OpError, KeyError):
+                try:
                     doc.set_mesh(uid, s.mesh, keep_generator=True)
+                except (el.OpError, KeyError):
+                    mesh_landed = False
             fields = diff_.props_changed.get(uid)
+            if fields and not mesh_landed:
+                # The 2026-10-10 audit's clay-38: the refusal was swallowed but
+                # the scratch's ``generator``/``params`` were still applied, so
+                # the object claimed parameters its stored mesh was not built
+                # from -- what ``set_mesh``'s freeze rule exists to prevent.
+                # Those two describe the mesh; the rest (name, visibility,
+                # material) stand on their own.
+                fields = fields - {"generator", "params"}
             if fields:
                 # The 2026-10-09 second audit's clay-86 and clay-93.  ``visible``
                 # goes through ``set_visibility`` -- the door every hide in Clay
@@ -467,7 +525,7 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                         doc.set_props(uid, **others)
 
         for uid in diff_.transform_changed - diff_.added:
-            s = scratch.by_uid(uid)
+            s = scratch_map[uid]
             # Same tolerance as the mesh branch above, and the same
             # clay-13 incident: an uncaught refusal here aborted every
             # transform still queued behind it in this loop, not just this
@@ -478,9 +536,8 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                 )
 
         if diff_.order_changed:
-            wanted = [uid for uid in (o.uid for o in scratch.objects) if uid in {
-                o.uid for o in doc.objects
-            }]
+            live = {o.uid for o in doc.objects}
+            wanted = [o.uid for o in scratch.objects if o.uid in live]
             for index, uid in enumerate(wanted):
                 doc.move_object(uid, index)
 

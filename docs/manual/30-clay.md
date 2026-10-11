@@ -67,7 +67,8 @@ columns, lathes, sweeps or tubes, because the curve editor that drove the last t
 a column is a cylinder. Hovering a rail button says what it does and which key picks it, and a fresh
 document does not arrive with a shape already picked.
 
-Clicking a shape places it and selects it, and the place is chosen for you. It **stands on the ground**,
+Clicking a shape places it and selects it (in an element mode it is placed but left unselected, so the Inspector keeps
+showing the pick you were editing), and the place is chosen for you. It **stands on the ground**,
 its lowest point exactly on the grid plane, and it lands **beside** what is already there rather than
 inside it: the first shape goes at the origin, and each later one takes the nearest free spot (the
 search runs outward in half-metre steps, leaves a gap of about 15 centimetres and snaps to an eighth of
@@ -318,7 +319,7 @@ palette's rows, so none of them can offer something another refuses. Operations 
 weld, assign material, merge objects, snap to grid, mirror copy, pack islands — open a small dialog with the fields
 and an **Apply** button, and remember what you last used.
 
-Distances in the Inset, Weld, Bevel and Extrude-offset fields are world metres. Clay divides them by the object's own
+Distances in the Inset, Weld and Bevel fields are world metres. Clay divides them by the object's own
 scale before applying them, so `0.1 m` is 10 cm on screen whatever the object's scale. For a non-uniform scale the
 geometric mean of the three axes is used. An object with a zero scale refuses the distance. An element operation
 on several objects that would take the document past its size ceilings is refused as a whole: no object is changed and
@@ -329,7 +330,9 @@ no undo step is recorded.
 the element mode (the shape stays selected), then it clears the object selection. In an element mode `Ctrl+A`
 and `Ctrl+Shift+I` work on the shape
 being edited, or on every visible shape when none is, so inverting never pulls in a shape behind it.
-`Delete` in an element mode deletes the picked *faces*, never the object, and is greyed until something
+`Delete` in an element mode deletes the picked *faces*, never the object (in Points and Edges mode only the faces whose
+every corner or edge is picked; a pick that covers no whole face is refused with a sentence saying so), and is greyed
+until something
 is picked. In object mode it
 removes every selected object as **one** undo step rather than one per object, so a single `Ctrl+Z`
 brings the whole selection back. Neither
@@ -368,7 +371,7 @@ a box and `L` between them reach what a low-poly model needs.
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
 | Faces | Triangulate Faces (`T`) | Replaces each selected face with its own triangles. |
 | Faces | Merge Faces | Merges a connected block of selected faces into one n-gon. |
-| Points | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. A weld of more than 20,000 vertices at once (a big mesh with every point selected) takes a faster, rougher pass. It sorts the points into cells the size of the distance and keeps a point only if it is within half the distance of its cell's centre. It never welds a pair farther apart than the distance, but it can leave a closer pair apart: in a test, 792 of 2,000 pairs at half the distance welded, against all 2,000 below the limit. Weld a smaller selection to get the exact search. |
+| Points | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. A weld of more than 20,000 vertices at once (a big mesh with every point selected) takes a faster, rougher pass. It sorts the points into cells the size of the distance and keeps a point only if it is within half the distance of the average position of the points sharing its cell. It never welds a pair farther apart than the distance, but it can leave a closer pair apart: in a test, 792 of 2,000 pairs at half the distance welded, against all 2,000 below the limit. Weld a smaller selection to get the exact search. |
 
 An operation that cannot do what you asked says so in a toast naming the element and what to do
 instead, and changes nothing. Those are refusals, not failures: the alternative is geometry that
@@ -457,7 +460,9 @@ calls Rotate **Turn** and Scale **Resize**):
 | Scale | `S` | Three handles plus a centre handle for uniform scale. |
 
 `G`, `R` and `S` do two things at once: they light the tool, so its gizmo appears, and with something
-selected they start a keyboard drag of that kind (see [Moving without a handle](#moving-without-a-handle)).
+selected they start a keyboard drag of that kind (see [Moving without a handle](#moving-without-a-handle)). The pointer
+is measured on a plane facing the screen, so a horizontal mouse move never changes depth and `R` turns about the view
+axis.
 `E` is not a tool; it is Extrude, and only in an element mode.
 
 A drag is one undo step, recorded when you let go — not one step per frame of the drag, which would
@@ -738,11 +743,16 @@ what you selected, with everything parented to it. If you select an object and s
 parented to it, only the topmost of them is parented to the empty, so the hierarchy below it stays as
 it was. The empty has no geometry of its own — it draws
 nothing and exports as a bare node — so it is purely a handle for moving a set of things as one. Drop to Ground,
-Mirror, Origin to Bounds or Base, Box Unwrap, Recalculate Normals and Shade Smooth or Flat tell you so when only groups
-are selected. **Ungroup** dissolves it and leaves the children where they stand.
+Mirror, Origin to Bounds or Base, Box Unwrap, Pack UV Islands, Separate Loose Parts, Recalculate Normals and Shade
+Smooth or Flat tell you so when only groups
+are selected. **Ungroup** dissolves it and leaves the children where they stand. Duplicate and Delete are greyed out,
+with a reason, when the only objects selected are hidden.
 
 Deleting a parent never takes its children with it: they attach to the parent's own parent, keeping
-their place in the world.
+their place in the world. If a child sits at an angle under a parent scaled unevenly, ungrouping or deleting the parent
+keeps the child's shape where it stood by baking the skew into its mesh: a shape built from a generator (box, sphere and
+so on) stops being a generator shape and loses its size fields, as after any other mesh edit. Such a child's own
+children are not carried.
 
 ## Separating and origins
 

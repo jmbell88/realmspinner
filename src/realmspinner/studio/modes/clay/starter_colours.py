@@ -35,6 +35,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from ....kernels.mesh import document as clay_document
+from . import doc_io
 from .state import tab_over
 
 
@@ -117,9 +118,27 @@ def matching(doc: Any, slot: int | None) -> StarterColour | None:
     return None
 
 
-def paint(ctx: Any, doc: Any, uids: Iterable[int], colour: StarterColour) -> int:
+def _refused_by_drag(ctx: Any) -> bool:
+    """Whether a live G/R/S, gizmo or UV drag shuts the paint door, said in a toast.
+
+    The 2026-10-10 audit's clay-19: ``ops.run`` already refuses under a drag (the
+    2026-10-09 second audit's clay-61 lists starter-colour paint among its doors),
+    but both paint functions here did work *before* reaching it -- the Faces door
+    added its palette slot and then ignored the refusal, the object door called
+    ``repaint_object`` directly and pushed a step the drag's commit then reverted.
+    Asked at the top of each, so nothing is added or pushed.
+    """
+    from . import ops as clay_ops
+
+    if not clay_ops.gesture_live(ctx):
+        return False
+    ctx.toast(doc_io.GESTURE_WHY, "error")
+    return True
+
+
+def paint(ctx: Any, doc: Any, uids: Iterable[int], colour: StarterColour) -> int | None:
     """Paint *uids* with *colour*, adding its slot first if the palette has none,
-    as **one** undo step. -> the slot index used.
+    as **one** undo step. -> the slot index used, or ``None`` under a live drag.
 
     ``repaint_object`` per shape (the default slot and every face, which is what
     renders), inside one mark, so a Ctrl+Z puts back the colour of every shape
@@ -131,6 +150,8 @@ def paint(ctx: Any, doc: Any, uids: Iterable[int], colour: StarterColour) -> int
     """
     from . import mode as clay_mode
 
+    if _refused_by_drag(ctx):
+        return None
     picked = sorted(uids)
     mark = doc.history.mark()
     try:
@@ -157,7 +178,7 @@ def paint(ctx: Any, doc: Any, uids: Iterable[int], colour: StarterColour) -> int
 def paint_faces(ctx: Any, doc: Any, colour: StarterColour) -> int | None:
     """Paint the picked faces with *colour*, adding its slot first if the palette has
     none, as **one** undo step. -> the slot index used, or ``None`` with no faces
-    picked.
+    picked, under a live drag, or when the op refused.
 
     The ``assign-material`` op, the door every face paint goes through (the Edit
     menu's Assign Material, a slot swatch's click, the agent's ``faces``): it leaves
@@ -168,18 +189,29 @@ def paint_faces(ctx: Any, doc: Any, colour: StarterColour) -> int | None:
     from . import mode as clay_mode
     from . import ops as clay_ops
 
+    if _refused_by_drag(ctx):
+        return None
     op = clay_ops.get("assign-material")
     if not op.enabled(doc):
         ctx.toast(clay_ops.reason_for(op, doc) or "Select faces to paint them.")
         return None
+    head = doc.history.head
     mark = doc.history.mark()
     try:
         index = find_slot(doc, colour)
         if index is None:
             fresh = clay_document.default_material(colour.name)
             index = doc.add_material(replace(fresh, base_color_factor=colour.factor))
-        clay_ops.run(ctx, doc, op, index=index)
+        ran = clay_ops.run(ctx, doc, op, index=index)
     finally:
         doc.history.collapse_since(mark)
+    if not ran:
+        # The 2026-10-10 audit's clay-19: the refusal came back as False and was
+        # dropped, so the slot added a moment ago stayed in the palette with
+        # nothing painted from it. Rolled back as a step that never happened
+        # (no redo), and the slot is not remembered for the next placed shape.
+        if doc.history.head != head:
+            doc.undo_unrecorded()
+        return None
     clay_mode.remember_slot(ctx, doc, index)
     return index

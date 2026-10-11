@@ -68,6 +68,7 @@ __all__ = [
     "cached_triangulation",
     "check_manifold",
     "closed_facts",
+    "derived_cache_bytes",
 ]
 
 
@@ -389,6 +390,40 @@ def closed_facts(mesh: Mesh) -> tuple[bool, bool]:
     they come from.
     """
     return _memoized(_CLOSED, _CLOSED_BUILDING, mesh, _build_closed)  # type: ignore[return-value]
+
+
+def derived_cache_bytes(mesh: Mesh) -> int:
+    """What the four weak-keyed tables above hold for *mesh* once they are built.
+
+    The 2026-10-10 audit's clay-09: those tables live exactly as long as the
+    ``Mesh`` they are keyed on, and an undo step pins that mesh, but
+    ``MeshEdit.cost`` counted only the mesh's own arrays -- a 160k-quad mesh is
+    5.9 MB and its tables 28.8 MB, so six extrude steps reported 71 MB to the
+    undo budget while pinning 154 MB. The tables are built lazily (by the first
+    pick, overlay or op that reads the mesh, after the step was recorded), so the
+    step cannot measure them and charges this instead: a function of the corner,
+    vertex and face counts alone, and generous where the topology decides --
+    every edge is taken to have only one corner, so ``E`` is the corner count,
+    where a closed manifold has half that. The flipped-pair list is not counted;
+    it is empty on a sane mesh and :class:`Adjacency` is the only table whose
+    size depends on a mesh's wiring rather than its counts.
+
+    **Keep this in step with the tables above.** A fifth cache, or a wider
+    dtype, that is not added here is the clay-09 gap again; the test that pins
+    this against the measured sizes is
+    ``test_the_derived_cache_estimate_covers_what_each_cache_actually_holds``.
+    """
+    corners = len(mesh.loops)
+    verts = len(mesh.positions)
+    faces = max(len(mesh.starts) - 1, 0)
+    if corners == 0:
+        return 0
+    edges = corners
+    tris = max(corners - 2 * faces, 0)
+    adjacency_bytes = 4 * (6 * corners + verts + 1) + (8 + 4) * edges  # i4 tables + edge_verts/uses
+    triangulation_bytes = tris * (3 * 4 + 4)  # (T, 3) i4 plus tri_face i4
+    f8_bytes = verts * 3 * 8
+    return int(adjacency_bytes + triangulation_bytes + f8_bytes)
 
 
 # --- boundary rings ---------------------------------------------------------

@@ -413,9 +413,17 @@ def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
         tooltip="Reuse this attempt's recipe with a fresh seed. Your draft stays unchanged.",
     ):
         ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
-    if svc_jobs.rerollable(job) and controls.button(
+    # The 2026-10-10 audit, finding create-28: this was offered for every
+    # rerollable row, but a rig, retexture, sheet, charsheet or music row
+    # records no seed, and ``rerun_job(seed=None)`` draws a random one -- so
+    # "Reproduce" ran a different attempt than the one it names. Greyed with
+    # the reason instead; the row stays visible so the verb is discoverable.
+    reproduce_why = reproduce_reason(job)
+    if svc_jobs.rerollable(job) and widgets.disabled_button(
         "Reproduce recorded attempt",
+        not reproduce_why,
         (-1, 0),
+        reason=reproduce_why,
         tooltip="Reuse this attempt's recorded recipe and seed. Results can vary by runtime.",
     ):
         seed = recorded_seed(job)
@@ -682,6 +690,17 @@ def recorded_seed(job: dict[str, Any]) -> Any:
     return params.get("reference_seed", params.get("seed", params.get("mesh_seed")))
 
 
+def reproduce_reason(job: dict[str, Any]) -> str:
+    """Why "Reproduce recorded attempt" is greyed for this row, or "". **Pure.**
+
+    Beside :func:`recorded_seed` because it is that function's question: a seed
+    of ``0`` is a legal draw, so the test is ``is None``, never falsiness.
+    """
+    if recorded_seed(job) is None:
+        return "This attempt recorded no seed."
+    return ""
+
+
 def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     job_id = str(job["id"])
     thumbs.job_thumb(ctx, job, sp(72))
@@ -926,13 +945,30 @@ def _vary(ctx: Any, job: dict[str, Any]) -> None:
         parent = job.get("parent_id")
         if parent:
             ctx.state.source_job = str(parent)
+        # The 2026-10-10 audit, finding create-31: one rule for both Vary verbs.
+        # The recorded seed is what makes "change one thing" a controlled
+        # change, and Generate rolls the unlocked seed before it builds the
+        # request -- so a restored but unlocked seed was spent on the first
+        # press. The 2D half is in ``library.copy_settings``.
+        locked = form.get("mesh_seed") is not None
+        if locked:
+            form["mesh_seed_locked"] = True
         create_stages.go(ctx, "mesh", follow=False)
-        ctx.toast("Loaded these mesh settings. Change one thing, then make it again.")
+        ctx.toast(
+            "Loaded these mesh settings and locked their seed. Change one thing, "
+            "then make it again."
+            if locked
+            else "Loaded these mesh settings. Change one thing, then make it again."
+        )
         return
     from ...library.ui.panes import library
 
     library.copy_settings(ctx, job, announce=False, follow=False)
-    ctx.toast("Loaded this brief. Change one thing, then generate a variation.")
+    ctx.toast(
+        "Loaded this brief and locked its seed. Change one thing, then generate a variation."
+        if ctx.state.form_2d.get("seed_locked")
+        else "Loaded this brief. Change one thing, then generate a variation."
+    )
 
 
 #: One memoized ``{job_id: position}`` map, keyed on ``(cache, cache.

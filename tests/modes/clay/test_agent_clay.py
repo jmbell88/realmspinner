@@ -2139,16 +2139,19 @@ def test_rollback_on_error_on_a_batch_that_succeeds_changes_nothing() -> None:
     assert len(tab.doc.objects) == 3
 
 
-def test_rollback_on_error_on_a_batch_that_minted_the_document_leaves_it_existing_and_empty() -> (
+def test_rollback_on_error_on_a_batch_whose_first_call_is_refused_leaves_no_document() -> (
     None
 ):
-    """Rule 7's limit, pinned as a stated behaviour: only the document's own
-    undo stack is unwound. The mint ``_h_batch`` does itself when the session
-    owns no tab yet pushes no undo step (see ``_h_add_primitive``'s own
-    comment on why), so it happens before ``mark`` and a rollback cannot
-    touch it -- the session is left with an empty document, not a dead pin
-    naming a tab that no longer exists."""
+    """Rule 7's limit used to be pinned the other way round here: only the
+    document's own undo stack is unwound, and the mint ``_h_batch`` does itself
+    pushes no undo step, so a rollback could not touch it and the session kept
+    an empty "Untitled" tab. The 2026-10-10 audit's clay-65 reversed that --
+    the standalone door mints nothing for a call that was always going to be
+    refused, and a batch whose creator is refused now closes the tab it minted
+    the same way. (A batch that placed something before a later refusal keeps
+    its tab: ``test_audit_2026_10_10_agent_batch`` pins that.)"""
     ctx = _Ctx()
+    ctx.state.preview = {}  # what closing a tab reaches for; the real state has it
     session = agent_clay.Session()
     assert session.tab_uid == ""
 
@@ -2159,11 +2162,8 @@ def test_rollback_on_error_on_a_batch_that_minted_the_document_leaves_it_existin
     assert result["isError"] is True
     payload = _payload(result)
     assert payload["rolled_back"] is False
-    assert session.tab_uid != ""
-
-    tab = clay_mode.ensure(ctx).get(session.tab_uid)
-    assert tab is not None
-    assert len(tab.doc.objects) == 0
+    assert session.tab_uid == ""
+    assert not clay_mode.ensure(ctx).docs
 
 
 # --- B5b -- $ref inside a clay_batch entry -----------------------------------

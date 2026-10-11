@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import Any
 
 from .... import docmodes
+from ..state import worn_slot
 
 PREFIX = "clay_uv_tex:"
 
@@ -36,17 +37,29 @@ def _slot(uid: str, name: str) -> str:
     return f"{PREFIX}{uid}:{name}"
 
 
-def material_for_pane(doc: Any, obj: Any) -> Any:
+def material_for_pane(doc: Any, obj: Any, tab: Any = None) -> Any:
     """The material whose texture the UV pane shows for *obj*, or ``None``.
 
     The slot of the first selected face when faces are selected -- what a
-    painter is looking at when they box a few islands -- and the object's
-    default slot otherwise. ``None`` for an index outside the palette (a stale
-    selection against a mesh that has since changed) as well as for a material
-    with no base-colour texture, so the caller has one "draw nothing extra"
-    answer.
+    painter is looking at when they box a few islands -- and otherwise the slot
+    the Colours & textures page edits: *tab*'s ``edit_slot`` (the Ctrl+clicked
+    one, else the one every face wears) or, with no tab to ask, ``worn_slot``.
+    The 2026-10-10 audit's clay-28: this used ``obj.material``, which is only the
+    slot a *new* face is stamped with, so a document whose faces all wore slot 2
+    drew no texture behind the islands while the page, the header dot and the
+    Colour card all showed slot 2's. ``None`` for an index outside the palette (a
+    stale selection against a mesh that has since changed) as well as for a
+    material with no base-colour texture, so the caller has one "draw nothing
+    extra" answer.
     """
     index = int(obj.material)
+    pick = getattr(tab, "edit_slot", None)
+    if pick is not None:
+        index = int(pick(doc, obj))
+    else:
+        worn = worn_slot(doc, obj)
+        if worn is not None:
+            index = worn
     selection = doc.element_sel.get(obj.uid)
     faces = getattr(selection, "faces", None)
     per_face = obj.mesh.material

@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import shutil
 import tempfile
@@ -307,7 +308,7 @@ class GenerationRequest:
             tile=TileSettings(
                 **_coerce_settings(
                     {
-                        k: (_as_items(v) if k == "prompt_items" else v)
+                        k: v
                         for k, v in tile.items()
                         if k in TileSettings.__dataclass_fields__
                     },
@@ -317,9 +318,15 @@ class GenerationRequest:
                 # here (e.g. a short tileset prompt typed where a list was
                 # expected) exploded into one prompt item per character via
                 # a raw ``tuple(...)`` call, passing validation and queuing
-                # per-character materials. ``_as_items`` treats a ``str`` as
-                # one item, matching ``_prompt_lines``'s rule.
-                **{"prompt_items": _as_items(tile["prompt_items"])}
+                # per-character materials. The 2026-10-10 audit, finding
+                # create-23: the fix routed this through ``_as_items``, whose
+                # "a ``str`` is one item" rule is right for a path and wrong
+                # for a material list -- ``"wood\nstone"`` stayed one
+                # material and ``["", "  "]`` passed the 1-16 count. The
+                # form adapter (``request_from_legacy``) has always used
+                # ``_prompt_lines``; this door now does the same, so one
+                # list means one thing whichever door it came through.
+                **{"prompt_items": _prompt_lines(tile["prompt_items"])}
                 if "prompt_items" in tile
                 else {},
                 **{"target_cell_px": _optional_int_kept(tile["target_cell_px"])}
@@ -394,6 +401,15 @@ class ResolvedRecipe:
     model_checksum: str | None = None
     lora_checksum: str | None = None
     warning: str = ""
+    #: The fingerprint of the step-distillation adapter fused onto the base
+    #: (``BaseModel.base_lora``), or None when the base has none. The 2026-10-10
+    #: audit, finding create-26: ``model_checksum`` fingerprints the base's
+    #: *first* fetch destination, which Fast (``sdxl``) shares with Quality
+    #: (``sdxl_cfg``) -- the Hyper-SD file that makes Fast a different picture
+    #: lives in the second and was never hashed, so the two tiers recorded the
+    #: same checkpoint identity. Its own field rather than a change to
+    #: ``model_checksum``, whose stored values the corpus is keyed on.
+    base_lora_checksum: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -402,6 +418,7 @@ class ResolvedRecipe:
             "style_lora": self.style_lora,
             "model_checksum": self.model_checksum,
             "lora_checksum": self.lora_checksum,
+            "base_lora_checksum": self.base_lora_checksum,
             "warning": self.warning,
         }
 
@@ -411,6 +428,28 @@ class CompatibilityIssue:
     field: str
     message: str
     severity: str = "error"
+
+
+def _registry_facts(base_key: str) -> dict[str, Any]:
+    """The facts about a base model that a recipe records and must not retype.
+
+    The 2026-10-10 audit, finding create-27: the table below hand-typed
+    ``vram_gib``, ``ram_gib``, ``license`` and ``commercial`` beside a comment
+    saying no checkpoint is duplicated here. They had drifted -- FLUX.2 klein
+    carried ``ram_gib=16`` against ``BaseModel.host_peak_gib`` 24.0 (measured
+    2026-08-22), every curated recipe carried ``license=""`` -- and
+    ``asdict(recipe)`` is stored in every row's ``resolved_recipe``, while
+    ``commercial`` is what automatic routing filters on. The registry is
+    authoritative; the host figure falls back to the device figure the way the
+    synthetic Advanced recipe in :func:`resolve_recipe` already does.
+    """
+    base = models.BASE_MODELS[base_key]
+    return {
+        "vram_gib": base.vram_gib,
+        "ram_gib": base.host_peak_gib or base.vram_gib,
+        "license": base.license or "",
+        "commercial": base.commercial,
+    }
 
 
 def _recipe_table() -> tuple[Recipe, ...]:
@@ -455,8 +494,7 @@ def _recipe_table() -> tuple[Recipe, ...]:
             # the lie out of the tier and into the field: an Avoid box that
             # takes text, stores it in params and changes no pixel.
             negative_prompt=False,
-            vram_gib=7,
-            ram_gib=8,
+            **_registry_facts("sdxl"),
             # One row covers it: ``sdxl``'s ``fetch`` tuple already carries the
             # shared SDXL 1.0 base *and* the 0.8 GB Hyper-SD LoRA, so there is
             # no second key to name here.
@@ -477,8 +515,7 @@ def _recipe_table() -> tuple[Recipe, ...]:
             "sdxl_cfg",
             working_resolution=(1024, 1024),
             negative_prompt=True,
-            vram_gib=7,
-            ram_gib=8,
+            **_registry_facts("sdxl_cfg"),
             required_downloads=("base:sdxl_cfg",),
             note=(
                 "Thirty steps with full classifier-free guidance: the only "
@@ -496,8 +533,7 @@ def _recipe_table() -> tuple[Recipe, ...]:
             working_resolution=(1024, 1024),
             reference_modes=("none", "single"),
             negative_prompt=True,
-            vram_gib=7,
-            ram_gib=8,
+            **_registry_facts("sdxl_cfg"),
             required_downloads=("base:sdxl_cfg",),
             rank=40,
         ),
@@ -510,8 +546,7 @@ def _recipe_table() -> tuple[Recipe, ...]:
             working_resolution=(1024, 1024),
             reference_modes=("none", "single"),
             negative_prompt=True,
-            vram_gib=7,
-            ram_gib=8,
+            **_registry_facts("sdxl_cfg"),
             required_downloads=("base:sdxl_cfg",),
             rank=40,
         ),
@@ -522,10 +557,17 @@ def _recipe_table() -> tuple[Recipe, ...]:
             "quality",
             "sdxl_cfg",
             working_resolution=(1024, 1024),
-            reference_modes=("none", "single", "multi"),
+            # The 2026-10-10 audit, finding create-22: this said ``"multi"`` as
+            # well, but the SDXL path draws from the first image only -- three
+            # references validated clean, were decoded, written as
+            # ``native_reference_N.png`` and recorded while two never reached
+            # the sampler (the mismatch create-04 closed for single/none).
+            # Only FLUX.2 has a native multi-reference path, and a sprite on
+            # FLUX.2 resolves to the synthetic Advanced recipe, which never
+            # offered it either.
+            reference_modes=("none", "single"),
             negative_prompt=True,
-            vram_gib=7,
-            ram_gib=8,
+            **_registry_facts("sdxl_cfg"),
             required_downloads=("base:sdxl_cfg", "adapter:plus", "control:canny", "lora:pixelxl"),
             rank=40,
         ),
@@ -542,8 +584,7 @@ def _recipe_table() -> tuple[Recipe, ...]:
             working_resolution=(1024, 1024),
             reference_modes=("none", "single", "multi"),
             negative_prompt=True,
-            vram_gib=10,
-            ram_gib=16,
+            **_registry_facts("flux_klein"),
             required_downloads=("base:flux_klein",),
             rank=25,
         ),
@@ -586,6 +627,26 @@ def _checksum(key: str, config: Any | None) -> str | None:
     except Exception:
         pass
     return None
+
+
+def _base_lora_checksum(config: Any | None, base_key: str) -> str | None:
+    """The fingerprint of the adapter a distilled base fuses at load, if any.
+
+    Where the file lives is ``fetch.py``'s rule (a flat ``loras/`` under the
+    model root); ``file_fingerprint`` answers "missing" for an absent file,
+    the same way :func:`_checksum` does for an absent base.
+    """
+    if config is None:
+        return None
+    spec = models.BASE_MODELS.get(base_key)
+    if spec is None or not spec.base_lora:
+        return None
+    try:
+        from . import provenance
+
+        return provenance.file_fingerprint(Path(config.t2i_model_root) / "loras" / spec.base_lora)
+    except Exception:
+        return None
 
 
 def _lora_checksum(config: Any | None, style_lora: str | None) -> str | None:
@@ -670,6 +731,7 @@ def resolve_recipe(
             _checksum(f"base:{key}", config),
             lora_checksum,
             warning,
+            _base_lora_checksum(config, key),
         )
     for candidate in sorted(candidates, key=lambda r: r.rank, reverse=True):
         if not candidate.commercial:
@@ -689,6 +751,7 @@ def resolve_recipe(
             request.style_lora or candidate.default_lora,
             _checksum(f"base:{candidate.base_model}", config),
             lora_checksum,
+            base_lora_checksum=_base_lora_checksum(config, candidate.base_model),
         )
     return None
 
@@ -896,6 +959,49 @@ def validate_request(
         issues.append(CompatibilityIssue("seed", "Seed must be a whole number."))
     if request.generation_type == "tileset":
         t = request.tile
+        # The 2026-10-10 audit, finding create-13: ``create_tile_sheet`` pins
+        # its own base model and pixel-art LoRA and has no parameter for a
+        # style LoRA, a start image, a model override or a count, so each of
+        # these validated clean, was recorded in ``generation_request`` and
+        # ``resolved_recipe`` and changed no pixel -- the document-versus-pixels
+        # mismatch ``output_profile`` and ``init_image`` were refused for on
+        # the other arms. Refused by name, on the control the user can see.
+        # (``lora_weight`` alone is not an ask: the adapter emits it only
+        # beside a style, which is refused here.)
+        if request.style_lora:
+            issues.append(
+                CompatibilityIssue(
+                    "style_lora",
+                    "A tile sheet is drawn with its own pixel-art style; "
+                    "it cannot take a style LoRA.",
+                )
+            )
+        if request.init_image:
+            issues.append(
+                CompatibilityIssue(
+                    "init_image",
+                    "A tile sheet cannot start from an image; attach it as a "
+                    "style reference instead.",
+                )
+            )
+        if request.model_override:
+            issues.append(
+                CompatibilityIssue(
+                    "base_model",
+                    "A tile sheet pins its own model; it cannot take a model override.",
+                )
+            )
+        if (
+            isinstance(request.count, int)
+            and not isinstance(request.count, bool)
+            and request.count > 1
+        ):
+            issues.append(
+                CompatibilityIssue(
+                    "count",
+                    "A tile sheet is one job; use tile variants for more cells.",
+                )
+            )
         if t.mode not in TILE_MODES:
             issues.append(
                 CompatibilityIssue(
@@ -1510,6 +1616,42 @@ class LoraManifest:
     schema_version: int = 1
 
 
+#: The style keys that shipped with the app, captured before any imported
+#: adapter is registered. ``register_imported_loras`` writes into
+#: ``models.STYLE_LORAS`` in place, so the live dict cannot answer "was this
+#: key built in" once an import has run.
+_BUILTIN_STYLE_LORAS = frozenset(models.STYLE_LORAS)
+
+
+def _manifest_row_is_sound(row: LoraManifest) -> bool:
+    """Whether a manifest row is safe to register as a style.
+
+    The 2026-10-10 audit, finding create-24: the loader built ``LoraManifest``
+    from whatever a hand-editable file held. A row keyed ``render3d`` replaced
+    the built-in style of that name in the registry (a different file, trigger
+    and weight under a name the Create pane and every stored request resolve),
+    and a string ``tuned_weight`` became the style's ``default_weight`` to be
+    ``float()``-ed at the first generation. ``remove_imported_lora``'s own
+    comment says this file can be edited and replaced, so the rows are checked
+    like any other input: a key that is a string and not a built-in, a finite
+    real weight (``bool`` is an ``int`` and not a weight), a known family.
+    """
+    weight = row.tuned_weight
+    return (
+        isinstance(row.key, str)
+        and bool(row.key)
+        and row.key not in _BUILTIN_STYLE_LORAS
+        and isinstance(row.label, str)
+        and isinstance(row.filename, str)
+        and bool(row.filename)
+        and isinstance(row.trigger_text, str)
+        and isinstance(weight, (int, float))
+        and not isinstance(weight, bool)
+        and math.isfinite(weight)
+        and row.family in models.FAMILIES
+    )
+
+
 def lora_manifest_path(config: Any) -> Path:
     return Path(config.t2i_model_root) / "loras" / "manifests.json"
 
@@ -1607,9 +1749,11 @@ def load_lora_manifests(config: Any) -> list[LoraManifest]:
     out: list[LoraManifest] = []
     for row in rows:
         try:
-            out.append(LoraManifest(**row))
+            manifest = LoraManifest(**row)
         except (TypeError, ValueError):
             continue
+        if _manifest_row_is_sound(manifest):
+            out.append(manifest)
     _MANIFEST_CACHE[path] = (mtime, out)
     return out
 

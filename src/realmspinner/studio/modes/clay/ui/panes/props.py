@@ -57,6 +57,7 @@ from ... import doc_io, element_move, transform_edit
 from ... import mode as clay_mode
 from ... import ops as clay_ops
 from ...state import ClayState, worn_slot
+from . import header as clay_header
 from . import outliner as clay_outliner
 
 # The swatch code left for ``swatches.py`` with the swatch row (it is the Inspector's
@@ -119,7 +120,16 @@ def _history(ctx: Any, tab: Any) -> None:
     ``clay_mode.undo``/``redo`` rather than ``tab.doc.undo()`` here, so the
     button and the chord carry the same side effects (see the history block in
     that module).
+
+    **Under a live G/R/S or UV rotate/scale the block is drawn greyed, with the
+    header's own sentence** (the 2026-10-10 audit's clay-58): ``clay_mode.undo``,
+    ``redo`` and ``step_history`` return early then, and ``widgets.history_block``
+    only knows ``tab.busy``, so its buttons stayed lit and did nothing. The ids are
+    the block's own, so a drag that ends hands the controls back with no flicker.
     """
+    if clay_mode._gesture_live(ctx, tab) and not getattr(tab, "saving", False):
+        _history_while_dragging(tab)
+        return
     widgets.history_block(
         ctx,
         tab,
@@ -127,6 +137,18 @@ def _history(ctx: Any, tab: Any) -> None:
         undo=lambda: clay_mode.undo(ctx, tab),
         redo=lambda: clay_mode.redo(ctx, tab),
         step=lambda index: clay_mode.step_history(ctx, tab, index),
+    )
+
+
+def _history_while_dragging(tab: Any) -> None:
+    """``widgets.history_block``'s three controls, all greyed for a live gesture."""
+    why = clay_header.history_why(busy=False, gesture=True, idle="")
+    width = widgets.grid_width(2)
+    widgets.disabled_button(f"{icons.UNDO} Undo##clay-undo", False, (width, 0), reason=why)
+    imgui.same_line()
+    widgets.disabled_button(f"{icons.REDO} Redo##clay-redo", False, (width, 0), reason=why)
+    widgets.disabled_button(
+        f"{tab.doc.history.total} step(s)##clay-history", False, (-1, 0), reason=why
     )
 
 
@@ -977,7 +999,7 @@ def _material(ctx: Any, tab: Any, doc: Any, obj: Any) -> None:
     _palette_row(doc, obj, index)
 
     material = doc.materials[index]
-    widgets.muted_wrapped(_edit_slot_note(doc, obj, index))
+    widgets.muted_wrapped(_edit_slot_note(doc, obj, index, tab))
     # Each a sub-field of the "slot" combo above, named on its own line
     # (2026-09-08 consistency pass); ids kept stable, "Foo##bm" -> "##Foo##bm".
     widgets.field_label("base colour")
@@ -1024,20 +1046,23 @@ def _page_slot(tab: Any, doc: Any, obj: Any) -> int:
     return worn if worn is not None else min(max(int(obj.material), 0), len(doc.materials) - 1)
 
 
-def _uv_view_slot(doc: Any, obj: Any) -> int | None:
-    """The palette slot the UV pane draws the picture of for *obj* under a face
-    selection, or ``None`` when it draws the object's own slot.
+def _uv_view_slot(doc: Any, obj: Any, tab: Any = None) -> int:
+    """The palette slot the UV pane draws the picture of for *obj*.
 
-    Mirrors ``_uv_texture.material_for_pane``'s choice (the slot of the first
-    selected face); that module belongs to the UV pane, so the rule is restated
-    here rather than imported across the two panes.
+    Mirrors ``_uv_texture.material_for_pane``'s choice: the slot of the first
+    selected face, else -- the 2026-10-10 audit's clay-28 -- the slot this page
+    edits (:func:`_page_slot`: the Ctrl+clicked one, else the one every face
+    wears), and not ``obj.material``, which is only the slot a *new* face is
+    stamped with. A document whose faces all wear slot 2 drew nothing behind the
+    islands while the page showed slot 2's picture. The rule is restated here
+    rather than imported across the two panes.
     """
     selection = doc.element_sel.get(obj.uid)
     faces = getattr(selection, "faces", None)
     per_face = obj.mesh.material
     if faces is not None and len(faces) and 0 <= int(faces[0]) < len(per_face):
         return int(per_face[int(faces[0])])
-    return None
+    return _page_slot(tab, doc, obj)
 
 
 def _slot_label(doc: Any, index: int) -> str:
@@ -1045,7 +1070,7 @@ def _slot_label(doc: Any, index: int) -> str:
     return f"slot {index} ({name})" if name else f"slot {index}"
 
 
-def _edit_slot_note(doc: Any, obj: Any, index: int) -> str:
+def _edit_slot_note(doc: Any, obj: Any, index: int, tab: Any = None) -> str:
     """One sentence naming the slot the fields below edit, and -- under a face
     selection -- the other slot the UV view is showing.
 
@@ -1056,8 +1081,8 @@ def _edit_slot_note(doc: Any, obj: Any, index: int) -> str:
     to edit another slot from a face selection), so the fix is to name them.
     """
     note = f"Editing {_slot_label(doc, index)}."
-    shown = _uv_view_slot(doc, obj)
-    if shown is not None and shown != index and 0 <= shown < len(doc.materials):
+    shown = _uv_view_slot(doc, obj, tab)
+    if shown != index and 0 <= shown < len(doc.materials):
         note += (
             f" The UV view shows {_slot_label(doc, shown)}, the first selected face's;"
             " Ctrl+click its swatch to edit it instead."
@@ -1195,13 +1220,27 @@ def _pick_texture(slot: str) -> dict[str, Any] | None:
     hand-picked image is, rather than trusted because it came from a picker.
     """
     from ......core.safeio import pixelguard
+    from ......service.errors import Invalid
     from ..... import dialogs
+    from ... import texture_link
 
     path = dialogs.open_file(f"Assign a {slot.replace('_', ' ')} texture", dialogs.PNG_FILTER)
     if path is None:
         return None
-    pixels = pixelguard.decode_rgba(path, path.name)
-    height, width = pixels.shape[:2]
+    with pixelguard.opened(path, path.name) as image:
+        # The 2026-10-10 audit's clay-60: ``pixelguard`` allows 8192 x 8192, but a
+        # texture is held to ``MAX_TEXTURE_SIDE``, so a 4096-8192 px PNG was decoded
+        # whole (~268 MB of RGBA plus a ``tobytes()`` copy) before ``on_task_done``
+        # refused it. The size is a header read; ask it before ``convert`` allocates.
+        # An ``Invalid`` rather than a ``ValueError``, so the task runner toasts the
+        # sentence instead of "Something went wrong".
+        width, height = image.size
+        if max(width, height) > texture_link.MAX_TEXTURE_SIDE:
+            raise Invalid(
+                f"That picture is {width} x {height}; a texture can be at most "
+                f"{texture_link.MAX_TEXTURE_SIDE} px on a side."
+            )
+        pixels = np.asarray(image.convert("RGBA"), dtype=np.uint8)
     return {"width": int(width), "height": int(height), "rgba": pixels.tobytes()}
 
 
@@ -1264,6 +1303,20 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # at this index is no longer that same object, the pick is stale,
         # the same silent no-op every other staleness case in this function
         # already gets.
+        return
+    if getattr(tab, "saving", False) or clay_mode._gesture_live(ctx, tab):
+        # The 2026-10-10 audit's clay-26: the landing is ``set_material`` plus a
+        # box-unwrap ``set_mesh``, and the OS picker does not block the app, so a
+        # Ctrl+S or Export started while it was open had a worker thread reading
+        # the live document as this rewrote its material and UVs -- a file mixing
+        # old and new. The Inker pull refuses the same way (``texture_link.pull_all``,
+        # the 2026-10-07 audit's clay-48) but keeps its link and lands next frame;
+        # this pick has no link to wait on, so it is dropped and said so.
+        ctx.toast(
+            "A save or a drag was in progress, so that texture was not applied. "
+            "Pick the file again once it finishes.",
+            "info",
+        )
         return
     from ... import texture_link
 

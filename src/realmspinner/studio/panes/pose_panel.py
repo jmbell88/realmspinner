@@ -508,8 +508,27 @@ def _save(ctx: Any, job: Any, viewer: Any) -> None:
 # --- joints mode ------------------------------------------------------------
 
 
+# Jobs whose "Apply joint positions" has *returned* from the door. The 2026-10-10
+# audit found the press called ``exit_joints_mode()`` right after ``ctx.submit``,
+# which clears the dragged markers before ``adjust_joints`` has run -- so an
+# ``Invalid``/``Conflict`` refusal (the rig is busy, the joints do not describe
+# the skeleton) came back to an empty editor and the work was gone. ``_save``
+# waits for its landing for the same reason. The task thread adds, the frame
+# thread discards, and a ``set`` add/discard is atomic, so no lock.
+_JOINTS_LANDED: set[str] = set()
+
+
 def _joints(ctx: Any, job: Any, viewer: Any) -> None:
     moved = viewer.joint_moves()
+    if job["id"] in _JOINTS_LANDED:
+        _JOINTS_LANDED.discard(job["id"])
+        # A flag left by a landing the user walked away from (Back to posing,
+        # Escape) meets a fresh session with nothing moved: drop it, don't exit.
+        if moved:
+            # Directly, not through ``guard``: the markers are still "moved" and
+            # the re-rig that just landed is what made them the skeleton.
+            viewer.exit_joints_mode()
+            moved = viewer.joint_moves()
     widgets.muted(viewer.selected_bone or "Click a joint to move it.")
     widgets.muted(f"{len(moved)} joint(s) moved")
     job_id = job["id"]
@@ -523,14 +542,17 @@ def _joints(ctx: Any, job: Any, viewer: Any) -> None:
         # A re-rig, not an edit: skinning is minutes of CPU and must never
         # overlap a trellis run, so it goes through the queue like the first
         # rig did.
-        ctx.submit(
-            f"joints:{job_id}",
-            svc_rig.adjust_joints,
-            ctx.svc,
-            job_id,
-            {"bones": viewer.corrected_bones()},
-        )
-        viewer.exit_joints_mode()
+        payload = {"bones": viewer.corrected_bones()}
+
+        def adjust() -> Any:
+            result = svc_rig.adjust_joints(ctx.svc, job_id, payload)
+            # Only a call that returned landed; a refusal raises past this line
+            # and leaves the markers where the user dragged them.
+            _JOINTS_LANDED.add(job_id)
+            return result
+
+        _JOINTS_LANDED.discard(job_id)
+        ctx.submit(f"joints:{job_id}", adjust)
     if widgets.disabled_button("Revert", bool(moved), reason="No joint has been moved."):
         # Throws away every marker the user dragged, unlabelled and one row
         # under "Apply joint positions"; guarded for the same reason.

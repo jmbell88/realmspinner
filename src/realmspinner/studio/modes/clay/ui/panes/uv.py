@@ -506,8 +506,12 @@ def finish_click(view_state: UvPaneState, mesh: Any, ids: np.ndarray) -> bool:
 def touched_islands(mesh: Any, ids: np.ndarray, sel: Any) -> set[int]:
     """Island ids the element selection *sel* touches, however it is expressed.
 
-    A **union** test: a vertex or an edge counts a face as touched the moment
-    any one of its corners is at that vertex or on that edge --
+    Each element kind names the faces that *own* it. A selected **face** is its
+    own island and nothing else: the 2026-10-10 audit's clay-13 found that
+    taking every face sharing any corner with it highlighted five of a box's
+    six islands for one selected face, which is exactly the layout Box Unwrap
+    makes. An **edge** belongs to the faces that run along it (a box edge: two).
+    A **vertex** is a **union** test -- any face with a corner at it counts,
     ``elements.affected_verts``'s own reasoning for a drag's centroid, not
     ``elements.convert``'s up-conversion rule (which needs *every* corner
     selected and would silently miss an island with only one selected
@@ -516,15 +520,29 @@ def touched_islands(mesh: Any, ids: np.ndarray, sel: Any) -> set[int]:
     """
     if mesh.uv is None or sel is None or el.is_empty(sel):
         return set()
-    verts = el.affected_verts(mesh, sel)
-    if len(verts) == 0:
-        return set()
-    touched_corner = np.isin(mesh.loops, verts)
-    if not touched_corner.any():
-        return set()
+    n_faces = len(mesh.starts) - 1
+    touched = np.zeros(n_faces, dtype=bool)
+    if len(sel.faces):
+        touched[np.asarray(sel.faces, dtype="i8")] = True
     foc = _face_of_corner(mesh)
-    faces = np.unique(foc[touched_corner])
-    return {int(i) for i in np.unique(ids[faces])}
+    if len(sel.verts):
+        touched[foc[np.isin(mesh.loops, sel.verts)]] = True
+    if len(sel.edges) and len(mesh.loops):
+        loops = np.asarray(mesh.loops, dtype="i8")
+        starts = np.asarray(mesh.starts, dtype="i8")
+        # The corner after each one, wrapping within its own face.
+        nxt = np.arange(1, len(loops) + 1, dtype="i8")
+        nxt[starts[1:] - 1] = starts[:-1]
+        lo = np.minimum(loops, loops[nxt])
+        hi = np.maximum(loops, loops[nxt])
+        width = int(loops.max()) + 1
+        keys = lo * width + hi
+        wanted = np.asarray(sel.edges, dtype="i8")
+        wanted_keys = np.minimum(wanted[:, 0], wanted[:, 1]) * width + np.maximum(
+            wanted[:, 0], wanted[:, 1]
+        )
+        touched[foc[np.isin(keys, wanted_keys)]] = True
+    return {int(i) for i in np.unique(ids[np.flatnonzero(touched)])}
 
 
 # --- pure maths: the live rotate/scale gesture ------------------------------
@@ -1226,21 +1244,48 @@ def _toolbar(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) ->
     # Through the op, so the margin and the rotate switch are the same two
     # numbers here as in the right-click menu: this button used to call ``apply_pack``
     # with its own fixed defaults while ``pack-uv`` took both as parameters.
+    #
+    # Ended before this button: the 2026-10-10 audit's clay-14 found it greyed by
+    # ``begin_disabled(tab.saving)`` with no sentence, and live in the element
+    # modes where the op is object-mode-only (Apply then refused after the user
+    # had filled the dialog). Its own ``enabled``/``reason`` carry both now.
+    imgui.end_disabled()
     pack = clay_ops.get("pack-uv")
+    pack_why = unwrap_op_reason(pack, doc.element_mode, saving=bool(tab.saving)) or (
+        "Finish the live rotate or scale first (click to commit, Esc to cancel)."
+        if live
+        else clay_ops.reason_for(pack, doc)
+    )
     if controls.small_button(
         f"{icons.SQUARE} Pack islands...##uvpack",
-        enabled=not live and pack.enabled(doc),
-        reason=clay_ops.reason_for(pack, doc),
+        enabled=not pack_why,
+        reason=pack_why,
         tooltip=pack.hint,
     ):
         clay_mode.fire_op(ctx, doc, pack)
-    imgui.end_disabled()
     imgui.dummy((0, sp(4)))
     _unwrap_row(ctx, tab, doc)
 
 
 #: The way to make a layout: the box projection, which cannot fail.
 _UNWRAP_OPS = ("unwrap",)
+
+
+def unwrap_op_reason(op: Any, element_mode: str, *, saving: bool) -> str:
+    """Why an Unwrap-page button is greyed for the mode and save state, or ``""``.
+
+    One sentence source for Box Unwrap and Pack Islands, which the 2026-10-10
+    audit's clay-14 found answering differently: Box Unwrap built its mode reason
+    inline where no test reached it, and Pack ignored ``op.modes`` altogether
+    (so it was live in the element modes and refused at Apply). Saving first,
+    then the op's own declared modes; the op's data-dependent reason
+    (``clay_ops.reason_for``) is the caller's to add.
+    """
+    if saving:
+        return "Saving..."
+    if element_mode not in op.modes:
+        return clay_ops.wrong_mode_reason(op)
+    return ""
 
 
 def _unwrap_row(ctx: Any, tab: Any, doc: Any) -> None:
@@ -1253,21 +1298,16 @@ def _unwrap_row(ctx: Any, tab: Any, doc: Any) -> None:
     """
     from imgui_bundle import imgui
 
-    in_object_mode = doc.element_mode == "object"
     for index, name in enumerate(_UNWRAP_OPS):
         op = clay_ops.get(name)
         if index:
             imgui.same_line()
-        why = (
-            "Saving..."
-            if tab.saving
-            else "Switch to object mode (4) to unwrap."
-            if not in_object_mode
-            else clay_ops.reason_for(op, doc)
+        why = unwrap_op_reason(op, doc.element_mode, saving=bool(tab.saving)) or (
+            clay_ops.reason_for(op, doc)
         )
         if controls.small_button(
             f"{op.label}##uvunwrap-{name}",
-            enabled=in_object_mode and not tab.saving and op.enabled(doc),
+            enabled=not why,
             reason=why,
             tooltip=op.hint,
         ):
@@ -1417,7 +1457,7 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
     # (``getattr``: the state-only tests drive this with a two-attribute tab
     # stand-in and no GL context, where the uid is never used.)
     texture = _uv_texture.pane_texture(
-        ctx, getattr(tab, "uid", ""), _uv_texture.material_for_pane(doc, obj)
+        ctx, getattr(tab, "uid", ""), _uv_texture.material_for_pane(doc, obj, tab)
     )
     _backdrop(draw_list, view, origin, texture)
     covered = _covered_islands(view_state.geo, mesh, ids, doc.element_sel.get(obj.uid))

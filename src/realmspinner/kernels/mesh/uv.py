@@ -156,6 +156,13 @@ def _projected(mesh: Mesh, axes: np.ndarray, *, normals: np.ndarray | None = Non
         # v down the image: the top of the model is the small v (clay-03).
         uv[which, 1] = 1.0 - corner_pos[which, v_axis]
 
+    # The 2026-10-10 audit's clay-42: ``replace`` always built a new ``Mesh``, so
+    # unwrapping an object whose layout was already this one still looked like a
+    # change to ``set_mesh``'s identity check and pushed a no-op undo step. The
+    # same mesh back says "nothing moved".
+    if mesh.uv is not None and np.array_equal(mesh.uv, uv):
+        return mesh
+
     from dataclasses import replace
 
     return replace(mesh, uv=uv)

@@ -79,20 +79,47 @@ def test_a_form_with_fields_reads_the_recorded_refusal(rel, form_id):
     assert "errors=ctx.state.field_errors" in opened.group(1), rel
 
 
+def _code(source: str) -> str:
+    """The source with its comment lines dropped, so a name that only a comment
+    mentions (``# field_error(ctx.state, "count")``) is not read as a call."""
+    return "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+
+
 @pytest.mark.parametrize(("rel", "form_id"), FIELD_FORMS)
 def test_and_clears_it_when_the_control_is_edited(rel, form_id):
     """A ring that outlived the edit would be an app arguing about a value that
-    is no longer there."""
+    is no longer there.
+
+    Per control, not per file (the 2026-10-10 audit, finding create-18): this
+    used to pass whenever ``clear_field_error(`` appeared anywhere in the
+    source, which a single clear on one control satisfied for the whole pane --
+    so ``create-3d`` rang four Budget ids it never cleared and the gate stayed
+    green. ``Form.on_edit`` clears the controls drawn through the form; a
+    control drawn by hand and ringed with ``widgets.field_error(state, "id")``
+    has to name its own ``clear_field_error("id")``.
+    """
     source = _source(rel)
     opened = re.search(rf'forms\.Form\(\s*"{re.escape(form_id)}"(.*?)\)\s*as ', source, re.S)
     assert opened is not None
     block = opened.group(1)
-    # ``settings_2d`` and ``settings_3d`` predate ``on_edit`` and clear by hand
-    # beside each control they draw outside the form; either spelling satisfies
-    # the rule, and a new form should use ``on_edit``.
-    assert "on_edit=ctx.state.clear_field_error" in block or (
-        "clear_field_error(" in source
-    ), rel
+    code = _code(source)
+    ringed = set(re.findall(r'field_error\(\s*(?:ctx\.)?(?:self\.)?state,\s*"(\w+)"', code))
+    cleared = set(re.findall(r'clear_field_error\(\s*"(\w+)"', code))
+    if "on_edit=ctx.state.clear_field_error" not in block:
+        # Nothing clears the controls drawn through the form, so the by-hand
+        # rings below are the only ones this file can account for -- and there
+        # has to be at least one, or the pane is arguing about nothing.
+        assert ringed, f"{rel}: no on_edit and no control ringed by name -- nothing clears"
+    missing = sorted(ringed - cleared)
+    assert not missing, f"{rel}: rings {missing} but never clears them"
+
+
+def test_the_create_3d_budget_ids_are_each_cleared_by_name():
+    """The four ids the Mesh column's Budget rows ring (create-18)."""
+    code = _code(_source("modes/create/ui/settings_3d.py"))
+    for name in ("profile", "lowpoly_triangles", "mesh_finishing", "custom_triangles"):
+        assert f'field_error(ctx.state, "{name}")' in code, name
+        assert f'clear_field_error("{name}")' in code, name
 
 
 def test_the_retarget_field_ids_are_the_refusals_own_names():

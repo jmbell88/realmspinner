@@ -104,6 +104,61 @@ def decompose(m: Mat4) -> tuple[Vec3, Quat, Vec3]:
     return t, mat3_to_quat(rot), s
 
 
+# How far apart two basis columns' directions may be from perpendicular (the
+# cosine of the angle between them) before a matrix counts as sheared. Float
+# noise out of ``inv(parent) @ world`` is ~1e-16 times the parent's condition
+# number, so this sits well above that and far below anything the eye can see.
+SHEAR_COSINE = 1e-7
+
+
+def decompose_with_shear(m: Mat4) -> tuple[Vec3, Quat, Vec3, Mat4 | None]:
+    """:func:`decompose`, plus the shear it cannot express -- ``(t, q, s, shear)``.
+
+    ``decompose`` is "for a matrix with no shear", and says so; a non-uniformly
+    scaled parent over a rotated child hands the document exactly such a matrix
+    (the 2026-10-10 audit's clay-04: a (2, 1, 1) group over a child turned 45
+    degrees came back as a quaternion of norm 0.985, and the world matrix it
+    stored was not the one on screen). A sheared linear part is ``R @ S @ H``
+    with ``H`` a unit upper-triangular matrix, which is what a QR factorisation
+    of the basis gives: ``compose(t, q, s) @ shear == m`` exactly, with ``q`` a
+    true unit rotation. A caller that must keep geometry where it stands applies
+    ``shear`` to the *mesh* (the object's local frame is where it acts), which
+    is what folding a transform into positions already means.
+
+    ``shear`` is ``None`` whenever there is nothing to fold -- a basis whose
+    columns are perpendicular to within :data:`SHEAR_COSINE`, which is every
+    matrix ``decompose`` was ever right about, and the result is then
+    ``decompose``'s own, bit for bit. It is also ``None`` for a basis with a
+    collapsed or non-finite column: a rank-deficient matrix has no unique
+    factorisation, and ``decompose`` already has its own answer for those.
+    """
+    t, q, s = decompose(m)
+    basis = np.asarray(m, dtype="f8")[:3, :3]
+    if not np.isfinite(basis).all():
+        return t, q, s, None
+    lengths = np.linalg.norm(basis, axis=0)
+    if not _live_columns(lengths).all():
+        return t, q, s, None
+    unit = basis / lengths
+    gram = unit.T @ unit
+    if max(abs(gram[0, 1]), abs(gram[0, 2]), abs(gram[1, 2])) <= SHEAR_COSINE:
+        return t, q, s, None
+    q_mat, r_mat = np.linalg.qr(basis)
+    sign = np.where(np.diag(r_mat) < 0, -1.0, 1.0)
+    q_mat = q_mat * sign
+    r_mat = r_mat * sign[:, None]
+    if np.linalg.det(q_mat) < 0:
+        # A mirrored basis: the mirror rides on scale X, as ``decompose`` does.
+        q_mat[:, 0] = -q_mat[:, 0]
+        r_mat[0, :] = -r_mat[0, :]
+    diag = np.diag(r_mat).copy()
+    if not (np.abs(diag) > np.max(np.abs(diag)) * 1e-9).all():
+        return t, q, s, None
+    shear = identity()
+    shear[:3, :3] = r_mat / diag[:, None]
+    return t, mat3_to_quat(q_mat), diag, shear
+
+
 def _live_columns(s: np.ndarray) -> np.ndarray:
     """Which basis columns are long enough to say which way they point.
 

@@ -1,9 +1,9 @@
 """Clay's agent tool surface, the validation half: the session/document
 resolver, the MCP result envelope, the Euler helper a rotation argument needs,
 and every shared "check this argument, refuse naming the field" helper the
-handlers in ``agent_clay_tools*.py`` call before they mutate anything.
+handlers in ``agent/tools*.py`` call before they mutate anything.
 
-Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``dev/RESTRUCTURE.md``)
+Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure
 -- that module's own "# --- resolving the session's document", "# --- protocol
 glue", "# --- Euler XYZ" and "# --- shared validation and mutation helpers"
 sections, plus two members the brief's own section banners misfiled: the
@@ -11,12 +11,12 @@ module docstring's ``_OBJECT_SELECTION_ELEMENT_MODE_REFUSAL`` (banner-adjacent t
 the constants, but read as one of ``clay_select``'s own
 validation refusals, not dispatch state) and ``_validate_query_arg`` (living
 under the old file's "# --- output schemas" banner because it happened to be
-typed next to :data:`agent_clay_schema._QUERY_ARG_SCHEMAS`, when it is in
+typed next to :data:`agent/schema._QUERY_ARG_SCHEMAS`, when it is in
 fact a validator with no schema-building code in it at all).
 
 **This module is the true leaf of the split, and deliberately so.** It
 imports no sibling of this fold -- not ``studio/modes/clay/agent/dispatch.py``, not
-``agent_clay_schema``, not any ``agent_clay_tools*`` -- so every one of them
+``agent/schema``, not any ``agent/tools*`` -- so every one of them
 can import *this* module with no risk of a cycle. That is what makes
 ``ok``/``fail``/``text``/``image_png``/``_json`` and :class:`Session`/
 :func:`_tab` live here rather than in ``studio/modes/clay/agent/dispatch.py`` itself: every handler
@@ -25,7 +25,7 @@ essentially every line, and ``studio/modes/clay/agent/dispatch.py`` needs to imp
 handler files (to build ``_HANDLERS``) -- so if the envelope lived in
 ``studio/modes/clay/agent/dispatch.py``, every handler file would have to reach back into the very
 module that imports it. Keeping them here instead means the dependency runs
-one way only: ``studio/modes/clay/agent/dispatch.py`` and every ``agent_clay_tools*.py`` import
+one way only: ``studio/modes/clay/agent/dispatch.py`` and every ``agent/tools*.py`` import
 *this* module; this module imports none of them back.
 
 The handful of names that *do* stay behind in ``studio/modes/clay/agent/dispatch.py`` despite a
@@ -44,7 +44,7 @@ import threading
 import weakref
 from collections import OrderedDict
 from collections.abc import Iterable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -68,7 +68,7 @@ from .. import mode as clay_mode
 # ``studio/modes/clay/agent/dispatch.py`` and a module-scope import would have failed at collection
 # time on however far that sibling had got; both modules exist now, so that
 # reason is spent and is not what keeps this here. What keeps it is the
-# direction of the dependency: this module (and every ``agent_clay_tools*.py``
+# direction of the dependency: this module (and every ``agent/tools*.py``
 # that imports it) is reachable from panes and their tests --
 # ``modes.clay.ui.panes.tools`` among them -- none of which want the protocol leaf
 # loaded to ask this module a question about Clay, and ``mcp/`` is a leaf that
@@ -104,7 +104,7 @@ def fail(message: str, *, changed: bool = False, **extra: Any) -> dict:
     ``changed: false``, because a model row is not this document) and not
     whether a session-scoped reference was added or removed (``clay_reference_add``
     never touches a ``ClayDoc`` at all) -- the document, exactly as
-    ``agent_clay_tools._h_transform`` and ``agent_clay_tools._h_set_params``
+    ``agent/tools._h_transform`` and ``agent/tools._h_set_params``
     already use the word on the success side.
 
     Defaulted here, once, rather than passed at each of this fold's ~100
@@ -163,7 +163,7 @@ def _over_frame_budget(
     """Refuse *payload* before ``_json`` encodes a reply ``send_bytes`` can
     never carry, rather than let it reach the wire and fail there past the
     point a refusal could explain itself -- the same shape
-    ``agent_clay_tools_ops._h_render``'s own ``_over_frame_budget`` already
+    ``agent/tools_ops._h_render``'s own ``_over_frame_budget`` already
     checks for a render's base64 payload, against ``protocol.MAX_FRAME``.
 
     Called by every JSON-replying tool whose reply size scales with something
@@ -245,8 +245,8 @@ def _json(payload: Any) -> dict:
     ``clay_render`` and ``clay_reference_get`` never call this -- both answer
     with an image block, which is not JSON to duplicate, so each builds its
     own result directly with ``ok(...)`` instead. See
-    ``agent_clay_tools_ops._h_render``'s and
-    ``agent_clay_tools_batch._h_reference_get``'s own returns for where that
+    ``agent/tools_ops._h_render``'s and
+    ``agent/tools_batch._h_reference_get``'s own returns for where that
     exclusion is made.
     """
     import json
@@ -278,6 +278,43 @@ class Session:
     overwritten by the next render, never a history -- bounded the same way
     ``references`` is bounded by being session-scoped rather than kept
     forever."""
+
+
+def _saving_refusal(ctx: Any, session: Session) -> dict | None:
+    """A refusal while the session's tab is being saved or exported, else ``None``.
+
+    The 2026-10-10 audit's clay-48: Save and Export hand the live document to a
+    task thread and set ``tab.saving`` for its whole run, which locks every
+    editing control -- but an agent's call arrives on the frame thread and
+    edited the same document with no look at the flag (only ``clay_export``
+    checked it). A user only has to switch to the agent's tab and press Save.
+    ``changed`` is ``False`` (``fail``'s default) and ``recovery`` is ``retry``:
+    nothing ran, and the identical call is safe once the save has finished.
+    Called from ``dispatch.call`` for every tool outside ``SAVE_SAFE_TOOLS``.
+    """
+    if not session.tab_uid:
+        return None
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    if tab is None or not tab.saving:
+        return None
+    return fail(
+        "A save or export of this document is in progress; it cannot be edited "
+        "until that finishes. Repeat the call in a moment (clay_scene and the "
+        "other read-only tools still work).",
+        recovery="retry",
+    )
+
+
+def _wire_params(params: dict) -> dict:
+    """*params* as the wire carries it: a boolean as 0/1.
+
+    A generator's boolean parameter (``stairs``'s ``closed_underside``) is a
+    Python ``bool`` in memory, but the params door takes numbers only and
+    refuses a JSON boolean -- so ``clay_scene`` and ``clay_add_primitive`` echoing
+    ``true`` handed an agent a value it was refused for sending back (the
+    2026-10-10 audit's clay-30). Echoed as the 0/1 the door accepts.
+    """
+    return {k: int(v) if isinstance(v, bool) else v for k, v in params.items()}
 
 
 def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict | None]:
@@ -529,8 +566,15 @@ def _validate_vec3(
     *,
     max_abs: float | None = None,
     min_nonzero_abs: float | None = None,
+    label: str | None = None,
 ) -> tuple[list[float] | None, dict | None]:
     """Three finite numbers, or a refusal naming *field*.
+
+    *label* is what the refusal's sentence calls the value when that is more
+    exact than *field* -- ``positions[3]`` for the fourth row of a hand-built
+    mesh, while ``field`` stays the argument (``positions``) so ``recovery``
+    still derives (the 2026-10-10 audit's clay-67: "positions must be an array
+    of 3 numbers." named no row).
 
     Shared by every optional TRS vector ``clay_add_primitive`` and
     ``clay_add_mesh`` take, so a malformed one is caught before anything is
@@ -542,29 +586,30 @@ def _validate_vec3(
     with no bound of its own (a query direction, a world point to measure)
     passes neither.
     """
+    name = label or field
     if not isinstance(value, list) or len(value) != 3:
         return None, fail(
-            f"{field} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
+            f"{name} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
         )
     try:
         out = [_as_float(v) for v in value]
     except (TypeError, ValueError, OverflowError):
         return None, fail(
-            f"{field} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
+            f"{name} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
         )
     if not all(math.isfinite(v) for v in out):
         return None, fail(
-            f"{field} must be finite numbers.", field=field, recovery="fix_arguments"
+            f"{name} must be finite numbers.", field=field, recovery="fix_arguments"
         )
     if max_abs is not None and any(abs(v) > max_abs for v in out):
         return None, fail(
-            f"{field} components must be no larger than {max_abs:g} in magnitude.",
+            f"{name} components must be no larger than {max_abs:g} in magnitude.",
             field=field,
             recovery="fix_arguments",
         )
     if min_nonzero_abs is not None and any(0.0 < abs(v) < min_nonzero_abs for v in out):
         return None, fail(
-            f"{field} components must be zero or at least {min_nonzero_abs:g} in magnitude.",
+            f"{name} components must be zero or at least {min_nonzero_abs:g} in magnitude.",
             field=field,
             recovery="fix_arguments",
         )
@@ -588,7 +633,7 @@ def _validate_number(value: Any, field: str) -> tuple[float | None, dict | None]
     :func:`_validate_unit` (0..1) and :func:`_validate_number_or_vec` (number
     *or* array) both specialise. Added for ``clay_select_by``'s ``max_angle``,
     which is neither: a query argument this fold owns the schema for (see
-    ``agent_clay_schema._QUERY_ARG_SCHEMAS``), not a colour component or a
+    ``agent/schema._QUERY_ARG_SCHEMAS``), not a colour component or a
     params value.
     """
     try:
@@ -864,7 +909,7 @@ def _op_params_type_refusal(op: Any, params: dict, field: str = "params") -> dic
 
 def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
     """One ``clay_select_by`` argument, validated against the fixed
-    vocabulary ``agent_clay_schema._QUERY_ARG_SCHEMAS`` describes -- the one
+    vocabulary ``agent/schema._QUERY_ARG_SCHEMAS`` describes -- the one
     place a query argument's shape is checked before it reaches a pure
     ``clay.select`` function that has no JSON-schema knowledge of its own to
     check it with.
@@ -939,12 +984,17 @@ def _repaint(doc: Any, uids: Iterable[int], index: int) -> None:
     would leave an existing box's faces still naming their old slot, so it
     would export in the wrong colour with nothing here to say why. Repainting
     means rewriting that array and rebuilding the mesh.
+
+    That is ``ClayDoc.repaint_object``, and this goes through it rather than
+    keeping a second copy of the rewrite: the 2026-10-10 audit's clay-07 found
+    the hand-rolled copy never called ``_with_uvs_for``, so painting a
+    textured palette slot onto an object with no uv left it with none -- the
+    texture on faces with no coordinates, against the manual's "gives that
+    object a Box Unwrap in the same undo step". The human door and this
+    tool's own ``faces`` path (``paint_faces``) already unwrapped.
     """
     for uid in uids:
-        obj = doc.by_uid(uid)
-        mesh = replace(obj.mesh, material=np.full(len(obj.mesh.material), index, dtype="i4"))
-        doc.set_mesh(uid, mesh, keep_generator=True)
-        doc.set_props(uid, material=index)
+        doc.repaint_object(uid, index)
 
 
 def _label_top(doc: Any, mark: int, label: str) -> None:
@@ -1092,7 +1142,7 @@ def _scene_row(doc: Any, obj: Any) -> dict:
         "visible": obj.visible,
         "parent": obj.parent,
         "generator": obj.generator,
-        "params": obj.params,
+        "params": _wire_params(obj.params),
         "faces": bm.face_count(obj.mesh),
         "material": obj.material,
         "bbox": None if box is None else {"min": box[0].tolist(), "max": box[1].tolist()},
@@ -1127,5 +1177,5 @@ _OBJECT_SELECTION_ELEMENT_MODE_REFUSAL = (
 )
 """What ``clay_select`` says in an element mode -- see its handler's own
 docstring for why it refuses rather than guesses, and
-``agent_clay_tools._h_delete``'s docstring for why that tool is deliberately
+``agent/tools._h_delete``'s docstring for why that tool is deliberately
 not a second."""

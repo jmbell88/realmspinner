@@ -102,6 +102,21 @@ MAX_SKIN_JOINTS = 100_000
 #: ``{"joints": []}`` skins that took 1.9 s to load and grew linearly. Same
 #: value as its siblings, for the same reason.
 MAX_SKINS = 100_000
+#: The 2026-10-10 audit, finding create-01: every ceiling above is per array,
+#: and none bounded *nodes x primitives* -- the number of draw instances
+#: ``Model.bounds`` and ``GpuModel._build`` walk, and ``_check_joint_indices``
+#: before them. 100 nodes naming one 5,000-primitive mesh is a 237 KB GLB
+#: under every other ceiling and made ``bounds()`` take 6.4 s on the frame
+#: thread. Same value as its siblings for the same reason: a scene with more
+#: instances than a node's-worth of ceilings is a hang before it is a scene.
+MAX_INSTANCES = 100_000
+#: The 2026-10-10 audit, finding create-38: ``MAX_TEXTURE_PIXELS`` bounds the
+#: *area*, so a 40000 x 399 map (15.96 M pixels) passed it and then failed in
+#: ``ctx.texture`` on the frame thread, taking the whole model where the
+#: policy promises a cosmetic loss. GL 3.3 guarantees only 1024 per side, but
+#: every desktop driver this app targets reports 16384 or more; a map with a
+#: side past this is skipped and counted like an over-area one.
+MAX_TEXTURE_SIDE = 16_384
 #: Mirrors ``service.validation.MAX_IMAGE_PIXELS`` without importing service
 #: into the viewer (the viewer imports no business-logic layer).
 MAX_TEXTURE_PIXELS = 16_000_000
@@ -421,7 +436,17 @@ class Model:
         self.world_version += 1
 
     def mesh_instances(self) -> list[tuple[Node, list[Primitive]]]:
-        return [(n, self.meshes[n.mesh]) for n in self.nodes if n.mesh is not None]
+        # The 2026-10-10 audit, finding create-05: this used to name every node
+        # that names a mesh, but only the default scene's nodes have a world
+        # matrix (``reached``); a node in another scene, or one nobody parents,
+        # kept its identity world and was drawn and framed as a phantom copy
+        # at the origin. three shows the default scene only.
+        reached = self.reached
+        return [
+            (n, self.meshes[n.mesh])
+            for i, n in enumerate(self.nodes)
+            if n.mesh is not None and i in reached
+        ]
 
     def joint_palette(self, node: Node) -> list[np.ndarray] | None:
         """The skinning matrices for one mesh node, in palette order.
@@ -488,27 +513,42 @@ class Model:
         """
         lo = np.full(3, np.inf)
         hi = np.full(3, -np.inf)
+        # The 2026-10-10 audit, finding create-01: the eight corners of each
+        # primitive's box were rebuilt in Python for every (node, primitive)
+        # pair, so N nodes naming one P-primitive mesh cost N*P corner builds.
+        # The corners are a property of the mesh, so they are stacked once per
+        # distinct mesh and each node pays a single matrix product.
+        stacked: dict[int, np.ndarray | None] = {}
         for node, prims in self.mesh_instances():
-            for prim in prims:
-                local = prim.box()
-                if local is None:
-                    continue
-                pmin, pmax = local
-                corners = np.array(
-                    [
-                        [x, y, z]
-                        for x in (pmin[0], pmax[0])
-                        for y in (pmin[1], pmax[1])
-                        for z in (pmin[2], pmax[2])
-                    ],
-                    dtype="f8",
-                )
-                world = (node.world @ np.hstack([corners, np.ones((8, 1))]).T).T[:, :3]
-                lo = np.minimum(lo, world.min(axis=0))
-                hi = np.maximum(hi, world.max(axis=0))
+            key = id(prims)
+            if key not in stacked:
+                stacked[key] = self._mesh_corners(prims)
+            corners = stacked[key]
+            if corners is None:
+                continue
+            world = (node.world @ corners.T).T[:, :3]
+            lo = np.minimum(lo, world.min(axis=0))
+            hi = np.maximum(hi, world.max(axis=0))
         if not np.isfinite(lo).all():
             return m3.vec3(), m3.vec3()
         return lo, hi
+
+    @staticmethod
+    def _mesh_corners(prims: list[Primitive]) -> np.ndarray | None:
+        """Every primitive box's eight corners, homogeneous, as one (8k, 4)."""
+        rows = []
+        for prim in prims:
+            local = prim.box()
+            if local is None:
+                continue
+            pmin, pmax = local
+            rows.extend(
+                [x, y, z, 1.0]
+                for x in (pmin[0], pmax[0])
+                for y in (pmin[1], pmax[1])
+                for z in (pmin[2], pmax[2])
+            )
+        return np.array(rows, dtype="f8") if rows else None
 
     @property
     def triangle_count(self) -> int:
@@ -685,6 +725,16 @@ def load(
         meshes.append([p for p in parsed if len(p.positions)])
     skins = [reader.skin(s) for s in gltf.get("skins", [])]
     nodes = [reader.node(n) for n in gltf.get("nodes", [])]
+    # The 2026-10-10 audit, finding create-01: refused before any loop that
+    # walks instances (the joint check just below, then ``Model.bounds`` and
+    # ``GpuModel._build``), and counted from the mesh *node*, the one place a
+    # mesh is multiplied -- ``MAX_PRIMITIVES`` only counts each mesh once.
+    instances = sum(len(meshes[n.mesh]) for n in nodes if n.mesh is not None)
+    if instances > MAX_INSTANCES:
+        raise ValueError(
+            f"this GLB places {instances} mesh instances (nodes x primitives), "
+            "more than this viewer will load"
+        )
     _check_joint_indices(nodes, meshes, skins)
     # The 2026-10-09 second audit's clay-112: the lost textures are those of the
     # materials some primitive places, as distinct image sources. A material
@@ -738,10 +788,17 @@ def _check_joint_indices(
     draws never indexes the palette, so its stray values are left alone.
     """
     seen: dict[int, tuple[int, int]] = {}
+    # The 2026-10-10 audit, finding create-01: the verdict is a function of
+    # (mesh, joint count), so N nodes naming one mesh under one skin walk its
+    # primitives once, not N times.
+    walked: set[tuple[int, int]] = set()
     for node in nodes:
         if node.skin is None or node.mesh is None:
             continue
         count = len(skins[node.skin].joints)
+        if (node.mesh, count) in walked:
+            continue
+        walked.add((node.mesh, count))
         for primitive in meshes[node.mesh]:
             if primitive.joints is None or not len(primitive.joints):
                 continue
@@ -1059,6 +1116,9 @@ class _Reader:
         # and friends -- shared the same way, and for the same reason (H01):
         # see ``_typed``.
         self._typed_cache: dict[Any, np.ndarray] = {}
+        # ids of POSITION arrays already proven finite (create-04, 2026-10-10);
+        # the arrays live in ``_typed_cache``, so an id cannot be reused.
+        self._finite_positions: set[int] = set()
         # The one ``Material`` every primitive with no (valid) material shares.
         self._fallback_material: Material | None = None
         # ``decoded()``'s normalized-integer conversion, by accessor index --
@@ -1459,6 +1519,18 @@ class _Reader:
         # reads ``len(positions)`` as though it were a vertex count.
         if positions.ndim != 2 or positions.shape[1] != 3:
             raise ValueError(f"POSITION must be VEC3 (n, 3), got {positions.shape}")
+        # The 2026-10-10 audit, finding create-04: only a node's TRS was
+        # checked for finiteness, so one NaN/Inf vertex loaded clean and then
+        # made ``Model.bounds`` answer the zero box for the *whole* model --
+        # unframeable (radius 1e-4, near/far 1e-7/1e-2) and invisible, with no
+        # toast. Checked once per distinct array (``_typed`` shares it between
+        # primitives), by an f8 sum that allocates nothing and so needs no
+        # charge: a finite f4 array cannot overflow it, any NaN/Inf cannot
+        # survive it.
+        if id(positions) not in self._finite_positions:
+            if not np.isfinite(positions.sum(dtype="f8")):
+                raise ValueError("a primitive's POSITION has a non-finite value")
+            self._finite_positions.add(id(positions))
         if "indices" in prim:
             # Indices are never normalized -- they are indices -- so they take
             # the raw path deliberately.
@@ -1945,12 +2017,17 @@ class _Reader:
                 # ``open`` is lazy, so the size is known before any pixel is
                 # decoded: an absurd one costs a log line rather than the RAM.
                 # Same policy as a corrupt map -- the texture, not the model.
-                if im.width * im.height > self.max_texture_pixels:
+                if (
+                    im.width * im.height > self.max_texture_pixels
+                    or max(im.width, im.height) > MAX_TEXTURE_SIDE
+                ):
                     log.warning(
-                        "skipping a %dx%d texture: over this loader's %d-pixel ceiling",
+                        "skipping a %dx%d texture: over this loader's %d-pixel "
+                        "or %d-per-side ceiling",
                         im.width,
                         im.height,
                         self.max_texture_pixels,
+                        MAX_TEXTURE_SIDE,
                     )
                     self.skipped += 1
                     self._images[source] = None

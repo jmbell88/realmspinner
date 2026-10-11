@@ -92,7 +92,11 @@ def test_budget_row_is_absent_without_blender_and_gltfpack(monkeypatch):
     form = {"profile": "standard", "lowpoly_triangles": 5000, "custom_triangles": 0}
     settings_3d._budget(SimpleNamespace(state=SimpleNamespace()), form)
     assert drawn == []
-    assert form["profile"] == "raw" and form["lowpoly_triangles"] == 0
+    # The 2026-10-10 audit, finding create-10: the draw no longer rewrites the
+    # stored budget (``form_3d`` is saved at quit); the request carries Raw.
+    assert form["profile"] == "standard" and form["lowpoly_triangles"] == 5000
+    sent = settings_3d.host_budget_form(SimpleNamespace(), form)
+    assert sent["profile"] == "raw" and sent["lowpoly_triangles"] == 0
 
     text = _chapter("23-generating-meshes")
     assert "collapses to Raw alone" not in text

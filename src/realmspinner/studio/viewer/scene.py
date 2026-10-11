@@ -216,9 +216,9 @@ class GpuMaterial:
         # rendered an OPAQUE material's stray alpha channel translucent.
         if "u_alpha_cutoff" in program:
             program["u_alpha_cutoff"].value = mat.alpha_cutoff
-            # 0 opaque, 1 masked, 2 blended -- the shader only distinguishes
-            # "cut out at the threshold" from "ignore alpha entirely", and
-            # BLEND is the one mode where the sampled alpha is kept as-is.
+            # 0 opaque, 1 masked, 2 blended -- the shader cuts MASK out at the
+            # threshold and then forces its alpha to 1 like OPAQUE; BLEND is the
+            # one mode where the sampled alpha is kept as-is.
             program["u_alpha_mask"].value = {"MASK": 1, "BLEND": 2}.get(mat.alpha_mode, 0)
         if "u_metallic" in program:
             program["u_metallic"].value = mat.metallic_factor

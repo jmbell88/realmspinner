@@ -897,6 +897,16 @@ def _reference_body(
     if not path:
         widgets.muted("...or drop an image on the window.")
         return
+    if create_recipe.is_tile_arm(form):
+        # The 2026-10-10 audit, finding create-11: this section drew the
+        # appearance picker, its strength, "Start from this image" and
+        # Structure on the Tileset arm too, and none of the four reaches the
+        # request -- ``tile_sheet_kwargs`` sends the reference bytes and the
+        # door pins its own adapter. A control that writes a form key nothing
+        # reads is the one thing this pane's rule ("a control that cannot
+        # apply is not shown") exists to prevent.
+        widgets.muted_wrapped("A tileset takes the picture as its style reference.")
+        return
 
     # Field labels rather than nested section() calls: inside the block scope
     # a section would open a new block, and these are two halves of the one

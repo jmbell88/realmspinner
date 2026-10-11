@@ -27,6 +27,7 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+from modes.poser._land import land_asset
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.geom3d.gltf import Model, Node
 from realmspinner.kernels.rig import templates
@@ -314,8 +315,9 @@ def _opened_asset_for_skeleton(svc, monkeypatch, **rig_meta):
     ctx = FakeCtx(svc)
     ctx.poser_viewer = viewer = FakeViewer()
     poser_mode.open_asset(ctx, {"id": job_id, "name": "Prop"})
+    land_asset(ctx)
     poser_mode.sync_asset(ctx, viewer)
-    names = [b["name"] for b in templates.get_template("humanoid").bones]
+    names =[b["name"] for b in templates.get_template("humanoid").bones]
     viewer.editor.bind(_armature_model(), names)
     viewer.editor.root = next(
         b["name"] for b in templates.get_template("humanoid").bones if b["parent"] is None

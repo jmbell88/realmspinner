@@ -491,7 +491,13 @@ def pack_islands(mesh: Mesh, *, margin: float = 0.005, rotate: bool = False) -> 
             pts -= pts.min(axis=0)
         new_uv[corners] = pts * scale + (ox * scale + index * gap, oy * scale + shelf * gap)
 
-    return replace(mesh, uv=_finite_f4(new_uv, "pack_islands"))
+    packed = _finite_f4(new_uv, "pack_islands")
+    # The 2026-10-10 audit's clay-42: an already packed layout used to come back
+    # as a fresh ``Mesh`` and read as a change to ``set_mesh``'s identity check,
+    # pushing a no-op undo step. Equal uv -> the very same mesh.
+    if np.array_equal(mesh.uv, packed):
+        return mesh
+    return replace(mesh, uv=packed)
 
 
 # --- overlap -----------------------------------------------------------

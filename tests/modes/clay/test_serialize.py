@@ -317,8 +317,10 @@ def test_read_rblk_refuses_a_document_declaring_too_many_materials(monkeypatch) 
     already carries 3 materials, so lowering the ceiling to 2 crosses it
     without building a document with materials genuinely in the thousands.
     """
-    monkeypatch.setattr(ser, "MAX_DECLARED_MATERIALS", 2)
+    # Written at the real ceiling and lowered after (clay-15, 2026-10-10: the
+    # writer now refuses what the reader would).
     data = ser.rblk_bytes(_doc())  # three materials
+    monkeypatch.setattr(ser, "MAX_DECLARED_MATERIALS", 2)
 
     with pytest.raises(ValueError, match="3 materials, past the 2"):
         ser.read_rblk(data)
@@ -757,12 +759,13 @@ def test_read_rblk_refuses_a_document_declaring_too_many_textures(monkeypatch) -
     instead -- a scene can name far more texture entries than the archive
     actually carries distinct PNGs for, and each entry is cheap to declare.
     """
-    monkeypatch.setattr(ser, "MAX_DECLARED_TEXTURES", 0)
     doc = bd.ClayDoc(
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
         materials=[gltf.Material(name="m", base_color=_tex())],
     )
+    # Written at the real ceiling and lowered after (clay-15, 2026-10-10).
     data = ser.rblk_bytes(doc)  # one texture
+    monkeypatch.setattr(ser, "MAX_DECLARED_TEXTURES", 0)
 
     with pytest.raises(ValueError, match="1 textures, past the 0"):
         ser.read_rblk(data)
@@ -781,12 +784,14 @@ def test_read_rblk_refuses_when_decoded_texture_bytes_sum_past_a_document_ceilin
     pass with no running total, so a small ``.rblk`` could still exhaust
     memory on the way in. The 2026-09-18 audit's clay-01.
     """
-    monkeypatch.setattr(ser, "MAX_TOTAL_TEXTURE_BYTES", 8)
     doc = bd.ClayDoc(
         objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
         materials=[gltf.Material(name="m", base_color=_tex())],
     )
-    data = ser.rblk_bytes(doc)  # one 2x2 texture, 16 decoded bytes, past the 8-byte cap
+    # Written at the real ceiling and lowered after (clay-15, 2026-10-10: the
+    # writer now refuses what the reader would).
+    data = ser.rblk_bytes(doc)  # one 2x2 texture, 16 decoded bytes
+    monkeypatch.setattr(ser, "MAX_TOTAL_TEXTURE_BYTES", 8)  # ... past the 8-byte cap
 
     with pytest.raises(ValueError, match="decoded texture"):
         ser.read_rblk(data)

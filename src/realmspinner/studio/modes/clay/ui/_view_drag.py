@@ -3,8 +3,10 @@
 Split out of :mod:`~realmspinner.studio.modes.clay.ui.view` as pure code motion. The mouse map
 and the modifier rule are stated in that module's docstring; what lives here is
 their implementation, plus the two halves of a live drag -- the object path,
-which moves transforms in place and commits one history step per object on
-release, and the element path, which previews by writing vertex buffers on the
+which moves transforms in place and commits one history step for the whole drag
+on release (the 2026-10-10 audit's clay-56: this header said "per object", which
+cost 19 Ctrl+Z presses on a figure -- ``_commit_drag`` pushes one step), and the
+element path, which previews by writing vertex buffers on the
 GPU and never touches the document until the release.
 
 :meth:`DragOps._narrow` is deliberately the **single** narrowing site for axis
@@ -144,6 +146,9 @@ class DragOps:
         ends_drag = self._grab in ("keydrag", "opdrag")
         if event.type == pygame.MOUSEBUTTONDOWN and (hovered or ends_drag):
             self._render_dirty = True
+            # A click changes what is under the cursor (the selection, often the
+            # mesh); the first motion after it must pick, not wait out the step.
+            self._hover_element_at = None
             return self._press(doc, event.button, local)
         if event.type == pygame.MOUSEBUTTONUP:
             self._render_dirty = True
@@ -155,6 +160,7 @@ class DragOps:
         if event.type == pygame.MOUSEWHEEL and hovered:
             self._render_dirty = True
             # Toward the pointer, so the point being looked at stays under it.
+            self._hover_element_at = None  # the camera moved under a still pointer
             self.camera.dolly(
                 event.y, cursor=local, size=(float(self._rect[2]), float(self._rect[3]))
             )
@@ -507,22 +513,35 @@ class DragOps:
         # faces -- indices that mean nothing on the mesh it just put back.
         recent_op.restore(doc, *before)
 
+    def _view_axis(self: ClayView) -> Any:
+        """The unit vector from the scene toward the eye, along the **view axis**.
+
+        The camera's own back axis, read off its view matrix, not the line from
+        the pivot to the eye. The 2026-10-10 audit's clay-02: G/R/S measured on
+        the plane whose normal was ``camera.position - pivot``, so an off-centre
+        pivot (3 m aside at distance 5) put the plane 31 degrees off the screen
+        and a purely horizontal mouse move also moved the object along the view
+        axis -- z moved +0.2485 for 40 px in an orthographic front view, where
+        the shift is invisible until the user orbits. With a centred pivot the
+        two coincide, which is why nothing noticed.
+        """
+        back = np.asarray(self.camera.view(), dtype="f8")[2, :3]
+        return back / float(np.linalg.norm(back))
+
     def _view_plane_point(
         self: ClayView, local: tuple[float, float], centre: Any
     ) -> Any:
-        """Where the pointer's ray meets the plane through ``centre`` facing the
-        camera. ``None`` when the ray runs parallel to it, which the caller
-        treats as "no movement" rather than as an error."""
+        """Where the pointer's ray meets the plane through ``centre`` that faces
+        the camera -- perpendicular to the view axis (:meth:`_view_axis`), so
+        screen-space motion stays in screen space. ``None`` when the ray runs
+        parallel to it, which the caller treats as "no movement" rather than as
+        an error."""
         from ....viewer import picking
 
         origin, direction = self._ray(local)
-        normal = np.asarray(self.camera.position, dtype="f8") - np.asarray(
-            centre, dtype="f8"
+        return picking.ray_plane(
+            origin, direction, np.asarray(centre, dtype="f8"), self._view_axis()
         )
-        length = float(np.linalg.norm(normal))
-        if length < 1e-9:
-            return None
-        return picking.ray_plane(origin, direction, np.asarray(centre), normal / length)
 
     def _drag_keyboard(self: ClayView, doc: Any, local: tuple[float, float]) -> None:
         """One frame of a keyboard drag: the same delta shapes a gizmo makes.
@@ -542,12 +561,11 @@ class DragOps:
         anchor = np.asarray(self._key_anchor, dtype="f8")
         state = self.state
         if self._key_kind == "rotate":
-            forward = np.asarray(self.camera.position, dtype="f8") - pivot
-            norm = float(np.linalg.norm(forward))
-            if norm < 1e-9:
-                return
-            angle = bdrag.screen_angle(pivot, forward / norm, anchor, point)
-            delta = m3.quat_from_axis_angle(forward / norm, angle)
+            # About the view axis, not the eye-to-pivot line (clay-02): the
+            # drag is measured on the plane perpendicular to it.
+            axis = self._view_axis()
+            angle = bdrag.screen_angle(pivot, axis, anchor, point)
+            delta = m3.quat_from_axis_angle(axis, angle)
         elif self._key_kind == "scale":
             was = float(np.linalg.norm(anchor - pivot))
             now = float(np.linalg.norm(point - pivot))
@@ -577,11 +595,12 @@ class DragOps:
         """
         index = self._uid_index(doc)
         refused = False
+        applied: list[Any] = []
         for uid, was in self._drag_start.items():
             obj = index.get(uid)
             if obj is None:
                 continue  # deleted mid-drag
-            if not self._apply(doc, obj, was, delta, state, index):
+            if not self._apply(doc, obj, was, delta, state, index, applied):
                 refused = True
         if refused:
             # All or none: a selection half-scaled because one member was
@@ -600,6 +619,17 @@ class DragOps:
                     "Scale along a world axis needs an unrotated shape; use the Size "
                     "card or unlock the axis."
                 )
+        if applied and not refused and self._snap_live(state):
+            # The 2026-10-10 audit's clay-55: ``_narrow`` quotes the pointer's
+            # displacement, but the grid snaps the object's *position*, so the
+            # line under the viewport said 0.37 m while the object landed on
+            # 0.375. The first dragged object's own landed displacement is the
+            # quantity actually applied.
+            from .....kernels.mesh import drag as bdrag
+
+            self.drag_hud = bdrag.readout(
+                self._drag_kind(state), applied[0], self.drag_input
+            )
         doc.touch()
 
     def _press_element(
@@ -1058,9 +1088,7 @@ class DragOps:
                 origin, direction = self._ray(local)
                 gizmo.hover = gizmo.hit(origin, direction)
             prev_hover_element = self.hover_element
-            self.hover_element = (
-                None if doc.element_mode == "object" else self.pick_element(doc, local)
-            )
+            self._hover_element(doc, local)
             prev_hover_object = self.hover_object
             self._hover_object(doc, local, gizmo_hot=gizmo is not None and gizmo.hover is not None)
             # clay-15 (the 2026-09-23 audit, second run): only a real change
@@ -1079,6 +1107,7 @@ class DragOps:
         # not trail an orbit or follow a dragged object.
         self.hover_object = None
         self._hover_pick_at = None
+        self._hover_element_at = None
         if self._grab in ("orbit", "marquee"):
             # The farthest the pointer has been from the press, so a drag that
             # wanders off and comes back is still a drag (``gestures.is_click``).
@@ -1132,6 +1161,41 @@ class DragOps:
         self._hover_pick_at = local
         self.hover_object = self.pick(doc, local)
 
+    #: Where, and for which document revision and element mode, the element hover
+    #: last ran a full pick -- the object hover's ``_hover_pick_at`` for elements.
+    _hover_element_at: tuple[tuple[float, float], int, str] | None = None
+
+    def _hover_element(self: ClayView, doc: Any, local: tuple[float, float]) -> None:
+        """Set ``hover_element`` for the pointer at *local*, one pick per
+        :attr:`HOVER_PICK_STEP` pixels of travel.
+
+        The 2026-10-10 audit's clay-25: object hover was throttled and this was
+        not, so every MOUSEMOTION event ran ``pick_element`` -- a ray cast over
+        every visible object plus a projection of every vertex, 13 ms against
+        3.3 ms per event over 300 boxes, and a high-rate mouse delivers up to
+        ~16 events a frame. The throttle is keyed on the document revision and
+        the element mode as well as the position, so a hover left over a mesh
+        that has since changed (or a mode just switched) picks again on the very
+        next motion rather than after three pixels; a press, an orbit and
+        ``clear_hover`` reset it outright, which keeps the first motion after a
+        click responsive.
+        """
+        if doc.element_mode == "object":
+            self.hover_element = None
+            self._hover_element_at = None
+            return
+        last = self._hover_element_at
+        key = (local, int(getattr(doc, "rev", 0)), doc.element_mode)
+        if (
+            last is not None
+            and last[1:] == key[1:]
+            and abs(local[0] - last[0][0]) < self.HOVER_PICK_STEP
+            and abs(local[1] - last[0][1]) < self.HOVER_PICK_STEP
+        ):
+            return
+        self._hover_element_at = key
+        self.hover_element = self.pick_element(doc, local)
+
     def clear_hover(self: ClayView, doc: Any) -> bool:
         """Drop every hover highlight; -> whether any was lit.
 
@@ -1143,6 +1207,9 @@ class DragOps:
         """
         if self._grab is not None:
             return False
+        # Even with nothing lit: the pointer has left, so wherever it comes back
+        # is a first motion and must pick (clay-25's throttle).
+        self._hover_element_at = None
         gizmo = self.active_gizmo(doc)
         lit = (
             self.hover_element is not None
@@ -1271,6 +1338,16 @@ class DragOps:
 
         world = self._element_world_transform(delta, state)
         step = self._element_snap_step(delta, state)
+        if step:
+            # The 2026-10-10 audit's clay-55: each corner lands on the grid, so
+            # the pointer's displacement is not what happened. Quote the median's
+            # landed displacement (the point the gizmo is drawn at).
+            from .....kernels.mesh import drag as bdrag
+            from .. import element_move as _em
+
+            centre = np.asarray(self._element_centre, dtype="f8")
+            landed = _em.snap_points(centre + world[:3, 3], step) - centre
+            self.drag_hud = bdrag.readout(self._drag_kind(state), landed, self.drag_input)
         for uid, drag in self._element_drags.items():
             if step:
                 moved = element_move.moved_local(
@@ -1411,20 +1488,26 @@ class DragOps:
         actually applied rather than one measured from somewhere else.
         """
         from .....kernels.mesh import drag as bdrag
+        from .....kernels.mesh import ops
 
-        tool = getattr(state, "tool", "") if state is not None else ""
         # The 2026-10-07 audit's clay-31: the readout's unit follows what the
         # drag *is*, and a keyboard drag is what its key said -- the same rule
         # ``_is_scale`` states for the maths. Read off the tool, a G drag under
         # Rotate said "0.4 deg" and under Select (or Scale) had no unit at all,
         # on the line that is the only confirmation of a typed value.
-        kind = self._key_kind or tool or "move"
-        if kind == "select":
-            kind = "move"
+        kind = self._drag_kind(state)
         entry = self.drag_input
         if isinstance(delta, np.ndarray) and delta.shape == (4,):
-            self.drag_hud = _rotation_hud(delta, entry)
-            return bdrag.constrain_rotation(delta, entry)
+            constrained = bdrag.constrain_rotation(delta, entry)
+            # The 2026-10-10 audit's clay-55: with Snap on the readout quoted the
+            # raw angle while ``_apply`` / ``_element_world_transform`` land the
+            # object on the snapped one. Shown here, returned unsnapped -- the
+            # snap stays where the module docstring says it is.
+            shown = delta
+            if self._snap_live(state):
+                shown = ops.snap_rotation(constrained, getattr(state, "snap_rotate", 0.0))
+            self.drag_hud = _rotation_hud(shown, entry)
+            return constrained
         if self._is_scale(state):
             out = bdrag.constrain_scale(delta, entry)
             self.drag_hud = bdrag.readout("scale", out, entry)
@@ -1435,6 +1518,18 @@ class DragOps:
         moved = bdrag.constrain_translation(target - anchor, entry)
         self.drag_hud = bdrag.readout(kind, moved, entry)
         return anchor + moved
+
+    def _drag_kind(self: ClayView, state: Any) -> str:
+        """``move`` / ``rotate`` / ``scale``: what the drag in hand *is* (see the
+        clay-31 note in :meth:`_narrow`)."""
+        tool = getattr(state, "tool", "") if state is not None else ""
+        kind = self._key_kind or tool or "move"
+        return "move" if kind == "select" else kind
+
+    def _snap_live(self: ClayView, state: Any) -> bool:
+        """Whether the grid snap is acting on this drag: on, and standing down
+        for a typed value or an axis lock (``drag_input.active``)."""
+        return bool(getattr(state, "snap", False)) and not self.drag_input.active
 
     def _accumulate(self: ClayView, delta: Any) -> Any:
         """Turn one ``update`` return into a quantity measured from the press.
@@ -1470,6 +1565,7 @@ class DragOps:
         delta: Any,
         state: Any,
         index: dict[int, Any] | None = None,
+        applied: list[Any] | None = None,
     ) -> bool:
         """One object's transform under the live drag, written in **local** space.
 
@@ -1513,6 +1609,10 @@ class DragOps:
         ``world_matrix``'s composition and the conversion is
         ``local_from_world``'s (``decompose`` of the inverse parent times the
         target), a root's being ``decompose`` of the target itself.
+
+        ``applied``, when given, receives a move's landed world displacement
+        (after the grid snap) so the caller can quote what happened rather than
+        what the pointer asked for -- the 2026-10-10 audit's clay-55.
         """
         from .....kernels.mesh import ops
 
@@ -1559,6 +1659,9 @@ class DragOps:
             if snap:
                 world_t = ops.snap_translation(world_t, state.snap_translate)
             world_r, world_s = before_r, before_s
+            if applied is not None:
+                # What actually landed, after the grid -- for the HUD (clay-55).
+                applied.append(world_t - before_t)
 
         world_target = m3.compose(world_t, world_r, world_s)
         if index is None or (parent is not None and parent not in index):

@@ -107,7 +107,7 @@ from __future__ import annotations
 import itertools
 import threading
 import weakref
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
@@ -336,6 +336,31 @@ class Obj:
         return self.translation, self.rotation, self.scale
 
 
+class _LiveUids:
+    """``uid -> Obj`` read-only mapping over a document's validated position
+    index (:meth:`ClayDoc._find`). It holds no snapshot, so it is always as
+    current as ``doc.objects`` -- the property a map built once per call has only
+    until the call mutates something."""
+
+    __slots__ = ("_doc",)
+
+    def __init__(self, doc: ClayDoc) -> None:
+        self._doc = doc
+
+    def get(self, uid: int, default: Obj | None = None) -> Obj | None:
+        pos = self._doc._find(uid)
+        return default if pos < 0 else self._doc.objects[pos]
+
+    def __getitem__(self, uid: int) -> Obj:
+        pos = self._doc._find(uid)
+        if pos < 0:
+            raise KeyError(uid)
+        return self._doc.objects[pos]
+
+    def __contains__(self, uid: object) -> bool:
+        return isinstance(uid, int) and self._doc._find(uid) >= 0
+
+
 class ClayDoc:
     """Objects, the palette they share, the selection and the history."""
 
@@ -505,11 +530,43 @@ class ClayDoc:
         probe = Obj(uid=obj.uid, name=obj.name, mesh=mesh)
         self._refuse_past_ceilings([probe], [obj])
 
+    def _index_positions(self) -> dict[int, int]:
+        """Rebuild the uid -> position index in one pass (first-seen wins, as a
+        front-to-back scan always answered) and return it."""
+        cache: dict[int, int] = self.__dict__.setdefault("_pos_cache", {})
+        cache.clear()
+        for i in range(len(self.objects) - 1, -1, -1):
+            cache[self.objects[i].uid] = i
+        return cache
+
+    def _find(self, uid: int) -> int:
+        """*uid*'s position in ``objects``, or ``-1``, without a scan per call.
+
+        The 2026-10-10 audit's clay-23: ``index_of`` was a bare scan and
+        ``world_matrix``/``ancestors``/``set_origin`` each built a whole uid map
+        per call, so Group, Parent to Last and Origin to World over 4,000 objects
+        did 4,000 full passes (5.8 s, 3.0 s, 2.6 s on the frame thread).
+
+        The index is remembered and **checked on every use**: a remembered
+        position is trusted only while ``objects[pos].uid`` is still *uid*, and
+        the first miss rebuilds the lot, so an object added, removed, reordered
+        or restored by an undo can never be read stale -- no mutation path has to
+        know the index exists, which is what the INVARIANTS rule on every way
+        Clay removes an object demands of a cache. (A uid that appears twice is
+        not a legal document; if one did, the first-seen answer holds only until
+        a rebuild.)"""
+        cache: dict[int, int] = self.__dict__.get("_pos_cache") or {}
+        pos = cache.get(uid, -1)
+        objects = self.objects
+        if 0 <= pos < len(objects) and objects[pos].uid == uid:
+            return pos
+        return self._index_positions().get(uid, -1)
+
     def index_of(self, uid: int) -> int:
-        for i, obj in enumerate(self.objects):
-            if obj.uid == uid:
-                return i
-        raise KeyError(f"no object with uid {uid}")
+        pos = self._find(uid)
+        if pos < 0:
+            raise KeyError(f"no object with uid {uid}")
+        return pos
 
     def by_uid(self, uid: int) -> Obj:
         return self.objects[self.index_of(uid)]
@@ -527,16 +584,7 @@ class ClayDoc:
         holding that uid, so objects added, removed or reordered are never
         read stale; visibility is read live off the object.
         """
-        cache: dict[int, int] = self.__dict__.setdefault("_pos_cache", {})
-        pos = cache.get(uid, -1)
-        if not (0 <= pos < len(self.objects) and self.objects[pos].uid == uid):
-            cache.clear()
-            for i in range(len(self.objects) - 1, -1, -1):
-                cache[self.objects[i].uid] = i  # first-seen wins, as index_of does
-            pos = cache.get(uid, -1)
-            if pos < 0:
-                raise KeyError(f"no object with uid {uid}")
-        return not self.objects[pos].visible
+        return not self.by_uid(uid).visible
 
     def mesh_stamp(self, uid: int) -> int:
         """A wire-safe revision number for one object's current mesh.
@@ -614,8 +662,18 @@ class ClayDoc:
             by_uid.setdefault(obj.uid, obj)
         return by_uid
 
+    def _live(self) -> _LiveUids:
+        """A ``uid -> Obj`` view that answers off :meth:`_find` on every lookup.
+
+        What :meth:`ancestors`, :meth:`world_matrix` and the placement doors use
+        in place of :meth:`_uid_map` when the caller holds no snapshot: it costs
+        O(depth) per walk instead of O(objects), and cannot go stale across the
+        mutations a door makes between two lookups (the 2026-10-10 audit's
+        clay-23)."""
+        return _LiveUids(self)
+
     @staticmethod
-    def _ancestors_in(uid: int, by_uid: dict[int, Obj]) -> list[int]:
+    def _ancestors_in(uid: int, by_uid: Mapping[int, Obj]) -> list[int]:
         if uid not in by_uid:
             raise KeyError(f"no object with uid {uid}")
         out: list[int] = []
@@ -640,7 +698,7 @@ class ClayDoc:
         in-memory document (a test, a script) gets a bounded answer rather
         than an infinite loop if it does.
         """
-        return self._ancestors_in(uid, self._uid_map())
+        return self._ancestors_in(uid, self._live())
 
     def descendants(self, uid: int) -> list[int]:
         """Every uid under *uid*, depth-first, document order per level.
@@ -683,9 +741,9 @@ class ClayDoc:
         """*uid*'s world transform: its own local TRS, composed through every
         ancestor's -- ancestor-first, so a root's own local TRS *is* its
         world matrix (``ancestors`` gives nothing to compose through)."""
-        return self._world_in(uid, self._uid_map())
+        return self._world_in(uid, self._live())
 
-    def _world_in(self, uid: int, by_uid: dict[int, Obj]) -> np.ndarray:
+    def _world_in(self, uid: int, by_uid: Mapping[int, Obj]) -> np.ndarray:
         """:meth:`world_matrix` over a map the caller built once -- for a loop
         that asks for many objects' worlds before changing anything."""
         chain = [uid, *self._ancestors_in(uid, by_uid)]
@@ -695,15 +753,29 @@ class ClayDoc:
             matrix = matrix @ m3.compose(obj.translation, obj.rotation, obj.scale)
         return matrix
 
-    def _require_invertible(self, uid: int) -> np.ndarray:
-        """The inverse of *uid*'s world matrix, or an OpError naming it."""
+    def _require_invertible(
+        self, uid: int, by_uid: Mapping[int, Obj] | None = None
+    ) -> np.ndarray:
+        """The inverse of *uid*'s world matrix, or an OpError naming it.
+
+        *by_uid* is a map the caller built once, for a loop that would
+        otherwise rebuild it per object (the 2026-10-10 audit's clay-32)."""
+        by_uid = self._live() if by_uid is None else by_uid
         try:
-            return np.linalg.inv(self.world_matrix(uid))
+            return np.linalg.inv(self._world_in(uid, by_uid))
         except np.linalg.LinAlgError as error:
             raise el.OpError(
-                f"{self.by_uid(uid).name!r} has a zero scale, so nothing can be "
+                f"{by_uid[uid].name!r} has a zero scale, so nothing can be "
                 "placed relative to it."
             ) from error
+
+    def _relative_matrix(
+        self, world: np.ndarray, parent: int | None, by_uid: Mapping[int, Obj] | None = None
+    ) -> np.ndarray:
+        """*world* as a matrix relative to *parent* (or as-is for a root)."""
+        if parent is None:
+            return np.asarray(world, dtype="f8")
+        return self._require_invertible(parent, by_uid) @ np.asarray(world, dtype="f8")
 
     def _local_relative(self, world: np.ndarray, parent: int | None) -> tuple[Any, Any, Any]:
         """*world* re-expressed as local TRS relative to *parent* (or as-is
@@ -714,12 +786,7 @@ class ClayDoc:
         removed object's own parent) -- three callers wanting the same "what
         would this world matrix be, named relative to that uid" question.
         """
-        if parent is None:
-            target = np.asarray(world, dtype="f8")
-        else:
-            inverse = self._require_invertible(parent)
-            target = inverse @ np.asarray(world, dtype="f8")
-        return m3.decompose(target)
+        return m3.decompose(self._relative_matrix(world, parent))
 
     def _kept_place(self, name: str, world: np.ndarray, parent: int | None) -> tuple[Any, Any, Any]:
         """:meth:`_local_relative`, refusing a result that is not finite.
@@ -737,6 +804,70 @@ class ClayDoc:
         assignment, so a refusal leaves nothing half-changed.
         """
         return self._finite_place(name, self._local_relative(world, parent))
+
+    def _kept_placement(
+        self,
+        child: Obj,
+        world: np.ndarray,
+        parent: int | None,
+        by_uid: Mapping[int, Obj] | None = None,
+    ) -> tuple[tuple[Any, Any, Any], bm.Mesh | None]:
+        """:meth:`_kept_place`, but exact when the matrix is sheared:
+        ``((t, r, s), baked_mesh_or_None)``.
+
+        The 2026-10-10 audit's clay-04: a (2, 1, 1) parent over a child turned
+        45 degrees has a sheared world matrix, ``decompose`` is "for a matrix
+        with no shear", and every door that re-expressed such a child stored a
+        quaternion of norm 0.985 -- the child moved on screen by 0.45 when its
+        parent was deleted, and moved again by 0.03 when the file was reopened
+        and the quaternion normalised. No translation/rotation/scale states a
+        sheared matrix, so the residual shear is folded into the child's *mesh*
+        (as :func:`~.ops.bake_transform` and the GLB importer do): the stored
+        rotation stays a unit one and the geometry lands where it stood. Only a
+        genuinely sheared matrix takes this path -- a clean orthogonal basis
+        returns ``None`` for the mesh and keeps its generator.
+
+        Everything that can refuse (a non-finite placement, a baked mesh the
+        writer would refuse) is raised here, so a caller that computes every
+        child's placement before its first assignment stays atomic.
+
+        **Not carried:** a sheared child's own *children* (and a sheared empty,
+        which has no mesh to bake into). Their worlds are ``W_child @ local``
+        and the child's frame is now the unsheared one, so they follow it
+        rather than the geometry; re-expressing a whole subtree is a separate
+        piece of work.
+        """
+        target = self._relative_matrix(world, parent, by_uid)
+        t, r, s, shear = m3.decompose_with_shear(target)
+        trs = self._finite_place(child.name, (t, r, s))
+        if shear is None or len(child.mesh.positions) == 0:
+            return trs, None
+        with np.errstate(over="ignore", invalid="ignore"):
+            baked = bm.transformed(child.mesh, shear)
+        self._refuse_unstorable(child.name, baked)
+        return trs, baked
+
+    def _placement_edits(
+        self, child: Obj, placement: tuple[tuple[Any, Any, Any], bm.Mesh | None]
+    ) -> list[Any]:
+        """Apply a :meth:`_kept_placement` to *child* -> the steps to record
+        (its transform, and for a sheared one its baked mesh and the generator
+        freeze that goes with it -- geometry that is no longer what a generator
+        would build, :meth:`set_mesh`'s rule)."""
+        trs, baked = placement
+        edits: list[Any] = []
+        before_trs = tuple(np.array(v, copy=True) for v in child.trs())
+        if not all(np.array_equal(a, b) for a, b in zip(before_trs, trs, strict=True)):
+            child.translation, child.rotation, child.scale = trs
+            edits.append(TransformEdit(child.uid, before_trs, trs))
+        if baked is not None:
+            before_mesh, child.mesh = child.mesh, baked
+            edits.append(MeshEdit(child.uid, before_mesh, baked))
+            if child.generator is not None:
+                was = {"generator": child.generator, "params": child.params}
+                child.generator, child.params = None, {}
+                edits.append(ObjectPropsEdit(child.uid, was, {"generator": None, "params": {}}))
+        return edits
 
     @staticmethod
     def _finite_place(name: str, trs: tuple[Any, Any, Any]) -> tuple[Any, Any, Any]:
@@ -768,11 +899,19 @@ class ClayDoc:
         change ride in the same :class:`~..core.undo.CompoundEdit` -- one
         Ctrl+Z undoes both, or the parent would change on one press and the
         object would visibly jump on the next.
+
+        **Where the re-expressed placement is sheared** (a non-uniformly scaled
+        parent over a rotated child) the residual shear is baked into the
+        object's mesh and its generator freezes -- see :meth:`_kept_placement`.
         """
         obj = self.by_uid(uid)
         if parent is not None:
             self.by_uid(parent)  # KeyError names an unknown uid, the usual way
-            if parent == uid or parent in self.descendants(uid):
+            # The 2026-10-10 audit's clay-23: ``parent in descendants(uid)`` built
+            # a whole parent -> children map per call (Parent to Last did it once
+            # per selected object). "parent sits under uid" is exactly "uid is one
+            # of parent's ancestors", an O(depth) walk up that needs no map.
+            if parent == uid or uid in self.ancestors(parent):
                 raise el.OpError(
                     f"{obj.name!r} cannot be parented to itself or to one of its own "
                     "descendants."
@@ -793,12 +932,8 @@ class ClayDoc:
             # ``set_transform``'s own finiteness assertion exists to keep out.
             # The refusal now lives in ``_kept_place``, shared with the other
             # four doors that do this arithmetic (2026-10-07 clay-04).
-            t, r, s = self._kept_place(obj.name, world, parent)
-            before_trs = tuple(np.array(v, copy=True) for v in obj.trs())
-            after_trs = (t, r, s)
-            if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
-                obj.translation, obj.rotation, obj.scale = after_trs
-                edits.append(TransformEdit(uid, before_trs, after_trs))
+            placement = self._kept_placement(obj, world, parent)
+            edits.extend(self._placement_edits(obj, placement))
         obj.parent = parent
         edits.append(ObjectPropsEdit(uid, {"parent": old_parent}, {"parent": parent}))
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
@@ -853,7 +988,7 @@ class ClayDoc:
             raise el.OpError(f"{obj.name} has a zero scale, so its origin cannot move.") from error
 
         children = self.children_of(uid)
-        by_uid = self._uid_map()
+        by_uid = self._live()  # not a per-call ``_uid_map``: the 2026-10-10 audit's clay-23
         child_worlds_old = {c: self._world_in(c, by_uid) for c in children}
         try:
             world_new_inv = np.linalg.inv(world_new)
@@ -962,10 +1097,11 @@ class ClayDoc:
         # plain translation: the same arithmetic ``set_parent`` will run, asked
         # of every member now, before the first assignment.
         empty_inverse = np.linalg.inv(m3.compose(*empty_obj.trs()))
+        # Through ``_kept_placement`` (a root-relative matrix, the empty's
+        # inverse already folded in) so a member whose world matrix is sheared
+        # refuses here too when its baked mesh would be unstorable.
         for u in topmost:
-            self._finite_place(
-                self.by_uid(u).name, m3.decompose(empty_inverse @ self.world_matrix(u))
-            )
+            self._kept_placement(self.by_uid(u), empty_inverse @ self.world_matrix(u), None)
 
         mark = self.history.mark()
         try:
@@ -1150,49 +1286,106 @@ class ClayDoc:
         placement is kept, the same "reparenting keeps world placement"
         decision :meth:`set_parent` states, computed from each child's
         current world matrix *before* the object it is relative to is gone.
-        """
-        obj = self.by_uid(uid)
-        new_parent = obj.parent
-        children = self.children_of(uid)
-        by_uid = self._uid_map()
-        child_worlds = {c: self._world_in(c, by_uid) for c in children}
 
-        # Every child's new local TRS is computed, and checked finite, before the
-        # first assignment (the 2026-10-07 audit's clay-04): a refusal part-way
-        # through used to leave the earlier children already re-parented with
-        # no history step.
-        kept = {
-            c: self._kept_place(self.by_uid(c).name, child_worlds[c], new_parent) for c in children
-        }
+        A child whose kept placement is sheared has the shear baked into its
+        mesh (and its generator frozen), so it neither moves nor stores a
+        non-unit rotation -- :meth:`_kept_placement`. Its own children are not
+        carried, there.
+        """
+        self._remove_batch([uid], None)
+        return True
+
+    def remove_objects(self, uids: Iterable[int]) -> list[str]:
+        """Delete every one of *uids* as **one** step. -> the refusals, as
+        sentences, of the ones that could not go (their children cannot keep
+        their place); everything else is removed.
+
+        Equivalent to :meth:`remove_object` per uid, highest list index first,
+        folded into one step -- which is what Delete on a selection did, and
+        why it was quadratic (the 2026-10-10 audit's clay-32): each call
+        rebuilt the uid map, scanned for the children and popped from the
+        middle of the list, 1.5 s at 4,000 objects. One map and one parent ->
+        children map are kept up to date here instead, and the list is
+        rebuilt once at the end.
+        """
+        refusals: list[str] = []
+        self._remove_batch(uids, refusals)
+        return refusals
+
+    def _remove_batch(self, uids: Iterable[int], refusals: list[str] | None) -> None:
+        """The one body behind :meth:`remove_object` and :meth:`remove_objects`.
+        A refusal raises when *refusals* is ``None`` (the single-object door,
+        which has nothing else to be atomic about) and is collected otherwise.
+        """
+        wanted = {int(u) for u in uids}
+        by_uid = self._uid_map()
+        for uid in wanted:
+            if uid not in by_uid:
+                raise KeyError(f"no object with uid {uid}")
+        if not wanted:
+            return
+        pos: dict[int, int] = {}
+        kids: dict[int | None, dict[int, None]] = {}
+        for i, o in enumerate(self.objects):
+            pos.setdefault(o.uid, i)
+            kids.setdefault(o.parent, {})[o.uid] = None
+        # Highest index first: each ``ObjectRemoveEdit`` then names the index
+        # the object actually sat at when it was popped, and undo (reversed)
+        # re-inserts ascending, the only order in which they are all correct.
+        order = sorted(wanted, key=pos.__getitem__, reverse=True)
 
         edits: list[Any] = []
-        for c in children:
-            child = self.by_uid(c)
-            t, r, s = kept[c]
-            before = {"parent": child.parent}
-            child.parent = new_parent
-            edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
-            before_trs = tuple(np.array(v, copy=True) for v in child.trs())
-            after_trs = (t, r, s)
-            if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
-                child.translation, child.rotation, child.scale = after_trs
-                edits.append(TransformEdit(c, before_trs, after_trs))
+        gone: list[int] = []
+        for uid in order:
+            obj = by_uid[uid]
+            new_parent = obj.parent
+            children = sorted(kids.get(uid, ()), key=pos.__getitem__)
+            # Every child's new placement is computed, and checked finite,
+            # before the first assignment (the 2026-10-07 audit's clay-04): a
+            # refusal part-way through used to leave the earlier children
+            # already re-parented with no history step.
+            try:
+                kept = {
+                    c: self._kept_placement(
+                        by_uid[c], self._world_in(c, by_uid), new_parent, by_uid
+                    )
+                    for c in children
+                }
+            except el.OpError as error:
+                if refusals is None:
+                    raise
+                refusals.append(str(error))
+                continue
+            for c in children:
+                child = by_uid[c]
+                child.parent = new_parent
+                edits.append(ObjectPropsEdit(c, {"parent": uid}, {"parent": new_parent}))
+                edits.extend(self._placement_edits(child, kept[c]))
+            kids.pop(uid, None)
+            siblings = kids.get(new_parent)
+            if siblings is not None:
+                siblings.pop(uid, None)
+            if children:
+                kids.setdefault(new_parent, {}).update(dict.fromkeys(children))
+            del by_uid[uid]
+            gone.append(uid)
+            edits.append(ObjectRemoveEdit(pos[uid], obj))
 
-        # Reparenting above touches only ``parent``/TRS fields, never list
-        # order, so this is *uid*'s original position in ``self.objects``.
-        index = self.index_of(uid)
-        obj = self.objects.pop(index)
-        self.selection.discard(uid)
-        self.element_sel.pop(uid, None)
-        # A stamp naming an object that no longer exists is worse than a
-        # missing one: undo can bring the uid back with a fresh object at some
-        # later address, and an old stamp entry would otherwise linger keyed to
-        # a mesh that object never had.
-        self._mesh_stamps.pop(uid, None)
-        edits.append(ObjectRemoveEdit(index, obj))
+        if not gone:
+            return
+        # In place: nothing else may be holding a stale list.
+        doomed = set(gone)
+        self.objects[:] = [o for o in self.objects if o.uid not in doomed]
+        self.selection.difference_update(doomed)
+        for uid in gone:
+            self.element_sel.pop(uid, None)
+            # A stamp naming an object that no longer exists is worse than a
+            # missing one: undo can bring the uid back with a fresh object at
+            # some later address, and an old stamp entry would otherwise linger
+            # keyed to a mesh that object never had.
+            self._mesh_stamps.pop(uid, None)
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         self.touch()
-        return True
 
     def move_object(self, uid: int, index: int) -> bool:
         """Put an object at *index* in the list, and record the step.
@@ -1380,7 +1573,7 @@ class ClayDoc:
             # ...and, the 2026-10-07 audit's clay-04, that the result is finite:
             # a denormal ancestor inverts without raising and decomposes to NaN.
             for c in self.children_of(uid):
-                self._kept_place(self.by_uid(c).name, self.world_matrix(c), new_parent)
+                self._kept_placement(self.by_uid(c), self.world_matrix(c), new_parent)
         before, obj.mesh = obj.mesh, mesh
         edits: list[Any] = [MeshEdit(target_uid, before, mesh)]
         props_before: dict[str, Any] = {}
@@ -1407,17 +1600,11 @@ class ClayDoc:
             new_parent = self.by_uid(uid).parent
             for c in self.children_of(uid):
                 child = self.by_uid(c)
-                child_world = self.world_matrix(c)
-                t, r, s = self._kept_place(child.name, child_world, new_parent)
+                placement = self._kept_placement(child, self.world_matrix(c), new_parent)
                 before = {"parent": child.parent}
                 child.parent = new_parent
                 edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
-                before_trs = tuple(np.array(v, copy=True) for v in child.trs())
-                after_trs = (t, r, s)
-                moved = zip(before_trs, after_trs, strict=True)
-                if not all(np.array_equal(a, b) for a, b in moved):
-                    child.translation, child.rotation, child.scale = after_trs
-                    edits.append(TransformEdit(c, before_trs, after_trs))
+                edits.extend(self._placement_edits(child, placement))
             index = self.index_of(uid)
             gone = self.objects.pop(index)
             self.selection.discard(uid)
@@ -1723,19 +1910,15 @@ class ClayDoc:
         # Computed, and checked finite, before the first assignment (the
         # 2026-10-07 audit's clay-04).
         kept = {
-            c: self._kept_place(self.by_uid(c).name, child_worlds[c], new_parent) for c in children
+            c: self._kept_placement(self.by_uid(c), child_worlds[c], new_parent)
+            for c in children
         }
         for c in children:
             child = self.by_uid(c)
-            t, r, s = kept[c]
             before = {"parent": child.parent}
             child.parent = new_parent
             edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
-            before_trs = tuple(np.array(v, copy=True) for v in child.trs())
-            after_trs = (t, r, s)
-            if not all(np.array_equal(a, b) for a, b in zip(before_trs, after_trs, strict=True)):
-                child.translation, child.rotation, child.scale = after_trs
-                edits.append(TransformEdit(c, before_trs, after_trs))
+            edits.extend(self._placement_edits(child, kept[c]))
         for i, piece in enumerate(new_objs):
             self.objects.insert(index + i, piece)
             edits.append(ObjectAddEdit(index + i, piece))
@@ -1777,11 +1960,17 @@ class ClayDoc:
         """The done-count :meth:`step_history` would need to reach *serial*,
         or ``None`` if it is reachable from neither branch -- evicted out of
         the done list, or discarded from the redo list by a push that
-        diverged past it. ``0`` (no edit ever has this serial: they start at
-        1) always resolves to "everything undone", which is always reachable
-        regardless of eviction.
+        diverged past it. The undo stack's :attr:`~..core.undo.UndoStack.floor`
+        (``0``, which no edit ever has as its serial, until something is
+        evicted; then the last evicted step's) resolves to "everything undone".
         """
-        if serial == 0:
+        # The evicted floor (0 while nothing has been evicted) is the position
+        # under the oldest step still held, so undoing everything reaches it.
+        # Serial 0 used to be that unconditionally -- the 2026-10-10 audit's
+        # clay-06: a checkpoint named on an empty history, after the stack had
+        # evicted past it, "restored" to the bottom of what was left (16 of 80
+        # objects) and reported success.
+        if serial == self.history.floor:
             return 0
         return self.history.position_of(serial)
 

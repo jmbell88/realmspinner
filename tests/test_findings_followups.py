@@ -4,11 +4,11 @@ struck: the sentences the code contradicted, and the tables that had drifted.
 
 from __future__ import annotations
 
-import inspect
 import io
 import re
 from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
@@ -50,14 +50,47 @@ def test_play_refuses_a_stale_buffer(monkeypatch):
     assert sirens_mode.play(ctx, tab) is True
 
 
-def test_xray_picks_through_the_surface():
+def test_xray_picks_through_the_surface(monkeypatch):
     """Three places say a click in X-ray picks through the surface; the pick
-    always passed the surface depth."""
+    always passed the surface depth.
+
+    Behaviour, not source text: the 2026-10-10 audit's clay-01 changed the
+    expression that makes the depth (``hit.t`` became an eye distance), and a
+    pin on the spelling went stale while the claim held. With ``xray`` set the
+    pick hands the per-object projection **no** surface depth; without it, the
+    eye distance of the hit.
+    """
+    from types import SimpleNamespace
+
+    from realmspinner.kernels.mesh import pick as bp
     from realmspinner.studio.modes.clay.ui import _view_pick
 
-    source = inspect.getsource(_view_pick)
-    assert 'xray = getattr(self, "xray", False)' in source
-    assert "depth = None if hit is None or xray else hit.t" in source
+    seen: list[object] = []
+    monkeypatch.setattr(
+        bp, "nearest_vertex", lambda screen, local, surface_depth=None: seen.append(surface_depth)
+    )
+    surface = SimpleNamespace(uid=1, face=0, t=7.0)
+
+    def make(xray: bool) -> Any:
+        eye_calls: list[object] = []
+        view = SimpleNamespace(
+            xray=xray,
+            _uid_index=lambda doc: {},
+            screen_of=lambda doc, uid, index=None: object(),
+            _eye_distance=lambda hit, local: eye_calls.append(hit) or 42.0,
+        )
+        view.eye_calls = eye_calls
+        return view
+
+    doc = SimpleNamespace(
+        element_mode="vertex", objects=[SimpleNamespace(uid=1, visible=True, mesh=None)]
+    )
+    for xray, want in ((True, None), (False, 42.0)):
+        seen.clear()
+        view = make(xray)
+        _view_pick.PickOps.pick_element(view, doc, (10.0, 10.0), hit=surface)
+        assert seen == [want], f"xray={xray} passed surface depth {seen}"
+        assert bool(view.eye_calls) is (not xray)
 
 
 def test_the_shortcut_sheet_lists_the_sirens_clipboard():

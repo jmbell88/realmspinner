@@ -24,14 +24,14 @@ would be worse than saying so.
 
 Fifteen, in two groups. The primitives: box, plane, grid, cylinder, cone, UV sphere, icosphere,
 torus and capsule. The game shapes, for blocking a level out: wedge, ramp, rounded box, stairs, wall
-and doorway. Place one and its parameters — radius, height, segments — stay live in the properties
-panel, so a cylinder can become a thinner cylinder without being rebuilt by hand. Anything else is
+and doorway. Place one and its parameters — radius, height, segments — stay live in the Inspector's Shape settings
+card, so a cylinder can become a thinner cylinder without being rebuilt by hand. Anything else is
 built from these: a column is a cylinder. Clay no longer builds lathes, sweeps, tubes, arches, columns
 or pyramids. The rail down the left edge of the viewport places the shapes: a few as one-click buttons,
 and a **+** that lists all fifteen by name.
 
 **Until it freezes.** The first edit that changes topology — an extrude, an inset, a merge of faces —
-discards those parameters permanently, and the panel switches to a plain vertex and face count. It
+discards those parameters permanently, and the Shape settings card switches to a plain vertex and face count. It
 has to: once you have extruded a face, there is no "regenerate this cylinder" that could keep your
 extrusion.
 

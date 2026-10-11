@@ -71,15 +71,27 @@ def _event(kind: int, **kwargs: Any) -> Any:
     return pygame.event.Event(kind, **kwargs)
 
 
-def _count_index_of(monkeypatch) -> dict[str, int]:
+def _count_index_of(monkeypatch, doc: bd.ClayDoc) -> dict[str, int]:
+    """Count the **linear scans** of ``doc.objects`` that uid lookups cost.
+
+    The 2026-10-10 audit's clay-23 made ``index_of`` an indexed lookup, so a
+    *call* is O(1) and a marquee release legitimately makes one per object it
+    catches (``set_element_sel`` -> ``by_uid``). What the claim forbids is the
+    scan, and the only scan left is the index rebuild, ``_index_positions``;
+    counting calls instead failed on the first caught object (finding clay-71's
+    quadratic is a rebuild per object, not a lookup per object). The index is
+    warmed here so a rebuild during a measured call means a lookup went stale.
+    """
     scans = {"n": 0}
-    real = bd.ClayDoc.index_of
+    real = bd.ClayDoc._index_positions
 
-    def counting(self: Any, uid: int) -> int:
+    def counting(self: Any) -> Any:
         scans["n"] += 1
-        return real(self, uid)
+        return real(self)
 
-    monkeypatch.setattr(bd.ClayDoc, "index_of", counting)
+    monkeypatch.setattr(bd.ClayDoc, "_index_positions", counting)
+    doc.index_of(doc.objects[-1].uid)  # warm: the one rebuild a document is owed
+    scans["n"] = 0
     return scans  # the caller zeroes ``n`` before each call it measures
 
 
@@ -226,7 +238,7 @@ def test_pick_and_a_drag_motion_over_four_thousand_objects_do_not_scan_the_docum
     doc = _big_doc()
     view._rect = RECT
     view.camera.aspect = RECT[2] / RECT[3]
-    scans = _count_index_of(monkeypatch)
+    scans = _count_index_of(monkeypatch, doc)
 
     def measured(label: str, call: Any) -> None:
         scans["n"] = 0
@@ -252,6 +264,14 @@ def test_pick_and_a_drag_motion_over_four_thousand_objects_do_not_scan_the_docum
 
     doc.select([o.uid for o in doc.objects])
     view.frame_selection(doc)  # the pivot has to be in front of the camera
+    # Framed on all 4,096, a sweep over the whole view catches a crowd, and that
+    # is the case the claim is about: one lookup per caught object, no scan.
+    doc.set_element_mode("vertex")
+    measured("a marquee release over every object", sweep)
+    assert len(doc.element_sel) > 100, "the sweep must catch a crowd to prove anything"
+    doc.clear_element_sel()
+    doc.set_element_mode("object")
+    doc.select([o.uid for o in doc.objects])
     view._last_mouse = (100.0, 75.0)
     measured("world_bounds of the selection", lambda: view.world_bounds(doc, selected_only=True))
     measured("the press of a drag over every object", lambda: view.begin_keyboard_drag(doc, "move"))
@@ -280,7 +300,7 @@ def test_the_element_overlays_over_four_thousand_objects_do_not_scan_the_documen
     monkeypatch.setattr(_view_overlay, "_SelOverlay", _Stub)
     doc = _big_doc()
     doc.set_element_mode("vertex")
-    scans = _count_index_of(monkeypatch)
+    scans = _count_index_of(monkeypatch, doc)
     view._element_overlays(doc)
     assert scans["n"] == 0, f"_element_overlays scanned the document {scans['n']} times"
     doc.set_element_mode("object")

@@ -87,7 +87,10 @@ def normalise_handles(handles: Any, count: int, dim: int) -> list[list[list[floa
         rows = [
             [[float(v) for v in side] for side in (row[0], row[1])] for row in (handles or [])
         ]
-    except (TypeError, ValueError, IndexError, OverflowError):
+    except (TypeError, ValueError, IndexError, OverflowError, KeyError, AttributeError):
+        # ``KeyError``: the 2026-10-10 audit's clay-41 -- a dict row indexes
+        # ``row[0]`` by key and raised a bare ``KeyError`` out of a function
+        # documented to answer ``[]`` for anything that does not fit.
         return []
     if len(rows) != count or not rows:
         return []

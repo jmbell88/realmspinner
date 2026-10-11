@@ -17,15 +17,12 @@ addressed once, not once per triangle that touches it) and its export all
 assume a connected mesh, so every geometry is welded before it becomes an
 ``Obj``.
 
-**Smoothing tries the geometric rule first.** ``trimesh`` computes a vertex
-normal for every welded vertex (the angle-weighted average of its triangles'
-face normals) whether or not the source file carried one of its own -- STL has
-none, PLY sometimes does -- so :mod:`.glbimport`'s own test (does every corner
-of a face agree with the face's own normal to within ``FLAT_COSINE``) is
-*always* reachable here, unlike glTF's optional ``NORMAL`` attribute. It still
-has a fallback, :func:`.shading.auto_smooth`, for the one case trimesh itself
-cannot answer: a mesh with zero faces, or one degenerate enough that a normal
-comes back non-finite.
+**Smoothing is the welded mesh's own adjacent-face angle rule.** The welded
+geometry goes through :func:`.shading.auto_smooth`, the per-edge rule every
+Clay insertion door uses. It does not compare a face with trimesh's averaged
+vertex normals: those are the angle-weighted mean of the triangles around a
+vertex, so a face touching a hard edge always agrees with them to within
+``FLAT_COSINE`` and a box imported smooth (the 2026-10-10 audit's clay-16).
 """
 
 from __future__ import annotations
@@ -39,7 +36,7 @@ from . import mesh as bm
 from . import objimport, shading, topo
 from .document import ClayDoc, Obj, new_uid
 from .elements import OpError
-from .glbimport import FLAT_COSINE, MAX_OBJECTS, MAX_TRIANGLES, _unit
+from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
 from .objimport import axis_matrix
 
 __all__ = ["SUPPORTED_SUFFIXES", "import_file", "import_file_report", "mesh_file_to_claydoc"]
@@ -49,28 +46,6 @@ __all__ = ["SUPPORTED_SUFFIXES", "import_file", "import_file_report", "mesh_file
 SUPPORTED_SUFFIXES = (".glb", ".obj", ".stl", ".ply")
 
 _TRIMESH_TYPE = {".stl": "stl", ".ply": "ply"}
-
-
-def _smooth_from_vertex_normals(
-    positions: np.ndarray, tris: np.ndarray, vertex_normals: np.ndarray
-) -> np.ndarray:
-    """:func:`.glbimport._smooth_flags`'s exact test, keyed by welded vertex
-    rather than by a primitive's raw (pre-merge) normal stream.
-
-    After :meth:`trimesh.Trimesh.merge_vertices`, one normal exists per vertex
-    rather than per corner, so every corner of a triangle that shares a vertex
-    reads the same supplied normal -- which is what makes this the same
-    question glbimport asks of a glTF primitive's ``NORMAL`` attribute, over a
-    differently-shaped input.
-    """
-    n_faces = len(tris)
-    if n_faces == 0:
-        return np.zeros(0, dtype=bool)
-    corners = positions[tris].astype("f8")
-    face = _unit(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]))
-    supplied = _unit(vertex_normals[tris].reshape(-1, 3)).reshape(-1, 3, 3)
-    agreement = np.einsum("ijk,ik->ij", supplied, face).min(axis=1)
-    return agreement <= FLAT_COSINE
 
 
 def _geometry_mesh(geom: object, material: int = 0) -> bm.Mesh | None:
@@ -102,19 +77,14 @@ def _geometry_mesh(geom: object, material: int = 0) -> bm.Mesh | None:
     starts = topo.starts_from_counts(np.full(len(tris), 3, dtype="i8"))
     mat = np.full(len(tris), int(material), dtype="i4")
 
-    smooth = None
-    try:
-        normals = np.asarray(geom.vertex_normals, dtype="f8")
-        if normals.shape == positions.shape and np.all(np.isfinite(normals)):
-            smooth = _smooth_from_vertex_normals(positions.astype("f8"), tris, normals)
-    except Exception:  # noqa: BLE001 - trimesh's own normal computation can raise
-        smooth = None
-
-    if smooth is not None:
-        return topo.rebuild(positions, loops, starts, mat, smooth, uv=None)
-    # Not reachable (an empty or degenerate geometry never gets a usable
-    # normal): fall back to the same rule every primitive generator's flat
-    # default goes through before it is asked to look smooth.
+    # The 2026-10-10 audit's clay-16: smoothing was decided by comparing each
+    # face normal with trimesh's *welded, angle-averaged* vertex normal, and a
+    # face touching a hard edge always sits within the cosine of that average
+    # -- a unit box as STL/PLY imported ``smooth == [True] * 12`` and a
+    # hard-surface part opened as a rounded blob, the opposite of what OBJ and
+    # GLB give. The welded mesh goes through the same per-edge adjacent-face
+    # angle rule every other Clay insertion door uses (a box stays flat, a
+    # sphere goes smooth).
     flat = topo.rebuild(positions, loops, starts, mat, np.zeros(len(tris), dtype=bool), uv=None)
     return shading.auto_smooth(flat)
 

@@ -3,7 +3,7 @@ that place, move, reshape, paint or remove a whole object -- ``clay_scene``,
 ``clay_add_primitive``, ``clay_add_mesh``, ``clay_transform``,
 ``clay_set_params``, ``clay_material``, ``clay_delete`` and ``clay_rename``.
 
-Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``dev/RESTRUCTURE.md``).
+Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure.
 The brief that started this split expected these handlers to sit under that
 module's old "# --- the tools" banner; reading the file end to end found that
 banner actually opens the *schema* builders (``tools()``/``instructions()``,
@@ -60,6 +60,7 @@ from .validate import (
     _validate_unit,
     _validate_vec3,
     _whole_number,
+    _wire_params,
     fail,
 )
 
@@ -366,7 +367,7 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
     ``faces``/``uv``.
 
     Order, the same template :func:`_h_add_primitive` sets: ``positions`` and
-    ``faces`` well-formed and within ``agent_clay_schema.MAX_MESH_VERTICES``/
+    ``faces`` well-formed and within ``agent/schema.MAX_MESH_VERTICES``/
     ``MAX_MESH_FACES``; ``uv`` (if given) nested exactly like ``faces``;
     the three TRS vectors well-formed; the mesh actually built and run
     through ``mesh.validate`` as a backstop -- *then* the tab is resolved
@@ -400,11 +401,15 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
             field="positions",
         )
     positions: list[list[float]] = []
-    for row in positions_arg:
+    for row_index, row in enumerate(positions_arg):
         # Bounded, not just finite: the 2026-10-07 audit's clay-01/clay-04 --
         # ``1e300`` is finite as a float64 and ``inf`` as the float32 the mesh
-        # stores; see ``PARAM_MAX``.
-        vec, failure = _validate_vec3(row, "positions", max_abs=PARAM_MAX)
+        # stores; see ``PARAM_MAX``. Labelled with its row: the 2026-10-10
+        # audit's clay-67 found "positions must be an array of 3 numbers." with
+        # no index, while every face fault names its face and corner.
+        vec, failure = _validate_vec3(
+            row, "positions", max_abs=PARAM_MAX, label=f"positions[{row_index}]"
+        )
         if failure:
             return failure
         positions.append(vec)
@@ -602,7 +607,12 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
     rotation_deg = args.get("rotation")
     scale = args.get("scale")
     if translation is None and rotation_deg is None and scale is None:
-        return fail("give at least one of translation, rotation or scale.")
+        # ``field`` so ``recovery`` derives: the 2026-10-10 audit's clay-66 found
+        # this refusal with neither, so a client branching on
+        # ``recovery == "fix_arguments"`` had nothing to branch on.
+        return fail(
+            "give at least one of translation, rotation or scale.", field="translation"
+        )
     # Every vector given validated before the single mutation below -- the
     # incident this closes: an unvalidated two-element ``translation`` once
     # reached ``set_transform`` and committed, and every later ``clay_scene``
@@ -851,7 +861,12 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
         # segments=2 learns here that clamp_params raised it to the
         # generator's own floor.
         rows.append(
-            {"uid": obj.uid, "generator": obj.generator, "params": merged, "changed": changed}
+            {
+                "uid": obj.uid,
+                "generator": obj.generator,
+                "params": _wire_params(merged),
+                "changed": changed,
+            }
         )
     if mark is not None:
         doc.history.collapse_since(mark)

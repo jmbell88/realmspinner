@@ -254,17 +254,9 @@ def _region_offsets(
     chosen = np.zeros(n_faces, dtype=bool)
     chosen[faces] = True
 
-    interior = np.flatnonzero(chosen[a.corner_face] & (a.twin >= 0))
-    other = a.corner_face[a.twin[interior]].astype("i8")
-    mask = chosen[other]
-    fa = a.corner_face[interior[mask]].astype("i8")
-    fb = other[mask]
-
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-
-    graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
-    labels = connected_components(graph, directed=False)[1]
+    # Shared edge ids, not ``twin``: the 2026-10-10 audit's clay-10 -- see
+    # ``selected_face_labels`` for the flipped neighbour it used to miss.
+    labels = ops_dissolve.selected_face_labels(a, chosen)
     region_of = labels[faces]
     region_id = _unique_inverse(region_of)
     n_regions = int(region_id.max()) + 1
@@ -1135,6 +1127,17 @@ def weld(mesh: Mesh, sel: ElementSel, *, eps: float = 1e-4) -> tuple[Mesh, Eleme
 #: 180,600 pairs (300x300) took 0.30s, 320,800 pairs (400x400) took 0.54s --
 #: so this ceiling sits well below the point where a single Collapse press
 #: stops being well under a second.
+#:
+#: **The shape measured is part of the figure** (the 2026-10-10 audit's
+#: clay-35). The numbers above were a shared-vertex grid; on 62,500 *disjoint*
+#: quads (250,000 pairs and 250,000 distinct vertices, the dearest shape for
+#: the union-find) the ceiling took 1.15 s, because `collapse` still built each
+#: selected face's pairs with its own `np.stack`/`np.roll` -- 0.73 s of this
+#: machine's re-measure, against 0.71 s on the grid. The pairs now come from
+#: one gather and the same 250,000 pairs measure 0.31 s on disjoint quads and
+#: 0.28 s on the grid (0.14 s at 125,000, 0.07 s at 62,500), so the constant
+#: stays where it was and the cost it bounds is the union-find's, not the
+#: pair builder's.
 MAX_COLLAPSED_PAIRS = 250_000
 
 
@@ -1192,11 +1195,17 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
             f"face pairs, past the {MAX_COLLAPSED_PAIRS:,} Collapse can walk "
             "without stalling. Collapse a smaller selection."
         )
-    groups: list[np.ndarray] = [sel.edges.astype("i8")]
-    for f in faces.tolist():
-        loop = mesh.loops[starts[f] : starts[f + 1]].astype("i8")
-        groups.append(np.stack([loop, np.roll(loop, -1)], axis=1))
-    pairs = np.concatenate(groups)
+    # The 2026-10-10 audit's clay-35: each selected face used to get its own
+    # `np.stack`/`np.roll` pair here, ~10 us of numpy overhead a face that
+    # `n_pairs` above never counted, so the ceiling's 1.15 s on disjoint quads
+    # was mostly this loop. The same pairs, in the same order, from one gather
+    # of every selected face's corners and the wrap-within-a-face next corner.
+    corners = topo.corner_spans(mesh.starts, faces)
+    counts = starts[faces + 1] - starts[faces]
+    _, nxt, _ = topo.flat_next(counts)
+    loop = mesh.loops[corners].astype("i8")
+    face_pairs = np.stack([loop, loop[nxt]], axis=1)
+    pairs = np.concatenate([sel.edges.astype("i8").reshape(-1, 2), face_pairs])
     for a_v, b_v in pairs.tolist():
         ra, rb = _find(parent, int(a_v)), _find(parent, int(b_v))
         if ra != rb:

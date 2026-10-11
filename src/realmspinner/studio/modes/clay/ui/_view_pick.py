@@ -194,6 +194,31 @@ class PickOps:
         self._screens[uid] = (key, screen, obj.mesh)
         return screen
 
+    def _eye_distance(self: ClayView, hit: Hit, local: tuple[float, float]) -> float:
+        """A surface hit's distance **from the eye**, the quantity ``Screen.depth`` is.
+
+        The 2026-10-10 audit found orthographic vertex and edge picking blind to
+        occlusion: ``screen_ray`` starts an orthographic ray ``camera.far`` behind
+        the eye, so ``Hit.t`` is that ~100 m plus the real distance, while
+        ``kernels.mesh.pick.project`` measures ``depth`` from the eye. Compared as
+        they were, every vertex passed ``depth <= t`` and a click in Points or
+        Edges mode selected the far side of a closed solid. The hit point is
+        rebuilt from the same ray and measured from the eye here.
+
+        A perspective ray starts *at* the eye, where ``t`` already is the eye
+        distance; it is returned untouched so that projection's behaviour (and
+        its ulps) cannot move.
+        """
+        if not getattr(self.camera, "orthographic", False):
+            return hit.t
+        # Local, as the module's other numpy users are: the module-scope imports
+        # of the mixins are pinned (test_audit_2026_10_03_lows_clay2).
+        import numpy as np
+
+        origin, direction = self._ray(local)
+        point = np.asarray(origin, dtype="f8") + np.asarray(direction, dtype="f8") * hit.t
+        return float(np.linalg.norm(point - np.asarray(self.camera.position, dtype="f8")))
+
     def pick_element(
         self: ClayView, doc: Any, local: tuple[float, float], hit: Any = None
     ) -> tuple[int, int] | None:
@@ -223,7 +248,7 @@ class PickOps:
         # X-ray is see-through for the pick as well as the draw: with no
         # surface depth the nearest element wins wherever it sits, which is
         # what ``clay_state.xray`` and the Clay chapter say it does.
-        depth = None if hit is None or xray else hit.t
+        depth = None if hit is None or xray else self._eye_distance(hit, local)
         origin, direction = (None, None)
         if mode == "face" and xray:
             # Under X-ray, ``hit`` is only the *frontmost* object's ray hit --

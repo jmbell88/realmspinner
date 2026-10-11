@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from modes.poser._land import land_asset
 from realmspinner import doctor
 from realmspinner.doctor import Check
 from realmspinner.kernels.geom3d import math3d as m3
@@ -490,10 +491,11 @@ def test_poser_does_not_decode_the_rig_on_the_frame_thread(tmp_path):
     from ``_poser_viewport``'s draw on *every* frame Poser is open, and used
     to call ``viewer.load_model`` -- a full glTF parse, texture decode and GPU
     upload -- directly, on whatever thread called them. That is fine for the
-    genuinely click-driven case (``open_asset``'s own proceed, which still
-    binds synchronously -- see the test above and below this one) but not for
-    the *automatic* one: a queued re-rig landing (``_land_rerig``) while the
-    user is doing nothing in particular clears the viewer and leaves the next
+    genuinely click-driven case (``open_asset``'s own proceed, which parsed
+    synchronously until the 2026-10-10 audit's create-34 moved it onto the
+    same ``ASSET_LOAD_KEY`` task -- see ``_land.land_asset``) but not for the
+    *automatic* one: a queued re-rig landing (``_land_rerig``) while the user
+    is doing nothing in particular clears the viewer and leaves the next
     frame's ``sync_asset`` to rebind it, with no click behind that frame at
     all.
 
@@ -535,6 +537,7 @@ def test_open_asset_binds_via_enter_pose_mode_not_authoring(svc):
     job = {"id": job_id, "name": "Test Prop"}
 
     poser_mode.open_asset(ctx, job)
+    land_asset(ctx)
     state = poser_mode.ensure(ctx)
     assert state.job_id == job_id
     assert state.asset_label == "Test Prop"
@@ -557,6 +560,7 @@ def test_sync_asset_reports_a_skeletonless_glb_without_retrying_every_frame(svc)
     viewer.skinned = False
 
     poser_mode.open_asset(ctx, {"id": job_id})
+    land_asset(ctx)
     state = poser_mode.ensure(ctx)
 
     assert poser_mode.sync_asset(ctx, viewer) is False
@@ -634,9 +638,10 @@ def test_close_asset_resets_every_asset_field(svc, monkeypatch):
     ctx = FakeCtx(svc)
     ctx.poser_viewer = viewer = FakeViewer()
     poser_mode.open_asset(ctx, {"id": job_id, "name": "Prop"})
+    land_asset(ctx)
     state = poser_mode.ensure(ctx)
     poser_mode.sync_asset(ctx, viewer)
-    state.asset_poses = [{"id": "p1", "name": "idle"}]
+    state.asset_poses =[{"id": "p1", "name": "idle"}]
 
     poser_mode.close_asset(ctx)
     assert state.job_id == ""
@@ -726,6 +731,7 @@ def _opened_asset(svc, monkeypatch, **rig_meta):
     ctx = FakeCtx(svc)
     ctx.poser_viewer = viewer = FakeViewer()
     poser_mode.open_asset(ctx, {"id": job_id, "name": "Prop"})
+    land_asset(ctx)
     poser_mode.sync_asset(ctx, viewer)
     return ctx, viewer, job_id
 

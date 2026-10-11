@@ -142,6 +142,10 @@ def outputs_why(doc: Any, saving: bool, gesture: bool = False) -> str:
         return "Saving..."
     if gesture:
         return GESTURE_WHY
+    if not doc.objects:
+        # The 2026-10-10 audit's clay-46: a fresh "New model" tab fell into the
+        # hidden sentence below and told the user about objects that do not exist.
+        return "Nothing to send yet -- add a shape first."
     if not any(obj.visible for obj in doc.objects):
         return "Nothing visible to send -- every object is hidden."
     return ""

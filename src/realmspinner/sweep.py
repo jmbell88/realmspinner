@@ -199,14 +199,18 @@ async def sweep(
 
 def print_table(rows: list[dict[str, Any]], audit_resolution: int) -> None:
     print()
-    # Not "lower is better" (P120). Over the 84-verdict review, AUC(worst ->
-    # reject) is 0.115: the *accepted* meshes had more measured holes than the
-    # median discarded one, because the dominant failure is a solid slab and a
-    # slab has no holes. The ranking below is still the right question for a
-    # *band* -- every row here is the same subject at the same seed, so a band
-    # that opens holes in it genuinely is the worse band -- but the header used
-    # to state the inverted rule as a general one, and this table is where
-    # somebody would read it.
+    # Not "lower is better" as a general rule: ``hole_worst`` is
+    # corpus-dependent. On the 2026-08-07 review corpus (the ``auto`` matte)
+    # AUC(worst -> reject) was 0.115 -- backwards, because the dominant failure
+    # there was a solid slab and a slab has no holes. The 2026-08-09 re-baseline
+    # (birefnet matte, n=41, one subject and one prompt) read the right way
+    # round at 0.756, and nothing in ``meshaudit`` had changed -- ``bg_removal``
+    # had. So a figure quoted without its corpus means nothing, and neither
+    # reading licenses a general rule. The ranking below is still the right
+    # question for a *band* -- every row here is the same subject at the same
+    # seed, so a band that opens holes in it genuinely is the worse band -- but
+    # the header used to state the inverted rule as a general one, and this
+    # table is where somebody would read it.
     print(f"band sweep (hole_fraction @ {audit_resolution})")
     print("lower is better for one subject at one seed; it is not a quality score --")
     # The pointer used to name LEFTOVERS.md, deleted 2026-08-10, and after that

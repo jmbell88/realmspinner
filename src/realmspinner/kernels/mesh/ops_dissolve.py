@@ -334,19 +334,43 @@ def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     chosen = np.zeros(n_faces, dtype=bool)
     chosen[sel.faces] = True
 
-    interior = np.flatnonzero(chosen[a.corner_face] & (a.twin >= 0))
-    other = a.corner_face[a.twin[interior]].astype("i8")
-    mask = chosen[other]
-    fa = a.corner_face[interior[mask]].astype("i8")
-    fb = other[mask]
+    labels = selected_face_labels(a, chosen)
+
+    # Every edge joined two ``chosen`` faces, so the selection itself is the
+    # exact set worth grouping -- see ``_group_by_label``.
+    groups = _group_by_label(labels, np.flatnonzero(chosen))
+    return merge_groups(mesh, groups)
+
+
+def selected_face_labels(a, chosen: np.ndarray) -> np.ndarray:
+    """Connected-component label per face, joining *chosen* faces across a shared edge.
+
+    The 2026-10-10 audit's clay-10: the graph was built from ``a.twin >= 0``,
+    and ``twin`` is -1 on a consistently-flipped pair (an import's inside-out
+    face), so two selected faces over one edge but wound against each other were
+    "unconnected" here while :func:`~.topo.region_boundary_corners` -- which
+    reads shared edge ids -- counted the edge as theirs. Merge Faces then said
+    "needs at least two of them touching" about a touching pair, and extrude's
+    ``offset`` (and a region inset's ``depth``) pushed the halves of one block
+    along opposite directions. An ordinary two-face edge is shared
+    whichever way the faces are wound, so it is read from ``corner_edge`` and
+    ``edge_uses`` the way ``region_boundary_corners`` does. A non-manifold edge
+    (three or more faces) still joins nothing, as before: with a face across it
+    that may not be selected, it is the region's border.
+    """
+    n_faces = len(chosen)
+    corners = np.flatnonzero(chosen[a.corner_face] & (a.edge_uses[a.corner_edge] == 2))
+    edges = a.corner_edge[corners].astype("i8")
+    order = np.argsort(edges, kind="stable")
+    corners, edges = corners[order], edges[order]
+    # A two-use edge has exactly two corners, so when both faces are chosen they
+    # sit side by side in the sorted list.
+    paired = edges[1:] == edges[:-1]
+    fa = a.corner_face[corners[:-1][paired]].astype("i8")
+    fb = a.corner_face[corners[1:][paired]].astype("i8")
 
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
 
     graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
-    labels = connected_components(graph, directed=False)[1]
-
-    # Every edge above joins two ``chosen`` faces, so the selection itself is
-    # the exact set worth grouping -- see ``_group_by_label``.
-    groups = _group_by_label(labels, np.flatnonzero(chosen))
-    return merge_groups(mesh, groups)
+    return connected_components(graph, directed=False)[1]

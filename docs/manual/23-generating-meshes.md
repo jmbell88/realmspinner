@@ -185,7 +185,9 @@ families of entry, each drawn only when this machine can actually run it:
   is refused in the plan footer, naming the **Triangles** field, before the cutout check.
 
 With neither Blender nor `gltfpack` on this machine, the pane draws no **Budget** row at all, not
-a combo with one entry, and the mesh ships as Raw; `realmspinner doctor` says why.
+a combo with one entry, and the mesh ships as Raw; `realmspinner doctor` says why. Your saved Game-ready choice is not
+overwritten: while the tool is missing the pane shows and sends Simplify: Standard (or Raw with neither tool), and the
+saved rung comes back once Blender is installed.
 
 A saved Game-ready budget that is not one of the four rungs, say 7,500 from before the ladder
 last changed, is kept as it is. It shows as its own **Game-ready (7,500)** entry until you pick

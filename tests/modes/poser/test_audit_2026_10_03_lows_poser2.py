@@ -384,6 +384,7 @@ def test_clips_empty_state_does_not_claim_only_humanoid_has_clips(monkeypatch):
 
 
 def _opened(svc, monkeypatch):
+    from modes.poser._land import land_asset
     from modes.poser.test_poser_mode import FakeCtx, FakeViewer, _fake_blender, _rigged_job
     from realmspinner.studio.modes.poser import mode as poser_mode
 
@@ -392,6 +393,7 @@ def _opened(svc, monkeypatch):
     ctx = FakeCtx(svc)
     ctx.poser_viewer = viewer = FakeViewer()
     poser_mode.open_asset(ctx, {"id": job_id, "name": "Prop"})
+    land_asset(ctx)
     poser_mode.sync_asset(ctx, viewer)
     return ctx, viewer, job_id
 

@@ -85,9 +85,12 @@ class Mesh:
     corners at one position -- and a per-vertex array cannot express it without
     splitting the position too, which would split the *topology* to describe a
     property of the shading. ``None`` means "this mesh has no texture
-    coordinates", which is what every primitive generator produces and what
-    keeps an authored document byte-identical to what it was before UVs
-    existed. Every op states its policy for the field: preserved (the corner
+    coordinates": a mesh built by :func:`from_faces` with no ``uv``, a version-1
+    ``.rblk``, or an import whose source carried none. Every generator in
+    ``primitives`` now returns UVs (all fifteen Clay offers, and Mason's other
+    six), so a freshly placed primitive is *not* ``None`` -- a caller that needs
+    the distinction reads ``mesh.uv is None`` rather than assuming a generator
+    left it unset. Every op states its policy for the field: preserved (the corner
     keeps its uv), interpolated (a new corner's uv is a lerp within the face
     that made it, which is seam-safe because it never reads another face's
     corners) or inherited (a new face copies the corners it was extruded from).

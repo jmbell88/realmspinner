@@ -106,7 +106,12 @@ def draw(ctx: Any) -> None:
     source = bar_source(ctx)
     # Form.errors replaces field_error(ctx.state, "platform") and keeps the
     # service's field key attached to the shared control's ring and error copy.
-    with forms.Form("create-3d", errors=ctx.state.field_errors) as form_ui:
+    # ``on_edit`` is the 2026-10-10 audit's create-18: this form had none, so a
+    # ring on any control drawn through ``form_ui`` outlived the edit that dealt
+    # with it. The Budget rows are drawn by hand and clear in ``_budget``.
+    with forms.Form(
+        "create-3d", errors=ctx.state.field_errors, on_edit=ctx.state.clear_field_error
+    ) as form_ui:
         # The keyboard ring (UX.md Phase 3), over the whole column: the brief's
         # controls and the press record into this same ring as they draw.
         focus.pump(state, FOCUS_PANE)
@@ -367,6 +372,7 @@ def _best_value_offer(
             # which the door honours over the profile. The combo's own change path
             # writes both keys (and seeds Custom's count).
             _apply_budget_choice(form, value_str)
+            _clear_budget_rings(ctx)
         else:
             form[param] = coerce_form_value(form[param], value_str)
 
@@ -565,24 +571,20 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
     What is still conditional is each family's *binary*: without gltfpack
     there is no second pass for tiercheck to guard, and without Blender there
     is no remesh to run, so :func:`_budget_options` draws no entries for
-    either that is missing. With *neither* present this collapses to Raw and
-    forces the form key the same way ``retarget_panel.draw`` (lines 77-82)
-    does, and draws nothing rather than a combo with one dead choice in it.
+    either that is missing. With *neither* present this draws nothing rather
+    than a combo with one dead choice in it, and the request goes out as Raw
+    (:func:`host_budget_form`) with the stored choice left alone.
     """
     if not remesh_panel.blender_available(ctx) and not retarget_panel.gltfpack_available(ctx):
-        form["profile"] = "raw"
-        form["lowpoly_triangles"] = 0
         return
-    if not remesh_panel.blender_available(ctx) and int(form.get("lowpoly_triangles") or 0) > 0:
-        # The default form carries Game-ready 5k, which the combo cannot offer
-        # here -- it drew another entry while ``promote_kwargs`` kept sending
-        # 5000, and the door refused the first Make 3D ("a game-ready budget
-        # remeshes in Blender, which is not installed", create-03). Settled
-        # on the manual's own fallback, which is what the combo then shows.
-        form["lowpoly_triangles"] = 0
-        form["profile"] = "standard"
-    current = _budget_current(form)
-    picked = widgets.labeled_combo("Budget", current, _budget_options(ctx, form))
+    # What this host can run, not what is stored: the 2026-10-10 audit found the
+    # draw rewrote ``profile``/``lowpoly_triangles`` on a host without Blender
+    # and ``form_3d`` is saved at quit, so installing the Rigging pack later did
+    # not bring the shipped Game-ready 5k back. The stored budget is left alone;
+    # the combo shows, and ``promote`` sends, the fallback.
+    view = host_budget_form(ctx, form)
+    current = _budget_current(view)
+    picked = widgets.labeled_combo("Budget", current, _budget_options(ctx, view))
     # Gated on an actual gesture (the 2026-09-23 audit, finding create-07):
     # ``widgets.combo`` returns the value it was handed, unchanged, on an
     # untouched draw, so calling ``_apply_budget_choice`` unconditionally
@@ -590,17 +592,22 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
     # pane was merely drawn, with no click at all.
     if picked != current:
         _apply_budget_choice(form, picked)
+        _clear_budget_rings(ctx)
+        view = host_budget_form(ctx, form)
     widgets.field_error(ctx.state, "profile")
     widgets.field_error(ctx.state, "lowpoly_triangles")
-    if form.get("lowpoly_triangles"):
+    if view.get("lowpoly_triangles"):
+        before = form.get("mesh_finishing", create_mesh.DEFAULT_MESH_FINISHING)
         form["mesh_finishing"] = widgets.labeled_combo(
             "Finishing",
-            form.get("mesh_finishing", create_mesh.DEFAULT_MESH_FINISHING),
+            before,
             [("preserve_shape", "Preserve shape"), ("repair", "Repair and close holes")],
         )
+        if form["mesh_finishing"] != before:
+            ctx.state.clear_field_error("mesh_finishing")
         widgets.field_error(ctx.state, "mesh_finishing")
-    _hint(ctx, form, "profile", form["profile"], findings_doc)
-    if form["profile"] == "custom":
+    _hint(ctx, form, "profile", view["profile"], findings_doc)
+    if view["profile"] == "custom":
         # The same control the retarget panel draws, appearing under exactly
         # the same condition (K95). It is the widget ``custom_triangles`` never
         # had: the field was submitted, validated and recorded with no way to
@@ -610,7 +617,53 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
         changed, value = controls.input_int("##Triangles", int(form["custom_triangles"]), 0, 0)
         if changed:
             form["custom_triangles"] = max(0, value)
+            ctx.state.clear_field_error("custom_triangles")
         widgets.field_error(ctx.state, "custom_triangles")
+
+
+# The ids the Budget rows ring. They are the service door's own field names
+# (``resolve_profile``/``resolve_lowpoly`` refuse with them), which is why they
+# are not namespaced here: ``retarget_panel`` rings the same ``profile`` and
+# ``custom_triangles`` for an unrelated door, and the 2026-10-10 audit's
+# create-18 found the two share the one flat ``field_errors`` dict. Telling them
+# apart wants the refusals' ``field=`` renamed in ``service/``, so for now a
+# pick on either side only clears what it can see.
+
+
+def _clear_budget_rings(ctx: Any) -> None:
+    """A new Budget is a different request, so last time's refusal of the old
+    one no longer describes anything on screen (create-18).
+
+    Four literal calls rather than a loop over names:
+    ``tests/test_field_error_wiring.py`` checks each ringed id against a literal
+    ``clear_field_error("id")``, which is what a loop would hide."""
+    state = ctx.state
+    if not hasattr(state, "clear_field_error"):
+        return  # a stand-in state with no error book has no rings to clear
+    state.clear_field_error("profile")
+    state.clear_field_error("lowpoly_triangles")
+    state.clear_field_error("mesh_finishing")
+    state.clear_field_error("custom_triangles")
+
+
+def host_budget_form(ctx: Any, form: dict[str, Any]) -> dict[str, Any]:
+    """``form`` as this host can actually run it: the same dict when nothing
+    needs to change, otherwise a copy with the Budget fallback applied.
+
+    The default form carries Game-ready 5k, which a host without Blender cannot
+    run (``create-03``: the door refused the first Make 3D, "a game-ready budget
+    remeshes in Blender, which is not installed"). The fallback is the manual's
+    own -- Standard when gltfpack is there, Raw when it is not -- and it is
+    applied to a copy so the stored choice survives a session on a host that
+    lacks the tool (the 2026-10-10 audit, finding create-10).
+    """
+    blender = remesh_panel.blender_available(ctx)
+    gltfpack = retarget_panel.gltfpack_available(ctx)
+    if not blender and not gltfpack:
+        return {**form, "profile": "raw", "lowpoly_triangles": 0}
+    if not blender and int(form.get("lowpoly_triangles") or 0) > 0:
+        return {**form, "profile": "standard", "lowpoly_triangles": 0}
+    return form
 
 
 def _source_param(ctx: Any, key: str) -> str | None:
@@ -1053,8 +1106,12 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
             # ``rig_available`` is the 2026-10-04 audit's create-36: ``_rig``
             # draws the box unchecked without Blender, and the stored True was
             # still sent.
+            # ``host_budget_form`` is the 2026-10-10 audit's create-10: the stored
+            # Game-ready budget is no longer rewritten when Blender is absent, so
+            # the request is where the host's fallback is applied.
             **create_mesh.promote_kwargs(
-                form, rig_available=create_stages.blender_reason("rig", ctx) is None
+                host_budget_form(ctx, form),
+                rig_available=create_stages.blender_reason("rig", ctx) is None,
             ),
             "count": create_mesh.candidate_count(form),
             **_workspace_metadata(ctx),
@@ -1327,6 +1384,20 @@ def _matte_image(ctx: Any, preview: Any) -> None:
 
 IMPORT_KEY = "import-source"
 
+IMPORT_BUSY_TOAST = "Still importing the last image - try again in a moment."
+
+
+def _start_import(ctx: Any, run: Any) -> None:
+    """``ctx.submit(IMPORT_KEY, run)``, saying so when the runner refuses it.
+
+    The 2026-10-10 audit found a second drop during an import was ignored in
+    silence: ``TaskRunner.submit`` refuses a key that is already in flight, and
+    the drop handler had by then flashed the slot and switched stage, so it read
+    as taken. ``submit_promotion`` checks its return for the same reason.
+    """
+    if not ctx.submit(IMPORT_KEY, run):
+        ctx.toast(IMPORT_BUSY_TOAST)
+
 
 def upload_bytes(ctx: Any, data: bytes) -> None:
     """Make a reference row from pixels that are already in memory.
@@ -1341,7 +1412,7 @@ def upload_bytes(ctx: Any, data: bytes) -> None:
     def run():
         return svc_jobs.import_reference(ctx.svc, data)
 
-    ctx.submit(IMPORT_KEY, run)
+    _start_import(ctx, run)
 
 
 def upload(ctx: Any, path: Path) -> None:
@@ -1367,4 +1438,4 @@ def upload(ctx: Any, path: Path) -> None:
             raise Invalid(f"could not read {path.name}: {exc}", field="image") from exc
         return svc_jobs.import_reference(ctx.svc, data, name=path.stem)
 
-    ctx.submit(IMPORT_KEY, run)
+    _start_import(ctx, run)

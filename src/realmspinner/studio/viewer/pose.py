@@ -357,9 +357,20 @@ class PoseEditor:
             self.history.push(PoseSnapshotEdit(before, after))
 
     def undo(self) -> bool:
+        # The 2026-10-10 audit, finding create-39: a gizmo drag holds a
+        # ``record()`` open from grab to release, and its "before" snapshot was
+        # taken at the grab. Ctrl+Z in the middle moved the history head under
+        # it, so the edit pushed on release had a "before" that already
+        # contained the step just undone, and redo/undo then replayed a pose
+        # that never existed. Refused (and so, for ``pose_undo_key``, consumed
+        # and ignored) until the step closes.
+        if self._depth:
+            return False
         return self.history.undo(self)
 
     def redo(self) -> bool:
+        if self._depth:  # see ``undo``
+            return False
         return self.history.redo(self)
 
     def begin_pose_load(self) -> None:

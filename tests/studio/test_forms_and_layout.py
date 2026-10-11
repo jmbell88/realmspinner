@@ -191,17 +191,37 @@ def test_the_budget_combo_offers_game_ready_rungs_and_gltfpack_tiers(monkeypatch
     assert "labeled_combo" in source
 
 
-def test_the_budget_combo_collapses_to_raw_with_neither_binary():
+def test_the_budget_combo_collapses_to_raw_with_neither_binary(monkeypatch):
     """The one thing still conditional on the binaries: without gltfpack
     there is no second pass for tiercheck to guard, and without Blender there
     is no remesh to run, so with *neither* present the combo collapses to Raw
     and the form key is pinned to it -- the same shape ``retarget_panel.draw``
     already falls back to (lines 77-82) rather than a dead, disabled control.
     """
-    source = inspect.getsource(settings_3d._budget)
-    assert 'form["profile"] = "raw"' in source
-    assert 'form["lowpoly_triangles"] = 0' in source
-    assert "blender_available" in source and "gltfpack_available(ctx)" in source
+    from types import SimpleNamespace
+
+    from realmspinner.studio.panes import remesh_panel, retarget_panel
+
+    monkeypatch.setattr(remesh_panel, "blender_available", lambda _ctx: False)
+    monkeypatch.setattr(retarget_panel, "gltfpack_available", lambda _ctx: False)
+    stored = {"profile": "standard", "lowpoly_triangles": 5000, "custom_triangles": 60_000}
+    collapsed = settings_3d.host_budget_form(SimpleNamespace(), stored)
+    assert collapsed["profile"] == "raw"
+    assert collapsed["lowpoly_triangles"] == 0
+    # The collapse is what the host sends and shows, not a rewrite of the stored choice.
+    assert stored["profile"] == "standard" and stored["lowpoly_triangles"] == 5000
+
+    # ... and the combo is not drawn at all: no dead, disabled control.
+    drawn: list[str] = []
+    monkeypatch.setattr(
+        settings_3d.widgets, "labeled_combo", lambda label, value, *a, **kw: drawn.append(label)
+    )
+    settings_3d._budget(SimpleNamespace(), stored)
+    assert drawn == []
+
+    # One binary is enough to keep the combo: only the neither-case collapses.
+    monkeypatch.setattr(retarget_panel, "gltfpack_available", lambda _ctx: True)
+    assert settings_3d.host_budget_form(SimpleNamespace(), stored)["profile"] == "standard"
 
 
 def test_default_form_3d_agrees_with_the_config_defaults(monkeypatch):
@@ -225,12 +245,41 @@ def test_default_form_3d_agrees_with_the_config_defaults(monkeypatch):
     assert DEFAULT_FORM_3D["lowpoly_triangles"] == Config().lowpoly_triangles == 5000
 
 
-def test_custom_triangles_finally_has_a_widget():
+def test_custom_triangles_finally_has_a_widget(monkeypatch):
     """K95. The field was submitted, validated and recorded with no way to set
     it -- a form field that existed only for the API."""
-    source = inspect.getsource(settings_3d._budget)
-    assert 'form["profile"] == "custom"' in source
-    assert "custom_triangles" in source
+    from types import SimpleNamespace
+
+    from realmspinner.studio.panes import remesh_panel, retarget_panel
+
+    monkeypatch.setattr(remesh_panel, "blender_available", lambda _ctx: True)
+    monkeypatch.setattr(retarget_panel, "gltfpack_available", lambda _ctx: True)
+    monkeypatch.setattr(
+        settings_3d.widgets, "labeled_combo", lambda label, value, *a, **kw: value
+    )
+    monkeypatch.setattr(settings_3d.widgets, "field_error", lambda *a, **kw: None)
+    monkeypatch.setattr(settings_3d.widgets, "field_label", lambda *a, **kw: None)
+    monkeypatch.setattr(settings_3d, "_hint", lambda *a, **kw: None)
+    monkeypatch.setattr(settings_3d, "imgui", SimpleNamespace(set_next_item_width=lambda *_: None))
+    ctx = SimpleNamespace(state=SimpleNamespace(clear_field_error=lambda _name: None))
+    widgets_drawn: list[str] = []
+
+    def input_int(label, value, *a, **kw):
+        widgets_drawn.append(label)
+        return True, 60_000
+
+    monkeypatch.setattr(settings_3d.controls, "input_int", input_int)
+
+    # Not custom: no Triangles widget.
+    form = {"profile": "standard", "lowpoly_triangles": 0, "custom_triangles": 0}
+    settings_3d._budget(ctx, form)
+    assert widgets_drawn == []
+
+    # Custom: the widget appears and writes the field it exists for.
+    form = {"profile": "custom", "lowpoly_triangles": 0, "custom_triangles": 0}
+    settings_3d._budget(ctx, form)
+    assert widgets_drawn == ["##Triangles"]
+    assert form["custom_triangles"] == 60_000
 
 
 def test_a_game_ready_pick_sets_both_the_lowpoly_and_the_profile_keys():

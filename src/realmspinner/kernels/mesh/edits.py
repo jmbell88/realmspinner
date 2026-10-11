@@ -44,6 +44,7 @@ from typing import Any
 import numpy as np
 
 from ...core.undo import Edit
+from .adjacency import derived_cache_bytes
 from .mesh import Mesh
 
 
@@ -129,6 +130,11 @@ class MeshEdit(Edit):
 
     The cost is both meshes, because both are alive: the after mesh is what the
     document renders and the before mesh is what this step exists to restore.
+    It also charges each mesh's derived adjacency, triangulation and f8-position
+    tables (:func:`~.adjacency.derived_cache_bytes`): they are weak-keyed to the
+    ``Mesh`` objects this step pins, so they live as long as it does, and the
+    2026-10-10 audit's clay-09 found six extrude steps on a 160k-quad mesh
+    reporting 71 MB to the undo budget while pinning 154 MB.
     """
 
     obj_uid: int
@@ -136,7 +142,9 @@ class MeshEdit(Edit):
     after: Mesh
 
     def __post_init__(self) -> None:
-        self.cost = mesh_bytes(self.before) + mesh_bytes(self.after)
+        self.cost = sum(
+            mesh_bytes(m) + derived_cache_bytes(m) for m in (self.before, self.after)
+        )
 
     def _put(self, doc: Any, mesh: Mesh) -> None:
         doc.by_uid(self.obj_uid).mesh = mesh

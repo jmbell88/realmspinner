@@ -1010,8 +1010,6 @@ class GenerateOps:
                     params.clear()
                     params.update(best["params"])
             if best is not None and (restored or len(attempts) > 1):
-                if len(attempts) > 1:
-                    params["mesh_attempts"] = attempts
                 # The seed that reproduces the mesh that shipped, which is the best
                 # attempt's and not necessarily the last one tried -- and the recipe
                 # carries the same seed, or the provenance and the row would name
@@ -1019,6 +1017,22 @@ class GenerateOps:
                 # shipped is the last *measured* attempt, and saying so beats
                 # claiming a seed whose mesh is not there.
                 kept_seed = best["seed"] if restored else attempts[-1]["seed"]
+                if len(attempts) > 1:
+                    # The 2026-10-10 audit, finding create-16: the attempts were
+                    # recorded without saying which one shipped, so
+                    # ``quality.remesh_line`` claimed "kept the lowest" even when
+                    # the restore above failed and the last attempt is the mesh on
+                    # disk. The mark rides inside ``mesh_attempts``, which
+                    # ``DERIVED_PARAMS`` already strips on a rerun, so a rerun
+                    # cannot inherit a verdict about reconstructions it never made.
+                    # Matched from the end: the last attempt is the one that ships
+                    # whenever nothing was restored.
+                    shipped = next(
+                        i for i in range(len(attempts) - 1, -1, -1)
+                        if attempts[i]["seed"] == kept_seed
+                    )
+                    attempts[shipped]["kept"] = True
+                    params["mesh_attempts"] = attempts
                 params["mesh_seed"] = kept_seed
                 params.setdefault("recipe", {})["trellis"] = await asyncio.to_thread(
                     functools.partial(

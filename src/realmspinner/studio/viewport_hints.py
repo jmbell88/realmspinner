@@ -303,11 +303,34 @@ def stats(doc: Any) -> str:
     element mode in hand: a face count while vertices are being picked is a
     number about a selection the user does not have.
 
-    Pure, and derived per call rather than cached. It walks the meshes, which
-    is O(objects) in numpy shape reads -- the arrays are not touched, only
-    their lengths -- so there is nothing to invalidate and nothing to go stale.
+    Pure, and memoised on ``doc.rev`` the way :func:`measure_line` is. It walks
+    the meshes, which is O(objects) in numpy shape reads -- the arrays are not
+    touched, only their lengths -- but the overlay asks on every pane draw, and
+    the 2026-10-10 audit measured the unchanged-frame walk at ~2.9 ms at 4,096
+    objects (0.37 ms at 1,000) for a line nothing had changed. ``rev`` covers
+    the selection and the element mode as well as the geometry (their setters
+    ``touch()``, see :func:`measure_line`), so one key is enough; a document
+    with no ``.rev`` counts fresh every time, as it always did.
     """
+    rev = getattr(doc, "rev", None)
+    if rev is None:
+        return _compute_stats(doc)
+    cached = _STATS_CACHE.get(doc)
+    if cached is not None and cached[0] == rev:
+        return cached[1]
+    line = _compute_stats(doc)
+    _STATS_CACHE[doc] = (rev, line)
+    return line
 
+
+#: *doc* -> ``(rev, line)``; weak for :data:`_MEASURE_CACHE`'s reason (a closed
+#: tab's document takes its entry with it, and an ``id()`` key would be recycled
+#: onto a different document).
+_STATS_CACHE: weakref.WeakKeyDictionary[Any, tuple[int, str]] = weakref.WeakKeyDictionary()
+
+
+def _compute_stats(doc: Any) -> str:
+    """:func:`stats`' walk, unmemoised."""
     objects = [obj for obj in doc.objects if getattr(obj, "visible", True)]
     verts = edges = faces = tris = 0
     for obj in objects:

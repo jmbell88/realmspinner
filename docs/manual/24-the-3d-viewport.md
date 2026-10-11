@@ -64,7 +64,7 @@ controls onto a second row instead of clipping them away.
 The scene is not only the mesh. Depending on what is selected and which stage you are on it also
 carries:
 
-- **The ground plane and grid**, which is what makes the asset's scale legible at all — a mesh
+- **The grid**, which is what makes the asset's scale legible at all — a mesh
   floating in an empty view has no size.
 - **The skeleton**, once an asset is rigged: bone lines through the mesh, and a marker at each joint
   you can click. See [Rigging and posing](25-rigging-and-posing.md).

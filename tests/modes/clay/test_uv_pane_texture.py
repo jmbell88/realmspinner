@@ -45,6 +45,10 @@ def test_the_pane_shows_the_objects_default_slot_when_no_face_is_selected() -> N
     doc, obj = _doc_with_box()
     slot = doc.add_material(_textured(1))
     doc.set_props(obj.uid, material=slot)
+    # The 2026-10-10 audit's clay-28: the pane follows the slot the faces wear (what
+    # the Colours page edits), and ``set_props(material=)`` only moves the slot a new
+    # face would get -- so the faces are painted too, the way a Faces-mode swatch does.
+    doc.paint_faces(obj.uid, list(range(len(obj.mesh.material))), slot)
     assert _uv_texture.material_for_pane(doc, doc.by_uid(obj.uid)) is doc.materials[slot]
 
 

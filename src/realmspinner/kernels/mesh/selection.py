@@ -101,6 +101,11 @@ def invert(doc: Any) -> None:
         )
 
 
+# What a Points/Edges pick is called, and what makes a face of it, in the
+# refusal Delete gives a pick that covers no whole face.
+_PICK_TERMS = {"vertex": ("vertices", "corners"), "edge": ("edges", "edges")}
+
+
 def delete_selected(doc: Any) -> list[str]:
     """Delete what is selected, in whatever sense the current mode means it.
 
@@ -151,54 +156,37 @@ def delete_selected(doc: Any) -> list[str]:
     from . import ops_topo
 
     if doc.element_mode == "object":
-        doomed = sorted({int(u) for u in doc.selection}, key=doc.index_of, reverse=True)
-        if not doomed:
+        if not doc.selection:
             return []
-        refusals: list[str] = []
-        removable = []
-        for uid in doomed:
-            obj = doc.by_uid(uid)
+        # One uid -> object map for the whole press (the 2026-10-10 audit's
+        # clay-32: ``sorted(key=doc.index_of)`` and a ``by_uid`` per uid made
+        # this quadratic before ``remove_object`` ran at all).
+        by_uid = {obj.uid: obj for obj in reversed(doc.objects)}
+        removable = [
+            uid
+            for uid in doc.selection
             # The 2026-10-03 audit's clay-41: hiding an object leaves it
             # selected, and Delete took it along with the visible ones --
             # against the manual's "a hidden object stays hidden and untouched
             # even when it is selected". Skipped silently, as Merge and Ctrl+A
             # already do: nothing the user can see was refused.
-            if not obj.visible:
-                continue
-            removable.append(uid)
+            if by_uid[int(uid)].visible
+        ]
         if not removable:
-            return refusals
+            return []
         # The 2026-09-26 audit, finding clay-mesh-core-01: this branch used to
-        # reimplement remove_object's bookkeeping inline (a hand-built
-        # CompoundEdit around a hand-popped ``doc.objects.pop``) and it never
-        # re-parented the removed object's children the way remove_object
-        # does, -- deleting a parent left each
-        # child's ``parent`` naming a uid the document no longer carries, and
-        # read_rblk refuses to reopen that file (a saved model or journal
-        # copy). Calling remove_object itself, per uid, inside a
-        # mark()/collapse_since() gesture -- the same primitive the
-        # element-mode branch below already uses to fold its own per-object
-        # set_mesh steps -- gets every one of remove_object's guarantees
-        # (reparenting, the _mesh_stamps pop) for the whole
-        # selection at once, still as one undo step, with no logic to
-        # duplicate or drift out of sync.
-        #
-        # The 2026-10-07 audit's clay-11: both branches opened the gesture with
-        # no ``try/finally``, and ``remove_object`` can refuse (a child that
-        # cannot keep its place under a zero-axis parent) -- the refusal
-        # escaped, ``_open_gestures`` stayed at 1 for the session and undo
-        # eviction was off for good. A refusal on one object is now collected
-        # and the rest still go, the rule the docstring already states.
-        mark = doc.history.mark()
-        try:
-            for uid in removable:
-                try:
-                    doc.remove_object(uid)
-                except el.OpError as error:
-                    refusals.append(str(error))
-        finally:
-            doc.history.collapse_since(mark)
-        return refusals
+        # reimplement remove_object's bookkeeping inline and never re-parented
+        # the removed object's children, so deleting a parent left each child
+        # naming a uid the document no longer carries, and read_rblk refuses
+        # to reopen that file. It then called ``remove_object`` per uid inside
+        # a mark()/collapse_since() gesture, which got every guarantee back and
+        # was quadratic (the 2026-10-10 audit's clay-32: 1.5 s at 4,000
+        # objects, every call rebuilding the uid map and popping from the
+        # middle of the list). ``remove_objects`` does the same work in one
+        # pass and pushes one step itself, so no gesture is needed here -- and
+        # none can be left open by a refusal (the 2026-10-07 audit's clay-11).
+        # A refusal on one object is collected and the rest still go.
+        return doc.remove_objects(removable)
     refusals = []
     mark = doc.history.mark()
     try:
@@ -220,6 +208,23 @@ def delete_selected(doc: Any) -> list[str]:
             # this function's docstring already promises for every other
             # ``OpError``: an object whose selection does convert to a face is
             # still deleted.
+            #
+            # The 2026-10-10 audit's clay-33: that refusal is written in face
+            # terms, and a lone vertex or edge in Points/Edges mode got "Select
+            # at least one face to delete." beside an Inspector that says Delete
+            # "deletes the picked elements". When something *is* picked and
+            # covers no whole face, say what Delete actually does with it. An
+            # empty pick keeps the face sentence -- there is nothing to
+            # explain. Worded here, not in ``ops_topo``, which stays a pure
+            # face-count refusal for every other caller.
+            picked = doc.element_sel_of(uid).count(doc.element_mode)
+            if len(faces.faces) == 0 and picked and doc.element_mode in _PICK_TERMS:
+                noun, part = _PICK_TERMS[doc.element_mode]
+                refusals.append(
+                    f"Only faces fully covered by the picked {noun} are deleted. "
+                    f"Pick all of a face's {part}, or switch to Faces mode."
+                )
+                continue
             try:
                 mesh, sel = ops_topo.delete_faces(obj.mesh, faces)
             except el.OpError as error:

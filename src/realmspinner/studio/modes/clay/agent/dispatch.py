@@ -438,6 +438,7 @@ from .schema import (
     ORIGIN_MODES,
     RENDER_PIXEL_BUDGET,
     RENDER_SHADINGS,
+    SAVE_SAFE_TOOLS,
     SEPARATE_MODES,
     UV_ACTIONS,
     _clay_scene_output_schema,
@@ -490,7 +491,7 @@ from .tools_structure import (
     _h_ungroup,
 )
 from .tools_uv import _h_uv
-from .validate import Session, _protocol, fail
+from .validate import Session, _protocol, _saving_refusal, fail
 from .validate import _euler_xyz_from_quat as _euler_xyz_from_quat
 from .validate import _quat_from_euler_xyz as _quat_from_euler_xyz
 from .validate import _tab as _tab
@@ -592,8 +593,9 @@ ceiling, never a default to fall back to.
   re-reading (``clay_scene``, or ``realmspinner_status`` for that transport case)
   is the same recovery either way: go look before acting on a guess.
 * ``"switch_mode"`` -- the document is in the wrong element mode for this
-  call. ``clay_element_mode`` (or ``clay_select_elements``/``clay_select_by``'s
-  own ``mode``) first, then repeat the call. Attached at the two sites using
+  call. ``clay_element_mode`` (or ``clay_select_elements``'s own ``mode``)
+  first, then repeat the call. (``clay_select_by`` takes no ``mode`` -- the
+  2026-10-10 audit's clay-08 found the instructions saying it did.) Attached at the two sites using
   ``agent_clay_validate._OBJECT_SELECTION_ELEMENT_MODE_REFUSAL``, and at
   ``clay_select_by``'s own wrong-mode refusal (the 2026-10-07 audit's clay-84:
   it names ``field="query"``, which made ``fail`` derive ``fix_arguments``
@@ -702,9 +704,9 @@ def instructions() -> str:
         "Element mode is document state, not a per-call flag. clay_op's "
         "inset/extrude and the rest of the element-only rows refuse by "
         "name (\"Switch to face mode first.\") until it is set; "
-        "clay_element_mode sets it on its own, and clay_select_elements and "
-        "clay_select_by can set it in the same call as the selection they "
-        "make. Entering vertex/edge/face mode from object mode keeps the "
+        "clay_element_mode sets it on its own, and clay_select_elements can "
+        "set it in the same call as the selection it makes (clay_select_by "
+        "takes no mode: switch first). Entering vertex/edge/face mode from object mode keeps the "
         "selected shapes selected and picks nothing inside them, which is "
         "what makes clay_op's seedless rows -- select-all "
         "and select-invert -- reachable with no seed at all (select-none "
@@ -1113,8 +1115,8 @@ def tools() -> list[Any]:
                 "with no prior pick. Every element-gated clay_op row -- "
                 "inset, extrude and the rest -- refuses by name until "
                 "this has been called at least once; clay_select_elements "
-                "and clay_select_by can switch mode in the same call "
-                "instead of a separate one. Not undoable -- element mode is "
+                "can switch mode in the same call instead of a separate "
+                "one (clay_select_by cannot). Not undoable -- element mode is "
                 "document state, never an edit. Returns the new mode, the uids "
                 "being edited, plus, "
                 "per object that still has something selected, its uid, "
@@ -1959,6 +1961,16 @@ def call(ctx: Any, session: Session, name: str, arguments: dict) -> dict:
         # before the handler is ever reached, so an unknown key never even
         # gets the chance to be silently ignored the way it used to be.
         return _unknown_argument_refusal(name, unknown, allowed)
+    # The 2026-10-10 audit's clay-48: a user can switch to the agent's tab and
+    # start Save/Export, which hands the live document to a task thread while
+    # this (frame) thread would go on mutating it -- only ``clay_export`` knew.
+    # Gated here, once, so every mutating tool (and every ``clay_batch`` entry,
+    # which comes back through this function) is covered without each handler
+    # remembering; the read-only tools in ``SAVE_SAFE_TOOLS`` stay open.
+    if name not in SAVE_SAFE_TOOLS:
+        saving = _saving_refusal(ctx, session)
+        if saving is not None:
+            return saving
     try:
         return handler(ctx, session, args)
     except OpError as error:

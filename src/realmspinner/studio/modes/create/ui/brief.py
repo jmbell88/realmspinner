@@ -15,6 +15,7 @@ from imgui_bundle import imgui
 from .... import anchors, controls, dialogs, focus, icons, theme, widgets
 from ....tokens import sp
 from ..engine import assets as create_assets
+from ..engine import character as create_character
 from ..engine import mesh as create_mesh
 from ..engine import recipe as create_recipe
 
@@ -600,6 +601,22 @@ def _species_count() -> int:
     return len(families())
 
 
+def _character_hint() -> str:
+    """The character type's tooltip, with both counts read off the registry.
+
+    The 2026-10-10 audit, finding create-17: the species count was counted but
+    "four body plans" was typed, so the sentence would have gone on promising
+    four after a fifth archetype shipped.
+    """
+    from .....characters.family import archetypes
+
+    plans = create_character.body_plans_phrase(len(archetypes()))
+    return (
+        f"{_species_count()} species across {plans}, built and animated "
+        f"into a sprite sheet. No GPU needed."
+    )
+
+
 #: One line per type, on the combo's tooltip. The five-row descriptive block
 #: that used to sit under the selector is gone with the column it sat in; this
 #: is what survives of it, which is the orientation and not the prose.
@@ -617,10 +634,7 @@ _TYPE_HINTS: dict[str, str] = {
     # The species count is *counted*, never typed: a sibling adding a row to
     # ``characters.family._FAMILIES`` must not leave a tooltip promising the
     # number the registry held last month.
-    "character": (
-        f"{_species_count()} species across four body plans, built and animated "
-        f"into a sprite sheet. No GPU needed."
-    ),
+    "character": _character_hint(),
 }
 
 __all__ = [

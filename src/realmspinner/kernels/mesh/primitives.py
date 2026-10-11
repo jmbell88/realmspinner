@@ -92,9 +92,12 @@ of a generator's own parameters, with nothing about *placement* smuggled into
 the shape itself. It used to also be the reason nothing here looked smooth --
 there was no shading tool to hand a curved primitive over to, so faceted
 geometry was the only honest default available. That reason expired the day
-Shade Smooth, Shade Flat and auto-smooth-by-angle shipped (``studio/modes/clay/ops.py``),
-and on 2026-09-06 the user decided what replaces it: **organic shapes insert
-smooth-shaded.** The decision belongs at *insertion*, not here -- a generator
+Shade Smooth and Shade Flat became ops (``shade-smooth`` and ``shade-flat`` in
+``studio/modes/clay/ops.py``), and on 2026-09-06 the user decided what replaces
+it: **organic shapes insert smooth-shaded.** (Auto-smooth by angle was an op
+too, until the 2026-10-06 picoCAD-level cut; ``shading.auto_smooth`` survives as
+a function, called only from the insertion doors and the importers -- it is no
+longer a menu entry.) The decision belongs at *insertion*, not here -- a generator
 is called every time a parameter field is edited, and a generator that decided
 its own shading would be deciding it again on every keystroke, silently
 overwriting a Shade Flat the user had just clicked. So the door an object is

@@ -367,7 +367,22 @@ class Renderer:
         # The normal-matrix cache lives on GpuModel; Clay's _Composite has
         # none, so those draws fall back to the inline computation.
         normal_bytes = getattr(gpu, "normal_matrix_bytes", None)
-        for node, primitive in gpu.draws:
+        # The 2026-10-10 audit, finding create-03: BLEND primitives were drawn
+        # in node order with depth writes on, so a glass pane listed before an
+        # opaque mesh behind it wrote depth and hid the mesh (centre pixel
+        # (21, 38, 70) with the glass first, (86, 46, 83) second). three draws
+        # opaque objects first, then transparent ones far-to-near with
+        # depthWrite off; so do we.
+        ordered = self._draw_order(gpu.draws, model_matrix, view)
+        fbo = getattr(self.ctx, "fbo", None)
+        depth_was = fbo.depth_mask if fbo is not None else True
+        depth_off = False
+        for node, primitive, blended in ordered:
+            if blended and not depth_off and fbo is not None:
+                # ``Framebuffer.depth_mask``, not ``ctx.depth_mask``: the latter
+                # is just a Python attribute on the context and changes nothing.
+                fbo.depth_mask = False
+                depth_off = True
             program = self.programs.get(name, primitive.defines)
             world = model_matrix @ node.world
             program["u_model"].write(m3.gl_bytes(world))
@@ -423,8 +438,39 @@ class Renderer:
                 # matter to fill rate.
                 self.ctx.enable(moderngl.CULL_FACE)
             primitive.vao(program).render()
+        if depth_off and fbo is not None:
+            fbo.depth_mask = depth_was
         self.ctx.front_face = "ccw"
         self.ctx.disable(moderngl.CULL_FACE)
+
+    @staticmethod
+    def _draw_order(
+        draws: Any, model_matrix: np.ndarray, view: np.ndarray
+    ) -> list[tuple[Any, Any, bool]]:
+        """``(node, primitive, is_blend)`` with every non-BLEND draw first and
+        the BLEND ones after, farthest from the eye first.
+
+        Sorted on the view-space depth of each primitive's box centre in world
+        space (its node's origin when the primitive carries no box): per
+        primitive, not per object, the same granularity three sorts at. The
+        sort is stable, so equal depths keep node order.
+        """
+        solid: list[tuple[Any, Any, bool]] = []
+        glass: list[tuple[float, int, Any, Any]] = []
+        for i, (node, primitive) in enumerate(draws):
+            material = getattr(getattr(primitive, "material", None), "material", None)
+            if getattr(material, "alpha_mode", "OPAQUE") != "BLEND":
+                solid.append((node, primitive, False))
+                continue
+            centre = np.zeros(3)
+            box = getattr(getattr(primitive, "primitive", None), "box", lambda: None)()
+            if box is not None:
+                centre = (np.asarray(box[0], "f8") + np.asarray(box[1], "f8")) * 0.5
+            eye = view @ (model_matrix @ node.world) @ np.append(centre, 1.0)
+            glass.append((float(eye[2]), i, node, primitive))
+        # Camera space looks down -z, so the farthest draw has the smallest z.
+        glass.sort(key=lambda g: (g[0], g[1]))
+        return solid + [(node, primitive, True) for _z, _i, node, primitive in glass]
 
     # -- helpers -----------------------------------------------------------
 

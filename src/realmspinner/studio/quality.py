@@ -19,8 +19,8 @@ from __future__ import annotations
 from typing import Any
 
 # Below this the silhouette audit has found nothing, and that is the whole of
-# what it means (P120). It used to be the boundary of a *green* verdict, which
-# is the claim that had to go.
+# what it means. It used to be the boundary of a *green* verdict, which is
+# the claim that had to go.
 AUDIT_UNINFORMATIVE = 0.02
 
 #: The one wording, for the one thing a low reading means.
@@ -60,14 +60,35 @@ def remesh_line(attempts: list[Any]) -> list[str]:
     readings = [None if a.get("worst") is None else float(a["worst"]) for a in attempts]
     shown = ", ".join("unmeasured" if r is None else f"{r * 100:.1f}%" for r in readings)
     measured = [r for r in readings if r is not None]
-    kept = min(measured) if measured else None
+    lowest = min(measured) if measured else None
     line = (
         f"remeshed {len(attempts) - 1} time(s); silhouette openness measured {shown}"
     )
-    if kept is not None:
-        line += f" -- kept the lowest ({kept * 100:.1f}%)"
+    # The 2026-10-10 audit, finding create-16: this said "kept the lowest"
+    # unconditionally, but when the restore of the better attempt failed
+    # (``_q_generate``'s ``_restore_pair`` raised OSError) the mesh that
+    # ships is the last attempt, so the sentence was false. The worker marks
+    # the attempt that shipped (``kept``); a row from before the mark has none
+    # and keeps the old sentence, which was true of every such row's happy path.
+    kept_index = next((i for i, a in enumerate(attempts) if a.get("kept")), None)
+    if kept_index is None:
+        reading = lowest
+        if reading is not None:
+            line += f" -- kept the lowest ({reading * 100:.1f}%)"
+    else:
+        reading = readings[kept_index]
+        number = kept_index + 1
+        if reading is None:
+            line += f" -- kept attempt {number} (unmeasured)"
+        elif lowest is not None and reading > lowest:
+            line += (
+                f" -- kept attempt {number} ({reading * 100:.1f}%); the lowest "
+                f"({lowest * 100:.1f}%) could not be restored"
+            )
+        else:
+            line += f" -- kept the lowest ({reading * 100:.1f}%)"
     lines = [line, "Openness is corpus-dependent; it is not a quality score."]
-    caveat = caveat_for(kept)
+    caveat = caveat_for(reading)
     if caveat:
         lines.append(caveat)
     return lines

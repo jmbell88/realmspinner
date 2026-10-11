@@ -291,9 +291,15 @@ def _declared_counts(data: bytes) -> tuple[int, int, int]:
             return 0
 
     reached = _declared_reachable(doc, nodes)
-    tris = 0
-    objects = 0
-    vertices = 0
+    # The 2026-10-10 audit's clay-17: this walked every reached node times every
+    # primitive of the mesh it names, and a primitive that is not a dict never
+    # incremented ``objects`` -- the only counter that drives the early exit --
+    # so 8,000 nodes sharing a mesh of 5,000 ``null`` primitives (152 KB) took
+    # 0.87 s and the loader's own ceilings (~2 MB) extrapolate to minutes, on an
+    # import task thread that cannot be cancelled and before ``gltf.load``'s
+    # protective checks. Each distinct mesh is now walked once and its declared
+    # counts are multiplied by the number of reached nodes naming it.
+    users: dict[int, int] = {}
     for position, node in enumerate(nodes):
         if reached is not None and position not in reached:
             continue
@@ -304,6 +310,19 @@ def _declared_counts(data: bytes) -> tuple[int, int, int]:
         # in range while still not being an object.
         if not isinstance(meshes[mesh_index], dict):
             continue
+        users[mesh_index] = users.get(mesh_index, 0) + 1
+
+    def _bump(total: int, amount: int, ceiling: int) -> int:
+        # Saturating: past the ceiling the verdict cannot change, and a
+        # multiplied total (nodes x primitives) must not report a figure the
+        # file never "walked" -- it stays one past the line, as the early exit
+        # always left it.
+        return min(total + amount, ceiling + 1)
+
+    tris = 0
+    objects = 0
+    vertices = 0
+    for mesh_index, node_count in users.items():
         # clay-io-09: ``primitives`` is declared as an array by the glTF
         # schema, but nothing stopped a non-list truthy value (a number, a
         # string) from reaching ``for prim in ...`` as an uncaught
@@ -328,9 +347,9 @@ def _declared_counts(data: bytes) -> tuple[int, int, int]:
                 if "indices" in prim
                 else _count(attrs.get("POSITION"))
             )
-            tris += declared // 3
-            objects += 1
-            vertices += _count(attrs.get("POSITION"))
+            tris = _bump(tris, node_count * (declared // 3), MAX_TRIANGLES)
+            objects = _bump(objects, node_count, MAX_OBJECTS)
+            vertices = _bump(vertices, node_count * _count(attrs.get("POSITION")), MAX_VERTICES)
             # The early exit itself (see the docstring): once any running
             # total is already past what the caller refuses for, there is
             # nothing left for the rest of this file's own declared entries

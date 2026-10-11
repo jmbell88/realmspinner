@@ -93,6 +93,11 @@ SHADING: tuple[tuple[str, str, str, str], ...] = (
 MODE_SHORT = {"object": "S", "vertex": "P", "edge": "E", "face": "F"}
 
 _SAVING = "This document is being written; the controls come back when it lands."
+#: The 2026-10-10 audit's clay-58: ``clay_mode.undo``/``redo``/``step_history`` return
+#: early under a live G/R/S or UV rotate/scale, so the header's three history items
+#: and the Model page's block stayed lit and then did nothing. The same sentence
+#: ``ops._GESTURE_SENTENCE`` gives the op rows.
+_GESTURE = "Finish or cancel the drag first."
 _UNDO_WHY = "Nothing to undo yet."
 _REDO_WHY = "Nothing to redo: this is the newest step."
 _HISTORY_WHY = "No steps yet."
@@ -101,6 +106,7 @@ _NO_VIEW = "The viewport is still starting up."
 #: The two sentences the command palette's Clay rows grey with, so a row there and
 #: its control here never give two accounts of one state (``studio/palette.py``).
 SAVING_WHY = _SAVING
+GESTURE_WHY = _GESTURE
 NO_VIEW_WHY = _NO_VIEW
 
 #: The Export button's words. The long form is the library door's own name
@@ -135,11 +141,27 @@ def draw(ctx: Any, view: Any = None) -> None:
     widgets.divider()
 
 
+def history_why(*, busy: bool, gesture: bool, idle: str) -> str:
+    """Why an Undo/Redo/History control is greyed, or *idle* when the stack alone
+    is the reason (``""`` for a control that is lit).
+
+    Pure and beside the draw call, the shape ``clay_ops.reason_for`` takes. A save
+    outranks a gesture: it is the longer of the two and the one a click cannot
+    wait out. Shared with the Model page's history block (``props._history``), so
+    the header and the page never give two accounts of one state.
+    """
+    if busy:
+        return _SAVING
+    if gesture:
+        return _GESTURE
+    return idle
+
+
 def _row(ctx: Any, state: Any, tab: Any, view: Any) -> tuple[list[Any], list[Any], Any]:
     """The three things ``toolbar.toolbar`` is handed, built once so a test can
     plan the very row :func:`draw` draws."""
     return (
-        _items(state, tab),
+        _items(state, tab, clay_mode._gesture_live(ctx, tab)),
         _fields(ctx, state, tab, view),
         _trailing(ctx, tab),
     )
@@ -157,7 +179,7 @@ def row_plan(ctx: Any, state: Any, tab: Any, avail: float, view: Any = None) -> 
     return toolbar.plan_row(items, fields, trailing, avail)
 
 
-def _items(state: Any, tab: Any) -> list[Any]:
+def _items(state: Any, tab: Any, gesture: bool = False) -> list[Any]:
     """Undo, Redo and the history chevron.
 
     **Undo and Redo read the document's own stack** (``tab.doc.history``): the
@@ -165,7 +187,10 @@ def _items(state: Any, tab: Any) -> list[Any]:
     a save is in flight for ``widgets.history_block``'s reason -- the chord is
     already refused then (``docmodes.blocked_while_writing``), and a click that
     could mutate the stack under a running encode must not be the way round it.
-    Clicking runs ``clay_mode.undo`` and ``redo`` (see :func:`draw`).
+    Clicking runs ``clay_mode.undo`` and ``redo`` (see :func:`draw`). Under a live
+    gesture (*gesture*, ``clay_mode._gesture_live``) all three grey too, with
+    :data:`_GESTURE` for the reason -- the mode's doors refuse then, and a lit
+    control that does nothing is the 2026-10-10 audit's clay-58.
 
     All three are glyphs at every width (``icon_only``): the history is three
     squares, never three words, and the mode switch beside them is what the row
@@ -182,8 +207,8 @@ def _items(state: Any, tab: Any) -> list[Any]:
             "Undo",
             icons.UNDO,
             tooltip="Undo the last step (Ctrl+Z)",
-            enabled=bool(history.can_undo) and not busy,
-            reason=_SAVING if busy else _UNDO_WHY,
+            enabled=bool(history.can_undo) and not busy and not gesture,
+            reason=history_why(busy=busy, gesture=gesture, idle=_UNDO_WHY),
             icon_only=True,
             pinned=True,
             group=HISTORY_GROUP,
@@ -193,8 +218,8 @@ def _items(state: Any, tab: Any) -> list[Any]:
             "Redo",
             icons.REDO,
             tooltip="Redo the step you undid (Ctrl+Y)",
-            enabled=bool(history.can_redo) and not busy,
-            reason=_SAVING if busy else _REDO_WHY,
+            enabled=bool(history.can_redo) and not busy and not gesture,
+            reason=history_why(busy=busy, gesture=gesture, idle=_REDO_WHY),
             icon_only=True,
             pinned=True,
             group=HISTORY_GROUP,
@@ -204,8 +229,8 @@ def _items(state: Any, tab: Any) -> list[Any]:
             "History",
             icons.CHEVRON_DOWN,
             tooltip="Every step, with the newest marked. Click one to go there.",
-            enabled=bool(history.total) and not busy,
-            reason=_SAVING if busy else _HISTORY_WHY,
+            enabled=bool(history.total) and not busy and not gesture,
+            reason=history_why(busy=busy, gesture=gesture, idle=_HISTORY_WHY),
             icon_only=True,
             priority=1,
             group=HISTORY_GROUP,

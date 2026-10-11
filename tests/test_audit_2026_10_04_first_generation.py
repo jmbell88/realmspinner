@@ -135,6 +135,73 @@ def test_the_door_accounts_for_every_field_request_to_legacy_emits(
     assert (seen["negative_prompt"] or None) == legacy["negative_prompt"]
 
 
+def test_the_tileset_arm_of_the_door_accounts_for_every_field_request_to_legacy_emits(
+    svc, installed_recipes, tmp_path, monkeypatch
+):
+    """The sweep above covers ``create_job``; this is the same one for
+    ``create_tile_sheet`` (the 2026-10-10 audit, finding create-13). Every key
+    the adapter emits for a tileset is either handed to that door or refused by
+    name before anything is queued -- a key that is neither is a field the
+    request document records and no pixel ever sees."""
+    from realmspinner.service import tilesheets
+
+    seen: dict = {}
+
+    def spy(svc_, **kwargs):
+        seen.update(kwargs)
+        return {"id": "stub"}
+
+    monkeypatch.setattr(tilesheets, "create_tile_sheet", spy)
+    ref = _png(tmp_path / "r.png")
+
+    def tileset(**over):
+        return generation.GenerationRequest(
+            generation_type="tileset",
+            prompt="mossy dungeon",
+            tile=generation.TileSettings(mode="materials", prompt_items=("wood", "stone")),
+            references=(ref,),
+            reference_mode="single",
+            **over,
+        )
+
+    #: emitted key -> the ``create_tile_sheet`` kwarg that carries it, or None
+    #: when the key is the kind itself (the tileset arm *is* the sheet door).
+    carried = {
+        "asset_type": "asset_type",
+        "asset_intent": "asset_intent",
+        "prompt": "prompt",
+        "negative_prompt": "negative_prompt",
+        "seed": "seed",
+        "references": "reference",
+        "projection": "view",
+        "tile_settings": "mode",
+        "output": None,
+        "count": None,
+    }
+    plain = tileset(negative_prompt="blurry", seed=7)
+    resolved = generation.resolve_recipe(plain, svc.config)
+    legacy = generation.request_to_legacy(plain, resolved)
+    assert set(legacy) <= set(carried), sorted(set(legacy) - set(carried))
+    svc_jobs.create_generation_request(svc, plain)
+    for key, kwarg in carried.items():
+        if key in legacy and kwarg is not None:
+            assert seen.get(kwarg) not in (None, ""), f"{key!r} never reached the door"
+
+    # The keys the door has no parameter for: emitted, and refused by name.
+    greedy = tileset(
+        style_lora=next(iter(generation.models.STYLE_LORAS)),
+        lora_weight=0.5,
+        init_image=True,
+        init_strength=0.5,
+        count=3,
+    )
+    emitted = generation.request_to_legacy(greedy, resolved)
+    uncarried = {"style_lora", "lora_weight", "init_image", "init_strength", "count"}
+    assert uncarried <= set(emitted)
+    refused = {i.field for i in generation.validate_request(greedy, resolved)}
+    assert {"style_lora", "init_image", "count"} <= refused
+
+
 # --- create-04: the reference mode agrees with the reference count -----------
 
 

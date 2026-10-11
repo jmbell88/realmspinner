@@ -5,7 +5,7 @@ family: ``clay_undo``, ``clay_redo``, ``clay_batch``, ``clay_program``,
 unit, moves the undo head instead of pushing a step, or manages a session's
 own reference pictures.
 
-Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``dev/RESTRUCTURE.md``);
+Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure;
 see ``studio/modes/clay/agent/tools.py``'s own module docstring for the general shape of
 this three-way handler split and ``studio/modes/clay/agent/tools_ops.py``'s for why a
 handler here reaches ``studio/modes/clay/agent/dispatch.py`` itself only through a lazy,
@@ -20,6 +20,7 @@ dispatch machinery, reached back into rather than duplicated.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import time
 from dataclasses import dataclass
@@ -66,10 +67,12 @@ from .validate import (
 # between entries the same way.
 BATCH_DEADLINE_S = 30.0
 
+log = logging.getLogger(__name__)
+
 
 def _core() -> Any:
     """``studio/modes/clay/agent/dispatch.py`` itself, imported lazily -- the same reach and the
-    same two reasons ``agent_clay_tools_ops._core`` already carries this
+    same two reasons ``agent/tools_ops._core`` already carries this
     docstring for: a module-scope import back would cycle (``studio/modes/clay/agent/dispatch.py``
     imports this module to build ``_HANDLERS``) and would be a fresh,
     undocumented ``tests/test_layering.py`` violation (that walk is
@@ -214,7 +217,24 @@ def _resolve_and_call(
     plain ``(name, arguments)`` entry, factored out so a caller that has to
     interpose something of its own around the call (``clay_program``'s
     deadline check) still reaches the identical ``$ref`` handling rather than
-    a second copy of it."""
+    a second copy of it.
+
+    ``clay_checkpoint`` is refused here, as an ordinary per-entry failure. The
+    2026-10-10 audit's clay-29: a checkpoint names the history serial current
+    when it is set, but the fold (:func:`_fold_run`) then collapses every step
+    pushed since its mark into one compound, so a serial minted mid-run is
+    buried and ``clay_restore`` always answered "no longer reachable" with no
+    divergent edit having happened -- a success that could never be honoured.
+    The catalogue (and the frozen Familiar card) still list the tool as
+    batchable, so the honest fix is a runtime refusal that says where to put it."""
+    if name == "clay_checkpoint":
+        return fail(
+            "clay_checkpoint cannot run inside a batch or program. Set a "
+            "checkpoint before or after the batch, not inside it: a checkpoint "
+            "inside a batch cannot be restored once the batch folds into one step.",
+            field="calls",
+            recovery="fix_arguments",
+        )
     resolved: dict[str, Any] = {}
     for key, value in (arguments or {}).items():
         resolved[key], ref_failure = _resolve_batch_ref(doc, value, key)
@@ -331,7 +351,7 @@ def _fold_run(
 def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     """Run several tools as one undo step, through :func:`_fold_run`. See
     ``studio/modes/clay/agent/dispatch.py``'s own module docstring's paragraph on the fold and
-    ``agent_clay_schema.BATCH_EXCLUDED`` for what this refuses to run and why.
+    ``agent/schema.BATCH_EXCLUDED`` for what this refuses to run and why.
 
     The whole list's shape is validated before anything runs, so a malformed
     batch runs nothing. If the session owns no tab yet, this refuses unless
@@ -425,10 +445,12 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # releases the stale pin itself.
     first_name = calls[0].get("name")
     has_tab = bool(session.tab_uid) and clay_mode.ensure(ctx).get(session.tab_uid) is not None
+    minted_uid = ""
     if not has_tab and first_name in MINTS_A_DOCUMENT:
-        _, failure = _tab(ctx, session, create=True)
+        minted, failure = _tab(ctx, session, create=True)
         if failure:
             return failure
+        minted_uid = minted.uid
     elif not session.tab_uid:
         return fail(
             "This session has no document yet. The first call in a "
@@ -484,6 +506,25 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     results, stopped_at, rolled_back, changed = _fold_run(
         ctx, session, doc, entries, rollback=rollback_on_error, label="Agent batch",
     )
+
+    # The 2026-10-10 audit's clay-65: the tab is minted above, before entry 0
+    # can say whether it will be refused, so a batch whose creator was always
+    # going to be refused (a bad ``generator``) left an empty "Untitled" tab in
+    # the person's tab list -- the standalone door mints none for the same
+    # call. Closed again here, but only a tab *this* run minted and only when
+    # the run left no step on it: a batch that placed anything, or a tab the
+    # session already owned, is never touched. Nothing a refused creator does
+    # is unseen (refusals validate before they mutate), so the tab is a clean
+    # one and closes without a prompt.
+    if minted_uid and stopped_at == 0 and not changed and not doc.objects:
+        try:
+            clay_mode.close_tab(ctx, minted_uid)
+        except Exception:
+            # Best-effort tidying: failing to close an empty tab must not
+            # replace the refusal the agent is about to read.
+            log.exception("could not close the tab a refused batch minted")
+        if clay_mode.ensure(ctx).get(minted_uid) is None:
+            session.tab_uid = ""
 
     # "completed" is diagnostic and unaffected by rollback: how many calls
     # succeeded before the refusal fired stays true regardless of whether
@@ -942,6 +983,13 @@ def _h_reference_add(ctx: Any, session: Session, args: dict) -> dict:
     png_b64 = args.get("png_base64")
     if (job_id is None) == (png_b64 is None):
         return fail("give exactly one of job_id or png_base64.", field="job_id")
+    # The 2026-10-10 audit's clay-64: ``file`` picks a picture inside a Library
+    # job's directory, and beside ``png_base64`` it was read and dropped, so an
+    # agent that named a file was told the inline picture was the one it got.
+    if png_b64 is not None and "file" in args:
+        return fail(
+            "file only applies with job_id; drop it beside png_base64.", field="file"
+        )
 
     view = args.get("view", "other")
     valid_views = set(Camera.AXIS_VIEWS) | {"three_quarter", "other"}

@@ -281,7 +281,10 @@ void main() {
     // OPAQUE means the alpha channel is ignored, not that it happens to be 1:
     // trellis writes a base-colour texture whose alpha varies, and honouring
     // it would render the mesh semi-transparent against the background.
-    if (u_alpha_mask == 0) base.a = 1.0;
+    // MASK is the same once it has passed the cutoff above (the 2026-10-10
+    // audit: a MASK fragment that survived kept its sampled alpha and was
+    // blended; three draws it opaque). BLEND (2) is the one mode that keeps it.
+    if (u_alpha_mask != 2) base.a = 1.0;
 
     float metallic = u_metallic;
     float roughness = u_roughness;
@@ -377,7 +380,7 @@ void main() {
     base *= vec4(srgbToLinear(sampled.rgb), sampled.a);
 #endif
     if (u_alpha_mask == 1 && base.a < u_alpha_cutoff) discard;
-    if (u_alpha_mask == 0) base.a = 1.0;
+    if (u_alpha_mask != 2) base.a = 1.0;  // OPAQUE, and a MASK fragment that survived
     // Tone-mapped like everything else: three's MeshBasicMaterial defaults to
     // toneMapped = true, so a flat sheet frame and a lit one agree about what
     // a given albedo looks like.

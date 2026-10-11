@@ -346,7 +346,8 @@ menu offers: inset, extrude, weld and the rest, which refuse until something has
 gate on. What it selected is
 reported back after every operation, counts rather than the indices themselves, so an extrude
 followed by an inset is two calls rather than four — extrude hands back its own new caps, and the
-very next call operates on them with nothing re-selected in between.
+very next call operates on them with nothing re-selected in between. For `clay_op` the reply carries a `selection` list
+(uid, stamp and per-kind counts for every object still holding a pick) whenever the op moved a pick.
 
 An agent can also hand over geometry it computed itself, rather than only naming a recipe from
 Realmspinner's own registry. **Add mesh** takes a plain list of positions, a list of vertex-index loops
@@ -534,9 +535,14 @@ An op that pushed no step and gave an error-level reason (a Delete that converts
 refused with that reason, so a `clay_batch` stops there. An info-level message (`assign-material` onto the slot the
 faces already wear) or a silent no-op (Frame with no viewport, Snap to Grid on points already on it) is `ran: false`
 without an error, and a batch carries on. `clay_select`, `clay_select_elements` and `clay_select_by` refuse a hidden
-object by name (field `uids` or `uid`; show it in Clay's outliner first). `clay_select_by` and `clay_uv` refuse an
+object by name (field `uids` or `uid`; show it in Clay's outliner first). `clay_select_by`, `clay_uv`, `clay_measure`,
+`clay_render` and `clay_reference_add` refuse an
 argument the chosen query or action does not take, by field. `clay_uv transform` holds `translate` to 1e6, and
-`clay_delete` is all-or-nothing.
+`clay_delete` is all-or-nothing. A `clay_checkpoint` entry inside a `clay_batch` is refused (set the checkpoint before
+or after the batch: one set inside would be buried by the batch's fold and could never be restored), and every tool
+except the read-only ones (`clay_scene`, `clay_elements`, `clay_measure`, `clay_render`, `clay_catalog`,
+`clay_checkpoint`, `clay_export` and the `clay_reference_*` tools) is refused with `recovery: retry` while the agent's
+tab is saving or exporting.
 `tests/test_agent_schemas.py` is what proves this half is actually done, tool by tool and
 constraint by constraint, discovered from the schemas themselves rather than a hand-written list of
 what to check.

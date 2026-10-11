@@ -125,7 +125,13 @@ def file_fingerprint(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
         h.update(fh.read(HASH_BYTES))
-        if st.st_size > 2 * HASH_BYTES:
+        # The 2026-10-10 audit, finding create-25: this read the tail only past
+        # ``2 * HASH_BYTES``, so a 1-2 MiB file was fingerprinted by its first
+        # MiB alone and a change in its last bytes (a retrained small adapter, a
+        # re-saved config) left the drift guard unmoved. Past one MiB there is a
+        # tail beyond the head; the head and tail overlap below two, which only
+        # re-reads bytes. Files over 2 MiB hash exactly as before.
+        if st.st_size > HASH_BYTES:
             fh.seek(-HASH_BYTES, 2)
             h.update(fh.read(HASH_BYTES))
     out = f"s{st.st_size}:{h.hexdigest()[:32]}"

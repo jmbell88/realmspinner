@@ -37,7 +37,12 @@ def test_delete_on_a_partial_vertex_selection_refuses_with_a_message_not_a_silen
 
     refusals = selection.delete_selected(doc)
 
-    assert refusals == ["Select at least one face to delete."]
+    # Worded in vertex terms since the 2026-10-10 audit's clay-33: a pick that
+    # covers no whole face is explained, not met with the face sentence.
+    assert refusals == [
+        "Only faces fully covered by the picked vertices are deleted. "
+        "Pick all of a face's corners, or switch to Faces mode."
+    ]
     assert len(a.mesh.starts) - 1 == before_faces, "nothing should have been removed"
     assert len(doc.history) == depth, "a refusal records no undo step"
 
@@ -63,7 +68,12 @@ def test_a_multi_object_delete_refuses_only_the_object_that_did_not_cover_a_face
 
     refusals = selection.delete_selected(doc)
 
-    assert refusals == ["Select at least one face to delete."]
+    # Worded in vertex terms since the 2026-10-10 audit's clay-33: a pick that
+    # covers no whole face is explained, not met with the face sentence.
+    assert refusals == [
+        "Only faces fully covered by the picked vertices are deleted. "
+        "Pick all of a face's corners, or switch to Faces mode."
+    ]
     assert len(a.mesh.starts) - 1 == a_faces_before - 1, "A's whole-face selection was deleted"
     assert len(b.mesh.starts) - 1 == b_faces_before, "B's partial selection was refused"
 

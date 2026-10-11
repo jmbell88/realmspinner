@@ -298,11 +298,17 @@ def _rename_outcome(
     Escape ends it and commits nothing, whatever was typed; leaving the field
     (Enter, a click elsewhere) after an edit commits; leaving it untouched just
     ends it.
+
+    **A blank commit keeps the old name** (the 2026-10-10 audit's clay-59): emptying
+    the field and pressing Enter went through ``set_props(name="")`` and an unnamed
+    object reached the saved file and the GLB node name, while the Inspector's field
+    and ``clay_rename`` both refuse it. The rename still ends, so the row shows the
+    name it had.
     """
     if escaped:
         return None, True
     if typed != current:
-        return typed, True
+        return (typed if typed.strip() else None), True
     return None, bool(deactivated)
 
 
@@ -396,6 +402,7 @@ def _body(ctx: Any, state: Any, tab: Any, height: float) -> None:
                 _row(
                     ctx, state, doc, obj, depth, has_children,
                     filtered=filtered, saving=bool(tab.saving), tab_uid=tab.uid,
+                    needle=needle,
                 )
         clipper.end()
         widgets.no_matches(needle, shown)
@@ -502,10 +509,12 @@ def _leave_element_mode(doc: Any) -> None:
         doc.set_element_mode("object")
 
 
-def _click(state: Any, doc: Any, obj: Any, tab_uid: str = "") -> None:
+def _click(state: Any, doc: Any, obj: Any, tab_uid: str = "", needle: str = "") -> None:
     """Apply one row click, honouring Ctrl (toggle) and Shift (range).
 
-    *tab_uid* scopes the anchor to the document it was set in (clay-23).
+    *tab_uid* scopes the anchor to the document it was set in (clay-23). *needle*
+    is the name filter in force, so a Shift range is measured over the rows the
+    pane is drawing (clay-27, below).
 
     A hidden row is **not selectable** and a click on it changes nothing at all: the
     2026-10-09 second audit's clay-129 found that, since ``ClayDoc.select`` skips a
@@ -519,7 +528,9 @@ def _click(state: Any, doc: Any, obj: Any, tab_uid: str = "") -> None:
     io = imgui.get_io()
     anchor = anchor_uid(state, tab_uid)
     if io.key_shift and anchor:
-        range_uids = _range(doc, anchor, obj.uid)
+        range_uids = _range(
+            doc, anchor, obj.uid, _visible_rows(state, tab_uid, doc, needle)
+        )
         doc.select(range_uids)
         return
     if io.key_ctrl:
@@ -530,7 +541,9 @@ def _click(state: Any, doc: Any, obj: Any, tab_uid: str = "") -> None:
     state.outliner_anchor = (tab_uid, obj.uid)
 
 
-def _range(doc: Any, anchor: int, uid: int) -> list[int]:
+def _range(
+    doc: Any, anchor: int, uid: int, rows: list[tuple[Any, int, bool]] | None = None
+) -> list[int]:
     """Every uid visually between two rows, inclusive, in the order the tree
     actually draws them.
 
@@ -540,8 +553,18 @@ def _range(doc: Any, anchor: int, uid: int) -> list[int]:
     the tree's depth-first walk and the flat list disagree about what sits
     "between" two rows. A range built from the flat list silently omitted or
     included rows the user never saw between the two they Shift-clicked.
+
+    *rows* is what the pane draws (:func:`_visible_rows`): the 2026-10-10 audit's
+    clay-27 found the range still swept in a collapsed group's hidden children and
+    the rows a name filter had removed, so a following Delete, Duplicate or paint
+    acted on shapes the user could not see. Without *rows* the whole tree is the
+    order -- every row is drawn when nothing is collapsed or filtered. An anchor
+    that is not among the drawn rows (collapsed away, filtered out) makes the click
+    a plain one.
     """
-    order = [o.uid for o, _depth, _has_children in _tree_rows(doc)]
+    if rows is None:
+        rows = _tree_rows(doc)
+    order = [o.uid for o, _depth, _has_children in rows]
     try:
         lo, hi = sorted((order.index(anchor), order.index(uid)))
     except ValueError:
@@ -808,7 +831,7 @@ _EXPANDER_W = ROW_HEIGHT * 0.7
 
 def _row(
     ctx: Any, state: Any, doc: Any, obj: Any, depth: int, has_children: bool,
-    *, filtered: bool, saving: bool, tab_uid: str = "",
+    *, filtered: bool, saving: bool, tab_uid: str = "", needle: str = "",
 ) -> None:
     selected = obj.uid in doc.selection
     imgui.push_id(str(obj.uid))
@@ -884,7 +907,7 @@ def _row(
         if controls.selectable(
             f"{label}##row", selected, imgui.SelectableFlags_.none, (width, 0)
         )[0]:
-            _click(state, doc, obj, tab_uid)
+            _click(state, doc, obj, tab_uid, needle)
         if hidden:
             imgui.pop_style_color()
         # Both hang off the selectable, which is the item the user aims at --

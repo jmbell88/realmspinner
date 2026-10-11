@@ -99,7 +99,7 @@ def test_an_edit_and_undo_resolves_again_rather_than_reading_a_sticky_cache():
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)
     ctx = _ctx()
-    original_prompt = form["prompt"]
+    original_quality = form["quality"]
 
     calls: list[int] = []
     counting, original = _counting_resolve_recipe(calls)
@@ -107,15 +107,16 @@ def test_an_edit_and_undo_resolves_again_rather_than_reading_a_sticky_cache():
     try:
         first = create_recipe.resolved_recipe(ctx, form)
 
-        form["prompt"] = "a wholly different prompt, chosen to differ"
+        # A routing field, not the prompt: the 2026-10-10 audit (create-19)
+        # narrowed the memo key to the fields ``resolve_recipe`` reads, so a
+        # prompt edit deliberately no longer resolves again (see
+        # test_audit_2026_10_10_recipe_column). This test's point -- the key
+        # is content, not ``id(form)`` -- needs a field the answer depends on.
+        form["quality"] = "fast"
         ctx.state.frame_index += 1
-        # The prompt does not change which recipe automatic routing picks --
-        # only the *request* differs, which is exactly the point: the cache
-        # has to notice a changed request even when the changed field is not
-        # one the resolved answer depends on, or it would only work by luck.
         create_recipe.resolved_recipe(ctx, form)
 
-        form["prompt"] = original_prompt
+        form["quality"] = original_quality
         ctx.state.frame_index += 1
         restored = create_recipe.resolved_recipe(ctx, form)
         assert restored == first

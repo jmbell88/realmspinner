@@ -516,6 +516,47 @@ def _refuse_unreadable(snap: RblkSnapshot) -> None:
                     f"{exc} ({entry.get('name', '')!r}); saving it would write a file "
                     "this build cannot open again"
                 ) from exc
+    # The 2026-10-10 audit's clay-15: the reader's three document-wide ceilings
+    # (``MAX_DECLARED_MATERIALS``, ``MAX_DECLARED_TEXTURES`` and the decoded
+    # ``MAX_TOTAL_TEXTURE_BYTES`` budget) had no mirror here, so about 193
+    # distinct 1024 x 1024 palette textures, or 100,001 materials, saved,
+    # autosaved and journalled a file ``read_rblk`` then refused -- crash
+    # recovery included. Same numbers, read from the module globals at call
+    # time, charged the way ``_read_textures`` charges them (``width * height *
+    # 4`` per distinct texture, refusing when the running sum passes the budget),
+    # and the offender is named from the snapshot's own ``scene`` so the task
+    # thread still never touches the live document.
+    materials = scene.get("materials", ())
+    if len(materials) > MAX_DECLARED_MATERIALS:
+        raise ValueError(
+            f"this clay document declares {len(materials):,} materials, "
+            f"past the {MAX_DECLARED_MATERIALS:,} Clay reads; saving it would write a "
+            "file this build cannot open again"
+        )
+    if len(snap.images) > MAX_DECLARED_TEXTURES:
+        raise ValueError(
+            f"this clay document names {len(snap.images):,} textures, "
+            f"past the {MAX_DECLARED_TEXTURES:,} Clay reads; saving it would write a "
+            "file this build cannot open again"
+        )
+    spent = 0
+    for texture_index, (width, height, _data) in enumerate(snap.images):
+        spent += int(width) * int(height) * 4
+        if spent > MAX_TOTAL_TEXTURE_BYTES:
+            owner = next(
+                (
+                    str(entry.get("name", ""))
+                    for entry in materials
+                    if texture_index in (entry.get("textures") or {}).values()
+                ),
+                f"texture {texture_index}",
+            )
+            raise ValueError(
+                f"this clay document's decoded texture bytes pass the "
+                f"{MAX_TOTAL_TEXTURE_BYTES:,} byte budget a document may spend (the "
+                f"material {owner!r} crosses it); saving it would write a file this "
+                "build cannot open again"
+            )
     for uid, mesh in snap.meshes:
         label = names.get(uid, f"uid {uid}")
         # The 2026-10-09 second audit's clay-82: ``read_rblk`` runs

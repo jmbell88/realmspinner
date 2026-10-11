@@ -337,12 +337,20 @@ def test_the_history_chevron_lists_every_step_and_a_click_jumps_through_the_mode
 
 def test_a_history_jump_is_refused_under_a_live_gesture(monkeypatch, ui):
     """The door is the point: a chevron that called ``doc.step_history`` would
-    undo the thing being dragged."""
+    undo the thing being dragged.
+
+    The popover is opened first and the gesture begins after: the 2026-10-10
+    audit's clay-58 greys the chevron itself under a live gesture, so the door's
+    own refusal is what stops a jump from a popover that was already open.
+    """
     ctx, tab = _open(2)
-    monkeypatch.setattr(clay_mode, "_gesture_live", lambda ctx_, tab_: True)
+    live = {"on": False}
+    monkeypatch.setattr(clay_mode, "_gesture_live", lambda ctx_, tab_: live["on"])
     d = _driver(ui, ctx)
     d.click(d.find(label=CHEVRON))
     d.settle(3)
+    live["on"] = True
+    d.settle(1)
     d.click(_history_rows(d)[0])
     d.settle(2)
     assert len(tab.doc.history) == 2
@@ -357,7 +365,7 @@ def test_export_refuses_in_place_on_an_empty_scene_and_says_why(monkeypatch, ui)
     d = _driver(ui, ctx)
     button = d.find(label=EXPORT)
     assert not button.enabled
-    assert button.reason == "Nothing visible to send -- every object is hidden."
+    assert button.reason == "Nothing to send yet -- add a shape first."
     d.click(button)
     d.settle(2)
     assert calls == [], "a refused export ran"

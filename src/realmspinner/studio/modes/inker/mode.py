@@ -1658,7 +1658,22 @@ def _nudge_viewer(ctx: Any, tab: InkerDoc) -> None:
         # 1024-square PNG decode there is a visible hitch at exactly the moment
         # something was pressed. ``_sync_viewer``'s own split; the upload is
         # adopted by ``App._adopt_model`` when it arrives.
-        viewer_embed.request_reference(ctx, tab.path)
+        if viewer_embed.request_reference(ctx, tab.path):
+            return
+        # The 2026-10-10 audit, finding create-35: the request is refused while
+        # another viewport load is in flight (the Create stage's own, started
+        # before this revert or save rewrote the file). ``clear`` above has
+        # already emptied ``pending``, so that in-flight result fails its
+        # freshness check and is dropped -- and the False was ignored, leaving
+        # the canvas blank with nothing queued to refill it. Nothing reaches
+        # this door again without another click, so decode here, once, on the
+        # frame that asked: a rare hitch in place of a blank reference.
+        try:
+            viewer.load_reference(tab.path)
+        except Exception:
+            log.exception("could not show the reference %s", tab.path)
+            return
+        viewer.path = tab.path
 
 
 # --- closing and guarding ---------------------------------------------------

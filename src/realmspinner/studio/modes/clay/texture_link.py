@@ -164,7 +164,14 @@ def edit_in_inker(ctx: Any, tab: Any, index: int) -> None:
         # held the snap and nothing pulled it -- the first real stroke then
         # recoloured every texel at once. ``UNLANDED`` makes the next pull count
         # the opened document as moved, and the snap returns on its own step.
-        pull(ctx, tab)
+        #
+        # The 2026-10-10 audit's clay-43: this called ``pull`` without the
+        # ``saving`` gate ``pull_all`` honours (clay-48), so a Save started between
+        # "Edit texture" and this open task could have the snap land mid-save. A
+        # saving tab keeps the link ``UNLANDED`` instead and ``pull_all`` lands the
+        # snap on the first frame after the save.
+        if not getattr(tab, "saving", False):
+            pull(ctx, tab)
 
     inker_opening.open_pixels(
         ctx, pixels, title=f"{tab.title} - {name} (texture)", palette=PICO8, on_open=on_open

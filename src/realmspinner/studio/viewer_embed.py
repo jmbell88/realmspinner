@@ -181,6 +181,13 @@ class Viewer(PoseOps, FrameOps):
         self.pending = None
         self._render_dirty = True
         self.model, self.gpu, self.path = model, gpu, Path(path)
+        # The 2026-10-10 audit, finding create-33: ``stats`` memoises the
+        # bounds with a reference to the model it measured, and only ``clear``
+        # dropped it. Review, Poser and Inker replace a model through here, so
+        # the replaced one (its CPU geometry and decoded textures, up to
+        # 768 MiB) stayed alive until the next ``stats`` call happened to
+        # overwrite the memo -- or for good if none did.
+        self._bounds_memo = None
         self.placement = scenelib.placement(model)
         self.clear_reference()
         self.exit_pose_mode()

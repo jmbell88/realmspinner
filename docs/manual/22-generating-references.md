@@ -82,7 +82,8 @@ canvas scrolls horizontally through that creation's results; it does not mix in 
 Clicking an attempt inspects it without changing your draft or chosen reconstruction source.
 **Use these settings** explicitly loads a result's recipe. **Generate another attempt** uses a fresh
 seed; **Reproduce recorded attempt** reuses the recorded recipe and seed, with results still subject
-to runtime differences. Pin one result, select another and choose **Compare with pinned** for a
+to runtime differences (it is greyed, with a reason, for a result that recorded no seed: a rig, a re-texture, a sheet or
+a music result). Pin one result, select another and choose **Compare with pinned** for a
 side-by-side comparison. **Mark preferred** records a favourite; it does not delete alternatives.
 
 The right column holds the selected result's **Next step**, details and **Creations** history.
@@ -558,7 +559,9 @@ same moss comes out two different greens in two tiles. *Which* palette is yours 
 **The pixel look** below. In the Materials and Terrain set layouts the words that are actually
 generated are the ones you type in the layout section, and the prompt field in the brief
 only names the sheet in the library. A **reference image**, if you attach one under
-*References*, shapes the style but is never required.
+*Conditioning*, shapes the style but is never required. On the Tileset arm Conditioning offers only this reference
+image: the appearance adapter, start-image and structure controls are not drawn there, and the header counts only the
+reference.
 
 A tileset cannot be made into a mesh, and offers no cutout exports, for the tile's reasons. To
 paint with it, take it into **Plotter** or cut it up in **Packwright** — both read the sheet from

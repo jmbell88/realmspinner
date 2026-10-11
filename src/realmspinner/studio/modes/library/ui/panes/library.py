@@ -1371,10 +1371,27 @@ def copy_settings(ctx: Any, job: Any, *, announce: bool = True, follow: bool = T
     create_assets.sync_legacy_fields(form)
     from ....create.ui import stages as create_stages
 
+    # The 2026-10-10 audit, finding create-31: the recorded seed was restored
+    # but ``seed_locked`` stayed False, and Generate rolls an unlocked seed
+    # before it builds the request, so the first press after "change one thing"
+    # threw the seed away. The draw that shipped is ``recorded_seed``'s answer
+    # (``reference_seed`` when the reroll budget redrew), not necessarily
+    # ``params["seed"]``. A row that recorded none keeps the form's own fresh
+    # seed and stays unlocked.
+    from ....create.ui import workspace as create_workspace
+
+    seed = create_workspace.recorded_seed(job)
+    if isinstance(seed, int) and not isinstance(seed, bool):
+        form["seed"] = seed
+        form["seed_locked"] = True
     ctx.state.form_2d = form
     create_stages.go(ctx, "reference", follow=follow)
     if announce:
-        ctx.toast("Settings copied to the form.")
+        ctx.toast(
+            "Settings copied to the form, seed locked."
+            if form.get("seed_locked")
+            else "Settings copied to the form."
+        )
 
 
 def _remeshable(job: Any) -> bool:

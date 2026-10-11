@@ -3,7 +3,7 @@
 ``clay_select_by``, ``clay_elements``, ``clay_op``, ``clay_render``
 and ``clay_export``.
 
-Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure (``dev/RESTRUCTURE.md``);
+Split out of ``studio/modes/clay/agent/dispatch.py`` in the P4 restructure;
 see ``studio/modes/clay/agent/tools.py``'s own module docstring for where these handlers
 actually lived in the pre-split file (the "# --- dispatch" banner, not "# ---
 the tools" as the brief guessed from banner names alone) and why this file
@@ -16,8 +16,8 @@ than create or delete a whole object outright, and ``clay_export`` rides
 along as the one remaining handler with no better home.
 
 Like ``studio/modes/clay/agent/tools.py``, this file reaches ``fail``/``ok``/``_json``/
-``Session``/``_tab``/the shared validators through ``agent_clay_validate``
-and its own ceilings through ``agent_clay_schema``, never through
+``Session``/``_tab``/the shared validators through ``agent/validate``
+and its own ceilings through ``agent/schema``, never through
 ``studio/modes/clay/agent/dispatch.py`` directly -- with one exception. ``_h_render`` needs
 ``agent_clay._view_for``, which stays in ``studio/modes/clay/agent/dispatch.py`` itself because two
 tests monkeypatch it there by name (``tests/modes/clay/test_agent_clay.py``,
@@ -366,8 +366,8 @@ def _check_expect_stamp(
 def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
     """Select elements by a seed or a parameter, through :data:`select.
     QUERIES`. See the tool's own description in ``agent_clay.tools``, and the
-    module-level ``agent_clay_schema._QUERY_ARG_SCHEMAS``/
-    ``agent_clay_validate._validate_query_arg`` for the one mapping from a
+    module-level ``agent/schema._QUERY_ARG_SCHEMAS``/
+    ``agent/validate._validate_query_arg`` for the one mapping from a
     query argument's name to what it is checked against -- ``select.py``
     itself holds no JSON-schema knowledge, by that module's own design.
     """
@@ -501,6 +501,13 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
             )
     else:
         sel = query.run(obj.mesh, **values)
+    # The 2026-10-10 audit's clay-63: ``bounds`` answers both currencies at once
+    # and both were stored whatever the mode, so in vertex mode the document held
+    # a face pick too -- the kind-is-the-mode invariant (clay-36) broken through
+    # this door. Only the effective mode's own currency is kept, as
+    # ``_h_select_elements`` does.
+    kept = _KIND_OF_MODE[doc.element_mode]
+    sel = el.ElementSel(**{kept: getattr(sel, kept)})
 
     current = doc.element_sel_of(obj.uid)
     doc.set_element_sel(obj.uid, el.combine(current, sel, how))
@@ -519,7 +526,7 @@ def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
 def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
     """The read side of the element-selection tools -- paged raw indices, for
     the rarer moment an agent has to reason about which ones rather than how
-    many. See :data:`agent_clay_schema.ELEMENT_PAGE_MAX`."""
+    many. See :data:`agent/schema.ELEMENT_PAGE_MAX`."""
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
@@ -598,7 +605,13 @@ class _OpCtx:
     handed over unsandboxed.
     """
 
-    state: Any = None
+    state: None = None
+    """Always ``None``. The 2026-10-10 audit's clay-24: this used to carry the
+    real app state, so ``ops.gesture_live`` read the *human's active tab's* UV
+    drag and refused the agent's op on its own tab with "Finish or cancel the
+    drag first." while the user rotated in their UV pane. Nothing else in
+    ``ops.py`` reads ``ctx.state``, and ``gesture_live`` reading ``None`` means
+    "no gesture", which is true of a tab no pointer is on."""
     messages: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     """The error-level subset of :attr:`messages`. The 2026-10-09 second audit's
@@ -669,7 +682,7 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         # already is.
         return fail("params must be an object.", field="params")
     # Every value held to what ``op.params`` itself declares, before it ever
-    # reaches ``clay_ops.run`` -- see ``agent_clay_validate._op_params_type_
+    # reaches ``clay_ops.run`` -- see ``agent/validate._op_params_type_
     # refusal`` for the three crashes (2026-09-14 audit, docs-06) this closes.
     failure = _op_params_type_refusal(op, params)
     if failure:
@@ -689,7 +702,7 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         for p in op.params
         if p.name in params and float(params[p.name]) != used_params[p.name]
     ]
-    proxy = _OpCtx(state=getattr(ctx, "state", None))
+    proxy = _OpCtx()
     # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
     # and every op is ``Mesh -> Mesh`` (``document.py``'s own rule, the same
     # one ``set_mesh`` and ``mesh_stamp`` both rely on identity for), so
@@ -698,6 +711,7 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     # it. An object absent from ``before`` (an op like Duplicate makes one) is
     # "changed" too: there is no prior mesh for it to equal.
     before = {obj.uid: obj.mesh for obj in doc.objects}
+    before_sel = dict(doc.element_sel)
     head = doc.history.head
     ran = clay_ops.run(proxy, doc, op, **params)
     pushed = doc.history.head != head
@@ -736,18 +750,37 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         for obj in doc.objects
         if before.get(obj.uid) is not obj.mesh
     ]
-    return _json(
-        {
-            "op": op.name,
-            "ran": ran,
-            "pushed": pushed,
-            "element_mode": doc.element_mode,
-            "messages": proxy.messages,
-            "params": used_params,
-            "clamped": clamped,
-            "changed": changed,
-        }
-    )
+    reply: dict[str, Any] = {
+        "op": op.name,
+        "ran": ran,
+        "pushed": pushed,
+        "element_mode": doc.element_mode,
+        "messages": proxy.messages,
+        "params": used_params,
+        "clamped": clamped,
+        "changed": changed,
+    }
+    # The 2026-10-10 audit's clay-31: ``select-all``/``select-invert`` replace no
+    # mesh, so ``changed`` (built from meshes whose identity moved) was ``[]``
+    # and the reply said nothing of what was now selected -- though the manual
+    # says it "is reported back after every operation". When the op moved a
+    # pick, every object still holding one is reported, with the counts and
+    # stamp ``clay_elements`` would give (counts, never indices: the reply
+    # must not grow with the mesh). ``select-none`` reports ``[]``.
+    after_sel = doc.element_sel
+    if doc.element_mode != "object" and (
+        before_sel.keys() != after_sel.keys()
+        or any(not before_sel[uid].same_as(sel) for uid, sel in after_sel.items())
+    ):
+        reply["selection"] = [
+            {
+                "uid": uid,
+                "stamp": doc.mesh_stamp(uid),
+                "selected": _sel_counts(doc.element_sel_of(uid)),
+            }
+            for uid in after_sel
+        ]
+    return _json(reply)
 
 
 def _parse_view_entry(entry: Any, valid_views: set[str]) -> tuple[str, dict, dict | None]:
@@ -889,6 +922,17 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
     reference = None
     compare_mode = args.get("compare_mode", "beside")
     alpha = args.get("alpha", 0.5)
+    if compare is None:
+        # The 2026-10-10 audit's clay-64: ``compare_mode`` and ``alpha`` belong
+        # to the comparison alone, and with no ``compare`` they were read and
+        # dropped, so a render that silently ignored them answered a request
+        # the agent never made.
+        stray = next((k for k in ("compare_mode", "alpha") if k in args), None)
+        if stray is not None:
+            return fail(
+                f"{stray!r} only applies with compare; give compare or drop it.",
+                field=stray,
+            )
     if compare is not None:
         if shading == "object_id":
             # A compare reply is a picture-vs-picture comparison
@@ -935,7 +979,9 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             return fail(
                 f"{len(parsed)} view(s) at {size}x{size} would be "
                 f"{total_pixels:,} pixels, over the {RENDER_PIXEL_BUDGET:,}-pixel "
-                "render budget for one call -- ask for fewer or smaller views."
+                "render budget for one call -- ask for fewer or smaller views.",
+                # The 2026-10-10 audit's clay-66: no ``field`` meant no ``recovery``.
+                field="views",
             )
 
     try:

@@ -121,6 +121,13 @@ def visible(screen: Screen, surface_depth: float | None) -> np.ndarray:
     ``surface_depth`` is ``None`` when the ray missed everything -- a
     silhouette click -- and then nothing is occluded, which is the whole reason
     the rim of a shape is clickable.
+
+    ``surface_depth`` is the surface's distance **from the eye**, the same
+    quantity ``Screen.depth`` is. The 2026-10-10 audit found an orthographic
+    ``Hit.t`` passed straight in -- that ray starts ``camera.far`` behind the
+    eye, so ``t`` was ~100 m too large and the test admitted every vertex on the
+    far side of a closed solid. The caller converts (``PickOps._eye_distance``);
+    this module has no camera to do it with.
     """
     if surface_depth is None:
         return screen.front

@@ -108,10 +108,23 @@ def test_a_form_with_no_blender_does_not_send_a_game_ready_budget_the_combo_cann
     Make 3D was refused at the door for a budget the user could not see."""
     monkeypatch.setattr(remesh_panel, "blender_available", lambda _ctx: False)
     monkeypatch.setattr(retarget_panel, "gltfpack_available", lambda _ctx: True)
+    shown: list[str] = []
     _untouched_combo(monkeypatch)
+    monkeypatch.setattr(
+        settings_3d.widgets,
+        "labeled_combo",
+        lambda label, value, options, **kw: shown.append(value) or value,
+    )
 
     form = {"profile": "raw", "lowpoly_triangles": 5000, "custom_triangles": 0}
     settings_3d._budget(_Ctx(), form)
 
-    assert form["lowpoly_triangles"] == 0
-    assert form["profile"] == "standard"
+    # The 2026-10-10 audit, finding create-10: the stored budget is left alone
+    # (the form is saved at quit); the combo shows, and the request is built
+    # from, the host's fallback.
+    assert form["lowpoly_triangles"] == 5000
+    assert form["profile"] == "raw"
+    assert shown == ["standard"]
+    fallback = settings_3d.host_budget_form(_Ctx(), form)
+    assert fallback["lowpoly_triangles"] == 0
+    assert fallback["profile"] == "standard"

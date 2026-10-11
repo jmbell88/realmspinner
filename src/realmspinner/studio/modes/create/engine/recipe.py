@@ -79,20 +79,26 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
     partially restored form must make the pane say nothing rather than raise
     inside the draw, which is ``negative_supported``'s standing rule here.
 
-    Memoised on the *request*, not on frame or form identity (2026-09-08
-    audit, finding create-06, and the orchestrator's ruling on it: a
-    fingerprint feeding a provenance record may not be memoised on wall
+    Memoised on the request's *routing fields*, not on frame or form identity
+    (2026-09-08 audit, finding create-06, and the orchestrator's ruling on it:
+    a fingerprint feeding a provenance record may not be memoised on wall
     time, only on content or a generation counter). ``request_from_legacy``
     is cheap and pure, so it is rebuilt every call; only
     ``generation.resolve_recipe`` -- which fingerprints every installed
     checkpoint directory (``provenance.file_fingerprint`` via ``_checksum``)
-    -- is worth skipping, and only while the request compares equal to the
-    one the cached answer was resolved from and ``ctx.svc.config`` is the
-    same object. The result stays correct across many unchanged frames and
-    resolves again the moment either input actually changes, which a
-    frame-keyed cache could not promise. Set with ``setattr`` rather than a
-    declared ``AppState`` field: this module does not own ``state.py``, and a
-    plain dataclass instance takes an extra attribute without one. A caller
+    -- is worth skipping, and only while :func:`_routing_key` compares equal
+    to the one the cached answer was resolved from and ``ctx.svc.config`` is
+    the same object. **Not the whole request** (the 2026-10-10 audit, finding
+    create-19): the memo used to compare the entire ``GenerationRequest``, so
+    every typed character in the prompt and every frame of the Style-strength
+    slider re-ran ``resolve_recipe`` and re-walked the checkpoint directories
+    on the frame thread, which was create-06's cost arriving by another door.
+    ``resolve_recipe`` reads five fields and the key holds those. The result
+    stays correct across many unchanged frames and resolves again the moment
+    either input actually changes, which a frame-keyed cache could not
+    promise. Set with ``setattr`` rather than a declared ``AppState`` field:
+    this module does not own ``state.py``, and a plain dataclass instance
+    takes an extra attribute without one. A caller
     with no ``ctx.state`` at all (several note helpers are exercised
     headlessly against a bare ``SimpleNamespace``) gets the pre-fix
     behaviour instead of an ``AttributeError``: resolve every call, memoise
@@ -113,6 +119,7 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
         # fingerprint of its ``(row_key, present)`` pairs is the installed-set
         # generation this memo was missing.
         installed_fingerprint = _installed_fingerprint(ctx)
+        routing_key = _routing_key(request)
     except Exception:
         # Silent on purpose, and the same choice ``negative_supported`` makes
         # for the same reason: this runs sixty times a second inside the draw,
@@ -138,7 +145,7 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
         cached_request, cached_config_id, cached_installed, cached_resolved = cache
         if (
             cached_config_id == id(config)
-            and cached_request == request
+            and cached_request == routing_key
             and cached_installed == installed_fingerprint
         ):
             return cached_resolved
@@ -151,8 +158,27 @@ def resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
         # that once rather than sixty times a second.
         resolved = None
     if state is not None:
-        state._resolved_recipe_cache = (request, id(config), installed_fingerprint, resolved)
+        state._resolved_recipe_cache = (routing_key, id(config), installed_fingerprint, resolved)
     return resolved
+
+
+def _routing_key(request: Any) -> tuple[Any, ...]:
+    """The fields of ``request`` that :func:`generation.resolve_recipe` reads.
+
+    The 2026-10-10 audit, finding create-19: the prompt, seed, weights and
+    references do not choose a recipe, so they must not invalidate the memo.
+    ``reference_mode`` rides along although ``resolve_recipe`` does not read it
+    today -- recipes declare ``reference_modes`` and a router that starts to
+    filter on it should not have to remember this key.
+    """
+    return (
+        request.generation_type,
+        request.quality,
+        request.model_mode,
+        request.model_override,
+        request.style_lora,
+        request.reference_mode,
+    )
 
 
 def _installed_fingerprint(ctx: Any) -> tuple[tuple[str, bool], ...] | None:
@@ -711,6 +737,12 @@ def conditioning_tail(form: dict[str, Any]) -> str:
     # section with nothing visible in it was claiming a setting that does nothing.
     if not str(form.get("ref_path") or ""):
         return ""
+    # The 2026-10-10 audit, finding create-11: the tile door takes the reference
+    # bytes and nothing else (``tile_sheet_kwargs`` sends no adapter, strength,
+    # start image or structure), so counting the held selections here read
+    # "(4 on)" over a request that carried one.
+    if is_tile_arm(form):
+        return "  (1 on)"
     live = 1
     live += sum(1 for key in ("ip_adapter", "control") if str(form.get(key) or ""))
     live += 1 if form.get("init_image") else 0
@@ -836,12 +868,27 @@ def lora_options(ctx: Any, form: dict[str, Any]) -> list[tuple[str, str]]:
     are missing.
     """
     fitting = (ctx.guidance.get("loras_by_base") or {}).get(_lora_base(ctx, form)) or []
+    held = form.get("style_lora") or ""
     options: list[tuple[str, str]] = []
     for key, label in ctx.style_loras or []:
-        if key in fitting:
+        if not key or key in fitting:
+            # The empty key is "no style LoRA", offered whatever the base: it was
+            # dropped here (``"" in fitting`` is never true), which left a combo
+            # that could not be set back to no style -- the way out of every
+            # stale selection below.
             options.append((key, label))
-        elif key and key == (form.get("style_lora") or ""):
+        elif key == held:
             options.append((key, f"{label} - not fitted to this model"))
+    # The 2026-10-10 audit, finding create-09: a style LoRA imported and then
+    # removed in Settings leaves ``form["style_lora"]`` holding a key the
+    # registry no longer has, so the loop above never meets it, the combo
+    # falls back to index 0 and Generate is refused with "Choose a recognised
+    # style LoRA." over a control that shows nothing wrong. Listed by its key,
+    # marked, so the selection is visible and can be changed.
+    if held and all(key != held for key, _ in options):
+        known = {key for key, _ in ctx.style_loras or []}
+        if held not in known:
+            options.append((held, f"{held} - removed"))
     return options
 
 def lora_filter_note(ctx: Any, form: dict[str, Any]) -> str | None:

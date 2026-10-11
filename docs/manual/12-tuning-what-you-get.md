@@ -17,6 +17,10 @@ mean something.
 
 That is the whole discipline: unlock while hunting, lock while comparing.
 
+A result's **Use these settings** (and the Library's **Copy settings to form**) loads its recorded seed and locks it, so
+the first Generate after you change one thing reuses that seed instead of rolling a new one; a mesh's **Use these
+settings** does the same with the mesh seed. A result that recorded no seed leaves your seed alone.
+
 The segmented 1 / 2 / 4 / 8 **Count** control in the command bar has no caption of its own — each
 value carries its own tooltip — and asks for several candidates at once from different seeds.
 Generating four and picking

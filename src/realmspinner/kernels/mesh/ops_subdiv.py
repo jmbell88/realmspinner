@@ -225,7 +225,21 @@ def _refuse_growth(mesh: Mesh, verb: str, faces: np.ndarray | None = None) -> No
         sel = np.unique(np.asarray(faces, dtype="i8"))
         starts = mesh.starts.astype("i8")
         counts = starts[sel + 1] - starts[sel]
-        grown = (face_count(mesh) - len(sel)) + int(counts.sum())
+        unselected = face_count(mesh) - len(sel)
+        grown = unselected + int(counts.sum())
+        # The 2026-10-10 audit's clay-34: when the faces the selection leaves
+        # alone are already past the ceiling no selection can fit -- one face on
+        # a 504,100-face grid was refused at 504,103 and told "Subdivide a part
+        # of it", the thing just tried. The unselected faces are rebuilt too, so
+        # the cost really is the mesh's; the way out is a smaller object.
+        if unselected > MAX_SUBDIVIDED_FACES:
+            raise OpError(
+                f"{verb} any part of this object is past what Clay does: it has "
+                f"{face_count(mesh):,} faces and the limit is "
+                f"{MAX_SUBDIVIDED_FACES:,}. Use Separate Selection (or Separate "
+                "Loose Parts) to split the part you want into an object of its "
+                "own, and subdivide that."
+            )
     if grown > MAX_SUBDIVIDED_FACES:
         raise OpError(
             f"{verb} this object would make {grown:,} faces, past the "

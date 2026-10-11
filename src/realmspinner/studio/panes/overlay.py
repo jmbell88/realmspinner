@@ -158,12 +158,19 @@ def toolbar(ctx: Any) -> None:
     if viewer.has_model:
         # The wheel already dollies; these exist so the control is findable at
         # all. "Frame" beside them is the reset.
+        #
+        # The 2026-10-10 audit, finding create-06: ``Camera.dolly``'s positive
+        # step moves the eye *away* (it multiplies the distance by 0.95^-n), so
+        # "Zoom in" calling ``dolly(1)`` zoomed out and "Zoom out" the reverse,
+        # in Create and Review alike. The signs are fixed here at the two call
+        # sites; the wheel handlers' direction is a separate decision and is
+        # deliberately left as it was.
         _wrap(icons.ZOOM_IN)
         if widgets.icon_button(icons.ZOOM_IN, "Zoom in (wheel also dollies)"):
-            viewer.camera.dolly(1)
+            viewer.camera.dolly(-1)
         _wrap(icons.ZOOM_OUT)
         if widgets.icon_button(icons.ZOOM_OUT, "Zoom out"):
-            viewer.camera.dolly(-1)
+            viewer.camera.dolly(1)
     if state.comparing:
         _wrap(f"{icons.X} Exit comparison")
         if controls.button(f"{icons.X} Exit comparison"):

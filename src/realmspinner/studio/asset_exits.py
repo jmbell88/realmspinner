@@ -187,6 +187,16 @@ def _is_mesh(job: Any) -> bool:
     the exact field ``service._jobs_lifecycle.dependent_jobs`` filters on for
     the same fact, read from the other side.
     """
+    # The 2026-10-10 audit, finding create-14: a ``lora_train`` row is minted
+    # with no stage, so it takes the column default ``model``, and it carries
+    # no ``source_job`` -- both halves of this test passed, and a finished LoRA
+    # was offered Clay, Mason and two Poser doors dimmed with "This mesh has no
+    # model yet.", a reason that is false of a LoRA. ``OPENS_ELSEWHERE`` is
+    # the one place that already names the kinds whose row is not a mesh.
+    from .asset_open import OPENS_ELSEWHERE
+
+    if job.get("kind") in OPENS_ELSEWHERE:
+        return False
     return job.get("stage") == "model" and not _params(job).get("source_job")
 
 
@@ -451,7 +461,17 @@ def _plotter_add(ctx: Any, job: Any) -> Exit | None:
     # offered a live "Add to Plotter as a tileset" door that acted on the
     # mesh's reference photo. The near-miss branch below already gates on
     # ``near_miss_image_stages``; the ready branch needs the same gate.
-    if job.get("stage") in near_miss_image_stages and "input.png" in _files(job):
+    #
+    # The 2026-10-10 audit, finding create-15: it also never tested the row's
+    # *status*, so a running, errored or cancelled tile row that had already
+    # published its ``input.png`` was offered a live door while ``_inker``,
+    # on the same row, was dimmed by status first. Unfinished falls through to
+    # the near-miss branch below, which dims with the status sentence.
+    if (
+        job.get("stage") in near_miss_image_stages
+        and job.get("status") == "done"
+        and "input.png" in _files(job)
+    ):
         return Exit("plotter", label, hint, "", "", door)
 
     # The near miss is scoped to a reference-shaped row (A2's own wording:
@@ -506,7 +526,14 @@ def _packwright_add(ctx: Any, job: Any) -> Exit | None:
     # above -- gate the ready branch on the job being image-shaped too, not
     # on carrying "input.png" alone, since a finished mesh carries that file
     # in its own directory as well.
-    if job.get("stage") in near_miss_image_stages and "input.png" in _files(job):
+    #
+    # The 2026-10-10 audit, finding create-15: status gate too -- see
+    # ``_plotter_add``; an unfinished row falls through to the dimmed branch.
+    if (
+        job.get("stage") in near_miss_image_stages
+        and job.get("status") == "done"
+        and "input.png" in _files(job)
+    ):
         return Exit("packwright", label, hint, "", "", door)
 
     # The 2026-09-13 audit, finding create-08: same fix as ``_plotter_add``
