@@ -298,9 +298,11 @@ def test_manual_22_names_only_controls_the_reference_column_draws():
         assert label in drawn, label
         assert label in text, label
     # And the order the manual states: the history button is drawn before the
-    # Advanced header that holds the seed row.
+    # Advanced header that holds the seed row. It is the brief card's header
+    # action now, and the brief card is the column's first card.
+    assert 'imgui.open_popup(HISTORY_POPUP)' in inspect.getsource(create_brief.inputs)
     draw = inspect.getsource(settings_2d.draw)
-    assert draw.index("_history(ctx, form)") < draw.index("##create-generation")
+    assert draw.index("create_brief.inputs(ctx)") < draw.index('key="create/advanced"')
 
 
 # --- create-38: Re-texture names a missing ControlNet before it is pressed -------

@@ -351,13 +351,13 @@ def test_each_stage_names_its_own_count_control(frames, monkeypatch):
     """The review's decision: Reference counts **Images**, Mesh counts
     **Attempts**, and they are not one "Candidates" control with two meanings."""
     texts: dict[str, list[str]] = {}
-    real = create_brief.widgets.secondary
+    real = create_brief.widgets.field_label
     for stage in ("reference", "mesh"):
         seen = texts.setdefault(stage, [])
         monkeypatch.setattr(
             create_brief.widgets,
-            "secondary",
-            lambda text, seen=seen: seen.append(text) or real(text),
+            "field_label",
+            lambda text, help_text=None, seen=seen: seen.append(text) or real(text, help_text),
         )
         ctx = _real_ctx(stage=stage, source=_SOURCE)
         frames(lambda ctx=ctx: create_brief.inputs(ctx, mesh=ctx.state.create.stage == "mesh"))

@@ -141,12 +141,12 @@ def ui(monkeypatch):
 def test_the_engine_disclosure_hints_each_axis_it_draws(monkeypatch, ui):
     """Every control the header draws is followed by a findings hint lookup,
     ``settings_3d._hint``'s own contract for every other control on this
-    pane -- and the header opens (``controls.collapsing_header`` forced true
-    here, the way a click would leave it) rather than staying collapsed, or
-    nothing below it would ever run."""
-    from realmspinner.studio import forms, probe
+    pane -- and the card opens (``widgets.FORCE_SECTIONS_OPEN``, the seam the
+    smoke test uses, in place of the click that would leave it open) rather than
+    staying collapsed, or nothing below it would ever run."""
+    from realmspinner.studio import forms, probe, widgets
 
-    monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: True)
+    monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", True)
     seen: list[str] = []
     monkeypatch.setattr(
         create_mesh,
@@ -179,9 +179,11 @@ def test_the_engine_disclosure_hints_each_axis_it_draws(monkeypatch, ui):
 def test_the_engine_disclosure_draws_nothing_while_collapsed(monkeypatch, ui):
     """Collapsed by default (module docstring: a restart nobody asked for),
     so an unopened header must hint nothing and touch no form field."""
-    from realmspinner.studio import forms, probe
+    from realmspinner.studio import forms, probe, widgets
 
-    monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: False)
+    # Closed is the card's own default and no stored choice may reopen it.
+    monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", False)
+    monkeypatch.setattr(widgets, "_SETTINGS", None)
     calls: list[str] = []
     monkeypatch.setattr(
         create_mesh,

@@ -80,11 +80,21 @@ def test_a_mesh_seed_of_zero_is_a_real_seed_and_is_sent():
 # --- the Rig section without Blender ---------------------------------------
 
 
+def _recording_group(seen):
+    """A ``widgets.group`` stand-in that records the card's title and opens it."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def group(title=None, **_kw):
+        seen.setdefault("section", title)
+        yield True
+
+    return group
+
+
 def test_rig_section_shows_disabled_when_blender_is_missing(monkeypatch):
     seen = {}
-    monkeypatch.setattr(
-        settings_3d.widgets, "section", lambda name: seen.setdefault("section", name)
-    )
+    monkeypatch.setattr(settings_3d.widgets, "group", _recording_group(seen))
 
     def checkbox(label, value, **kw):
         seen["checkbox"] = (label, value, kw)
@@ -103,7 +113,7 @@ def test_rig_section_shows_disabled_when_blender_is_missing(monkeypatch):
 
 def test_rig_section_is_enabled_when_blender_is_present(monkeypatch):
     seen = {}
-    monkeypatch.setattr(settings_3d.widgets, "section", lambda name: None)
+    monkeypatch.setattr(settings_3d.widgets, "group", _recording_group({}))
 
     def checkbox(label, value, **kw):
         seen["kw"] = kw

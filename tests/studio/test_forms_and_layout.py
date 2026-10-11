@@ -115,15 +115,22 @@ def test_the_swatch_grid_scales_with_the_display():
 def test_the_2d_form_scrolls_under_a_fixed_plan():
     """K92, after the brief moved to the command bar.
 
-    Generate itself no longer sits below this column at all -- it is in
-    ``create_brief`` and never scrolls by construction. What stays pinned here
-    is the *statement*: the plan block lists every problem with one-click
-    repairs in it, and a paragraph explaining a disabled button is no use at
-    the bottom of a scrolled column either.
+    Generate itself is not in the scrolling child -- it is the last item of the
+    plan card under it and never scrolls by construction. What is pinned with it
+    is the *statement*: the plan lists every problem with one-click repairs in
+    it, and a paragraph explaining a disabled button is no use at the bottom of
+    a scrolled column either.
     """
     source = inspect.getsource(settings_2d.draw)
     assert 'begin_child("2d-form"' in source
-    assert source.index("end_child") < source.index("_plan_footer(ctx, form)")
+    # The plan and the press are one pinned card, drawn after the form's child
+    # has closed: the statement, then the button, in that order.
+    assert (
+        source.index("end_child")
+        < source.index('plan_card(ctx, "2d")')
+        < source.index("_plan_footer(ctx, form)")
+        < source.index("submit_control(ctx)")
+    )
 
 
 def test_generate_is_not_in_the_scrolling_column_at_all():

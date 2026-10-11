@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import Any
 
 from imgui_bundle import imgui
@@ -130,7 +131,10 @@ def plan_footer(
     if it has one. Reference and Mesh each drew their own version of this, and
     Mesh's was a muted cost line and bare red text with no repair.
     """
-    widgets.secondary("Generation plan")
+    # The title is the plan card's own header when this is drawn in one
+    # (``plan_card``); only a caller with no card around it needs the line.
+    if not widgets.in_group():
+        widgets.secondary("Generation plan")
     imgui.text_wrapped(plan.stages)
     if plan.generations > 0:
         widgets.muted_wrapped(f"{plan.count_line} · {plan.duration}")
@@ -211,24 +215,33 @@ def is_untouched_prompt_problem(ctx: Any, problem: Any) -> bool:
     )
 
 
-#: The plan footer's height before it has been measured, and its floor, in
-#: design pixels. 168 is the old fixed ``-sp(220)`` less the Generate row.
-PLAN_DEFAULT_DP = 168.0
-PLAN_MIN_DP = 96.0
+#: The plan **card's** height before it has been measured, and its floor, in
+#: design pixels. The card is the title row (26), the plan's five or six lines,
+#: the 40 px Generate button and 12 px of padding all round: about 208 for a
+#: ready form, which is what the first frame reserves until the card has been
+#: drawn once and has said how tall it really is.
+PLAN_DEFAULT_DP = 208.0
+#: Never reserve less than the title row, one line, the button and the padding
+#: (12 + 26 + 8 + 20 + 8 + 40 + 12), so a stale small measurement cannot hand
+#: the form child room the card then overflows into.
+PLAN_MIN_DP = 128.0
 
-#: The most of the column the footer may take before it scrolls instead.
-_PLAN_MAX_FRACTION = 0.55
+#: The most of the column the card may be given. 0.7 rather than the 0.55 the
+#: old scrolling footer took: that footer scrolled inside its own child, but the
+#: card holds the Generate button, and a card taller than its reserve is cut off
+#: at the pane edge with the button under the cut.
+_PLAN_MAX_FRACTION = 0.7
 
 
 def plan_height(ctx: Any, key: str) -> float:
-    """Pixels to give the pinned plan footer of column ``key`` ("2d" or "3d").
+    """Pixels to give the pinned plan card of column ``key`` ("2d" or "3d").
 
-    **Its own measured content**, one frame late (:func:`note_plan_height` writes
-    the figure from inside the footer's child), clamped between a floor and a
-    share of the column. The column used to reserve a fixed ``-sp(220)`` /
-    ``-sp(52)`` split, so a footer with a refusal, a repair button and an
-    advisory lost its last line to the clip (the 2026-10-11 review), and a
-    footer with one line wasted a hundred pixels of form.
+    **Its own measured height**, one frame late (:func:`note_plan_height` writes
+    the figure from the card's item rect once it has closed), clamped between a
+    floor and a share of the column. The column used to reserve a fixed
+    ``-sp(220)`` / ``-sp(52)`` split, so a footer with a refusal, a repair
+    button and an advisory lost its last line to the clip (the 2026-10-11
+    review), and a footer with one line wasted a hundred pixels of form.
     """
     measured = ctx.state.create.plan_heights.get(key)
     height = sp(PLAN_DEFAULT_DP) if measured is None else float(measured)
@@ -236,11 +249,40 @@ def plan_height(ctx: Any, key: str) -> float:
     return max(sp(PLAN_MIN_DP), min(height, ceiling))
 
 
+def plan_reserve(ctx: Any, key: str) -> float:
+    """The scrolling form child's height argument: the card's room, negated.
+
+    The card is the *next* item, so imgui puts one ``ItemSpacing.y`` between the
+    two children and the reserve is the card plus that gap -- which is what makes
+    the form's bottom sit exactly one gutter above the card's top. It used to be
+    a guessed ``sp(52)`` for a Generate row drawn outside any child, and a
+    different guess on each stage once the footer's own divider was counted.
+    """
+    return -(plan_height(ctx, key) + imgui.get_style().item_spacing.y)
+
+
 def note_plan_height(ctx: Any, key: str) -> None:
-    """Record how tall the footer just drawn turned out to be. Call it inside
-    the footer's child, after its last item."""
-    content = imgui.get_cursor_pos_y() + imgui.get_scroll_y() + sp(6)
-    ctx.state.create.plan_heights[key] = float(content)
+    """Record how tall the plan card just drawn turned out to be. Call it right
+    after the card has closed: the last item is then the card itself, whose rect
+    is the whole of it (title, lines, button and padding) and not a cursor
+    position inside a child, which left the button and the card's own padding
+    out of the figure."""
+    ctx.state.create.plan_heights[key] = float(imgui.get_item_rect_size().y)
+
+
+@contextmanager
+def plan_card(ctx: Any, key: str):
+    """The pinned "Generation plan" card, the same on both stages.
+
+    The caller draws the plan lines and then the press into it; the card's own
+    height is noted when it closes. One card, one title, one place for the
+    button: Reference and Mesh used to differ by a divider-versus-gap split above
+    the lines and by where Generate sat relative to them, so the button moved
+    when the stage changed.
+    """
+    with widgets.group("Generation plan", id="plan"):
+        yield
+    note_plan_height(ctx, key)
 
 
 def _advisories(advisories: list[Any], repair: Callable[[Any], None] | None) -> None:

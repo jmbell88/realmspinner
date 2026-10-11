@@ -359,13 +359,21 @@ def test_the_creation_decision_is_split_between_the_bar_and_the_column():
         assert gone not in source, gone
     for retired in ("_asset_type", "_prompt", "_quality", "_run_controls", "_submit"):
         assert not hasattr(settings_2d, retired), retired
-    # One disclosure survives, and it holds one thing.
-    assert "Conditioning" in source and "collapsing_header(" in source
-    assert "section_blocks" in source
+    # One disclosure survives, and it holds one thing: a collapsible *card*
+    # whose header row is the persisted disclosure, never a bare
+    # ``collapsing_header`` or a ``section_blocks`` fill any more -- every heading
+    # in the column is a ``widgets.group``.
+    assert "Conditioning" in source and "collapsible=True" in source
+    assert "widgets.group(" in source and "widgets.group_stack()" in source
+    for retired_scope in ("section_blocks", "controls.collapsing_header", "pane_header"):
+        assert retired_scope not in source, retired_scope
     for retired in ("_more", "_guidance", "_presets", "_vector_presets"):
         assert not hasattr(settings_2d, retired)
     pane = inspect.getsource(settings_2d)
+    # The card's header row goes through ``widgets.header`` inside ``group``; the
+    # pane never calls it itself.
     assert "widgets.header(" not in pane
+    assert "controls.collapsing_header(" not in pane
 
 
 # --- Phase 3: the focus ring ------------------------------------------------

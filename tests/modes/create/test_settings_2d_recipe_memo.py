@@ -13,6 +13,7 @@ on wall time or frame count, per the same ruling.
 
 from __future__ import annotations
 
+import contextlib
 from types import SimpleNamespace
 
 from realmspinner import generation
@@ -169,8 +170,12 @@ def test_model_combo_resolves_the_recipe_through_the_memo_not_directly():
         muted_wrapped=lambda *a, **k: None,
         wrapped=lambda *a, **k: None,
     )
-    real_widgets = mod.widgets
+    real_widgets, real_brief = mod.widgets, mod.create_brief
     mod.widgets = stub_widgets
+    # The Image model field's label and rhythm are ``create_brief.card_field``'s,
+    # which draws through the real ``widgets`` and needs a frame; this test is
+    # about the memo, so the field helper is a no-op.
+    mod.create_brief = SimpleNamespace(card_field=lambda *a, **k: contextlib.nullcontext())
     try:
         mod._model(ctx, form)
         ctx.state.frame_index += 1
@@ -181,4 +186,5 @@ def test_model_combo_resolves_the_recipe_through_the_memo_not_directly():
         )
     finally:
         mod.widgets = real_widgets
+        mod.create_brief = real_brief
         generation.resolve_recipe = original

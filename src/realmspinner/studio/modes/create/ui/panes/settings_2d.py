@@ -2,10 +2,11 @@
 
 This pane owns the prompt and every field that reaches the text encoder; the
 3D pane owns nothing that does. Since the 2026-08-17 taxonomy retirement the
-form is flat -- no folds, no guidance groups -- and every section draws as a
-full-width tinted block, matching Plotter's tools pane: the block scope is
-opened *inside* the ``2d-form`` child so the fills land on the child's own
-draw list rather than under its opaque background.
+form is flat -- no guidance groups -- and every section is a card
+(``widgets.group``: a child window with 12 px of padding, 8 px between cards):
+the stack is opened *inside* the ``2d-form`` child so the cards are that child's,
+and Advanced and Conditioning are the two collapsible ones. The plan and the
+press are one more card under the scrolling form (``workspace.plan_card``).
 
 **What a recipe means** -- the plan, the validation, the kwargs, the option
 lists, the notes explaining a disabled control -- lives in
@@ -78,31 +79,27 @@ def draw(ctx: Any) -> None:
     if create_recipe.is_character(form):
         character_engine.mirror_errors(ctx)
     with forms.Form("create-2d", errors=ctx.state.field_errors) as form_ui:
-        # The plan block is pinned and does not scroll (K92): the statement of
+        # The plan card is pinned and does not scroll (K92): the statement of
         # what a press will cost must not be at the bottom of a scrolled column
-        # when the press itself is right under it. It used to be a fixed
-        # ``-sp(220)``/``-sp(52)`` pair, so a footer with a refusal and a repair
-        # button lost its last line to the clip (the 2026-10-11 review); the
-        # height is the footer's own measured content now, one frame late
-        # (``generation_workspace.plan_height``), clamped so it can never eat
-        # the form.
+        # when the press itself is right under it -- it is in the same card.
+        # The form above it is sized to leave exactly the card's measured
+        # height and one gutter (``plan_reserve``), one frame late, where this
+        # was a pair of fixed reserves and then a guess at a footer drawn
+        # outside any child.
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
-        plan_h = generation_workspace.plan_height(ctx, "2d")
-        if imgui.begin_child("2d-form", (0, -(plan_h + sp(52)))):
-            # The block scope opens *inside* the child: section() fills go to
-            # the current window's draw list, and a scope opened outside would
-            # paint onto the parent pane's list, where this child's opaque
-            # PANEL background covers all but the 8dp left overhang. The
-            # ``with`` closes before end_child -- an unbalanced splitter
-            # corrupts the next frame (widgets.py, _BlockScope).
-            with widgets.section_blocks():
+        if imgui.begin_child("2d-form", (0, generation_workspace.plan_reserve(ctx, "2d"))):
+            # **Every group is a card** (concept 03), and the stack is what puts
+            # exactly one gutter between them. The scope opens *inside* the
+            # child so the cards are children of it; the ``with`` closes before
+            # ``end_child`` -- an unbalanced stack corrupts the next frame.
+            with widgets.group_stack():
                 create_brief.inputs(ctx)
                 # **The brief's inputs open the column, the recipe follows.**
                 # ``create_brief.inputs`` draws the type, the prompt, the count
-                # and Reset at the top of this very column, and
-                # ``create_brief.submit_control`` draws Generate under the plan
-                # at its foot; what is drawn here is the recipe, whatever the
+                # and Recent prompts at the top of this very column, and
+                # ``create_brief.submit_control`` draws Generate at the foot of
+                # the plan card; what is drawn here is the recipe, whatever the
                 # chosen type needs, and the conditioning -- and it is flat,
                 # because "Advanced controls" was one disclosure holding six
                 # sections, which is a second navigation inside a sidebar.
@@ -118,66 +115,79 @@ def draw(ctx: Any) -> None:
                     # about SDXL (Reset moved to ``create_brief`` with the rest
                     # of the bar, 2026-09-07 -- it is about the form too, but
                     # this pane no longer draws it). An ``if/else`` rather than
-                    # an early return: the block scope and the child both have
-                    # to close in order, and this file has already shipped the
+                    # an early return: the stack and the child both have to
+                    # close in order, and this file has already shipped the
                     # frame-corrupting version of that once.
                     settings_character.draw_block(ctx, form, form_ui)
                 else:
                     if create_recipe.is_tile_arm(form):
-                        widgets.section("Tileset")
-                        manual_render.help_button(ctx, "settings-sheet")
-                        _tile_layout(ctx, form, form_ui)
-                        _tile_size(ctx, form, form_ui)
-                        _target_cell(ctx, form, form_ui)
-                        _pixel_look(ctx, form, form_ui, sprite=False)
+                        with widgets.group("Tileset", id="tileset"):
+                            manual_render.help_button(ctx, "settings-sheet")
+                            _tile_layout(ctx, form, form_ui)
+                            _tile_size(ctx, form, form_ui)
+                            _target_cell(ctx, form, form_ui)
+                            _pixel_look(ctx, form, form_ui, sprite=False)
                     elif form.get("output") == "sheet":
-                        widgets.section("Sprite sheet")
-                        manual_render.help_button(ctx, "settings-sheet")
-                        _sprite_layout(ctx, form, form_ui)
-                        _sprite_size(ctx, form, form_ui)
-                        # No Cell target here (the 2026-10-04 audit, finding
-                        # create-22): the sprite door keeps no target, so the
-                        # control validated a number and did nothing with it.
-                        _pixel_look(ctx, form, form_ui, sprite=True)
-                    widgets.section("Recipe")
-                    manual_render.help_button(ctx, "settings-2d")
-                    if intent == "tileset":
-                        _locked_sheet_recipe(ctx, "Tile-set recipe", part="model")
-                        _locked_sheet_recipe(ctx, "Locked for coherent pixel tiles", part="lora")
-                    else:
-                        _model(ctx, form, findings_doc)
-                        _lora(ctx, form, show_strength=False, findings_doc=findings_doc)
-                    if intent == "sprite":
-                        _locked_sheet_recipe(ctx, "Final sheet recipe", sprite=True)
+                        with widgets.group("Sprite sheet", id="sprite-sheet"):
+                            manual_render.help_button(ctx, "settings-sheet")
+                            _sprite_layout(ctx, form, form_ui)
+                            _sprite_size(ctx, form, form_ui)
+                            # No Cell target here (the 2026-10-04 audit, finding
+                            # create-22): the sprite door keeps no target, so the
+                            # control validated a number and did nothing with it.
+                            _pixel_look(ctx, form, form_ui, sprite=True)
+                    with widgets.group("Recipe", id="recipe"):
+                        manual_render.help_button(ctx, "settings-2d")
+                        if intent == "tileset":
+                            _locked_sheet_recipe(ctx, "Tile-set recipe", part="model")
+                            _locked_sheet_recipe(
+                                ctx, "Locked for coherent pixel tiles", part="lora"
+                            )
+                        else:
+                            _model(ctx, form, findings_doc)
+                            _lora(ctx, form, show_strength=False, findings_doc=findings_doc)
+                        if intent == "sprite":
+                            _locked_sheet_recipe(ctx, "Final sheet recipe", sprite=True)
                     if form.get("style_lora") and intent != "tileset":
-                        widgets.section("Style strength")
-                        _lora_strength(ctx, form, findings_doc)
-                    _history(ctx, form)
+                        with widgets.group("Style strength", id="style-strength"):
+                            _lora_strength(ctx, form, findings_doc)
                     # One contextual section, for the one type that needs it.
                     # Image and 3D Model draw none at all, which is the whole
                     # point: a control that cannot apply is not shown greyed, it
-                    # is not shown.
+                    # is not shown. **The tail says what a closed card is hiding**
+                    # (INVARIANTS: a closed disclosure never hides a setting that
+                    # is doing something), and ``id=`` pins the card's identity
+                    # so the tail changing does not make it a new window.
                     tail = " - seed locked" if form.get("seed_locked") else ""
-                    if controls.collapsing_header(f"Advanced{tail}##create-generation"):
-                        _seed_row(ctx, form, form_ui)
-                        if create_recipe.negative_supported(ctx, form):
-                            widgets.section("Negative prompt / Avoid")
-                            _negative(ctx, form)
+                    with widgets.group(
+                        f"Advanced{tail}",
+                        id="advanced",
+                        key="create/advanced",
+                        collapsible=True,
+                        default_open=False,
+                    ) as opened:
+                        if opened:
+                            _seed_row(ctx, form, form_ui)
+                            if create_recipe.negative_supported(ctx, form):
+                                widgets.sub_label("Negative prompt / Avoid")
+                                _negative(ctx, form)
                     # The one disclosure left, and it holds one thing.
                     # Collapsed by default because most runs attach no image at
                     # all; the tail says when one is attached, so a closed
                     # section never hides a setting that is doing something.
-                    opened = controls.collapsing_header(
-                        f"Conditioning{create_recipe.conditioning_tail(form)}##create"
-                    )
-                    if opened:
-                        _references(ctx, form, findings_doc)
+                    with widgets.group(
+                        f"Conditioning{create_recipe.conditioning_tail(form)}",
+                        id="conditioning",
+                        key="create/conditioning",
+                        collapsible=True,
+                        default_open=False,
+                    ) as opened:
+                        if opened:
+                            _references(ctx, form, findings_doc)
         imgui.end_child()
-        if imgui.begin_child("2d-plan", (0, -sp(52))):
+        with generation_workspace.plan_card(ctx, "2d"):
             _plan_footer(ctx, form)
-            generation_workspace.note_plan_height(ctx, "2d")
-        imgui.end_child()
-        create_brief.submit_control(ctx)
+            create_brief.submit_control(ctx)
 
 
 def _locked_sheet_recipe(ctx: Any, note: str, *, part: str = "both", sprite: bool = False) -> None:
@@ -294,7 +304,7 @@ def _tile_materials(
         "prompt_items",
         "Materials",
         before,
-        height=90,
+        height=create_brief.PROMPT_H,
         max_length=MAX_PROMPT * int(options["max_materials"]),
         help_text=(
             "One surface per line. Each line is generated on its own as a "
@@ -823,27 +833,6 @@ def _reset(ctx: Any) -> None:
     ctx.toast("The image settings are back to their defaults.")
 
 
-def _history(ctx: Any, form: dict[str, Any]) -> None:
-    """Reuse a prompt from this session.
-
-    No leading ``same_line``: it used to sit beside the prompt field, and with
-    that field in the command bar the continuation landed against whatever
-    happened to be drawn before it -- in practice the style-strength slider,
-    which is how a button ends up orphaned in the middle of another section.
-    """
-    if not ctx.state.history:
-        return
-    if controls.button("Recent prompts..."):
-        imgui.open_popup("prompt-history")
-    if imgui.begin_popup("prompt-history"):
-        widgets.popup_chrome(_imgui=imgui)
-        for entry in ctx.state.history:
-            label = entry if len(entry) <= 60 else entry[:57] + "..."
-            if controls.menu_item(f"{label}##{hash(entry)}", "", False)[0]:
-                form["prompt"] = entry
-        imgui.end_popup()
-
-
 def _references(
     ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOAD_FINDINGS
 ) -> None:
@@ -914,10 +903,11 @@ def _reference_body(
         widgets.muted_wrapped("A tileset takes the picture as its style reference.")
         return
 
-    # Field labels rather than nested section() calls: inside the block scope
-    # a section would open a new block, and these are two halves of the one
-    # References block.
-    widgets.field_label("appearance")
+    # Sub-labels rather than nested cards: this whole function is one card (the
+    # Conditioning group), and these are three halves of it. A card in a card is
+    # the thing the design refuses, and a field label would read as the name of
+    # one field where each of these names a run of them.
+    widgets.sub_label("appearance")
     form["ip_adapter"] = widgets.combo(
         "##ip_adapter", form["ip_adapter"], _options(ctx, "ip_adapter")
     )
@@ -925,22 +915,25 @@ def _reference_body(
         # A sub-field of "appearance" above, not a section of its own: one
         # small-caps name line, id kept stable (2026-09-08 consistency pass,
         # "Strength##ip" visible -> "##Strength##ip" hidden).
-        widgets.field_label("Strength")
-        changed, value = controls.slider_float(
-            "##Strength##ip", float(form["ip_scale"]), *_range(ctx, "ip_scale_range", 0.0, 1.5)
-        )
-        if changed:
-            form["ip_scale"] = value
-            ctx.state.clear_field_error("ip_scale")
-        # The 2026-09-16 audit, finding create-panes-01: guidance.normalize's
-        # `_number` refuses an out-of-range `ip_scale` by name, but nothing on
-        # this pane rang the control -- a persisted form carrying a stale value
-        # reached the queue door with the Conditioning section still collapsed
-        # and no ring anywhere to say which slider was at fault.
-        widgets.field_error(ctx.state, "ip_scale")
-        _hint(ctx, form, "ip_scale", form["ip_scale"], findings_doc)
+        with create_brief.card_field("Strength"):
+            imgui.set_next_item_width(-1.0)
+            changed, value = controls.slider_float(
+                "##Strength##ip",
+                float(form["ip_scale"]),
+                *_range(ctx, "ip_scale_range", 0.0, 1.5),
+            )
+            if changed:
+                form["ip_scale"] = value
+                ctx.state.clear_field_error("ip_scale")
+            # The 2026-09-16 audit, finding create-panes-01: guidance.normalize's
+            # `_number` refuses an out-of-range `ip_scale` by name, but nothing on
+            # this pane rang the control -- a persisted form carrying a stale value
+            # reached the queue door with the Conditioning section still collapsed
+            # and no ring anywhere to say which slider was at fault.
+            widgets.field_error(ctx.state, "ip_scale")
+            _hint(ctx, form, "ip_scale", form["ip_scale"], findings_doc)
 
-    widgets.field_label("start image")
+    widgets.sub_label("start image")
     # The 2026-09-05 audit, finding create-04: this checkbox used to be drawn
     # unconditionally, so a non-SDXL base under Advanced showed it live, took
     # the tick, and only refused at the queue door (guidance.normalize). It is
@@ -960,25 +953,28 @@ def _reference_body(
         form["init_image"] = on
         _forget_cleared_note(ctx)
     if form.get("init_image"):
-        widgets.field_label("Strength")
-        changed, value = controls.slider_float(
-            "##Strength##init",
-            float(form.get("init_strength") or 0.45),
-            *_range(ctx, "init_strength_range", 0.3, 0.65),
-        )
-        if changed:
-            form["init_strength"] = value
-            ctx.state.clear_field_error("init_strength")
-        # The 2026-09-16 audit, finding create-panes-01: same gap as ip_scale
-        # above -- guidance.normalize refuses a stale init_strength by name and
-        # this slider never rang.
-        widgets.field_error(ctx.state, "init_strength")
-        _hint(ctx, form, "init_strength", float(form.get("init_strength") or 0.45), findings_doc)
+        with create_brief.card_field("Strength"):
+            imgui.set_next_item_width(-1.0)
+            changed, value = controls.slider_float(
+                "##Strength##init",
+                float(form.get("init_strength") or 0.45),
+                *_range(ctx, "init_strength_range", 0.3, 0.65),
+            )
+            if changed:
+                form["init_strength"] = value
+                ctx.state.clear_field_error("init_strength")
+            # The 2026-09-16 audit, finding create-panes-01: same gap as ip_scale
+            # above -- guidance.normalize refuses a stale init_strength by name and
+            # this slider never rang.
+            widgets.field_error(ctx.state, "init_strength")
+            _hint(
+                ctx, form, "init_strength", float(form.get("init_strength") or 0.45), findings_doc
+            )
     if inert is not None:
         imgui.end_disabled()
         widgets.muted_wrapped(inert)
 
-    widgets.field_label("structure")
+    widgets.sub_label("structure")
     # ``structure_picker_note``, not ``recipe_structure_note(...) or
     # structure_note(...)``: under Automatic the second half read a stale
     # ``base_model`` and hid the picker (the 2026-10-04 audit, finding create-25).
@@ -991,30 +987,34 @@ def _reference_body(
     if form["control"] != was_control:
         _forget_cleared_note(ctx)
     if form["control"]:
-        widgets.field_label("Strength")
-        changed, value = controls.slider_float(
-            "##Strength##cn",
-            float(form["control_scale"]),
-            *_range(ctx, "control_scale_range", 0.0, 2.0),
-        )
-        if changed:
-            form["control_scale"] = value
-            ctx.state.clear_field_error("control_scale")
-        # The 2026-09-16 audit, finding create-panes-01: same gap as ip_scale
-        # above -- guidance.normalize refuses a stale control_scale by name and
-        # this slider never rang.
-        widgets.field_error(ctx.state, "control_scale")
-        _hint(ctx, form, "control_scale", form["control_scale"], findings_doc)
-        widgets.field_label("Until")
-        changed, value = controls.slider_float(
-            "##Until##cn", float(form["control_end"]), *_range(ctx, "control_end_range", 0.0, 1.0)
-        )
-        if changed:
-            form["control_end"] = value
-            ctx.state.clear_field_error("control_end")
-        # Same gap, control_end's own name.
-        widgets.field_error(ctx.state, "control_end")
-        _hint(ctx, form, "control_end", form["control_end"], findings_doc)
+        with create_brief.card_field("Strength"):
+            imgui.set_next_item_width(-1.0)
+            changed, value = controls.slider_float(
+                "##Strength##cn",
+                float(form["control_scale"]),
+                *_range(ctx, "control_scale_range", 0.0, 2.0),
+            )
+            if changed:
+                form["control_scale"] = value
+                ctx.state.clear_field_error("control_scale")
+            # The 2026-09-16 audit, finding create-panes-01: same gap as ip_scale
+            # above -- guidance.normalize refuses a stale control_scale by name and
+            # this slider never rang.
+            widgets.field_error(ctx.state, "control_scale")
+            _hint(ctx, form, "control_scale", form["control_scale"], findings_doc)
+        with create_brief.card_field("Until"):
+            imgui.set_next_item_width(-1.0)
+            changed, value = controls.slider_float(
+                "##Until##cn",
+                float(form["control_end"]),
+                *_range(ctx, "control_end_range", 0.0, 1.0),
+            )
+            if changed:
+                form["control_end"] = value
+                ctx.state.clear_field_error("control_end")
+            # Same gap, control_end's own name.
+            widgets.field_error(ctx.state, "control_end")
+            _hint(ctx, form, "control_end", form["control_end"], findings_doc)
         widgets.help_marker(
             "How far into the drawing the structure keeps acting. Ending early "
             "lets the last steps add detail the reference never had; 1.0 holds "
@@ -1087,56 +1087,56 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOA
     # display. "Recipe" above names the section, not this control -- a
     # section heading is not a field label, and the two neighbouring
     # controls in it (Seed, Style LoRA) both have their own.
-    widgets.field_label("Image model")
-    picked = widgets.combo("##model", before, create_recipe.model_options(ctx, form))
-    if picked != before:
-        _pick_base_model(ctx, form, picked)
-    # The refusal this most often carries is ``check_weights``' -- a model that
-    # is selected and not downloaded, with the ``hf download`` line in it.
-    widgets.field_error(ctx.state, "base_model")
-    if form.get("model_mode") == "auto":
+    with create_brief.card_field("Image model"):
+        picked = widgets.combo("##model", before, create_recipe.model_options(ctx, form))
+        if picked != before:
+            _pick_base_model(ctx, form, picked)
+        # The refusal this most often carries is ``check_weights``' -- a model that
+        # is selected and not downloaded, with the ``hf download`` line in it.
+        widgets.field_error(ctx.state, "base_model")
+        if form.get("model_mode") == "auto":
+            for note in ctx.state.preview.get(CLEARED_KEY) or ():
+                widgets.muted_wrapped(note)
+            # The 2026-09-13 audit, finding create-03: this called
+            # ``generation.resolve_recipe`` directly instead of going through
+            # the ``create_recipe.resolved_recipe`` memo, repeating
+            # ``provenance._dir_fingerprint``'s ``rglob`` over every installed
+            # checkpoint directory every frame -- the five sibling call sites
+            # were moved onto the memo by the 2026-09-08 create-06 fix, but the
+            # Model combo's own Automatic branch was missed.
+            resolved = create_recipe.resolved_recipe(ctx, form)
+            if resolved is None:
+                widgets.muted_wrapped(
+                    "No compatible installed recipe is available. "
+                    "Install a model in Settings, or pick one above."
+                )
+            else:
+                # What Automatic actually resolved to, every frame. A control whose
+                # value is "Automatic" and says nothing else is a control that
+                # refuses to tell you what it did.
+                widgets.muted_wrapped(f"{resolved.recipe.label} - {resolved.base_model}")
+                # What the resolved recipe trades, if it trades anything. This was
+                # ``_recipe_note`` under the retired Fast/Quality combo: a tier
+                # that is honestly worse and says so is a choice somebody can
+                # make, and the silence it replaced had both tiers naming
+                # ``sdxl_cfg`` while the control changed nothing at all.
+                if resolved.recipe.note:
+                    widgets.muted_wrapped(resolved.recipe.note)
+                if resolved.warning:
+                    widgets.wrapped(theme.WARN, resolved.warning)
+                # **The licence too, in this path as well** (the 2026-10-11 review):
+                # this branch returned before ``_licence_note`` was reached, so a
+                # non-commercial checkpoint that Automatic picked was never flagged
+                # while the same checkpoint chosen by hand was. Automatic filters
+                # non-commercial recipes out today, which is exactly why nothing
+                # noticed; the day a registry row says otherwise, this is the line
+                # that tells the user their output is not theirs to sell.
+                _licence_note(resolved.base_model)
+            return
         for note in ctx.state.preview.get(CLEARED_KEY) or ():
             widgets.muted_wrapped(note)
-        # The 2026-09-13 audit, finding create-03: this called
-        # ``generation.resolve_recipe`` directly instead of going through
-        # the ``create_recipe.resolved_recipe`` memo, repeating
-        # ``provenance._dir_fingerprint``'s ``rglob`` over every installed
-        # checkpoint directory every frame -- the five sibling call sites
-        # were moved onto the memo by the 2026-09-08 create-06 fix, but the
-        # Model combo's own Automatic branch was missed.
-        resolved = create_recipe.resolved_recipe(ctx, form)
-        if resolved is None:
-            widgets.muted_wrapped(
-                "No compatible installed recipe is available. "
-                "Install a model in Settings, or pick one above."
-            )
-        else:
-            # What Automatic actually resolved to, every frame. A control whose
-            # value is "Automatic" and says nothing else is a control that
-            # refuses to tell you what it did.
-            widgets.muted_wrapped(f"{resolved.recipe.label} - {resolved.base_model}")
-            # What the resolved recipe trades, if it trades anything. This was
-            # ``_recipe_note`` under the retired Fast/Quality combo: a tier
-            # that is honestly worse and says so is a choice somebody can
-            # make, and the silence it replaced had both tiers naming
-            # ``sdxl_cfg`` while the control changed nothing at all.
-            if resolved.recipe.note:
-                widgets.muted_wrapped(resolved.recipe.note)
-            if resolved.warning:
-                widgets.wrapped(theme.WARN, resolved.warning)
-            # **The licence too, in this path as well** (the 2026-10-11 review):
-            # this branch returned before ``_licence_note`` was reached, so a
-            # non-commercial checkpoint that Automatic picked was never flagged
-            # while the same checkpoint chosen by hand was. Automatic filters
-            # non-commercial recipes out today, which is exactly why nothing
-            # noticed; the day a registry row says otherwise, this is the line
-            # that tells the user their output is not theirs to sell.
-            _licence_note(resolved.base_model)
-        return
-    for note in ctx.state.preview.get(CLEARED_KEY) or ():
-        widgets.muted_wrapped(note)
-    _hint(ctx, form, "base_model", form["base_model"], findings_doc)
-    _licence_note(form["base_model"])
+        _hint(ctx, form, "base_model", form["base_model"], findings_doc)
+        _licence_note(form["base_model"])
 
 
 def _licence_note(key: str) -> None:
@@ -1182,41 +1182,41 @@ def _lora(
     # LoRA" label at the same spot in the tileset/sprite arms' pinned display.
     # Drawn before the disabled block below, not inside it: the name of a
     # disabled control is exactly the thing a disabled control must not hide.
-    widgets.field_label("Style LoRA")
-    no_lora = create_recipe.lora_note(ctx, form)
-    if no_lora is not None:
-        # Disabled rather than hidden, this pane's stated rule: the form holds
-        # a style the user picked under another base, and hiding the control
-        # would make that selection vanish with no explanation of why the
-        # submit is now refused.
-        imgui.begin_disabled()
-    was_lora = form["style_lora"]
-    # The "fitted to one architecture" sentence is a hover now, not a line of
-    # muted text under the combo on every frame (the 2026-10-11 review): it
-    # explains why the list is short, which is a question asked once.
-    narrowed = None if no_lora is not None else create_recipe.lora_filter_note(ctx, form)
-    form["style_lora"] = widgets.combo(
-        "##style_lora",
-        form["style_lora"],
-        create_recipe.lora_options(ctx, form),
-        tooltip=narrowed,
-    )
-    widgets.field_error(ctx.state, "style_lora")
-    if form["style_lora"] != was_lora:
-        ctx.state.clear_field_error("style_lora")
-        _forget_cleared_note(ctx)
-    create_recipe.reseed_lora_weight(form, was_lora)
-    _hint(ctx, form, "style_lora", form["style_lora"], findings_doc)
-    if form["style_lora"] and show_strength:
-        _lora_strength(ctx, form, findings_doc)
-    if no_lora is not None:
-        imgui.end_disabled()
-        widgets.muted_wrapped(no_lora)
-    # One sentence at a time: ``lora_note`` explains a control that cannot act
-    # (drawn under it, because a greyed control with no visible reason is a
-    # dead end) and ``lora_filter_note`` one acting on less than the whole list
-    # (its tooltip, above); both under a disabled combo would be one control
-    # saying two things.
+    with create_brief.card_field("Style LoRA"):
+        no_lora = create_recipe.lora_note(ctx, form)
+        if no_lora is not None:
+            # Disabled rather than hidden, this pane's stated rule: the form holds
+            # a style the user picked under another base, and hiding the control
+            # would make that selection vanish with no explanation of why the
+            # submit is now refused.
+            imgui.begin_disabled()
+        was_lora = form["style_lora"]
+        # The "fitted to one architecture" sentence is a hover now, not a line of
+        # muted text under the combo on every frame (the 2026-10-11 review): it
+        # explains why the list is short, which is a question asked once.
+        narrowed = None if no_lora is not None else create_recipe.lora_filter_note(ctx, form)
+        form["style_lora"] = widgets.combo(
+            "##style_lora",
+            form["style_lora"],
+            create_recipe.lora_options(ctx, form),
+            tooltip=narrowed,
+        )
+        widgets.field_error(ctx.state, "style_lora")
+        if form["style_lora"] != was_lora:
+            ctx.state.clear_field_error("style_lora")
+            _forget_cleared_note(ctx)
+        create_recipe.reseed_lora_weight(form, was_lora)
+        _hint(ctx, form, "style_lora", form["style_lora"], findings_doc)
+        if form["style_lora"] and show_strength:
+            _lora_strength(ctx, form, findings_doc)
+        if no_lora is not None:
+            imgui.end_disabled()
+            widgets.muted_wrapped(no_lora)
+        # One sentence at a time: ``lora_note`` explains a control that cannot act
+        # (drawn under it, because a greyed control with no visible reason is a
+        # dead end) and ``lora_filter_note`` one acting on less than the whole list
+        # (its tooltip, above); both under a disabled combo would be one control
+        # saying two things.
 
 
 def _lora_strength(
@@ -1228,19 +1228,22 @@ def _lora_strength(
     # A sub-field of "Style LoRA" above (2026-09-08 consistency pass): the
     # combo already carries the field label, so this slider gets its own
     # name line rather than repeating the sentence-case label beside it.
-    widgets.field_label("Strength")
-    # The 2026-09-16 audit, finding create-panes-02: this hardcoded the
-    # literal 0.0, 1.5 instead of going through ``_range``, the pattern every
-    # sibling numeric control in this file follows -- two copies of one bound
-    # with nothing to keep them equal if ``lora_weight_range`` ever changes.
-    changed, value = controls.slider_float(
-        "##Strength", form["lora_weight"], *_range(ctx, "lora_weight_range", 0.0, 1.5)
-    )
-    if changed:
-        form["lora_weight"] = value
-    default = create_recipe.lora_default_weight(form["style_lora"])
-    widgets.muted_wrapped(f"tuned default: {default:g}")
-    _hint(ctx, form, "lora_weight", form["lora_weight"], findings_doc)
+    with create_brief.card_field("Strength"):
+        # The 2026-09-16 audit, finding create-panes-02: this hardcoded the
+        # literal 0.0, 1.5 instead of going through ``_range``, the pattern every
+        # sibling numeric control in this file follows -- two copies of one bound
+        # with nothing to keep them equal if ``lora_weight_range`` ever changes.
+        # Full width: a slider is drawn at 65% of the row otherwise, which in a
+        # card left a control narrower than the combo above it.
+        imgui.set_next_item_width(-1.0)
+        changed, value = controls.slider_float(
+            "##Strength", form["lora_weight"], *_range(ctx, "lora_weight_range", 0.0, 1.5)
+        )
+        if changed:
+            form["lora_weight"] = value
+        default = create_recipe.lora_default_weight(form["style_lora"])
+        widgets.muted_wrapped(f"tuned default: {default:g}")
+        _hint(ctx, form, "lora_weight", form["lora_weight"], findings_doc)
 
 
 def _negative(ctx: Any, form: dict[str, Any]) -> None:
@@ -1252,11 +1255,13 @@ def _negative(ctx: Any, form: dict[str, Any]) -> None:
     # 1.0 or lower), and the text stays in the form for when a model that
     # reads it is picked again.
     #
-    # The section heading above is the label; imgui would draw a multiline's
-    # own label to the *right* of a -1-wide field, clipped off the panel.
+    # The sub-label above is the label; imgui would draw a multiline's own label
+    # to the *right* of a -1-wide field, clipped off the panel. The height is the
+    # shared secondary text-area one, scaled: this was a bare ``54`` that was
+    # never passed through ``sp`` and so did not grow with the UI.
     was_negative = form["negative_prompt"]
     form["negative_prompt"] = widgets.multiline(
-        "##negative", form["negative_prompt"], 54, MAX_PROMPT
+        "##negative", form["negative_prompt"], sp(create_brief.TEXT_AREA_H), MAX_PROMPT
     )
     if form["negative_prompt"] != was_negative:
         _forget_cleared_note(ctx)
@@ -1325,13 +1330,15 @@ def _advisory_fix(ctx: Any, form: dict[str, Any], advisory: problem_types.Adviso
 def _plan_footer(ctx: Any, form: dict[str, Any]) -> None:
     """What a press will cost, and what is stopping it. Pinned, never scrolled.
 
-    The button this used to carry is in ``create_brief`` now. The *statement*
-    stays here, because it is a paragraph with one-click repairs in it and a
-    one-row bar has no place to put either -- the bar's disabled Generate wears
-    the first problem as its tooltip and this is the list.
+    Drawn inside the plan card (``generation_workspace.plan_card``), whose header
+    is its title and whose last item is the press (``create_brief.submit_control``).
+    The *statement* stays here, because it is a paragraph with one-click repairs
+    in it and a one-row bar has no place to put either -- the bar's disabled
+    Generate wears the first problem as its tooltip and this is the list. There
+    is no rule above it any more: the card's edge is the separation, and the old
+    divider-versus-gap split above the footer was a different height on each
+    stage.
     """
-    imgui.dummy((0, sp(8)))
-    widgets.divider()
     _generation_plan(
         ctx, form, create_recipe.problems_for(ctx, form), create_recipe.advisories_for(ctx, form)
     )

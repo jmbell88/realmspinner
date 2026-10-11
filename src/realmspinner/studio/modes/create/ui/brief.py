@@ -1,19 +1,21 @@
 """Create's navigation header and reusable draft controls.
 
 The header holds the asset journey, New and Inspector. The settings pane owns
-the brief and candidate count, with one persistent submit action below its plan.
+the brief and candidate count, with one persistent submit action at the foot of
+its plan card.
 Inspecting an attempt does not load its settings or replace the chosen source.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import Any
 
 from imgui_bundle import imgui
 
 from .... import anchors, controls, dialogs, focus, icons, theme, widgets
-from ....tokens import sp
+from ....tokens import SP_1, sp
 from ..engine import assets as create_assets
 from ..engine import character as create_character
 from ..engine import mesh as create_mesh
@@ -29,10 +31,25 @@ from ..engine import recipe as create_recipe
 #: column (:func:`inputs`, :func:`submit_control`), so there is one height now.
 RAIL_ONLY_H = 72.0
 
-#: The prompt field's own height. Two lines rather than one, because
+#: The prompt field's height, and the height of every text area in Create's
+#: columns that is the *subject* of its card. Six lines rather than one because
 #: ``MAX_PROMPT`` is a thousand characters and a single-line input for a
-#: paragraph shows the tail and hides the subject. It scrolls past two.
-PROMPT_H = 40.0
+#: paragraph shows the tail and hides the subject. It scrolls past that. One
+#: number: the prompt used to be drawn at a literal 104 here while the constant
+#: beside it said 40 (it was the Generate button's height), so the name and the
+#: value had parted.
+PROMPT_H = 96.0
+
+#: The height of a text area that is *secondary* to its card (the Avoid list).
+#: Create has two heights for a text box, this and :data:`PROMPT_H`, and nothing
+#: in between: the Avoid box was a hand-typed ``54`` that was never even scaled.
+TEXT_AREA_H = 56.0
+
+#: The press, in the plan card at the foot of the column. 40 on both stages.
+GENERATE_H = 40.0
+
+#: The Mesh stage's source chip: a thumbnail row the height of the press below.
+SOURCE_H = 40.0
 
 #: Fixed widths for the controls the column draws at a set size. Design pixels;
 #: ``sp`` scales them. ``COUNT_W`` is what ``imgui.push_item_width`` reserves
@@ -155,34 +172,110 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
         state.create.inspector_open = not state.create.inspector_open
 
 
+@contextmanager
+def card_field(label: str, tip: str = "", *, help_text: str | None = None):
+    """One labelled field of the brief card: 12 px from the field above, the
+    label in the card's one field register, 4 px to the control.
+
+    ``Form.field`` is what draws every other field in the column and gives it
+    this rhythm; the brief's controls (the type combo, the prompt, the count
+    pills) are not ``Form`` fields -- the prompt and the pills have their own
+    focus keys, anchors and refusal rings -- so this is the same three steps by
+    hand rather than a second spacing. The hover text is on the label as well as
+    on the control it names.
+
+    Public because the recipe and mesh columns have the same kind of field (a
+    combo or slider whose refusal ring is ``widgets.field_error``'s and whose id
+    a test pins): they step through the same ``group_field_begin`` /
+    ``group_field_end`` pair, so a ``Form`` field above and one of these below
+    are 12 px apart rather than 8.
+    """
+    widgets.group_field_begin()
+    widgets.field_label(label, help_text)
+    if tip and imgui.is_item_hovered():
+        imgui.set_tooltip(tip)
+    # Only inside a card: the 4 px is the card's rhythm, and a field drawn bare
+    # (a unit test, a caller that has not opened a card yet) keeps imgui's own
+    # item spacing rather than being nudged against a cursor it never placed.
+    if widgets.in_group():
+        widgets.tighten(SP_1)
+    try:
+        yield
+    finally:
+        widgets.group_field_end()
+
+
 def inputs(ctx: Any, *, mesh: bool = False) -> None:
-    """The draft's essential controls, above artistic and technical settings."""
+    """The draft's essential controls, above artistic and technical settings.
+
+    One card: "Your brief" on Reference, "Build from a reference" on Mesh. The
+    Reference card's header carries **Recent prompts...**, which used to sit in
+    the Recipe section beside the style strength, a button about the prompt
+    drawn under a control about the model.
+    """
     form = ctx.state.form_3d if mesh else ctx.state.form_2d
     # No ``focus.pump``/``begin`` here: the settings pane that hosts this
     # column already did, on the same key (see ``FOCUS_PANE``).
-    widgets.pane_header("Build from a reference" if mesh else "Your brief")
-    if mesh:
-        _source_chip(ctx, imgui.get_content_region_avail().x)
-    else:
-        widgets.secondary("What are you making?")
-        _type(ctx, form, width=imgui.get_content_region_avail().x)
-        widgets.muted_wrapped(_TYPE_HINTS.get(create_assets.selected(form).key, ""))
-        widgets.secondary(
-            "Describe the asset" if form.get("asset_type") != "tileset" else "Shared style"
-        )
-        _prompt(ctx, form, imgui.get_content_region_avail().x, height=104)
-        widgets.field_error(ctx.state, "prompt")
-    if mesh or form.get("output") not in ("sheet", "character"):
-        widgets.secondary(ATTEMPTS_LABEL if mesh else IMAGES_LABEL)
-        if imgui.is_item_hovered():
-            imgui.set_tooltip(ATTEMPTS_TIP if mesh else IMAGES_TIP)
-        _count(
-            ctx,
-            form,
-            _MESH_COUNTS if mesh else _COUNTS,
-            create_mesh.candidate_count(form) if mesh else int(form["count"]),
-            key="attempts" if mesh else "count",
-        )
+    actions = ()
+    if not mesh and ctx.state.history:
+        actions = (("history", "Recent prompts...", lambda: imgui.open_popup(HISTORY_POPUP)),)
+    with widgets.group(
+        "Build from a reference" if mesh else "Your brief",
+        id="mesh-brief" if mesh else "brief",
+        actions=actions,
+    ):
+        if mesh:
+            _source_chip(ctx, imgui.get_content_region_avail().x)
+            # The chip is the card's first field, so Attempts below it gets the
+            # card's 12 px field gap (the chip itself leaves one item spacing).
+            widgets.group_field_end()
+        else:
+            # Drawn where the header's button was pressed: a popup opens in the
+            # window that opened it, and that is this card's child.
+            _history_popup(ctx, form)
+            with card_field("What are you making?"):
+                _type(ctx, form, width=imgui.get_content_region_avail().x)
+                widgets.muted_wrapped(_TYPE_HINTS.get(create_assets.selected(form).key, ""))
+            tileset = form.get("asset_type") == "tileset"
+            caption = "Shared style" if tileset else "Describe the asset"
+            with card_field(caption):
+                _prompt(ctx, form, imgui.get_content_region_avail().x, height=PROMPT_H)
+                widgets.field_error(ctx.state, "prompt")
+        if mesh or form.get("output") not in ("sheet", "character"):
+            label, tip = (ATTEMPTS_LABEL, ATTEMPTS_TIP) if mesh else (IMAGES_LABEL, IMAGES_TIP)
+            with card_field(label, tip):
+                _count(
+                    ctx,
+                    form,
+                    _MESH_COUNTS if mesh else _COUNTS,
+                    create_mesh.candidate_count(form) if mesh else int(form["count"]),
+                    key="attempts" if mesh else "count",
+                )
+
+
+#: The Recent prompts list's popup id. A header action opens it and the card's
+#: body draws it, so both name it.
+HISTORY_POPUP = "prompt-history"
+
+
+def _history_popup(ctx: Any, form: dict[str, Any]) -> None:
+    """The list of this session's prompts, opened by the card's header action.
+
+    The button was ``settings_2d._history``'s, drawn in the Recipe section with
+    no leading ``same_line``: it had sat beside the prompt field, and with that
+    field moved into the bar the continuation landed against whatever happened
+    to be drawn before it -- in practice the style-strength slider, which is how
+    a button ends up orphaned in the middle of another section. It is a header
+    action of the card whose field it fills now, and only the popup is drawn
+    here.
+    """
+    if imgui.begin_popup(HISTORY_POPUP):
+        widgets.popup_chrome(_imgui=imgui)
+        for entry in ctx.state.history:
+            label = entry if len(entry) <= 60 else entry[:57] + "..."
+            if controls.menu_item(f"{label}##{hash(entry)}", "", False)[0]:
+                form["prompt"] = entry
+        imgui.end_popup()
 
 
 def ask_reset(ctx: Any, *, mesh: bool) -> None:
@@ -208,7 +301,7 @@ def ask_reset(ctx: Any, *, mesh: bool) -> None:
 
 
 def submit_control(ctx: Any, *, mesh: bool = False) -> None:
-    """One persistent action directly below the scrollable generation plan."""
+    """One persistent action, at the foot of the plan card under the scrolling form."""
     from .panes import settings_3d
 
     form = ctx.state.form_3d if mesh else ctx.state.form_2d
@@ -415,7 +508,7 @@ def _generate(
     with focus.item(ctx.state, FOCUS_PANE, "generate") as focused:
         pressed = widgets.primary_button(
             label,
-            (sp(GENERATE_W) if width is None else width, sp(PROMPT_H)),
+            (sp(GENERATE_W) if width is None else width, sp(GENERATE_H)),
             enabled=enabled,
             # ``Problem`` is a str subclass -- the message *is* the object.
             reason=disabled_reason(problems, busy),
@@ -523,7 +616,7 @@ def _source_chip(ctx: Any, width: float) -> None:
     from .panes import settings_3d
 
     state = ctx.state
-    height = sp(PROMPT_H)
+    height = sp(SOURCE_H)
     source = settings_3d.bar_source(ctx)
     derived = source is not None and ctx.cache.get(state.source_job) is None
     dragging = library.dragged_job(ctx)
@@ -539,10 +632,13 @@ def _source_chip(ctx: Any, width: float) -> None:
         sub = "drop it here to use it"
 
     with focus.item(state, FOCUS_PANE, "source") as focused:
+        # A filled control (ELEV_2 inside the brief card, one rung up from the
+        # card's wash), not a ghost: the chip is the one thing on this stage you
+        # can click to change what Make 3D works from, and a transparent button
+        # on a card read as text that happened to have a thumbnail beside it.
         clicked = controls.button(
             "##mesh-source",
             (width, height),
-            role=controls.ButtonRole.GHOST,
             enabled=not picker_open,
             reason="A file picker is already open.",
             tooltip=tip,
@@ -604,9 +700,12 @@ def _source_chip(ctx: Any, width: float) -> None:
     # used to put it at the chip's right edge on its *top* line -- so the next
     # label (and everything under it) drew over the chip (the 2026-10-11
     # review). The chip is a full-width row of its own, so the cursor goes to
-    # the line under it, at the column's left edge, and the dummy is the item
-    # that makes imgui accept the new position.
-    imgui.set_cursor_screen_pos((low.x, high.y + imgui.get_style().item_spacing.y))
+    # its bottom edge, at the column's left edge, and the dummy is the item that
+    # makes imgui accept the new position. The dummy is zero tall and imgui adds
+    # one item spacing after any item, so the gap to what follows is exactly
+    # that: the cursor used to be put one spacing *below* the chip first and the
+    # dummy then added another, a 16 px hole where the column's rhythm is 8.
+    imgui.set_cursor_screen_pos((low.x, high.y))
     imgui.dummy((0.0, 0.0))
 
 

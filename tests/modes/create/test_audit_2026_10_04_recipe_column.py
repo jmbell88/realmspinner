@@ -164,8 +164,8 @@ def test_the_sprite_arm_draws_no_cell_target_and_does_not_validate_one():
     left in the form from the tile arm cannot refuse a press on a control that
     is not on screen."""
     source = inspect.getsource(settings_2d.draw)
-    sprite_branch = source.split('widgets.section("Sprite sheet")', 1)[1].split(
-        'widgets.section("Recipe")', 1
+    sprite_branch = source.split('widgets.group("Sprite sheet"', 1)[1].split(
+        'widgets.group("Recipe"', 1
     )[0]
     assert "_target_cell" not in sprite_branch
     form = _sprite_form(target_cell_px=str(generation.TARGET_CELL_MAX + 1))

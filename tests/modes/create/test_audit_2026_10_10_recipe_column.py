@@ -8,6 +8,7 @@ lock).
 
 from __future__ import annotations
 
+import contextlib
 from types import SimpleNamespace
 from typing import Any
 
@@ -143,6 +144,12 @@ def test_the_non_tile_conditioning_section_is_unchanged(monkeypatch):
     monkeypatch.setattr(mod, "widgets", widgets)
     monkeypatch.setattr(mod, "controls", _Recorder())
     monkeypatch.setattr(mod, "imgui", _Recorder())
+    # The Strength fields are ``create_brief.card_field`` blocks now (a label,
+    # then the control, in the card's rhythm); this test is about *which* groups
+    # draw, so the field helper is a no-op and the group names are sub-labels.
+    monkeypatch.setattr(
+        mod, "create_brief", SimpleNamespace(card_field=lambda *a, **k: contextlib.nullcontext())
+    )
     monkeypatch.setattr(mod.create_recipe, "img2img_note", lambda ctx, form: None)
     monkeypatch.setattr(mod.create_recipe, "structure_picker_note", lambda ctx, form: None)
     ctx = SimpleNamespace(
@@ -152,7 +159,8 @@ def test_the_non_tile_conditioning_section_is_unchanged(monkeypatch):
         submit=lambda *a, **k: True,
     )
     mod._reference_body(ctx, form, None)
-    assert {"appearance", "start image", "structure"} <= set(widgets.labels())
+    sub = {args[0] for name, args in widgets.calls if name == "sub_label"}
+    assert {"appearance", "start image", "structure"} <= sub
 
 
 # --- create-19 ------------------------------------------------------------------

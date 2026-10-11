@@ -226,7 +226,7 @@ def test_settings_2d_sub_fields_each_get_their_own_name_line():
         ("Strength", "##Strength##cn"),
         ("Until", "##Until##cn"),
     ):
-        marker = f'widgets.field_label("{label}")'
+        marker = f'card_field("{label}")'
         pos = source.find(marker, cursor)
         assert pos != -1, label
         window = source[pos : pos + 700]
@@ -326,10 +326,10 @@ def test_settings_3d_size_keeps_its_unit_and_gets_a_label():
     from realmspinner.studio.modes.create.ui.panes import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
-    assert 'widgets.field_label("Size")' in source
+    assert 'card_field("Size"' in source
     assert '"##Size"' in source
     assert 'fmt = "unset - keeps the reference\'s" if value <= 0.0 else "%.2f m"' in source
-    assert 'widgets.field_label("Triangles")' in source
+    assert 'card_field("Triangles")' in source
     assert '"##Triangles"' in source
 
 

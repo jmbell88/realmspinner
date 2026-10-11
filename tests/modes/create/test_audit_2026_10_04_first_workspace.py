@@ -72,6 +72,7 @@ def test_mesh_column_reads_findings_json_once_per_frame(tmp_path, monkeypatch):
     from _ui_context import imgui_context
 
     from realmspinner.studio import forms, probe
+    from realmspinner.studio import widgets as widgets_mod
 
     (tmp_path / "findings.json").write_text(
         json.dumps({"version": 5, "generated": "x", "params": {}}), encoding="utf-8"
@@ -80,8 +81,8 @@ def test_mesh_column_reads_findings_json_once_per_frame(tmp_path, monkeypatch):
     loads: list[int] = []
     real = findings_lib.load
     monkeypatch.setattr(findings_lib, "load", lambda *a, **k: (loads.append(1), real(*a, **k))[1])
-    # Open the Engine disclosure so its seven hinted controls draw as well.
-    monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: True)
+    # Open the Advanced card so the engine's seven hinted controls draw as well.
+    monkeypatch.setattr(widgets_mod, "FORCE_SECTIONS_OPEN", True)
     ctx = _mesh_ctx(tmp_path)
 
     with imgui_context(monkeypatch) as imgui:

@@ -92,14 +92,14 @@ PROFILES = list(retarget_panel.TIERS)
 
 
 def draw(ctx: Any) -> None:
-    """The Mesh column: the brief's inputs, the settings, the plan footer
-    pinned under them and *Make 3D* under that.
+    """The Mesh column: the brief's inputs and the settings as cards, and under
+    them the pinned plan card that holds the plan and *Make 3D*.
 
-    ``brief.inputs(ctx, mesh=True)`` draws the Source chip and Attempts at the
-    head of this column and ``brief.submit_control`` draws Make 3D
-    at its foot (``ui/brief.py``, shared with the Reference stage's column). The
-    footer's height is its own measured content, one frame late
-    (``workspace.plan_height``), where it used to be a fixed ``-sp(220)``.
+    ``brief.inputs(ctx, mesh=True)`` draws the Source chip and Attempts as the
+    column's first card and ``brief.submit_control`` draws Make 3D at the foot of
+    the plan card (``ui/brief.py``, shared with the Reference stage's column).
+    The card's height is its own measured one, one frame late
+    (``workspace.plan_card``), where it used to be a fixed ``-sp(220)``.
     """
     state = ctx.state
     form = state.form_3d
@@ -116,20 +116,21 @@ def draw(ctx: Any) -> None:
         # controls and the press record into this same ring as they draw.
         focus.pump(state, FOCUS_PANE)
         focus.begin(state, FOCUS_PANE)
-        plan_h = workspace.plan_height(ctx, "3d")
-        if imgui.begin_child("3d-form", (0, -(plan_h + sp(52)))):
+        if imgui.begin_child("3d-form", (0, workspace.plan_reserve(ctx, "3d"))):
             from .. import brief
 
-            brief.inputs(ctx, mesh=True)
-            _draw_form(ctx, form_ui, "Mesh resolution", source)
-        imgui.end_child()
-        if imgui.begin_child("3d-plan", (0, -sp(52))):
-            _footer(ctx, form, source)
-            workspace.note_plan_height(ctx, "3d")
+            # The stack is what puts exactly one gutter between the cards; it
+            # opens inside the child so they are the child's, and closes before
+            # ``end_child``.
+            with widgets.group_stack():
+                brief.inputs(ctx, mesh=True)
+                _draw_form(ctx, form_ui, "Mesh resolution", source)
         imgui.end_child()
         from .. import brief
 
-        brief.submit_control(ctx, mesh=True)
+        with workspace.plan_card(ctx, "3d"):
+            _footer(ctx, form, source)
+            brief.submit_control(ctx, mesh=True)
 
 
 def _draw_form(
@@ -146,28 +147,28 @@ def _draw_form(
     # threads the document down, the way ``settings_2d.draw`` does.
     findings_doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
 
-    widgets.section("Mesh")
-    manual_render.help_button(ctx, "settings-3d")
-    if source is not None:
-        _auto_matte_preview(ctx, source)
-    # **The basic view is three things** (the 2026-10-11 Create review): the
-    # triangle budget with its unit, the size in metres, and the rig. Resolution,
-    # finishing, background, seed, reference normalising and the engine's launch
-    # flags were all at the top level, which put eleven controls between a user
-    # and the one button; they are one fold, "Advanced", below.
-    #
-    # Labels above rather than beside: a combo here is drawn at -1 width, and
-    # imgui puts a widget's label to its *right* -- so every one of these was
-    # a full-width select with its name clipped off the edge of the panel.
-    # ``labeled_combo`` is the widget that already answers this, and the 2D
-    # pane's guidance grid uses the same small-caps line above each control.
-    _budget(ctx, form, findings_doc)
+    with widgets.group("Mesh", id="mesh"):
+        manual_render.help_button(ctx, "settings-3d")
+        if source is not None:
+            _auto_matte_preview(ctx, source)
+        # **The basic view is three things** (the 2026-10-11 Create review): the
+        # triangle budget with its unit, the size in metres, and the rig.
+        # Resolution, finishing, background, seed, reference normalising and the
+        # engine's launch flags were all at the top level, which put eleven
+        # controls between a user and the one button; they are one fold,
+        # "Advanced", below.
+        #
+        # Labels above rather than beside: a combo here is drawn at -1 width, and
+        # imgui puts a widget's label to its *right* -- so every one of these was
+        # a full-width select with its name clipped off the edge of the panel.
+        # ``labeled_combo`` is the widget that already answers this, and the 2D
+        # pane's guidance grid uses the same small-caps line above each control.
+        _budget(ctx, form, findings_doc)
 
-    _size(ctx, form)
-    # Deliberately unhinted, unlike every other control here: size_m is
-    # continuous, so its buckets are keyed on "0.35" and "0.36" separately and
-    # a threshold of five would essentially never be met.
-    widgets.help_marker("0 keeps whatever the reference recorded.")
+        # Deliberately unhinted, unlike every other control here: size_m is
+        # continuous, so its buckets are keyed on "0.35" and "0.36" separately and
+        # a threshold of five would essentially never be met.
+        _size(ctx, form)
 
     _rig(ctx, form)
     _engine(
@@ -436,13 +437,19 @@ def _size(ctx: Any, form: dict[str, Any]) -> None:
     # pass); the id is kept stable ("Size" visible -> "##Size" hidden) and
     # the unit stays in ``fmt``, which is the whole reason this is a drag and
     # not a slider (see the module comment above).
-    widgets.field_label("Size")
-    changed, size = controls.drag_float("##Size", value, SIZE_DRAG_SPEED, *SIZE_NO_BOUND, fmt)
-    if changed:
-        # Floored here rather than by the widget: unbounded means unbounded in
-        # both directions, and a negative size is not a smaller asset.
-        form["size_m"] = max(0.0, size)
-    _size_suggestion(ctx, form)
+    # The marker is on the label, not after the control: a full-width drag
+    # leaves no room beside it, so ``help_marker`` would wrap onto a line of its
+    # own between this field and the next one's name.
+    with create_brief.card_field("Size", help_text="0 keeps whatever the reference recorded."):
+        # Full width, like every control in a card: a drag is drawn at 65% of the
+        # row by default, which left it narrower than the Budget combo above it.
+        imgui.set_next_item_width(-1.0)
+        changed, size = controls.drag_float("##Size", value, SIZE_DRAG_SPEED, *SIZE_NO_BOUND, fmt)
+        if changed:
+            # Floored here rather than by the widget: unbounded means unbounded in
+            # both directions, and a negative size is not a smaller asset.
+            form["size_m"] = max(0.0, size)
+        _size_suggestion(ctx, form)
 
 
 def _size_suggestion(ctx: Any, form: dict[str, Any]) -> None:
@@ -638,13 +645,15 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
         # the same condition (K95). It is the widget ``custom_triangles`` never
         # had: the field was submitted, validated and recorded with no way to
         # set it, which is a form field that exists only for the API.
-        widgets.field_label("Triangles")
-        imgui.set_next_item_width(sp(140))
-        changed, value = controls.input_int("##Triangles", int(form["custom_triangles"]), 0, 0)
-        if changed:
-            form["custom_triangles"] = max(0, value)
-            ctx.state.clear_field_error("custom_triangles")
-        widgets.field_error(ctx.state, "custom_triangles")
+        with create_brief.card_field("Triangles"):
+            # Full width: a 140 dp box in a card left the number field narrower
+            # than the combo that opened it.
+            imgui.set_next_item_width(-1.0)
+            changed, value = controls.input_int("##Triangles", int(form["custom_triangles"]), 0, 0)
+            if changed:
+                form["custom_triangles"] = max(0, value)
+                ctx.state.clear_field_error("custom_triangles")
+            widgets.field_error(ctx.state, "custom_triangles")
 
 
 def _finishing(ctx: Any, form: dict[str, Any]) -> None:
@@ -836,28 +845,28 @@ def _auto_matte_preview(ctx: Any, source: dict[str, Any]) -> None:
 
 
 def _rig(ctx: Any, form: dict[str, Any]) -> None:
-    widgets.section("Rig")
-    # Shown disabled, with the rail's own sentence: hiding it made a user
-    # without Blender conclude the app cannot rig at all.
-    blocked = create_stages.blender_reason("rig", ctx)
-    changed, rig = controls.checkbox(
-        "Rig when the mesh lands",
-        bool(form["rig"]) and blocked is None,
-        enabled=blocked is None,
-        reason=blocked or "",
-    )
-    if changed:
-        form["rig"] = rig
-    if blocked is None and form["rig"]:
-        # The 2026-09-07 review, item 5.1: this combo used to be a second,
-        # near-verbatim copy of ``stage_rig._skeleton_picker`` -- same field,
-        # same create-05 fix, same comment -- which is exactly the shape that
-        # let the two drift apart in the first place. ``stage_rig.py`` already
-        # owns the skeleton every rig submission uses (see its module
-        # docstring), so the drawing lives there and this just calls it. No
-        # ``help_text`` here, same as before: the checkbox row has no room for
-        # the longer explanation stage_rig gives on its own stage.
-        stage_rig.skeleton_field(ctx, form)
+    with widgets.group("Rig", id="rig"):
+        # Shown disabled, with the rail's own sentence: hiding it made a user
+        # without Blender conclude the app cannot rig at all.
+        blocked = create_stages.blender_reason("rig", ctx)
+        changed, rig = controls.checkbox(
+            "Rig when the mesh lands",
+            bool(form["rig"]) and blocked is None,
+            enabled=blocked is None,
+            reason=blocked or "",
+        )
+        if changed:
+            form["rig"] = rig
+        if blocked is None and form["rig"]:
+            # The 2026-09-07 review, item 5.1: this combo used to be a second,
+            # near-verbatim copy of ``stage_rig._skeleton_picker`` -- same field,
+            # same create-05 fix, same comment -- which is exactly the shape that
+            # let the two drift apart in the first place. ``stage_rig.py`` already
+            # owns the skeleton every rig submission uses (see its module
+            # docstring), so the drawing lives there and this just calls it. No
+            # ``help_text`` here, same as before: the checkbox row has no room for
+            # the longer explanation stage_rig gives on its own stage.
+            stage_rig.skeleton_field(ctx, form)
 
 
 def _engine(
@@ -890,112 +899,131 @@ def _engine(
     verdict filed under one of these axes shows up against it exactly as one
     filed under ``resolution`` does.
     """
-    opened = controls.collapsing_header("Advanced##engine")
-    if not opened:
-        return
-    if leading is not None:
-        leading()
-        widgets.divider()
-        widgets.secondary("Engine")
-    widgets.muted_wrapped(
-        "Launch flags for the reconstruction engine itself, not the mesh. "
-        "Changing any of these restarts it for this job."
-    )
-    changed, value = form_ui.number(
-        "trellis_band",
-        "Band",
-        int(form["trellis_band"]),
-        help_text=(
-            "Narrow-band width in voxels for the DC remesh, 1 to 64. 0 keeps "
-            "the engine's own default."
-        ),
-        # Committed on leaving the field, for Texture resolution's reason
-        # below: the clamp should judge the number typed, not each prefix of it.
-        commit=True,
-    )
-    if changed:
-        form["trellis_band"] = create_mesh.clamp_band(int(value))
-    _hint(ctx, form, "trellis_band", form["trellis_band"], findings_doc)
+    # A card whose header row is the persisted disclosure (``widgets.header``),
+    # closed by default; ``id=`` keeps the card one window whatever its title
+    # becomes, and the title is a bare "Advanced" (the column draws no tail for
+    # it: the mesh engine's flags are all at their sentinels until touched).
+    with widgets.group(
+        "Advanced",
+        id="mesh-advanced",
+        key="create/mesh-advanced",
+        collapsible=True,
+        default_open=False,
+    ) as opened:
+        if not opened:
+            return
+        if leading is not None:
+            leading()
+            # The engine's own flags are a run of fields inside this card, named
+            # by a sub-label: a divider and a second heading made it look like a
+            # card of its own, and a card in a card is the thing the design
+            # refuses.
+            widgets.sub_label("Engine")
+        widgets.muted_wrapped(
+            "Launch flags for the reconstruction engine itself, not the mesh. "
+            "Changing any of these restarts it for this job."
+        )
+        changed, value = form_ui.number(
+            "trellis_band",
+            "Band",
+            int(form["trellis_band"]),
+            help_text=(
+                "Narrow-band width in voxels for the DC remesh, 1 to 64. 0 keeps "
+                "the engine's own default."
+            ),
+            # Committed on leaving the field, for Texture resolution's reason
+            # below: the clamp should judge the number typed, not each prefix of it.
+            commit=True,
+        )
+        if changed:
+            form["trellis_band"] = create_mesh.clamp_band(int(value))
+        _hint(ctx, form, "trellis_band", form["trellis_band"], findings_doc)
 
-    changed, value = form_ui.number(
-        "trellis_tex_res",
-        "Texture resolution",
-        int(form["trellis_tex_res"]),
-        help_text=("Baked PBR texture edge in px, 128 to 4096. 0 keeps the engine's own default."),
-        # Committed on leaving the field, not per keystroke: a clamp that ran
-        # on every character would turn the "2" of a typed 2048 into 128.
-        commit=True,
-    )
-    if changed:
-        form["trellis_tex_res"] = create_mesh.clamp_tex_res(int(value))
-    _hint(ctx, form, "trellis_tex_res", form["trellis_tex_res"], findings_doc)
+        changed, value = form_ui.number(
+            "trellis_tex_res",
+            "Texture resolution",
+            int(form["trellis_tex_res"]),
+            help_text=(
+                "Baked PBR texture edge in px, 128 to 4096. 0 keeps the engine's own default."
+            ),
+            # Committed on leaving the field, not per keystroke: a clamp that ran
+            # on every character would turn the "2" of a typed 2048 into 128.
+            commit=True,
+        )
+        if changed:
+            form["trellis_tex_res"] = create_mesh.clamp_tex_res(int(value))
+        _hint(ctx, form, "trellis_tex_res", form["trellis_tex_res"], findings_doc)
 
-    changed, value = form_ui.number(
-        "trellis_gss",
-        "Sparse-structure guidance",
-        float(form["trellis_gss"]),
-        help_text=(
-            "Guidance strength for the sparse-structure stage. 0 keeps the engine's own default."
-        ),
-    )
-    if changed:
-        form["trellis_gss"] = max(0.0, float(value))
-    _hint(ctx, form, "trellis_gss", form["trellis_gss"], findings_doc)
+        changed, value = form_ui.number(
+            "trellis_gss",
+            "Sparse-structure guidance",
+            float(form["trellis_gss"]),
+            help_text=(
+                "Guidance strength for the sparse-structure stage. "
+                "0 keeps the engine's own default."
+            ),
+        )
+        if changed:
+            form["trellis_gss"] = max(0.0, float(value))
+        _hint(ctx, form, "trellis_gss", form["trellis_gss"], findings_doc)
 
-    changed, value = form_ui.number(
-        "trellis_gsh",
-        "Structured-latent guidance",
-        float(form["trellis_gsh"]),
-        help_text=(
-            "Guidance strength for the structured-latent stage. 0 keeps the engine's own default."
-        ),
-    )
-    if changed:
-        form["trellis_gsh"] = max(0.0, float(value))
-    _hint(ctx, form, "trellis_gsh", form["trellis_gsh"], findings_doc)
+        changed, value = form_ui.number(
+            "trellis_gsh",
+            "Structured-latent guidance",
+            float(form["trellis_gsh"]),
+            help_text=(
+                "Guidance strength for the structured-latent stage. "
+                "0 keeps the engine's own default."
+            ),
+        )
+        if changed:
+            form["trellis_gsh"] = max(0.0, float(value))
+        _hint(ctx, form, "trellis_gsh", form["trellis_gsh"], findings_doc)
 
-    changed, value = form_ui.number(
-        "trellis_max_tokens",
-        "Token budget",
-        int(form["trellis_max_tokens"]),
-        help_text=(
-            "The engine's high-resolution token budget (it ships at 49152). "
-            "0 keeps the engine's own default."
-        ),
-    )
-    if changed:
-        # Third of three siblings with no ceiling (the 2026-09-20 audit,
-        # finding create-01): band and tex_res were fixed 2026-09-18, this
-        # one and its two neighbours below still committed with a floor only.
-        form["trellis_max_tokens"] = create_mesh.clamp_max_tokens(int(value))
-    _hint(ctx, form, "trellis_max_tokens", form["trellis_max_tokens"], findings_doc)
+        changed, value = form_ui.number(
+            "trellis_max_tokens",
+            "Token budget",
+            int(form["trellis_max_tokens"]),
+            help_text=(
+                "The engine's high-resolution token budget (it ships at 49152). "
+                "0 keeps the engine's own default."
+            ),
+        )
+        if changed:
+            # Third of three siblings with no ceiling (the 2026-09-20 audit,
+            # finding create-01): band and tex_res were fixed 2026-09-18, this
+            # one and its two neighbours below still committed with a floor only.
+            form["trellis_max_tokens"] = create_mesh.clamp_max_tokens(int(value))
+        _hint(ctx, form, "trellis_max_tokens", form["trellis_max_tokens"], findings_doc)
 
-    changed, value = form_ui.number(
-        "trellis_decim",
-        "Decimation",
-        int(form["trellis_decim"]),
-        help_text=(
-            "The engine's own decimation. -1 keeps its default (quadric "
-            "simplify to ~300k faces at resolution 1024); 0 turns it off and "
-            "ships the full reconstruction; a positive grid picks the legacy "
-            "cluster-grid pass."
-        ),
-    )
-    if changed:
-        # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
-        form["trellis_decim"] = create_mesh.clamp_decim(int(value))
-    _hint(ctx, form, "trellis_decim", form["trellis_decim"], findings_doc)
+        changed, value = form_ui.number(
+            "trellis_decim",
+            "Decimation",
+            int(form["trellis_decim"]),
+            help_text=(
+                "The engine's own decimation. -1 keeps its default (quadric "
+                "simplify to ~300k faces at resolution 1024); 0 turns it off and "
+                "ships the full reconstruction; a positive grid picks the legacy "
+                "cluster-grid pass."
+            ),
+        )
+        if changed:
+            # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
+            form["trellis_decim"] = create_mesh.clamp_decim(int(value))
+        _hint(ctx, form, "trellis_decim", form["trellis_decim"], findings_doc)
 
-    changed, value = form_ui.number(
-        "trellis_atlas",
-        "Atlas resolution",
-        int(form["trellis_atlas"]),
-        help_text=("UV atlas edge in px for the baked textures. 0 keeps the engine's own default."),
-    )
-    if changed:
-        # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
-        form["trellis_atlas"] = create_mesh.clamp_atlas(int(value))
-    _hint(ctx, form, "trellis_atlas", form["trellis_atlas"], findings_doc)
+        changed, value = form_ui.number(
+            "trellis_atlas",
+            "Atlas resolution",
+            int(form["trellis_atlas"]),
+            help_text=(
+                "UV atlas edge in px for the baked textures. 0 keeps the engine's own default."
+            ),
+        )
+        if changed:
+            # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
+            form["trellis_atlas"] = create_mesh.clamp_atlas(int(value))
+        _hint(ctx, form, "trellis_atlas", form["trellis_atlas"], findings_doc)
 
 
 def _turnaround(ctx: Any) -> None:
@@ -1021,46 +1049,46 @@ def _turnaround(ctx: Any) -> None:
     from .....panes import sheet_panel
 
     job_id = mesh["id"]
-    widgets.section("Turnaround")
-    if not ctx.rigging_available:
-        # Rendering a sheet is Blender out of process the same way rigging is
-        # (S138); the pattern every "needs Blender" sentence in the app
-        # follows (service/characters.py's own comment states it), applied to
-        # this door.
-        widgets.muted("Rendering a sheet needs Blender, which is not installed.")
-        return
-    key = f"sheet:{job_id}"
-    busy = ctx.busy(key)
-    saved = (ctx.state.preview or {}).get("sheets") or []
-    cap_reason = None if busy else sheet_panel.sheet_cap_reason(saved, ctx.cache.jobs, job_id)
-    widgets.cost_note(
-        "Queued like a generation: the default 8-direction turnaround is "
-        "eight Blender renders, run in a separate process."
-    )
-    if widgets.disabled_button(
-        "Render turnaround",
-        not busy and not cap_reason,
-        reason="A sheet is already rendering for this asset." if busy else (cap_reason or ""),
-    ):
-        # Last time's rings first, sheet_panel._submit's own rule: a new
-        # submit is judged on its own.
-        ctx.state.clear_field_errors()
-        defaults = (ctx.sheet_options or {}).get("defaults") or {}
-        ctx.submit(
-            key,
-            svc_sheets.create_sheet,
-            ctx.svc,
-            job_id,
-            poses=[],
-            elevation=float(defaults.get("elevation") or 0.0),
-            frame_size=int(defaults.get("frame_size") or 128),
-            lighting=defaults.get("lighting") or "flat",
-            name="",
-            clip_from=None,
-            clip_to=None,
-            clip_frames=8,
-            yaws=8,
+    with widgets.group("Turnaround", id="turnaround"):
+        if not ctx.rigging_available:
+            # Rendering a sheet is Blender out of process the same way rigging is
+            # (S138); the pattern every "needs Blender" sentence in the app
+            # follows (service/characters.py's own comment states it), applied to
+            # this door.
+            widgets.muted("Rendering a sheet needs Blender, which is not installed.")
+            return
+        key = f"sheet:{job_id}"
+        busy = ctx.busy(key)
+        saved = (ctx.state.preview or {}).get("sheets") or []
+        cap_reason = None if busy else sheet_panel.sheet_cap_reason(saved, ctx.cache.jobs, job_id)
+        widgets.cost_note(
+            "Queued like a generation: the default 8-direction turnaround is "
+            "eight Blender renders, run in a separate process."
         )
+        if widgets.disabled_button(
+            "Render turnaround",
+            not busy and not cap_reason,
+            reason="A sheet is already rendering for this asset." if busy else (cap_reason or ""),
+        ):
+            # Last time's rings first, sheet_panel._submit's own rule: a new
+            # submit is judged on its own.
+            ctx.state.clear_field_errors()
+            defaults = (ctx.sheet_options or {}).get("defaults") or {}
+            ctx.submit(
+                key,
+                svc_sheets.create_sheet,
+                ctx.svc,
+                job_id,
+                poses=[],
+                elevation=float(defaults.get("elevation") or 0.0),
+                frame_size=int(defaults.get("frame_size") or 128),
+                lighting=defaults.get("lighting") or "flat",
+                name="",
+                clip_from=None,
+                clip_to=None,
+                clip_frames=8,
+                yaws=8,
+            )
 
 
 def problems(
@@ -1094,12 +1122,14 @@ def problems(
 
 
 def _footer(ctx: Any, form: dict[str, Any], source: dict[str, Any] | None) -> None:
-    """The pinned plan footer -- what a press costs and what is stopping it.
+    """The plan lines of the pinned plan card -- what a press costs and what is
+    stopping it.
 
-    The press itself is in the command bar; this is the half of the decision
-    that used to sit a screen above it and now sits under the column it is about.
+    The press itself is the card's next item (``brief.submit_control``); there is
+    no rule above these lines, because the card's edge is the separation and a
+    divider here against a bare gap on the Reference stage was the stage-
+    dependent footer top the 2026-10-11 spacing review measured.
     """
-    widgets.divider()
     workspace.plan_footer(
         ctx,
         create_mesh.plan(form),

@@ -146,9 +146,11 @@ def _mesh_form() -> dict:
 
 
 def test_manual_22_names_the_conditioning_header_the_pane_draws():
-    assert 'f"Conditioning{create_recipe.conditioning_tail(form)}##create"' in inspect.getsource(
-        settings_2d
-    )
+    # The card's title is the header the manual names, with the tail that says
+    # when something inside is on; its identity is the ``id=``, not the tail.
+    source = inspect.getsource(settings_2d)
+    assert 'f"Conditioning{create_recipe.conditioning_tail(form)}",' in source
+    assert 'id="conditioning"' in source
     section = _section(_chapter("22-generating-references"), "Conditioning on an image")
     assert "In the **Conditioning** section" in section
     assert "**References** section" not in section

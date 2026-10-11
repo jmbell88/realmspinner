@@ -56,23 +56,26 @@ TOAST_SLOT = "character_toast"
 
 
 def draw_block(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
-    """The whole Character column, inside ``settings_2d``'s form and child."""
+    """The whole Character column, inside ``settings_2d``'s form and child: one card."""
     from . import settings_2d
 
     character_engine.sync_from_prompt(form)
     opts = character_engine.options(ctx)
-    widgets.section("Character")
-    manual_render.help_button(ctx, "settings-character")
-    _family(ctx, form, form_ui, opts)
-    _theme(ctx, form, form_ui, opts)
-    _camera(ctx, form, form_ui, opts)
-    _actions(ctx, form, form_ui)
-    _pixels(ctx, form, form_ui, opts)
-    _appearance(ctx, form, form_ui, opts)
-    settings_2d._seed_row(ctx, form, form_ui)
-    _name(ctx, form, form_ui)
-    _unrecognised(form)
-    _footer(ctx, form)
+    # One card, like every group in the column: the (?) lands on its header row,
+    # the fields are ``Form`` fields (4 px to the control, 12 between), and the
+    # footer's two buttons stay inside it.
+    with widgets.group("Character", id="character"):
+        manual_render.help_button(ctx, "settings-character")
+        _family(ctx, form, form_ui, opts)
+        _theme(ctx, form, form_ui, opts)
+        _camera(ctx, form, form_ui, opts)
+        _actions(ctx, form, form_ui)
+        _pixels(ctx, form, form_ui, opts)
+        _appearance(ctx, form, form_ui, opts)
+        settings_2d._seed_row(ctx, form, form_ui)
+        _name(ctx, form, form_ui)
+        _unrecognised(form)
+        _footer(ctx, form)
 
 
 def _family(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:

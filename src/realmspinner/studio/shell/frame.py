@@ -932,11 +932,22 @@ class FrameMixin:
                     ) as visible:
                         if visible:
                             create_brief.draw(ctx, self._stage_rail)
+                    # Reference and Mesh are columns of cards, so their pane
+                    # inset is one gutter (8) and the card edge sits 8 from the
+                    # window edge; Rig, Pose and Export still draw bare headings
+                    # and keep the default until they become cards too. Named
+                    # the way ``_stage_pane`` dispatches: anything that is not
+                    # one of those three falls through to Reference.
                     with layout_mod.pane(
                         "settings",
                         (left_w, 0),
                         layout_mod.PaneRole.SIDEBAR,
                         edge=layout_mod.PaneEdge.RIGHT,
+                        padding=(
+                            None
+                            if ctx.state.create.stage in ("rig", "pose", "export")
+                            else tokens_mod.SP_2
+                        ),
                     ) as visible:
                         if visible:
                             _stage_pane(ctx)

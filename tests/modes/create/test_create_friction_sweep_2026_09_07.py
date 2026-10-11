@@ -317,5 +317,5 @@ def test_the_model_and_style_lora_combos_are_labelled():
     """Drawn as bare ``##model``/``##style_lora`` widgets before this fix,
     unlike ``_locked_sheet_recipe``'s "Image model"/"Style LoRA" labels at the
     same spot in the tileset/sprite arms' pinned display."""
-    assert 'field_label("Image model")' in inspect.getsource(settings_2d._model)
-    assert 'field_label("Style LoRA")' in inspect.getsource(settings_2d._lora)
+    assert 'card_field("Image model")' in inspect.getsource(settings_2d._model)
+    assert 'card_field("Style LoRA")' in inspect.getsource(settings_2d._lora)

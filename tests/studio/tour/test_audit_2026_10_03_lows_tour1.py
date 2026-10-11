@@ -223,6 +223,6 @@ def test_the_character_type_step_names_a_caption_the_create_screen_draws() -> No
     brief = (SRC / "studio" / "modes" / "create" / "ui" / "brief.py").read_text(encoding="utf-8")
     assert "Generation type" not in step.body
     assert "What are you making?" in step.body
-    assert 'widgets.secondary("What are you making?")' in brief
+    assert 'card_field("What are you making?")' in brief
     assert step.anchor == "create/type"
     assert 'anchors.mark("create/type")' in brief

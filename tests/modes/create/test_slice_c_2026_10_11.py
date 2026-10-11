@@ -399,7 +399,7 @@ def test_the_source_chip_leaves_the_cursor_below_the_chip_not_beside_it(frames):
         start = imgui.get_cursor_screen_pos()
         create_brief._source_chip(ctx, 300.0)
         after = imgui.get_cursor_screen_pos()
-        seen["bottom"] = start.y + create_brief.sp(create_brief.PROMPT_H)
+        seen["bottom"] = start.y + create_brief.sp(create_brief.SOURCE_H)
         seen["after_y"], seen["after_x"], seen["start_x"] = after.y, after.x, start.x
 
     frames(build)
@@ -727,40 +727,57 @@ def test_the_reset_lives_in_the_new_popup(frames, monkeypatch):
 # --- item 7: the Mesh column --------------------------------------------------------------------
 
 
+def _cards(monkeypatch, *, open_collapsible: bool):
+    """``widgets.group`` replaced by a recorder, so a test can say which cards a
+    column opens, whether each is a collapsible one, and what its body drew.
+    A collapsible card yields ``open_collapsible``; any other opens."""
+    import contextlib
+
+    opened: list[tuple[str, bool]] = []
+
+    @contextlib.contextmanager
+    def group(title=None, *, collapsible=False, **_kw):
+        opened.append((title, collapsible))
+        yield open_collapsible if collapsible else True
+
+    monkeypatch.setattr(settings_3d.widgets, "group", group)
+    return opened
+
+
 def test_the_mesh_basic_view_holds_the_budget_size_and_rig_and_one_fold(monkeypatch):
     drawn: list[str] = []
     for name in ("_budget", "_size", "_rig", "_turnaround"):
         monkeypatch.setattr(settings_3d, name, lambda *a, _n=name, **k: drawn.append(_n))
     monkeypatch.setattr(settings_3d, "_advanced_basics", lambda *a, **k: drawn.append("advanced"))
     monkeypatch.setattr(settings_3d, "_hint", lambda *a, **k: None)
-    monkeypatch.setattr(settings_3d.widgets, "section", lambda *a: None)
     monkeypatch.setattr(settings_3d.widgets, "help_marker", lambda *a: None)
     monkeypatch.setattr(settings_3d.manual_render, "help_button", lambda *a: None)
-    folds: list[str] = []
-    monkeypatch.setattr(
-        settings_3d.controls,
-        "collapsing_header",
-        lambda label, *a, **k: folds.append(label) or False,
-    )
+    cards = _cards(monkeypatch, open_collapsible=False)
     ctx = _ctx(svc=SimpleNamespace(config=SimpleNamespace(bench_dir="nowhere")))
     settings_3d._draw_form(ctx, SimpleNamespace(), "Mesh resolution", None)
-    assert folds == ["Advanced##engine"]
+    # The Mesh card, then the one collapsible card (Rig and Turnaround open
+    # their own cards inside the functions replaced above).
+    assert cards == [("Mesh", False), ("Advanced", True)]
     assert drawn == ["_budget", "_size", "_rig", "_turnaround"], "the fold was closed"
 
 
 def test_the_fold_opens_onto_the_old_top_level_controls_and_the_engine_flags(monkeypatch):
     drawn: list[str] = []
-    monkeypatch.setattr(settings_3d.controls, "collapsing_header", lambda *a, **k: True)
+    _cards(monkeypatch, open_collapsible=True)
     monkeypatch.setattr(settings_3d.widgets, "muted_wrapped", lambda *a: None)
     monkeypatch.setattr(settings_3d.widgets, "divider", lambda: drawn.append("divider"))
     monkeypatch.setattr(settings_3d.widgets, "secondary", lambda t: drawn.append(t))
+    monkeypatch.setattr(settings_3d.widgets, "sub_label", lambda t: drawn.append(t))
     form_ui = SimpleNamespace(number=lambda key, *a, **k: (False, 0))
     monkeypatch.setattr(settings_3d, "_hint", lambda *a, **k: None)
     ctx = _ctx()
     settings_3d._engine(
         ctx, dict(DEFAULT_FORM_3D), form_ui, None, leading=lambda: drawn.append("leading")
     )
-    assert drawn[:3] == ["leading", "divider", "Engine"]
+    # "Engine" names a run of fields inside the card: a sub-label, not a rule
+    # and a second heading (which read as a card in a card).
+    assert drawn[:2] == ["leading", "Engine"]
+    assert "divider" not in drawn
 
 
 def test_budget_entries_carry_their_unit(monkeypatch):
@@ -806,7 +823,7 @@ def test_no_user_facing_mesh_string_says_trellis():
 
 def test_the_engine_fold_is_called_advanced():
     source = inspect.getsource(settings_3d)
-    assert "Advanced##engine" in source
+    assert '"Advanced",' in source and 'key="create/mesh-advanced"' in source
     assert "Engine (advanced)" not in source.replace('It was "Engine (advanced)"', "")
 
 
@@ -878,32 +895,39 @@ def test_editing_the_prompt_or_pressing_generate_arms_the_red(frames):
     assert form is not ctx.state.form_2d
 
 
-def test_the_plan_footer_is_sized_from_its_content_not_a_fixed_reserve():
+def test_the_plan_card_is_sized_from_its_content_not_a_fixed_reserve():
     for module in (settings_2d, settings_3d):
         source = inspect.getsource(module.draw)
-        assert "(0, -sp(220))" not in source
-        assert "-(plan_h + sp(52))" in source and "note_plan_height" in source
+        assert "(0, -sp(220))" not in source and "sp(52)" not in source
+        # The form leaves the card's measured height and a gutter; the card notes
+        # its own height when it closes.
+        assert "plan_reserve(ctx," in source and "plan_card(ctx," in source
+    assert "note_plan_height(ctx, key)" in inspect.getsource(workspace.plan_card)
 
 
-def test_the_plan_height_follows_the_measured_footer_within_bounds(frames):
+def test_the_plan_height_follows_the_measured_card_within_bounds(frames):
     ctx = _ctx()
     seen: dict[str, float] = {}
 
     def build() -> None:
         seen["default"] = workspace.plan_height(ctx, "2d")
-        if imgui.begin_child("plan", (0, 400)):
+        with workspace.plan_card(ctx, "2d"):
             for _ in range(12):
                 imgui.text("a line of the footer")
-            workspace.note_plan_height(ctx, "2d")
-        imgui.end_child()
 
     frames(build)
+    frames(build)
+    frames(build)
     measured = ctx.state.create.plan_heights["2d"]
-    assert measured > 12 * imgui.get_text_line_height() * 0.9
+    # The whole card: its twelve lines and its padding, not a cursor position.
+    assert measured > 12 * imgui.get_text_line_height() * 0.9 + 2 * workspace.sp(12) - 1
     frames(lambda: seen.__setitem__("after", workspace.plan_height(ctx, "2d")))
     floor = workspace.sp(workspace.PLAN_MIN_DP)
     assert seen["after"] >= floor
     assert seen["after"] <= 900 * workspace._PLAN_MAX_FRACTION + 1
+    assert seen["after"] == max(floor, min(measured, 900 * workspace._PLAN_MAX_FRACTION)), (
+        "the reserve is the measured card, clamped"
+    )
 
 
 def test_a_non_commercial_model_is_flagged_when_automatic_picked_it(monkeypatch):
@@ -917,6 +941,8 @@ def test_a_non_commercial_model_is_flagged_when_automatic_picked_it(monkeypatch)
     monkeypatch.setattr(create_recipe, "resolved_recipe", lambda c, f: resolved)
     widgets = Recorder({"combo": ""})
     monkeypatch.setattr(settings_2d, "widgets", widgets)
+    # The Image model field's label and rhythm are ``create_brief.card_field``'s.
+    monkeypatch.setattr(settings_2d.create_brief, "widgets", widgets)
     form = default_form_2d()
     form["model_mode"] = "auto"
     ctx = _ctx()
