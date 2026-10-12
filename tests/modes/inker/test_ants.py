@@ -216,7 +216,7 @@ def test_a_dash_is_six_screen_pixels_at_every_zoom():
 
 
 def test_the_screen_transform_is_a_uniform_scale_about_the_offset():
-    """The same affine ``inker_state.to_screen`` applies -- the pane passes it
+    """The same affine ``paintview.to_screen`` applies -- the pane passes it
     canvas (0, 0) *through* that function, so this is the half that has to
     match it."""
     verts, cum = _one([SQUARE])

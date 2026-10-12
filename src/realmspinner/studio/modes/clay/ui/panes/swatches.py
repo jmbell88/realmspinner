@@ -89,18 +89,23 @@ def _swatch(
     selected: bool,
     textured: bool,
     tooltip: str,
+    enabled: bool = True,
+    reason: str = "",
 ) -> bool:
     """One palette swatch button. -> whether it was clicked.
 
     The one place the palette touches imgui's colour button, so a test can stand
     in a press without a mouse. The slot the object defaults to is outlined in
     the accent; a textured slot carries a corner notch so it reads as a picture
-    and not as a flat colour.
+    and not as a flat colour. Greyed with *reason* for a tooltip when not *enabled*
+    (the ``+`` beside it already was: the 2026-10-12 leftover to clay-16/17).
     """
+    if not enabled:
+        imgui.begin_disabled()
     if selected:
         imgui.push_style_color(imgui.Col_.border.value, imgui.ImVec4(*theme.rgba(theme.ACCENT)))
         imgui.push_style_var(imgui.StyleVar_.frame_border_size.value, sp(2.0))
-    clicked = imgui.color_button(label, imgui.ImVec4(*colour), 0, (side, side))
+    clicked = imgui.color_button(label, imgui.ImVec4(*colour), 0, (side, side)) and enabled
     # Into the census (the first-try test presses a swatch the way a person does,
     # and a colour button is not one of the controls ``_finish_item`` sees).
     probe.record(label=label, kind="swatch", selected=selected, tooltip=tooltip)
@@ -119,8 +124,12 @@ def _swatch(
                 imgui.ImVec2(low.x, low.y - size),
                 imgui.get_color_u32(imgui.ImVec4(*theme.rgba(tint))),
             )
-    if imgui.is_item_hovered():
-        imgui.set_tooltip(tooltip)
+    # A disabled item is only "hovered" with the flag, and the reason is the whole
+    # point of greying it.
+    if imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value):
+        imgui.set_tooltip(tooltip if enabled else reason)
+    if not enabled:
+        imgui.end_disabled()
     return bool(clicked)
 
 
@@ -365,6 +374,8 @@ def draw_slots(
         height = SLOT_ROWS_MAX * side + (SLOT_ROWS_MAX - 1) * imgui.get_style().item_spacing.y
         imgui.begin_child("##slot-grid", (0.0, height), 0, 0)
     hint = click_hint(doc)
+    gesture = clay_ops.gesture_live(ctx)
+    why = add_reason(saving=saving, gesture=gesture)
     hovered: int | None = None
     clicked: int | None = None
     for i, entry in enumerate(doc.materials):
@@ -382,17 +393,17 @@ def draw_slots(
             selected=i == current,
             textured=textured,
             tooltip=tip,
+            enabled=not why,
+            reason=why,
         ):
             clicked = i
         if imgui.is_item_hovered():
             hovered = i
     widgets.same_line_or_wrap(plus_w)
-    gesture = clay_ops.gesture_live(ctx)
-    why_add = add_reason(saving=saving, gesture=gesture)
     add = controls.small_button(
         f"{icons.PLUS}##slot-add",
-        enabled=not why_add,
-        reason=why_add,
+        enabled=not why,
+        reason=why,
         tooltip="Add a palette slot and use it. It starts as a grey; Edit colour changes it.",
     )
     if capped:

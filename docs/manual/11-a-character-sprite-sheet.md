@@ -11,7 +11,7 @@ about each.
 
 ## The route worth starting on
 
-1. Open **Create** and set **Generation type** to *Character*.
+1. Open **Create** and set **What are you making?** to *Character*.
 2. Type a brief. `fire ogre, 3/4 top down sprite sheet` is a complete one.
 3. **Read the column back.** It has filled itself in from your words: the species is *Ogre*, the
    look is *Fire*, the camera is *3/4 top-down*, and anything it did not understand is listed under

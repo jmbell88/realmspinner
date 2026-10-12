@@ -186,7 +186,12 @@ def test_a_prompt_naming_no_species_is_refused_in_offer_sentences_words(svc):
     with pytest.raises(Invalid) as generic:
         svc_characters.recipe_from_prompt(svc, "wibble wobble")
     assert generic.value.field == "prompt"
-    assert "species across four body plans" in str(generic.value)
+    from realmspinner.characters import family as family_mod
+
+    # Counted off the registry, never typed (F20-7, create-17's rule): the
+    # sentence keeps promising whatever the archetype registry holds.
+    plans = family_mod.body_plans_phrase(len(family_mod.archetypes()))
+    assert f"species across {plans}" in str(generic.value)
 
     with pytest.raises(Invalid) as blank:
         svc_characters.recipe_from_prompt(svc, "")
@@ -631,3 +636,18 @@ def test_a_character_named_after_a_windows_device_exports_under_its_id(svc):
     assert svc_characters._package_stem({"name": "COM1 the brave"}, "abc123456789") == (
         "COM1 the brave"
     )
+
+
+def test_the_service_refusal_counts_body_plans_from_the_registry_not_a_literal(svc, monkeypatch):
+    """F20-7: the sentence said "four body plans" as typed text, so a fifth
+    archetype would have shipped under a promise of four."""
+    from realmspinner.characters import family as family_mod
+
+    real = family_mod.archetypes()
+    monkeypatch.setattr(
+        family_mod, "archetypes", lambda: {**real, "extra_a": object(), "extra_b": object()}
+    )
+    with pytest.raises(Invalid) as excinfo:
+        svc_characters.recipe_from_prompt(svc, "wibble wobble")
+    assert len(real) == 4, "the expected wording below is spelled for four plus two"
+    assert "across six body plans" in str(excinfo.value)

@@ -7,7 +7,7 @@ document, or even a session, to run against.
 **This module does not execute anything.** :func:`compile_program` turns a
 program into a :class:`Compiled` -- a flat list of ``(tool_name, arguments,
 path)`` entries plus ``("live", kind, arguments, path)`` placeholders for
-the four kinds in :data:`LIVE_KINDS` -- and stops there. ``agent_clay._h_program``
+the four kinds in :data:`LIVE_KINDS` -- and stops there. ``tools_batch._h_program``
 is what runs the result, folding ``calls`` into one atomic run through the
 same ``_fold_run`` ``clay_batch`` uses (reusing that tool's own ``$ref``
 convention, which is why a compiled reference is already shaped
@@ -215,7 +215,7 @@ alone cannot answer for: ``move``/``turn``/``scale_by`` read the target's
 *current* transform before they know what absolute values to send, and
 ``assert`` evaluates its condition against the document's live geometry
 (:data:`FACTS`). Each compiles to a ``("live", kind, arguments, path)``
-placeholder instead -- ``agent_clay._h_program`` is what actually runs one,
+placeholder instead -- ``tools_batch._h_program`` is what actually runs one,
 per its own turn in the same fold a real tool call's entry runs in, so a
 program with a live step is still one atomic undo step start to finish."""
 

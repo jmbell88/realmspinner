@@ -535,10 +535,12 @@ def test_an_op_drag_preview_puts_back_an_object_that_accepted_a_smaller_value_an
 
     od.kernel = kernel
     view._motion(doc, (70.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert not od.refused
     previewed = view._cache[a].gpu
 
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert "Box0" in od.refused
     assert view._cache[a].gpu is not previewed, (
         "Box0 kept the earlier preview although Enter would leave it untouched"
@@ -556,6 +558,7 @@ def test_the_op_drag_preview_converts_metres_to_local_units_like_the_commit(view
     od.kernel = lambda mesh, sel, **p: (seen.append(p["thickness"]), real(mesh, sel, **p))[1]
 
     view._motion(doc, (90.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
 
     assert od.value > 0.0
     assert seen and all(v == pytest.approx(od.value / 4.0) for v in seen), (seen, od.value)

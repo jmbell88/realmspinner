@@ -15,7 +15,6 @@ import pytest
 from _panes import pane_files
 
 from realmspinner.studio import dialogs as dialogs_mod
-from realmspinner.studio import layout as layout_mod
 from realmspinner.studio import theme, tokens
 from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
 from realmspinner.studio.modes.home.ui.panes import landing
@@ -366,18 +365,6 @@ def test_the_config_table_is_one_function_drawn_in_two_places():
     assert "config_table" in inspect.getsource(app_settings._config)
     # And the data source is still the one doctor prints.
     assert "effective(" in inspect.getsource(app_settings.config_table)
-
-
-# --- M106: the sidebar -------------------------------------------------------
-
-
-def test_the_sidebar_option_is_three_names_and_the_width_is_module_state():
-    assert set(layout_mod.SIDEBAR_WIDTHS) == {"narrow", "default", "wide"}
-    try:
-        layout_mod.set_sidebar("narrow")
-        assert layout_mod.SIDEBAR_WIDTHS["narrow"] == layout_mod.SIDEBAR_W
-    finally:
-        layout_mod.set_sidebar("default")
 
 
 # --- M107: the Home tiles ----------------------------------------------------

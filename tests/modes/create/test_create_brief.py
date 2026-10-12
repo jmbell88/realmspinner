@@ -394,13 +394,13 @@ def test_every_generation_type_has_a_hint():
     from realmspinner.studio.modes.create.engine import assets as create_assets
 
     offered = {key for key, _label in create_assets.ASSET_TYPE_OPTIONS}
-    assert set(create_brief._TYPE_HINTS) == offered
+    assert set(create_brief.TYPE_HINTS) == offered
 
 
 def test_the_count_control_carries_a_tooltip_naming_what_it_counts():
     """Four bare pills sat between the prompt and Generate with no label and no
     tooltip -- unlike the Type combo beside them, which names each of its
-    values on hover through ``_TYPE_HINTS``. ``segmented_choice`` already
+    values on hover through ``TYPE_HINTS``. ``segmented_choice`` already
     supports per-option hover text through its ``tooltips=`` mapping (Inker's
     tile-behaviour row and Clay's tool row both use it); Create's own count
     control is the one holdout. The 2026-09-05 audit, finding create-11."""
@@ -715,7 +715,7 @@ def test_mesh_reset_puts_the_seed_back_to_unset():
 
     ctx = _real_ctx(stage="mesh")
     ctx.state.form_3d.update(mesh_seed=7, mesh_seed_locked=True, attempts=3)
-    settings_3d._reset(ctx)
+    settings_3d.reset(ctx)
     assert ctx.state.form_3d["mesh_seed"] is None
     assert ctx.state.form_3d["attempts"] == 1
 
@@ -764,7 +764,7 @@ def test_a_second_undecided_group_does_not_hide_the_older_one():
     ]
     ctx = SimpleNamespace(cache=SimpleNamespace(jobs=jobs))
 
-    problems = create_brief._with_pending_candidates_problem(ctx, [])
+    problems = create_brief.with_pending_candidates_problem(ctx, [])
 
     assert problems, "a further submission must be refused while group A is still undecided"
     assert "pending" in str(problems[0]).lower()
@@ -773,7 +773,7 @@ def test_a_second_undecided_group_does_not_hide_the_older_one():
 def test_no_pending_group_adds_no_problem():
     ctx = SimpleNamespace(cache=SimpleNamespace(jobs=[]))
 
-    assert create_brief._with_pending_candidates_problem(ctx, []) == []
+    assert create_brief.with_pending_candidates_problem(ctx, []) == []
 
 
 def test_missing_cache_does_not_crash_the_bar():
@@ -782,4 +782,4 @@ def test_missing_cache_does_not_crash_the_bar():
     raise."""
     ctx = SimpleNamespace()
 
-    assert create_brief._with_pending_candidates_problem(ctx, []) == []
+    assert create_brief.with_pending_candidates_problem(ctx, []) == []

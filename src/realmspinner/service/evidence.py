@@ -4,7 +4,7 @@
 preregistration.md`` opened by counting what it had to fit against: nine
 model-stage human verdicts on the machine, and **zero** of them still carrying a
 ``source.glb``. Every one had been graded to completion inside a sweep, and
-``review_mode.JudgingPass``' cleanup licence -- "a sweep every unit of which has
+``modes.review.mode.JudgingPass``' cleanup licence -- "a sweep every unit of which has
 a verdict has its assets removed, with a toast and no dialog" -- is what took
 them. The loop consumed its own corpus: the act of finishing the judgement was
 the act of deleting the evidence for it. The probe is still unfitted, and

@@ -683,7 +683,7 @@ def _more_actions(ctx: Any, job: dict[str, Any]) -> None:
         "Load settings", done, (-1, 0), reason=not_ready,
         tooltip="Copy this attempt's recipe back into the form, to change one thing.",
     ):
-        _vary(ctx, job)
+        vary(ctx, job)
         imgui.close_current_popup()
     if svc_jobs.rerollable(job) and controls.button(
         "Try again",
@@ -798,7 +798,7 @@ def type_cards(ctx: Any) -> None:
                 form["asset_type"] = form["generation_type"] = key
                 create_assets.sync_legacy_fields(form)
                 ctx.state.clear_field_errors()
-            widgets.muted_wrapped(brief._TYPE_HINTS[key])
+            widgets.muted_wrapped(brief.TYPE_HINTS[key])
         imgui.end_table()
     imgui.spacing()
     widgets.secondary("How it works")
@@ -1080,7 +1080,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     if widgets.disabled_button(
         f"Load settings##result-vary-{job_id}", done, half, reason=not_ready
     ):
-        _vary(ctx, job)
+        vary(ctx, job)
 
     if group is not None:
         # The 2026-09-14 audit, finding create-04: when every member of the
@@ -1249,7 +1249,7 @@ def _rig(ctx: Any, job: dict[str, Any]) -> None:
     create_stages.go(ctx, "rig", select=str(job["id"]))
 
 
-def _vary(ctx: Any, job: dict[str, Any]) -> None:
+def vary(ctx: Any, job: dict[str, Any]) -> None:
     """Copy a result's recorded brief back to the live form for a controlled edit.
 
     An image's brief goes to the Reference form; a mesh's own settings go to

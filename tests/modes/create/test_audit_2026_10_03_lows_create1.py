@@ -117,7 +117,7 @@ def test_reset_settings_clears_the_recorded_refusals():
     from realmspinner.studio.modes.create.ui.panes import settings_2d, settings_3d
     from realmspinner.studio.state import AppState
 
-    for reset in (settings_2d._reset, settings_3d._reset):
+    for reset in (settings_2d.reset, settings_3d.reset):
         state = AppState()
         state.note_field_error("prompt", "The prompt is over 1000 characters.")
         ctx = SimpleNamespace(state=state, toast=lambda *a, **k: None)
@@ -192,7 +192,7 @@ def test_every_function_in_brief_is_reached_from_a_draw_path():
 
     # What the shell and the two settings columns call from outside.
     reached = {"draw", "inputs", "submit_control", "bar_height"}
-    # Module-level statements (``_TYPE_HINTS`` calls ``_species_count``) run at
+    # Module-level statements (``TYPE_HINTS`` calls ``_species_count``) run at
     # import, so what they name is reached too.
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
@@ -223,7 +223,7 @@ def test_pending_candidates_refusal_points_at_the_stage_that_draws_the_picker():
          "status": "done", "created_at": 1.0},
     ]
     ctx = SimpleNamespace(cache=SimpleNamespace(jobs=jobs))
-    problems = create_brief._with_pending_candidates_problem(ctx, [])
+    problems = create_brief.with_pending_candidates_problem(ctx, [])
     assert problems and "Mesh" in str(problems[0])
 
 
@@ -438,7 +438,7 @@ def test_tray_stage_filter_is_asserted_on_the_function_draw_calls():
 
 
 def test_vary_on_a_reference_raises_one_toast(monkeypatch):
-    """``_vary`` called ``library.copy_settings`` (toast "Settings copied to the
+    """``vary`` called ``library.copy_settings`` (toast "Settings copied to the
     form." plus its own stage switch) and then toasted and switched again, so
     one press raised two toasts and the first switch could walk the selection
     that ``follow=False`` was written to prevent."""
@@ -454,7 +454,7 @@ def test_vary_on_a_reference_raises_one_toast(monkeypatch):
     )
     ctx = SimpleNamespace(state=AppState(mode="create"), toast=lambda t, *a, **k: toasts.append(t))
     job = {"id": "r1", "stage": "reference", "kind": "text", "params": {"prompt": "a chest"}}
-    create_workspace._vary(ctx, job)
+    create_workspace.vary(ctx, job)
     assert len(toasts) == 1, toasts
     assert toasts[0].startswith("Loaded this brief")
     assert switches and all(follow is False for _stage, follow in switches), switches

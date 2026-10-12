@@ -281,7 +281,7 @@ def _seed(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     # to a C int32 that happens to coincide with ``MAX_SEED``, which is the only
     # thing that keeps the refusal unreachable through it -- a seed loaded from
     # a hand-edited settings.json has no such ceiling. This pane had no comment
-    # at all about the gap; ``settings_2d._seed_row`` had one and it was wrong
+    # at all about the gap; ``settings_2d.seed_row`` had one and it was wrong
     # (the 2026-09-11 audit, finding create-07).
     widgets.field_error(ctx.state, "mesh_seed")
     if controls.button("Reroll##mesh", role=controls.ButtonRole.GHOST):
@@ -311,11 +311,11 @@ def _seed(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
 RESET_TOAST = "The mesh settings are back to their defaults."
 
 
-def _reset(ctx: Any) -> None:
+def reset(ctx: Any) -> None:
     """The 3D form back to first-launch defaults.
 
     A fresh copy of ``DEFAULT_FORM_3D`` rather than a field-by-field clear, for
-    ``settings_2d._reset``'s reason: a field added later is reset by having been
+    ``settings_2d.reset``'s reason: a field added later is reset by having been
     added rather than by somebody remembering this function. A *copy*, because
     the module-level dict is the default and a form aliased onto it would edit
     it for the rest of the process -- which is the shape ``AppState.form_3d``'s
@@ -330,7 +330,7 @@ def _reset(ctx: Any) -> None:
 
     ctx.state.form_3d = dict(DEFAULT_FORM_3D)
     # Refusals recorded against the discarded form (finding create-24; see
-    # ``settings_2d._reset``).
+    # ``settings_2d.reset``).
     ctx.state.clear_field_errors()
     ctx.toast(RESET_TOAST)
 
@@ -1115,7 +1115,12 @@ def problems(
     if form is None:
         form = getattr(getattr(ctx, "state", None), "form_3d", None)
     if form is not None:
-        budget = create_mesh.custom_budget_problem(form, optimize.CUSTOM_MIN, optimize.CUSTOM_MAX)
+        # The budget this host will actually send, not the stored one: on a host
+        # with neither binary the press goes out as Raw (``host_budget_form``), so
+        # a stored Custom with a bad count is not a refusal waiting to happen.
+        budget = create_mesh.custom_budget_problem(
+            host_budget_form(ctx, form), optimize.CUSTOM_MIN, optimize.CUSTOM_MAX
+        )
         if budget is not None:
             out.append(budget)
     return out

@@ -134,6 +134,11 @@ from .edits import (  # noqa: F401
     _shift_materials,
 )
 
+#: What :meth:`ClayDoc._kept_placement` answers: the object's own ``(t, r, s)``,
+#: its shear-baked mesh (or ``None``) and the ``(obj, (t, r, s), baked)`` of every
+#: descendant that has to follow it.
+_Placement = tuple[tuple[Any, Any, Any], Any, list[Any]]
+
 _uids = itertools.count(1)
 #: ``reserve_uid`` runs on a task thread -- ``serialize.read_rblk`` is how an
 #: open and a crash recovery both arrive -- while ``new_uid`` runs on the frame
@@ -827,9 +832,9 @@ class ClayDoc:
         world: np.ndarray,
         parent: int | None,
         by_uid: Mapping[int, Obj] | None = None,
-    ) -> tuple[tuple[Any, Any, Any], bm.Mesh | None]:
+    ) -> _Placement:
         """:meth:`_kept_place`, but exact when the matrix is sheared:
-        ``((t, r, s), baked_mesh_or_None)``.
+        ``((t, r, s), baked_mesh_or_None, carried)``.
 
         The 2026-10-10 audit's clay-04: a (2, 1, 1) parent over a child turned
         45 degrees has a sheared world matrix, ``decompose`` is "for a matrix
@@ -843,61 +848,102 @@ class ClayDoc:
         genuinely sheared matrix takes this path -- a clean orthogonal basis
         returns ``None`` for the mesh and keeps its generator.
 
-        Everything that can refuse (a non-finite placement, a baked mesh the
-        writer would refuse) is raised here, so a caller that computes every
-        child's placement before its first assignment stays atomic.
+        **The object's own children are carried** (the 2026-10-11 audit's
+        clay-12 refused the move; the F20 follow-up built it). The shear is
+        folded into the object's mesh, so its frame is now the unsheared one
+        and a child's old local matrix ``L`` would follow that frame rather
+        than the geometry. Its world is ``frame @ shear @ L`` before and
+        ``frame @ L'`` after, so ``L'`` is ``shear @ L`` -- which is itself
+        sheared whenever ``L`` is rotated, and the walk
+        (:meth:`_carry_subtree`) then bakes *that* shear into the child and
+        goes one generation further. A sheared *empty* has no mesh to bake into
+        and simply drops its shear into its children the same way.
 
-        **Refused when the sheared object has children** (the 2026-10-11 audit's
-        clay-12). The shear is folded into the object's own mesh, but a child's
-        world is ``W_object @ local`` and the object's frame is now the
-        unsheared one, so its children followed the frame rather than the
-        geometry -- a grandchild moved by 0.8 in the probe, with no refusal and
-        no toast, against the manual's "nothing moves when you do it". Baking
-        the shear into a whole subtree is a separate piece of work, so this
-        says so instead: an :class:`~.elements.OpError` naming the object,
-        raised before the caller's first assignment like every other refusal
-        here. A sheared *empty* with children is the same case (its children
-        have no mesh to bake into either); one with none has nothing to lose.
+        Everything that can refuse (a non-finite placement, a baked mesh the
+        writer would refuse) is raised here, subtree included, so a caller that
+        computes every child's placement before its first assignment stays
+        atomic.
         """
         target = self._relative_matrix(world, parent, by_uid)
         t, r, s, shear = m3.decompose_with_shear(target)
         trs = self._finite_place(child.name, (t, r, s))
         if shear is None:
-            return trs, None
-        if any(o.parent == child.uid for o in self.objects):
-            raise el.OpError(
-                f"{child.name!r} cannot move there without moving its own children: "
-                "a rotated shape with children cannot move under a non-uniformly "
-                "scaled parent. Even out that parent's scale, or move the children "
-                "first."
-            )
-        if len(child.mesh.positions) == 0:
-            return trs, None
-        with np.errstate(over="ignore", invalid="ignore"):
-            baked = bm.transformed(child.mesh, shear)
-        self._refuse_unstorable(child.name, baked)
-        return trs, baked
+            return trs, None, []
+        baked = self._bake_shear(child, shear)
+        return trs, baked, self._carry_subtree(child, shear)
 
-    def _placement_edits(
-        self, child: Obj, placement: tuple[tuple[Any, Any, Any], bm.Mesh | None]
+    def _bake_shear(self, obj: Obj, shear: np.ndarray) -> bm.Mesh | None:
+        """*obj*'s mesh with *shear* folded in, or ``None`` for an empty (it has
+        no geometry to carry the shear)."""
+        if len(obj.mesh.positions) == 0:
+            return None
+        with np.errstate(over="ignore", invalid="ignore"):
+            baked = bm.transformed(obj.mesh, shear)
+        self._refuse_unstorable(obj.name, baked)
+        return baked
+
+    def _carry_subtree(
+        self, root: Obj, shear: np.ndarray
+    ) -> list[tuple[Obj, tuple[Any, Any, Any], bm.Mesh | None]]:
+        """Every descendant of *root* that must change so *root*'s sheared frame
+        can be replaced by an unsheared one -> ``(obj, (t, r, s), baked)`` each,
+        nothing assigned. See :meth:`_kept_placement` for the arithmetic.
+
+        An explicit stack and a visited set, like :meth:`descendants`, so a
+        legal chain thousands deep cannot recurse and a hand-built cycle
+        terminates. A descendant whose re-expressed matrix is *not* sheared
+        keeps its frame, so its own subtree is untouched and the walk stops
+        there."""
+        kids: dict[int | None, list[Obj]] = {}
+        for o in self.objects:
+            kids.setdefault(o.parent, []).append(o)
+        carried: list[tuple[Obj, tuple[Any, Any, Any], bm.Mesh | None]] = []
+        seen = {root.uid}
+        stack: list[tuple[Obj, np.ndarray]] = [(root, shear)]
+        while stack:
+            owner, owner_shear = stack.pop()
+            for c in kids.get(owner.uid, ()):
+                if c.uid in seen:
+                    continue
+                seen.add(c.uid)
+                t, r, s, c_shear = m3.decompose_with_shear(
+                    owner_shear @ m3.compose(*c.trs())
+                )
+                trs = self._finite_place(c.name, (t, r, s))
+                baked = None
+                if c_shear is not None:
+                    baked = self._bake_shear(c, c_shear)
+                    stack.append((c, c_shear))
+                carried.append((c, trs, baked))
+        return carried
+
+    def _placement_edits(self, child: Obj, placement: _Placement) -> list[Any]:
+        """Apply a :meth:`_kept_placement` to *child* and the descendants it
+        carries -> the steps to record (each one's transform, and for a sheared
+        one its baked mesh and the generator freeze that goes with it --
+        geometry that is no longer what a generator would build,
+        :meth:`set_mesh`'s rule)."""
+        trs, baked, carried = placement
+        edits = self._apply_placed(child, trs, baked)
+        for obj, o_trs, o_baked in carried:
+            edits.extend(self._apply_placed(obj, o_trs, o_baked))
+        return edits
+
+    def _apply_placed(
+        self, obj: Obj, trs: tuple[Any, Any, Any], baked: bm.Mesh | None
     ) -> list[Any]:
-        """Apply a :meth:`_kept_placement` to *child* -> the steps to record
-        (its transform, and for a sheared one its baked mesh and the generator
-        freeze that goes with it -- geometry that is no longer what a generator
-        would build, :meth:`set_mesh`'s rule)."""
-        trs, baked = placement
         edits: list[Any] = []
-        before_trs = tuple(np.array(v, copy=True) for v in child.trs())
+        before_trs = tuple(np.array(v, copy=True) for v in obj.trs())
         if not all(np.array_equal(a, b) for a, b in zip(before_trs, trs, strict=True)):
-            child.translation, child.rotation, child.scale = trs
-            edits.append(TransformEdit(child.uid, before_trs, trs))
+            obj.translation, obj.rotation, obj.scale = trs
+            edits.append(TransformEdit(obj.uid, before_trs, trs))
         if baked is not None:
-            before_mesh, child.mesh = child.mesh, baked
-            edits.append(MeshEdit(child.uid, before_mesh, baked))
-            if child.generator is not None:
-                was = {"generator": child.generator, "params": child.params}
-                child.generator, child.params = None, {}
-                edits.append(ObjectPropsEdit(child.uid, was, {"generator": None, "params": {}}))
+            before_mesh, obj.mesh = obj.mesh, baked
+            edits.append(MeshEdit(obj.uid, before_mesh, baked))
+            if obj.generator is not None:
+                was = {"generator": obj.generator, "params": obj.params}
+                obj.generator, obj.params = None, {}
+                edits.append(ObjectPropsEdit(obj.uid, was, {"generator": None, "params": {}}))
         return edits
 
     @staticmethod
@@ -933,10 +979,9 @@ class ClayDoc:
 
         **Where the re-expressed placement is sheared** (a non-uniformly scaled
         parent over a rotated child) the residual shear is baked into the
-        object's mesh and its generator freezes -- see :meth:`_kept_placement`.
-        An object that is sheared *and* has children of its own is refused
-        (:class:`~.elements.OpError`, nothing pushed): its children would be
-        left behind by the shear (the 2026-10-11 audit's clay-12).
+        object's mesh and its generator freezes, and the object's own
+        descendants are carried the same way so none is left behind by the
+        shear -- see :meth:`_kept_placement`.
         """
         obj = self.by_uid(uid)
         if parent is not None:
@@ -1093,8 +1138,8 @@ class ClayDoc:
         parented member is checked for a finite re-expressed placement before
         anything is added (clay-10), so a refused member leaves no empty and no
         half-applied group behind. That includes a member whose re-expressed
-        placement is sheared while it has children of its own (the 2026-10-11
-        audit's clay-12, see :meth:`_kept_placement`).
+        placement is sheared while it has children of its own, whose subtree is
+        carried (see :meth:`_kept_placement`).
         """
         from . import ops as mesh_ops
 
@@ -1325,9 +1370,8 @@ class ClayDoc:
 
         A child whose kept placement is sheared has the shear baked into its
         mesh (and its generator frozen), so it neither moves nor stores a
-        non-unit rotation -- :meth:`_kept_placement`. A sheared child that has
-        children of its own is refused instead (an :class:`~.elements.OpError`
-        naming it, the 2026-10-11 audit's clay-12), and so is the delete.
+        non-unit rotation -- :meth:`_kept_placement`, which also carries that
+        child's own descendants.
         """
         self._remove_batch([uid], None)
         return True
@@ -1602,7 +1646,21 @@ class ClayDoc:
 
         """
         obj = self.by_uid(target_uid)
-        doomed = sorted({int(u) for u in others} - {target_uid}, key=self.index_of, reverse=True)
+        # One position map and one parent -> children map for the whole call
+        # (the 2026-10-10 audit's clay-23 follow-up): ``children_of`` is a linear
+        # scan and this door asked it twice per absorbed object, ~0.6 s of the
+        # 0.7 s a 4,000-object join took. The map is kept current below as each
+        # absorbed object hands its children on, as ``_remove_batch`` keeps its own.
+        pos: dict[int, int] = {}
+        kids: dict[int | None, dict[int, None]] = {}
+        for i, o in enumerate(self.objects):
+            pos.setdefault(o.uid, i)
+            kids.setdefault(o.parent, {})[o.uid] = None
+        wanted = {int(u) for u in others} - {target_uid}
+        for u in wanted:
+            if u not in pos:
+                raise KeyError(f"no object with uid {u}")
+        doomed = sorted(wanted, key=pos.__getitem__, reverse=True)
         if mesh is obj.mesh and not doomed:
             return False
         # The 2026-10-03 audit's clay-04: re-parenting an absorbed object's
@@ -1619,11 +1677,11 @@ class ClayDoc:
             self._refuse_unstorable(obj.name, mesh)
         for uid in doomed:
             new_parent = self.by_uid(uid).parent
-            if new_parent is not None and self.children_of(uid):
+            if new_parent is not None and kids.get(uid):
                 self._require_invertible(new_parent)
             # ...and, the 2026-10-07 audit's clay-04, that the result is finite:
             # a denormal ancestor inverts without raising and decomposes to NaN.
-            for c in self.children_of(uid):
+            for c in sorted(kids.get(uid, ()), key=pos.__getitem__):
                 self._kept_placement(self.by_uid(c), self.world_matrix(c), new_parent)
         before, obj.mesh = obj.mesh, mesh
         edits: list[Any] = [MeshEdit(target_uid, before, mesh)]
@@ -1649,13 +1707,19 @@ class ClayDoc:
             # from each child's current world matrix before the object it
             # is relative to is gone, in the same compound.
             new_parent = self.by_uid(uid).parent
-            for c in self.children_of(uid):
+            children = sorted(kids.pop(uid, ()), key=pos.__getitem__)
+            for c in children:
                 child = self.by_uid(c)
                 placement = self._kept_placement(child, self.world_matrix(c), new_parent)
                 before = {"parent": child.parent}
                 child.parent = new_parent
                 edits.append(ObjectPropsEdit(c, before, {"parent": new_parent}))
                 edits.extend(self._placement_edits(child, placement))
+            siblings = kids.get(new_parent)
+            if siblings is not None:
+                siblings.pop(uid, None)
+            if children:
+                kids.setdefault(new_parent, {}).update(dict.fromkeys(children))
             index = self.index_of(uid)
             gone = self.objects.pop(index)
             self.selection.discard(uid)

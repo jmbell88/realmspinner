@@ -35,6 +35,7 @@ from .animation import (
     Frame,
     Tag,
     Track,
+    clamp_duration,
 )
 from .layers import Layer, LayerStack
 
@@ -417,10 +418,20 @@ def document_from_sheet(
         track_name=track_name,
     )
     for entry in (animation or {}).get("frames") or []:
-        index = int(entry.get("cell_index", -1))
-        duration = int(entry.get("duration_ms") or 0)
+        # A hand-edited or foreign sidecar can say anything here. ``int()`` of
+        # ``"fast"`` raised out of the whole import (the 2026-10-10 audit's
+        # F18-1), where ``clamp_duration`` has always treated a value it cannot
+        # read as "no opinion" -- which, for a duration, is the default the
+        # frame already carries. ``OverflowError`` for a bare ``Infinity``.
+        if not isinstance(entry, Mapping):
+            continue
+        try:
+            index = int(entry.get("cell_index", -1))
+            duration = int(entry.get("duration_ms") or 0)
+        except (TypeError, ValueError, OverflowError):
+            continue
         if 0 <= index < len(doc.anim.frames) and duration > 0:
-            doc.anim.frames[index].duration_ms = duration
+            doc.anim.frames[index].duration_ms = clamp_duration(duration)
     if record_base:
         _record_render(doc, source)
     return doc

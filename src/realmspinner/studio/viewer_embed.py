@@ -522,17 +522,30 @@ class Viewer(PoseOps, FrameOps):
         construction -- a handful of scalars, the model's own pose version and
         one flat copy of the handle positions -- because it runs every frame to
         spare the frame a full MSAA draw.
+
+        The rest of what :meth:`_overlays` and :meth:`_active_gizmo` read off
+        the editor is here too (F19-4): the draft's *connectivity* rather than
+        its length (a reparent or rename keeps the length and redraws the
+        skeleton lines), the root that picks translate against rotate rings,
+        the handle and bone *names* (a rename moves no handle), and the marker
+        radius and placement the picture is scaled and placed by.
         """
         editor = self.editor
         handles = editor.handles
         flat = np.asarray(list(handles.values()), dtype="f8").tobytes() if handles else b""
+        placement = getattr(self, "placement", None)
         return (
             editor.selected,
             editor.mode,
             editor.root_translate,
+            editor.root,
             getattr(self.model, "world_version", None),
-            len(editor.draft),
+            tuple((b.get("name"), b.get("parent")) for b in editor.draft),
+            tuple(handles),
+            tuple(editor.bones),
             flat,
+            getattr(self, "radius", None),
+            None if placement is None else np.asarray(placement, dtype="f8").tobytes(),
         )
 
     # ``_overlays`` and ``_active_gizmo`` live in ``PoseOps`` with the rest of

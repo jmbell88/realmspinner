@@ -657,3 +657,42 @@ def test_paint_faces_is_what_every_door_ends_in() -> None:
     handler = inspect.getsource(agent_clay._HANDLERS["clay_material"])
     assert "paint_faces" in handler
     assert "material[" not in handler, "no door writes the per-face array itself"
+
+
+# --- the slot swatches grey with a reason, as the + does -----------------------
+
+
+def _slot_swatch_states(monkeypatch: pytest.MonkeyPatch, ui, ctx: Any, *, saving: bool) -> dict:
+    """Draw ``draw_slots``; -> ``{label: (enabled, reason)}`` for every swatch."""
+    doc, _ = _doc()
+    seen: dict[str, tuple[bool, str]] = {}
+
+    def fake(label, colour, side, **kw):
+        seen[label] = (kw.get("enabled", True), kw.get("reason", ""))
+        return False
+
+    monkeypatch.setattr(clay_swatches, "_swatch", fake)
+    _frame(ui, lambda: clay_swatches.draw_slots(ctx, doc, current=0, saving=saving))
+    return seen
+
+
+def test_the_slot_swatches_are_greyed_with_a_reason_under_a_live_drag_and_while_saving(
+    monkeypatch: pytest.MonkeyPatch, ui
+) -> None:
+    """The ``+`` greyed under a drag or a save and said why; the swatches beside it
+    drew lit, and a press either did nothing or toasted after the fact."""
+    ctx = _Ctx()
+    ctx.clay_view = SimpleNamespace(dragging=True)
+    seen = _slot_swatch_states(monkeypatch, ui, ctx, saving=False)
+    assert set(seen) == {"##slotsw/0", "##slotsw/1"}
+    for state in seen.values():
+        assert state == (False, clay_swatches.doc_io.GESTURE_WHY), seen
+
+    ctx.clay_view.dragging = False
+    seen = _slot_swatch_states(monkeypatch, ui, ctx, saving=True)
+    for state in seen.values():
+        assert state == (False, clay_swatches._SAVING), seen
+
+    seen = _slot_swatch_states(monkeypatch, ui, ctx, saving=False)
+    for state in seen.values():
+        assert state == (True, ""), seen

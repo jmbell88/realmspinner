@@ -173,7 +173,7 @@ def test_no_pane_reaches_another_panes_private_helpers():
     ``_nudge_text`` unseen. Scoped to the shared panes (``studio/panes``) as the
     *target*, reached from anywhere in the studio tree: that is the whole of the
     finding and it needs no allowlist. Mode-internal reaches between a mode's own
-    modules (``inker_mode._settle``, ``brief._TYPE_HINTS``...) are a larger,
+    modules (``inker_mode._settle``, ``brief.TYPE_HINTS``...) are a larger,
     separate question and are deliberately not swept here."""
     assert _private_reaches(_STUDIO / "panes") == []
 

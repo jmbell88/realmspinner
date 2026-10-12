@@ -736,11 +736,7 @@ class FrameMixin:
         # And the Familiar dock, right after -- the other edge the columns
         # must be fitted against, for the same reason and in the same order.
         familiar_dock.tick(ctx)
-        # Before any pane reads ``layout.SIDEBAR_W``: a width change eases, and
-        # a half-eased width read by the left sidebar and the settled one read
-        # by the right would be two columns disagreeing about the same frame.
-        layout_mod.tick()
-        # Straight after, and before any column is drawn: how wide a sidebar
+        # Straight after the dock, and before any column is drawn: how wide a sidebar
         # can be is a fact about this frame's window, and the left column must
         # not settle it for itself and leave the right one to find out (UX-01).
         mode_for_layout = ctx.state.mode
@@ -967,10 +963,10 @@ class FrameMixin:
                     # what a common visit reads as one control bar -- where
                     # this asset is, and what to make next. ``create_brief``'s
                     # own module docstring carries the rest of the argument;
-                    # this is only the wiring, and ``create_brief.shows`` no
-                    # longer decides whether the pane opens -- the rail is a
-                    # breadcrumb for every stage, so it always does, and
-                    # ``create_brief.bar_height`` sizes it per stage instead.
+                    # this is only the wiring. Nothing gates whether the pane
+                    # opens any more (there is no ``shows`` to ask) -- the rail
+                    # is a breadcrumb for every stage, so it always does, and
+                    # ``create_brief.bar_height`` is the one row it is.
                     # The band is 8 + 30 + 8: the pane's inset is one gutter, so
                     # its content area is exactly the one control row
                     # ``bar_height`` is derived from.

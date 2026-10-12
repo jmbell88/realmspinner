@@ -18,6 +18,7 @@ pull in torch, cv2 and trimesh, and this module is imported at app startup.
 from __future__ import annotations
 
 import logging
+import math
 import shutil
 import uuid
 from pathlib import Path
@@ -954,6 +955,18 @@ def import_mesh(
         raise TooLarge("mesh is over 100 MB")
     check_glb(glb)
     check_prompt(prompt)
+    if size_m is not None:
+        # Refused here, before anything is written, as the service's own
+        # ``Invalid`` naming the control: ``float(10**400)`` is a bare
+        # OverflowError (the class the 2026-10-04 audit's create-42 closed in
+        # ``guidance.normalize``), and a NaN or infinite size would otherwise
+        # reach ``normalize_glb`` as a scale.
+        try:
+            size_m = float(size_m)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise Invalid(f"size_m must be a number, got {size_m!r}", field="size_m") from exc
+        if not math.isfinite(size_m):
+            raise Invalid(f"size_m must be a finite number, got {size_m!r}", field="size_m")
 
     params: dict[str, Any] = {
         "seed": 0,

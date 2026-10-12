@@ -1829,12 +1829,16 @@ def apply_pose(ctx: Any, pose_id: str) -> None:
         # Reset first, the apply_preset order: set_pose writes only the bones
         # the record lists, so a partial record (pre-completeness saves exist
         # on disk) applied over a posed editor would keep stale rotations --
-        # and get_pose() would then save them as authored.
-        viewer.reset_all(dirty=False)
-        viewer.set_pose(record.get("bones") or {}, pose_id=record["id"], dirty=False)
-        viewer.set_root_translation(
-            record.get("root_translation") or [0.0, 0.0, 0.0], dirty=False
-        )
+        # and get_pose() would then save them as authored. One ``record()``
+        # round all three, ``apply_asset_pose``'s fix (the 2026-10-04 audit,
+        # finding create-31): bare, the reset was a step of its own and the
+        # first Ctrl+Z landed on the rest pose, not the one the user had.
+        with viewer.editor.record():
+            viewer.reset_all(dirty=False)
+            viewer.set_pose(record.get("bones") or {}, pose_id=record["id"], dirty=False)
+            viewer.set_root_translation(
+                record.get("root_translation") or [0.0, 0.0, 0.0], dirty=False
+            )
 
     guard(ctx, "apply a saved pose", proceed)
 

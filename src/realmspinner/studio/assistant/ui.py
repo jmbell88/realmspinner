@@ -28,6 +28,7 @@ still sees only the current prompt (and, for Clay, the compacted scene).
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass
 from typing import Any
 
@@ -949,7 +950,7 @@ def _staleness_refusal(
     tab_uid: str,
     ui: FamiliarUIState,
     refine: Any,
-    base_doc_id: int | None = None,
+    base_doc_ref: Any = None,
     base_head: int | None = None,
 ) -> str | None:
     """The facts a build preview's landing depends on, both re-asked by
@@ -962,8 +963,9 @@ def _staleness_refusal(
     thread, none of which the pre-submit check alone could still see by the
     time the result lands.
 
-    *base_doc_id*/*base_head* -- ``id(tab.doc)``/``tab.doc.history.head`` as
-    :func:`_submit_build_preview` snapshotted them at clone time, passed only
+    *base_doc_ref*/*base_head* -- a ``weakref`` to ``tab.doc`` and its
+    ``history.head`` as :func:`_submit_build_preview` snapshotted them at clone
+    time, passed only
     by :func:`_land_build_preview` (the pre-submit call has no snapshot yet,
     since the clone has not been taken). The 2026-09-20 audit's familiar-01:
     without this, an edit made *while the batch was running on the worker*
@@ -1004,8 +1006,13 @@ def _staleness_refusal(
         # written against a ghost that is gone, and on the real document they
         # would address objects that are not there.
         return "the preview changed -- preview again"
-    if base_doc_id is not None and (
-        id(tab.doc) != base_doc_id or tab.doc.history.head != base_head
+    # Identity through a weakref, not a bare ``id()`` (F20-8): once the base is
+    # freed CPython can hand its address to the document that replaced it, the
+    # hole ``PreviewDiff.is_base`` closed for the diff (the 2026-10-10 audit's
+    # clay-40). The snapshot is taken before any diff exists, so the same check
+    # is made here by hand.
+    if base_doc_ref is not None and (
+        base_doc_ref() is not tab.doc or tab.doc.history.head != base_head
     ):
         # The 2026-09-20 audit's familiar-01 (see the docstring above): the
         # real document moved -- a new object, an undo, a redo, anything
@@ -1090,7 +1097,7 @@ def _submit_build_preview(
     # means, carried in :data:`LAND_KEY`'s own tag so the second phase can
     # refuse against the state that was actually cloned, not whatever
     # ``tab.doc`` happens to be by the time it looks.
-    base_doc_id = id(tab.doc)
+    base_doc_ref = weakref.ref(tab.doc)
     base_head = tab.doc.history.head
     base_for_clone = refine if refine is not None else tab.doc
     scratch_ctx = familiar_preview.build(base_for_clone)
@@ -1160,7 +1167,7 @@ def _submit_build_preview(
         "refine": refine,
         "calls": calls,
         "scratch_ctx": scratch_ctx,
-        "base_doc_id": base_doc_id,
+        "base_doc_ref": base_doc_ref,
         "base_head": base_head,
     }
     if not ctx.submit(LAND_KEY, run, tag=tag):
@@ -1198,7 +1205,7 @@ def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
     thread_key, exchange = tag.get("thread_key"), tag.get("exchange")
     tab_uid, refine = tag.get("tab_uid", ""), tag.get("refine")
     scratch_ctx, calls = tag.get("scratch_ctx"), tag.get("calls") or []
-    base_doc_id, base_head = tag.get("base_doc_id"), tag.get("base_head")
+    base_doc_ref, base_head = tag.get("base_doc_ref"), tag.get("base_head")
 
     state = clay_mode.ensure(ctx)
     tab = state.get(tab_uid) if tab_uid else None
@@ -1207,7 +1214,7 @@ def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
     # ``_staleness_refusal``'s own docstring for why a check made only after
     # the diff already exists is too late (the diff's own ``base_head`` would
     # already have been stamped from the moved document).
-    refusal = _staleness_refusal(state, tab, tab_uid, ui, refine, base_doc_id, base_head)
+    refusal = _staleness_refusal(state, tab, tab_uid, ui, refine, base_doc_ref, base_head)
     if refusal is not None:
         ui.message = refusal
         ui.reason = None

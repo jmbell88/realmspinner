@@ -28,7 +28,7 @@ def test_the_mesh_stage_labels_its_seed_seed():
 
 def test_both_stages_share_one_lock_seed_hint():
     assert create_stages.SEED_LOCK_HINT == "Unlocked, every Generate draws a fresh seed."
-    assert "helper=create_stages.SEED_LOCK_HINT" in inspect.getsource(settings_2d._seed_row)
+    assert "helper=create_stages.SEED_LOCK_HINT" in inspect.getsource(settings_2d.seed_row)
     assert "helper=create_stages.SEED_LOCK_HINT" in inspect.getsource(settings_3d._seed)
 
 

@@ -103,7 +103,7 @@ def pending_cached(cache: Any) -> Group | None:
     older" has widened the window), building a fresh ``groups`` dict and
     sorting every group's members, with no memo at all -- and every one of
     its call sites (``workspace.should_draw``, ``workspace.draw``,
-    ``brief._with_pending_candidates_problem`` and the tray's ``_candidate_grid``)
+    ``brief.with_pending_candidates_problem`` and the tray's ``_candidate_grid``)
     runs every frame the Create canvas is visible, so one frame paid the
     scan three or four times over though nothing had changed since the last
     one. Keyed on ``cache._generation`` the way

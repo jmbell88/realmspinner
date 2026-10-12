@@ -289,7 +289,17 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
             "name": str(pose["name"]),
             "bones": validate_bones(pose["bones"]),
         }
-        if pose.get("root_translation"):
+        # ``service.clips._check_shape``'s rule (poser-49), so the read door and
+        # the write door agree on one field: absent, null and an empty list are
+        # "no translation"; a present falsy non-list (``0``, ``""``, ``{}``) was
+        # skipped here as if absent -- dropping a root motion the file meant --
+        # and is refused instead.
+        raw_translation = pose.get("root_translation")
+        if raw_translation is not None and not isinstance(raw_translation, (list, tuple)):
+            raise ValueError(
+                f"pose {row['name']!r} has a root_translation that is not a list of 3 numbers"
+            )
+        if raw_translation:
             # Function-level: ``poselib`` imports this package at its own top,
             # so a top-level import here would be circular. Shared rather than
             # a bare ``float(v)`` -- the 2026-09-07 audit (poser-05) found this

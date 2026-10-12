@@ -613,6 +613,10 @@ class _OpCtx:
     ``ops.py`` reads ``ctx.state``, and ``gesture_live`` reading ``None`` means
     "no gesture", which is true of a tab no pointer is on."""
     messages: list[str] = field(default_factory=list)
+    refusals: list[tuple[int, str]] = field(default_factory=list)
+    """``(uid, sentence)`` for each refusal ``ops`` could attribute to one object
+    (``ops._toast_refused`` calls :meth:`refused`); :func:`_h_op` prefixes the
+    matching ``errors`` entry with the uid."""
     errors: list[str] = field(default_factory=list)
     """The error-level subset of :attr:`messages`. The 2026-10-09 second audit's
     clay-71: this proxy used to discard the level, so "Those faces already use
@@ -623,6 +627,9 @@ class _OpCtx:
         self.messages.append(message)
         if level == "error":
             self.errors.append(message)
+
+    def refused(self, uid: int, message: str) -> None:
+        self.refusals.append((uid, message))
 
 
 def _h_op(ctx: Any, session: Session, args: dict) -> dict:
@@ -779,11 +786,19 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     # anonymous string among the ``messages``, so an agent read it as "every
     # selected object was done". The error-level subset is repeated as its own
     # key -- at most one sentence per object, so it grows with the selection and
-    # no faster. Absent when nothing was refused. It cannot name the uid:
-    # ``run_object_op`` toasts the kernel's sentence with no object attached, and
-    # the proxy has no other way to know which object a toast came from.
+    # no faster. Absent when nothing was refused. Each sentence a per-object loop
+    # (``run_mesh_op``, ``run_object_op``) refused names its uid through the
+    # proxy's ``refused`` hook; one from elsewhere stays an anonymous string.
     if proxy.errors:
-        reply["errors"] = list(proxy.errors)
+        unclaimed = list(proxy.refusals)
+        labelled = []
+        for sentence in proxy.errors:
+            owner = next((i for i, (_, text) in enumerate(unclaimed) if text == sentence), None)
+            if owner is None:
+                labelled.append(sentence)
+            else:
+                labelled.append(f"uid {unclaimed.pop(owner)[0]}: {sentence}")
+        reply["errors"] = labelled
     # The 2026-10-10 audit's clay-31: ``select-all``/``select-invert`` replace no
     # mesh, so ``changed`` (built from meshes whose identity moved) was ``[]``
     # and the reply said nothing of what was now selected -- though the manual

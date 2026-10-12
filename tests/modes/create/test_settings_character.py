@@ -623,7 +623,7 @@ def test_the_character_column_draws_none_of_the_sdxl_recipe(ctx):
         assert absent not in source, absent
     # And the shared halves really are shared.
     block = inspect.getsource(settings_character.draw_block)
-    assert "settings_2d._seed_row" in block
+    assert "settings_2d.seed_row" in block
     draw = inspect.getsource(settings_2d.draw)
     assert "settings_character.draw_block" in draw
     assert "_plan_footer(ctx, form)" in draw

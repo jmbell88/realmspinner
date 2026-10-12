@@ -172,7 +172,12 @@ BATCH_EXCLUDED = frozenset(
         # way clay_undo/clay_redo do (ClayDoc.restore_checkpoint is
         # step_history under the hood) -- the identical incoherence, for the
         # identical reason. clay_checkpoint itself pushes no step and reads
-        # nothing live, so it stays batchable.
+        # nothing live, but it is NOT in this set and is still refused inside a
+        # batch: ``tools_batch._resolve_and_call`` rejects it at run time (the
+        # 2026-10-10 audit's clay-29 -- the fold buries a serial minted mid-run,
+        # so ``clay_restore`` could never reach it). It stays out of the set
+        # because the set is published into ``clay_batch``'s description and the
+        # frozen Familiar card; moving it needs a card re-freeze.
         "clay_restore",
     }
 )

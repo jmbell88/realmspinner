@@ -1,6 +1,6 @@
 """Regression tests for the 2026-09-23 audit's Create findings.
 
-create-01: ``settings_2d._reset`` used to do ``ctx.state.preview = {}``, which
+create-01: ``settings_2d.reset`` used to do ``ctx.state.preview = {}``, which
 throws away every key the *3D* side of Create keeps in that shared dict --
 poses, sheets, bones, ``library_poses`` and the Mesh pane's
 ``_LAST_AUTO_MATTE_SLOT`` -- even though the Reset confirm the command bar
@@ -43,7 +43,7 @@ class _Ctx:
             form_2d=default_form_2d(),
             source_job="job-1",
             preview={
-                # 2D-owned: what settings_2d._reset itself may write.
+                # 2D-owned: what settings_2d.reset itself may write.
                 settings_2d.TILE_MODE_CLEARED_KEY: ["a tile-mode note"],
                 settings_2d.CLEARED_KEY: ["a base-model note"],
                 # Shared with the 3D side -- a rig's pose stage, the Mesh
@@ -67,7 +67,7 @@ class _Ctx:
 def test_reset_leaves_the_rig_side_data_of_the_selected_asset_alone():
     """create-01: Reset clears only what settings_2d itself put in ``preview``."""
     ctx = _Ctx()
-    settings_2d._reset(ctx)
+    settings_2d.reset(ctx)
     assert ctx.state.preview["poses"] == [{"id": "p1"}]
     assert ctx.state.preview["sheets"] == [{"id": "s1"}]
     assert ctx.state.preview["bones"] == ["hip", "spine"]
@@ -79,7 +79,7 @@ def test_reset_still_drops_its_own_cleared_notes():
     """The keys settings_2d itself writes are still gone -- Reset is not a
     no-op, only narrower than wiping the whole shared dict."""
     ctx = _Ctx()
-    settings_2d._reset(ctx)
+    settings_2d.reset(ctx)
     assert settings_2d.TILE_MODE_CLEARED_KEY not in ctx.state.preview
     assert settings_2d.CLEARED_KEY not in ctx.state.preview
 

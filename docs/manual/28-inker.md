@@ -1243,7 +1243,8 @@ you can keep editing while it runs. When it finishes the result is blended into 
 selection was on — by the selection's own edge, so a feathered selection fades it in — as one
 undo step. If that layer was deleted in the meantime, nothing lands and the toast says so. It
 needs an SDXL-family image model, the same as every conditioned generation, and one regeneration
-runs at a time per document.
+runs at a time in all of Inker, not one per open drawing — asking for a second, in any tab, is
+refused with a toast until the first has landed.
 
 ## Animation
 

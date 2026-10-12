@@ -277,3 +277,42 @@ def test_a_pose_session_redraws_when_poser_sets_the_onion_ghosts():
     viewer.render(rect, 0.016)
 
     assert viewer.draws == 2, "the ghosts are drawn from viewer.onion and nothing marked it dirty"
+
+
+# --- F19-4: the redraw key covers what the overlays read --------------------------
+
+
+def test_the_pose_redraw_key_covers_every_editor_field_the_overlays_read():
+    """``_overlays``/``_active_gizmo`` read these from the editor besides the
+    handle positions, selection and mode; the key must move with each, or the
+    frame draws a stale skeleton (draft contents at the same length, the root
+    that picks translate vs rotate rings, the handle names a rename changes)."""
+    viewer = _rendering_viewer()
+    editor = viewer.editor
+    editor.handles = {"a": np.zeros(3), "b": np.ones(3)}
+    editor.draft = [
+        {"name": "a", "parent": None},
+        {"name": "b", "parent": "a"},
+        {"name": "c", "parent": "a"},
+    ]
+    editor.root = "a"
+    rect = (0.0, 0.0, 100.0, 100.0)
+    viewer.render(rect, 0.016)
+    viewer.render(rect, 0.016)
+    assert viewer.draws == 1
+
+    steps = {
+        "a reparent at the same draft length": lambda: editor.draft.__setitem__(
+            2, {"name": "c", "parent": "b"}
+        ),
+        "a different root": lambda: setattr(editor, "root", "b"),
+        "a handle renamed with its position kept": lambda: setattr(
+            editor, "handles", {"a": np.zeros(3), "z": np.ones(3)}
+        ),
+    }
+    drawn = 1
+    for label, mutate in steps.items():
+        mutate()
+        viewer.render(rect, 0.016)
+        drawn += 1
+        assert viewer.draws == drawn, f"{label} did not redraw the pose overlays"

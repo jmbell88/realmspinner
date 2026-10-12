@@ -19,6 +19,7 @@ from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import mesh as bm
 from realmspinner.kernels.mesh import ops_topo, selection, shading
 from realmspinner.kernels.mesh import primitives as bp
+from realmspinner.kernels.mesh.adjacency import derived_cache_bytes
 from realmspinner.kernels.mesh.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
 
 
@@ -460,12 +461,23 @@ def test_an_undone_add_still_costs_the_mesh_it_keeps_alive() -> None:
     Ctrl+Z presses invisibly to the byte budget."""
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A", bp.uv_sphere()))
-    expected = mesh_bytes(a.mesh)
+    # The step pins the mesh and so the derived tables weak-keyed to it (the
+    # 2026-10-10 audit's clay-09, which charged them to ``MeshEdit`` only).
+    expected = mesh_bytes(a.mesh) + derived_cache_bytes(a.mesh)
+    assert expected > mesh_bytes(a.mesh)
     assert doc.history._done[-1].cost == expected
 
     doc.undo()
     assert doc.history._undone[-1].cost == expected
     assert doc.history.bytes >= expected
+
+
+def test_a_removed_object_costs_the_derived_tables_its_mesh_pins_too() -> None:
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A", bp.uv_sphere()))
+    mesh = a.mesh
+    doc.remove_object(a.uid)
+    assert doc.history._done[-1].cost == mesh_bytes(mesh) + derived_cache_bytes(mesh)
 
 
 def test_a_property_edit_costs_its_retained_dict() -> None:
@@ -898,6 +910,52 @@ def test_one_undo_restores_both_the_geometry_and_the_absorbed_objects() -> None:
     assert doc.undo()
     assert [o.name for o in doc.objects] == ["A", "B"]
     assert doc.by_uid(a.uid).mesh is original
+
+
+def test_joining_many_objects_finds_their_children_without_a_scan_per_absorbed_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-10-10 audit's clay-23 follow-up: ``children_of`` is a linear scan
+    and the merge asked it twice per absorbed object, so a 4,000-object join was
+    ~0.6 s of scanning on the frame thread. One parent -> children map serves
+    the whole call."""
+    objs = [_obj(f"O{i}") for i in range(60)]
+    doc = bd.ClayDoc(objs)
+    others = [o.uid for o in objs[1:]]
+    calls = 0
+    real = bd.ClayDoc.children_of
+
+    def counted(self: bd.ClayDoc, uid: int) -> list[int]:
+        nonlocal calls
+        calls += 1
+        return real(self, uid)
+
+    monkeypatch.setattr(bd.ClayDoc, "children_of", counted)
+    doc.join_objects(objs[0].uid, objs[0].mesh, others)
+
+    assert calls <= 2, f"{calls} children_of scans for 59 absorbed objects"
+    assert [o.name for o in doc.objects] == ["O0"]
+
+
+def test_joining_a_chain_of_absorbed_objects_hands_the_leaf_to_the_survivors_parent() -> None:
+    """Absorbed B holds absorbed C, which holds D: each hop re-parents its
+    children onto its own parent, so D must come out under B's parent."""
+    root = _obj("Root")
+    keeper = _obj("Keeper")
+    b = _obj("B", parent=root.uid)
+    c = _obj("C", parent=b.uid)
+    d = _obj("D", parent=c.uid)
+    doc = bd.ClayDoc([root, keeper, b, c, d])
+    world = doc.world_matrix(d.uid)
+
+    doc.join_objects(keeper.uid, keeper.mesh, [b.uid, c.uid])
+
+    assert [o.name for o in doc.objects] == ["Root", "Keeper", "D"]
+    assert doc.by_uid(d.uid).parent == root.uid
+    assert np.allclose(doc.world_matrix(d.uid), world)
+    assert doc.undo()
+    assert [o.name for o in doc.objects] == ["Root", "Keeper", "B", "C", "D"]
+    assert doc.by_uid(d.uid).parent == c.uid
 
 
 def test_undoing_a_merge_puts_every_object_back_at_its_own_index() -> None:

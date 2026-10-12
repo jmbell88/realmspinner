@@ -49,7 +49,7 @@ def test_resetting_the_model_form_restores_every_default():
     ctx.state.form_3d.update(
         platform="high", size_m=2.5, mesh_seed=1234, count=3, rig=True
     )
-    settings_3d._reset(ctx)
+    settings_3d.reset(ctx)
     assert ctx.state.form_3d == DEFAULT_FORM_3D
 
 
@@ -57,7 +57,7 @@ def test_resetting_the_model_form_does_not_alias_the_default_dict():
     """``DEFAULT_FORM_3D`` is module state; a form aliased onto it would edit
     the default for the rest of the process."""
     ctx = _Ctx()
-    settings_3d._reset(ctx)
+    settings_3d.reset(ctx)
     ctx.state.form_3d["platform"] = "poisoned"
     assert DEFAULT_FORM_3D["platform"] == ""
 
@@ -66,13 +66,13 @@ def test_resetting_the_model_form_keeps_the_chosen_source():
     """The source is not part of this form -- it lives on ``state.source_job``
     -- and dropping it would be a larger action than the button offers."""
     ctx = _Ctx()
-    settings_3d._reset(ctx)
+    settings_3d.reset(ctx)
     assert ctx.state.source_job == "job-1"
 
 
 def test_resetting_the_model_form_says_so():
     ctx = _Ctx()
-    settings_3d._reset(ctx)
+    settings_3d.reset(ctx)
     assert ctx.toasts and "default" in ctx.toasts[0]
 
 
@@ -82,7 +82,7 @@ def test_resetting_the_model_form_says_so():
 def test_resetting_the_image_form_restores_every_default():
     ctx = _Ctx()
     ctx.state.form_2d.update(prompt="a knight")
-    settings_2d._reset(ctx)
+    settings_2d.reset(ctx)
     assert ctx.state.form_2d["prompt"] == default_form_2d()["prompt"]
 
 
@@ -98,7 +98,7 @@ def test_resetting_the_image_form_drops_the_stale_preview():
     ctx.state.preview[settings_2d.TILE_MODE_CLEARED_KEY] = ["a tile-mode note"]
     ctx.state.preview["library_poses"] = ["unrelated pose data"]
 
-    settings_2d._reset(ctx)
+    settings_2d.reset(ctx)
 
     assert settings_2d.CLEARED_KEY not in ctx.state.preview
     assert settings_2d.TILE_MODE_CLEARED_KEY not in ctx.state.preview
@@ -115,7 +115,7 @@ def _row_source(fn) -> str:
 def test_reset_confirm_text_names_every_field_it_discards():
     """The 2026-09-08 audit, finding create-03: the confirm dialog named only
     six things -- the prompt, the negative prompt, the model, the LoRA, the
-    reference and the run controls -- while ``settings_2d._reset`` actually
+    reference and the run controls -- while ``settings_2d.reset`` actually
     replaces the *whole* form with ``default_form_2d()``, silently discarding
     the asset type (the whole Image/3D Model/Seamless Material/Tileset/Sprite
     Sheet/Character selection) and every Tileset/Sprite/Character field the
@@ -187,6 +187,6 @@ def test_both_resets_are_behind_a_confirm_dialog():
     source = _row_source(create_brief.ask_reset)
     assert "dialogs.Confirm(" in source
     assert "on_confirm=" in source
-    assert "settings_2d._reset(ctx)" in source
-    assert "settings_3d._reset(ctx)" in source
+    assert "settings_2d.reset(ctx)" in source
+    assert "settings_3d.reset(ctx)" in source
     assert not hasattr(settings_3d, "_reset_row")

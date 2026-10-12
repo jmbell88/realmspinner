@@ -486,6 +486,17 @@ class TasksMixin:
             # landing did, so Create's picker kept offering the removed style
             # (and the submit refused it) until restart.
             self._refresh_style_lora_answers()
+            # The picker lists and can clear a style the form still holds, but a
+            # held key no registry knows is refused at the next Generate for a
+            # style the user has just deleted, so the landing lets go of it.
+            removed = key[len("lora:remove:") :]
+            form = ctx.state.form_2d
+            if removed and form.get("style_lora") == removed:
+                from ..modes.create.engine import recipe as create_recipe
+
+                form["style_lora"] = ""
+                create_recipe.reseed_lora_weight(form, removed)
+                ctx.state.clear_field_error("style_lora")
             return
         if key == "lora:import":
             # Same incident, the Add style button's half: "Style added."

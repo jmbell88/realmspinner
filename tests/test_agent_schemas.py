@@ -1303,7 +1303,7 @@ def test_the_undo_enumeration_docstring_names_every_tool_that_pushes_no_step() -
     undo step -- references and the selection tools -- and omitted
     ``clay_checkpoint``, which pushes none either: ``schema.py``'s own
     ``BATCH_EXCLUDED`` comment says so in these words ("clay_checkpoint
-    itself pushes no step ... so it stays batchable"), and
+    itself pushes no step and reads nothing live, but it is NOT in this set"), and
     ``tools_structure.py``'s own "three of the ten are exempt" paragraph
     points straight back at this enumeration for the claim, which did not
     have it. Developer-facing only: the runtime ``instructions()`` text an

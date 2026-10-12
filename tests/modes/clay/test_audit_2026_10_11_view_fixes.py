@@ -98,6 +98,7 @@ def test_an_op_drag_preview_draws_the_kernels_mesh_not_the_documents(view, ctx) 
 
     od.kernel = kernel
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     view.draw(doc, RECT, 0.0)
 
     assert made, "the kernel never ran"
@@ -126,6 +127,7 @@ def test_a_refused_op_drag_value_puts_the_documents_geometry_back_on_screen(view
 
     assert view.begin_op_drag(doc, clay_ops.get("inset"))
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert _drawn_counts(view._cache[uid]) != base_counts
     view._op_drag_restore(doc, [uid])
     assert _drawn_counts(view._cache[uid]) == base_counts

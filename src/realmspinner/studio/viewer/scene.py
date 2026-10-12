@@ -33,6 +33,15 @@ TEXTURE_SLOTS = (
 )
 
 
+def _gl_max_texture_side(ctx: Any) -> int | None:
+    """The card's ``GL_MAX_TEXTURE_SIZE``, or ``None`` when the context does not say
+    (a test double, a driver that omits it): then the loader's ceiling stands."""
+    try:
+        return int(ctx.info["GL_MAX_TEXTURE_SIZE"])
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
 class TextureCache:
     """A texture cache that several models can share, and that frees on the last use.
 
@@ -137,11 +146,26 @@ class GpuMaterial:
         material: Material,
         texture_cache: dict[Any, moderngl.Texture] | TextureCache | None,
     ) -> None:
+        limit = _gl_max_texture_side(ctx)
         for slot, define, _uniform, _srgb in TEXTURE_SLOTS:
             data = getattr(material, slot)
             if data is None:
                 continue
             width, height, pixels = data
+            if limit is not None and max(width, height) > limit:
+                # The loader's ``MAX_TEXTURE_SIDE`` is a fixed 16,384, but this
+                # card may report less (F20-12, create-38's other half). Skipped
+                # like the loader skips an over-ceiling map -- a cosmetic loss --
+                # because ``ctx.texture`` would raise on the frame thread and
+                # take the whole model with it.
+                log.warning(
+                    "skipping a %dx%d %s texture: over this GPU's %d-per-side limit",
+                    width,
+                    height,
+                    slot,
+                    limit,
+                )
+                continue
             # Crisp sampling is the base-colour slot's alone (the definition of
             # ``Material.nearest``), and it is part of the cache key: a texture
             # carries its own filter state, so two materials over one pixels

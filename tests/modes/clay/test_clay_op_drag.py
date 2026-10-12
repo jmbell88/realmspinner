@@ -111,6 +111,7 @@ def test_an_inset_drag_leaves_the_document_alone_until_it_commits(view, ctx) -> 
     assert view.begin_op_drag(doc, clay_ops.get("inset"))
     assert view.dragging and view._grab == "opdrag"
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     view.draw(doc, RECT, 0.0)
 
     assert doc.rev == rev and doc.by_uid(uid).mesh is mesh and len(doc.history) == steps
@@ -137,6 +138,7 @@ def test_escape_leaves_the_document_byte_identical(view, ctx) -> None:
 
     view.begin_op_drag(doc, clay_ops.get("inset"))
     view._motion(doc, (110.0, 60.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert view.cancel_drag(doc)
 
     assert not view.dragging and view._op_drag is None
@@ -158,6 +160,7 @@ def test_commit_equals_running_the_op_at_that_value_and_is_one_undo_step(view, c
     steps = len(doc.history)
     view.begin_op_drag(doc, clay_ops.get("inset"))
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     value = view._op_drag.value
     assert view._release_drag(doc)
 
@@ -176,6 +179,7 @@ def test_a_typed_value_then_enter_is_exactly_that_value(view, ctx) -> None:
     _ready(view, doc)
     view.begin_op_drag(doc, clay_ops.get("inset"))
     view._motion(doc, (120.0, 48.0))  # the pointer says something else entirely
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     _type(view, doc, "0.1")
     assert "= 0.1" in view.drag_hud
     assert view._release_drag(doc)
@@ -207,6 +211,7 @@ def test_a_refusal_at_the_value_keeps_the_last_picture_and_says_why(view, ctx, m
     rev, steps = doc.rev, len(doc.history)
     view._op_drag.kernel = refuse
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert "Too thick." in view.drag_hud
     assert doc.rev == rev and len(doc.history) == steps
     view.cancel_drag(doc)
@@ -262,6 +267,7 @@ def test_e_then_a_drag_is_one_undo_step(view, ctx) -> None:
 
     clay_mode._fire_op(ctx, doc, clay_ops.get("extrude"), interactive=True)
     view._motion(doc, (90.0, 20.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     view._release_drag(doc)
 
     assert len(doc.history) == steps + 1
@@ -279,6 +285,7 @@ def test_the_extrude_drag_moves_only_along_the_normal(view, ctx) -> None:
     clay_mode._fire_op(ctx, doc, clay_ops.get("extrude"), interactive=True)
     extruded = _positions(doc, uid).copy()
     view._motion(doc, (100.0, 20.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     view._release_drag(doc)
     after = _positions(doc, uid)
 
@@ -296,6 +303,7 @@ def test_escape_after_e_undoes_the_extrude_too(view, ctx) -> None:
 
     clay_mode._fire_op(ctx, doc, clay_ops.get("extrude"), interactive=True)
     view._motion(doc, (100.0, 20.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert view.cancel_drag(doc)
 
     assert np.array_equal(_positions(doc, uid), np.array(bp.box().positions))
@@ -335,15 +343,19 @@ def test_a_slow_preview_is_throttled_and_the_commit_never_is(view, ctx, monkeypa
     od.kernel = slow
 
     view._motion(doc, (70.0, 48.0))  # first one always runs
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert len(calls) == 1
     view._motion(doc, (80.0, 48.0))  # 0 ms after a 200 ms preview: skipped...
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     # (the fake clock only moves inside the kernel, so "now" is the end of the first)
     assert len(calls) == 1
     clock[0] += _view_opdrag.SLOW_INTERVAL_S + 0.01
     view._motion(doc, (90.0, 48.0))  # ...and allowed again once the interval has passed
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert len(calls) == 2
 
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert len(calls) == 2
     od.kernel = real
     value = view._op_drag_value(doc)
@@ -362,6 +374,7 @@ def test_a_fast_preview_is_not_throttled(view, ctx, monkeypatch) -> None:
     od.kernel = lambda mesh, sel, **p: (calls.append(1), real(mesh, sel, **p))[1]
     for x in (70.0, 80.0, 90.0, 100.0):
         view._motion(doc, (x, 48.0))
+        view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     assert len(calls) == 4
     view.cancel_drag(doc)
 
@@ -391,6 +404,7 @@ def test_a_big_mesh_op_drag_never_exceeds_the_throttled_cadence(view, ctx) -> No
     started = time.perf_counter()
     for i in range(60):
         view._motion(doc, (64.0 + i, 48.0))
+        view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     elapsed = time.perf_counter() - started
     view.cancel_drag(doc)
     if od.cost <= _view_opdrag.SLOW_PREVIEW_S:
@@ -432,8 +446,10 @@ def test_a_bevel_drag_changes_the_width_live_without_touching_the_document(view,
 
     assert view.begin_op_drag(doc, clay_ops.get("bevel"))
     view._motion(doc, (70.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     near = view._op_drag.value
     view._motion(doc, (120.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
     far = view._op_drag.value
     assert 0.0 < near < far, "the width follows the pointer's travel"
     assert view.drag_hud.startswith("Bevel width ")

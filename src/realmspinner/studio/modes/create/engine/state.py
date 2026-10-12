@@ -5,7 +5,7 @@ P5 of the 2026-09 restructure split Create into
 ``studio/state.py``'s ``AppState`` -- this is the fold that gives it one
 object instead. Only the fields nothing *outside* Create reads move here:
 ``form_2d``, ``form_3d`` and ``source_job`` stay on ``AppState`` because
-``review_mode.capture_base`` reads the live 2D/3D forms to seed a sweep
+``modes.review.mode.capture_base`` reads the live 2D/3D forms to seed a sweep
 without ever leaving Review, and ``panes/library.py``'s ``select``/
 ``copy_settings`` write ``source_job``/``form_2d`` as a side effect of
 selecting or copying *any* card, library-wide, not only on the way into

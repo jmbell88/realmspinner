@@ -241,10 +241,18 @@ def _refuse_growth(mesh: Mesh, verb: str, faces: np.ndarray | None = None) -> No
                 "own, and subdivide that."
             )
     if grown > MAX_SUBDIVIDED_FACES:
+        # Smoothing (``faces is None``) ignores the selection, so "subdivide a
+        # part of it" is a remedy it cannot honour; splitting the part off into
+        # its own object is the way to smooth less than the whole.
+        remedy = (
+            "Subdivide a part of it"
+            if faces is not None
+            else "Smoothing ignores the selection, so use Separate Selection to split a "
+            "part off into an object of its own"
+        )
         raise OpError(
             f"{verb} this object would make {grown:,} faces, past the "
-            f"{MAX_SUBDIVIDED_FACES:,} Clay works with. Subdivide a part of it, "
-            "or start from a simpler shape."
+            f"{MAX_SUBDIVIDED_FACES:,} Clay works with. {remedy}, or start from a simpler shape."
         )
 
 

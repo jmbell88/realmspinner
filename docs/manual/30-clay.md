@@ -740,12 +740,12 @@ topmost selected object. Nothing moves when you do it — the child keeps exactl
 and from then on moving the parent moves the whole subtree. **Clear Parent** frees an object again,
 also without moving it.
 
-Parenting or grouping a shape that has children of its own is refused when the move would shear it: a
-rotated shape with children cannot move under a non-uniformly scaled parent, because its children would be
-left behind. Clay names the shape and changes nothing; even out the parent's scale, or move the children
-first. (A shape with no children still moves and keeps its place.) Parent to Last, Clear Parent, Group,
-an outliner drop, Delete of a parent whose sheared child has children of its own, and Merge Objects
-all follow the same rule.
+Moving a rotated shape under a non-uniformly scaled parent would shear it, and Clay cannot store a shear
+as a position, rotation and scale. So it bakes the shear into that shape's own geometry and carries the
+shape's children with it: each child keeps exactly the place it had, however many generations down, and a
+sheared empty (which has no geometry to bake) hands its shear to its children instead. It is still one
+undo step. Parent to Last, Clear Parent, Group, an outliner drop, Delete of a parent whose sheared child
+has children of its own, and Merge Objects all do this.
 
 A child's position, rotation and scale are measured *relative to its parent*, so the Inspector's
 fields are labelled "local" once an object has one. That is why a wheel at local zero sits at the

@@ -29,13 +29,13 @@ class _Settings:
         self.store[key] = value
 
 
-def test_the_sidebars_are_one_of_three_named_sizes():
-    """Named sizes rather than a drag (M106): a form has a width that reads
-    well, and what the old free drag bought was a way to make the app look
-    broken. ``SIDEBAR_W`` is the one in force -- module state, exactly as
-    ``tokens.SCALE`` is, because eight call sites read it directly."""
-    assert layout_mod.SIDEBAR_WIDTHS["default"] == 300.0
-    assert layout_mod.SIDEBAR_W in layout_mod.SIDEBAR_WIDTHS.values()
+def test_the_unmeasured_sidebar_width_is_a_constant_300_and_nothing_eases_it():
+    """``SIDEBAR_W`` is only what a pane is drawn at before the first
+    ``measure``. The named sizes, ``set_sidebar`` and the per-frame ``tick``
+    that eased between them are retired (F14): a constant has nothing to tick."""
+    assert layout_mod.SIDEBAR_W == 300.0
+    for gone in ("set_sidebar", "tick", "SIDEBAR_TARGET", "SIDEBAR_WIDTHS"):
+        assert not hasattr(layout_mod, gone), gone
 
 
 def test_a_pane_is_inset_by_a_step_of_the_spacing_scale():
@@ -55,26 +55,18 @@ def test_a_pane_is_inset_by_a_step_of_the_spacing_scale():
     assert layout_mod.PANE_PADDING < tokens.SP_4
 
 
-def test_an_unknown_stored_width_falls_back_rather_than_stopping_the_window():
-    try:
-        assert layout_mod.set_sidebar("enormous") == "default"
-        assert layout_mod.SIDEBAR_W == 300.0
-        assert layout_mod.set_sidebar("wide") == "wide"
-        assert layout_mod.SIDEBAR_WIDTHS["wide"] == layout_mod.SIDEBAR_W
-    finally:
-        layout_mod.set_sidebar("default")
-
-
-def test_a_stored_width_is_a_name_and_never_a_number():
-    """So a settings file can never carry a size this build does not offer."""
-    settings = _Settings({"sidebar": "wide", "settings_share": 0.4})
-    try:
-        lay = layout_mod.Layout(settings)
-        assert lay.sidebar == "wide"
-        lay.save()
-        assert settings.store["layout"]["sidebar"] == "wide"
-    finally:
-        layout_mod.set_sidebar("default")
+@pytest.mark.parametrize("stored", ["wide", "narrow", "enormous", 7, None])
+def test_a_saved_file_with_the_retired_sidebar_key_still_loads_and_drops_it(stored):
+    """Every machine that ever ran a build offering three sidebar sizes has a
+    ``sidebar`` name in its settings file. It must load (ignored -- the width is
+    a fixed 300 dp) and be gone after the next save, not re-written for ever."""
+    settings = _Settings({"sidebar": stored, "settings_share": 0.4})
+    lay = layout_mod.Layout(settings)
+    assert lay.settings_share == 0.4
+    assert not hasattr(lay, "sidebar")
+    assert layout_mod.SIDEBAR_W == 300.0
+    lay.save()
+    assert "sidebar" not in settings.store["layout"]
 
 
 def test_stored_widths_are_ignored_and_only_the_share_is_read():
@@ -96,7 +88,6 @@ def test_a_save_writes_no_width_key_at_all():
         # The per-split shares (empty here: nothing has been dragged). Written
         # every time for the same reason the rest of this dict is.
         "settings_shares": {},
-        "sidebar": "default",
         # The navigation rail's labels-or-icons preference (the UI redesign, wave 3).
         # It has to be written here every time for the reason the whole test
         # exists: the dict is replaced, so a key ``save`` forgets is a
@@ -506,7 +497,7 @@ def test_every_width_that_names_the_sidebar_agrees_on_300():
 
     assert tokens.SIDEBAR_TARGET_DP == layout_mod.SIDEBAR_TARGET_DP == 300.0
     assert skeletons.COLUMN_W == tokens.SIDEBAR_TARGET_DP
-    assert layout_mod.SIDEBAR_WIDTHS["default"] == tokens.SIDEBAR_TARGET_DP
+    assert layout_mod.SIDEBAR_W == tokens.SIDEBAR_TARGET_DP
 
 
 def test_very_wide_windows_keep_300_dp_sidebars_rather_than_growing_them():

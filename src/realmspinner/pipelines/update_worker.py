@@ -34,6 +34,7 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -156,6 +157,24 @@ def _http_url(value: Any) -> str:
     return text if text.lower().startswith(("https://", "http://")) else ""
 
 
+def _is_https_url(value: Any) -> bool:
+    """Whether ``value`` is an https URL that names a host.
+
+    The installer's transport, held to a stricter rule than ``_http_url``'s page
+    link: that one is shown to a person, this one is fetched and then offered
+    for a double-click. ``urllib`` opens ``file:`` and ``ftp:`` as readily as
+    ``https:``, and ``https:///x.exe`` or ``//host/x.exe`` parse without a
+    scheme-and-host pair to speak of (the 2026-10-10 audit's F18-8), so the host
+    is checked by parsing rather than by a prefix.
+    """
+    try:
+        parts = urllib.parse.urlsplit(str(value or "").strip())
+        host = parts.hostname
+    except ValueError:
+        return False
+    return parts.scheme.lower() == "https" and bool(host)
+
+
 def check(spec: dict[str, Any]) -> dict[str, Any]:
     """What the latest release is, if it published a manifest for us.
 
@@ -201,11 +220,14 @@ def check(spec: dict[str, Any]) -> dict[str, Any]:
     published = _asset(assets, filename)
     if published is None:
         raise ValueError(f"the release publishes no asset called {filename}")
+    installer_url = str(published.get("browser_download_url") or "")
+    if not _is_https_url(installer_url):
+        raise ValueError(f"the release's asset {filename} is not offered over https")
     return {
         "ok": True,
         "latest": str(manifest.get("version") or release.get("tag_name") or ""),
         "installer_name": filename,
-        "installer_url": str(published.get("browser_download_url") or ""),
+        "installer_url": installer_url,
         "size_bytes": int(installer.get("size_bytes") or published.get("size") or 0),
         "sha256": digest,
         "release_url": release_url,
@@ -230,6 +252,9 @@ def fetch(spec: dict[str, Any]) -> dict[str, Any]:
     # is the defence for a feed that does not.
     if not _is_bare_filename(name):
         raise ValueError(f"{name!r} is not a filename this download may write")
+    # ``check``'s rule again, for a spec that did not come through it.
+    if not _is_https_url(spec.get("installer_url")):
+        raise ValueError("an installer is only downloaded over https")
     dest_dir.mkdir(parents=True, exist_ok=True)
     digest = str(spec["sha256"]).lower()
     total = int(spec.get("size_bytes") or 0)

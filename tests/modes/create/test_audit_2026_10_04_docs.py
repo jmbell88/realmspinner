@@ -160,15 +160,15 @@ def test_manual_22_names_the_conditioning_header_the_pane_draws():
 
 
 def test_character_controls_in_the_manual_match_the_column():
-    """The column draws ``settings_2d._seed_row`` -- Seed, Reroll, Lock seed -- so
+    """The column draws ``settings_2d.seed_row`` -- Seed, Reroll, Lock seed -- so
     the Controls subsection lists those three captions by name."""
-    assert "settings_2d._seed_row(ctx, form, form_ui)" in inspect.getsource(
+    assert "settings_2d.seed_row(ctx, form, form_ui)" in inspect.getsource(
         settings_character.draw_block
     )
-    row = inspect.getsource(settings_2d._seed_row)
+    row = inspect.getsource(settings_2d.seed_row)
     captions = ('"Seed"', '"Reroll"', '"Lock seed"')
     for caption in captions:
-        assert caption in row, f"_seed_row no longer draws {caption}"
+        assert caption in row, f"seed_row no longer draws {caption}"
 
     controls = _section(_chapter("22-generating-references"), "The controls", level="###")
     for caption in captions:

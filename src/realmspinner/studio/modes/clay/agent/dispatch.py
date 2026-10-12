@@ -95,11 +95,11 @@ that is the one way a scripted client could edit, export or close something
 the person at the keyboard never offered it. The empty default
 (``tab_uid == ""``) means "this session owns nothing yet," and only the two
 tools that can start a document from nothing (``clay_add_primitive`` and
-``clay_add_mesh`` -- ``agent_clay_tools._h_add_primitive`` and
+``clay_add_mesh`` -- ``tools._h_add_primitive`` and
 ``_h_add_mesh``) are allowed to mint one and adopt it into the session --
 ``clay_batch`` is a documented third way in, but only because its first call
 is one of those two; see its own docstring
-(``agent_clay_tools_batch._h_batch``).
+(``tools_batch._h_batch``).
 
 **A closed document is a refusal for every tool that needs an existing one,
 and a fresh start for the two that do not.** Those same two creators release
@@ -144,7 +144,7 @@ viewport the user is looking through mid-gesture (Frame Selection chief
 among them). ``clay_ops`` reaches ``ctx`` in exactly two places
 (``toast``, ``getattr(ctx, "clay_view", None)`` in ``_frame``), which is few
 enough to sandbox properly rather than hand over wholesale. See
-``agent_clay_tools_ops._OpCtx``: the absent ``clay_view`` makes Frame
+``tools_ops._OpCtx``: the absent ``clay_view`` makes Frame
 Selection the no-op it should always have been for an agent with no
 viewport of its own, and every ``toast`` lands in the result instead of the
 running app -- so a per-object refusal inside ``run`` that used to become a
@@ -154,7 +154,7 @@ agent can actually read.
 **``clay_batch`` folds several tool calls into one undo step.** An agent
 that wants to block out a scene one primitive at a time pays one round trip
 per primitive and, worse, one Ctrl+Z per primitive for a user who wants to
-back the whole attempt out; ``clay_batch`` (``agent_clay_tools_batch._h_batch``)
+back the whole attempt out; ``clay_batch`` (``tools_batch._h_batch``)
 runs up to ``BATCH_MAX`` calls through :func:`call` under one
 ``history.mark()``/``collapse_since`` pair, stopping at the first refusal
 and keeping the successful prefix. A batch entry never sees an earlier
@@ -166,7 +166,7 @@ cheap pieces already mostly built (object names, ``clay_scene`` reporting
 them, a plural ``clay_set_params``) plus this last one:
 ``{"$ref": "<name>"}``, found anywhere inside an entry's ``arguments``,
 resolves to that name's uid the moment its entry runs
-(``agent_clay_tools_batch._resolve_batch_ref``). Resolved per entry, not
+(``tools_batch._resolve_batch_ref``). Resolved per entry, not
 against the whole ``calls`` list up front, for the same reason a bad
 ``uid`` already refuses at its own entry rather than in a pre-flight pass: a
 name only exists once whatever created it has actually run. And ``$ref`` is
@@ -190,15 +190,15 @@ step": a rolled-back batch pushes no step at all, the same shape as a
 refusal that never mutated the document to begin with. And it reverses only
 the document's own undo stack -- a tab this same batch minted still exists,
 because minting one pushes no undo step either (see
-``agent_clay_tools._h_add_primitive``'s own comment), and the two families
+``tools._h_add_primitive``'s own comment), and the two families
 that push nothing (references, the selection tools) are exactly as
 untouched by a rollback as by an ordinary ``clay_undo``.
 
 **``clay_program`` compiles a small declarative program to a list of tool
-calls (:mod:`.agent_program`) and folds the whole run into one undo step,
+calls (:mod:`.program`) and folds the whole run into one undo step,
 the same shape ``clay_batch`` already gives a run built by hand.** Where
 ``clay_batch`` takes calls an agent already assembled, one at a time,
-``clay_program`` (``agent_clay_tools_batch._h_program``) takes a program --
+``clay_program`` (``tools_batch._h_program``) takes a program --
 ``variables``, a nested ``steps`` list with ``repeat``/``array``/``mirror``/
 ``group``/``let``/``if`` sugar over expressions, and its own ``id``/``$ref``
 namespace reusing ``clay_batch``'s own convention -- and
@@ -247,7 +247,11 @@ each other in one way worth stating rather than blurring: a reference never
 touches the ``ClayDoc`` at all, a selection tool genuinely changes the
 document and still pushes nothing, and ``clay_checkpoint`` sits between the
 two -- it does touch the ``ClayDoc`` object, but only a dict nothing else
-reads, serializes or undoes.
+reads, serializes or undoes. Pushing no step does not make it foldable:
+``clay_checkpoint`` is refused inside a ``clay_batch`` or ``clay_program`` at run
+time (the 2026-10-10 audit's clay-29), because the fold would bury the history
+serial it names. It is still listed as batchable in the published catalogue --
+the frozen Familiar card -- until that card is re-frozen.
 
 **A call that outruns ``agent_host.CALL_TIMEOUT`` is dropped if the frame
 thread has not started it, and finishes if it has.** The two outcomes tell
@@ -282,7 +286,7 @@ is ``changed: false`` by this definition even where it has already written
 one) and not whether a session-scoped reference was added
 (``clay_reference_add`` touches no ``ClayDoc`` at all) -- the document,
 exactly as the rest of this fold already uses the word:
-``agent_clay_tools._h_transform`` and ``_h_set_params`` answer ``changed``
+``tools._h_transform`` and ``_h_set_params`` answer ``changed``
 on the *success* side today, and a refusal now answers the same question
 the same way, rather than leaving a client to infer it from prose. ``field``
 is untouched by any of this -- still ``service.errors``' own convention,
@@ -348,7 +352,7 @@ go one step further and declare an ``outputSchema`` describing that
 structured shape; the rest deliberately do not, because a schema for a uid
 and a count is authorship with no reader. ``clay_add_mesh`` and
 ``clay_add_primitive`` both declare
-``agent_clay_schema._object_row_output_schema`` rather than each repeating
+``schema._object_row_output_schema`` rather than each repeating
 it, because a hand-copied second row schema is exactly the drift the
 derivation paragraphs above rule out for a query enum or a generator list,
 and a row's own shape is no different. None of the three
@@ -385,7 +389,7 @@ result to whichever tab is on screen when a task finishes, and an MCP
   retitles the tab and repoints ``tab.path`` at wherever it was told to
   write -- exactly right for a user's own Ctrl+S, and exactly wrong here: an
   agent-chosen path must never become what the user's *next* Ctrl+S silently
-  overwrites. ``clay_export`` (``agent_clay_tools_ops._h_export``) never
+  overwrites. ``clay_export`` (``tools_ops._h_export``) never
   calls it at all, so ``tab.path``, ``tab.title`` and ``tab.saving`` are left
   exactly as they were. The authored document survives anyway:
   ``clay_mode.build_asset`` already writes it as the job's own ``build.rblk``
@@ -503,7 +507,7 @@ log = logging.getLogger(__name__)
 # function in this file calls ``_tab``, ``_quat_from_euler_xyz``,
 # ``_euler_xyz_from_quat`` or ``REFERENCE_TOOLS`` itself (every caller lives
 # in a handler file, or -- for ``REFERENCE_TOOLS`` -- outside this fold
-# entirely, and reaches them through ``agent_clay_validate``/``agent_clay_schema``
+# entirely, and reaches them through ``validate``/``schema``
 # directly), but ``agent_host`` calls ``agent_clay._tab`` by name,
 # ``tests/modes/clay/test_agent_clay.py`` calls ``agent_clay._quat_from_euler_xyz``/
 # ``_euler_xyz_from_quat`` by name, and ``studio/assistant/preview.py``'s own
@@ -541,7 +545,7 @@ spread one across an unbounded number of frames.
 
 ``tests/modes/clay/test_agent_clay.py`` shrinks this to ``0.0`` with ``monkeypatch.
 setattr(agent_clay, "PROGRAM_DEADLINE_S", 0.0)`` to exercise the deadline
-refusal without a real 4-second wait -- ``agent_clay_tools_batch._h_program``
+refusal without a real 4-second wait -- ``tools_batch._h_program``
 reads this value back through a lazy ``from . import agent_clay`` rather
 than importing the name directly, which is what lets that patch actually
 change the handler's behaviour rather than being shadowed by an
@@ -607,7 +611,7 @@ ceiling, never a default to fall back to.
   call. ``clay_element_mode`` (or ``clay_select_elements``'s own ``mode``)
   first, then repeat the call. (``clay_select_by`` takes no ``mode`` -- the
   2026-10-10 audit's clay-08 found the instructions saying it did.) Attached at the two sites using
-  ``agent_clay_validate._OBJECT_SELECTION_ELEMENT_MODE_REFUSAL``, and at
+  ``validate._OBJECT_SELECTION_ELEMENT_MODE_REFUSAL``, and at
   ``clay_select_by``'s own wrong-mode refusal (the 2026-10-07 audit's clay-84:
   it names ``field="query"``, which made ``fail`` derive ``fix_arguments``
   for arguments that were fine), and at every ``clay_op`` refusal for an op
@@ -685,8 +689,8 @@ def instructions() -> str:
     ``agent_host`` is imported lazily, inside the function body, rather than
     at module scope: it imports this module at *its* module scope (to reach
     :func:`call`), so a module-scope import back would be a cycle. This is
-    this file's own established precedent for the same move -- ``agent_clay_
-    tools_ops._core``/``agent_clay_tools_batch._core`` now carry the identical
+    this file's own established precedent for the same move -- ``tools_ops._core``/
+    ``tools_batch._core`` now carry the identical
     reasoning for the opposite direction, a handler reaching back into this
     module.
     """

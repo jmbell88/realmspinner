@@ -477,7 +477,7 @@ def test_vary_on_a_mesh_resets_form_keys_the_job_never_recorded(monkeypatch):
         "params": {"lowpoly_triangles": 5000, "mesh_seed": 7},
     }
 
-    workspace._vary(ctx, job)
+    workspace.vary(ctx, job)
 
     out = ctx.state.form_3d
     assert out["mesh_seed"] == 7

@@ -47,6 +47,7 @@ __all__ = [
     "Socket",
     "Theme",
     "archetypes",
+    "body_plans_phrase",
     "families",
     "families_of",
     "get_archetype",
@@ -1045,6 +1046,24 @@ _FAMILIES: dict[str, Family] = {
 def archetypes() -> dict[str, Archetype]:
     """``key -> Archetype``. A copy: the registry is not a scratchpad."""
     return dict(_ARCHETYPES)
+
+
+_COUNT_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+
+def body_plans_phrase(count: int | None = None) -> str:
+    """"four body plans" for a count read off the registry. **Counted, never typed.**
+
+    The 2026-10-10 audit's create-17 counted this in the Create engine; the
+    service layer's refusal kept the literal "four" because a service file may
+    not import from ``studio`` (F20-7), so the helper lives here, under both.
+    ``count`` defaults to the live archetype registry. Small counts are spelled
+    as words to match the prose around them; past ten the digits read better.
+    """
+    if count is None:
+        count = len(archetypes())
+    word = _COUNT_WORDS[count] if 0 <= count < len(_COUNT_WORDS) else str(count)
+    return f"{word} body plan" + ("" if count == 1 else "s")
 
 
 def families() -> dict[str, Family]:

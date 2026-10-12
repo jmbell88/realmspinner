@@ -180,6 +180,7 @@ def test_an_op_drag_preview_shows_the_objects_that_accept_the_value_when_another
     base_a = _prim_counts(view._cache[a].model)
     base_b = _prim_counts(view._cache[b].model)
     view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)  # the frame hook that draws a queued op-drag update
 
     assert view._cache[b].gpu is not gpu_b, "the accepting object was not drawn"
     # Identity alone passes for a model rebuilt from the same mesh (the

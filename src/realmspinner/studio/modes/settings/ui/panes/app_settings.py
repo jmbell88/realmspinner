@@ -2945,10 +2945,23 @@ def _update_result(ctx: Any, download_busy: bool) -> None:
 
 
 def _open(target: str) -> None:
-    """Hand a path or a URL to the shell. Off the frame thread, by ``submit``."""
-    import os
+    """Hand a path or a URL to the shell. Off the frame thread, by ``submit``.
 
-    os.startfile(target)  # noqa: S606 -- a verified installer, or a release URL
+    A URL-shaped target must be http(s). ``os.startfile`` runs whatever
+    protocol handler the string names (``file:``, ``ms-msdt:``...), and the
+    release URL comes out of a feed the app does not control; ``update_worker``
+    now sanitises it, and this is the second lock on the same door (the
+    2026-10-03 Low pass, F18-8). A local installer path has no scheme and is
+    passed through.
+    """
+    import os
+    from urllib.parse import urlsplit
+
+    scheme = urlsplit(target).scheme.lower()
+    # A drive letter parses as a one-letter scheme ("C:\..."); that is a path.
+    if len(scheme) > 1 and scheme not in ("http", "https"):
+        raise ValueError(f"refusing to open a {scheme}: target")
+    os.startfile(target)  # noqa: S606 -- a verified installer, or an http(s) release URL
 
 
 def _cancel_update(ctx: Any) -> None:

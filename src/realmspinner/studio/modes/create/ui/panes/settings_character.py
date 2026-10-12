@@ -72,7 +72,7 @@ def draw_block(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         _actions(ctx, form, form_ui)
         _pixels(ctx, form, form_ui, opts)
         _appearance(ctx, form, form_ui, opts)
-        settings_2d._seed_row(ctx, form, form_ui)
+        settings_2d.seed_row(ctx, form, form_ui)
         _name(ctx, form, form_ui)
         _unrecognised(form)
         _footer(ctx, form)

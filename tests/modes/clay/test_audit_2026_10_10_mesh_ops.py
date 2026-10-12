@@ -216,6 +216,21 @@ def test_a_selection_whose_growth_crosses_the_ceiling_is_still_told_to_subdivide
         ops_subdiv.subdivide(mesh, el.ElementSel(faces=np.arange(20)))
 
 
+def test_a_refused_smooth_does_not_tell_the_user_to_subdivide_a_part_it_would_ignore(
+    monkeypatch,
+) -> None:
+    """Smoothing rebuilds the whole mesh whatever is selected, so "Subdivide a part
+    of it" was advice the very next press could not follow. The sentence now names
+    Separate Selection, which is how a part becomes an object of its own."""
+    mesh = _grid_mesh(8)  # 64 faces, 256 corners
+    monkeypatch.setattr(ops_subdiv, "MAX_SUBDIVIDED_FACES", 100)
+    with pytest.raises(OpError) as caught:
+        ops_subdiv.catmull_clark(mesh, el.ElementSel(faces=[1]))
+    message = str(caught.value)
+    assert "Subdivide a part of it" not in message
+    assert "Separate Selection" in message
+
+
 # --- clay-35: Collapse's pair walk ----------------------------------------
 
 

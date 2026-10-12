@@ -1,6 +1,7 @@
 """Regression tests for the kernel half of the 2026-10-11 Clay audit.
 
-Findings clay-12 (a sheared reparent leaves the object's own children behind),
+Findings clay-12 (a sheared reparent leaves the object's own children behind -- refused
+then, carried now: the F20 follow-up),
 clay-13 (a topology-changing ``set_mesh`` with no ``select`` leaves picks past
 the mesh), clay-21 (``with_descendants`` is quadratic), clay-22 and clay-23
 (docstrings that describe code that is gone), clay-28 (the ``merge_groups``
@@ -62,46 +63,113 @@ def _sheared_family() -> tuple[bd.ClayDoc, bd.Obj, bd.Obj, bd.Obj]:
 # --- clay-12 -----------------------------------------------------------------
 
 
-def test_parenting_a_rotated_object_with_children_under_an_unevenly_scaled_parent_is_refused() -> (
-    None
-):
+def _shape_world(doc: bd.ClayDoc, *uids: int) -> list[np.ndarray]:
+    return [_world_positions(doc, u) for u in uids]
+
+
+def _assert_unit_rotations(doc: bd.ClayDoc, *uids: int) -> None:
+    for uid in uids:
+        assert math.isclose(float(np.linalg.norm(doc.by_uid(uid).rotation)), 1.0, abs_tol=1e-9)
+
+
+def test_parenting_a_rotated_object_under_an_uneven_scale_carries_its_children() -> None:
+    """The 2026-10-11 audit's clay-12 refused this move; the shear is now pushed
+    down the subtree, each descendant baking what its own frame cannot hold."""
     doc, parent, turned, leaf = _sheared_family()
+    before = _shape_world(doc, turned.uid, leaf.uid)
     steps = len(doc.history)
-    leaf_before = _world_positions(doc, leaf.uid)
 
-    with pytest.raises(el.OpError, match="Turned") as refused:
-        doc.set_parent(turned.uid, parent.uid)
+    assert doc.set_parent(turned.uid, parent.uid)
 
-    assert "children" in str(refused.value)
-    assert len(doc.history) == steps
+    assert doc.by_uid(turned.uid).parent == parent.uid
+    for was, now in zip(before, _shape_world(doc, turned.uid, leaf.uid), strict=True):
+        assert np.allclose(was, now, atol=1e-5)
+    _assert_unit_rotations(doc, turned.uid, leaf.uid)
+    assert len(doc.history) == steps + 1, "one gesture, one step"
+
+    doc.undo()
     assert doc.by_uid(turned.uid).parent is None
-    assert np.allclose(_world_positions(doc, leaf.uid), leaf_before)
+    for was, now in zip(before, _shape_world(doc, turned.uid, leaf.uid), strict=True):
+        assert np.allclose(was, now, atol=1e-5)
 
 
-def test_grouping_a_sheared_object_that_has_children_is_refused_and_adds_no_empty() -> None:
+def test_grouping_a_sheared_object_that_has_children_keeps_every_shape_in_place() -> None:
     doc, parent, turned, leaf = _sheared_family()
     # The already-sheared state, reached through the back door: the turned
     # shape sits under the wide parent with its child beneath it.
     doc.by_uid(turned.uid).parent = parent.uid
-    steps, count = len(doc.history), len(doc.objects)
-    leaf_before = _world_positions(doc, leaf.uid)
+    before = _shape_world(doc, turned.uid, leaf.uid)
 
-    with pytest.raises(el.OpError, match="Turned"):
-        doc.group([turned.uid])
+    empty = doc.group([turned.uid])
 
-    assert len(doc.history) == steps and len(doc.objects) == count
-    assert np.allclose(_world_positions(doc, leaf.uid), leaf_before)
+    assert doc.by_uid(turned.uid).parent == empty.uid
+    for was, now in zip(before, _shape_world(doc, turned.uid, leaf.uid), strict=True):
+        assert np.allclose(was, now, atol=1e-5)
+    _assert_unit_rotations(doc, turned.uid, leaf.uid)
 
 
-def test_clearing_the_parent_of_a_sheared_object_with_children_is_refused() -> None:
+def test_clearing_the_parent_of_a_sheared_object_with_children_keeps_every_shape_in_place() -> None:
     doc, parent, turned, leaf = _sheared_family()
-    # Build the already-sheared state through the document's own back door:
-    # the turned shape lives under the wide parent with its child beneath it.
     doc.by_uid(turned.uid).parent = parent.uid
-    steps = len(doc.history)
-    with pytest.raises(el.OpError, match="Turned"):
-        doc.set_parent(turned.uid, None)
-    assert len(doc.history) == steps and doc.by_uid(turned.uid).parent == parent.uid
+    before = _shape_world(doc, turned.uid, leaf.uid)
+
+    assert doc.set_parent(turned.uid, None)
+
+    assert doc.by_uid(turned.uid).parent is None
+    for was, now in zip(before, _shape_world(doc, turned.uid, leaf.uid), strict=True):
+        assert np.allclose(was, now, atol=1e-5)
+    _assert_unit_rotations(doc, turned.uid, leaf.uid)
+
+
+def test_deleting_the_parent_of_a_sheared_object_with_children_keeps_every_shape_in_place() -> None:
+    doc, parent, turned, leaf = _sheared_family()
+    doc.by_uid(turned.uid).parent = parent.uid
+    before = _shape_world(doc, turned.uid, leaf.uid)
+
+    doc.remove_object(parent.uid)
+
+    assert doc.by_uid(turned.uid).parent is None
+    for was, now in zip(before, _shape_world(doc, turned.uid, leaf.uid), strict=True):
+        assert np.allclose(was, now, atol=1e-5)
+    _assert_unit_rotations(doc, turned.uid, leaf.uid)
+
+
+def test_a_sheared_empty_hands_its_shear_to_its_children_instead_of_refusing() -> None:
+    """An empty has no mesh to bake the shear into, so it simply drops it and
+    each child takes the correction (clay-04's other half)."""
+    doc = bd.ClayDoc()
+    wide = doc.add_object(_obj("Wide", scale=np.array([3.0, 1.0, 1.0])))
+    pivot = doc.add_object(
+        _obj(
+            "Pivot",
+            mesh=bd._empty_mesh(),
+            rotation=_turn_z_45(),
+            translation=np.array([0.0, 2.0, 0.0]),
+        )
+    )
+    kid = doc.add_object(_obj("Kid", parent=pivot.uid, translation=np.array([1.0, 0.0, 0.0])))
+    before = _shape_world(doc, kid.uid)
+
+    assert doc.set_parent(pivot.uid, wide.uid)
+
+    assert np.allclose(_shape_world(doc, kid.uid)[0], before[0], atol=1e-5)
+    _assert_unit_rotations(doc, pivot.uid, kid.uid)
+
+
+def test_the_shear_is_carried_through_every_generation_not_just_the_first() -> None:
+    doc, parent, turned, leaf = _sheared_family()
+    half = math.radians(30.0) / 2.0
+    leaf_obj = doc.by_uid(leaf.uid)
+    leaf_obj.rotation = np.array([math.sin(half), 0.0, 0.0, math.cos(half)])
+    grand = doc.add_object(_obj("Grand", parent=leaf.uid, translation=np.array([0.0, 1.0, 0.5])))
+    before = _shape_world(doc, turned.uid, leaf.uid, grand.uid)
+
+    assert doc.set_parent(turned.uid, parent.uid)
+
+    after = _shape_world(doc, turned.uid, leaf.uid, grand.uid)
+    for was, now in zip(before, after, strict=True):
+        assert np.allclose(was, now, atol=1e-5)
+    _assert_unit_rotations(doc, turned.uid, leaf.uid, grand.uid)
 
 
 def test_a_sheared_object_with_no_children_is_still_reparented_with_its_shear_baked() -> None:

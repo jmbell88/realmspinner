@@ -135,7 +135,7 @@ def refresh(ctx: Any) -> None:
 def load_settings(ctx: Any, row: dict[str, Any]) -> bool:
     """Write a row's recorded settings into the recipe column. -> whether it did.
 
-    A live attempt goes through ``workspace._vary`` -- the very path the tray's
+    A live attempt goes through ``workspace.vary`` -- the very path the tray's
     **Load settings** takes, with the full recipe the job kept. A deleted one
     has only its snapshot: it is dressed as the minimal job ``copy_settings``
     reads (:func:`engine.snapshot_job`), so the same restore runs on it, and the
@@ -159,7 +159,7 @@ def load_settings(ctx: Any, row: dict[str, Any]) -> bool:
         return False
     job = ctx.cache.get(row["job_id"]) if row.get("exists") and not row.get("trashed") else None
     if job is not None:
-        workspace._vary(ctx, job)
+        workspace.vary(ctx, job)
         return True
     snapshot = row.get("snapshot") or {}
     library.copy_settings(ctx, engine.snapshot_job(row), announce=False, follow=False)
@@ -192,7 +192,7 @@ def _choose_base(ctx: Any, form: dict[str, Any], base: str, settings_2d: Any) ->
     except Exception:  # noqa: BLE001 - a form that will not resolve is simply not automatic
         automatic = ""
     if automatic != base:
-        settings_2d._pick_base_model(ctx, form, base)
+        settings_2d.pick_base_model(ctx, form, base)
     else:
         form["base_model"] = base
 

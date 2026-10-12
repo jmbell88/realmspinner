@@ -70,8 +70,33 @@ def test_clay_op_simplify_reports_the_refused_object_when_another_object_in_the_
     assert result["isError"] is False, _text(result)
     payload = _payload(result)
     assert payload["ran"] is True and payload["pushed"] is True
-    assert payload["errors"] == ["This object is too tangled to simplify."]
+    assert len(payload["errors"]) == 1
+    assert payload["errors"][0].endswith("This object is too tangled to simplify.")
     assert len(payload["changed"]) == 1
+
+
+def test_clay_op_errors_name_the_uid_of_the_object_that_was_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The anonymous sentence could not say *which* of the selected objects had
+    been refused. Refuse the second sphere by its mesh and the first one's uid must
+    not be the one named."""
+    ctx, session, (first, second) = _two_spheres()
+    doc = clay_mode.ensure(ctx).get(session.tab_uid).doc
+    second_mesh = doc.by_uid(second).mesh
+    real = ops_simplify.simplify
+
+    def refuse_the_second(mesh: Any, target: int) -> Any:
+        if mesh is second_mesh:
+            raise OpError("This object is too tangled to simplify.")
+        return real(mesh, target)
+
+    monkeypatch.setattr(ops_simplify, "simplify", refuse_the_second)
+    payload = _payload(_simplify(ctx, session, target=10))
+
+    assert payload["ran"] is True
+    assert payload["errors"] == [f"uid {second}: This object is too tangled to simplify."]
+    assert first != second
 
 
 def test_clay_op_reply_carries_no_errors_key_when_nothing_was_refused() -> None:

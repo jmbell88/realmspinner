@@ -898,7 +898,7 @@ def test_editing_the_prompt_or_pressing_generate_arms_the_red(frames):
 
     settings_2d.refuse(ctx, [Problem("A prompt is required.", "prompt")])
     assert ctx.state.create.prompt_touched is True
-    settings_2d._reset(ctx)
+    settings_2d.reset(ctx)
     assert ctx.state.create.prompt_touched is False, "a reset form is pristine again"
     assert form is not ctx.state.form_2d
 

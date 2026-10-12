@@ -803,23 +803,15 @@ class EventsMixin:
             # shell-34). They are consumed and do nothing; the Library mode
             # keeps its own arrows above, and the History pane is clicked.
             pass
-        elif event.key == pygame.K_DELETE and ctx.state.selected:
-            # The library keyboard used to stop at navigation: Up/Down/Enter
-            # moved and opened, and every action was mouse-only (UX-27).
-            #
-            # Delete specifically, and unguarded, because delete-to-trash is
-            # deliberately confirm-free here -- "the trash *is* the
-            # confirmation", which is the reasoning the menu item already
-            # stands on. So this binding is exactly as safe as the menu item it
-            # mirrors, and no safer or less safe.
-            #
-            # ``F`` is deliberately not bound to favourite despite the finding
-            # offering it: F already frames the viewer a few lines below, and
-            # taking a live 3D binding to add a library one would be a trade,
-            # not a fix.
-            from ..modes.library.ui.panes import library
-
-            library.delete_asset(ctx, ctx.state.selected)
+        elif event.key == pygame.K_DELETE:
+            # Consumed, like the arrows above, and for the same reason (the
+            # 2026-10-03 audit's shell-34, F17-2). This arm used to send
+            # ``state.selected`` to the trash -- confirm-free, because in the
+            # Library "the trash *is* the confirmation" -- but Create draws no
+            # library, so the key trashed an asset the screen never named. The
+            # Library mode keeps its own Delete above; here a creation is
+            # discarded from the History pane's Discard action.
+            pass
         elif (
             mods & pygame.KMOD_ALT
             and not mods & (pygame.KMOD_CTRL | pygame.KMOD_META)

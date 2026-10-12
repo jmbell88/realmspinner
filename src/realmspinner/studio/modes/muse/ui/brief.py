@@ -7,10 +7,11 @@ the button) and the column beside it (``modes/muse/ui/panes/recipe``) is **how**
 control belongs to exactly one of them, which is the one-owner rule Create's
 two panes already keep.
 
-**Unconditional, unlike Create's.** ``create_brief.shows`` gates on the
-Reference stage because the other four stages have no brief to press; Muse has
-no stages, so the bar is simply always there. That is the only structural
-difference between the two files, and it is why this one has no ``shows``.
+**Unconditional, as Create's now is.** Create's header is one 30 px row at every
+stage (``create_brief.bar_height``; the stage rail in it is a breadcrumb for all
+of them), so the old ``shows`` gate that hid it off the Reference stage is gone
+and the two files no longer differ in that. Muse has no stages and no rail, so
+the bar is simply always there.
 
 Drawn through :func:`layout.pane` rather than bare, for ``create_brief``'s
 reason: that is what puts it in ``layout.FRAME_PANES``, which is what gives it

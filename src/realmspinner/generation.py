@@ -1574,6 +1574,14 @@ def _coerce_settings(data: Mapping[str, Any], fields: Mapping[str, tuple[type, A
     return out
 
 
+# The settings dataclasses are ``slots=True``, so ``TileSettings.mode`` on the
+# class is a member descriptor, not the default -- a table built from it made
+# ``{"model": {"output_profile": None}}`` store ``<member 'output_profile'...>``.
+# A default instance holds the real values.
+_TILE_DEFAULTS = TileSettings()
+_SPRITE_DEFAULTS = SpriteSettings()
+_MODEL_DEFAULTS = ModelSettings()
+
 #: ``field name -> (declared type, default)`` for the :class:`TileSettings`
 #: members worth coercing from a JSON sub-document. ``prompt_items`` is
 #: excluded -- :func:`GenerationRequest.from_dict` gives it its own
@@ -1584,21 +1592,21 @@ def _coerce_settings(data: Mapping[str, Any], fields: Mapping[str, tuple[type, A
 #: raising; coercing it here would only add a second place that decision
 #: is made.
 _TILE_COERCIONS: dict[str, tuple[type, Any]] = {
-    "mode": (str, TileSettings.mode),
-    "view": (str, TileSettings.view),
-    "content_kind": (str, TileSettings.content_kind),
-    "inner_terrain": (str, TileSettings.inner_terrain),
-    "outer_terrain": (str, TileSettings.outer_terrain),
-    "boundary": (str, TileSettings.boundary),
-    "ground": (str, TileSettings.ground),
-    "path": (str, TileSettings.path),
-    "edge": (str, TileSettings.edge),
-    "variants": (int, TileSettings.variants),
-    "terrain_layout": (str, TileSettings.terrain_layout),
-    "style_lock": (bool, TileSettings.style_lock),
-    "seam_erase": (bool, TileSettings.seam_erase),
-    "palette": (str, TileSettings.palette),
-    "dither": (bool, TileSettings.dither),
+    "mode": (str, _TILE_DEFAULTS.mode),
+    "view": (str, _TILE_DEFAULTS.view),
+    "content_kind": (str, _TILE_DEFAULTS.content_kind),
+    "inner_terrain": (str, _TILE_DEFAULTS.inner_terrain),
+    "outer_terrain": (str, _TILE_DEFAULTS.outer_terrain),
+    "boundary": (str, _TILE_DEFAULTS.boundary),
+    "ground": (str, _TILE_DEFAULTS.ground),
+    "path": (str, _TILE_DEFAULTS.path),
+    "edge": (str, _TILE_DEFAULTS.edge),
+    "variants": (int, _TILE_DEFAULTS.variants),
+    "terrain_layout": (str, _TILE_DEFAULTS.terrain_layout),
+    "style_lock": (bool, _TILE_DEFAULTS.style_lock),
+    "seam_erase": (bool, _TILE_DEFAULTS.seam_erase),
+    "palette": (str, _TILE_DEFAULTS.palette),
+    "dither": (bool, _TILE_DEFAULTS.dither),
 }
 
 #: :data:`_TILE_COERCIONS`, for :class:`SpriteSettings`. ``candidate_count``,
@@ -1607,19 +1615,19 @@ _TILE_COERCIONS: dict[str, tuple[type, Any]] = {
 #: :func:`GenerationRequest.from_dict` rather than listed here (the legacy
 #: form-decoding path below keeps :func:`_optional_int`).
 _SPRITE_COERCIONS: dict[str, tuple[type, Any]] = {
-    "mode": (str, SpriteSettings.mode),
-    "action": (str, SpriteSettings.action),
-    "directions": (int, SpriteSettings.directions),
-    "palette": (str, SpriteSettings.palette),
-    "dither": (bool, SpriteSettings.dither),
+    "mode": (str, _SPRITE_DEFAULTS.mode),
+    "action": (str, _SPRITE_DEFAULTS.action),
+    "directions": (int, _SPRITE_DEFAULTS.directions),
+    "palette": (str, _SPRITE_DEFAULTS.palette),
+    "dither": (bool, _SPRITE_DEFAULTS.dither),
 }
 
 #: :data:`_TILE_COERCIONS`, for :class:`ModelSettings`. ``custom_triangles``
 #: is ``int | None`` and coerced with :func:`_optional_int_kept` alongside the
 #: other optional-int sub-fields, not listed here.
 _MODEL_COERCIONS: dict[str, tuple[type, Any]] = {
-    "output_profile": (str, ModelSettings.output_profile),
-    "mesh_finishing": (str, ModelSettings.mesh_finishing),
+    "output_profile": (str, _MODEL_DEFAULTS.output_profile),
+    "mesh_finishing": (str, _MODEL_DEFAULTS.mesh_finishing),
 }
 
 

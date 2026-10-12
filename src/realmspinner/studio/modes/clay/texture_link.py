@@ -170,7 +170,14 @@ def edit_in_inker(ctx: Any, tab: Any, index: int) -> None:
         # "Edit texture" and this open task could have the snap land mid-save. A
         # saving tab keeps the link ``UNLANDED`` instead and ``pull_all`` lands the
         # snap on the first frame after the save.
-        if not getattr(tab, "saving", False):
+        #
+        # The 2026-10-12 leftover to clay-15: the same hold for a live gesture, which
+        # ``pull_all`` honours and this direct call did not -- an Inker tab that
+        # finished opening mid-drag landed its snap inside the G/R/S and Esc then
+        # reversed it. Left ``UNLANDED`` for ``pull_all`` the same way.
+        from . import mode as clay_mode
+
+        if not getattr(tab, "saving", False) and not clay_mode._gesture_live(ctx, tab):
             pull(ctx, tab)
 
     inker_opening.open_pixels(

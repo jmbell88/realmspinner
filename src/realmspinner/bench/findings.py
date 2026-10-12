@@ -659,7 +659,7 @@ _DELTA_LABELS = {
 
 
 def suggestion_line(s: dict[str, Any]) -> str:
-    """One suggestion from ``review_mode.suggest_sweeps``, said in words --
+    """One suggestion from ``modes.review.mode.suggest_sweeps``, said in words --
     ``"trellis_gss: 3.0 vs unset is 3/4 for 3.0 - 1 more matched pair settles
     it"``. Pure, and defensive to the same rule everything else in this module
     follows: the suggestion crossed no disk but is still handed in from a pane

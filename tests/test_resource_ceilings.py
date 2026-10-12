@@ -258,6 +258,23 @@ def test_packwright_refuses_a_sprite_past_the_pack_ceiling(monkeypatch):
         doc.add_source(_sprite("s9"))
 
 
+# --- the GLB import door ------------------------------------------------------
+
+
+def test_the_glb_vertex_reference_ceiling_is_pinned_at_three_per_triangle():
+    """``MAX_VERTICES`` (the 2026-10-03 audit's clay-36) counts vertex
+    *references* -- a primitive's POSITION count once per node placing it --
+    and is chosen as three per triangle at ``MAX_TRIANGLES``, so a triangle
+    soup of exactly the largest mesh Clay edits still passes. Nothing pinned
+    the number itself: a tidy-up to ``MAX_TRIANGLES`` would halve what an
+    unwelded import may hold, and a bump would reopen the 244 MB / 11.4 s
+    bufferless-accessor case, both silently."""
+    from realmspinner.kernels.mesh import glbimport
+
+    assert glbimport.MAX_VERTICES == 6_000_000
+    assert glbimport.MAX_VERTICES == 3 * glbimport.MAX_TRIANGLES
+
+
 # --- the library window -------------------------------------------------------
 
 

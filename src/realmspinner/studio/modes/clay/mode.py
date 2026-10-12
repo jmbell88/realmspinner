@@ -1034,6 +1034,7 @@ def build_asset(
     title: str,
     prompt: str | None = None,
     view: Any = None,
+    encode: Any = None,
 ) -> str:
     """The one document -> finished ``model`` row chain.
 
@@ -1058,6 +1059,11 @@ def build_asset(
     (see ``src/realmspinner/service/``) -- so this is callable from anywhere a
     document exists, headlessly included, with no tab, toast or task runner
     anywhere in it.
+
+    *encode* is the ``snapshot -> bytes`` step: ``serialize.snapshot_bytes`` by
+    default (the agent's door, which reads the kernel's ``ValueError``), and
+    :func:`_encode_or_refuse` from ``export_asset`` so an oversized document
+    reaches the person as ``TooLarge(field="save")`` the way a save does.
     """
     from ....kernels.geom3d import glbwrite
     from ....kernels.mesh import document as bd
@@ -1072,7 +1078,7 @@ def build_asset(
     # ``snapshot_bytes`` refuses a document past the object or triangle ceilings,
     # and doing it after ``import_mesh`` left a finished Library row with no
     # ``.rblk`` sidecar behind a refused export.
-    source = serialize.snapshot_bytes(snap)
+    source = (encode or serialize.snapshot_bytes)(snap)
     result = svc_jobs.import_mesh(svc, glb, name=title, prompt=prompt or title)
     job_id = result["id"]
     svc_files.save_clay_source(svc, job_id, source)
@@ -1115,7 +1121,10 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
     view = copy.copy(camera_of(ctx, tab))
 
     def run() -> dict[str, Any]:
-        job_id = build_asset(ctx.svc, doc, title=title, view=view)
+        # The 2026-10-12 leftover to F17-1: the kernel's ``ValueError`` for a
+        # document past the object or triangle ceilings is a bug to the task
+        # runner; ``save_to`` already made it a ``TooLarge``, and so does this.
+        job_id = build_asset(ctx.svc, doc, title=title, view=view, encode=_encode_or_refuse)
         return {"job_id": job_id, "exported": True}
 
     _start(ctx, tab, f"clay-export:{tab.uid}", run)

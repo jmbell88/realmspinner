@@ -191,3 +191,26 @@ def test_create_arrow_keys_do_not_move_a_selection_through_an_undrawn_library(mo
         main.App._shortcut(app, pygame.event.Event(pygame.KEYDOWN, key=key, mod=0))
     assert moved == []
     assert state.selected == "job-1"
+
+
+def test_create_delete_key_does_not_trash_a_selection_it_does_not_draw(monkeypatch):
+    """The arrows were fixed (shell-34) and Delete, on the next arm, was not: it
+    sent ``state.selected`` to the trash with no confirmation, from a mode whose
+    screen shows no library to say which asset that is (F17-2)."""
+    deleted: list[str] = []
+    monkeypatch.setattr(
+        "realmspinner.studio.modes.library.ui.panes.library.delete_asset",
+        lambda ctx, job_id: deleted.append(job_id),
+    )
+    state = AppState()
+    state.mode = state.mode_observed = state.previous_mode = "create"
+    state.selected = "job-1"
+    app = SimpleNamespace(
+        app_ctx=SimpleNamespace(state=state, cache=SimpleNamespace(get=lambda _id: None)),
+        viewer=SimpleNamespace(pose_mode=False, exit_compare=lambda: None),
+    )
+    for name in ("_note_mode", "_set_mode", "_escape_mode"):
+        setattr(app, name, MethodType(getattr(main.App, name), app))
+    main.App._shortcut(app, pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DELETE, mod=0))
+    assert deleted == []
+    assert state.selected == "job-1"

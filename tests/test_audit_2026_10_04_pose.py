@@ -363,3 +363,37 @@ def test_apply_from_outside_pose_mode_waits_for_the_rig_then_applies_in_one_undo
     pose_panel.land_enter(ctx, job)
     assert _pose_of(viewer) == [round(v, 4) for v in _SAVED["bones"]["hip"]]
     assert len(viewer.editor.history) == steps + 1
+
+
+def test_applying_a_library_pose_in_the_poser_undoes_back_in_one_step(svc):
+    """F19-1: ``poser_mode.apply_pose`` (the library door) kept the two-step shape
+    create-31 closed in ``apply_asset_pose``."""
+    pm = _load(_HERE / "modes" / "poser" / "test_poser_mode.py", "_poser_mode_helpers_lib")
+
+    class PoserViewer(pm.FakeViewer):
+        set_pose = PoseOps.set_pose
+        reset_all = PoseOps.reset_all
+        set_root_translation = PoseOps.set_root_translation
+        _after_pose_change = PoseOps._after_pose_change
+        _notify_pose_dirty = PoseOps._notify_pose_dirty
+        gpu = None
+        on_pose_dirty = None
+        _render_dirty = False
+
+    ctx = pm.FakeCtx(svc)
+    state = poser_mode.ensure(ctx)
+    names = ["hips"]
+    viewer = ctx.poser_viewer = PoserViewer(_Model(names), names)
+    viewer.pose_job_id = "job"
+    viewer.editor.root = "hips"
+    with viewer.editor.record():
+        viewer.editor.apply({"hips": list(m3.quat_from_axis_angle(m3.vec3(1, 0, 0), 0.4))})
+    viewer.editor.dirty = False
+    before = [round(v, 4) for v in viewer.editor.pose()["hips"]]
+    state.poses = [{"id": "p1", "name": "Crouch", "bones": {"hips": _SAVED["bones"]["hip"]}}]
+
+    poser_mode.apply_pose(ctx, "p1")
+    assert [round(v, 4) for v in viewer.editor.pose()["hips"]] != before
+
+    assert viewer.editor.undo()
+    assert [round(v, 4) for v in viewer.editor.pose()["hips"]] == before

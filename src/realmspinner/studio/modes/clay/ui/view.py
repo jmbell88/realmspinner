@@ -494,6 +494,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         address while this cache still trusts that id.
         """
         self._rect = rect
+        # The once-a-frame half of a drag preview (the 2026-10-10 audit's clay-25):
+        # the events only queued it. Before the redraw key is read, because a
+        # preview bumps ``doc.rev`` and the frame must not be skipped as unchanged.
+        self.flush_drag_preview(doc)
         width, height = int(max(rect[2], 1)), int(max(rect[3], 1))
         # The 2026-10-07 audit's clay-83: ``hover_element`` is an index in the
         # current mode's space and was cleared only on a mesh replacement or a

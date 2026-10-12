@@ -199,13 +199,16 @@ class ObjectAddEdit(Edit):
     Costs bytes for the same reason its mirror does, just on the other side of
     the toggle: while this step is *undone* the object is in no document, and
     ``self.obj`` is the only thing keeping its mesh alive.
+    Its derived adjacency, triangulation and f8 tables are weak-keyed to that
+    mesh, so they live exactly as long as it does and are charged with it, as
+    :class:`MeshEdit` charges them (the 2026-10-10 audit's clay-09).
     """
 
     index: int
     obj: Any
 
     def __post_init__(self) -> None:
-        self.cost = mesh_bytes(self.obj.mesh)
+        self.cost = mesh_bytes(self.obj.mesh) + derived_cache_bytes(self.obj.mesh)
 
     def undo(self, doc: Any) -> None:
         doc.objects.pop(doc.index_of(self.obj.uid))
@@ -229,14 +232,15 @@ class ObjectRemoveEdit(Edit):
 
     While this step is on the stack the object is in no document, so the stack
     is the only thing keeping its mesh alive -- which is exactly the case the
-    byte budget exists to bound.
+    byte budget exists to bound. The derived tables keyed to that mesh are
+    charged with it, as :class:`ObjectAddEdit` does.
     """
 
     index: int
     obj: Any
 
     def __post_init__(self) -> None:
-        self.cost = mesh_bytes(self.obj.mesh)
+        self.cost = mesh_bytes(self.obj.mesh) + derived_cache_bytes(self.obj.mesh)
 
     def undo(self, doc: Any) -> None:
         doc.objects.insert(self.index, self.obj)

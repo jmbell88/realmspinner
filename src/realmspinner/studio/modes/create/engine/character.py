@@ -557,20 +557,17 @@ def problems(ctx: Any, form: dict[str, Any]) -> list[problem_types.Problem]:
     return out
 
 
-_COUNT_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
-
-
 def body_plans_phrase(count: int) -> str:
     """"four body plans" for a count read off the registry. **Counted, never typed.**
 
     The 2026-10-10 audit, finding create-17: the species count in this module's
     refusal and in the Brief's type tooltip came from the registry while the
     body-plan count beside it was the literal "four", so a fifth archetype would
-    have shipped under a sentence promising four. Small counts are spelled as
-    words to match the prose around them; past ten the digits read better.
+    have shipped under a sentence promising four. The wording itself now has one
+    home, ``characters.family.body_plans_phrase``, which the service refusal
+    shares (F20-7); this name stays so the Brief and this module keep one call.
     """
-    word = _COUNT_WORDS[count] if 0 <= count < len(_COUNT_WORDS) else str(count)
-    return f"{word} body plan" + ("" if count == 1 else "s")
+    return family_mod.body_plans_phrase(count)
 
 
 def _no_species(resolution: resolve_mod.Resolution, opts: dict[str, Any]) -> str:

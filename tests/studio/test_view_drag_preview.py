@@ -77,7 +77,10 @@ def _view(doc: bd.ClayDoc, uid: int) -> SimpleNamespace:
         _restore_overlays=lambda doc, uids: None,
         _view_plane_point=lambda local, centre: None,
         _clear_drag_input=lambda: None,
+        _pending_preview=None,
+        _op_motion_pending=False,
     )
+    view._drop_pending_preview = functools.partial(DragOps._drop_pending_preview, view)
     view._preview_positions = functools.partial(DragOps._preview_positions, view)
     return view, gpu, overlay, drag, original
 

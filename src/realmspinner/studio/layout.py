@@ -28,56 +28,12 @@ from .tokens import sp
 
 log = logging.getLogger(__name__)
 
-# The named sidebar widths. Nothing offers a choice between them any more
-# (Settings' combo and ``Layout.set_sidebar_width`` are gone -- each side column
-# is a fixed 300 dp, see :func:`proportions`), so ``SIDEBAR_W`` is
-# only the width a pane is drawn at before the first :func:`measure`, and the
-# stored ``sidebar`` name only moves that fallback. Defined in ``tokens`` and
-# named here, where the readers already look.
-SIDEBAR_WIDTHS = tokens.SIDEBAR_WIDTHS
-
-# The width in force. Module state, set by ``Layout`` at construction and when
-# the option changes, exactly as ``tokens.SCALE`` is -- eight call sites read
-# this directly and threading a Layout through all of them would put the
-# measurement in eight places instead of one.
-SIDEBAR_W = SIDEBAR_WIDTHS["default"]
-# What ``SIDEBAR_W`` is on its way to. The two are the same number except
-# during the ~200 ms after the user picks a different size; see :func:`tick`.
-SIDEBAR_TARGET = SIDEBAR_W
-# The motion key the width eases on, named here because ``set_sidebar`` has to
-# forget it when it snaps.
-_SIDEBAR_KEY = "layout/sidebar"
-
-
-def set_sidebar(key: str, *, animate: bool = False) -> str:
-    """Apply a named sidebar width. -> the key actually applied.
-
-    An unknown key falls back to the default rather than raising: this is read
-    from a settings file, and a value written by a build that offered a fourth
-    size must not stop the window opening.
-
-    ``animate`` is the split between the two callers and it is not cosmetic.
-    The construction path (and every headless test) has to leave ``SIDEBAR_W``
-    correct *immediately* -- there may be no frame loop at all -- so it snaps;
-    the user changing the option in Settings goes through :func:`tick`, where
-    the two columns slide to their new widths instead of jumping.
-    """
-    global SIDEBAR_W, SIDEBAR_TARGET
-    key = key if key in SIDEBAR_WIDTHS else "default"
-    SIDEBAR_TARGET = SIDEBAR_WIDTHS[key]
-    if animate:
-        # Stated rather than assumed: a key that is not live yet snaps on its
-        # first sighting, so an animated change made before the first tick --
-        # which is every change made in the same frame the option is read back
-        # -- would jump. Seeding says where the slide starts.
-        motion.seed(_SIDEBAR_KEY, SIDEBAR_W)
-    else:
-        SIDEBAR_W = SIDEBAR_TARGET
-        # Forgotten rather than assigned: motion snaps a key's first sighting,
-        # so dropping it is how the next tick starts settled at the new width
-        # rather than easing from the old one.
-        motion.forget(_SIDEBAR_KEY)
-    return key
+# The width a sidebar is drawn at before the first :func:`measure` (a headless
+# caller, or the first frame). A constant now: the three named sizes, their
+# Settings combo, the persisted ``sidebar`` key and the ~200 ms easing between
+# them all went when each side column became a fixed 300 dp (see
+# :func:`proportions`); this is that same 300, named where the readers look.
+SIDEBAR_W = tokens.SIDEBAR_TARGET_DP
 
 
 # What a centre pane wants, and what it will accept before the sidebars start
@@ -101,8 +57,8 @@ PANEL_MIN = tokens.PANEL_MIN
 PANEL_MAX = tokens.PANEL_MAX
 
 # The width the two sidebars actually get this frame, in *physical* px. Module
-# state, computed once by :func:`measure` for the same reason ``SIDEBAR_W`` is
-# eased in ``tick``: the left column and the right must agree within a frame,
+# state, computed once by :func:`measure` so that the left column and the right
+# agree within a frame,
 # and the right one is sized ``(0, h)`` from whatever the centre left behind.
 #
 # ``None`` until a frame has measured one. Its own sentinel rather than a
@@ -114,7 +70,7 @@ SIDE_FIT: dict[str, float | None] = {"left": None, "right": None}
 
 # What the navigation rail has taken out of the window this frame, in physical
 # px (the UI redesign, wave 3). Module state set by ``rail.tick`` immediately before
-# :func:`tick`, for the reason ``SIDEBAR_W`` is: the sidebars are measured from
+# :func:`measure`, for the same reason: the sidebars are measured from
 # what is left after the rail, and a number threaded through would be the same
 # figure in two places.
 #
@@ -125,7 +81,7 @@ RAIL_RESERVED: float = 0.0
 
 # What the Familiar dock has taken out of the window's right edge this frame,
 # in physical px. Module state set by ``familiar_dock.tick`` immediately before
-# :func:`tick`, mirroring :data:`RAIL_RESERVED` on the opposite edge: the dock
+# :func:`measure`, mirroring :data:`RAIL_RESERVED` on the opposite edge: the dock
 # replaced the old bottom pane, which never had to be subtracted from the
 # horizontal room the columns fit against because it ran the window's full
 # width. A full-height right dock does, or the right sidebar is fitted
@@ -311,17 +267,10 @@ def proportions(
     return rail, left, centre, right, dock
 
 
-def tick() -> None:
-    """Advance the sidebar width one frame. Called once, before anything reads
-    ``SIDEBAR_W`` -- a half-eased width read by the left column and the settled
-    one by the right would be two columns disagreeing about the same frame."""
-    global SIDEBAR_W
-    SIDEBAR_W = motion.value(_SIDEBAR_KEY, SIDEBAR_TARGET, duration=tokens.DUR_BASE)
-
-
 def measure(library: Any = None, workspace: str = "", *, fixed_left: float | None = None) -> float:
     """Settle this frame's side-column fit from :func:`proportions`. -> the
-    left sidebar's physical width. Called once, straight after :func:`tick`.
+    left sidebar's physical width. Called once per frame, after the rail and
+    the Familiar dock have said what they take.
 
     ``library``/``workspace``/``fixed_left`` are accepted and ignored: they
     named the per-workspace preference :func:`proportions` replaced (a side
@@ -329,11 +278,6 @@ def measure(library: Any = None, workspace: str = "", *, fixed_left: float | Non
     kept only so the one production call site
     (``shell/frame.py``'s ``_build_ui``) and every existing test call did not
     all have to change the day the shares did.
-
-    Separate from ``tick`` rather than folded into it, and the reason is not
-    tidiness: ``tick`` is pure arithmetic over the motion table and is called
-    by headless tests that have no imgui context at all, where reaching for a
-    viewport is an access violation rather than an error.
 
     Measured from the whole window rather than from the content region a column
     happens to be standing in: ``centre_width`` runs *after* the left sidebar is
@@ -465,9 +409,10 @@ class Layout:
             if number is not None:
                 self.shares[str(key)] = min(max(number, SHARE_MIN), SHARE_MAX)
         self._migrate_shares()
-        self.sidebar = set_sidebar(str(stored.get("sidebar", "default")))
+        # A stored ``sidebar`` (the retired width name) is not read: it is
+        # dropped on the next :meth:`save`, which writes only surviving keys.
         # Whether the navigation rail shows its labels. A *name* rather than a
-        # width, exactly as ``sidebar`` is, so a stored value can never be a
+        # width, so a stored value can never be a
         # size this build does not offer -- and anything unrecognised reads as
         # "icons", which is the state the rail is designed around rather than a
         # degraded version of the other one.
@@ -611,21 +556,19 @@ class Layout:
 
     def save(self) -> None:
         # **No early return here, whatever else has already persisted.** This
-        # is the only writer of ``rail`` and ``sidebar``, and it used to skip
+        # is the only writer of ``rail``, and it used to skip
         # the whole write whenever ``layouts.Library`` had just taken a share
-        # edit -- so a rail toggle or a sidebar width chosen after any splitter
+        # edit -- so a rail toggle chosen after any splitter
         # drag was silently discarded, exactly as the paragraph below warns.
         # Rewriting the legacy share blob unchanged in that case costs nothing:
         # it is a migration seed, not a source of truth.
         #
         # Only the surviving keys: Settings.set replaces the whole dict, so the
-        # stale sidebar_w/inspector_w a settings file may still carry are gone
-        # the first time anything saves. ``sidebar`` is the *name* of a width,
-        # never a number, so a stored value can never be a size this build does
-        # not offer -- and ``rail`` follows it for the same reason. Both have to
-        # be written here every time, because the whole dict is replaced: a key
+        # stale sidebar_w/inspector_w/sidebar a settings file may still carry
+        # are gone the first time anything saves. Every surviving key has to be
+        # written here every time, because the whole dict is replaced: a key
         # this method forgets is a preference that silently resets the next time
-        # the *other* one changes.
+        # another one changes.
         self._settings.set(
             "layout",
             {
@@ -633,7 +576,6 @@ class Layout:
                 "settings_shares": {
                     key: round(value, 3) for key, value in sorted(self.shares.items())
                 },
-                "sidebar": self.sidebar,
                 "rail": self.rail,
             },
         )

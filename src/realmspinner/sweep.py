@@ -111,8 +111,13 @@ async def run_band(
     seed: int,
     resolution: int,
     audit_resolution: int,
+    matte: str | None = None,
 ) -> dict[str, Any]:
-    """Generate one mesh at ``band`` and score it. -> a result row."""
+    """Generate one mesh at ``band`` and score it. -> a result row.
+
+    ``matte`` pins the ``bg_removal`` the measurement is taken under (``--matte``);
+    ``None`` is what a real job on this host would get.
+    """
     from . import meshaudit
 
     label = "auto" if band is None else str(band)
@@ -141,7 +146,13 @@ async def run_band(
     # (see ``print_table``), so a band picked under the other matte is a figure
     # nobody may act on. The gate is the app's, and is a file check, so the sweep
     # still needs no weights to import or to refuse bad arguments.
-    matte = guidance.default_bg_removal(config.trellis_models_dir)
+    #
+    # ``--matte`` overrides that on purpose (fix-pass-7): the default is the
+    # right one to *recommend* from, but a human comparing against a stored
+    # corpus keyed on the other matte needs to reproduce it, and the table
+    # header already names the matte every row ran under.
+    if matte is None:
+        matte = guidance.default_bg_removal(config.trellis_models_dir)
     started = time.monotonic()
     try:
         await server.generate(
@@ -193,6 +204,7 @@ async def sweep(
     seed: int,
     resolution: int,
     audit_resolution: int,
+    matte: str | None = None,
 ) -> list[dict[str, Any]]:
     # The 2026-09-26 audit, finding create-workspace-08: ``exists()`` also
     # answers True for a directory, which would then run the whole sweep
@@ -210,6 +222,7 @@ async def sweep(
             row = await run_band(
                 config, band, image, out_dir,
                 seed=seed, resolution=resolution, audit_resolution=audit_resolution,
+                matte=matte,
             )
         except Exception as exc:
             # One bad value must not lose the values already measured -- a full

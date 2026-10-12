@@ -287,6 +287,21 @@ def toast(ctx: Any, message: str) -> None:
     ctx.toast(message, "error")
 
 
+def _toast_refused(ctx: Any, uid: int, message: str) -> None:
+    """:func:`toast` for a refusal that belongs to one object, naming it if asked.
+
+    The 2026-10-11 audit's clay-19 left the agent's ``errors`` list as anonymous
+    sentences: a multi-object press refused for one object and run for another
+    could not say *which*. ``refused(uid, message)`` is an optional hook on
+    ``ctx`` -- the agent's sandboxed proxy implements it, the app's ``Ctx`` and
+    every test double do not, and a missing hook is simply the old toast.
+    """
+    toast(ctx, message)
+    refused = getattr(ctx, "refused", None)
+    if callable(refused):
+        refused(uid, message)
+
+
 def defaults_for(op: Op) -> dict[str, float]:
     """The op's parameters at their defaults, as a fresh dict."""
     return {param.name: param.default for param in op.params}
@@ -663,7 +678,7 @@ def run_mesh_op(
             doc._refuse_invalid(obj.name, mesh)
             doc._refuse_unstorable(obj.name, mesh)
         except OpError as error:
-            toast(ctx, str(error))
+            _toast_refused(ctx, uid, str(error))
             continue
         built.append((uid, obj, mesh, sel))
     if not built:
@@ -779,7 +794,7 @@ def run_object_op(
         try:
             changed = func(doc, obj)
         except OpError as error:
-            toast(ctx, str(error))
+            _toast_refused(ctx, uid, str(error))
             continue
         if changed is not False:
             ran = True

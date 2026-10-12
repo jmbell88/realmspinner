@@ -7,7 +7,7 @@ neither drew a ring for it.
 plain ``int``, and ``_jobs_create.create_job`` calls it as
 ``check_seed("seed", seed)`` / ``check_seed("mesh_seed", mesh_seed)`` -- a
 refusal these two controls can be named in. The comment that used to sit
-beside ``settings_2d._seed_row`` claimed the opposite: "nothing in ``service``
+beside ``settings_2d.seed_row`` claimed the opposite: "nothing in ``service``
 raises a refusal naming it (the range check is fieldless...)". What actually
 kept the refusal unreachable *through the widget* was incidental, not
 structural -- Dear ImGui's plain InputInt stores into a C int32 whose range
@@ -50,7 +50,7 @@ def _source(rel: str) -> str:
 
 
 def test_check_seed_names_the_field_it_is_passed():
-    """The fact the old comment on ``settings_2d._seed_row`` got wrong."""
+    """The fact the old comment on ``settings_2d.seed_row`` got wrong."""
     with pytest.raises(Invalid) as caught:
         check_seed("seed", -1)
     assert caught.value.field == "seed"
@@ -74,12 +74,12 @@ def test_a_malformed_seed_from_a_settings_file_still_rings_the_seed_control():
     (``tests/test_field_error_wiring.py``)."""
     from realmspinner.studio.modes.create.ui.panes import settings_2d
 
-    seed_row_src = inspect.getsource(settings_2d._seed_row)
+    seed_row_src = inspect.getsource(settings_2d.seed_row)
     assert 'field_error(ctx.state, "seed")' in seed_row_src, (
-        "settings_2d._seed_row never rings the seed control on a refusal"
+        "settings_2d.seed_row never rings the seed control on a refusal"
     )
     assert 'clear_field_error("seed")' in seed_row_src, (
-        "settings_2d._seed_row never clears the seed ring when the control is edited"
+        "settings_2d.seed_row never clears the seed ring when the control is edited"
     )
 
     # settings_3d's mesh-seed block is inline rather than its own function

@@ -287,3 +287,32 @@ def test_no_clay_mode_root_docstring_names_a_deleted_pane_or_tab() -> None:
         text = (_CLAY / name).read_text(encoding="utf-8")
         for needle in stale:
             assert needle not in text, f"{name} still says {needle!r}"
+
+
+# --- F17-1 ---------------------------------------------------------------------
+
+
+def test_export_asset_turns_an_oversized_documents_refusal_into_toolarge_not_a_bare_valueerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``save_to`` / ``save_as`` re-raise the kernel's ``ValueError`` as
+    ``TooLarge(field="save")``; ``export_asset`` let it through, and the task
+    runner reads a bare ``ValueError`` as a bug ("see the log")."""
+    from realmspinner.kernels.mesh import serialize
+    from realmspinner.service.errors import TooLarge
+
+    ctx = _ctx(with_view=True)
+    tab = ctx.state.clay.active
+    monkeypatch.setattr(clay_mode, "camera_of", lambda c, t: t.view)
+
+    def refuse(_snap: Any) -> bytes:
+        raise ValueError("this clay document places 4,097 objects, past the 4,096 Clay holds")
+
+    monkeypatch.setattr(serialize, "snapshot_bytes", refuse)
+    pending: list[Any] = []
+    ctx.submit = lambda key, run, *a, **k: pending.append(run) or True
+
+    clay_mode.export_asset(ctx, tab)
+    with pytest.raises(TooLarge, match="4,097") as caught:
+        pending[0]()
+    assert caught.value.field == "save"

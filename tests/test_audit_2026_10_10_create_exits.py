@@ -260,7 +260,7 @@ def test_the_shipped_registry_still_reads_four_body_plans():
     from realmspinner.studio.modes.create.engine import character as engine
     from realmspinner.studio.modes.create.ui import brief
 
-    assert "across four body plans" in brief._TYPE_HINTS["character"]
+    assert "across four body plans" in brief.TYPE_HINTS["character"]
     opts = {"families": [{"key": "human"}], "archetypes": [{}, {}, {}, {}]}
     assert "across four body plans" in engine._no_species(resolve_mod.Resolution(), opts)
 

@@ -183,7 +183,7 @@ def remap(
 
     A ``{"$ref": "<name>"}`` dict -- ``clay_batch``'s own placeholder --
     passes through unchanged: it is not a recorded uid, and
-    ``agent_clay._resolve_batch_ref`` resolves it against the live document
+    ``tools_batch._resolve_batch_ref`` resolves it against the live document
     by name once the call actually runs, which is a job this function has no
     business doing (and would get wrong, since a ``$ref`` names an object
     this replay may not even have remapped a uid for yet -- it was never

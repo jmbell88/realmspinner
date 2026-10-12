@@ -86,7 +86,7 @@ ATTEMPTS_TIP = (
     "about two minutes of GPU; you pick the best."
 )
 
-#: Per-pill hover text for the image count, the same shape as ``_TYPE_HINTS``
+#: Per-pill hover text for the image count, the same shape as ``TYPE_HINTS``
 #: beside it. Four bare pills ("1 2 4 8") carried no label and no tooltip --
 #: unlike the Type combo, which names each value on hover. The 2026-09-05
 #: audit, finding create-11.
@@ -255,7 +255,7 @@ def inputs(ctx: Any, *, mesh: bool = False) -> None:
             _history_popup(ctx, form)
             with card_field("What are you making?"):
                 _type(ctx, form, width=imgui.get_content_region_avail().x)
-                widgets.muted_wrapped(_TYPE_HINTS.get(create_assets.selected(form).key, ""))
+                widgets.muted_wrapped(TYPE_HINTS.get(create_assets.selected(form).key, ""))
             tileset = form.get("asset_type") == "tileset"
             caption = "Shared style" if tileset else "Describe the asset"
             with card_field(caption):
@@ -313,9 +313,9 @@ def ask_reset(ctx: Any, *, mesh: bool) -> None:
             message=_RESET_MESH_CONFIRM_MESSAGE if mesh else _RESET_CONFIRM_MESSAGE,
             confirm_label="Reset",
             cancel_label="Cancel",
-            on_confirm=(lambda: settings_3d._reset(ctx))
+            on_confirm=(lambda: settings_3d.reset(ctx))
             if mesh
-            else (lambda: settings_2d._reset(ctx)),
+            else (lambda: settings_2d.reset(ctx)),
         )
     )
 
@@ -331,7 +331,7 @@ def submit_control(ctx: Any, *, mesh: bool = False) -> None:
     problems = (
         settings_3d.problems(ctx, source)
         if mesh
-        else _with_pending_candidates_problem(ctx, create_recipe.problems_for(ctx, form))
+        else with_pending_candidates_problem(ctx, create_recipe.problems_for(ctx, form))
     )
     _generate(
         ctx,
@@ -353,7 +353,7 @@ PENDING_CANDIDATES_REFUSAL = (
 )
 
 
-def _with_pending_candidates_problem(ctx: Any, problems: list[Any]) -> list[Any]:
+def with_pending_candidates_problem(ctx: Any, problems: list[Any]) -> list[Any]:
     """Add a refusal while an undecided candidate group exists. -> ``problems``.
 
     The 2026-09-18 audit, finding create-01: a second candidate-producing
@@ -390,7 +390,7 @@ def _type(ctx: Any, form: dict[str, Any], *, width: float | None = None) -> None
             before,
             list(create_assets.ASSET_TYPE_OPTIONS),
             width=sp(TYPE_W) if width is None else width,
-            tooltip=_TYPE_HINTS.get(before, ""),
+            tooltip=TYPE_HINTS.get(before, ""),
         )
         # The tour's character-type step rings this combo by its caption (the
         # 2026-10-03 audit's tour-09: it named "Generation type", which no
@@ -577,17 +577,17 @@ def _generate_tooltip(show_count: bool, count: int) -> str:
 
 
 # The Reset confirm's own words, module-level so a regression test can read
-# them without an imgui context (``_reset`` below draws a button first, which
+# them without an imgui context (``ask_reset`` below draws a button first, which
 # needs one). The 2026-09-08 audit, finding create-03: this text used to name
 # only six things -- the prompt, the negative prompt, the model, the LoRA,
-# the reference and the run controls -- while ``settings_2d._reset`` actually
+# the reference and the run controls -- while ``settings_2d.reset`` actually
 # replaces the *whole* form with ``default_form_2d()``, silently discarding
 # the asset type (the whole Image/3D Model/Seamless Material/Tileset/Sprite
 # Sheet/Character selection) and every Tileset/Sprite/Character field the
 # user had typed in (materials, variants, style_lock, seam_erase, palette,
 # cell_size, and the rest) -- none of which the old text named. The fix
 # broadens the *text* to match what Reset has always discarded, per the
-# 2026-09-08 audit's own call: narrowing ``_reset`` instead would make "another
+# 2026-09-08 audit's own call: narrowing ``settings_2d.reset`` instead would make "another
 # like this" lose the asset type on every rerun, which is a bigger behaviour
 # change than a confirm dialog earns on its own.
 _RESET_CONFIRM_MESSAGE = (
@@ -783,7 +783,7 @@ def _character_hint() -> str:
 #: One line per type, on the combo's tooltip. The five-row descriptive block
 #: that used to sit under the selector is gone with the column it sat in; this
 #: is what survives of it, which is the orientation and not the prose.
-_TYPE_HINTS: dict[str, str] = {
+TYPE_HINTS: dict[str, str] = {
     "image": "A standalone 2D image.",
     "3d_model": "A reference image you can turn into a 3D model.",
     "seamless_material": "A seamless surface texture.",

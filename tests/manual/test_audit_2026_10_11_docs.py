@@ -158,14 +158,13 @@ def test_the_recalculate_normals_paragraph_says_a_flat_sheet_is_left_alone() -> 
     assert "bowl or a half-pipe" in section
 
 
-def test_the_parenting_paragraphs_say_a_sheared_shape_with_children_is_refused() -> None:
-    section = _section(_chapter("30-clay.md"), "## Parents and groups")
-    assert "is refused when the move would shear it" in section
-    assert "changes nothing" in section
-    assert "own children are not carried" not in section, (
-        "the delete/ungroup paragraph still says a sheared child's own children are not carried; "
-        "the move is refused instead"
+def test_the_parenting_paragraphs_say_a_sheared_shape_carries_its_children() -> None:
+    section = _flat(_section(_chapter("30-clay.md"), "## Parents and groups"))
+    assert "carries the shape's children with it" in section
+    assert "is refused when the move would shear it" not in section, (
+        "a sheared shape with children is carried now (F20-3), not refused"
     )
+    assert "own children are not carried" not in section
 
 
 def test_merge_faces_paragraph_says_which_material_a_mixed_block_keeps() -> None:

@@ -79,6 +79,9 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
             # itself: this was the one door that passed the config default,
             # so picking "quadruped" in the Rig stage and rigging from the
             # inspector's Pose tab silently rigged with the wrong skeleton.
+            # ``stage_rig``'s own buttons clear stale field errors first (the
+            # 2026-09-05 audit, create-05): a new submit is judged on its own.
+            ctx.state.clear_field_errors()
             ctx.submit(
                 rig_key, svc_rig.create_rig, ctx.svc, job["id"], template=stage_rig.skeleton(ctx)
             )
@@ -92,6 +95,7 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
             # already runs, so what lands is a genuine rig.glb the skeleton
             # editor (Poser -> Edit skeleton) can build out from nothing by
             # hand -- Add child, Split, Attach limb, drag to reposition.
+            ctx.state.clear_field_errors()
             ctx.submit(rig_key, svc_rig.create_rig, ctx.svc, job["id"], template="blank")
         return
 

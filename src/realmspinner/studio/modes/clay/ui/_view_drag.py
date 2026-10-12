@@ -580,7 +580,7 @@ class DragOps:
             delta = pivot + (point - anchor)
         delta = self._narrow(doc, delta, state, local)
         if doc.element_mode != "object":
-            self._preview_element_drag(doc, delta, state)
+            self._queue_element_preview(delta, state)
             return
         self._apply_to_dragged(doc, delta, state)
 
@@ -693,11 +693,16 @@ class DragOps:
         owner = 2 if self._grab == "pan" else 1
         if button != owner:
             return True
+        # Drawn while ``_grab`` still says which transform this is, so the committed
+        # position is the one under the pointer and not a frame behind it.
+        if self._grab in ("gizmo", "keydrag"):
+            self.flush_drag_preview(doc)
         was, self._grab = self._grab, None
         click, self._click = self._click, None
         if was in ("gizmo", "keydrag"):
             self._settle_drag_tail(doc, was)
         elif was == "opdrag":
+            self._drop_pending_preview()
             self._op_drag_commit(doc)
         elif was == "marquee":
             if click is not None and gestures.is_click(self._moved):
@@ -719,6 +724,10 @@ class DragOps:
         A keyboard drag holds no handle, so there is no gizmo drag to end --
         but everything after that is identical, which is the whole point of
         routing it through the same delta shapes.
+
+        The callers flush the queued preview before they clear ``_grab``
+        (:meth:`flush_drag_preview`), not here: ``_is_scale`` reads the grab, so a
+        preview drawn after it was cleared would be the wrong transform.
         """
         gizmo = self.active_gizmo(doc) if was == "gizmo" else None
         if gizmo is not None:
@@ -748,12 +757,14 @@ class DragOps:
         if self._grab == "opdrag":
             # Leaving the tab mid op drag commits it, as it does a G/R/S drag.
             self._grab = None
+            self._drop_pending_preview()
             self._op_drag_commit(doc)
             return True
         if self._grab == "marquee":
             return self.cancel_marquee()
         if self._grab not in ("gizmo", "keydrag"):
             return False
+        self.flush_drag_preview(doc)
         was, self._grab = self._grab, None
         self._settle_drag_tail(doc, was)
         return True
@@ -859,6 +870,9 @@ class DragOps:
         """
         if self._key_kind == kind:
             return
+        # The abandoned transform's newest position must not be drawn over the
+        # zero-delta preview below.
+        self._drop_pending_preview()
         for uid, was in self._drag_start.items():
             try:
                 obj = doc.by_uid(uid)
@@ -925,10 +939,12 @@ class DragOps:
 
         """
         if self._grab == "opdrag":
+            self._drop_pending_preview()
             self._op_drag_cancel(doc)
             return True
         if not self.dragging:
             return False
+        self._drop_pending_preview()
         self._grab = None
         gizmo = self.active_gizmo(doc)
         if gizmo is not None:
@@ -1127,7 +1143,10 @@ class DragOps:
         elif self._grab == "keydrag":
             self._drag_keyboard(doc, local)
         elif self._grab == "opdrag":
-            self._op_drag_motion(doc)
+            # Coalesced like the element preview: the pointer's place is already in
+            # ``_last_mouse``, so the one update the frame hook runs reads the
+            # newest of however many events arrived.
+            self._op_motion_pending = True
         return True
 
     #: How far the pointer must travel, in pixels, before the object hover casts
@@ -1326,6 +1345,49 @@ class DragOps:
             return 0.0
         return abs(float(getattr(state, "snap_translate", 0.0)))
 
+    #: The newest element-drag ``(delta, state)`` no preview has drawn yet, and
+    #: whether an op drag's pointer has moved since its last update. See
+    #: :meth:`flush_drag_preview`.
+    _pending_preview: tuple[Any, Any] | None = None
+    _op_motion_pending: bool = False
+
+    def _queue_element_preview(self: ClayView, delta: Any, state: Any) -> None:
+        """Remember *delta* as the element drag's newest position, to be drawn once.
+
+        The 2026-10-10 audit's clay-25 throttled the hover picks and left the drag
+        previews: ``_preview_element_drag`` (an affine over every moved vertex, normals
+        and a buffer write per object) and ``_op_drag_motion`` (a kernel run) ran once
+        per MOUSEMOTION event, ~16 a frame from a high-rate mouse, and all but the last
+        were overwritten before they were ever drawn. **Not a distance throttle**: that
+        would leave the value the commit lands up to ``HOVER_PICK_STEP`` px behind the
+        pointer. The delta is still worked out per event (``RotateGizmo.update`` returns
+        an increment that :meth:`_accumulate` must see every one of), only the expensive
+        write is deferred to :meth:`flush_drag_preview`, once a frame, and to the commit.
+        """
+        self._pending_preview = (delta, state)
+
+    def flush_drag_preview(self: ClayView, doc: Any) -> None:
+        """Draw the newest queued element preview and run a queued op-drag update.
+
+        Called once a frame from ``ClayView.draw`` before anything is keyed or drawn,
+        and by :meth:`_release_drag` and :meth:`settle_drag` ahead of the commit, so
+        the value that lands is the one under the pointer and never a frame behind it.
+        A no-op when nothing is queued, which is every frame outside a drag.
+        """
+        pending, self._pending_preview = self._pending_preview, None
+        if pending is not None and self._element_drags:
+            self._preview_element_drag(doc, *pending)
+        if self._op_motion_pending:
+            self._op_motion_pending = False
+            if self._grab == "opdrag" and self._op_drag is not None:
+                self._op_drag_motion(doc)
+
+    def _drop_pending_preview(self: ClayView) -> None:
+        """Forget a queued preview without drawing it: the drag was cancelled,
+        restarted as another transform, or is committing from the pointer."""
+        self._pending_preview = None
+        self._op_motion_pending = False
+
     def _preview_element_drag(self: ClayView, doc: Any, delta: Any, state: Any) -> None:
         """Move the affected vertices on the GPU only, without touching the document.
 
@@ -1469,7 +1531,7 @@ class DragOps:
         delta = self._accumulate(delta)
         delta = self._narrow(doc, delta, state, local)
         if doc.element_mode != "object":
-            self._preview_element_drag(doc, delta, state)
+            self._queue_element_preview(delta, state)
             return
         self._apply_to_dragged(doc, delta, state)
 

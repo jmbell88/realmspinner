@@ -345,7 +345,7 @@ def test_load_settings_on_a_live_attempt_uses_the_trays_own_vary(no_stage_switch
     job = {"id": "live1", "stage": "reference", "params": {}}
     ctx = _Ctx(cached={"live1": job})
     called: list[str] = []
-    monkeypatch.setattr(workspace, "_vary", lambda c, j: called.append(j["id"]))
+    monkeypatch.setattr(workspace, "vary", lambda c, j: called.append(j["id"]))
     row = {"job_id": "live1", "exists": True, "trashed": False, "snapshot": {"v": 1}}
     assert history.load_settings(ctx, row) is True
     assert called == ["live1"]

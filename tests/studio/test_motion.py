@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from realmspinner.studio import layout, motion, theme, tokens
+from realmspinner.studio import motion, theme, tokens
 
 
 @pytest.fixture
@@ -244,42 +244,6 @@ def test_mix_resolves_roles_against_the_palette_in_force():
         )[:3]
     finally:
         tokens.set_theme("dark")
-
-
-# --- the sidebar width, which is module state the frame loop advances --------
-
-
-def test_the_construction_path_snaps_so_a_headless_caller_is_never_mid_move():
-    try:
-        layout.set_sidebar("wide")
-        assert layout.SIDEBAR_WIDTHS["wide"] == layout.SIDEBAR_W
-        assert layout.set_sidebar("nonsense") == "default"
-        assert layout.SIDEBAR_WIDTHS["default"] == layout.SIDEBAR_W
-    finally:
-        layout.set_sidebar("default")
-
-
-def test_changing_the_width_in_settings_eases_rather_than_jumping(clock):
-    try:
-        layout.set_sidebar("default")
-        layout.set_sidebar("wide", animate=True)
-        # Nothing has ticked yet, so the columns are still where they were.
-        assert layout.SIDEBAR_WIDTHS["default"] == layout.SIDEBAR_W
-        # The very first tick already moves: an animated change made before
-        # anything has ticked must slide rather than jump, which is what
-        # ``motion.seed`` is for.
-        layout.tick()
-        assert (
-            layout.SIDEBAR_WIDTHS["default"]
-            < layout.SIDEBAR_W
-            < layout.SIDEBAR_WIDTHS["wide"]
-        )
-        for _ in range(120):
-            clock["tick"]()
-            layout.tick()
-        assert layout.SIDEBAR_WIDTHS["wide"] == layout.SIDEBAR_W
-    finally:
-        layout.set_sidebar("default")
 
 
 # --- the switch itself -------------------------------------------------------

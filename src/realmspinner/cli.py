@@ -14,6 +14,10 @@ from pathlib import Path
 
 
 def main() -> None:
+    # Function scope, with the other lazy imports below: the choices are the
+    # service door's own, and ``--matte`` must refuse a bad value at parse time.
+    from .guidance import BG_REMOVAL
+
     parser = argparse.ArgumentParser(description="Realmspinner — local AI 3D asset generator")
     parser.add_argument(
         "command", nargs="?", choices=["doctor", "sweep", "mcp"], default=None,
@@ -39,6 +43,21 @@ def main() -> None:
     parser.add_argument(
         "--audit-resolution", type=int, default=1024,
         help="sweep: silhouette resolution for the hole measurement",
+    )
+    def _matte(value: str) -> str:
+        # A ``type=`` check rather than ``choices=``: the subcommand list above is
+        # the one ``choices=`` argument ``tests/test_cli_subcommands.py`` gates on,
+        # and a second would make that gate's "the one call with choices" ambiguous.
+        if value not in BG_REMOVAL:
+            raise argparse.ArgumentTypeError(
+                f"invalid matte {value!r} (choose from {', '.join(map(str, BG_REMOVAL))})"
+            )
+        return value
+
+    parser.add_argument(
+        "--matte", type=_matte, default=None,
+        help="sweep: background matte to generate under (the same choices a job's "
+             "bg_removal takes); omitted, the one a real job on this host would get",
     )
     parser.add_argument(
         "--out", type=Path, default=Path("sweep"), help="sweep: output directory for GLBs and logs"
@@ -118,6 +137,7 @@ def _run_sweep(args: argparse.Namespace) -> None:
             seed=args.seed,
             resolution=args.resolution,
             audit_resolution=args.audit_resolution,
+            matte=args.matte,
         )
     )
     sweep_mod.print_table(rows, args.audit_resolution)

@@ -78,7 +78,13 @@ def draw(ctx: Any) -> None:
     # re-filed under the control that answers to it, or the ring lands nowhere.
     if create_recipe.is_character(form):
         character_engine.mirror_errors(ctx)
-    with forms.Form("create-2d", errors=ctx.state.field_errors) as form_ui:
+    # ``on_edit`` is the 2026-10-10 audit's create-18, as ``create-3d`` has it:
+    # without it only the call sites below that clear by hand dismissed a ring,
+    # and a control drawn through ``form_ui`` without one kept its ring after the
+    # edit that dealt with it.
+    with forms.Form(
+        "create-2d", errors=ctx.state.field_errors, on_edit=ctx.state.clear_field_error
+    ) as form_ui:
         # The plan card is pinned and does not scroll (K92): the statement of
         # what a press will cost must not be at the bottom of a scrolled column
         # when the press itself is right under it -- it is in the same card.
@@ -167,7 +173,7 @@ def draw(ctx: Any) -> None:
                         default_open=False,
                     ) as opened:
                         if opened:
-                            _seed_row(ctx, form, form_ui)
+                            seed_row(ctx, form, form_ui)
                             if create_recipe.negative_supported(ctx, form):
                                 widgets.sub_label("Negative prompt / Avoid")
                                 _negative(ctx, form)
@@ -799,13 +805,13 @@ def _best_value_offer(
         # old one) and ``clear_unusable``; for the Style LoRA it is the tuned
         # weight (a pixelxl pick kept 0.9 against its 1.2).
         if param == "base_model":
-            _pick_base_model(ctx, form, str(form[param]))
+            pick_base_model(ctx, form, str(form[param]))
         elif param == "style_lora":
             ctx.state.clear_field_error("style_lora")
             create_recipe.reseed_lora_weight(form, was)
 
 
-def _reset(ctx: Any) -> None:
+def reset(ctx: Any) -> None:
     """The 2D form back to first-launch defaults.
 
     A fresh ``default_form_2d`` rather than a field-by-field clear, so a field
@@ -1034,7 +1040,7 @@ def _range(ctx: Any, key: str, low: float, high: float) -> tuple[float, float]:
 CLEARED_KEY = "base_model_cleared"
 
 
-def _pick_base_model(ctx: Any, form: dict[str, Any], picked: str) -> None:
+def pick_base_model(ctx: Any, form: dict[str, Any], picked: str) -> None:
     """What choosing ``picked`` in the Model combo does ("" is Automatic).
 
     One function because two doors reach it: the combo, and the findings
@@ -1090,7 +1096,7 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = create_recipe.LOA
     with create_brief.card_field("Image model"):
         picked = widgets.combo("##model", before, create_recipe.model_options(ctx, form))
         if picked != before:
-            _pick_base_model(ctx, form, picked)
+            pick_base_model(ctx, form, picked)
         # The refusal this most often carries is ``check_weights``' -- a model that
         # is selected and not downloaded, with the ``hf download`` line in it.
         widgets.field_error(ctx.state, "base_model")
@@ -1268,7 +1274,7 @@ def _negative(ctx: Any, form: dict[str, Any]) -> None:
     widgets.char_count(form["negative_prompt"], MAX_PROMPT)
 
 
-def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
+def seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     """The seed, and the two controls that act on it.
 
     One function since the count went to the bar: this used to be the tail of
@@ -1430,10 +1436,10 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: problem_types.Proble
             # combo's own Automatic entry actually writes is these two fields
             # (``_model``'s ``else`` branch), which is what genuinely decides
             # whether the recipe that resolves next can run a ControlNet.
-            # Through the combo's own change path (``_pick_base_model``), which
+            # Through the combo's own change path (``pick_base_model``), which
             # files the cleared-selection notes for the combo to draw (finding
             # create-23) and clears the base_model ring.
-            _pick_base_model(ctx, form, "")
+            pick_base_model(ctx, form, "")
         return
     if "not downloaded" in message and controls.button(
         "Open model setup##preflight-models", role=controls.ButtonRole.GHOST
@@ -1548,7 +1554,7 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
     # ``candidates.pending`` offers only the newest group while the library
     # hides every ``candidate_group`` row: the first was orphaned. Same helper
     # the button uses, so all three doors give one sentence.
-    problems = create_brief._with_pending_candidates_problem(ctx, problems)
+    problems = create_brief.with_pending_candidates_problem(ctx, problems)
     if problems:
         # Said out loud, because this is not only the button's path. Ctrl+Enter
         # and the palette's Generate call straight in here, and the only

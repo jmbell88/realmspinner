@@ -31,8 +31,8 @@ character sheet that no longer knows who it depicts.
 
 Nothing here is humanoid-shaped. The rig template and the clip library come off
 the species' archetype every time (``Family.template`` / ``Family.clip_library``),
-because a door that works for one of four body plans is a door that fails for
-three quarters of the registry the moment somebody picks a wolf.
+because a door that works for one body plan is a door that fails for every
+other one in the registry the moment somebody picks a wolf.
 """
 
 from __future__ import annotations
@@ -245,8 +245,8 @@ def recipe_from_prompt(
         if prompt:
             offer = resolve_mod.offer_sentence(res)
             message = offer or (
-                f"Realmspinner builds {len(family_mod.families())} species across four "
-                "body plans, and this prompt names none of them."
+                f"Realmspinner builds {len(family_mod.families())} species across "
+                f"{family_mod.body_plans_phrase()}, and this prompt names none of them."
             )
             raise Invalid(message, field="prompt")
         raise Invalid("pass a prompt or a family", field="prompt")

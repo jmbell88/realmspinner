@@ -110,11 +110,16 @@ addressed by name.
 
 ## Settings
 
-**Trim** cuts each sprite down to where its alpha actually stops before packing it, and records the
-offset so an engine can put it back exactly where you drew it. It is on by default and is usually
-free space. A fully transparent sprite is packed as a single pixel and marked blank rather than
-dropped — a blank frame in the middle of a clip is a real frame, it is the pause, and removing it
-would renumber everything after it.
+**Trim** (MaxRects only) cuts each sprite down to where its alpha actually stops before packing it,
+and records the offset so an engine can put it back exactly where you drew it. It is on by default
+and is usually free space. A fully transparent sprite is packed as a single pixel and marked blank
+rather than dropped — a blank frame in the middle of a clip is a real frame, it is the pause, and
+removing it would renumber everything after it.
+
+A **grid** pack ignores Trim, whatever it says: a `.tsx` slices by arithmetic, so a tile moved to its
+own bounding box would no longer sit where the arithmetic says, and the panel says so beside the
+toggle. The setting is kept, not overwritten, so switching back to MaxRects brings your answer back.
+A blank sprite in a grid keeps its full cell for the same reason.
 
 **Columns** (grid mode only) fixes how many cells wide the grid is, for a tileset you index by column
 — an animation strip cut at a known width, say. **Automatic** is on by default: the packer searches

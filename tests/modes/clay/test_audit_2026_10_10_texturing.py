@@ -200,3 +200,41 @@ def test_on_open_does_not_land_a_pull_while_the_clay_tab_is_saving(monkeypatch) 
     tab.saving = False
     tl.pull_all(ctx)
     assert len(doc.history) == before + 1, "and lands on the first frame after the save"
+
+
+def test_on_open_does_not_land_a_pull_inside_a_live_gesture(monkeypatch) -> None:
+    """``on_open`` gated only on ``saving``; ``pull_all`` also skips a live G/R/S
+    or UV gesture (the 2026-10-11 audit's clay-15), so the snap landed inside a
+    drag a second before the gate that exists for it would have held it."""
+    from realmspinner.kernels.pixel import Document
+    from realmspinner.studio.modes.clay.state import ClayState
+    from realmspinner.studio.state import AppState
+
+    ctx = _Ctx()
+    ctx.state = AppState()
+    ctx.state.clay = ClayState()
+    ctx.state.inker = SimpleNamespace(docs=[], activate=lambda uid: None)
+    ctx.clay_view = SimpleNamespace(dragging=False)
+    doc = bd.ClayDoc()
+    assert doc.add_texture(0, 32)
+    tab = ClayTab(doc=doc, title="Crate")
+    ctx.state.clay.add(tab)
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(inker_open, "open_pixels", lambda *a, **k: calls.append(k))
+    tl.edit_in_inker(ctx, tab, 0)
+
+    px = np.zeros((32, 32, 4), np.uint8)
+    px[..., 3] = 255
+    inker_tab = SimpleNamespace(uid="opened", title="t", doc=Document.from_pixels(px, name="T"))
+    ctx.state.inker.docs.append(inker_tab)
+
+    ctx.clay_view.dragging = True
+    before = len(doc.history)
+    calls[0]["on_open"](inker_tab)
+    assert len(doc.history) == before, "the PICO-8 snap landed inside a live drag"
+    (link,) = tab.inker_links
+    assert link.pulled_rev == tl.UNLANDED
+
+    ctx.clay_view.dragging = False
+    tl.pull_all(ctx)
+    assert len(doc.history) == before + 1, "and lands on the first frame after the gesture"

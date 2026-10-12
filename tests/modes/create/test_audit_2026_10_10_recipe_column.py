@@ -328,7 +328,7 @@ def test_vary_on_a_reference_keeps_the_recorded_seed_for_the_next_generate(monke
         "id": "r1", "stage": "reference", "kind": "text", "status": "done",
         "params": {"prompt": "a chest", "seed": 111, "reference_seed": 222},
     }
-    mod._vary(ctx, job)
+    mod.vary(ctx, job)
     form = ctx.state.form_2d
     assert form["seed_locked"] is True
     assert form["seed"] == 222  # the draw that shipped input.png
@@ -340,7 +340,7 @@ def test_vary_on_a_row_with_no_seed_does_not_lock_one(monkeypatch):
 
     ctx, toasts = _vary_ctx(monkeypatch)
     job = {"id": "r1", "stage": "reference", "kind": "text", "params": {"prompt": "a chest"}}
-    mod._vary(ctx, job)
+    mod.vary(ctx, job)
     assert ctx.state.form_2d["seed_locked"] is False
     assert "seed" not in toasts[0]
 
@@ -355,7 +355,7 @@ def test_vary_on_a_mesh_locks_the_recorded_mesh_seed_by_the_same_rule(monkeypatc
         "id": "m1", "stage": "model", "kind": "mesh", "status": "done",
         "params": {"mesh_seed": 333},
     }
-    mod._vary(ctx, job)
+    mod.vary(ctx, job)
     assert ctx.state.form_3d["mesh_seed"] == 333
     assert ctx.state.form_3d["mesh_seed_locked"] is True
     assert "seed" in toasts[0]
