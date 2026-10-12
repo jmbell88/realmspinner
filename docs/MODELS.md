@@ -34,7 +34,7 @@ only since 2026-09-10 (the GGUF weights always were).
 
 | Row | What it is | Size |
 |---|---|---|
-| **TRELLIS.2 engine** | `trellis-server.exe` and the libraries it links: four `ggml` DLLs and three NVIDIA CUDA redistributables | 0.68 GB down, 0.82 GB on disk |
+| **TRELLIS.2 engine** | `trellis-server.exe` and the libraries it links: four `ggml` DLLs and three NVIDIA CUDA redistributables | 0.67 GB down, 0.81 GB on disk |
 | **TRELLIS.2 GGUF weights** | the model that engine loads, quantised | ~16 GB |
 
 The engine used to ship inside the installer, where it was **838 MB of a 1.4 GB install** — more
@@ -42,7 +42,8 @@ than half of it — for a program most of whose workspaces never start it. `trel
 3 MB of that; the rest is `cublasLt64_13.dll` (480 MB) and `ggml-cuda.dll` (338 MB), linear algebra
 it links against. So it became a download, and a machine that only draws pixel art in Inker now
 fetches none of it. The figures and the verification were confirmed on the maintainer's own machine on
-2026-09-10.
+2026-09-10; the runtime moved from trellis.cpp v0.6.0 to v0.8.1 on 2026-10-11 (same nine files, a 715 MB
+archive), with the measurements in `dev/measurements/2026-10-11-trellis-cpp-0.8.1.md`.
 
 It is one of the two entries on this page that are **not a Hugging Face repository**: it is a single archive
 published on trellis.cpp's own GitHub releases, so it is pinned by SHA-256 rather than by a commit
@@ -55,8 +56,8 @@ row, as with every other entry:
 
 ```powershell
 curl -L -o $HOME/.realmspinner/engine/trellis/trellis-cuda-windows-x64.zip --create-dirs `
-  https://github.com/pwilkin/trellis.cpp/releases/download/v0.6.0/trellis-cuda-windows-x64.zip
-# then check its sha256 is 4d08ab27e83094035fd8349aaf34d3460738df0466ef9c4991ddd958c0344bc2
+  https://github.com/pwilkin/trellis.cpp/releases/download/v0.8.1/trellis-cuda-windows-x64.zip
+# then check its sha256 is d2ea7b57174d3bff438064faf0b5fbcc55c29c31e6bba5f41030936fa366ed48
 # then unpack it into $HOME/.realmspinner/engine/trellis
 ```
 

@@ -168,22 +168,25 @@ new backend is added **non-default** and may become the default only after a `cr
 frozen references (see above) shows it ahead on first-attempt, best-of-three and time-to-accepted
 -- a multi-view, Pixal3D or newer-trellis.cpp backend included.
 
-Automatic model routing and the pinned v0.6.0 runtime remain unchanged. A v0.8.1
-comparison requires that runtime installed separately, using
-`REALMSPINNER_TRELLIS_EXE`, and the same frozen references. The executable hash
-preserves its identity even when its release cannot be verified locally.
-No new binary or weights are fetched by these benchmarks.
+Automatic model routing is unchanged. The pinned runtime moved from trellis.cpp v0.6.0 to
+[v0.8.1](https://github.com/pwilkin/trellis.cpp/releases/tag/v0.8.1) on 2026-10-11, after an A/B on
+the same image and seed (`dev/measurements/2026-10-11-trellis-cpp-0.8.1.md`): on a volumetric
+reference it is about 10% slower with the same GLB structure and face counts within 5%; on a flat,
+thin reference (a pixel-art sprite) its default xatlas `uv_bake` is about 3x slower, so the whole run
+is 2-2.5x slower. The thin-input regression has not been reported upstream yet; `--box-uv` avoids it
+but changes the UV layout, so it is not used. Mesh *quality* between the two runtimes has not been
+compared beyond counts and structure.
 
-[Upstream v0.8.0](https://github.com/pwilkin/trellis.cpp/releases/tag/v0.8.0)
-adds Pixal3D through `--model pixal3d` and the HTTP server, with five additional
-GGUF weight files. This checkout has no validated Pixal3D adapter or those
-weights; its quality and resource requirements remain unmeasured. Treat it as a
-separate backend experiment, not a TRELLIS.2 replacement.
+v0.8.0 added Pixal3D through `--model pixal3d` and a per-request `model` field on the HTTP server,
+needing five additional GGUF files (`pixal3d_ss_flow`, `pixal3d_shape_flow_512`,
+`pixal3d_shape_flow_1024`, `pixal3d_tex_flow_1024`, `pixal3d_naf`) beside the TRELLIS.2 weights. It is
+single-view only (the multi-view release is PyTorch/ComfyUI, with a separate experimental C++ port),
+has no 512 texture model, and its parity with the PyTorch reference is unchecked upstream. This
+checkout has no Pixal3D adapter, weights row or bench result; treat it as a separate backend
+experiment, not a TRELLIS.2 replacement.
 
-[Upstream v0.8.1](https://github.com/pwilkin/trellis.cpp/releases/tag/v0.8.1)
-describes optional native quad-retopology source-build dependencies. Prebuilt
-archives omit that option, and full Windows image-to-quad validation is still
-absent upstream. Native quads and Hunyuan3D integration remain deferred.
-Neither upstream release nor Pixal3D was installed or benchmarked in this
-offline pass. Change routing only after paired blind acceptance review across
-all output families, publishing quality, failure, runtime and memory tradeoffs.
+[Upstream v0.8.1](https://github.com/pwilkin/trellis.cpp/releases/tag/v0.8.1) also describes optional
+native quad-retopology source-build dependencies. Prebuilt archives omit that option, and full Windows
+image-to-quad validation is still absent upstream. Native quads and Hunyuan3D integration remain
+deferred. Change routing only after paired blind acceptance review across all output families,
+publishing quality, failure, runtime and memory tradeoffs.

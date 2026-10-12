@@ -87,7 +87,7 @@ The reconstruction engine is `trellis-server.exe`, a compiled CUDA binary from
 `trellis-cuda-windows-x64.zip` from that project's releases and unpack it into `vendor/trellis/`, so
 that `vendor/trellis/trellis-server.exe` exists.
 
-The pinned build is **v0.6.0** (2026-08-19). Unpacking it by hand is a **source-checkout step
+The pinned build is **v0.8.1** (2026-09-25). Unpacking it by hand is a **source-checkout step
 only**: since 2026-09-10 the installed app downloads that same archive itself, from **Settings →
 Models**, and unpacks it under `~/.realmspinner/engine/trellis`. A downloaded copy wins over a vendored
 one, and `REALMSPINNER_TRELLIS_EXE` beats both — see

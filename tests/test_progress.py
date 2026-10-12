@@ -19,11 +19,16 @@ from realmspinner.progress import (
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "trellis_1024.log"
-# One cold res-1024 run per vendored exe version: v0.5.4 (2026-07-27) and
-# v0.6.0 (captured 2026-09-02). The parser's RE_* are verified against the
-# exe's format strings, so a version bump adds a fixture here rather than
-# trusting that the strings did not move.
-FIXTURES = (FIXTURE, Path(__file__).parent / "fixtures" / "trellis_1024_v060.log")
+# One cold res-1024 run per vendored exe version: v0.5.4 (2026-07-27), v0.6.0
+# (captured 2026-09-02) and v0.8.1 (captured 2026-10-11, a volumetric chest).
+# The parser's RE_* are verified against the exe's format strings, so a version
+# bump adds a fixture here rather than trusting that the strings did not move.
+FIXTURES = (
+    FIXTURE,
+    Path(__file__).parent / "fixtures" / "trellis_1024_v060.log",
+    Path(__file__).parent / "fixtures" / "trellis_1024_v081.log",
+)
+FIXTURE_IDS = ("v054", "v060", "v081")
 
 
 def read_fixture(path: Path = FIXTURE) -> list[str]:
@@ -87,14 +92,14 @@ def test_substep_fractions_are_ordered():
 # --- fixture replay ---
 
 
-@pytest.mark.parametrize("fixture", FIXTURES, ids=("v054", "v060"))
+@pytest.mark.parametrize("fixture", FIXTURES, ids=FIXTURE_IDS)
 def test_replay_is_monotonic_and_completes(fixture):
     pcts = replay(read_fixture(fixture))
     assert pcts == sorted(pcts), "progress went backwards"
     assert pcts[-1] == pytest.approx(100.0)
 
 
-@pytest.mark.parametrize("fixture", FIXTURES, ids=("v054", "v060"))
+@pytest.mark.parametrize("fixture", FIXTURES, ids=FIXTURE_IDS)
 def test_denominator_switch_does_not_regress(fixture):
     """Stage headers go [1/6]..[3/6] then [4/7]..[7/7]; the bar must not jump back."""
     lines = read_fixture(fixture)
@@ -106,7 +111,7 @@ def test_denominator_switch_does_not_regress(fixture):
     assert at["[3/6]"] < at["[4/7]"] < at["[5/7]"] < at["[6/7]"] < at["[7/7]"]
 
 
-@pytest.mark.parametrize("fixture", FIXTURES, ids=("v054", "v060"))
+@pytest.mark.parametrize("fixture", FIXTURES, ids=FIXTURE_IDS)
 def test_cascade_stage_has_two_flow_runs_without_rewinding(fixture):
     """[4/7] with 'cascade' contains an LR and an HR flow run, both 0..12."""
     lines = read_fixture(fixture)
@@ -138,7 +143,7 @@ def test_single_run_stage_four_completes_without_cascade():
     assert one[-1] > two[-1]
 
 
-@pytest.mark.parametrize("fixture", FIXTURES, ids=("v054", "v060"))
+@pytest.mark.parametrize("fixture", FIXTURES, ids=FIXTURE_IDS)
 def test_stage_seven_advances_in_many_increments(fixture):
     """Guards the anti-freeze property: stage 7 is ~64% of wall time and would
     otherwise be a single frozen step."""
@@ -227,7 +232,7 @@ def test_silence_after_a_flow_run_still_creeps(monkeypatch):
     assert bus.snapshot("j")["percent"] > before
 
 
-@pytest.mark.parametrize("fixture", FIXTURES, ids=("v054", "v060"))
+@pytest.mark.parametrize("fixture", FIXTURES, ids=FIXTURE_IDS)
 def test_second_job_on_a_warm_server_starts_over(fixture):
     """A warm server serves many jobs from one stdout stream. Each job calls
     begin(), which is what resets the bar -- the parser only resets its own
@@ -326,7 +331,7 @@ def test_eta_and_step_are_reported():
 # --- text jobs ---
 
 
-@pytest.mark.parametrize("fixture", FIXTURES, ids=("v054", "v060"))
+@pytest.mark.parametrize("fixture", FIXTURES, ids=FIXTURE_IDS)
 def test_text_job_hands_off_to_trellis_at_twenty_percent(fixture):
     lines = read_fixture(fixture)
     pcts = replay(lines, kind="text")

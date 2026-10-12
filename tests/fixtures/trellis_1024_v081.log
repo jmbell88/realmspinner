@@ -1,0 +1,107 @@
+[trellis-server] models=C:\Users\ILWT\.realmspinner\models\trellis2-gguf gpu=0 listening on http://127.0.0.1:17981
+[trellis-server] generate: 1287859-byte image, seed 42, res 1024, bg birefnet, uv xatlas
+[trellis] generating model with seed 42
+[trellis] FlashAttention precision: auto (F16 fast on HTP; BF16/F32 otherwise)
+[1/6] preprocess C:\Users\ILWT\AppData\Local\Temp\trellis-req-0.png (BiRefNet bg removal, 1024 cascade)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32579 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32579 MiB
+[2/6] DINOv3 conditioning
+      cond tokens=1029 / 1024-cond tokens=4101
+      [stats] cond_512 (DINOv3@512) n=1053696 mean=-0.0000 std=1.0000 min=-29.335 max=24.883 nan/inf=0
+      [stats] cond_1024 (DINOv3@1024) n=4199424 mean=0.0000 std=1.0000 min=-29.338 max=24.965 nan/inf=0
+[3/6] sparse-structure flow + decode
+      [flow] [....................]  0/12    0.0s  starting    
+      [flow] [#...................]  1/12    0.4s  ~5s left    
+      [flow] [###.................]  2/12    0.8s  ~4s left    
+      [flow] [#####...............]  3/12    1.2s  ~4s left    
+      [flow] [######..............]  4/12    1.6s  ~3s left    
+      [flow] [########............]  5/12    2.0s  ~3s left    
+      [flow] [##########..........]  6/12    2.4s  ~2s left    
+      [flow] [###########.........]  7/12    2.8s  ~2s left    
+      [flow] [#############.......]  8/12    3.2s  ~2s left    
+      [flow] [###############.....]  9/12    3.6s  ~1s left    
+      [flow] [################....] 10/12    4.1s  ~1s left    
+      [flow] [##################..] 11/12    4.3s  ~0s left    
+      [flow] [####################] 12/12    4.5s  ~0s left    
+      [flow] 12 steps, 22 forwards, 4.5s
+      active voxels @res32 = 4651
+[4/7] shape SLAT flow (LR 512 -> upsample -> HR 1024 cascade, max_tok=49152)
+      [flow] [....................]  0/12    0.0s  starting    
+      [flow] [#...................]  1/12    0.5s  ~5s left    
+      [flow] [###.................]  2/12    1.0s  ~5s left    
+      [flow] [#####...............]  3/12    1.5s  ~4s left    
+      [flow] [######..............]  4/12    1.9s  ~4s left    
+      [flow] [########............]  5/12    2.4s  ~3s left    
+      [flow] [##########..........]  6/12    2.9s  ~3s left    
+      [flow] [###########.........]  7/12    3.4s  ~2s left    
+      [flow] [#############.......]  8/12    3.9s  ~2s left    
+      [flow] [###############.....]  9/12    4.1s  ~1s left    
+      [flow] [################....] 10/12    4.4s  ~1s left    
+      [flow] [##################..] 11/12    4.6s  ~0s left    
+      [flow] [####################] 12/12    4.9s  ~0s left    
+      [flow] 12 steps, 20 forwards, 4.9s
+      [stats] LR slat (res32, decodes OK via upsample) n=148832 mean=-0.1160 std=5.7446 min=-26.806 max=22.602 nan/inf=0
+      [c2s-subdiv-stream] blocks.2.8 N=95325 chunks=2x65536
+      [c2s-subdiv-stream] blocks.3.4 N=419315 chunks=7x65536
+      upsampled coords @res512=1811667 -> quantized @res1024 (grid 64) = 20799 tokens
+      [flow] [....................]  0/12    0.0s  starting    
+      [flow] [#...................]  1/12    5.8s  ~64s left   
+      [flow] [###.................]  2/12   11.7s  ~58s left   
+      [flow] [#####...............]  3/12   17.5s  ~53s left   
+      [flow] [######..............]  4/12   23.3s  ~47s left   
+      [flow] [########............]  5/12   29.2s  ~41s left   
+      [flow] [##########..........]  6/12   35.0s  ~35s left   
+      [flow] [###########.........]  7/12   40.9s  ~29s left   
+      [flow] [#############.......]  8/12   46.7s  ~23s left   
+      [flow] [###############.....]  9/12   49.6s  ~17s left   
+      [flow] [################....] 10/12   52.5s  ~11s left   
+      [flow] [##################..] 11/12   55.5s  ~5s left    
+      [flow] [####################] 12/12   58.4s  ~0s left    
+      [flow] 12 steps, 20 forwards, 58.4s
+      [stats] HR slat n=665568 mean=-0.0871 std=5.3610 min=-28.252 max=26.793 nan/inf=0
+[5/7] FlexiDualGrid shape decode -> mesh @res1024
+      [c2s-subdiv-stream] blocks.1.16 N=94544 chunks=2x65536
+      [c2s-subdiv-stream] blocks.2.8 N=423697 chunks=7x65536
+      [c2s-subdiv-stream] blocks.3.4 N=1776876 chunks=28x65536
+      decoded voxels @res1024 = 7256710
+      [host-mem] released shape feats7 0.19 GiB before mesh postprocess
+      mesh V=7256710 F=14544364
+      filled 7105 small holes -> V=7263815 F=14590306
+[6/7] texture SLAT flow + PBR decode  (res-512 texture on res-1024 mesh)
+      [c2s-subdiv-stream] blocks.2.8 N=95325 chunks=2x65536
+      [c2s-subdiv-stream] blocks.3.4 N=419315 chunks=7x65536
+      res-512 tex-guide decode: 1811667 voxels
+      [host-mem] mixed texture: released HR shape coords + tex-guide feats7
+      [flow] [....................]  0/12    0.0s  starting    
+      [flow] [#...................]  1/12    0.3s  ~3s left    
+      [flow] [###.................]  2/12    0.5s  ~3s left    
+      [flow] [#####...............]  3/12    0.7s  ~2s left    
+      [flow] [######..............]  4/12    1.0s  ~2s left    
+      [flow] [########............]  5/12    1.2s  ~2s left    
+      [flow] [##########..........]  6/12    1.5s  ~1s left    
+      [flow] [###########.........]  7/12    1.7s  ~1s left    
+      [flow] [#############.......]  8/12    2.0s  ~1s left    
+      [flow] [###############.....]  9/12    2.2s  ~1s left    
+      [flow] [################....] 10/12    2.5s  ~0s left    
+      [flow] [##################..] 11/12    2.7s  ~0s left    
+      [flow] [####################] 12/12    3.0s  ~0s left    
+      [flow] 12 steps, 12 forwards, 3.0s
+      PBR voxels=1811667 @res512
+[7/7] write C:\Users\ILWT\AppData\Local\Temp\trellis-req-0.glb
+  weld: V 7263815->7221730 (42085 near-duplicates merged, eps=0.00012)
+  [fill-holes-stream] directed F=14590306 boundary=187691 (single edge map)
+  [fill-holes-stream] undirected F=14590673 boundary=187264 (single edge map)
+  fill_holes: 8935 boundary loops filled (+43680 faces)
+  [bvh-mem] F=14633986 nodes=8388607 build-working~0.47 GiB
+  [remesh-mem] candidate bitset 128.0 MiB/worker, workers 24->8
+  remesh_dc: 17493265 active voxels -> V=12225531 F=24487456 (eps=0.001965, project_back=0.00)
+    [clean] faces=24487456, flipped 0 for consistent winding
+  remesh postproc: dropped 590 floater comps -> V=12088899 F=24214252
+  decimate_qem_gpu(target=300000): V 12088899->136645, F 24214252->277930
+  decimated postproc: dropped 10 more comps -> F=277510
+  uv_bake: 4 components (0 tiny, 0 faces -> strip S=0), 0 duplicate faces dropped
+  uv_bake: 4358 merge clusters
+  uv_bake: 2 uncharted faces kept with point-collapsed UVs
+  uv_bake: atlas 2048x2048 (xatlas 1247x1248), Vo=219162 Fo=277510
+      textured GLB (atlas 2048, +C:\Users\ILWT\AppData\Local\Temp\trellis-req-0_base.png)
+done in 273.0s -> C:\Users\ILWT\AppData\Local\Temp\trellis-req-0.glb (+ C:\Users\ILWT\AppData\Local\Temp\trellis-req-0.ply)

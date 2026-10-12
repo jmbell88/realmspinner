@@ -703,12 +703,16 @@ TRELLIS_GGUF_FILES = (
 
 # The engine's own binaries, as the one release asset they are published in.
 #
-# **Measured, not guessed** (2026-09-10, against the real asset): the zip is
-# 728,541,568 bytes and unpacks flat -- nine members, no directory to strip --
-# to 878,218,576 bytes. Its nine files were confirmed CRC-identical to the copy
-# that used to be vendored, so the digests below are the same numbers
-# ``installer/runtime-manifest.json`` pinned while the installer staged them.
-TRELLIS_RUNTIME_VERSION = "v0.6.0"
+# **Measured, not guessed** (2026-10-11, against the real v0.8.1 asset): the zip is
+# 715,040,905 bytes and unpacks flat -- the same nine members as v0.6.0, no
+# directory to strip -- to 866,002,256 bytes. The three CUDA 13 libraries
+# (``cublas64_13``, ``cublasLt64_13``, ``cudart64_13``) are byte-identical to the
+# v0.6.0 ones; the ggml libraries and the two executables are new builds. v0.6.0
+# (2026-08-19) was measured the same day on the same image and seed: ~10% slower
+# on a volumetric object, 2-3x slower on a flat sprite's ``uv_bake``, structure
+# unchanged -- ``dev/measurements/2026-10-11-trellis-cpp-0.8.1.md`` has the numbers.
+# The bump is what makes ``--model pixal3d`` reachable (v0.8.0+).
+TRELLIS_RUNTIME_VERSION = "v0.8.1"
 TRELLIS_RUNTIME_ASSET = "trellis-cuda-windows-x64.zip"
 TRELLIS_RUNTIME_URL = (
     f"https://github.com/pwilkin/trellis.cpp/releases/download/"
@@ -723,7 +727,7 @@ TRELLIS_RUNTIME_URL = (
 # fetch worker treats a mismatch as terminal, so getting this wrong fails every
 # user's first download identically and for ever.
 TRELLIS_RUNTIME_SHA256 = (
-    "4d08ab27e83094035fd8349aaf34d3460738df0466ef9c4991ddd958c0344bc2"
+    "d2ea7b57174d3bff438064faf0b5fbcc55c29c31e6bba5f41030936fa366ed48"
 )
 TRELLIS_RUNTIME_FILES = (
     "cublas64_13.dll",
@@ -740,12 +744,12 @@ TRELLIS_RUNTIME_DIGESTS: tuple[tuple[str, str], ...] = (
     ("cublas64_13.dll", "101ae2b98be62704ec96e90a3c49373b76122fc6b502497a7b6fae9ab0f01564"),
     ("cublasLt64_13.dll", "517b6a69ac9faa7354cffcbd92179aec0cc18a8f6237d36b28d9adfe8c912d8d"),
     ("cudart64_13.dll", "352ba4ebe61e9a3b171f357a3daf5dd15b6af4a9857673ff893bd6fd2964c075"),
-    ("ggml-base.dll", "876048c25fcffff85eaa3fb38657960f31b87dcdda4f86e5e18cdedd8ebe1099"),
-    ("ggml-cpu.dll", "dfbb08d83a6550cf207f0c36590cc1f7d4193caf944656c1246b9116c21dc8d5"),
-    ("ggml-cuda.dll", "f4c3de9de67410cac14f1befa5a287580ee43ac32a3a3cb67e8a815b7a8189ab"),
-    ("ggml.dll", "5115ba590271034f5008ba000adfa80b61c207ba6244226e8a4f41e4a5f7c9bd"),
-    ("trellis-cli.exe", "e3d075612388a42fcb9bea73377feac4149e3a463cff2d2e11b24975e85d427d"),
-    ("trellis-server.exe", "e7d5b94a7bea2635e93616eddcb81fe52ca3e0eef31e843c3f1063874a6c0653"),
+    ("ggml-base.dll", "2631d4f7218f1b4e17b6052295b318270f4073e1accf6f12c83faa51b5e92705"),
+    ("ggml-cpu.dll", "a7b5b39d35146006c18acd266aad5af86aa1abd5ae72d86380afa94f215fb6cd"),
+    ("ggml-cuda.dll", "5305f9d43ac68c0675802a21a1c40aebf3bc3e7d80fa7ac13f25c863049b5103"),
+    ("ggml.dll", "c0813d97873d9d5a3dec617bdd1c5034ace62985b6cc9962597b51be9d15b853"),
+    ("trellis-cli.exe", "6c0da69fbb1f4e853082bc5292a1099d501d42b61604362468fb85badf2790b0"),
+    ("trellis-server.exe", "5e2d07d48d015395930514d6af0ec955cddbc5f6f5e9554757c762e821eaf7b8"),
 )
 
 ENGINE_MODELS: dict[str, EngineModel] = _table(
@@ -761,8 +765,8 @@ ENGINE_MODELS: dict[str, EngineModel] = _table(
                 sha256=TRELLIS_RUNTIME_SHA256,
                 filename=TRELLIS_RUNTIME_ASSET,
                 extract=".",
-                size_gib=0.68,
-                unpack_gib=0.82,
+                size_gib=0.67,
+                unpack_gib=0.81,
             ),
         ),
         runtime=True,

@@ -162,7 +162,7 @@ uv sync --extra studio --extra text2image --extra rig --extra music
 
 # 2. trellis.cpp CUDA server binary -> vendor/trellis/
 #    https://github.com/pwilkin/trellis.cpp/releases (trellis-cuda-windows-x64.zip)
-#    vendored build: v0.6.0 (2026-08-19)
+#    vendored build: v0.8.1 (2026-09-25)
 #    A checkout step only. The packaged app downloads this same archive from
 #    Settings -> Models and unpacks it under ~/.realmspinner/engine/trellis, and a
 #    downloaded copy wins over this one; REALMSPINNER_TRELLIS_EXE beats both.
