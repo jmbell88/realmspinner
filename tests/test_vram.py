@@ -310,7 +310,91 @@ def test_a_small_card_cannot_afford_a_reconstruction():
     need = vram.estimate("image", "model", {}, exclusive=plan.exclusive)
     assert not plan.fits(need)
     message = vram.shortfall_message(need, plan, {})
-    assert "16.0 GiB" in message and "6.5 GiB" in message
+    assert f"{vram.TRELLIS_GIB:.1f} GiB" in message and "6.5 GiB" in message
+
+
+# -- the 16 GB floor (2026-10-12 measurement) ---------------------------------
+#
+# vram.TRELLIS_GIB charged 16.0 for an engine measured at 6.45 GiB (v0.8.1,
+# res 1024), so a 5080 (15.9 GiB, budget 14.4) was refused every mesh while the
+# README promised 16 GB worked. Figures: dev/measurements/2026-10-12-trellis-vram-small-cards.md.
+
+
+def _admit(total: float, params: dict, stage: str = "model") -> None:
+    from types import SimpleNamespace
+
+    from realmspinner.service import validation
+
+    plan = vram.plan(exclusive=None, device=vram.DeviceMemory(total, total))
+    validation.check_vram(SimpleNamespace(vram_plan=plan), "text", stage, params)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"resolution": 1024},
+        {"resolution": 1024, "control": "depth", "ip_adapter": "plus"},
+    ],
+    ids=["plain", "controlnet and ip-adapter"],
+)
+def test_a_16_gb_card_is_admitted_a_1024_mesh(params):
+    _admit(15.9, params)
+
+
+def test_a_12_gb_card_is_still_refused_a_1024_mesh():
+    """The scope floor: nothing below 16 GB is targeted. A guard, true both ways."""
+    from realmspinner.service.errors import Invalid
+
+    with pytest.raises(Invalid):
+        _admit(12.0, {"resolution": 1024})
+
+
+def test_a_16_gb_card_is_refused_1536_and_a_24_gb_card_admitted_it():
+    from realmspinner.service.errors import Invalid
+
+    with pytest.raises(Invalid):
+        _admit(15.9, {"resolution": 1536})
+    _admit(24.0, {"resolution": 1536})
+
+
+def test_a_24_gb_card_still_auto_selects_exclusive():
+    """Guards the pinned COEXIST_GIB: deriving it from the new TRELLIS_GIB would
+    give 19.0 and quietly flip 24 GB cards to coexist on unmeasured SDXL figures.
+    A guard, true both ways."""
+    assert vram.COEXIST_GIB == 23.0
+    plan = vram.plan(exclusive=None, device=vram.DeviceMemory(24.0, 24.0))
+    assert plan.exclusive is True
+
+
+def _refusal(total: float, kind: str, stage: str, params: dict) -> str:
+    from types import SimpleNamespace
+
+    from realmspinner.service import validation
+    from realmspinner.service.errors import Invalid
+
+    plan = vram.plan(exclusive=True, device=vram.DeviceMemory(total, total))
+    with pytest.raises(Invalid) as caught:
+        validation.check_vram(SimpleNamespace(vram_plan=plan), kind, stage, params)
+    return str(caught.value)
+
+
+def test_a_mesh_shortfall_does_not_suggest_dropping_conditioning():
+    """Exclusive, the mesh stage is charged max(sdxl, trellis): the trellis term
+    wins, so turning off ControlNet / IP-Adapter cannot lower the estimate and
+    advising it sent the user to a control that does nothing."""
+    message = _refusal(
+        12.0, "text", "model", {"resolution": 1024, "control": "depth", "ip_adapter": "plus"}
+    )
+    assert "ControlNet" not in message
+    assert "IP-Adapter" not in message
+
+
+def test_a_reference_shortfall_still_suggests_dropping_conditioning():
+    message = _refusal(
+        8.0, "text", "reference", {"resolution": 1024, "control": "depth", "ip_adapter": "plus"}
+    )
+    assert "ControlNet" in message
+    assert "IP-Adapter" in message
 
 
 def test_the_refusal_names_something_the_user_can_change():
@@ -812,10 +896,11 @@ def test_a_checkpoint_larger_than_the_whole_budget_does_not_fit():
 
 
 def test_coexist_on_a_24_gb_card_is_tight_rather_than_refused():
-    """22.5 GiB of budget against 7 + 16: it loads, and every 3D job pays a
-    trellis restart for it. Explicit, because auto would have chosen exclusive
-    at this size and that is a different answer."""
-    plan = vram.plan(exclusive=False, total_gib=24.0)
+    """A 16 GB card's 14.5 GiB of budget against 7 + TRELLIS_GIB: it loads, and
+    every 3D job pays a trellis restart for it. Explicit, because auto would
+    have chosen exclusive at this size and that is a different answer. (This was
+    a 24 GB card until TRELLIS_GIB dropped from 16 to 12 and 7 + 12 fit in 22.5.)"""
+    plan = vram.plan(exclusive=False, total_gib=16.0)
     assert not plan.exclusive
     assert vram.fits(plan, _base("sdxl_cfg")) == vram.FIT_TIGHT
 

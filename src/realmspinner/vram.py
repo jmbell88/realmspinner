@@ -3,7 +3,7 @@
 Everything the app believed about VRAM was prose. ``queue.py`` opens by naming
 a 32 GB card, ``text2image.py`` names ~7 GB for SDXL and ~2.5/1.2 GB for the
 conditioning stack, and the coexist default loads all of it next to
-trellis-server's ~16 GB -- on whatever card is present, having never asked how
+trellis-server's then-assumed ~16 GB -- on whatever card is present, having never asked how
 large it is. On Windows (WDDM) overcommitting VRAM does not raise: the driver
 spills into shared system memory, which becomes host *commit*, which is
 precisely the wall :mod:`~realmspinner.memlog` exists to document.
@@ -49,11 +49,30 @@ class DeviceMemory:
 
 # --- what things cost --------------------------------------------------------
 #
-# None of these numbers is invented. Each was already asserted in a comment
-# somewhere; collecting them here is what makes them testable.
+# Most of these numbers were already asserted in a comment somewhere;
+# collecting them here is what makes them testable. TRELLIS_GIB is the one that
+# was not -- see its docstring for what replaced it.
 
-TRELLIS_GIB = 16.0
-"""trellis-server.exe resident, at res 1024 (queue.py's module docstring)."""
+TRELLIS_GIB = 12.0
+"""What trellis-server.exe is charged at res 1024.
+
+**Measured, not asserted** (``dev/measurements/2026-10-12-trellis-vram-small-cards.md``):
+the pinned v0.8.1 engine peaks at **6.45 GiB** per process at res 1024 (3.72 at
+512, 10.12 at 1536), sampled from that PID's own Windows GPU-process counters.
+The 16.0 this replaced had never been measured, and it refused every mesh on a
+16 GB card (a 5080 reports ~15.9 GiB, budget ~14.4) that the README promised
+would work.
+
+The older v0.6.0 engine is estimated at ~10.8 GiB (the same card-wide sampler
+read it 4.3 GiB above v0.8.1 on 2026-10-11). 12.0 is one figure covering either
+engine a user can have installed: ~1.2 GiB of margin over the old one, 5.5 over
+the pinned one. It is deliberately not per-engine -- that would mean hashing a
+0.9 GB runtime from the admission path, and an outdated engine is already
+offered Download again by ``fetch.outdated``.
+
+16 GB cards are the supported floor; a 12 GB card (budget 10.5) stays refused
+at 1024 on purpose.
+"""
 
 SDXL_GIB = 7.0
 """An SDXL-class pipe fully .to("cuda") in bf16 (text2image.py:160).
@@ -107,11 +126,14 @@ never actually has to share the card with anything else -- it exists for
 ``familiar_admission`` alone, the door Familiar's own spawn stands at.
 """
 
-TRELLIS_RES_MULT: dict[int, float] = {512: 0.85, 1024: 1.0, 1536: 1.5}
+TRELLIS_RES_MULT: dict[int, float] = {512: 0.6, 1024: 1.0, 1536: 1.6}
 """Reconstruction resolution scales the trellis footprint.
 
-1024 is the baseline the 16 GB figure was measured at; 1536 is the case
-``config.trellis_band``'s neighbours already name as an OOM situation.
+1024 is the baseline ``TRELLIS_GIB`` is charged at. The measured ratios to it
+are 0.58 at 512 and 1.57 at 1536 (``dev/measurements/2026-10-12-trellis-vram-small-cards.md``),
+rounded up. 1536 is charged ``1.6 * TRELLIS_GIB`` (19.2 GiB): refused on a 16 GB
+card and admitted on a 24 GB one. A 16 GB card would probably run it on the
+pinned engine, but nothing measured the older one there and 1536 is API-only.
 """
 
 HEADROOM_GIB = 1.5
@@ -120,8 +142,15 @@ HEADROOM_GIB = 1.5
 A card whose every byte is handed to the models still has to draw a window.
 """
 
-COEXIST_GIB = TRELLIS_GIB + SDXL_GIB
-"""What the default (coexist) mode asks a card to hold at once."""
+COEXIST_GIB = 23.0
+"""What the default (coexist) mode asks a card to hold at once.
+
+A literal on purpose. It used to be ``TRELLIS_GIB + SDXL_GIB``, which would now
+give 19.0 and flip 24 GB cards from exclusive to coexist: trellis and an SDXL
+pipe held together on unmeasured SDXL figures, plus the WDDM host commit that
+``queue.py``'s handoff notes describe. That is out of scope for a 16 GB change,
+so the auto-selection threshold stays exactly where it was.
+"""
 
 MUSIC_SOURCE_GIB = 1.0
 """What encoding a source recording into latents costs on top of the pipe.
@@ -483,8 +512,8 @@ def trellis_charge(kind: str, stage: str, params: dict[str, Any] | None = None) 
     ``estimate_parts``' own trellis term, spelled out for the one caller that
     must credit exactly what was charged: ``queue._check_resources`` used to
     credit a running trellis at the RESIDENT resolution while the estimate
-    charged this job's own (or a flat 16 GiB for a reference/tile stage and every
-    image-model kind), so after one res-1536 job a smaller job was admitted on
+    charged this job's own (or a flat ``TRELLIS_GIB`` for a reference/tile stage and
+    every image-model kind), so after one res-1536 job a smaller job was admitted on
     8-10 GiB of headroom that was never free (the 2026-10-03 audit, finding
     service-15). The pairing test in
     ``tests/service/test_audit_2026_10_03_medium_service1.py`` derives each case
@@ -517,8 +546,9 @@ def trellis_credit(
     resident the estimate has *charged* ``trellis_charge`` for it, and crediting
     more than that makes the two halves of the accounting disagree -- but never
     more than the server really holds either, which is the other direction:
-    a res-1536 job beside a server last primed at 1024 is charged 24 GiB while
-    only 16 are resident, and crediting the charge would admit it on 8 GiB that
+    a res-1536 job beside a server last primed at 1024 is charged
+    ``TRELLIS_GIB * TRELLIS_RES_MULT[1536]`` while only ``TRELLIS_GIB`` is
+    resident, and crediting the charge would admit it on 8 GiB that
     are not there (``tests/test_queue.py``'s
     ``test_dispatch_still_refuses_past_what_the_resident_models_explain``).
     """
@@ -1025,6 +1055,8 @@ def remedies(
     exclusive: bool = False,
     extra: Sequence[str] = (),
     plan_: Plan | None = None,
+    kind: str | None = None,
+    stage: str | None = None,
 ) -> str:
     """The "to run it, ..." clause: the things about *this job* that cost VRAM.
 
@@ -1046,12 +1078,27 @@ def remedies(
     ``dispatch_shortfall_message`` has no plan to give: that check fires on
     *free* memory, where the budget the fit is computed against is not the
     thing that ran out.
+
+    ``kind`` and ``stage`` make the conditioning remedies honest. Under
+    exclusive the mesh stage is charged ``max(sdxl, trellis)`` and the trellis
+    term wins, so "turn off ControlNet" cannot lower that estimate and used to
+    send the user to a control that did nothing. With both given, a
+    conditioning remedy is offered only when removing it lowers the job's
+    estimate; without them (a caller that cannot say) the old unconditional
+    behaviour stands.
     """
     params = params or {}
     out: list[str] = list(extra)
-    if params.get("control"):
+    control_helps = ip_helps = True
+    if kind is not None and stage is not None:
+        base = estimate(kind, stage, params, exclusive=exclusive)
+        without_control = estimate(kind, stage, {**params, "control": None}, exclusive=exclusive)
+        without_ip = estimate(kind, stage, {**params, "ip_adapter": None}, exclusive=exclusive)
+        control_helps = without_control < base
+        ip_helps = without_ip < base
+    if params.get("control") and control_helps:
         out.append("turn off ControlNet conditioning")
-    if params.get("ip_adapter"):
+    if params.get("ip_adapter") and ip_helps:
         out.append("turn off the IP-Adapter reference")
     if _resolution(params) > 1024:
         out.append("drop the platform preset to a lower resolution")
@@ -1068,10 +1115,17 @@ def remedies(
     return ", ".join(out) if len(out) > 2 else " ".join(out)
 
 
-def shortfall_message(need_gib: float, plan_: Plan, params: dict[str, Any] | None = None) -> str:
+def shortfall_message(
+    need_gib: float,
+    plan_: Plan,
+    params: dict[str, Any] | None = None,
+    *,
+    kind: str | None = None,
+    stage: str | None = None,
+) -> str:
     """Why the job was refused, and what to change. One sentence, then remedies."""
     budget = plan_.budget_gib if plan_.budget_gib is not None else 0.0
-    tail = remedies(params, exclusive=plan_.exclusive, plan_=plan_)
+    tail = remedies(params, exclusive=plan_.exclusive, plan_=plan_, kind=kind, stage=stage)
     return (
         f"this job needs about {need_gib:.1f} GiB of VRAM; the budget is "
         f"{budget:.1f} GiB. To run it, {tail}."
@@ -1085,6 +1139,8 @@ def dispatch_shortfall_message(
     params: dict[str, Any] | None = None,
     *,
     exclusive: bool = False,
+    kind: str | None = None,
+    stage: str | None = None,
 ) -> str:
     """The same shape for the refusal at dispatch (N113).
 
@@ -1095,7 +1151,11 @@ def dispatch_shortfall_message(
     so it is the same half, plus the one remedy only this check can offer.
     """
     tail = remedies(
-        params, exclusive=exclusive, extra=("close other GPU applications and try again",)
+        params,
+        exclusive=exclusive,
+        extra=("close other GPU applications and try again",),
+        kind=kind,
+        stage=stage,
     )
     # headroom_gib and free_gib are both dispatch-time readings, not a
     # submission-time budget: the 2026-09-07 audit (service-08) found this

@@ -158,9 +158,9 @@ def test_rows_are_silent_about_vram_when_no_plan_is_resolved(svc):
 def test_rows_carry_a_fit_verdict_for_base_models_once_a_plan_exists(svc):
     from realmspinner import vram
 
-    svc.vram_plan = vram.plan(exclusive=False, total_gib=24.0)
+    svc.vram_plan = vram.plan(exclusive=False, total_gib=16.0)
     rows = {r["row_key"]: r for r in svc_downloads.rows(svc)}
-    # 22.5 GiB of budget against 7 + 16 resident: it loads, and every 3D job
+    # 14.5 GiB of budget against 7 + TRELLIS_GIB resident: it loads, and every 3D job
     # pays a trellis restart for it.
     assert rows["base:sdxl_cfg"]["vram"] == vram.FIT_TIGHT
     # Offloaded, so nothing is ever resident beside it.

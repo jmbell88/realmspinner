@@ -104,12 +104,16 @@ against every job behind it — which is what the ceiling exists to prevent.
 
 ## VRAM modes
 
-The reconstruction engine is about 16 GB resident and an SDXL-class image model about 7 GB. How
+The reconstruction engine is charged 12 GiB at the default resolution (measured at about 6.5 GiB on the pinned
+engine; the figure leaves room for the older one) and an SDXL-class image model about 7 GB. A 16 GB card
+(4080/5080 class) is the supported floor and runs both stages, one at a time; geometry resolution 1536 needs a
+24 GB card. How
 those two share a card is the one setting most worth understanding.
 
 Left unset, the mode is **chosen from the card** at startup: a budget (the device total minus a
 headroom margin) that cannot hold the engine and an image model together selects exclusive, and
-anything larger selects coexist. A 32 GB card gets coexist. Set the variable explicitly and that
+anything larger selects coexist. Exclusive is chosen below about 24.5 GB, so a 16 GB or 24 GB card runs
+exclusive and a 32 GB card gets coexist. Set the variable explicitly and that
 choice is honoured verbatim — auto-detection never overrules it. `realmspinner doctor` prints which mode
 was chosen and why.
 

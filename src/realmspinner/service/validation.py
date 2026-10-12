@@ -503,7 +503,7 @@ def check_vram(svc: Any, kind: str, stage: str, params: dict[str, Any]) -> None:
         # one and sometimes only the env var, which is not a control at all.
         # Naming any one of them would put the error beside a widget that is
         # not the answer while the sentence beside it lists three that are.
-        raise Invalid(vram.shortfall_message(need, plan, params))
+        raise Invalid(vram.shortfall_message(need, plan, params, kind=kind, stage=stage))
 
 
 def install_remedy(label: str, download: str) -> str:

@@ -9,7 +9,7 @@ This covers the packaged Windows installer only. If you want to run Realmspinner
 ## What you'll need
 
 - **Windows 10 or 11, 64-bit.** There is no macOS or Linux build, and no CPU-only mode — an NVIDIA GPU is required for image generation and 3D reconstruction, though the base app runs without one.
-- **An NVIDIA GPU with CUDA, 16 GB VRAM or more**, for 3D reconstruction and image generation. Tested on an RTX 5090 (32 GB); a 4080/5080-class card or better is a comfortable fit. Keep your NVIDIA driver up to date via the NVIDIA app or GeForce Experience.
+- **An NVIDIA GPU with CUDA, 16 GB VRAM or more**, for 3D reconstruction and image generation. Tested on an RTX 5090 (32 GB); a 16 GB 4080/5080-class card runs the image model and the 3D engine one at a time, and resolution 1536 needs a 24 GB card. Keep your NVIDIA driver up to date via the NVIDIA app or GeForce Experience.
 - **32 GB of system RAM**, recommended. Windows counts the GPU's memory allocation against your system RAM as well as VRAM, so a low-RAM machine can refuse to start jobs even when VRAM is free.
 - **Free disk space** for four things, each sized separately below: the installer download, the installed base runtime, whichever dependency packs you choose, and whichever model weights you choose. All four together were roughly 35 GB under the old all-in-one installer; the base install alone is a small fraction of that now, and the exact figures for this build are:
   - Installer download: **about 170 MB** (169,666,529 bytes) — a fifth of what it was before 2026-09-10, when the 3D engine left it

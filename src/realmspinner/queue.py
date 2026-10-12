@@ -2,7 +2,7 @@
 
 One job runs at a time. By default an SDXL-class image pipe (~7 GB; the
 default checkpoint is ``sdxl_cfg``, SDXL 1.0 at full CFG) and the trellis server
-(~16 GB) coexist in VRAM — neither is stopped for the other. **The image pipe is
+(12 GiB charged) coexist in VRAM — neither is stopped for the other. **The image pipe is
 unloaded when the stage that loaded it ends**, though (see ``_release_t2i`` for
 why the host, not the card, decides that); trellis is a subprocess with a far
 larger startup cost and is evicted on its own idle timeout. With Config.vram_exclusive set
@@ -249,7 +249,7 @@ def vram_gib() -> tuple[float, float] | None:
     * The number would be zero anyway. memory_allocated() only sees this
       process's allocations. Since the image pipe moved into its own child
       (``t2i_client``) that is the app's steady state: the SDXL checkpoint
-      never appears here, and neither does trellis-server's ~16 GB. torch
+      never appears here, and neither does trellis-server's footprint. torch
       may still be in ``sys.modules`` for other reasons (``pose2d``), in
       which case this reads a near-zero figure; with the in-process pipe
       (``REALMSPINNER_T2I_IN_PROCESS=1``) it reads the checkpoint as before.
@@ -1780,8 +1780,8 @@ class Worker(
             # (self._trellis_resolution), not the flat res-1024 baseline --
             # the 2026-09-08 audit (service-03): vram.estimate_parts's own
             # model-stage branch prices a resident trellis at
-            # TRELLIS_GIB * TRELLIS_RES_MULT[resolution] (13.6/16.0/24.0 GiB
-            # for the three allowed resolutions), so crediting the flat
+            # TRELLIS_GIB * TRELLIS_RES_MULT[resolution] (7.2/12.0/19.2 GiB
+            # for the three allowed resolutions today), so crediting the flat
             # figure regardless disagreed with it whenever a session had only
             # run jobs at a different resolution -- a 2.4 GiB over-credit of
             # headroom that was not actually free, in the same direction as
@@ -1793,11 +1793,11 @@ class Worker(
             # **Only where a handoff will stop it** (the 2026-10-03 audit,
             # finding service-15). Where trellis stays resident the estimate
             # charged *this job's* price for it -- its own resolution at the
-            # model stage, a flat 16 GiB at a reference or tile stage and for
+            # model stage, a flat ``TRELLIS_GIB`` at a reference or tile stage and for
             # every image-model kind -- so the credit is that same figure (capped
             # at what is resident) and the two cancel. Crediting the resident
-            # resolution there meant that after one res-1536 job (24 GiB) a
-            # res-1024 or res-512 job was admitted on 8-10 GiB of headroom that
+            # resolution there meant that after one res-1536 job (19.2 GiB) a
+            # res-1024 or res-512 job was admitted on 7-12 GiB of headroom that
             # was never free: an SDXL load that spills into shared memory and
             # host commit, the 2026-08-03 class, instead of a refusal at the
             # door.
@@ -1871,6 +1871,8 @@ class Worker(
                     device.free_gib,
                     job.get("params") or {},
                     exclusive=bool(self.config.vram_exclusive),
+                    kind=job.get("kind", ""),
+                    stage=job.get("stage", "model"),
                 )
             )
 

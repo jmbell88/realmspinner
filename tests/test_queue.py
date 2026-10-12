@@ -1401,7 +1401,7 @@ async def test_an_image_job_gets_no_credit_for_the_resident_pipe(
 
     monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
     monkeypatch.setattr(queue_mod, "vram_gib", lambda: (7.1, 7.52))
-    monkeypatch.setattr(vram, "device_memory", lambda: vram.DeviceMemory(32.0, 15.0))
+    monkeypatch.setattr(vram, "device_memory", lambda: vram.DeviceMemory(32.0, 10.0))
     worker = _make_worker(tmp_path)
     try:
         worker._text2image = SimpleNamespace(loaded=True)
@@ -1490,17 +1490,17 @@ async def test_check_resources_credits_the_trellis_footprint_the_dispatched_jobs
     tmp_path, fake_pipelines, monkeypatch
 ):
     """service-03 (the 2026-09-08 audit): the credit for a running trellis was
-    a flat ``vram.TRELLIS_GIB`` (16.0 GiB, the res-1024 baseline) whatever
+    a flat ``vram.TRELLIS_GIB`` (the res-1024 baseline) whatever
     resolution it was actually primed at, while ``vram.estimate_parts``'s own
     model-stage branch prices a resident trellis at
-    ``TRELLIS_GIB * TRELLIS_RES_MULT[resolution]`` -- 13.6 GiB at 512. A
+    ``TRELLIS_GIB * TRELLIS_RES_MULT[resolution]`` -- 7.2 GiB at 512. A
     session that had only run 512-resolution jobs was over-credited by
-    2.4 GiB of headroom that was not actually free, in the same direction as
+    4.8 GiB of headroom that was not actually free, in the same direction as
     the 2026-08-03 host-commit-exhaustion crash this door exists to prevent.
 
-    The card here has 5.0 GiB free and the job needs 20.6 GiB (7.0 GiB SDXL +
-    13.6 GiB trellis at 512). The scaled credit (13.6) leaves 18.6 GiB of
-    headroom, which refuses the job; the flat credit (16.0) leaves 21.0 GiB,
+    The card here has 5.0 GiB free and the job needs 14.2 GiB (7.0 GiB SDXL +
+    7.2 GiB trellis at 512). The scaled credit (7.2) leaves 12.2 GiB of
+    headroom, which refuses the job; the flat credit (12.0) leaves 17.0 GiB,
     which would wrongly admit it.
     """
     import realmspinner.queue as queue_mod
@@ -1516,6 +1516,23 @@ async def test_check_resources_credits_the_trellis_footprint_the_dispatched_jobs
         job = {"kind": "text", "stage": "model", "params": {"resolution": 512}}
         with pytest.raises(RuntimeError, match="GiB of VRAM"):
             worker._check_resources(job)
+    finally:
+        worker.store.close()
+
+
+async def test_a_16_gb_card_is_dispatched_a_1024_mesh(tmp_path, fake_pipelines, monkeypatch):
+    """The dispatch-time twin of the submit-time admission: a 5080 (15.9 GiB total,
+    ~14.5 free, exclusive) was charged an unmeasured 16 GiB for a mesh the engine
+    peaks at 6.45 GiB on, and refused at the door of the worker too."""
+    import realmspinner.queue as queue_mod
+    from realmspinner import vram
+
+    monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
+    monkeypatch.setattr(vram, "device_memory", lambda: vram.DeviceMemory(15.9, 14.5))
+    worker = _make_worker(tmp_path, vram_exclusive=True)
+    try:
+        job = {"kind": "text", "stage": "model", "params": {"resolution": 1024}}
+        worker._check_resources(job)
     finally:
         worker.store.close()
 

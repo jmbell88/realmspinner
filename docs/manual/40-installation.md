@@ -6,8 +6,9 @@ after it the app never goes online on its own.
 
 ## Requirements
 
-- Windows, with an NVIDIA GPU. The tested machine is an RTX 5090 with 32 GB; the reconstruction
-  engine alone fits in 16 GB.
+- Windows, with an NVIDIA GPU. The tested machine is an RTX 5090 with 32 GB; a 16 GB card runs the
+  image model and the reconstruction engine one at a time (the engine is charged 12 GiB at the default
+  resolution).
 - [uv](https://docs.astral.sh/uv/), which manages the Python environment.
 - Roughly 16 GB of disk for the TRELLIS.2 GGUF weights, plus about 7 GB for SDXL 1.0 if you want
   text-to-3D.

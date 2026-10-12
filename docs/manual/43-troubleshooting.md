@@ -49,10 +49,10 @@ Home draws no health row of its own — the menu bar's issue count is where a fa
 screen. Text-to-3D jobs are the usual victims, because they are the ones that need two models at
 once.
 
-**Why.** By default the reconstruction engine (about 16 GB) and the image model (about 7 GB) stay
-resident together. That fits a 32 GB card and does not fit a smaller one. Geometry resolution 1536
-raises the engine's own peak allocation, and an unusually large image model such as a local FLUX
-raises the other side.
+**Why.** On a 32 GB card the reconstruction engine (charged 12 GiB) and the image model (about 7 GB) stay
+resident together. That does not fit a smaller one, which is why a 16 GB card runs them one at a
+time. Geometry resolution 1536 raises the engine's own peak allocation, and an unusually large image model
+such as a local FLUX raises the other side.
 
 **Fix.** Set `REALMSPINNER_VRAM_EXCLUSIVE=1` and restart. Text jobs then run sequentially — the engine is
 stopped, the image model loads, generates and unloads, and the engine restarts. It costs seconds per

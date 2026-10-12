@@ -16,7 +16,8 @@ chapters instead walk one path through it and explain what you are looking at as
 ## What you need
 
 - **Windows, with an NVIDIA GPU.** The reconstruction engine has no CPU fallback — it either has a
-  CUDA card with about 16 GB free or it does not run. The tested machine is an RTX 5090 with 32 GB.
+  CUDA card with 16 GB or more or it does not run. A 16 GB card (4080/5080 class) runs both stages, one at a
+  time; the tested machine is an RTX 5090 with 32 GB.
 - **[uv](https://docs.astral.sh/uv/)**, which manages the Python environment.
 - **Python 3.13**, and the reason is `bpy` — Blender as a library — which ships CPython 3.13
   wheels and nothing else. The floor used to be 3.12, on the theory that rigging could simply be

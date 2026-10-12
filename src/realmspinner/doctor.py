@@ -894,7 +894,7 @@ def _vram_check(config: Config, *, probe: bool = True) -> Check:
     ok = resolved.budget_gib is not None and resolved.budget_gib >= vram.TRELLIS_GIB
     detail = resolved.reason + free
     if not ok:
-        detail += f" -- below the {vram.TRELLIS_GIB:.0f} GiB a reconstruction needs"
+        detail += f" -- below the {vram.TRELLIS_GIB:.0f} GiB a res-1024 reconstruction is charged"
     return Check("VRAM budget", ok, detail, fatal=not ok)
 
 

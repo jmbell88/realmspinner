@@ -990,6 +990,34 @@ def test_the_vram_row_is_not_fatal_on_a_carded_host_that_has_no_torch(tmp_path, 
     assert "no CUDA device" not in row.detail
 
 
+def test_a_16_gb_card_passes_doctor_s_vram_row(tmp_path, monkeypatch):
+    """A 5080 reports ~15.9 GiB (budget 14.4); the row demanded the never-measured
+    16.0 and marked it fatal. Measured: dev/measurements/2026-10-12-trellis-vram-small-cards.md."""
+    from realmspinner import vram
+
+    reading = vram.DeviceMemory(total_gib=15.9, free_gib=14.5, name="RTX 5080")
+    monkeypatch.setattr(vram, "live_memory", lambda: reading)
+    monkeypatch.setattr(vram, "probe", lambda: reading)
+    monkeypatch.setattr(vram, "device_memory", lambda: reading)
+
+    row = doctor._vram_check(_config(tmp_path), probe=True)
+    assert row.ok is True
+    assert row.fatal is False
+
+
+def test_a_12_gb_card_is_still_fatal_on_doctor_s_vram_row(tmp_path, monkeypatch):
+    from realmspinner import vram
+
+    reading = vram.DeviceMemory(total_gib=12.0, free_gib=11.0, name="RTX 4070")
+    monkeypatch.setattr(vram, "live_memory", lambda: reading)
+    monkeypatch.setattr(vram, "probe", lambda: reading)
+    monkeypatch.setattr(vram, "device_memory", lambda: reading)
+
+    row = doctor._vram_check(_config(tmp_path), probe=True)
+    assert row.fatal is True
+    assert "res-1024" in row.detail
+
+
 def test_the_vram_row_is_still_fatal_when_there_really_is_no_card(tmp_path, monkeypatch):
     """The other direction, so the fix above cannot quietly disarm the row.
 
