@@ -148,6 +148,12 @@ def test_a_note_preview_that_fails_to_render_is_framed_not_leaked(monkeypatch):
         raise ValueError("bad note")
 
     monkeypatch.setattr(synth_mod, "render_note", _boom)
+    # ``preview_note`` returns early, silently, on a machine with no audio
+    # device -- which is every CI runner, where this test then saw no ``Invalid``
+    # because the code under test never ran. The claim is about the framing, not
+    # the hardware, so give it a device.
+    monkeypatch.setattr(sirens_play.sirens_audio, "available", lambda: True)
+    monkeypatch.setattr(sirens_play.sirens_audio, "playing", lambda: False)
 
     ctx = FakeCtx()
     _ = _tab(ctx)

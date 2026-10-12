@@ -209,6 +209,8 @@ def _holes_mesh(n: int) -> bm.Mesh:
     )
 
 
+# A 1 s budget that read 1.00 s on the 4-vCPU CI runner: wall-clock lane, serial.
+@pytest.mark.perf
 def test_fill_hole_at_its_seed_ceiling_finishes_in_under_a_second():
     # The 2026-10-09 second audit re-measured the note beside
     # MAX_FILL_HOLE_SEEDS: 0.83 s at 50,000 seeds was really ~4.2 s (86 us a

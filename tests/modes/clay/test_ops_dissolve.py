@@ -498,6 +498,8 @@ def _big_grid(n_faces: int) -> bm.Mesh:
     return _grid(side, side)
 
 
+# A 0.3 s budget that read 0.319 s on the CI runner: wall-clock lane, serial.
+@pytest.mark.perf
 def test_dissolving_a_full_selection_on_a_large_mesh_finishes_well_under_the_old_time() -> None:
     """The measured case: select every face of a 200k-face mesh and dissolve
     it in one call -- what a "select all, then flatten to one n-gon" workflow

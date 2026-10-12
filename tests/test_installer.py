@@ -105,6 +105,14 @@ def test_a_stage_without_the_trellis_engine_verifies_clean(tmp_path: Path) -> No
     'runtime file is missing' and no fatal 'unpinned files', because the
     engine is simply not part of what this manifest describes any more."""
     verifier = _verifier()
+    # The bytes come from the ignored runtime (a size-and-hash pin cannot be met
+    # by a stand-in), so a clean clone -- CI -- has nothing to copy. The sibling
+    # test above skips the same way; this one read the files unconditionally and
+    # failed Windows CI with FileNotFoundError on every run since September.
+    if not (ROOT / "vendor/gltfpack/gltfpack.exe").is_file() or not (
+        ROOT / "vendor/realmspinnerc/realmspinnerc.dll"
+    ).is_file():
+        pytest.skip("the ignored installer runtime is not provisioned on this checkout")
     for directory, name, payload in (
         ("gltfpack", "gltfpack.exe", (ROOT / "vendor/gltfpack/gltfpack.exe").read_bytes()),
         (

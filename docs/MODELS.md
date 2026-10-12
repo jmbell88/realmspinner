@@ -43,7 +43,7 @@ than half of it — for a program most of whose workspaces never start it. `trel
 it links against. So it became a download, and a machine that only draws pixel art in Inker now
 fetches none of it. The figures and the verification were confirmed on the maintainer's own machine on
 2026-09-10; the runtime moved from trellis.cpp v0.6.0 to v0.8.1 on 2026-10-11 (same nine files, a 715 MB
-archive), with the measurements in `dev/measurements/2026-10-11-trellis-cpp-0.8.1.md`.
+archive), with the measurements kept in the maintainer's own notes, which this repository does not carry.
 
 It is one of the two entries on this page that are **not a Hugging Face repository**: it is a single archive
 published on trellis.cpp's own GitHub releases, so it is pinned by SHA-256 rather than by a commit
@@ -177,7 +177,7 @@ uvx hf download ggml-org/embeddinggemma-2-GGUF --revision bfcd298762cc34d0357ece
 
 Licences: the runtime is MIT (llama.cpp and ggml) over NVIDIA's redistributable CUDA libraries, on
 the same "fetched from upstream, nothing redistributed" footing as the reconstruction engine. **The
-Gemma 4 12B and EmbeddingGemma 2 licences are pending a human review** (`dev/TODO.md`, P53): both
+Gemma 4 12B and EmbeddingGemma 2 licences are pending a human review** (an open item in the maintainer's own plan): both
 repositories are tagged Apache-2.0, but they link Google's Gemma 4 licence page, which is the Apache
 text beside a Prohibited Use Policy and an Intended Use Statement, and whether those bind a
 redistributed fine-tune is a question nothing on this page answers or claims a verdict on. Until then the

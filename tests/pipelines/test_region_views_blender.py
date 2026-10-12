@@ -19,7 +19,12 @@ pytestmark = pytest.mark.timeout(600)
 
 
 @pytest.fixture(scope="module")
-def sphere_job(tmp_path_factory):
+def sphere_job(tmp_path_factory, gl):
+    # ``gl`` is a skip, not a dependency: Blender's render ops open a GPU
+    # context, and on a runner with none (Windows CI) the worker dies with an
+    # access violation (exit 3221225477, "Implementation unexpectedly missing
+    # WGL_ARB_extensions_string") rather than raising. Where moderngl cannot
+    # get a context neither can Blender, so these skip there as ``gl`` does.
     pytest.importorskip("bpy")
     import trimesh
 

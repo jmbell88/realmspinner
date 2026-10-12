@@ -17,7 +17,11 @@ pytestmark = pytest.mark.timeout(600)
 
 
 @pytest.fixture(scope="module")
-def rigged_tube(tmp_path_factory):
+def rigged_tube(tmp_path_factory, gl):
+    # ``gl`` is a skip, not a dependency: the sheet op renders through Blender's
+    # GPU context, and on a runner with none (Windows CI) the worker dies with an
+    # access violation (exit 3221225477) rather than raising. Where moderngl
+    # cannot get a context neither can Blender, so these skip there as ``gl`` does.
     pytest.importorskip("bpy")
     import trimesh
 

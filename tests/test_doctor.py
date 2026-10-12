@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import socket
 
-from realmspinner import doctor, fetch, instance
+from realmspinner import doctor, fetch, instance, vram
 from realmspinner import models as model_registry
 from realmspinner.config import Config
 from realmspinner.doctor import run_checks
@@ -175,7 +175,7 @@ def test_a_check_may_not_be_both_broken_and_merely_uninstalled(tmp_path):
         Check("both", False, "", fatal=True, pending_install=True)
 
 
-def test_nothing_is_fatal_on_a_host_that_has_simply_downloaded_nothing(tmp_path):
+def test_nothing_is_fatal_on_a_host_that_has_simply_downloaded_nothing(tmp_path, monkeypatch):
     """The headline claim, asserted end to end over every row ``run_checks``
     returns -- not just the one row this change touches.
 
@@ -187,6 +187,15 @@ def test_nothing_is_fatal_on_a_host_that_has_simply_downloaded_nothing(tmp_path)
     engine's binaries are a download too, this exact machine state must
     produce no fatal row at all.
     """
+    # The claim is about downloads, not hardware. ``run_checks`` asks
+    # ``vram.probe`` (the torch-importing reader), which conftest's
+    # ``device_memory`` pin does not cover whenever torch is installed -- so on
+    # a GPU-less CI runner this row was fatal ("no CUDA device"), correctly, and
+    # the test failed Windows CI for it. Give the host the card conftest gives
+    # every other test.
+    monkeypatch.setattr(
+        vram, "probe", lambda: vram.DeviceMemory(total_gib=32.0, free_gib=32.0, name="Test GPU")
+    )
     checks = run_checks(_config(tmp_path))
     fatal = [c.name for c in checks if not c.ok and c.fatal]
     assert fatal == [], fatal
