@@ -1124,6 +1124,67 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
     return out
 
 
+def outdated(config: Config, kind: str, spec: Any) -> tuple[str, ...]:
+    """What an installed engine row holds that is not what the registry pins now.
+
+    The 2026-10-11 re-pin of ``trellis_runtime`` from v0.6.0 to v0.8.1 reached
+    only a *new* download: ``present`` asks whether the files exist, and
+    ``verify_manifest`` compares against the digests the download itself
+    recorded, so an installed v0.6.0 engine stayed "present", verified clean and
+    was never offered the update (F21). This is the question neither asks: does
+    what the last download recorded match what the registry pins today.
+
+    **Answered from the manifest, never from the disk.** The runtime is 866 MB
+    and ``present`` runs on the frame loop's path, so this re-hashes nothing; it
+    compares the digests (a runtime) or the commit (the GGUF weights) the
+    completed download wrote against ``spec.digests`` / ``Fetch.revision``.
+    That is also why "unknown" is never "outdated": a directory with no
+    manifest (a hand copy, a download that predates manifests), a recorded
+    revision of ``""`` (a download that predates pinning) and an engine the
+    resolver found somewhere Realmspinner did not put it (``REALMSPINNER_TRELLIS_EXE``,
+    ``vendor/trellis/``) all return ``()``, because a Download-again would not
+    replace the copy being run and would offer 0.7 GB of work that changes nothing.
+
+    -> the file names (a runtime) or ``repo@commit`` pins (weights) that differ,
+    empty when the row is current, unknown, or not an engine row. A row that is
+    not ``present`` is not asked: it has nothing to be stale.
+    """
+    if kind != "engine":
+        return ()
+    dest = engine_dir(config, spec)
+    try:
+        if engine_probe_dir(config, spec).resolve() != Path(dest).resolve():
+            return ()
+    except OSError:
+        return ()
+    repos = (read_manifest(dest) or {}).get("repos")
+    if not isinstance(repos, dict) or not repos:
+        return ()
+
+    differs: list[str] = []
+    recorded: dict[str, str] = {}
+    for record in repos.values():
+        digests = record.get("digests") if isinstance(record, dict) else None
+        if not isinstance(digests, dict):
+            continue
+        for name, entry in digests.items():
+            if isinstance(entry, dict) and isinstance(entry.get("sha256"), str):
+                recorded[str(name)] = entry["sha256"]
+    # A pinned file the manifest never recorded counts once it recorded
+    # anything at all: a re-pin that adds a library is as stale as one that
+    # changes a library.
+    if recorded:
+        differs.extend(
+            name for name, digest in spec.digests if recorded.get(name) != digest
+        )
+    for one in getattr(spec, "fetch", ()) or ():
+        record = repos.get(one.repo_id) if one.repo_id else None
+        have = record.get("revision") if isinstance(record, dict) else ""
+        if one.repo_id and one.revision and have and have != one.revision:
+            differs.append(f"{one.repo_id}@{one.revision[:8]}")
+    return tuple(differs)
+
+
 def present(config: Config, kind: str, spec: Any) -> bool:
     """Whether this row's files are all on disk.
 

@@ -2193,6 +2193,9 @@ def _row(ctx: Any, row: dict[str, Any], busy: bool) -> None:
     imgui.table_next_column()
     if present:
         widgets.text_colored(theme.MUTED, f"{icons.CIRCLE_CHECK} {label}")
+        if row.get("outdated"):
+            imgui.same_line()
+            widgets.text_colored(theme.WARN, "update available")
     elif not downloadable:
         widgets.text_colored(theme.WARN, f"{icons.CIRCLE} {label}")
     else:
@@ -2329,6 +2332,8 @@ def _actions(ctx: Any, row: dict[str, Any], busy: bool) -> None:
     """
     row_key = str(row["row_key"])
     if bool(row.get("present")):
+        if row.get("outdated") and row.get("downloadable"):
+            _update_control(ctx, row, busy)
         _remove_control(ctx, row, busy)
         return
     if not row.get("downloadable"):
@@ -2352,6 +2357,37 @@ def _actions(ctx: Any, row: dict[str, Any], busy: bool) -> None:
         f"{icons.DOWNLOAD} Install##{row_key}", not busy, reason=_MODEL_BUSY_REASON
     ):
         _start(ctx, [row_key], key=key)
+
+
+def _update_control(ctx: Any, row: dict[str, Any], busy: bool) -> None:
+    """Download again, for an installed row that is not the build the app pins.
+
+    The same fetch an Install runs, under the same task key (so the bulk bar,
+    Cancel and the row refresh on completion all treat it as the download it
+    is): ``publish.move_into`` replaces file by file with a backup, so
+    publishing over a present engine is the supported shape and not a special
+    case. The row keeps its Delete beside it -- the older engine still works,
+    and nothing here forces the update.
+    """
+    row_key = str(row["row_key"])
+    key = app_ctx.download_key(row_key)
+    if ctx.tasks.is_busy(key):
+        found = ctx.progress(key)
+        widgets.progress_bar(float(found.get("percent") or 0.0) if found else 0.0)
+        if found and found.get("label"):
+            widgets.muted(str(found["label"]))
+        _cancel(ctx, key)
+        return
+    if widgets.disabled_button(
+        f"{icons.DOWNLOAD} Download again##{row_key}", not busy, reason=_MODEL_BUSY_REASON
+    ):
+        _start(ctx, [row_key], key=key)
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(
+            "The installed copy is not the build this version of Realmspinner pins. "
+            "It still works; this replaces it with the pinned one."
+        )
+    imgui.same_line()
 
 
 def _selection_progress(ctx: Any) -> None:

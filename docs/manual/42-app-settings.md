@@ -101,6 +101,13 @@ on — the words the app prepends to your prompt whenever that adapter is select
 has no download recipe for stays in the table as an inert **Unavailable** rather than disappearing:
 a row that says it cannot be fetched is more use than a row that is not there.
 
+When a new version of Realmspinner pins a newer reconstruction engine than the one you downloaded,
+that row keeps its tick and keeps working, but says **update available** beside its name and offers
+**Download again** next to Delete. It replaces the installed files with the pinned build and leaves
+the choice to you. The row decides this from what its own download recorded, so an engine you copied
+in by hand, or one the app runs from `REALMSPINNER_TRELLIS_EXE` or a source checkout's `vendor/`, is
+never marked.
+
 A
 running download shows its rate and an estimate of the time left, and carries its own **Cancel**
 beside the bar. Cancelling installs nothing: the fetch stages beside the destination and only moves

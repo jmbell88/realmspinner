@@ -131,6 +131,15 @@ def rows(svc: RealmspinnerService) -> list[dict[str, Any]]:
         # Path arithmetic only (no stat, no walk), ~17 entries, on the
         # task-done path. Cheap enough; measure again if the pane hitches.
         if row["present"]:
+            # Installed, but not the build the registry pins now (F21). Absent
+            # rather than False for every other row, like ``vram`` above, so a
+            # pane's ``.get`` reads one way; ``present`` stays True because an
+            # older engine still runs, and gating a mode on it would lock the
+            # user out of a working install.
+            stale = fetch_mod.outdated(config, entry.kind, entry.spec)
+            if stale:
+                row["outdated"] = True
+                row["outdated_files"] = stale
             removal = fetch_mod.removal_plan(config, [entry])
             # **The plan is pure; whether there is anything to delete is not.**
             # ``removal_plan`` answers about the registry -- which paths this
