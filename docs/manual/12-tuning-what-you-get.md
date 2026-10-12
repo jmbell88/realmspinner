@@ -97,7 +97,7 @@ always drawn and always read.
 
 The Mesh column shows three things: **Triangle budget**, **Size** and **Rig**. **Size** sets the
 real-world scale in metres, where zero means "keep whatever the reference implied". Everything else is
-in the **Advanced** fold below them. **Mesh resolution** sets the reconstruction's geometry
+in the **Advanced** card below them. **Mesh resolution** sets the reconstruction's geometry
 resolution. **Background** chooses the matting method (Automatic, BiRefNet cutout or a
 plain-background threshold). **Centre and enlarge the reference** recentres and rescales the subject
 before upload.

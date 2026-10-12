@@ -171,7 +171,8 @@ canvas takes all the extra.
 - **The left sidebar** is the settings form for the current mode, and nothing else — there is
   nothing left to split against, so it is one scrolling column with no divider. In Create a **stage
   rail** sits above it, naming the five steps an asset goes through and switching the column
-  between them.
+  between them; at every stage the column is a stack of cards, and the inspector and History on
+  the right are cards too.
 - **The middle column** is the viewport: the interactive 3D preview, or the reference image at the
   Reference stage, or the canvas in Inker mode. A small toolbar sits over it with the framing,
   wireframe and turntable toggles, and — on a finished reference at the Reference stage — the

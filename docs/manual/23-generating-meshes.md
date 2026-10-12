@@ -2,10 +2,11 @@
 
 The mesh stage is where the reconstruction engine runs. It costs roughly two minutes of GPU per
 attempt, so everything in this chapter is arranged around deciding what to spend that on. All of it
-lives at Create's **Mesh** stage. The left column starts with the **Source** chip and
-**Attempts** (1, 2 or 3), followed by the reconstruction settings: **Triangle budget**, **Size** and
-**Rig**, with everything else in one **Advanced** fold. The generation plan has its own
-scrollable space, as tall as its lines, above the persistent **Make 3D** button. **Reset mesh
+lives at Create's **Mesh** stage. The left column is a stack of cards. It starts with the **Source**
+chip and **Attempts** (1, 2 or 3), followed by the reconstruction settings: **Triangle budget**,
+**Size** and **Rig**, with everything else in one collapsible **Advanced** card. The **Generation
+plan** card is pinned at the foot of the column, as tall as its lines, and holds the persistent
+**Make 3D** button under them; the cards above it scroll. **Reset mesh
 settings…**, in the **New…** menu, resets mesh controls after confirmation while keeping the chosen
 source.
 
@@ -101,8 +102,8 @@ The reconstruction engine is deterministic in its seed, and its failure mode is 
 reference comes back clean at one seed and with a hole through the shoulder at another. **Attempts**,
 near the top of the left column (the Reference stage's equivalent is **Images**, which counts
 pictures rather than meshes), is how many meshes one press tries — 1, 2 or 3 — so you can pick the
-best. The **generation plan** pinned under the column (the
-same footer the Reference stage draws) changes with the choice: it says "N candidates ·
+best. The **Generation plan** card pinned at the foot of the column (the
+same card the Reference stage draws, with **Make 3D** inside it) changes with the choice: it says "N candidates ·
 about N×2 minutes of GPU", because this is the one control in the pane that multiplies what the button
 spends. Under that it shows the queue, then either *Ready to generate.* or, in red, why Make 3D is off
 (*Needs attention*) or what the last press was *Refused* for, with **Choose a reference** and **Open
@@ -151,7 +152,7 @@ on a plain background.
 
 The **Mesh** section shows three things: **Triangle budget**, **Size** and **Rig**. The rest of the
 reconstruction settings — **Mesh resolution**, **Finishing**, **Background**, **Seed**, **Centre and
-enlarge the reference** and the engine's launch flags — are in one **Advanced** fold below them, closed
+enlarge the reference** and the engine's launch flags — are in one **Advanced** card below them, closed
 until you open it.
 
 **Mesh resolution** (in **Advanced**) is the geometry resolution handed to the engine, supplied by a
@@ -263,7 +264,8 @@ See [Rigging and posing](25-rigging-and-posing.md).
 
 ## Advanced
 
-Below Rig is a collapsed **Advanced** header, closed by default. It opens onto the settings listed
+Below Rig is a collapsible **Advanced** card, closed by default; click its title row to open it, and
+the column remembers whether you left it open, across restarts. It opens onto the settings listed
 under [Mesh parameters](#mesh-parameters) (resolution, finishing, background, seed and centring), then
 an **Engine** group holding the seven launch
 flags the reconstruction engine (`trellis-server.exe`) itself accepts: **Band**, **Texture resolution**,

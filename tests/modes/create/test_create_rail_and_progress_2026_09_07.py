@@ -135,6 +135,18 @@ def test_the_stage_rail_ticks_a_set_not_a_single_furthest_key():
 # --- item 5.7: progress is reachable from every stage ------------------------
 
 
+def _no_card_scope(monkeypatch):
+    """Rig, Pose and Export open the card scope (Landing 5), and asking a window
+    who owns it needs an imgui context; these tests dispatch with none, so they
+    stand the scope down -- what they pin is *which* stages ask for the row."""
+    from contextlib import nullcontext
+
+    from realmspinner.studio import widgets
+
+    monkeypatch.setattr(widgets, "card_sections", nullcontext)
+    monkeypatch.setattr(widgets, "group_stack", nullcontext)
+
+
 def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
     """The verified bug: the tray's "Working now" row was only ever drawn
     from ``shell.frame.FrameMixin._viewport_pane``'s Reference-stage tray, so
@@ -150,6 +162,7 @@ def test_the_rig_stage_shows_the_progress_of_a_job_it_started(monkeypatch):
         generation_workspace, "progress_row", lambda ctx: calls.append(ctx) or False
     )
     monkeypatch.setattr(stage_rig, "draw", lambda ctx: None)
+    _no_card_scope(monkeypatch)
 
     ctx = SimpleNamespace(state=SimpleNamespace(create=SimpleNamespace(stage="rig")))
     frame._stage_pane(ctx)
@@ -203,6 +216,7 @@ def test_each_stage_draws_exactly_one_progress_row(monkeypatch):
         generation_workspace, "progress_row", lambda ctx: calls.append("row") or False
     )
     monkeypatch.setattr(stage_rig, "draw", lambda ctx: None)
+    _no_card_scope(monkeypatch)
     ctx = SimpleNamespace(state=SimpleNamespace(create=SimpleNamespace(stage="rig")))
     frame._stage_pane(ctx)
     assert calls == ["row"]

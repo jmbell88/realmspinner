@@ -20,10 +20,10 @@ The prompt is capped at 1000 characters and a counter in the bottom-right corner
 how much you have used once you have typed anything. The counter turns amber inside the last hundred
 characters, because past the cap the box simply stops taking text.
 
-Further down the recipe column, below the model and style controls and above the collapsed
-**Advanced** header, a **Recent prompts…** button opens your last
-twenty prompts, most recent first and deduplicated — it appears once you have generated at least one
-reference, so there is history to show. Picking one replaces what is in the box. The history outlives
+When you have generated at least one reference, the **Your brief** card's header carries a
+**Recent prompts…** button, at its right edge. It opens your last
+twenty prompts, most recent first and deduplicated; with no history yet there is nothing to show
+and the button is not drawn. Picking one replaces what is in the box. The history outlives
 the session (it is saved with your other Realmspinner preferences and is there again after a restart), and
 it is per prompt text only — if you want a whole recipe back, use **Copy settings to form** from a
 job's overflow menu instead, which is described in [Rerun and
@@ -63,15 +63,19 @@ The header shows the asset's **stage rail**, **New…** and **Inspector**. Image
 tilesets and sprite sheets use Reference → Export. A 3D model or character also has Mesh, Rig and Pose.
 Unavailable stages explain their requirements on hover.
 
-The left column begins with **Your brief**: what you are making, a multiline description,
+The left column is a stack of cards, each with a title row, 12 px of padding and an 8 px gap to the
+next. It begins with **Your brief**: what you are making, a multiline description,
 and **Images** (how many pictures one press draws) where the output supports several. Output-specific
 artistic controls
-follow, then the model and style recipe. Seed and Avoid are under **Advanced**; reference images
-are under **Conditioning**. Character has its own controls and uses no image model.
+follow in cards of their own, then the model and style recipe. **Advanced** (Seed and Avoid) and
+**Conditioning** (reference images) are collapsible cards: click the title row to fold one, and the
+column remembers whether each was open, across restarts. Character has its own controls and uses no
+image model.
 
-The generation plan sits above a persistent **Create image**, **Generate reference** or other
-output-specific button at the bottom. The settings and plan each scroll within their own space,
-and the plan is as tall as its own lines need; the submit button stays visible. The plan states
+The **Generation plan** card is pinned at the foot of the column and is identical on every stage. It
+holds the plan lines and, under them, the persistent **Create image**, **Generate reference** or other
+output-specific button; the cards above it scroll within their own space, the plan card is as tall as
+its own lines need, and the submit button stays visible. The plan states
 stages, image count, recipe, estimated work, queue position and validation problems, with repair
 buttons where available. A brief with nothing typed yet says *Describe the asset to start* in the
 muted colour; the same line turns red once you have edited the prompt or pressed Generate on it. On a
@@ -81,8 +85,9 @@ Settings → Models for you. Ctrl+Enter still submits,
 and refuses for the same reasons the button is greyed: while a candidate batch is still undecided it says
 "Decide the pending candidates first" and queues nothing -- pick one on the Mesh stage, then generate again.
 
-Every new attempt belongs to the current creation and is saved. The **Attempts** strip below the
-canvas scrolls horizontally through that creation's results; it does not mix in unrelated recent jobs.
+Every new attempt belongs to the current creation and is saved. The **Attempts** card below the
+canvas holds a strip that scrolls horizontally through that creation's results; it does not mix
+in unrelated recent jobs.
 Clicking an attempt inspects it without changing your draft or chosen reconstruction source.
 **Load settings** explicitly loads a result's recipe. **Try again** uses a fresh
 seed; **Reproduce recorded attempt** reuses the recorded recipe and seed, with results still subject
@@ -210,7 +215,7 @@ recipes run the same way.
 ## Seeds and candidates
 
 Generation is deterministic in its seed: the same form and the same seed produce the same image
-every time. The **Seed** row, inside the collapsed **Advanced** header, is where you control that.
+every time. The **Seed** row, inside the collapsed **Advanced** card, is where you control that.
 
 The **Images** control below the brief picks how many images one submit queues: 1, 2, 4 or 8.
 (Mesh has its own, **Attempts**, for how many reconstructions to try.) Each is a real job holding
@@ -271,19 +276,22 @@ labels anything, and a chord with Ctrl, Alt or Shift is left to the app's own sh
 
 ### History
 
-The **History** pane, under the inspector, lists everything you have generated or judged, newest first
-— **including attempts you have since deleted**, which is the point of it. A row shows a thumbnail
+The **History** pane, under the inspector, is one card that lists everything you have generated or
+judged, newest first — **including attempts you have since deleted**, which is the point of it. Each
+row is a card of its own. A row shows a thumbnail
 when the image still exists, the start of the prompt, the image label (*Image Good* or *Image Bad*)
 and the mesh grade, the tags, *note* when you wrote one (hover the row to read it), and a line of what
 ran: model, steps, guidance, style and seed. A muted *deleted* or *in trash* says the asset is gone,
 and its labels, notes and settings stay. The line above the filters is the corpus summary Review
 shows.
 
-Four small menus filter the list: model, style, type, and *All / Judged / Unjudged*. Their choices
+Four small menus, laid out two by two, filter the list: model, style, type, and
+*All / Judged / Unjudged*. Their choices
 come from the rows themselves, so a model that has since been removed from the app is still there to
 filter by. **More** at the bottom adds another page. Clicking a row whose asset still exists opens it.
 
-**Load settings** on a row copies its recorded recipe back into the form — model (as an Advanced pick
+Each row's **Load settings** has a line of its own under the row's text. It copies the recorded
+recipe back into the form — model (as an Advanced pick
 unless Automatic would have chosen it anyway), style and its strength, the Avoid text, the seed
 (locked) and the prompt, plus the mesh settings the attempt carried — and works on a deleted attempt
 too, from the settings its verdict stored. It is greyed, with the reason, for a deleted attempt whose

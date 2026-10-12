@@ -608,13 +608,15 @@ def test_each_settings_card_carries_its_manual_button_on_its_own_header_row(
 # --- the pane itself ------------------------------------------------------------------
 
 
-def test_the_settings_pane_passes_one_gutter_of_padding_for_the_card_stages_only():
+def test_the_settings_pane_passes_one_gutter_of_padding_on_every_stage():
+    """Landing 5 flipped this: Rig, Pose and Export are cards too, so the stage
+    condition (None for those three) is gone and the pane is SP_2 on all five."""
     from realmspinner.studio.shell import frame
 
     source = inspect.getsource(frame)
     assert 'layout_mod.pane(\n                        "settings"' in source
     start = source.index('"settings",\n')
-    block = source[start : start + 700]
-    assert "padding=(" in block and "tokens_mod.SP_2" in block
-    assert '("rig", "pose", "export")' in block, "Rig, Pose and Export keep the default padding"
+    block = source[start : start + 400]
+    assert "padding=tokens_mod.SP_2" in block
+    assert '("rig", "pose", "export")' not in block, "a stage still keeps the default padding"
     assert workspace.plan_card is not None

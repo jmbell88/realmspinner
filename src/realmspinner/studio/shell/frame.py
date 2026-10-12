@@ -38,6 +38,7 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Callable
+from contextlib import ExitStack
 from typing import Any
 
 from .. import anchors, guard, probe
@@ -220,6 +221,14 @@ def _stage_pane(ctx: Any) -> None:
 
     The fall-through is Reference: the front of the pipeline, and the only
     stage that says something with nothing selected at all.
+
+    **Every stage is a column of cards.** Reference and Mesh build theirs with
+    ``widgets.group`` themselves; Rig, Pose and Export reuse panels that are
+    shared with the Library (``stage_rig``, ``pose_panel``, ``sprite_panel``,
+    ``inspector.downloads``) and are written as "section, rows, section, rows",
+    so the card scope is opened *here* -- the one call site -- and the Library,
+    which opens none, keeps the flat headings it has always had. A section inside
+    an open fold would read as a sub-label; none of these panels has a fold.
     """
     from .. import icons, widgets
     from ..modes.create.ui import workspace as generation_workspace
@@ -227,49 +236,58 @@ def _stage_pane(ctx: Any) -> None:
     from ..panes import inspector, pose_panel, stage_rig
 
     stage = ctx.state.create.stage
-    # One "Working now" per stage. Reference and Mesh carry the results tray
-    # on the canvas and it draws the row at its top (``workspace.draw``); the
-    # stages with no tray -- Rig, Pose, Export -- draw it here, so a remesh or
-    # a rig bake started from its own stage still shows more than the floating
-    # card (2026-09-07 review, item 5.7).
-    if stage not in generation_workspace.TRAY_STAGES and generation_workspace.progress_row(ctx):
-        widgets.divider()
-    if stage == "mesh":
-        settings_3d.draw(ctx)
-    elif stage == "rig":
-        stage_rig.draw(ctx)
-    elif stage == "pose":
-        job = ctx.job()
-        if job is None:
-            widgets.empty_state(
-                icons.PERSON_STANDING, "No mesh selected.", "Pick a rigged mesh to pose it."
-            )
-        else:
-            pose_panel.draw(ctx, job, hosted=True)
-    elif stage == "export":
-        job = ctx.job()
-        if job is None:
-            widgets.empty_state(
-                icons.DOWNLOAD, "Nothing selected.", "Pick an asset to take files from it."
-            )
-        else:
-            # The inspector's own grid, called rather than copied: it is the
-            # one answer to "what can I take away from this", and a second
-            # version of it is a second place for an artifact to be missed.
-            from ..modes.create.engine import assets as create_assets
-
-            if (
-                create_assets.asset_type_from_params(
-                    job.get("params") or {}, stage=job.get("stage", "")
+    with ExitStack() as cards:
+        if stage in _CARD_STAGES:
+            cards.enter_context(widgets.card_sections())
+            cards.enter_context(widgets.group_stack())
+        # One "Working now" per stage. Reference and Mesh carry the results tray
+        # on the canvas and it draws the row at its top (``workspace.draw``); the
+        # stages with no tray -- Rig, Pose, Export -- draw it here, as a card of
+        # its own, so a remesh or a rig bake started from its own stage still
+        # shows more than the floating card (2026-09-07 review, item 5.7).
+        if stage not in generation_workspace.TRAY_STAGES:
+            generation_workspace.progress_row(ctx)
+        if stage == "mesh":
+            settings_3d.draw(ctx)
+        elif stage == "rig":
+            stage_rig.draw(ctx)
+        elif stage == "pose":
+            job = ctx.job()
+            if job is None:
+                widgets.empty_state(
+                    icons.PERSON_STANDING, "No mesh selected.", "Pick a rigged mesh to pose it."
                 )
-                == "sprite_sheet"
-            ):
-                from ..panes import sprite_panel
+            else:
+                pose_panel.draw(ctx, job, hosted=True)
+        elif stage == "export":
+            job = ctx.job()
+            if job is None:
+                widgets.empty_state(
+                    icons.DOWNLOAD, "Nothing selected.", "Pick an asset to take files from it."
+                )
+            else:
+                # The inspector's own grid, called rather than copied: it is the
+                # one answer to "what can I take away from this", and a second
+                # version of it is a second place for an artifact to be missed.
+                from ..modes.create.engine import assets as create_assets
 
-                sprite_panel.exports(ctx, job)
-            inspector.downloads(ctx, job)
-    else:
-        settings_2d.draw(ctx)
+                if (
+                    create_assets.asset_type_from_params(
+                        job.get("params") or {}, stage=job.get("stage", "")
+                    )
+                    == "sprite_sheet"
+                ):
+                    from ..panes import sprite_panel
+
+                    sprite_panel.exports(ctx, job)
+                inspector.downloads(ctx, job)
+        else:
+            settings_2d.draw(ctx)
+
+
+#: The stages whose column is drawn by panels shared with the Library, and so
+#: turned into cards by the scope ``_stage_pane`` opens around them.
+_CARD_STAGES = ("rig", "pose", "export")
 
 
 def _takes_pointer(target: Any, hovered: bool) -> bool:
@@ -966,22 +984,17 @@ class FrameMixin:
                     ) as visible:
                         if visible:
                             create_brief.draw(ctx, self._stage_rail)
-                    # Reference and Mesh are columns of cards, so their pane
-                    # inset is one gutter (8) and the card edge sits 8 from the
-                    # window edge; Rig, Pose and Export still draw bare headings
-                    # and keep the default until they become cards too. Named
-                    # the way ``_stage_pane`` dispatches: anything that is not
-                    # one of those three falls through to Reference.
+                    # Every stage's column is made of cards (Reference and Mesh
+                    # draw theirs, Rig/Pose/Export get theirs from the scope
+                    # ``_stage_pane`` opens), so the pane's inset is one gutter
+                    # (8) on all five and the card edge sits 8 from the window
+                    # edge.
                     with layout_mod.pane(
                         "settings",
                         (left_w, 0),
                         layout_mod.PaneRole.SIDEBAR,
                         edge=layout_mod.PaneEdge.RIGHT,
-                        padding=(
-                            None
-                            if ctx.state.create.stage in ("rig", "pose", "export")
-                            else tokens_mod.SP_2
-                        ),
+                        padding=tokens_mod.SP_2,
                     ) as visible:
                         if visible:
                             _stage_pane(ctx)

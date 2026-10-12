@@ -776,6 +776,8 @@ def type_cards(ctx: Any) -> None:
     (the 2026-10-11 review)."""
     from . import brief
 
+    # Empty-state hero: the only thing on the screen, not one group among several, so it
+    # keeps the pane heading rather than becoming a card.
     widgets.pane_header("What would you like to make?")
     widgets.muted_wrapped(
         "Choose an output, describe it in your brief, or drop an image to build a 3D model."
@@ -854,11 +856,22 @@ def progress_row(ctx: Any) -> bool:
     from Rig reports here while standing on Rig -- and never twice on one
     stage (2026-09-07 review item 5.7 removed the third copy; the Create
     redesign's tray step made Mesh's column copy the fourth and removed it).
+
+    **Where it draws decides its surface.** Inside the Attempts card it is the
+    card's first lines; on a stage with no tray (Rig, Pose, Export) there is no
+    card around it, so it opens a header-less one of its own -- before the cards
+    existed it was bare lines and a divider, the one group in that column that
+    was not a card. Nothing is opened when no job is running, so an idle column
+    does not start with an empty slab.
     """
     active = getattr(ctx.cache, "active", None)
     if active is None:
         return False
-    _progress(ctx, active)
+    if widgets.in_group():
+        _progress(ctx, active)
+    else:
+        with widgets.group(id="progress"):
+            _progress(ctx, active)
     return True
 
 

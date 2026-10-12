@@ -658,6 +658,8 @@ def empty(ctx: Any, stage: str) -> None:
     elif stage == "mesh":
         _empty_mesh(ctx)
     else:
+        # Empty-state hero: the only thing on the screen, not one group among several, so it
+        # keeps the pane heading rather than becoming a card.
         widgets.pane_header("Nothing here yet")
         widgets.muted_wrapped("Choose a finished creation on the Mesh stage to continue.")
 
@@ -673,6 +675,8 @@ def _empty_reference(ctx: Any) -> None:
         # offer. Say what pressing Generate will do and stop.
         from . import workspace
 
+        # Empty-state hero: the only thing on the screen, not one group among several, so it
+        # keeps the pane heading rather than becoming a card.
         widgets.pane_header("Ready when you are")
         widgets.muted_wrapped(workspace.plan_for(form).stages)
         return
@@ -688,6 +692,8 @@ def setup_card(ctx: Any) -> None:
     GPU, but it renders with Blender, so a host without the Rigging pack is told
     so up front rather than on the press.
     """
+    # Empty-state hero: the only thing on the screen, not one group among several, so it
+    # keeps the pane heading rather than becoming a card.
     widgets.pane_header("Set up Realmspinner")
     widgets.muted_wrapped(
         "Everything runs on this computer, so it needs its models first. "
@@ -745,6 +751,8 @@ def _empty_mesh(ctx: Any) -> None:
     from ...library.ui.panes import library
 
     state = ctx.state
+    # Empty-state hero: the only thing on the screen, not one group among several, so it
+    # keeps the pane heading rather than becoming a card.
     widgets.pane_header("Choose a reference to build from")
     widgets.muted_wrapped("Drop an image here, or pick a reference.")
     if controls.button(
