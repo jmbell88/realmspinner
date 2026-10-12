@@ -30,7 +30,7 @@ from imgui_bundle import imgui
 
 from ......bench import findings as findings_lib
 from ......service import generation_log
-from ..... import asset_open, controls, generation_log_export, theme, widgets
+from ..... import asset_open, controls, generation_log_export, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ...engine import history as engine
@@ -42,8 +42,9 @@ KEY = "create-history"
 _THUMB_DP = 56.0
 _THUMB_TEXTURE_SIDE = 128
 
-#: Lines of text beside the thumbnail: prompt, marks and tags, settings.
-_ROW_PAD_DP = 6.0
+#: Lines of text beside the thumbnail: the prompt, the marks and tags, and the
+#: settings -- and under them, on a line of its own, **Load settings**.
+_TEXT_LINES = 3
 
 
 # --- loading -------------------------------------------------------------------------
@@ -200,22 +201,28 @@ def _choose_base(ctx: Any, form: dict[str, Any], base: str, settings_2d: Any) ->
 
 
 def draw(ctx: Any) -> None:
-    """The right column's History slot."""
+    """The right column's History slot: one card (title, Export, (?), the corpus
+    line and the four filters), then a card per attempt."""
     state = ctx.state.create
-    widgets.pane_header(
-        "History",
-        actions=(("export", "Export...", lambda: generation_log_export.request(ctx)),),
-    )
     pump(ctx)
-    summary = findings_lib.corpus_line(
-        findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
-    )
-    # One line, trimmed to leave the manual's (?) its corner: the corpus the
-    # judgements below feed, said by Review's own reader.
-    room = imgui.get_content_region_avail().x - imgui.get_frame_height() * 1.5
-    widgets.muted(widgets.fit_text(summary or "Nothing judged yet.", max(1.0, room)))
-    manual_render.help_button(ctx, "create-history")
-    _filters(ctx)
+    with widgets.group(
+        "History",
+        id="history",
+        actions=(("export", "Export...", lambda: generation_log_export.request(ctx)),),
+    ):
+        # First in the body, so it lands on the card's header row beside Export.
+        manual_render.help_button(ctx, "create-history")
+        summary = findings_lib.corpus_line(
+            findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
+        )
+        # One line, trimmed to the card's width: the corpus the judgements below
+        # feed, said by Review's own reader.
+        widgets.muted(
+            widgets.fit_text(
+                summary or "Nothing judged yet.", max(1.0, imgui.get_content_region_avail().x)
+            )
+        )
+        _filters(ctx)
     rows = state.history_rows
     if rows is None:
         widgets.muted(state.history_error or "Loading history...")
@@ -240,16 +247,21 @@ def _filtering(state: Any) -> bool:
 
 
 def _filters(ctx: Any) -> None:
-    """Four compact combos: model, style, type, judged. Options come from the
-    rows, retired keys included, so the filter that finds old work outlives the
-    model; the chosen key is always offered even if a later load no longer lists it."""
+    """Four compact combos in a 2 x 2 grid: models | styles over types | judged.
+    Options come from the rows, retired keys included, so the filter that finds
+    old work outlives the model; the chosen key is always offered even if a later
+    load no longer lists it.
+
+    Two across, not "full, full, half, half" as it was: the first two were the
+    only combos at a different width from the other two, which read as a
+    hierarchy among four peers (2026-10-11 spacing review)."""
     state = ctx.state.create
     filters = state.history_filters
     options = state.history_options
     changed = False
-    half = (imgui.get_content_region_avail().x - imgui.get_style().item_spacing.x) / 2
+    width = widgets.grid_width(2)
 
-    def pick(field: str, everything: str, width: float) -> None:
+    def pick(field: str, everything: str) -> None:
         nonlocal changed
         entries = list(options.get(field, ()))
         current = filters.get(field)
@@ -265,15 +277,16 @@ def _filters(ctx: Any) -> None:
             filters[field] = shown or None
             changed = True
 
-    pick("base_model", "All models", -1.0)
-    pick("style_lora", "All styles", -1.0)
-    pick("generation_type", "All types", half)
+    pick("base_model", "All models")
+    imgui.same_line()
+    pick("style_lora", "All styles")
+    pick("generation_type", "All types")
     imgui.same_line()
     shown = widgets.combo(
         "##history-judged",
         engine.judged_key(filters.get("judged")),
         list(engine.JUDGED_OPTIONS),
-        -1.0,
+        width,
     )
     if engine.judged_value(shown) is not filters.get("judged"):
         filters["judged"] = engine.judged_value(shown)
@@ -283,21 +296,58 @@ def _filters(ctx: Any) -> None:
         refresh(ctx)
 
 
+class RowMetrics:
+    """One History row's geometry, in screen px. **Derived, never guessed.**
+
+    The ListClipper multiplies one number by the row count, so every row must be
+    exactly this tall. The number is the sum of what a row holds -- a 12 px inset
+    top and bottom, three text lines 4 px apart, 8 px, then the 26 px **Load
+    settings** line -- so a font or UI-scale change moves it instead of clipping the
+    button (the old row was a hand-set ``56 + 2 * 6`` with the button laid over its
+    last text line).
+    """
+
+    __slots__ = ("pad", "thumb", "line", "line_gap", "gap", "button", "text_h", "row_h")
+
+    def __init__(self) -> None:
+        self.pad = sp(tokens.SP_3)
+        self.thumb = sp(_THUMB_DP)
+        self.line = float(imgui.get_text_line_height())
+        self.line_gap = sp(tokens.SP_1)
+        self.gap = sp(tokens.SP_2)
+        self.button = sp(tokens.CONTROL_HEIGHT_COMPACT)
+        self.text_h = (
+            _TEXT_LINES * self.line + (_TEXT_LINES - 1) * self.line_gap + self.gap + self.button
+        )
+        self.row_h = 2 * self.pad + max(self.text_h, self.thumb)
+
+    def line_y(self, top: float, index: int) -> float:
+        """The y of text line ``index`` (0 = prompt, 1 = marks, 2 = settings)."""
+        return top + self.pad + index * (self.line + self.line_gap)
+
+    def button_y(self, top: float) -> float:
+        """The y of the Load settings line, ``gap`` under the last text line."""
+        return self.line_y(top, _TEXT_LINES - 1) + self.line + self.gap
+
+
 def _list(ctx: Any, rows: list[dict[str, Any]]) -> None:
     """The rows, clipped: every row is the same height, so the clipper's
-    measurement is exact and only the rows on screen request a texture."""
+    measurement is exact and only the rows on screen request a texture. A row is
+    drawn by hand as a card surface (a child window per row would make the height
+    imgui's to decide, and the clipper's whole premise is that it is ours)."""
     spacing = imgui.get_style().item_spacing.y
-    row_h = sp(_THUMB_DP) + 2 * sp(_ROW_PAD_DP)
+    metrics = RowMetrics()
     clipper = imgui.ListClipper()
-    clipper.begin(len(rows), row_h + spacing)
+    clipper.begin(len(rows), metrics.row_h + spacing)
     while clipper.step():
         for index in range(clipper.display_start, clipper.display_end):
-            _row(ctx, rows[index], row_h)
+            _row(ctx, rows[index], metrics)
     clipper.end()
 
 
-def _row(ctx: Any, row: dict[str, Any], height: float) -> None:
+def _row(ctx: Any, row: dict[str, Any], metrics: RowMetrics) -> None:
     job_id = str(row["job_id"])
+    height = metrics.row_h
     imgui.push_id(job_id)
     width = max(1.0, imgui.get_content_region_avail().x)
     low = imgui.get_cursor_screen_pos()
@@ -305,59 +355,68 @@ def _row(ctx: Any, row: dict[str, Any], height: float) -> None:
     hovered = imgui.is_item_hovered()
     draw = imgui.get_window_draw_list()
     high = imgui.ImVec2(low.x + width, low.y + height)
+    # The card surface every group wears (ELEV_2 at 0.5, RADIUS_M); pointing at
+    # it firms the fill up rather than swapping to a different surface.
     draw.add_rect_filled(
         low,
         high,
-        imgui.get_color_u32(theme.rgba(theme.ELEV_2 if hovered else theme.ELEV_1)),
-        sp(4),
+        imgui.get_color_u32(theme.rgba(theme.ELEV_2, 0.9 if hovered else 0.5)),
+        sp(tokens.RADIUS_M),
     )
-    pad = sp(_ROW_PAD_DP)
-    side = sp(_THUMB_DP)
-    _thumb(ctx, row, low.x + pad, low.y + pad, side)
+    pad = metrics.pad
+    _thumb(ctx, row, low.x + pad, low.y + pad, metrics.thumb)
 
-    left = low.x + pad + side + pad
+    left = low.x + pad + metrics.thumb + pad
     room = max(1.0, high.x - left - pad)
-    line = imgui.get_text_line_height_with_spacing()
     gone = engine.gone_text(row)
     muted = imgui.get_color_u32(theme.rgba(theme.MUTED))
     text = imgui.get_color_u32(theme.rgba(theme.TEXT))
 
     prompt = " ".join(str(row.get("prompt") or "").split()) or "(no prompt kept)"
     flag_w = imgui.calc_text_size(gone).x + pad if gone else 0.0
-    draw.add_text((left, low.y + pad), text, widgets.fit_text(prompt, room - flag_w))
+    draw.add_text((left, metrics.line_y(low.y, 0)), text, widgets.fit_text(prompt, room - flag_w))
     if gone:
-        draw.add_text((high.x - pad - flag_w + pad, low.y + pad), muted, gone)
+        flag_x = high.x - pad - imgui.calc_text_size(gone).x
+        draw.add_text((flag_x, metrics.line_y(low.y, 0)), muted, gone)
 
     marks = _marks(row)
-    y = low.y + pad + line
+    mark_y = metrics.line_y(low.y, 1)
+    mark_x = left
     for words, colour in marks:
-        draw.add_text((left, y), imgui.get_color_u32(theme.rgba(colour)), words)
-        left_mark = left + imgui.calc_text_size(words).x + sp(8)
-        left = left_mark
-    left = low.x + pad + side + pad
+        draw.add_text((mark_x, mark_y), imgui.get_color_u32(theme.rgba(colour)), words)
+        mark_x += imgui.calc_text_size(words).x + sp(tokens.SP_2)
     tags = engine.row_tags(row)
     notes = engine.row_notes(row)
     tail = ", ".join(tags) + (" · note" if notes else "") if tags or notes else ""
     if tail:
-        used = sum(imgui.calc_text_size(w).x + sp(8) for w, _c in marks)
+        used = mark_x - left
         draw.add_text(
-            (left + used, y), muted, widgets.fit_text(tail, max(1.0, room - used))
+            (mark_x, mark_y), muted, widgets.fit_text(tail, max(1.0, room - used))
         )
     settings = str(row.get("settings_line") or "")
-    draw.add_text((left, y + line), muted, widgets.fit_text(settings or "no settings kept", room))
+    draw.add_text(
+        (left, metrics.line_y(low.y, 2)),
+        muted,
+        widgets.fit_text(settings or "no settings kept", room),
+    )
 
-    # Load settings sits on the last line's right edge, over the row's button;
-    # items drawn later take the click.
-    label = "Load settings"
-    reach = widgets.button_width(label)
-    imgui.set_cursor_screen_pos((high.x - pad - reach, high.y - pad - imgui.get_frame_height()))
+    # **Load settings has a line of its own** under the settings text, at the text
+    # column. It used to sit on the last line's right edge -- over the settings
+    # line itself, whose tail it covered (2026-10-11 spacing review, finding 20).
+    # Items drawn later take the click over the row's invisible button.
     unavailable = engine.no_settings_reason(row)
-    if widgets.disabled_button(
-        f"{label}##history-load",
-        not unavailable,
-        reason=unavailable,
-        tooltip="Copy this attempt's recipe back into the form, to change one thing.",
-    ):
+    imgui.set_cursor_screen_pos((left, metrics.button_y(low.y)))
+    controls.push_elevation()  # the row is a card: ghost hover must read on its fill
+    try:
+        pressed = controls.small_button(
+            "Load settings##history-load",
+            enabled=not unavailable,
+            reason=unavailable,
+            tooltip="Copy this attempt's recipe back into the form, to change one thing.",
+        )
+    finally:
+        controls.pop_elevation()
+    if pressed:
         load_settings(ctx, row)
     over_button = imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value)
 
@@ -397,7 +456,9 @@ def _thumb(ctx: Any, row: dict[str, Any], x: float, y: float, side: float) -> No
             background=True,
         )
     if texture is None:
-        draw.add_rect_filled(low, high, imgui.get_color_u32(theme.rgba(theme.BG)), sp(3))
+        draw.add_rect_filled(
+            low, high, imgui.get_color_u32(theme.rgba(theme.BG)), sp(tokens.RADIUS_S)
+        )
         return
     factor = min(side / texture.size[0], side / texture.size[1])
     w, h = texture.size[0] * factor, texture.size[1] * factor

@@ -275,10 +275,18 @@ def _reference_job(**over: Any) -> dict[str, Any]:
 
 
 def _drive_actions(monkeypatch, job, *, open_menu=True):
-    widgets = Recorder({"primary_button": False, "disabled_button": False})
+    # The Next step row is measured (primary = avail - More - gap), so the stand-ins
+    # answer those three questions with plain numbers.
+    widgets = Recorder({"primary_button": False, "disabled_button": False, "button_width": 56.0})
     controls = Recorder({"button": False})
     controls.ButtonRole = workspace.controls.ButtonRole
-    gui = Recorder({"begin_popup": open_menu})
+    gui = Recorder(
+        {
+            "begin_popup": open_menu,
+            "get_style": SimpleNamespace(item_spacing=SimpleNamespace(x=8.0)),
+            "get_content_region_avail": SimpleNamespace(x=260.0),
+        }
+    )
     monkeypatch.setattr(workspace, "widgets", widgets)
     monkeypatch.setattr(workspace, "controls", controls)
     monkeypatch.setattr(workspace, "imgui", gui)

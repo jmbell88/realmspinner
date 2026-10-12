@@ -327,14 +327,14 @@ def test_load_settings_is_disabled_for_a_deleted_attempt_with_no_snapshot(frames
     ctx.state.create.history_rows = [row]
     ctx.state.create.history_dirty = False
     seen: list[tuple[str, bool, str]] = []
-    real = history.widgets.disabled_button
+    real = history.controls.small_button
 
-    def spy(label, enabled, *a, reason="", **k):
+    def spy(label, *a, enabled=True, reason="", **k):
         if label.startswith("Load settings"):
             seen.append((label, enabled, reason))
-        return real(label, enabled, *a, reason=reason, **k)
+        return real(label, *a, enabled=enabled, reason=reason, **k)
 
-    monkeypatch.setattr(history.widgets, "disabled_button", spy)
+    monkeypatch.setattr(history.controls, "small_button", spy)
     frames(lambda: history.draw(ctx))
     assert seen and seen[0][1] is False and seen[0][2] == reason
 

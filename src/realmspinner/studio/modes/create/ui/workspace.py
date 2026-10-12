@@ -640,11 +640,25 @@ def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
     """
     widgets.section("Next step")
     step = next_step(ctx, job)
+    # One row, as concept 03 draws it: the primary press takes the width More does
+    # not need. Two full-width rows made the menu the same size as the one thing
+    # most likely to come next; beside it, More is plainly the lesser control. The
+    # primary's width is *derived* (grid width minus More minus the one gap) so the
+    # row is flush with the card's padding at any UI scale.
+    with fonts.label(imgui):  # the face the button's own label is drawn in
+        more_w = widgets.button_width("More")
     if step is not None:
         label, enabled, why, press = step
-        if widgets.primary_button(label, (-1, 0), enabled=enabled, reason=why):
+        gap = float(imgui.get_style().item_spacing.x)
+        primary_w = max(imgui.get_content_region_avail().x - more_w - gap, 1.0)
+        if widgets.primary_button(label, (primary_w, 0), enabled=enabled, reason=why):
             press()
-    if controls.button("More##next-step-more", (-1, 0), role=controls.ButtonRole.GHOST):
+        imgui.same_line()
+    if controls.button(
+        "More##next-step-more",
+        (more_w if step is not None else -1, 0),
+        role=controls.ButtonRole.GHOST,
+    ):
         imgui.open_popup("create-next-step-more")
     if imgui.begin_popup("create-next-step-more"):
         _more_actions(ctx, job)

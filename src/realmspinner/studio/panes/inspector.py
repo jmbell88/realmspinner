@@ -10,6 +10,7 @@ as a broken asset rather than as a 2D one.
 
 from __future__ import annotations
 
+from contextlib import ExitStack, nullcontext
 from typing import Any
 
 from imgui_bundle import imgui
@@ -150,6 +151,13 @@ def _stage_body(ctx: Any, job: Any) -> None:
         "sheet": lambda: sheet_panel.draw(ctx, job),
     }
     for name in _STAGE_SECTIONS.get(ctx.state.create.stage, ()):
+        # Close the open card first. A section reached straight after an *open*
+        # fold would otherwise read as part of that fold and draw as a sub-label
+        # inside it (the rule that keeps "Take it somewhere" out of its own card
+        # in a card), so "Open in..." opened would swallow Lineage, or a stage's
+        # first section would hide inside the fold before it. Sections are
+        # siblings; ``end_section`` says so.
+        widgets.end_section()
         named[name]()
 
 
@@ -171,57 +179,84 @@ def draw(ctx: Any) -> None:
         widgets.empty_state(icons.BOX, "Select an asset.", "Its details and exports live here.")
         return
 
-    # Identity stays above whatever follows: whichever stage or tab is open,
-    # the header answers "what am I looking at". Everything below it moved from
-    # one nine-header scroll column into three tabs, because reaching the
-    # sprite sheet on a rigged mesh meant scrolling past the whole pose editor;
-    # in Create the stage rail does that job instead.
-    _header(ctx, job)
-    manual_render.help_button(ctx, "inspector")
-    # Said out loud, because the two halves of the screen are not in step yet.
-    # The inspector follows the selection immediately; the viewport parses off
-    # the frame thread and adopts when the parse lands. That gap is bounded and
-    # short now that a selection change triggers the sync -- but it exists, and
-    # an unlabelled stale mesh beside a new inspector is what makes an export or
-    # a compare decision untrustworthy (UX-03). Naming the asset is the point:
-    # "loading" alone would not say *which*.
-    viewer = getattr(ctx, "viewer", None)
-    if viewer is not None and getattr(viewer, "pending", None) is not None:
-        widgets.busy(f"Loading {job.get('name') or job['id']}")
-    if create_stages.in_create(ctx.state):
-        from ..modes.create.ui import workspace
-        workspace.selected_actions(ctx, job)
-    _meta(ctx, job)
-    if job.get("status") == "error":
-        _error(ctx, job)
-    _followup_failures(job)
-    # Above the stage dispatch and above the tab bar, deliberately: this is
-    # what puts "Take it somewhere" at all five Create stages instead of two,
-    # and above the Library's tabs instead of buried inside Details -- see the
-    # comment on ``_STAGE_SECTIONS`` for the two copies this replaced. In Create
-    # it is wrapped in a header that is closed by default, so the exits are one
-    # click away rather than on screen.
-    if not create_stages.in_create(ctx.state) or widgets.header("Open in...", default_open=False,
-                                                              persist_key="create/destinations"):
-        _edit_actions(ctx, job)
+    # **Cards only in Create.** The Library's full-window inspector draws this
+    # same function with no scope open, so it keeps the flat headings and the tab
+    # bar it has always had; Create (concept 03) turns every ``section`` and
+    # ``header`` below into a card and puts 8 px between them. A scope per call
+    # rather than a flag on the headings, because a heading cannot know which
+    # host it was drawn from.
+    in_create = create_stages.in_create(ctx.state)
+    with ExitStack() as cards:
+        if in_create:
+            cards.enter_context(widgets.card_sections())
+            cards.enter_context(widgets.group_stack())
+        # Identity stays above whatever follows: whichever stage or tab is open,
+        # the header answers "what am I looking at". Everything below it moved
+        # from one nine-header scroll column into three tabs, because reaching
+        # the sprite sheet on a rigged mesh meant scrolling past the whole pose
+        # editor; in Create the stage rail does that job instead. In Create it
+        # is a header-less card of its own: name, tags, status.
+        with widgets.group(id="identity") if in_create else nullcontext():
+            _header(ctx, job, in_create)
+            manual_render.help_button(ctx, "inspector")
+            # Said out loud, because the two halves of the screen are not in step
+            # yet. The inspector follows the selection immediately; the viewport
+            # parses off the frame thread and adopts when the parse lands. That
+            # gap is bounded and short now that a selection change triggers the
+            # sync -- but it exists, and an unlabelled stale mesh beside a new
+            # inspector is what makes an export or a compare decision
+            # untrustworthy (UX-03). Naming the asset is the point: "loading"
+            # alone would not say *which*.
+            viewer = getattr(ctx, "viewer", None)
+            if viewer is not None and getattr(viewer, "pending", None) is not None:
+                widgets.busy(f"Loading {job.get('name') or job['id']}")
+        if in_create:
+            from ..modes.create.ui import workspace
 
-    if create_stages.in_create(ctx.state):
-        _stage_body(ctx, job)
-        return
-    # Every other host (the Library's full-window inspector) keeps the tabs,
-    # because there is no stage rail there to drive them. Which tabs is a
-    # question about the *asset* rather than about the mode it is being looked
-    # at from -- it used to be "are we in 3D", which offered Rig & Pose for a
-    # reference selected there and withheld it for a mesh selected anywhere
-    # else.
-    tabs: list[tuple[str, Any]] = [("Details", lambda: _details_tab(ctx, job))]
-    if "model.glb" in (job.get("files") or []):
-        # One ampersand. Dear ImGui has no mnemonic escape -- the doubling is a
-        # habit from toolkits that do, and it drew "Rig && Pose" on the tab for
-        # as long as nobody looked at the Library's inspector in a screenshot.
-        tabs.append(("Rig & Pose", lambda: _rig_tab(ctx, job)))
-    tabs.append(("Export", lambda: downloads(ctx, job)))
-    widgets.tab_bar("inspector-tabs", tabs)
+            workspace.selected_actions(ctx, job)
+        # In Create this lands inside the Next step card as its helper line.
+        _meta(ctx, job)
+        failures = followup_failure_lines(job)
+        if in_create and (job.get("status") == "error" or failures):
+            # Its own header-less card, so a failure is not buried at the foot of
+            # Next step where the primary button lives.
+            widgets.end_section()
+            with widgets.group(id="problems"):
+                if job.get("status") == "error":
+                    _error(ctx, job)
+                _followup_failures(job)
+        else:
+            if job.get("status") == "error":
+                _error(ctx, job)
+            _followup_failures(job)
+        # Above the stage dispatch and above the tab bar, deliberately: this is
+        # what puts "Take it somewhere" at all five Create stages instead of two,
+        # and above the Library's tabs instead of buried inside Details -- see
+        # the comment on ``_STAGE_SECTIONS`` for the two copies this replaced. In
+        # Create it is wrapped in a header that is closed by default, so the
+        # exits are one click away rather than on screen.
+        if not in_create or widgets.header("Open in...", default_open=False,
+                                           persist_key="create/destinations"):
+            _edit_actions(ctx, job)
+
+        if in_create:
+            _stage_body(ctx, job)
+            return
+        # Every other host (the Library's full-window inspector) keeps the tabs,
+        # because there is no stage rail there to drive them. Which tabs is a
+        # question about the *asset* rather than about the mode it is being
+        # looked at from -- it used to be "are we in 3D", which offered Rig & Pose
+        # for a reference selected there and withheld it for a mesh selected
+        # anywhere else.
+        tabs: list[tuple[str, Any]] = [("Details", lambda: _details_tab(ctx, job))]
+        if "model.glb" in (job.get("files") or []):
+            # One ampersand. Dear ImGui has no mnemonic escape -- the doubling is
+            # a habit from toolkits that do, and it drew "Rig && Pose" on the tab
+            # for as long as nobody looked at the Library's inspector in a
+            # screenshot.
+            tabs.append(("Rig & Pose", lambda: _rig_tab(ctx, job)))
+        tabs.append(("Export", lambda: downloads(ctx, job)))
+        widgets.tab_bar("inspector-tabs", tabs)
 
 
 def can_edit_in_clay(job: Any) -> bool:
@@ -867,15 +902,25 @@ def flush_unsent_for(ctx: Any, job_id: str) -> None:
             _unsent.pop(key, None)
 
 
-def _header(ctx: Any, job: Any) -> None:
+def _header(ctx: Any, job: Any, card: bool = False) -> None:
     job_id = job["id"]
     # The name *is* this pane's header (UX.md Phase 2), so it is drawn at
     # heading size rather than at body size like the tag field under it. It
     # stays an editable field rather than becoming a label with a pencil beside
     # it: renaming an asset is one of the two things anybody does up here, and
     # the input is what already carries the "Name" hint when there is none.
-    with fonts.heading(imgui):
+    #
+    # **Not in Create's identity card** (``card``): the heading face made the name
+    # a 36 px field stacked on the 30 px tags field under it -- two heights for two
+    # fields of one kind (2026-10-11 spacing review, finding 6). There the card is
+    # the header, so the name is an ordinary 30 px field.
+    if card:
         name = widgets.input_text("##name", job.get("name") or "", max_length=120, hint="Name")
+    else:
+        with fonts.heading(imgui):
+            name = widgets.input_text(
+                "##name", job.get("name") or "", max_length=120, hint="Name"
+            )
     _write_field(
         ctx, f"name:{job_id}", job_id, lambda v: {"name": v}, name, job.get("name") or ""
     )

@@ -60,6 +60,8 @@ def _split_column(
     middle: tuple[str, Any, Callable[[Any], None], float] | None = None,
     wanted: float | None = None,
     below_floor: float = 0.0,
+    padding: float | None = None,
+    gutter: float | None = None,
 ) -> None:
     """One column of stacked panes with a drag handle between them.
 
@@ -84,6 +86,13 @@ def _split_column(
     ``wanted``/``below_floor`` turn the plain proportion into Inker's give-way
     split, where a pane with a known minimum content height wins over the
     stored share and the pane beneath it keeps a floor of its own.
+
+    ``padding`` is every pane's inset in design px (``None`` keeps
+    ``layout.PANE_PADDING``). ``gutter`` is the gap between the top pane and the
+    one below it, in design px, **with the drag handle living inside it**
+    (``None`` keeps the old stack: item spacing, the 7 px grip, item spacing again
+    -- 23 px at 1x). A column of cards wants the same 8 px between its two panes
+    that it has between its cards, and the grip is 7 of those 8.
     """
     from imgui_bundle import imgui
 
@@ -93,7 +102,7 @@ def _split_column(
     imgui.begin_group()
     if before is not None:
         name, role, draw_fn, height = before
-        with layout_mod.pane(name, (width, height), role, edge=edge) as visible:
+        with layout_mod.pane(name, (width, height), role, edge=edge, padding=padding) as visible:
             if visible:
                 draw_fn(ctx)
     avail_y = imgui.get_content_region_avail().y
@@ -101,10 +110,25 @@ def _split_column(
         top_height = avail_y * lay.share(split_id)
     else:
         top_height = layout_mod.give_way(avail_y, lay.share(split_id), wanted, below_floor)
-    with layout_mod.pane(top[0], (width, top_height), top[1], edge=edge) as visible:
+    with layout_mod.pane(
+        top[0], (width, top_height), top[1], edge=edge, padding=padding
+    ) as visible:
         if visible:
             top[2](ctx)
-    drag = layout_mod.splitter(f"{split_id}-share", vertical=False, length=handle_length)
+    if gutter is None:
+        drag = layout_mod.splitter(f"{split_id}-share", vertical=False, length=handle_length)
+    else:
+        # The cursor is one item spacing below the top pane. Go back up to the
+        # pane's own bottom edge, lay the grip there (it is 7 of the gutter's 8
+        # px), then put the cursor exactly ``gutter`` below the pane: absolute
+        # positions rather than relative nudges, so the layout editor
+        # suppressing the grip (``splitter`` returns early) cannot shift the pane
+        # below it.
+        spot = imgui.get_cursor_screen_pos()
+        edge_y = spot.y - imgui.get_style().item_spacing.y
+        imgui.set_cursor_screen_pos((spot.x, edge_y))
+        drag = layout_mod.splitter(f"{split_id}-share", vertical=False, length=handle_length)
+        imgui.set_cursor_screen_pos((spot.x, edge_y + tokens_mod.sp(gutter)))
     if drag and avail_y > 0:
         if wanted is None:
             share = lay.share(split_id) + drag * tokens_mod.SCALE / avail_y
@@ -120,10 +144,12 @@ def _split_column(
             lay.save()
     if middle is not None:
         name, role, draw_fn, height = middle
-        with layout_mod.pane(name, (width, height), role, edge=edge) as visible:
+        with layout_mod.pane(name, (width, height), role, edge=edge, padding=padding) as visible:
             if visible:
                 draw_fn(ctx)
-    with layout_mod.pane(bottom[0], (width, 0), bottom[1], edge=edge) as visible:
+    with layout_mod.pane(
+        bottom[0], (width, 0), bottom[1], edge=edge, padding=padding
+    ) as visible:
         if visible:
             bottom[2](ctx)
     imgui.end_group()
@@ -145,6 +171,7 @@ def _right_column(
     geometry the frame draws is therefore the geometry the test measures.
     """
     from .. import layout as layout_mod
+    from .. import tokens as tokens_mod
 
     _split_column(
         ctx,
@@ -155,6 +182,11 @@ def _right_column(
         edge=layout_mod.PaneEdge.LEFT,
         top=("inspector", layout_mod.PaneRole.INSPECTOR, inspector_draw),
         bottom=("library", layout_mod.PaneRole.SIDEBAR, library_draw),
+        # Cards inside both panes (the Inspector's and History's): the same 8 px
+        # inset the left column and the viewport have, and the same 8 px between
+        # the two panes that there is between their cards, grip included.
+        padding=tokens_mod.SP_2,
+        gutter=tokens_mod.SP_2,
     )
 
 

@@ -1268,14 +1268,16 @@ def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ct
     hardcoded ratio, or the panes swapped) is caught here rather than only on
     screen.
 
-    The expected split is computed from the splitter's grip width and the two
-    item-spacing gaps around it, not padded into a wide tolerance: the avail
-    height measured before the split recombines exactly into
-    ``inspector + spacing + grip + spacing + library``, so hardcoding the
-    ratio (or dropping the splitter) throws the measured heights off by more
-    than a pixel.
+    The expected split is computed from the column's gutter, not padded into a
+    wide tolerance: the avail height measured before the split recombines
+    exactly into ``inspector + gutter + library``, so hardcoding the ratio (or
+    dropping the splitter) throws the measured heights off by more than a pixel.
+    The gutter is ``SP_2`` -- the 8 px between cards -- with the 7 px grip
+    *inside* it; it used to be ``spacing + grip + spacing`` (23 px at 1x), the
+    one place in the Create screen where two panes were not 8 px apart.
     """
     from realmspinner.studio import layout as layout_mod
+    from realmspinner.studio import tokens as tokens_mod
     from realmspinner.studio.shell import frame as frame_mod
     from realmspinner.studio.tokens import sp
 
@@ -1300,10 +1302,10 @@ def test_the_right_sidebar_splits_inspector_and_library_by_settings_share(app_ct
     _frame(imgui_ctx, build)
 
     avail_y = avail_before[0]
-    spacing = imgui.get_style().item_spacing.y
-    grip = sp(layout_mod.GRIP)
+    gutter = sp(tokens_mod.SP_2)
+    assert sp(layout_mod.GRIP) <= gutter, "the grip must fit inside the gutter"
     expected_top = avail_y * lay.settings_share
-    expected_bottom = avail_y - expected_top - grip - 2 * spacing
+    expected_bottom = avail_y - expected_top - gutter
 
     assert tops[0] == pytest.approx(expected_top, abs=1.0)
     assert bottoms[0] == pytest.approx(expected_bottom, abs=1.0)

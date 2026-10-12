@@ -1967,10 +1967,20 @@ _PLAIN_HEADER = False
 class _GroupFrame:
     """One open group. See :func:`group`."""
 
-    __slots__ = ("owner", "body_y", "trailing", "field_end")
+    __slots__ = ("owner", "body_y", "trailing", "field_end", "stable_inner")
 
-    def __init__(self, owner: str) -> None:
+    def __init__(self, owner: str, stable_inner: float | None = None) -> None:
         self.owner = owner
+        #: The card's inner width **as if its pane's scrollbar were showing**,
+        #: for :func:`stable_content_width`. A card is a child with no scrollbar
+        #: of its own, so asked from inside, the window answers "no bar, here is
+        #: my live avail" -- and that avail is the *pane's* width, which the
+        #: pane's scrollbar (decided a frame late from its content height) moves.
+        #: A card holding an image sized from it then feeds its own height into
+        #: next frame's scrollbar decision: the oscillation ``stable_width`` exists
+        #: to prevent, returned through a door it had no way to see
+        #: (``test_layout_stability`` caught the Create inspector at 1.6x).
+        self.stable_inner = stable_inner
         #: Screen y where the body starts. Nothing has been drawn in the body
         #: while the cursor is still here, which is how ``group_header_row`` knows
         #: a (?) called first thing in the body belongs on the header row.
@@ -2148,6 +2158,9 @@ def group(
             # a promise about cards.
             nudge_cursor_y(sp(tokens.SP_2) - imgui.get_style().item_spacing.y)
     pad = sp(tokens.SP_3)
+    # Asked of the *parent* window, before the child exists: that is where the
+    # scrollbar this is stable against lives (see ``_GroupFrame.stable_inner``).
+    stable_inner = max(stable_content_width() - 2.0 * pad, 1.0)
     imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
     imgui.push_style_var(imgui.StyleVar_.child_rounding.value, sp(tokens.RADIUS_M))
     imgui.push_style_color(
@@ -2163,7 +2176,7 @@ def group(
     )
     imgui.pop_style_color()
     imgui.pop_style_var(2)
-    frame = _GroupFrame(_window_owner())
+    frame = _GroupFrame(_window_owner(), stable_inner)
     _GROUPS.append(frame)
     controls.push_elevation()
     imgui.push_style_color(imgui.Col_.frame_bg.value, imgui.ImVec4(*theme.rgba(theme.ELEV_2)))
@@ -2682,7 +2695,12 @@ def stable_content_width() -> float:
     ``set_scroll_y``) -- the most direct honest answer imgui_bundle exposes,
     short of reading the child's flags back out, which the binding does not
     surface. ``get_style().scrollbar_size`` is the width to reserve.
+
+    Inside a :func:`group` it is the card's inner width measured against the
+    *pane's* scrollbar, not the card's own (which never has one).
     """
+    if _GROUPS and _GROUPS[-1].owner == _window_owner() and _GROUPS[-1].stable_inner is not None:
+        return _GROUPS[-1].stable_inner
     return stable_width(
         imgui.get_content_region_avail().x,
         imgui.get_style().scrollbar_size,
