@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from realmspinner.mcp import pipe, protocol, rpc
 from realmspinner.studio import agent_host
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
@@ -258,12 +260,22 @@ def test_a_connection_that_opens_with_jsonrpc_gets_bad_request_and_is_closed(tmp
             # The connection is closed right after that one reply -- a
             # second request either raises sending into a closed pipe, or
             # is sent but never answered.
+            #
+            # A ready poll is not an answer by itself. On Windows `poll` waits
+            # with a zero-byte overlapped read, and a pipe that breaks *during*
+            # that wait reports ready too: the 2026-10-13 CI run for 0.1.3 sent
+            # the second request before the host closed, then saw the close
+            # land inside the poll and failed with "should already be closed".
+            # Ready-then-EOF is the closed connection this test is about; only
+            # a frame that actually arrives is an answer.
             try:
                 conn.send_bytes(rpc.encode_request("hello", versions=[1], bridge_version="test"))
             except OSError:
                 pass
             else:
-                assert not conn.poll(0.5), "the connection should already be closed"
+                if conn.poll(0.5):
+                    with pytest.raises((EOFError, OSError)):
+                        conn.recv_bytes()
         finally:
             conn.close()
     finally:
