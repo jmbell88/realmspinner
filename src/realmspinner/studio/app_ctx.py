@@ -203,6 +203,11 @@ class Ctx:
     # until the App attaches it, so a headless caller does nothing rather than
     # quitting a process it does not own.
     ask_quit: Any = None
+    # The same chain with a different last step: ``quit_to_install(path)`` runs
+    # every guard, then opens the installer and exits -- the installer cannot
+    # replace files this process is running out of, so the update flow closes
+    # the app for the user instead of asking them to. None until attached.
+    quit_to_install: Any = None
     # "Clear the canvas", for the same reason again: emptying the viewport is
     # only half the job -- the other half is pinning ``viewer.path`` so the
     # App's own ``_sync_viewer`` does not refill it on the next cache tick, and

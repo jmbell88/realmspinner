@@ -43,8 +43,8 @@ from importlib.metadata import distributions
 from pathlib import Path
 from typing import Any
 
+from .. import installed_version, winjob
 from .. import packs as packs_mod
-from .. import winjob
 from ..config import PROJECT_ROOT
 from ..core.safeio import atomic as safeio_atomic
 from .core import RealmspinnerService
@@ -205,6 +205,75 @@ def packs_to_restore(svc: RealmspinnerService) -> list[str]:
         if pack is not None and not packs_mod.installed(pack):
             missing.append(key)
     return missing
+
+
+def _restore_failure_path(svc: RealmspinnerService) -> Path:
+    """Beside ``selected.json`` for its reason: it has to outlive the upgrade."""
+    return cache_dir(svc) / "restore-failed.json"
+
+
+def _restore_failed_for(svc: RealmspinnerService) -> str:
+    try:
+        raw = json.loads(_restore_failure_path(svc).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(raw.get("version") or "") if isinstance(raw, dict) else ""
+
+
+def restore_at_startup(
+    svc: RealmspinnerService,
+    *,
+    on_progress: Progress | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> dict[str, Any] | None:
+    """Put back the packs an upgrade removed, before the app finishes loading.
+
+    The installer deletes ``site-packages`` on every upgrade
+    (``installer/realmspinner.iss``), and until now the only sign was a
+    "Restore packs" button in Settings -- so the first launch after an update
+    opened with Create, Muse or the rig modes silently grey. The wheels are
+    still in the cache under the user's Realmspinner home, so this is normally
+    a local pip run with nothing to download.
+
+    Runs on the splash's load thread. **It must never stop the app starting**:
+    every failure is swallowed into the return value, and the Settings button
+    stays as the manual remedy. A failure is recorded against the installed
+    version so a machine that is offline, or short on disk, is not made to wait
+    through the same doomed attempt on every launch -- the next *version*
+    tries again, and so does a press of the button. A restore the user cancelled
+    (``cancelled``) is not a failure and records nothing.
+
+    Returns ``None`` when there was nothing to do or nothing it may attempt (no
+    manifest, which is every source checkout), else the install's result, or
+    ``{"ok": False, "error": ...}``.
+    """
+    try:
+        keys = packs_to_restore(svc)
+    except Exception:  # noqa: BLE001 -- a bad record is not a reason not to start
+        log.exception("could not check for packs an upgrade removed")
+        return None
+    if not keys or not manifest_path().is_file():
+        return None
+    version = installed_version()
+    if _restore_failed_for(svc) == version:
+        log.info("not restoring %s again: the attempt for %s failed", keys, version)
+        return None
+    log.info("restoring packs an upgrade removed: %s", keys)
+    try:
+        result = install(svc, keys, on_progress=on_progress)
+    except Exception as exc:  # noqa: BLE001 -- see the docstring
+        if cancelled is not None and cancelled():
+            log.info("pack restore cancelled during startup")
+            return {"ok": False, "error": "cancelled"}
+        log.warning("could not restore packs %s: %s", keys, exc)
+        with contextlib.suppress(OSError):
+            safeio_atomic.write_text(
+                _restore_failure_path(svc), json.dumps({"version": version}), encoding="utf-8"
+            )
+        return {"ok": False, "error": str(exc)}
+    with contextlib.suppress(OSError):
+        _restore_failure_path(svc).unlink()
+    return result
 
 
 def load() -> packs_mod.Manifest:

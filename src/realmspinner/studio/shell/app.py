@@ -120,6 +120,12 @@ class App(
         # phase is the one moment that promise cannot be kept, so the ask
         # itself is deferred rather than the answer.
         self._quit_deferred = False
+        self._quit_deferred_then: Any = None
+        # Which side of the cancel line a startup pack restore is on, written
+        # from the splash's load thread and read by its frame loop -- see
+        # ``_restore_packs_behind_splash``.
+        self._restoring_phase = ""
+        self._restore_cancelled = False
         self._min_size = MIN_SIZE
         self._last_frame = time.perf_counter()
         self._started_at = self._last_frame
@@ -406,6 +412,46 @@ class App(
         starts a runtime without a window.
         """
         self.svc = self.runtime.start(note)
+        self._restore_packs_behind_splash(note)
+
+    def _restore_packs_behind_splash(self, note: Any = None) -> None:
+        """Reinstall the packs the last upgrade removed, while the splash is up.
+
+        After ``runtime.start`` (it needs the service) and before ``setup_context``
+        snapshots ``pack_rows``/``packs_to_restore`` and decides which modes'
+        doors are open -- so a restored pack means the first frame already has
+        Create or Muse available, rather than a Settings button to press. The
+        service swallows its own failures; see ``service.packs.restore_at_startup``.
+        """
+        from ...service import packs as svc_packs
+
+        def progress(percent: float, label: str, phase: str) -> None:
+            self._restoring_phase = phase
+            if note is not None:
+                tail = f": {label}" if label else ""
+                note(f"Restoring packs removed by the update ({percent:.0f}%){tail}")
+
+        try:
+            svc_packs.restore_at_startup(
+                self.svc, on_progress=progress, cancelled=lambda: self._restore_cancelled
+            )
+        finally:
+            self._restoring_phase = ""
+
+    def _cancel_startup_restore(self) -> None:
+        """The splash's X, during a restore: stop it if it is still downloading.
+
+        ``Startup.request_quit`` waits the load out, which for a restore could be
+        a multi-gigabyte download. The commit phase is the one thing that is not
+        stopped -- pip is writing into ``site-packages`` -- so it is waited out
+        like any other load step (``_ask_quit``'s own H02 rule).
+        """
+        from ... import winjob
+        from ...pipelines import pack_worker
+
+        if self._restoring_phase == pack_worker.PHASE_DOWNLOAD:
+            self._restore_cancelled = True
+            winjob.terminate_tracked("pack install")
 
     def setup_context(self) -> None:
         """The Ctx and the state it carries. Frame thread only, after both."""
@@ -564,6 +610,7 @@ class App(
 
         ctx = self.app_ctx
         ctx.ask_quit = self._ask_quit
+        ctx.quit_to_install = self._quit_to_install
         ctx.clear_viewport = self._clear_viewport
         ctx.guidance = svc_system.guidance_catalog(self.svc)
         ctx.sheet_options = svc_sheets.sheet_options()
@@ -892,6 +939,7 @@ class App(
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         started.request_quit()
+                        self._cancel_startup_restore()
                         continue
                     if event.type == pygame.VIDEORESIZE:
                         # Not persisted: settings are written at teardown from

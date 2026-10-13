@@ -2917,10 +2917,18 @@ def _update_result(ctx: Any, download_busy: bool) -> None:
     ready = _staged(ctx, info)
     if ready is not None:
         widgets.muted(f"Update ready -- {ready.name}")
-        if controls.small_button(f"{icons.DOWNLOAD} Run Installer##update-run"):
-            # Its own key too -- see the comment on "open-release-notes" above.
-            ctx.submit("run-installer", _open, str(ready))
-            ctx.toast("The installer is opening. Close Realmspinner before it asks you to.")
+        if controls.small_button(f"{icons.DOWNLOAD} Close and Install##update-run"):
+            quit_to_install = getattr(ctx, "quit_to_install", None)
+            if quit_to_install is not None:
+                # The installer cannot replace files this process is running
+                # out of, and used to stall asking the user to close the app.
+                # The App runs its quit guards, opens the installer, then exits.
+                quit_to_install(str(ready))
+            else:
+                # A headless ctx has no App to close; hand the installer over
+                # as before. Its own key -- see "open-release-notes" above.
+                ctx.submit("run-installer", _open, str(ready))
+                ctx.toast("The installer is opening. Close Realmspinner before it asks you to.")
         imgui.same_line()
         if controls.small_button("Show in Folder##update-show"):
             # "open-folder:" is the reveal-in-explorer convention

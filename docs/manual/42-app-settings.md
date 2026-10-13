@@ -266,17 +266,29 @@ work is generated changes.
 
 If there is a newer version, the page names it and offers three things: **Release notes**, which
 opens the release page in your browser; **Download Update**, with the installer's size on the
-button; and, once that has finished, **Run Installer** and **Show in Folder**. The download goes
+button; and, once that has finished, **Close and Install** and **Show in Folder**. The download goes
 into `updates` under your Realmspinner home — beside the [pack cache](#packs), and it survives closing
 the app, so an installer you downloaded last night is still there this morning. **Cancel** is safe
 at any point during it: nothing exists until the whole file has arrived and been checked.
 
-**Realmspinner never runs the installer for you, and that is deliberate.** What it does instead is prove
-the file: the release publishes the installer's SHA-256, and the download is checked against it
-before it is given a name you can double-click. A file that does not match is deleted rather than
-offered. The page will not say "Update ready" about a file it has not just re-checked, so an
-installer left over from a different release cannot be run by mistake. Running it is your click, in
-your file manager, with Windows' own prompt in front of it.
+**Realmspinner only opens the installer when you press the button, and only after proving the file.**
+The release publishes the installer's SHA-256, and the download is checked against it before it is
+given a name. A file that does not match is deleted rather than offered. The page will not say
+"Update ready" about a file it has not just re-checked, so an installer left over from a different
+release cannot be run by mistake.
+
+**Close and Install** opens the installer and then closes Realmspinner, because the installer replaces
+files the running app is using and would otherwise stop and wait for you to close it. Closing goes
+through the same checks as any quit: if a drawing, map or song is unsaved, or a job is running, you are
+asked first, and choosing **Stay** leaves both the app open and the installer unopened. Your work and
+models are not touched by an update.
+
+An update removes the dependency [packs](#packs) you had installed, because a pack built for the old
+version is not guaranteed to work with the new one. The next time Realmspinner starts it puts them back
+before the app finishes loading, with the splash screen saying so. The packs' files are kept in your
+Realmspinner home, so this normally downloads nothing. If it cannot — you are offline, or the disk is
+full — the app starts anyway, says which packs are missing under **Packs**, and **Restore packs** there
+does the same thing on request; it is not retried on every launch until the next update.
 
 If a release was published without that manifest — every release older than this feature was — the
 page says you are up to date and offers nothing, because there is nothing it can verify. The same

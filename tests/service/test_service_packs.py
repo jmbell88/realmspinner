@@ -295,6 +295,77 @@ def test_packs_to_restore_is_empty_when_nothing_was_ever_installed(svc):
     assert svc_packs.packs_to_restore(svc) == []
 
 
+@pytest.fixture
+def removed_by_upgrade(manifest_at, svc, monkeypatch):
+    """A recorded ``rig`` pack whose modules an upgrade's wipe took away."""
+    manifest_at(wheel("bpy-5.2.0-cp313-cp313-win_amd64.whl", 10))
+    svc_packs._record_selected(svc, ["rig"])
+    monkeypatch.setattr(svc_packs, "installed_versions", dict)
+    monkeypatch.setattr(packs, "missing_modules", lambda names: list(names))
+    monkeypatch.setattr(svc_packs, "installed_version", lambda: "9.9.9")
+    installs: list[list[str]] = []
+    monkeypatch.setattr(
+        svc_packs, "install", lambda _svc, keys, **kw: installs.append(list(keys)) or {"ok": True}
+    )
+    return installs
+
+
+def test_startup_restores_the_packs_an_upgrade_removed(removed_by_upgrade, svc):
+    """The first launch after an update opened with the pack modes grey and a
+    Settings button nobody was pointed at; the splash puts them back instead."""
+    assert svc_packs.restore_at_startup(svc) == {"ok": True}
+    assert removed_by_upgrade == [["rig"]]
+
+
+def test_startup_restores_nothing_on_a_machine_that_never_installed_a_pack(svc):
+    assert svc_packs.restore_at_startup(svc) is None
+
+
+def test_startup_restores_nothing_without_a_manifest(
+    monkeypatch, tmp_path, svc, removed_by_upgrade
+):
+    """Every source checkout: its extras come from uv, not from this."""
+    monkeypatch.setattr(svc_packs, "manifest_path", lambda: tmp_path / "nope.json")
+    assert svc_packs.restore_at_startup(svc) is None
+    assert removed_by_upgrade == []
+
+
+def test_a_failed_startup_restore_never_stops_the_app_and_is_not_retried_every_launch(
+    removed_by_upgrade, svc, monkeypatch
+):
+    """Offline, or a full disk, would otherwise cost the same doomed attempt on
+    every launch until the user noticed. It is retried by the next *version* and
+    by the Settings button, neither of which goes through here."""
+
+    def boom(_svc, _keys, **_kw):
+        raise Invalid("no network")
+
+    monkeypatch.setattr(svc_packs, "install", boom)
+    result = svc_packs.restore_at_startup(svc)
+    assert result is not None and result["ok"] is False and "no network" in result["error"]
+
+    monkeypatch.setattr(
+        svc_packs, "install", lambda *a, **k: pytest.fail("retried in the same version")
+    )
+    assert svc_packs.restore_at_startup(svc) is None
+
+    # A newer version is a new chance, and a success clears the record.
+    monkeypatch.setattr(svc_packs, "installed_version", lambda: "9.9.10")
+    monkeypatch.setattr(svc_packs, "install", lambda *a, **k: {"ok": True})
+    assert svc_packs.restore_at_startup(svc) == {"ok": True}
+    assert svc_packs._restore_failed_for(svc) == ""
+
+
+def test_a_restore_the_user_cancelled_records_no_failure(removed_by_upgrade, svc, monkeypatch):
+    def killed(_svc, _keys, **_kw):
+        raise Invalid("the pack worker was stopped")
+
+    monkeypatch.setattr(svc_packs, "install", killed)
+    result = svc_packs.restore_at_startup(svc, cancelled=lambda: True)
+    assert result == {"ok": False, "error": "cancelled"}
+    assert svc_packs._restore_failed_for(svc) == ""
+
+
 def test_only_what_is_missing_is_planned(manifest_at, svc, monkeypatch):
     """``music`` after ``text2image`` is the case: the wheels they share are
     already at the pack's version, so the second install is the difference."""

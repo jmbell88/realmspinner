@@ -13,7 +13,8 @@ the pane dispatches it through ``TaskRunner``.
 ``site-packages`` the app is running out of, so it earns two whole-plan
 refusals before it may start. This writes one file into a staging directory
 under the user's Realmspinner home that nothing else reads, and *never runs it*: the
-pane offers a button that opens the verified installer, and the user decides.
+pane offers a button that closes the app and opens the verified installer, and the
+user decides.
 So Cancel is safe at every point -- there is no commit phase, and the worst a
 kill leaves behind is a ``.part`` nothing reads as a downloaded installer.
 """

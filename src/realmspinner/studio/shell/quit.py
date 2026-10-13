@@ -166,8 +166,37 @@ class QuitMixin:
             )
         return "\n".join(lines)
 
-    def _ask_quit(self) -> None:
+    def _quit_to_install(self, installer: str) -> None:
+        """Close the app and hand the downloaded installer to the shell.
+
+        The installer replaces ``python\\`` and ``src\\`` -- files this process is
+        running out of -- and used to stall on "Realmspinner is still open"
+        while the user was told to close it themselves. Every guard still runs
+        first (unsaved work, a running job), so "Stay" on any of them leaves the
+        app open and the installer unopened. The installer is opened *before*
+        the exit, and a failure to open it keeps the app running: closing the
+        app on the strength of an installer that never appeared would leave the
+        user with neither.
+        """
+        import os
+
+        def launch_then_quit() -> None:
+            try:
+                os.startfile(installer)  # noqa: S606 -- a digest-verified installer
+            except OSError as exc:
+                log.warning("could not open the installer %s: %s", installer, exc)
+                self.app_ctx.toast(f"Could not open the installer: {exc}", "warn")
+                return
+            self._quit()
+
+        self._ask_quit(launch_then_quit)
+
+    def _ask_quit(self, then: Any = None) -> None:
         """Ask once, about what is actually true, then run the guards.
+
+        ``then`` is the last step once every guard has passed -- ``_quit`` when
+        omitted. It rides through the deferred-quit and the confirm below so
+        that "quit and install" is still held back by a pack's commit phase.
 
         The chain below still asks per unsaved document, because each of those
         is a genuine question with a genuine answer ("discard *this* one?").
@@ -196,6 +225,7 @@ class QuitMixin:
         # is withheld, not answered, until the commit phase clears.
         if self.app_ctx.tasks.commit_busy("pack:"):
             self._quit_deferred = True
+            self._quit_deferred_then = then
             self.app_ctx.toast(
                 "A dependency pack is being installed and cannot be "
                 "interrupted safely. Quitting once it finishes.",
@@ -204,7 +234,7 @@ class QuitMixin:
             return
         summary = self._quit_summary()
         if not summary:
-            self._request_quit()
+            self._request_quit(then)
             return
         # shell-46 (2026-10-03 audit): every ``pygame.QUIT`` reaches here, and a
         # second press of the X (or Alt+F4) while this question is already up
@@ -218,7 +248,7 @@ class QuitMixin:
                 message=summary,
                 confirm_label="Quit",
                 cancel_label="Stay",
-                on_confirm=self._request_quit,
+                on_confirm=lambda: self._request_quit(then),
             )
         )
 
@@ -234,9 +264,10 @@ class QuitMixin:
         if not getattr(self, "_quit_deferred", False):
             return
         self._quit_deferred = False
-        self._ask_quit()
+        then, self._quit_deferred_then = getattr(self, "_quit_deferred_then", None), None
+        self._ask_quit(then)
 
-    def _request_quit(self) -> None:
+    def _request_quit(self, then: Any = None) -> None:
         """One chain, in order: painted pixels, then built geometry, then a pose.
 
         A list walked by index rather than three lambdas nested by hand (I78).
@@ -268,7 +299,7 @@ class QuitMixin:
 
         def step(index: int) -> None:
             if index == len(guards):
-                self._quit()
+                (then or self._quit)()
                 return
             guards[index](ctx, "quit", lambda: step(index + 1))
 

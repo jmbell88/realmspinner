@@ -234,7 +234,7 @@ def test_a_deferred_quit_resumes_once_the_commit_phase_clears(monkeypatch):
     app.app_ctx.confirms = SimpleNamespace(ask=lambda *_a, **_k: None)
     app._quit_deferred = True
     requested: list[bool] = []
-    app._request_quit = lambda: requested.append(True)
+    app._request_quit = lambda *_then: requested.append(True)
     app._on_task_done(_done("pack:rig"))
     assert app._quit_deferred is False
 
