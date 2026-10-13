@@ -1077,6 +1077,10 @@ def test_face_normals_subset_on_an_empty_selection() -> None:
 # --- perf: the 2026-09-17 native-kernel review (batch 11) --------------------
 
 
+# In the perf lane, not the default one: the 0.1.3 CI run on a shared runner
+# took 0.577 s against the 0.5 s budget with the code unchanged, and a wall-clock
+# budget is meaningless under contention (CLAUDE.md's `-m perf` lane).
+@pytest.mark.perf
 def test_region_offsets_on_a_large_mesh_finishes_well_under_the_old_time() -> None:
     """The measured case (isolated, the way dev/scripts/bench_native.py's
     ``clay_extrude_regions`` case does it): select every face of a 200k-face
