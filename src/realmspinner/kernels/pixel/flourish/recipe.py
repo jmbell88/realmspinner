@@ -460,7 +460,16 @@ def from_dict(raw: dict[str, Any]) -> Recipe:
         if kind not in prims.KINDS:
             raise ValueError(f"{kind!r} is not a primitive this build knows")
         uid = entry.get("uid")
-        uid = int(uid) if isinstance(uid, int) and uid > 0 and uid not in seen else new_uid()
+        if isinstance(uid, int) and uid > 0 and uid not in seen:
+            uid = int(uid)
+        else:
+            # The counter is process-wide and knows nothing of this recipe's
+            # kept uids, so a reissued one can land exactly on a uid a layer
+            # already holds (a duplicate 40 reissued as 40 once 39 uids had
+            # been handed out) -- and undo is addressed by uid.
+            uid = new_uid()
+            while uid in seen:
+                uid = new_uid()
         seen.add(uid)
         params = entry.get("params") if isinstance(entry.get("params"), dict) else {}
         layers.append(

@@ -152,6 +152,23 @@ def test_uids_are_kept_when_unique_and_reissued_when_not():
     assert len(set(uids)) == 3
 
 
+@pytest.mark.parametrize("counter_at", [39, 40, 41])
+def test_a_reissued_uid_never_lands_on_one_the_recipe_kept(monkeypatch, counter_at):
+    """The counter is process-wide, so which uid a duplicate is reissued depends
+    on how many were handed out before -- the suite's order. With it at 40 the
+    second ``uid: 40`` was reissued as 40 and two layers shared an identity (a
+    flake in the 2026-10-13 release build, passing alone and in most orders)."""
+    import itertools
+
+    monkeypatch.setattr(R, "_uids", itertools.count(counter_at))
+    rec = flourish.from_dict(
+        {"layers": [{"kind": "core", "uid": 40}, {"kind": "core", "uid": 40}, {"kind": "flash"}]}
+    )
+    uids = [layer.uid for layer in rec.layers]
+    assert uids[0] == 40
+    assert len(set(uids)) == 3
+
+
 def test_bump_uids_gives_fresh_identities_for_a_second_insert():
     rec = flourish.from_dict(FIREBALL)
     twice = R.bump_uids(rec)
