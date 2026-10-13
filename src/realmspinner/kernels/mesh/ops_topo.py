@@ -1247,8 +1247,8 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
 #: is one call, and the same shape now measures 0.91 s at 50,000 seeds (0.36 s
 #: at 25,000, 0.23 s at 12,500) -- so the ceiling stays where it was and the
 #: figure beside it is the real one. (``fill_hole``, ``collapse`` and
-#: ``bridge_edges`` have no caller under ``src/`` since the picoCAD cut; the
-#: ceilings stay because the kernels do, and ``tests/modes/clay`` drives them.)
+#: ``bridge_edges`` had no caller under ``src/`` between the picoCAD cut and
+#: 2026-10-13, when Clay's Fill Hole, Collapse and Bridge Loops rows returned.)
 MAX_FILL_HOLE_SEEDS = 50_000
 
 

@@ -893,3 +893,21 @@ def test_the_bevel_form_opens_inline_with_a_width_field_and_apply_is_one_undo_st
     assert doc.recent_op is not None and doc.recent_op.params["width"] == 0.1
     assert doc.undo()
     assert len(obj.mesh.starts) == faces
+
+
+# -- Dissolve, Bridge Loops, Fill Hole and Collapse, restored 2026-10-13 -----------------------
+#
+# They sit in a closed Topology fold, not the open Shape it card: the card is the one the
+# 1600x950 dock test measures, and four more buttons pushed Delete 17 px past it.
+
+
+def test_the_four_topology_ops_are_in_a_closed_fold_and_not_on_the_shape_it_card():
+    for mode in ("vertex", "edge", "face"):
+        visible, folded_groups = clay_elements.shape_groups(mode)
+        open_ops = {op.name for _k, _l, ops in visible for op in ops}
+        folded = {op.name for key, _l, ops in folded_groups for op in ops if key == "topology"}
+        assert not open_ops & {"dissolve", "bridge", "fill-hole", "collapse"}, mode
+        assert folded, mode
+    assert {"dissolve", "bridge", "fill-hole", "collapse"} == {
+        op.name for _k, _l, ops in clay_elements.shape_groups("edge")[1] for op in ops
+    } & {"dissolve", "bridge", "fill-hole", "collapse"}

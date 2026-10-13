@@ -105,6 +105,11 @@ GROUPS: dict[str, Group] = {
             "subdivide",
         ),
     ),
+    # Not in ``mesh``: that group sits open on the Inspector's Shape it card, and the
+    # four ops that returned on 2026-10-13 (six with Loop Cut and Edge Slide) pushed
+    # Delete 17 px past the open dock at 1600x950. A closed fold costs the card
+    # nothing and the right-click menu still lists them.
+    "topology": Group("Topology", ("dissolve", "bridge", "fill-hole", "collapse")),
     "delete": Group("Delete", ("delete",)),
     # Frame Selection is drawn by the toolbar's View popup, which owns the camera;
     # it is in the table so the coverage test can say "every op is in a group".
@@ -158,6 +163,7 @@ def _mesh_menu(*extra: Entry) -> Menu:
         "Mesh",
         (
             _inline("mesh"),
+            _sub("topology"),
             _sub("origin"),
             *extra,
             _inline("delete"),

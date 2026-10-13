@@ -4675,3 +4675,32 @@ def test_clay_op_repeat_last_refuses_with_nothing_then_repeats_the_agents_own_op
     assert tab.doc.recent_op.params["thickness"] == 0.2
 
 
+
+
+def test_clay_op_dissolve_is_in_the_enum_and_merges_a_picked_box_edge() -> None:
+    """Tranche 1 landing 1 of the Clay rig plan restored Dissolve, Bridge Loops, Fill Hole
+    and Collapse, so ``clay_op``'s enum (derived from ``OPS``) gains them. Fails before the
+    restore: the enum has none of the four and the call is a schema refusal."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+
+    refused = agent_clay.call(ctx, session, "clay_op", {"name": "dissolve"})
+    assert refused["isError"] is True
+    assert refused["content"][0]["text"] == clay_ops.reason_for(
+        clay_ops.get("dissolve"), tab.doc
+    )
+
+    assert agent_clay.call(ctx, session, "clay_element_mode", {"mode": "edge"})["isError"] is False
+    picked = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, "edges": [[0, 1]]}
+    )
+    assert picked["isError"] is False, picked
+    faces = len(tab.doc.by_uid(uid).mesh.starts)
+    steps = _history_len(ctx, session)
+    result = agent_clay.call(ctx, session, "clay_op", {"name": "dissolve"})
+    assert result["isError"] is False, result
+    assert _payload(result)["ran"] is True
+    assert len(tab.doc.by_uid(uid).mesh.starts) == faces - 1
+    assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"

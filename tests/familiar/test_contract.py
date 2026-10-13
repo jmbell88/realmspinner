@@ -34,8 +34,12 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
     Re-frozen again 2026-10-11 when Clay gained ``simplify``: the only change is
     that one word in ``clay_op``'s name enum, ``e42cf6b7...fb10`` ->
     ``ee11d79e...910d``. Still free, for the same reason (``card_shas`` is ``()``).
+
+    Re-frozen again 2026-10-13 (Tranche 1 landing 1 of the Clay rig plan) when
+    ``clay_op`` regained ``dissolve``, ``bridge``, ``fill-hole`` and ``collapse``:
+    ``ee11d79e...910d`` -> ``67860973...7e34``. Still free (``card_shas`` is ``()``).
     """
-    expected = "ee11d79e89091afd1270c75d4bc357d868b365bf099189cc0df794c71ad0910d"
+    expected = "6786097355638a6d3ef7a24fa9250c438df0ef3af2b263c010100a2af94f7e34"
     assert contract.card_sha("clay") == expected
 
 

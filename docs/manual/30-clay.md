@@ -136,8 +136,9 @@ greyed-out reason or a dialog of numbers cannot differ between them:
   groups — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Separate, UV — with **Duplicate**
   and **Delete** as rows of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None,
   Invert Selection and Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset,
-  bevel, merge faces, weld, flip, triangulate, subdivide and Delete, with Set Origin to Selection and, in face mode,
-  Shading and Separate Selection behind folds of their own. See [The inspector](#the-inspector).
+  bevel, merge faces, weld, flip, triangulate, subdivide and Delete, with Topology (dissolve, bridge, fill hole,
+  collapse), Set Origin to Selection and, in face mode, Shading and Separate Selection behind folds of their own.
+  See [The inspector](#the-inspector).
 - **The right-click menu** in the viewport lists exactly the operations that apply in the current mode, in the
   same order, with the groups separated by rules.
 - **`Ctrl`+`K`**, the command palette, lists all of them under a **Clay** heading (below).
@@ -151,7 +152,7 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has forty operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has forty-four operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
@@ -165,6 +166,7 @@ Selection included (it is also in the toolbar's View popover):
 | Object ▸ Shading | Shade Smooth, Shade Flat (also in face mode) |
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
 | Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`); in vertex mode Weld... |
+| Mesh ▸ Topology | Dissolve (vertex and edge modes); in edge mode Bridge Loops and Fill Hole; Collapse (edge and face modes) |
 | UV | Box Unwrap, Pack Islands... |
 | (toolbar) | Frame Selection (`F`) |
 
@@ -371,6 +373,10 @@ a box and `L` between them reach what a low-poly model needs.
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
 | Faces | Triangulate Faces (`T`) | Replaces each selected face with its own triangles. |
 | Faces | Merge Faces | Merges a connected block of selected faces into one n-gon. |
+| Points, Edges | Dissolve | Removes the selected element and keeps the surface closed: a point merges the ring of faces around it into one n-gon, an edge merges the two faces either side of it. A point or an edge on a boundary has no ring or no second face, so it is refused, naming the element; Fill the hole first, or Delete. |
+| Edges | Bridge Loops | Joins two selected boundary loops of the same length with a strip of quads. Both loops must be open boundaries (delete the faces between two interior rings first), and a closed loop cannot be bridged to an open chain. |
+| Edges | Fill Hole | Caps the boundary ring each selected edge belongs to with one n-gon. A ring that pinches or visits a vertex twice is refused. |
+| Edges, Faces | Collapse | Pulls each connected run of selected edges, or block of selected faces, down to one vertex at its centre. A bare point selection is refused: that is Weld. |
 | Points | Weld | Merges vertices closer together than a distance you give. Two vertices closer than the distance weld. Inside a longer run of closely spaced points a vertex joins a group only if it is within half the distance of the group's leader (the first vertex in coordinate order), so a chain is cut into pieces rather than collapsed into one, and a pair closer than the distance can stay apart when neither is near a leader. The distance is limited to 50 m, and a distance big enough to leave the object with no faces at all is refused, naming the distance. A weld of more than 20,000 vertices at once (a big mesh with every point selected) takes a faster, rougher pass. It sorts the points into cells the size of the distance and keeps a point only if it is within half the distance of the average position of the points sharing its cell. It never welds a pair farther apart than the distance, but it can leave a closer pair apart: in a test, 792 of 2,000 pairs at half the distance welded, against all 2,000 below the limit. Weld a smaller selection to get the exact search. |
 
 An operation that cannot do what you asked says so in a toast naming the element and what to do
@@ -382,7 +388,7 @@ several disconnected blocks becomes one face *per block*, not one face overall �
 in it is not something this editor's meshes can hold, so there would be nothing to make. And a
 single face on its own is refused: there is no neighbour to merge it with. When the faces you merge
 disagree about material or smoothing, the merged face takes the material and smooth/flat setting of the
-lowest-numbered of them. Clay has no dissolve or collapse for vertices and edges.
+lowest-numbered of them.
 
 ### Dragging an operation's number
 

@@ -1057,6 +1057,23 @@ def _extrude(ctx: Any, doc: Any, **params: Any) -> bool:
     return which is not None and run_mesh_op(ctx, doc, which[0], kernel=which[1], **params)
 
 
+def _dissolve(ctx: Any, doc: Any, **params: Any) -> bool:
+    """Dissolve, dispatched on the mode -- one row and one key, as Extrude is.
+
+    A vertex dissolves into the fan of faces around it and an edge into the pair
+    across it; both answer "remove this element and keep the surface closed", so
+    two rows would be exposing the kernel split. Face mode has its own Merge
+    Faces row, which is the same idea under the word a user searches for.
+    """
+    from ....kernels.mesh import ops_dissolve
+
+    which = {
+        "vertex": (ops_dissolve.dissolve_verts, "ops_dissolve.dissolve_verts"),
+        "edge": (ops_dissolve.dissolve_edges, "ops_dissolve.dissolve_edges"),
+    }.get(doc.element_mode)
+    return which is not None and run_mesh_op(ctx, doc, which[0], kernel=which[1], **params)
+
+
 #: The largest weld distance Weld and Merge Objects accept, in metres. The
 #: 2026-10-07 audit's clay-43: both kept ``Param``'s 1e6 default ``high``, and a
 #: typed ``1e6`` (or a stray extra digit) welded every vertex of the mesh into
@@ -2713,6 +2730,51 @@ def _register_defaults() -> None:
             run=_element("ops_dissolve.dissolve_faces"),
             enabled=in_mode("face"),
             reason=_in_mode_reason("face"),
+        )
+    )
+    # Restored with the 2026-10-13 Clay rig plan (Tranche 1, landing 1): the
+    # picoCAD-level cut of 112c69e2 left these kernels tested but with no door.
+    # ``dissolve_verts`` and ``dissolve_edges`` come back from 112c69e2^ over
+    # today's ``merge_groups``; ``bridge_edges``, ``fill_hole`` and ``collapse``
+    # never left ``ops_topo``.
+    register(
+        Op(
+            name="dissolve",
+            label="Dissolve",
+            modes=("vertex", "edge"),
+            run=_dissolve,
+            enabled=in_mode("vertex", "edge"),
+            reason=_in_mode_reason("vertex", "edge"),
+        )
+    )
+    register(
+        Op(
+            name="bridge",
+            label="Bridge Loops",
+            modes=("edge",),
+            run=_element("ops_topo.bridge_edges"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+        )
+    )
+    register(
+        Op(
+            name="fill-hole",
+            label="Fill Hole",
+            modes=("edge",),
+            run=_element("ops_topo.fill_hole"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+        )
+    )
+    register(
+        Op(
+            name="collapse",
+            label="Collapse",
+            modes=("edge", "face"),
+            run=_element("ops_topo.collapse"),
+            enabled=in_mode("edge", "face"),
+            reason=_in_mode_reason("edge", "face"),
         )
     )
     register(
