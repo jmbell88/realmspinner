@@ -90,7 +90,7 @@ SHADING: tuple[tuple[str, str, str, str], ...] = (
 
 #: The element modes, compact. ``clay_tools.MODE_BUTTONS`` carries the full
 #: labels and the keys; this is only what a narrow window shows instead.
-MODE_SHORT = {"object": "S", "vertex": "P", "edge": "E", "face": "F"}
+MODE_SHORT = {"object": "S", "vertex": "P", "edge": "E", "face": "F", "pose": "O"}
 
 _SAVING = "This document is being written; the controls come back when it lands."
 #: The 2026-10-10 audit's clay-58: ``clay_mode.undo``/``redo``/``step_history`` return
@@ -308,14 +308,18 @@ def _mode_field(tab: Any) -> Any:
         changed, picked = controls.segmented_choice(
             "clay-mode",
             options,
-            doc.element_mode,
+            "pose" if doc.pose_mode else doc.element_mode,
             tooltips=tips,
             compact=True,
             enabled=not tab.saving,
             reason=_SAVING,
         )
         if changed:
-            doc.set_element_mode(picked)
+            # Pose is a layer over Shape mode, not an element mode; any other choice leaves it.
+            if picked == "pose":
+                doc.set_pose_mode(True)
+            else:
+                doc.set_element_mode(picked)
 
     full = _segments([label for _mode, label, _key in clay_tools.MODE_BUTTONS])
     short = _segments([MODE_SHORT[mode] for mode, _label, _key in clay_tools.MODE_BUTTONS])

@@ -39,8 +39,9 @@ def test_every_element_mode_has_a_short_label():
 
 
 def test_the_modes_the_header_offers_are_the_modes_the_ops_registry_knows():
-    """A mode on the bar that no op declares is a mode with nothing in it."""
-    assert {mode for mode, _l, _k in clay_tools.MODE_BUTTONS} == set(clay_ops.ALL_MODES)
+    """A mode on the bar that no op declares is a mode with nothing in it -- except Pose, the
+    header's fifth segment, which is Shape mode with the pose shown and has no ops of its own."""
+    assert {mode for mode, _l, _k in clay_tools.MODE_BUTTONS} == set(clay_ops.ALL_MODES) | {"pose"}
 
 
 def test_every_tool_has_a_glyph_or_falls_back_to_its_initial():
@@ -169,10 +170,11 @@ def test_the_mode_switch_reads_shape_points_edges_faces_and_its_keys_are_unchang
         ("vertex", "Points"),
         ("edge", "Edges"),
         ("face", "Faces"),
+        ("pose", "Pose"),
     ]
     assert clay_mode.ELEMENT_KEYS == {"1": "vertex", "2": "edge", "3": "face", "4": "object"}
     for mode, _label, key in clay_tools.MODE_BUTTONS:
-        assert clay_mode.ELEMENT_KEYS[key] == mode, "the button's tooltip names the wrong key"
+        assert clay_mode.MODE_KEYS[key] == mode, "the button's tooltip names the wrong key"
 
 
 def test_the_shading_switch_reads_flat_lit_wire_over_the_unchanged_stored_values():
@@ -573,7 +575,19 @@ def test_the_mode_switch_draws_shape_points_edges_faces_and_keeps_the_internal_m
         "Points##clay-mode/vertex",
         "Edges##clay-mode/edge",
         "Faces##clay-mode/face",
+        "Pose##clay-mode/pose",
     ]
     d.click(d.find(label="Points##clay-mode/vertex"))
     d.settle(2)
     assert tab.doc.element_mode == "vertex"
+
+
+def test_the_pose_segment_enters_pose_mode_and_picking_another_leaves_it(ui):
+    ctx, tab = _open(1)
+    d = _driver(ui, ctx)
+    d.click(d.find(label="Pose##clay-mode/pose"))
+    d.settle(2)
+    assert tab.doc.pose_mode and tab.doc.element_mode == "object"
+    d.click(d.find(label="Shape##clay-mode/object"))
+    d.settle(2)
+    assert not tab.doc.pose_mode

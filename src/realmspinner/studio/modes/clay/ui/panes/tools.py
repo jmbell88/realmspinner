@@ -60,6 +60,9 @@ MODE_BUTTONS = (
     ("vertex", "Points", "1"),
     ("edge", "Edges", "2"),
     ("face", "Faces", "3"),
+    # Not an element mode: Pose is a layer over Shape mode (``ClayDoc.pose_mode``), where a
+    # bone is selected the way any object is and the viewport shows the evaluated pose.
+    ("pose", "Pose", "5"),
 )
 
 #: The shapes the rail keeps one click away; the rest are behind its ``+``.

@@ -46,6 +46,7 @@ __all__ = [
     "export_names",
     "mirror_pairs",
     "nearest_bone",
+    "skin_positions",
     "skin_problems",
 ]
 
@@ -186,6 +187,54 @@ def bone_parent(by_uid: Mapping[int, Any], uid: int) -> int | None:
     if obj is None or obj.parent is None:
         return None
     return nearest_bone(by_uid, obj.parent)
+
+
+#: Vertices skinned per chunk, so a two-million-vertex mesh does not hold a 4x4 matrix per vertex.
+_SKIN_CHUNK = 100_000
+
+
+def skin_positions(
+    positions: Any,
+    joints: Any,
+    weights: Any,
+    palette: Any,
+    world: Any = None,
+) -> np.ndarray:
+    """Weighted vertices moved by a pose, in the object's own space. -> (V, 3) float32.
+
+    *palette* is one 4x4 per skin joint, ``posed_world @ inverse(rest_world)``: the matrix
+    that carries a point bound to that joint at rest to where the pose has put it. *world* is
+    the object's own world matrix -- a vertex is a point in the object's space, the palette
+    works in world space, so the vertex goes up through *world*, is skinned, and comes back
+    down through its inverse (``None`` is the identity, which is what an imported mesh has).
+    The weights sum to one, so a pose that moves nothing returns the positions as they were.
+    """
+    positions = np.asarray(positions, dtype="f8").reshape(-1, 3)
+    joints = np.asarray(joints, dtype="i8").reshape(-1, 4)
+    weights = np.asarray(weights, dtype="f8").reshape(-1, 4)
+    palette = np.asarray(palette, dtype="f8")
+    up = None if world is None else np.asarray(world, dtype="f8")
+    down = None if up is None else np.linalg.inv(up)
+    out = np.empty_like(positions)
+    for start in range(0, len(positions), _SKIN_CHUNK):
+        stop = min(start + _SKIN_CHUNK, len(positions))
+        homogeneous = np.concatenate([positions[start:stop], np.ones((stop - start, 1))], axis=1)
+        if up is not None:
+            homogeneous = homogeneous @ up.T
+        moved = np.zeros((stop - start, 3))
+        for k in range(4):
+            live = weights[start:stop, k] > 0.0
+            if not live.any():
+                continue
+            matrices = palette[joints[start:stop, k]]
+            moved += (
+                weights[start:stop, k, None]
+                * np.einsum("vij,vj->vi", matrices[:, :3, :], homogeneous)
+            )
+        if down is not None:
+            moved = (down @ np.concatenate([moved, np.ones((len(moved), 1))], axis=1).T).T[:, :3]
+        out[start:stop] = moved
+    return out.astype("f4")
 
 
 def skin_problems(objects: Sequence[Any]) -> list[str]:

@@ -178,7 +178,7 @@ Every operation is also searchable. With a Clay document open, `Ctrl+K` lists th
 keys printed on the right, so *extrude*, *mirror*, *merge objects* or *box unwrap* finds its row whether or not you
 remember which group it was in. An operation that works only in another mode (Extrude, from Shape mode) is listed
 greyed, and hovering it says which mode to switch to. An operation with an ellipsis opens its dialog, as the menu does.
-The same list carries the four tools, the four modes, the three shadings, X-ray, the overlays, the six axis views,
+The same list carries the four tools, the five modes, the three shadings, X-ray, the overlays, the six axis views,
 Orthographic, Frame selection, **Import Mesh...** and the exports: the controls of the toolbar and the tool rail,
 changed the same way.
 
@@ -216,7 +216,7 @@ about. Left to right it holds:
   OBJ...** and **Save screenshot...**, each greyed with the same reason.
 
 The row is in four groups, divided by thin rules, in the order you reach for them: **history** (Undo, Redo and
-the chevron), **mode** (Shape, Points, Edges, Faces), **display** (the shading switch and X-ray, how the
+the chevron), **mode** (Shape, Points, Edges, Faces, Pose), **display** (the shading switch and X-ray, how the
 surface is drawn) and **aids** (View and Snap). A group that folds into the `…` menu takes its rule with it.
 
 The tools (Select, Move, Turn, Resize) live on the rail beside the viewport and nowhere else. When the
@@ -913,6 +913,23 @@ bone's own frame. A smoothed (cubic spline) channel is turned into linear keys a
 says on opening; channels that drive anything but a bone are left out and counted. The frame rate is guessed
 from the smallest gap between keys and rounded to 12, 24, 30 or 60. A clip past 64 animations, 4,096 keys on
 one channel or 600 seconds is refused by name rather than trimmed.
+
+## Pose mode
+
+The header's fifth mode, **Pose** (key `5`), shows the rig as it is *posed* rather than as it was built. It is not
+an element mode: it sits over Shape mode, so a bone is selected the way any shape is, and picking Shape, Points,
+Edges or Faces (or `1` to `4`) leaves it. Pose is only a way of looking, and changes nothing in the document: it is
+never an undo step and is not saved.
+
+In Pose mode the viewport composes each bone's transform from the selected animation at the playhead, with the
+rest value for any property the animation does not key. A shape under a bone follows it through the outliner, and
+a weighted mesh is deformed by its weights. Leaving Pose mode puts everything back to rest.
+
+Bones are drawn in every mode so a rig can be seen while it is built, and they are drawn over the model, since a
+joint hidden inside a body is a joint nobody can pick: a small cross at each pivot, a line to the bone above it
+and, for a bone with nothing below it, a short tick along its own Y. A selected bone is drawn in the accent
+colour. In Pose mode a click picks the nearest bone within a few pixels of the pointer; a click on a shape picks
+the bone that moves it, so a leg is grabbed by the leg.
 
 ## Mirroring
 

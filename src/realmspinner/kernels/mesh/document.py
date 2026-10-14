@@ -446,6 +446,18 @@ class ClayDoc:
         # restored by undo. Which animation is selected is not an edit and not in it.
         self.rig_state = anim.RigState()
         self.active_animation: int | None = None
+        # Pose mode and the playhead: session state, like ``element_mode`` and the
+        # selection, never written to a file and never undoable. ``pose_mode`` is a
+        # layer over ``element_mode == "object"`` (a bone is selected the way any object
+        # is), ``live_pose`` is what the user has turned a bone to without keying it
+        # (auto-key off), and ``pose_rev`` moves whenever any of it does -- the viewport
+        # redraws on it without ``rev``'s cost of invalidating every other cache.
+        self.pose_mode = False
+        self.rig_time = 0.0
+        self.auto_key = True
+        self.playing = False
+        self.live_pose: dict[int, dict[str, Any]] = {}
+        self.pose_rev = 0
 
     # -- lookup ------------------------------------------------------------
 
@@ -1902,6 +1914,90 @@ class ClayDoc:
         self.touch()
         return True
 
+    # -- pose mode: session state, never an edit ----------------------------
+
+    def set_pose_mode(self, on: bool) -> None:
+        """Enter or leave Pose mode. Entering goes through Shape mode (a bone is selected the
+        way any object is, and there are no element picks to keep); leaving stops playback
+        and drops any pose the user left unkeyed."""
+        on = bool(on)
+        if on == self.pose_mode:
+            return
+        if on and self.element_mode != "object":
+            self.set_element_mode("object")
+        self.pose_mode = on
+        if not on:
+            self.playing = False
+            self.live_pose = {}
+        self.pose_rev += 1
+        self.touch()
+
+    def set_rig_time(self, seconds: float) -> None:
+        """Move the playhead. Not an edit; an unkeyed pose does not survive a time change."""
+        seconds = max(0.0, float(seconds))
+        if seconds == self.rig_time and not self.live_pose:
+            return
+        self.rig_time = seconds
+        self.live_pose = {}
+        self.pose_rev += 1
+
+    def set_live_pose(self, uid: int, prop: str, value: Any) -> None:
+        """Hold *value* as the bone's *prop* at the playhead, unkeyed (auto-key off)."""
+        self.live_pose.setdefault(uid, {})[prop] = np.array(value, dtype="f8", copy=True)
+        self.pose_rev += 1
+
+    def pose_overrides(self) -> dict[int, dict[str, Any]]:
+        """Every animated or unkeyed bone's local transform now: the selected animation at the
+        playhead with the live pose over it. Only the properties that are driven appear."""
+        merged = {
+            uid: dict(props)
+            for uid, props in anim.pose(self.animation(), self.rig_time).items()
+        }
+        for uid, props in self.live_pose.items():
+            merged.setdefault(uid, {}).update(props)
+        return merged
+
+    def posed_trs(
+        self, obj: Obj, overrides: Mapping[int, Mapping[str, Any]]
+    ) -> tuple[Any, Any, Any]:
+        """*obj*'s local transform under *overrides*: the driven properties, the rest as is."""
+        driven = overrides.get(obj.uid)
+        if not driven:
+            return obj.translation, obj.rotation, obj.scale
+        return (
+            driven.get("translation", obj.translation),
+            driven.get("rotation", obj.rotation),
+            driven.get("scale", obj.scale),
+        )
+
+    def posed_world(
+        self,
+        uid: int,
+        overrides: Mapping[int, Mapping[str, Any]],
+        by_uid: Mapping[int, Obj] | None = None,
+    ) -> np.ndarray:
+        """*uid*'s world matrix with *overrides* applied to every bone up its parent chain."""
+        by_uid = by_uid if by_uid is not None else self._uid_map()
+        world = np.eye(4)
+        for link_uid in reversed([uid, *self._ancestors_in(uid, by_uid)]):
+            t, r, s = self.posed_trs(by_uid[link_uid], overrides)
+            world = world @ m3.compose(t, r, s)
+        return world
+
+    def skin_palette(
+        self,
+        obj: Obj,
+        overrides: Mapping[int, Mapping[str, Any]],
+        by_uid: Mapping[int, Obj] | None = None,
+    ) -> np.ndarray:
+        """One 4x4 per skin joint of *obj*: where the pose carries a point bound to it."""
+        by_uid = by_uid if by_uid is not None else self._uid_map()
+        out = []
+        for joint in obj.skin.joints:
+            rest = self._world_in(joint, by_uid)
+            out.append(self.posed_world(joint, overrides, by_uid) @ np.linalg.inv(rest))
+        return np.array(out)
+
     def set_active_animation(self, index: int | None) -> None:
         """Select an animation. Not an edit: nothing is pushed and nothing is dirtied."""
         count = len(self.rig_state.animations)
@@ -2808,6 +2904,9 @@ class ClayDoc:
         """
         if mode not in el.MODES:
             raise ValueError(f"unknown element mode {mode!r}")
+        # Any explicit choice of an element mode, Shape included, leaves Pose.
+        if self.pose_mode:
+            self.set_pose_mode(False)
         if mode == self.element_mode:
             return
         if mode == "object":

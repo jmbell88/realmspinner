@@ -484,3 +484,12 @@ def test_an_existing_tool_is_found_by_its_own_label_first(query: str, key: str):
 def test_frame_in_clay_lands_on_clays_row_not_the_create_only_one():
     ctx = _ctx()
     assert _top(ctx, "frame", 1) == ["clay-view:frame"]
+
+
+def test_the_pose_row_enters_pose_mode_and_a_shape_row_leaves_it():
+    ctx = _ctx()
+    doc = _doc(ctx)
+    _clay(ctx)["clay-mode:pose"].run(ctx)
+    assert doc.pose_mode
+    _clay(ctx)["clay-mode:vertex"].run(ctx)
+    assert not doc.pose_mode and doc.element_mode == "vertex"

@@ -122,12 +122,14 @@ def test_the_mode_switch_leads_with_shape_and_keeps_its_keys():
     """Old code ordered the pill by its keys (vertex, edge, face, object = 1 2 3 4)
     and called Shape "Object": the first assertion fails there on the order."""
     assert [mode for mode, _label, _key in clay_tools.MODE_BUTTONS] == [
-        "object", "vertex", "edge", "face",
+        "object", "vertex", "edge", "face", "pose",
     ]
     assert [label for _mode, label, _key in clay_tools.MODE_BUTTONS] == [
-        "Shape", "Points", "Edges", "Faces",
+        "Shape", "Points", "Edges", "Faces", "Pose",
     ]
-    assert sorted(key for _mode, _label, key in clay_tools.MODE_BUTTONS) == ["1", "2", "3", "4"]
+    assert sorted(key for _mode, _label, key in clay_tools.MODE_BUTTONS) == [
+        "1", "2", "3", "4", "5",
+    ]
 
 
 def test_the_quick_shapes_are_real_clay_shapes():

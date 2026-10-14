@@ -485,7 +485,15 @@ def run(ctx: Any, doc: Any, op: Op, *, during_gesture: bool = False, **params: A
 #: every greyed reason said "Switch to object mode first" and the right-click
 #: menu's heading printed "vertex mode", words the interface never uses -- the
 #: switch reads Shape, Points, Edges, Faces.
-MODE_WORDS = {"object": "Shape", "vertex": "Points", "edge": "Edges", "face": "Faces"}
+MODE_WORDS = {
+    "object": "Shape",
+    "vertex": "Points",
+    "edge": "Edges",
+    "face": "Faces",
+    # The header's fifth segment. Not in ``ALL_MODES``: no op is registered for it, because
+    # Pose is Shape mode with the pose shown (``ClayDoc.pose_mode``).
+    "pose": "Pose",
+}
 
 
 def mode_word(mode: str) -> str:

@@ -1726,6 +1726,10 @@ TOOL_KEYS = {
 # key, so the four modes are one contiguous run under four fingers.
 ELEMENT_KEYS = {"1": "vertex", "2": "edge", "3": "face", "4": "object"}
 
+#: The header's five modes by key: the four above and Pose on 5 (a layer over Shape mode,
+#: so it is not an element mode and not in :data:`ELEMENT_KEYS`).
+MODE_KEYS = {**ELEMENT_KEYS, "5": "pose"}
+
 # Ctrl-shortcuts that change the document. Serialising reads the live document
 # on a task thread, so anything that restructures it or moves the history head
 # the save captured waits for the save, exactly as a gizmo drag does.
@@ -2032,9 +2036,12 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # binding below fire, and returning False would hand the key to a pane.
         return True
 
-    if name in ELEMENT_KEYS and not shift:
+    if name in MODE_KEYS and not shift:
         if not tab.saving:
-            doc.set_element_mode(ELEMENT_KEYS[name])
+            if MODE_KEYS[name] == "pose":
+                doc.set_pose_mode(True)
+            else:
+                doc.set_element_mode(MODE_KEYS[name])
     elif shift and not alt and _registry_key(ctx, tab, doc, name, shift=True):
         # Shift+letter registry bindings (Repeat Last is Shift+R). A separate
         # branch because the bare-letter one below is ``not shift`` -- Shift+R

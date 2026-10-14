@@ -253,7 +253,9 @@ class DragOps:
         # object the user was looking at. ``gestures.classify_press`` defers it
         # to the release, and only a release that never left the click slop
         # (``_run_click``) still clears.
-        hit = self.pick(doc, local)
+        # Pose mode selects bones, not shapes: the nearest glyph, or the bone that moves
+        # the shape under the pointer (``PoseOps.pick_bone``).
+        hit = self.pick_bone(doc, local) if doc.pose_mode else self.pick(doc, local)
         plan = gestures.classify_press(
             element_mode=False,
             under="object" if hit is not None else "nothing",

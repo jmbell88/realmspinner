@@ -590,7 +590,10 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
 
         def set_mode(_ctx: Any, _state: Any, live: Any, mode: str = mode) -> None:
             if not live.saving:
-                live.doc.set_element_mode(mode)
+                if mode == "pose":
+                    live.doc.set_pose_mode(True)
+                else:
+                    live.doc.set_element_mode(mode)
 
         out.append(
             Command(

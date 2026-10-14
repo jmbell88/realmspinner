@@ -108,6 +108,7 @@ from ._view_overlay import _toward_eye as _toward_eye
 # a caller reaches for is the viewport's, so it is re-exported here.
 from ._view_pick import Hit as Hit
 from ._view_pick import PickOps
+from ._view_pose import PoseOps
 
 log = logging.getLogger(__name__)
 
@@ -274,7 +275,7 @@ class GizmoDragReadout:
     amount: str
 
 
-class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, FrameOps):
+class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, PoseOps, FrameOps):
     """The Clay viewport, from the UI's point of view."""
 
     def __init__(self, ctx: Any, app_ctx: Any = None) -> None:
@@ -430,6 +431,12 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             tuple[int, int],
             tuple[weakref.ReferenceType[Any], tuple[int, ...], Any, tuple[Any, ...]],
         ] = {}
+        # Pose mode (``_view_pose``): the posed transform arrays ``_world`` composes while a
+        # document is posed, the stamp each weighted object's buffers were skinned for, and the
+        # bone glyphs' two line buffers (idle, selected).
+        self._pose_arrays: tuple[Any, Any, dict[int, tuple[Any, Any, Any]]] | None = None
+        self._skin_stamps: dict[int, tuple[Any, ...]] = {}
+        self._bone_lines: tuple[Any, Any] | None = None
         # element_centre / selection_centre / world_bounds memos (B25/B27),
         # each ``(key, answer, pins)`` -- the pins hold what the key's ids name.
         self._centre_memo: tuple[Any, Any, Any] | None = None
@@ -522,6 +529,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
             # the switch reads as broken until something else forces a redraw.
             bool(self.flat), bool(self.wire_overlay), bool(self.xray),
             id(doc), doc.rev, doc.element_mode, getattr(self.state, "tool", "select"),
+            # Pose mode and the playhead are session state: they move without ``rev``.
+            bool(doc.pose_mode), doc.pose_rev,
             float(self.grid_size), bool(self.god_light),
             # A Familiar preview change is not a document edit -- ``doc.rev``
             # does not move for it, on purpose, since nothing has actually
@@ -538,7 +547,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         self._render_dirty = False
         self._resize(width, height)
         self.camera.update(dt)
+        self._pose_evict(doc)
         self.sync(doc)
+        self._pose_skin(doc)
         # The grid follows ``grid_size`` every frame rather than the model
         # (Task A) -- set here, after ``camera.update``, so a stale span from
         # a previous document or from ``render_png`` never reaches this draw.
@@ -575,6 +586,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
                     self._element_overlays(doc)
                     + self._object_overlays(doc)
                     + self._gizmo_draws(doc, height)
+                    + self._bone_draws(doc)
                     + self._ghost_draws(doc)
                 ),
             )
@@ -654,21 +666,24 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
                 seen.add(current)
                 current = parent.parent
         slot = (id(doc), obj.uid)
-        key = tuple(id(v) for o in chain for v in (o.translation, o.rotation, o.scale))
+        # In Pose mode a bone's transform is the evaluated pose's (``_view_pose``): the same
+        # arrays until the pose moves, so this memo still hits on a held frame.
+        arrays = [self._trs(doc, o) for o in chain]
+        key = tuple(id(v) for trs in arrays for v in trs)
         hit = self._world_cache.get(slot)
         if hit is not None and hit[0]() is doc and hit[1] == key:
             return hit[2]
-        if index is None:
+        if index is None and not doc.pose_mode:
             world = doc.world_matrix(obj.uid)
         else:
             world = m3.identity()
-            for link in reversed(chain):
-                world = world @ m3.compose(link.translation, link.rotation, link.scale)
+            for trs in reversed(arrays):
+                world = world @ m3.compose(*trs)
         # Every ancestor's arrays are pinned, not only this object's own: an
         # id in the key is only sound while the array it names is alive, and
         # nothing else holds an ancestor's transform alive on this cache's
         # behalf.
-        pins = tuple(v for o in chain for v in (o.translation, o.rotation, o.scale))
+        pins = tuple(v for trs in arrays for v in trs)
         self._world_cache[slot] = (weakref.ref(doc), key, world, pins)
         if len(self._world_cache) > 4096:
             self._world_cache.clear()
@@ -1258,6 +1273,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Fra
         # never did, so no texture outlives the view.
         self._textures.release_all()
         self._release_overlays()
+        self._release_bones()
         self._release_ghost()
         self.translate_gizmo.release()
         self.rotate_gizmo.release()
