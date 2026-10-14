@@ -70,6 +70,16 @@ anywhere in the whole document's parenting (only detectable once every object
 has been read), is refused by name, checked once over the whole set because a
 forward reference to an object later in the file is not thereby invalid.
 
+**Version 5 adds bones and weighted skins**, and is a version of its own rather than keys
+added to 4 so that a build which knows nothing of rigs *refuses* a rigged file instead of
+opening it with the rig silently gone. An object entry may carry ``"bone": true`` and a
+``"skin": {"joints": [bone uids], "inverse_bind": [16 floats per joint]}``; a weighted mesh's
+npz gains ``joints`` and ``weights``. All of it is omitted at its default, so a document with
+no rig differs from a version 4 file in the version number alone, and a version 4 file opens
+with no notice. The rig's bone cap, the skin's references and the weights are checked by one
+function (:func:`_rig_refusal`) for the reader and the writer, so the writer cannot save a
+file the reader refuses.
+
 **Materials are reduced to the Clay subset on every read**
 (:func:`~.document.reduce_material`): a name, a colour, a base-colour
 texture, double-sided and cutout. Metallic, roughness, emissive and the other
@@ -89,11 +99,11 @@ import numpy as np
 
 from ...core.safeio import npyguard, pixelguard, zipguard
 from ..geom3d import gltf
-from . import legacy
+from . import legacy, rig
 from . import mesh as bm
 from .document import ClayDoc, Obj, reduce_material, reserve_uid
 
-VERSION = 4
+VERSION = 5
 SCENE = "scene.json"
 MESH_DIR = "meshes"
 TEXTURE_DIR = "textures"
@@ -107,6 +117,10 @@ _EPOCH = (1980, 1, 1, 0, 0, 0)
 # optional, so it is written only when present and defaulted to None on read,
 # which is what lets a v1 file load without a migration.
 _MESH_FIELDS = ("positions", "loops", "starts", "material", "smooth")
+
+# Optional like ``uv``: written only when a mesh carries them, absent from every file that
+# predates version 5. Both or neither, which ``bm.validate`` holds the reader to.
+_SKIN_FIELDS = ("joints", "weights")
 
 # A zip's directory declares what each member unpacks to, and nothing makes that
 # number honest -- a few kilobytes of archive can claim terabytes, and the read
@@ -241,6 +255,13 @@ def _object_json(obj: Obj) -> dict[str, Any]:
     # case" rule ``textures`` follows.
     if obj.parent is not None:
         entry["parent"] = int(obj.parent)
+    if obj.bone:
+        entry["bone"] = True
+    if obj.skin is not None:
+        entry["skin"] = {
+            "joints": [int(j) for j in obj.skin.joints],
+            "inverse_bind": [[float(v) for v in m.reshape(-1)] for m in obj.skin.inverse_bind],
+        }
     return entry
 
 
@@ -577,7 +598,7 @@ def _refuse_unreadable(snap: RblkSnapshot) -> None:
         # array over ``MAX_ARRAY_BYTES`` and this writer checked no such thing,
         # so a mesh the legacy bake (or an import) had grown past it saved and
         # then could never be reopened. Same number, read at call time.
-        for field_name in (*_MESH_FIELDS, "uv"):
+        for field_name in (*_MESH_FIELDS, "uv", *_SKIN_FIELDS):
             array = getattr(mesh, field_name)
             if array is not None and array.nbytes > npyguard.MAX_ARRAY_BYTES:
                 raise ValueError(
@@ -586,6 +607,31 @@ def _refuse_unreadable(snap: RblkSnapshot) -> None:
                     "this build will read back; saving it would write a file it "
                     "cannot open again"
                 )
+    # The reader's own rig rule, run over proxies rebuilt from the snapshot's text and
+    # meshes so this task thread still never touches the live document.
+    from types import SimpleNamespace
+
+    by_mesh = dict(snap.meshes)
+    proxies = [
+        SimpleNamespace(
+            uid=int(entry["uid"]),
+            name=str(entry.get("name", "")),
+            bone=bool(entry.get("bone", False)),
+            skin=(
+                SimpleNamespace(joints=tuple(int(j) for j in entry["skin"]["joints"]))
+                if entry.get("skin")
+                else None
+            ),
+            mesh=by_mesh[int(entry["uid"])],
+        )
+        for entry in scene.get("objects", ())
+    ]
+    refusal = _rig_refusal(proxies)
+    if refusal:
+        raise ValueError(
+            f"this clay document's rig is not usable ({refusal}); saving it would write "
+            "a file this build cannot open again"
+        )
 
 
 def snapshot_bytes(snap: RblkSnapshot) -> bytes:
@@ -616,6 +662,9 @@ def snapshot_bytes(snap: RblkSnapshot) -> bytes:
             arrays = {name: getattr(mesh, name) for name in _MESH_FIELDS}
             if mesh.uv is not None:
                 arrays["uv"] = mesh.uv
+            if mesh.joints is not None:
+                arrays["joints"] = mesh.joints
+                arrays["weights"] = mesh.weights
             zf.writestr(
                 zipfile.ZipInfo(f"{MESH_DIR}/{uid}.npz", _EPOCH),
                 _npz_bytes(arrays),
@@ -673,6 +722,10 @@ def _read_mesh(zf: zipfile.ZipFile, uid: int) -> bm.Mesh:
     # no texture coordinates, which is what a v1 mesh was.
     if "uv" in npz:
         arrays["uv"] = npz["uv"]
+    # Optional, and absent from every file before version 5.
+    for field_name in _SKIN_FIELDS:
+        if field_name in npz:
+            arrays[field_name] = npz[field_name]
     mesh = bm.Mesh(**arrays)
     # Validate rather than trust: the CSR offsets are the one part of the file
     # that a truncated write or a hand edit makes *quietly* wrong -- ``edges``
@@ -974,6 +1027,36 @@ def _validate_hierarchy(objects: list[Obj]) -> None:
             color[u] = BLACK
 
 
+def _skin_from(entry: dict[str, Any]) -> rig.Skin | None:
+    """An object entry's ``skin``, or a refusal by name. Absent is ``None``."""
+    raw = entry.get("skin")
+    if raw is None:
+        return None
+    who = str(entry.get("name", ""))
+    if not isinstance(raw, dict):
+        raise ValueError(f"the skin of {who!r} in this clay document is not an object")
+    try:
+        joints = [int(j) for j in raw["joints"]]
+        matrices = np.array(raw["inverse_bind"], dtype="f8")
+        if matrices.shape != (len(joints), 16):
+            raise ValueError("it needs one row of 16 numbers per joint")
+        return rig.Skin(joints, matrices.reshape(len(joints), 4, 4))
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"the skin of {who!r} in this clay document is unreadable ({exc})"
+        ) from exc
+
+
+def _rig_refusal(objects: list[Obj]) -> str:
+    """Why the bones and skins in *objects* cannot be a document, or ``""``.
+
+    The reader's and the writer's one rule (:func:`rig.skin_problems`), so the two cannot
+    answer differently about a rig: the bone cap, every skin joint naming a marked bone,
+    and a mesh's weights matching its skin.
+    """
+    return "; ".join(rig.skin_problems(objects))
+
+
 def _factor(value: Any, n: int, field: str) -> tuple[float, ...]:
     """A material's ``base_color_factor``/``emissive_factor`` cast to exactly
     ``n`` floats, refusing anything else by name.
@@ -1264,6 +1347,8 @@ def read_rblk(data: bytes) -> ClayDoc:
                     visible=bool(entry.get("visible", True)),
                     material=_material_index(entry),
                     parent=_parent_from(entry),
+                    bone=bool(entry.get("bone", False)) if version >= 5 else False,
+                    skin=_skin_from(entry) if version >= 5 else None,
                 )
             )
 
@@ -1271,6 +1356,10 @@ def read_rblk(data: bytes) -> ClayDoc:
         # them all -- see ``_validate_hierarchy``'s own docstring for why a
         # forward-referencing ``parent`` cannot be checked per entry.
         _validate_hierarchy(objects)
+        if version >= 5:
+            refusal = _rig_refusal(objects)
+            if refusal:
+                raise ValueError(f"this clay document's rig is not usable: {refusal}")
 
     # A scene with objects but no materials is a hand-edited or truncated
     # file: every face's material index would fall off the empty palette,

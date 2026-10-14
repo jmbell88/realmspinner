@@ -100,6 +100,8 @@ def test_scratch_clone_carries_every_obj_field():
         # ``clone`` is handed comes back unchanged, so there is no need for
         # a second real object to parent onto.
         "parent": 999,
+        "bone": True,
+        "skin": object(),
     }
     obj_fields = {f.name for f in dataclasses.fields(bd.Obj)} - {"uid", "mesh"}
     assert non_default.keys() == obj_fields, (

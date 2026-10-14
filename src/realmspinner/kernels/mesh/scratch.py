@@ -122,6 +122,10 @@ def clone(doc: bd.ClayDoc) -> bd.ClayDoc:
             # parented object's world matrix (``world_bounds``) saw every
             # object as a root.
             parent=obj.parent,
+            # Bones and skins (``rig``): a skin is immutable and names bones by uid, so the
+            # same instance is carried, as the mesh is.
+            bone=obj.bone,
+            skin=obj.skin,
         )
         for obj in doc.objects
     ]
@@ -435,6 +439,8 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                     visible=o.visible,
                     material=o.material,
                     parent=o.parent,
+                    bone=o.bone,
+                    skin=o.skin,
                 )
                 for o in scratch.objects
                 if o.uid in diff_.added

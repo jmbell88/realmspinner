@@ -716,10 +716,11 @@ def _uvd(mesh):
 def test_the_version_is_written_unconditionally() -> None:
     """No "downgrade when nothing needs v2/v3": a format that sometimes claims
     to be v1 for the same code is a format with two readers. Clay tranche 2
-    dropped the modifier stacks and moved it to 4; an untextured document is
-    still v1-shaped apart from the number itself."""
+    dropped the modifier stacks and moved it to 4, and the rig plan moved it to 5
+    (2026-10-13); an untextured, unrigged document is still v1-shaped apart from the
+    number itself."""
     plain = json.loads(ser.scene_json(_doc()))
-    assert plain["version"] == ser.VERSION == 4
+    assert plain["version"] == ser.VERSION == 5
     assert "textures" not in plain, "an untextured document stays v1-shaped"
     assert "textures" not in plain["materials"][0]
     assert "modifiers" not in plain["objects"][0], "no object carries a modifier stack any more"

@@ -118,7 +118,7 @@ from ..geom3d import gltf
 from ..geom3d import math3d as m3
 from . import elements as el
 from . import mesh as bm
-from . import regen
+from . import regen, rig
 from . import uv as uv_projection
 from .edits import (  # noqa: F401
     MaterialEdit,
@@ -231,7 +231,11 @@ def _same_geometry(a: bm.Mesh, b: bm.Mesh) -> bool:
     for name in ("positions", "loops", "starts", "material", "smooth"):
         if not np.array_equal(getattr(a, name), getattr(b, name)):
             return False
-    if (a.uv is None) != (b.uv is None):
+    if (a.uv is None) != (b.uv is None) or (a.joints is None) != (b.joints is None):
+        return False
+    if a.joints is not None and not (
+        np.array_equal(a.joints, b.joints) and np.array_equal(a.weights, b.weights)
+    ):
         return False
     return a.uv is None or np.array_equal(a.uv, b.uv)
 
@@ -343,6 +347,14 @@ class Obj:
     # its world TRS, which is what keeps a document with no parenting behaving
     # exactly as it always did -- see the module docstring).
     parent: int | None = None
+    # Marked as a bone (``rig``): the object's origin is a joint's pivot and its own
+    # transform is that joint's rest pose. Explicit and never derived, so a group that
+    # only organises a scene burns no joint slot.
+    bone: bool = False
+    # A weighted binding (``rig.Skin``) for a mesh that carries per-vertex
+    # ``joints``/``weights``; ``None`` for everything else, including a shape that merely
+    # sits under a bone, which is bound rigidly with nothing stored.
+    skin: Any = None
 
     def __post_init__(self) -> None:
         # Own the transform arrays rather than aliasing whatever was passed in,
@@ -449,6 +461,16 @@ class ClayDoc:
         """
         from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
 
+        marked = (
+            sum(1 for o in self.objects if o.bone)
+            - sum(1 for o in outgoing if o.bone)
+            + sum(1 for o in incoming if o.bone)
+        )
+        if marked > rig.MAX_BONES:
+            raise el.OpError(
+                f"That would make {marked} bones, past the {rig.MAX_BONES} a Clay rig can "
+                "hold. Unmark or delete some bones first."
+            )
         objects = len(self.objects) - len(outgoing) + len(incoming)
         if objects > MAX_OBJECTS:
             raise el.OpError(
@@ -1405,6 +1427,9 @@ class ClayDoc:
                 raise KeyError(f"no object with uid {uid}")
         if not wanted:
             return
+        wanted = self._without_skin_bones(wanted, by_uid, refusals)
+        if not wanted:
+            return
         pos: dict[int, int] = {}
         kids: dict[int | None, dict[int, None]] = {}
         for i, o in enumerate(self.objects):
@@ -1584,6 +1609,7 @@ class ClayDoc:
         # refuses -- a document that cannot be saved until the step is undone.
         # The op layers clamp what they can; this is the backstop for any
         # caller, present and future, and it refuses before anything changes.
+        mesh = self._with_skin_of(obj, mesh)
         self._refuse_invalid(obj.name, mesh)
         self._refuse_unstorable(obj.name, mesh)
         self._refuse_past_triangle_ceiling(obj, mesh)
@@ -1646,6 +1672,9 @@ class ClayDoc:
 
         """
         obj = self.by_uid(target_uid)
+        self._refuse_skinned(
+            [obj, *(self.by_uid(int(u)) for u in others if int(u) != target_uid)], "joined"
+        )
         # One position map and one parent -> children map for the whole call
         # (the 2026-10-10 audit's clay-23 follow-up): ``children_of`` is a linear
         # scan and this door asked it twice per absorbed object, ~0.6 s of the
@@ -1822,6 +1851,126 @@ class ClayDoc:
         self.touch()
         return True
 
+    # -- bones and skins ---------------------------------------------------
+
+    def _with_skin_of(self, obj: Obj, mesh: bm.Mesh) -> bm.Mesh:
+        """*mesh* with *obj*'s vertex weights on it -- the one place a skinned object's
+        mesh is reconciled with an edit, so no op has to remember to.
+
+        A weighted object's edits come in three kinds. A result that already carries
+        weights (``dataclasses.replace`` keeps them) passes through, and so does any edit
+        of an object that has none. A result with the **same vertex count and no weights**
+        -- shading, UVs, flipped normals, a triangulation, an element drag -- gets the old
+        weights back: those ops keep the vertices where they were, and an op that
+        reordered them while keeping their number does not exist in this package. Any
+        other result is refused, naming the way out, because nothing could say which
+        weights a new vertex should take.
+        """
+        if obj.mesh.joints is None or mesh.joints is not None:
+            return mesh
+        if len(mesh.positions) == len(obj.mesh.positions):
+            return replace(mesh, joints=obj.mesh.joints, weights=obj.mesh.weights)
+        raise el.OpError(
+            f"{obj.name!r} is weighted to a skeleton, and that edit would change its "
+            "number of points, so nothing could say how they should move. Run Unbind Skin "
+            "on it first (its weights are lost), or edit the mesh before rigging it."
+        )
+
+    @staticmethod
+    def _refuse_skinned(objs: Sequence[Obj], verb: str) -> None:
+        for obj in objs:
+            if obj.skin is not None:
+                raise el.OpError(
+                    f"{obj.name!r} is weighted to a skeleton and cannot be {verb} without "
+                    "losing its weights. Run Unbind Skin on it first."
+                )
+
+    def _without_skin_bones(
+        self, wanted: set[int], by_uid: Mapping[int, Obj], refusals: list[str] | None
+    ) -> set[int]:
+        """*wanted* less the bones some surviving skin still names -- refused by name.
+
+        Deleting a bone out from under a weighted mesh would leave a skin pointing at a
+        uid the document no longer has, which the reader refuses; so the bone stays, with
+        a sentence saying which mesh needs its skin unbound first. A single-object delete
+        (``refusals is None``) raises, as its other refusals do.
+        """
+        users: dict[int, str] = {}
+        for obj in by_uid.values():
+            if obj.skin is not None and obj.uid not in wanted:
+                for joint in obj.skin.joints:
+                    users.setdefault(joint, obj.name)
+        kept = set(wanted)
+        for uid in sorted(wanted & users.keys()):
+            message = (
+                f"{by_uid[uid].name!r} is a bone that {users[uid]!r} is weighted to. "
+                f"Run Unbind Skin on {users[uid]!r} first."
+            )
+            if refusals is None:
+                raise el.OpError(message)
+            refusals.append(message)
+            kept.discard(uid)
+        return kept
+
+    def set_bone(self, uids: Iterable[int], flag: bool) -> bool:
+        """Mark objects as bones, or clear the mark, as **one** step. -> whether anything changed.
+
+        Refused (:class:`~.elements.OpError`, nothing pushed) when it would take the
+        document past :data:`~.rig.MAX_BONES`, or clear a bone some weighted mesh's skin
+        still names. An object already in the wanted state is left alone and costs no step.
+        """
+        by_uid = self._uid_map()
+        wanted = [by_uid[int(u)] for u in dict.fromkeys(int(u) for u in uids) if int(u) in by_uid]
+        flag = bool(flag)
+        changing = [obj for obj in wanted if obj.bone != flag]
+        if not changing:
+            return False
+        if flag:
+            marked = sum(1 for o in self.objects if o.bone) + len(changing)
+            if marked > rig.MAX_BONES:
+                raise el.OpError(
+                    f"That would make {marked} bones, past the {rig.MAX_BONES} a Clay rig can "
+                    "hold. Unmark some bones first."
+                )
+        else:
+            self._without_skin_bones({o.uid for o in changing}, by_uid, None)
+        edits = []
+        for obj in changing:
+            obj.bone = flag
+            edits.append(ObjectPropsEdit(obj.uid, {"bone": not flag}, {"bone": flag}))
+        self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
+        self.touch()
+        return True
+
+    def unbind_skin(self, uid: int) -> bool:
+        """Drop an object's weights and its skin as **one** step. -> whether it had any.
+
+        The mesh keeps its shape; it is rigidly bound again if it sits under a bone and
+        unbound if it does not. The way out of the refusals that guard a weighted mesh's
+        point count, its joining and its separating, and the bones it names.
+        """
+        obj = self.by_uid(uid)
+        if obj.skin is None and obj.mesh.joints is None:
+            return False
+        before = obj.mesh
+        bare = replace(before, joints=None, weights=None)
+        was_skin = obj.skin
+        obj.mesh, obj.skin = bare, None
+        self.history.push(
+            CompoundEdit(
+                [
+                    MeshEdit(uid, before, bare),
+                    ObjectPropsEdit(uid, {"skin": was_skin}, {"skin": None}),
+                ]
+            )
+        )
+        self.touch()
+        return True
+
+    def rig_problems(self) -> list[str]:
+        """Every way bones and skins disagree in this document -- empty is healthy."""
+        return rig.skin_problems(self.objects)
+
     def set_props(self, uid: int, *, was: dict[str, Any] | None = None, **props: Any) -> bool:
         """Name, visibility, generator, params, default material -- one step.
 
@@ -1982,6 +2131,7 @@ class ClayDoc:
 
         pieces = list(pieces)
         obj = self.by_uid(uid)
+        self._refuse_skinned([obj], "separated")
         if len(pieces) < 2:
             raise el.OpError("Nothing to separate: that would produce a single piece.")
         for mesh in pieces:

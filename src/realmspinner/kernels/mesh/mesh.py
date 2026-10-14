@@ -69,6 +69,8 @@ _DTYPES = {
     "material": "i4",
     "smooth": "?",
     "uv": "f4",
+    "joints": "i4",
+    "weights": "f4",
 }
 
 
@@ -94,6 +96,17 @@ class Mesh:
     keeps its uv), interpolated (a new corner's uv is a lerp within the face
     that made it, which is seam-safe because it never reads another face's
     corners) or inherited (a new face copies the corners it was extruded from).
+
+    **Skin weights are per vertex, and optional.** ``joints`` (V, 4) names the four
+    joints that move a vertex -- indices into the owning object's
+    :class:`~.rig.Skin` -- and ``weights`` (V, 4) says how much each one does; both
+    or neither. Only a mesh Blender weighted (or a glTF that arrived skinned) has
+    them: a rigid bone binding is derived from the outliner and stored on no mesh.
+    They ride a mesh through every op that keeps its vertices where they were
+    (``dataclasses.replace`` carries them; :meth:`ClayDoc.set_mesh` re-attaches
+    them to a same-vertex-count result) and an op that changes the vertex count is
+    refused on a skinned object, because nothing could say which weights a new
+    vertex should get.
     """
 
     positions: np.ndarray  # (V, 3) f4
@@ -102,6 +115,8 @@ class Mesh:
     material: np.ndarray  # (F,)   i4  index into the document palette
     smooth: np.ndarray  # (F,)   bool
     uv: np.ndarray | None = None  # (L, 2) f4, per face corner, or absent
+    joints: np.ndarray | None = None  # (V, 4) i4, skin joint indices, or absent
+    weights: np.ndarray | None = None  # (V, 4) f4, skin weights summing to 1, or absent
 
     def __post_init__(self) -> None:
         for f in fields(self):
@@ -152,6 +167,33 @@ def validate(mesh: Mesh) -> None:
         raise ValueError(
             f"uv must be one (u, v) per face corner ({len(mesh.loops)}, 2), got {mesh.uv.shape}"
         )
+    _validate_skin(mesh)
+
+
+#: A vertex's weights must sum to one within this, the tolerance glTF viewers
+#: assume (a float32 sum of four normalised weights is off by about 1e-7).
+WEIGHT_SUM_TOLERANCE = 1e-3
+
+
+def _validate_skin(mesh: Mesh) -> None:
+    if (mesh.joints is None) != (mesh.weights is None):
+        raise ValueError("joints and weights must be given together or not at all")
+    if mesh.joints is None:
+        return
+    n = len(mesh.positions)
+    if mesh.joints.shape != (n, 4) or mesh.weights.shape != (n, 4):
+        raise ValueError(
+            f"joints and weights must be one row of four per vertex ({n}, 4), got "
+            f"{mesh.joints.shape} and {mesh.weights.shape}"
+        )
+    if n == 0:
+        return
+    if mesh.joints.min() < 0:
+        raise ValueError("a joint index is negative")
+    if not np.isfinite(mesh.weights).all() or mesh.weights.min() < 0.0:
+        raise ValueError("a skin weight is negative or not a finite number")
+    if np.abs(mesh.weights.sum(axis=1) - 1.0).max() > WEIGHT_SUM_TOLERANCE:
+        raise ValueError("the skin weights of a vertex do not sum to one")
 
 
 # --- construction ------------------------------------------------------------
@@ -860,6 +902,8 @@ def transformed(mesh: Mesh, matrix: np.ndarray) -> Mesh:
         material=mesh.material,
         smooth=mesh.smooth,
         uv=uv,
+        joints=mesh.joints,
+        weights=mesh.weights,
     )
 
 

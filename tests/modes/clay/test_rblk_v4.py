@@ -56,12 +56,12 @@ def _rewrite(data: bytes, edit) -> bytes:
 # --- the format ----------------------------------------------------------
 
 
-def test_the_writer_writes_version_4_and_no_dead_keys() -> None:
+def test_the_writer_writes_the_current_version_and_no_dead_keys() -> None:
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
     with zipfile.ZipFile(io.BytesIO(ser.rblk_bytes(doc))) as zf:
         scene = json.loads(zf.read(ser.SCENE))
-    assert scene["version"] == 4
+    assert scene["version"] == ser.VERSION == 5
     entry = scene["objects"][0]
     for dead in ("modifiers", "locked", "tags", "seams", "role", "collider_kind"):
         assert dead not in entry
