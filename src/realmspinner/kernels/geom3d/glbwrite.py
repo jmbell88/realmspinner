@@ -47,6 +47,7 @@ _GLB_MAGIC = 0x46546C67
 _U16_MAX = 65535
 
 _FLOAT = 5126
+_UBYTE = 5121
 _USHORT = 5123
 _UINT = 5125
 
@@ -336,6 +337,26 @@ class _Writer:
             attributes["TEXCOORD_0"] = self.accessor(
                 np.asarray(prim.uvs, dtype="<f4"), "VEC2", _FLOAT
             )
+        # Skinning is all or nothing: JOINTS_0 with no WEIGHTS_0 (or the reverse) is a
+        # primitive no reader can skin, and writing half of it would be the "rig-shaped
+        # file with no rig in it" this writer refuses to produce. UNSIGNED_BYTE joints
+        # are the one component type every reader takes, so a joint past 255 is refused
+        # by name rather than wrapped.
+        if (prim.joints is None) != (prim.weights is None):
+            raise ValueError("write_glb needs a primitive's joints and weights together")
+        if prim.joints is not None:
+            joints = np.asarray(prim.joints)
+            if joints.shape != (len(prim.positions), 4) or np.asarray(prim.weights).shape != (
+                len(prim.positions),
+                4,
+            ):
+                raise ValueError("write_glb needs one row of four joints and weights per vertex")
+            if len(joints) and (int(joints.min()) < 0 or int(joints.max()) > 255):
+                raise ValueError("write_glb writes joint indices 0..255 only")
+            attributes["JOINTS_0"] = self.accessor(joints.astype("u1"), "VEC4", _UBYTE)
+            attributes["WEIGHTS_0"] = self.accessor(
+                np.asarray(prim.weights, dtype="<f4"), "VEC4", _FLOAT
+            )
         doc: dict[str, Any] = {"attributes": attributes}
         if len(prim.indices):
             doc["indices"] = self.indices(prim.indices)
@@ -365,6 +386,8 @@ class _Writer:
             doc["children"] = [int(c) for c in node.children]
         if node.mesh is not None:
             doc["mesh"] = int(node.mesh)
+        if node.skin is not None:
+            doc["skin"] = int(node.skin)
         if node.camera is not None:
             doc["camera"] = int(node.camera)
         if node.light is not None:
@@ -373,6 +396,31 @@ class _Writer:
             # difference between writing a light and writing a camera.
             doc["extensions"] = {"KHR_lights_punctual": {"light": int(node.light)}}
         return doc
+
+
+def _skin(writer: _Writer, skin: gltf.Skin, node_count: int) -> dict[str, Any]:
+    """One glTF skin: its joint node indices and its column-major inverse bind matrices."""
+    joints = [int(j) for j in skin.joints]
+    if not joints:
+        raise ValueError("write_glb refuses a skin with no joints")
+    for joint in joints:
+        if not 0 <= joint < node_count:
+            raise ValueError(
+                f"write_glb: a skin names node {joint}, but the model has {node_count} node(s)"
+            )
+    matrices = np.asarray(skin.inverse_bind, dtype="f8")
+    if matrices.shape != (len(joints), 4, 4):
+        raise ValueError(
+            f"write_glb: a skin has {len(joints)} joint(s) but inverse bind matrices of "
+            f"shape {matrices.shape}"
+        )
+    if not np.isfinite(matrices).all():
+        raise ValueError("write_glb refuses a non-finite inverse bind matrix")
+    column_major = matrices.transpose(0, 2, 1).reshape(len(joints), 16).astype("<f4")
+    return {
+        "joints": joints,
+        "inverseBindMatrices": writer.accessor(column_major, "MAT4", _FLOAT),
+    }
 
 
 def _camera(camera: gltf.Camera) -> dict[str, Any]:
@@ -438,14 +486,15 @@ def write_glb(model: gltf.Model) -> bytes:
     Images are deduplicated by identity, so a palette sharing one map writes it
     once.
 
-    Skins are refused rather than dropped, for the same reason stated the other
-    way round: dropping one produces a rig-shaped file with no rig in it, and
-    the failure surfaces a long way from here.
+    **Skins are written, never dropped.** A skin is its joint nodes plus one inverse bind
+    matrix each (column-major, as the spec has it; ours are ``M @ v`` and are transposed
+    here and nowhere else, mirroring the loader). A skin that names a node the model does
+    not carry, or that has a different number of matrices than joints, is refused by name
+    rather than written as a file a strict reader rejects. A node's ``skin`` only means
+    something with a mesh, so one whose mesh was dropped as empty loses the reference too.
     """
-    if model.skins:
-        raise ValueError("write_glb does not write a skin; Clay has none")
-
     writer = _Writer()
+    skins = [_skin(writer, skin, len(model.nodes)) for skin in model.skins]
     meshes = []
     # ``primitives`` has a minimum length of one in the spec, so a mesh that
     # wrote nothing -- an object whose geometry is empty, or whose every
@@ -479,6 +528,8 @@ def write_glb(model: gltf.Model) -> bytes:
                 del node["mesh"]
             else:
                 node["mesh"] = moved
+        if "skin" in node and ("mesh" not in node or not 0 <= node["skin"] < len(skins)):
+            del node["skin"]
 
     doc: dict[str, Any] = {
         "asset": {"version": "2.0", "generator": "Realmspinner"},
@@ -488,6 +539,8 @@ def write_glb(model: gltf.Model) -> bytes:
     }
     if meshes:
         doc["meshes"] = meshes
+    if skins:
+        doc["skins"] = skins
     if writer.materials:
         doc["materials"] = writer.materials
     if writer.textures:

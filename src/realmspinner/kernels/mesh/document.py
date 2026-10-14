@@ -2785,7 +2785,11 @@ def _submesh(mesh: bm.Mesh, faces: np.ndarray) -> bm.Mesh:
 
 
 def to_primitives(
-    obj: Obj, materials: Sequence[gltf.Material], mesh: bm.Mesh | None = None
+    obj: Obj,
+    materials: Sequence[gltf.Material],
+    mesh: bm.Mesh | None = None,
+    *,
+    skin_data: bool = False,
 ) -> list[gltf.Primitive]:
     """One :class:`~gltf.Primitive` per material the object's faces use.
 
@@ -2800,6 +2804,12 @@ def to_primitives(
 
     ``mesh`` defaults to ``obj.mesh``; a caller drawing a drag preview or a
     scratch copy passes its own.
+
+    ``skin_data`` carries a weighted mesh's per-vertex ``joints``/``weights`` onto each
+    primitive, through the same split-and-shared vertex table the positions went through
+    (:func:`~.mesh.render_sources`). Off by default and only :func:`to_model` asks: the
+    viewport draws a weighted object at rest like any other, and a primitive that carried
+    joints it had no skin for would only invite the GPU to skin it by nothing.
     """
     if mesh is None:
         mesh = obj.mesh
@@ -2808,13 +2818,23 @@ def to_primitives(
     prims = []
     for index in np.unique(mesh.material):
         faces = np.flatnonzero(mesh.material == index)
-        positions, normals, uvs, indices = bm.render_arrays(_submesh(mesh, faces))
+        sub = _submesh(mesh, faces)
+        joints = weights = None
+        if skin_data and mesh.joints is not None:
+            layout = bm.render_layout(sub)
+            positions, normals, uvs, indices = bm.render_from_layout(layout, sub.positions)
+            sources = bm.render_sources(layout)
+            joints, weights = mesh.joints[sources], mesh.weights[sources]
+        else:
+            positions, normals, uvs, indices = bm.render_arrays(sub)
         prims.append(
             gltf.Primitive(
                 positions=positions,
                 indices=indices,
                 normals=normals,
                 uvs=uvs,
+                joints=joints,
+                weights=weights,
                 material=_material_at(materials, int(index)),
             )
         )
@@ -2995,17 +3015,49 @@ def to_model(doc: ClayDoc) -> gltf.Model:
     written by this package, but defensive against a hand-edited state)
     falls back to a root rather than raising.
 
+    **A document with bones exports one skin** (Tranche 2 of the Clay rig plan), in the
+    shape Blender writes its own: every bone is an ordinary node, hidden ones and their
+    ancestors included (a joint is not optional), and the skin lists them in document
+    order with ``inverse_bind = inv(world_rest(bone))``. A shape that moves with a bone --
+    weighted to it, or simply under it -- cannot keep its node, because a skinned node's
+    own transform is ignored by the spec; its geometry goes to a **scene-root node with an
+    identity transform**, vertices baked into world rest space, ``JOINTS_0`` and
+    ``WEIGHTS_0`` on every vertex. A shape bound rigidly gets the single joint it sits
+    under at weight 1; a weighted one has its skin's joint indices remapped onto the
+    document skin. The original node stays, without its mesh, so the hierarchy and every
+    other node's world matrix are exactly what they were; the new nodes come after the
+    ``kept_objects`` ones, so a caller that lines the two up still can. A document with no
+    bones takes none of these branches and its bytes do not change.
     """
     kept = kept_objects(doc)
+    by_uid = doc._uid_map()
+    marked = [obj for obj in doc.objects if obj.bone]
+    problems = doc.rig_problems()
+    if problems:
+        raise ValueError("this document's rig is not consistent: " + "; ".join(problems))
+    if marked:
+        wanted = {obj.uid for obj in kept}
+        for bone in marked:
+            cursor: int | None = bone.uid
+            while cursor is not None and cursor not in wanted and cursor in by_uid:
+                wanted.add(cursor)
+                cursor = by_uid[cursor].parent
+        kept = [obj for obj in doc.objects if obj.uid in wanted]
     index_of_uid = {obj.uid: i for i, obj in enumerate(kept)}
+    joint_of_bone = {bone.uid: j for j, bone in enumerate(marked)}
+    skinned: list[tuple[Obj, bm.Mesh]] = []
 
     nodes: list[gltf.Node] = []
     meshes: list[list[gltf.Primitive]] = []
     for obj in kept:
         mesh_index: int | None = None
         if obj.visible:
-            meshes.append(to_primitives(obj, doc.materials))
-            mesh_index = len(meshes) - 1
+            home = rig.nearest_bone(by_uid, obj.uid) if marked else None
+            if (obj.skin is not None or home is not None) and bm.face_count(obj.mesh):
+                skinned.append((obj, _skin_mesh(doc, by_uid, obj, home, joint_of_bone)))
+            else:
+                meshes.append(to_primitives(obj, doc.materials))
+                mesh_index = len(meshes) - 1
         nodes.append(
             gltf.Node(
                 name=obj.name,
@@ -3024,4 +3076,39 @@ def to_model(doc: ClayDoc) -> gltf.Model:
         for obj in kept
         if obj.parent is None or obj.parent not in index_of_uid
     ]
-    return gltf.Model(nodes, roots, meshes, [])
+    skins: list[gltf.Skin] = []
+    if marked:
+        inverse = np.array([np.linalg.inv(doc._world_in(b.uid, by_uid)) for b in marked])
+        skins.append(
+            gltf.Skin(joints=[index_of_uid[bone.uid] for bone in marked], inverse_bind=inverse)
+        )
+        for obj, mesh in skinned:
+            meshes.append(to_primitives(obj, doc.materials, mesh, skin_data=True))
+            nodes.append(gltf.Node(name=obj.name, mesh=len(meshes) - 1, skin=0))
+            roots.append(len(nodes) - 1)
+    return gltf.Model(nodes, roots, meshes, skins)
+
+
+def _skin_mesh(
+    doc: ClayDoc,
+    by_uid: Mapping[int, Obj],
+    obj: Obj,
+    home: int | None,
+    joint_of_bone: Mapping[int, int],
+) -> bm.Mesh:
+    """*obj*'s mesh in world rest space with every vertex's joints and weights on it.
+
+    The one place the two kinds of binding meet the one document skin: a weighted object's
+    own joint indices are looked up through its skin's bone uids, a rigidly bound one gets
+    ``(home, 0, 0, 0)`` at ``(1, 0, 0, 0)``.
+    """
+    world = bm.transformed(obj.mesh, doc._world_in(obj.uid, by_uid))
+    n = len(world.positions)
+    if obj.skin is not None:
+        table = np.array([joint_of_bone[uid] for uid in obj.skin.joints], dtype="i4")
+        return replace(world, joints=table[world.joints], weights=world.weights)
+    joints = np.zeros((n, 4), dtype="i4")
+    weights = np.zeros((n, 4), dtype="f4")
+    joints[:, 0] = joint_of_bone[home]
+    weights[:, 0] = 1.0
+    return replace(world, joints=joints, weights=weights)

@@ -727,6 +727,22 @@ def render_from_layout(
     return out_positions, out_normals, None, layout.indices
 
 
+def render_sources(layout: RenderLayout) -> np.ndarray:
+    """For each vertex :func:`render_from_layout` emits, the mesh vertex it came from.
+
+    What lets a per-vertex attribute that lives on the *mesh* (skin weights) follow the
+    split-and-shared vertex table out to the GPU or a GLB. Mirrors the two emit paths
+    exactly: a mesh with UVs emits one vertex per corner (``loops``); one without emits
+    the shared vertices a smooth face touches, then one per corner of a flat face.
+    """
+    if layout.n_faces == 0:
+        return np.zeros(0, dtype="i8")
+    if layout.uv is not None:
+        return layout.loops.astype("i8")
+    assert layout.used is not None and layout.flat_loops is not None
+    return np.concatenate([np.flatnonzero(layout.used), layout.flat_loops.astype("i8")])
+
+
 #: The last raw face normals each layout produced, so a drag's next frame can
 #: reuse the faces it did not touch.
 #:

@@ -387,14 +387,6 @@ def test_dropping_an_empty_mesh_renumbers_the_ones_that_survive() -> None:
     assert doc["nodes"][1]["mesh"] == 0
 
 
-def test_a_model_with_a_skin_is_refused_rather_than_silently_flattened() -> None:
-    """Clay has no skins. Dropping one would export a rig-shaped file with
-    no rig in it, which fails a long way from here."""
-    model = gltf.Model([gltf.Node(name="n")], [0], [], [gltf.Skin([0], np.eye(4)[None])])
-    with pytest.raises(ValueError, match="skin"):
-        glbwrite.write_glb(model)
-
-
 def test_a_glb_whose_json_chunk_overruns_the_file_is_refused() -> None:
     """A body cut short mid-transfer used to reach json.loads as a partial
     document, so what came back named the JSON decoder rather than the
