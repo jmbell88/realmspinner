@@ -1161,7 +1161,12 @@ def _scene_row(doc: Any, obj: Any) -> dict:
         # need a second call to learn what came across on this object.
         "stamp": doc.mesh_stamp(obj.uid),
         "selected": _sel_counts(doc.element_sel_of(obj.uid)),
+        # Whether this object is a joint of the document's rig (``clay_op`` mark-bone).
+        "bone": bool(obj.bone),
     }
+    if obj.skin is not None:
+        # Weighted to these bones (uids); a shape that merely sits under a bone has no skin.
+        row["skin"] = list(obj.skin.joints)
     uv_facts = _uv_facts(obj.mesh)
     if uv_facts is not None:
         row["uv"] = uv_facts
@@ -1173,6 +1178,31 @@ def _scene_row(doc: Any, obj: Any) -> dict:
             "scale": _round(obj.scale),
         }
     return row
+
+
+def _rig_facts(doc: Any) -> dict:
+    """What ``clay_scene`` says about the document's rig: how many bones, and the animations.
+
+    The animations are summarised (name, length, loop, interpolation, how many bones each moves),
+    never dumped: the keys themselves are a document edit's business, and a long clip would
+    otherwise be most of the reply.
+    """
+    state = doc.rig_state
+    return {
+        "bones": sum(1 for obj in doc.objects if obj.bone),
+        "fps": state.fps,
+        "active_animation": doc.active_animation,
+        "animations": [
+            {
+                "name": a.name,
+                "duration": round(float(a.duration), 4),
+                "loop": bool(a.loop),
+                "interpolation": a.interpolation,
+                "bones": len(a.channels),
+            }
+            for a in state.animations
+        ],
+    }
 
 
 _OBJECT_SELECTION_ELEMENT_MODE_REFUSAL = (

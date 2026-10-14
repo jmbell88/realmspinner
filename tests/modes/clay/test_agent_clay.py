@@ -4045,7 +4045,7 @@ def test_the_three_declared_output_schemas_describe_what_those_tools_actually_re
     # the shared schema helper still fails here. ``local`` is present only
     # once the object has a parent (see ``_object_row_output_schema``'s own
     # docstring) -- a freshly placed primitive has none.
-    assert set(add_structured) == set(add_schema["properties"]) - {"local"}
+    assert set(add_structured) == set(add_schema["properties"]) - {"local", "skin"}
 
     mesh_schema = getattr(tools["clay_add_mesh"], "output_schema", None)
     assert mesh_schema is not None
@@ -4058,7 +4058,7 @@ def test_the_three_declared_output_schemas_describe_what_those_tools_actually_re
     # own check just above, which needs no such exclusion for ``uv``: every
     # generator this fold ships already carries one (a box's own
     # ``box_unwrap``, at least).
-    assert set(mesh_structured) == set(mesh_schema["properties"]) - {"local", "uv"}
+    assert set(mesh_structured) == set(mesh_schema["properties"]) - {"local", "uv", "skin"}
 
 
 def test_no_declared_output_schema_demands_required_keys_because_a_refusal_shares_the_envelope() -> (  # noqa: E501
@@ -4573,11 +4573,16 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     Raised 2026-10-13 to 52,200 (surface 52,138) by Tranche 3 of the same plan: the four pose
     ops (``insert-key``, ``delete-key``, ``reset-pose``, ``apply-pose-as-rest``) are four more
     names in the enum, 38 characters in all. Deliberate for the same reason.
+
+    Raised 2026-10-13 to 52,900 (surface 52,803) by the last landing of Tranche 3: a rig is
+    visible to an agent. ``clay_scene``'s rows gain ``bone`` (and ``skin`` for a weighted mesh)
+    and its reply gains ``rig`` (bone count, frame rate, the animations summarised), which is
+    the 600-odd characters of ``outputSchema`` this catalogue carries for them.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 52_200
+    CEILING = 52_900
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

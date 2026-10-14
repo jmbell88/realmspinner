@@ -379,8 +379,11 @@ rather than guessed at, and so is a slot or a face that does not exist. `clay_op
 Assign Material on the faces an agent has selected, taking the slot as its `index`. Making a
 texture and editing it in Inker are not agent tools: Inker is a mode, and an agent has its own
 Clay tab and can address no other. `clay_scene` marks a palette slot that carries a painted texture as
-`textured` (and `nearest` when it samples pixel-crisp), because its colour alone reads as white. The
-palette holds at most 1,024 entries and a name is at most 128 characters at every door that takes
+`textured` (and `nearest` when it samples pixel-crisp), because its colour alone reads as white. It also
+shows a rig: every object row says whether it is a `bone`, a weighted mesh lists the bones it is weighted to as
+`skin`, and a `rig` block gives the bone count, the frame rate and a summary of each animation (name, length, loop,
+interpolation and how many bones it moves). Marking a bone is `clay_op` `mark-bone`; the keys themselves are not
+dumped. The palette holds at most 1,024 entries and a name is at most 128 characters at every door that takes
 one; both are refused rather than clamped. `clay_op` answers with the `params` it actually ran with,
 defaults filled in and out-of-range values clamped, and names the clamped ones in `clamped` (a whole-number
 rounding is not a clamp). A value below a floor the catalogue marks "refused" (Simplify's target faces, Snap

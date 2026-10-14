@@ -51,6 +51,7 @@ from .validate import (
     _repaint,
     _resolve_uid,
     _resolve_uids,
+    _rig_facts,
     _round,
     _scene_row,
     _tab,
@@ -143,6 +144,7 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
         "object_count": len(doc.objects),
         "bounds": bounds,
         "materials": materials,
+        "rig": _rig_facts(doc),
     }
     # The 2026-09-18 audit's agents-03: unlike clay_render, whose own payload
     # is checked against protocol.MAX_FRAME before it leaves, clay_scene's

@@ -601,10 +601,11 @@ def test_the_agent_modules_state_the_real_tool_count_and_scene_row_width() -> No
     row = next(
         o for o in _payload(_call(ctx, session, "clay_scene"))["objects"] if o["uid"] == child
     )
-    base = len([k for k in row if k not in ("uv", "local")])  # optional additions
-    words = {17: "seventeen"}
+    base = len([k for k in row if k not in ("uv", "local", "skin")])  # optional additions
+    words = {18: "eighteen"}
     contract_src = Path(contract.__file__).read_text(encoding="utf-8")
     assert "carries fifteen fields" not in contract_src
+    assert "carries seventeen fields" not in contract_src
     assert f"carries {words[base]} fields" in contract_src
     json.dumps(row)
     assert agent_tools is not None

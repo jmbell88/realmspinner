@@ -543,6 +543,8 @@ def _object_row_output_schema() -> dict:
             "verts": {"type": "integer"},
             "stamp": {"type": "integer"},
             "selected": _sel_counts_schema(),
+            "bone": {"type": "boolean"},
+            "skin": {"type": "array", "items": {"type": "integer"}},
             "uv": {
                 "anyOf": [
                     {"type": "null"},
@@ -602,6 +604,27 @@ def _clay_scene_output_schema() -> dict:
                         # texture read as its (white) factor alone.
                         "textured": {"type": "boolean"},
                         "nearest": {"type": "boolean"},
+                    },
+                },
+            },
+            "rig": {
+                "type": "object",
+                "properties": {
+                    "bones": {"type": "integer"},
+                    "fps": {"type": "integer"},
+                    "active_animation": {"anyOf": [{"type": "null"}, {"type": "integer"}]},
+                    "animations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "duration": {"type": "number"},
+                                "loop": {"type": "boolean"},
+                                "interpolation": {"type": "string"},
+                                "bones": {"type": "integer"},
+                            },
+                        },
                     },
                 },
             },
