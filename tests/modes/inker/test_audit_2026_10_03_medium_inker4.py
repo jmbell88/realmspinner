@@ -309,7 +309,7 @@ def test_manual_selection_modifier_chords_match_the_registry():
         assert inker_ops.action_active(action, chord, "Selection"), (action, chord)
     assert not inker_ops.action_active("selection_subtract", "Alt", "Selection")
 
-    chapter = _chapter("28-inker.md")
+    chapter = _chapter("25-inker.md")
     start = chapter.index("## Selections and transform")
     opening = chapter[start : start + 400]
     assert "**Alt** to subtract" not in opening, (
@@ -319,7 +319,7 @@ def test_manual_selection_modifier_chords_match_the_registry():
 
 
 def test_inker_manual_does_not_describe_controls_that_moved():
-    ch28, ch29 = _chapter("28-inker.md"), _chapter("29-inker-animation.md")
+    ch28, ch29 = _chapter("25-inker.md"), _chapter("26-inker-animation.md")
     # There is no "selection section": All/None/Invert/Feather/Crop are Select-menu rows.
     assert "the **selection** section" not in ch28
     # Free transform is the Edit menu and Ctrl+T; the tool-options button was removed.

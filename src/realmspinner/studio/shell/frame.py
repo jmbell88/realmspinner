@@ -9,8 +9,8 @@ tasks,quit}.py``.
 Six module-level layout helpers travel with :meth:`FrameMixin._build_ui`
 rather than staying behind in ``main.py``: ``_split_column``, ``_right_column``
 and ``_column_boundary`` are read by every workspace module (the six
-``<mode>_workspace.py`` files, plus ``studio/modes/clay/ui/viewport.py``, ``mason_viewport.py``,
-``poser_viewport.py`` and ``review_panes.py``) and not only by this one, so
+``<mode>_workspace.py`` files, plus ``studio/modes/clay/ui/viewport.py``, ``mason_viewport.py``
+and ``review_panes.py``) and not only by this one, so
 "only it uses them" was the split plan's guess rather than a fact about the
 code -- every one of those callers now reaches this module by name
 (``from ..shell.frame import _column_boundary``) instead of the bare name a
@@ -291,12 +291,12 @@ _CARD_STAGES = ("rig", "pose", "export")
 
 
 def _takes_pointer(target: Any, hovered: bool) -> bool:
-    """The one hover/grab rule, for all three viewports.
+    """The one hover/grab rule, for every viewport.
 
     A viewport sees the mouse while the pointer is over it, and a gesture
     already in progress keeps it wherever the cursor goes -- so crossing onto
-    a panel mid-orbit does not drop the drag. Written three times (the asset
-    viewer, Clay's and Poser's) it drifted: only Clay's carried the
+    a panel mid-orbit does not drop the drag. Written once per viewport (the
+    asset viewer's, Clay's, Mason's) it drifted: only Clay's carried the
     ``tab.saving`` press gate, which is a *different* rule and stays where it
     is, beside the document it is about.
 
@@ -305,8 +305,8 @@ def _takes_pointer(target: Any, hovered: bool) -> bool:
     keydrag -- is live" property to ``grabbing`` so it stopped shadowing
     ``DragOps.dragging``'s narrower "a transform is running" meaning. This
     rule wants the broad one, which is ``grabbing`` for Clay and, since the
-    asset viewer and Poser never had the shadowing property, plain
-    ``dragging`` for them.
+    asset viewer never had the shadowing property, plain
+    ``dragging`` for it.
     """
 
     if target is None:
@@ -422,27 +422,22 @@ class FrameMixin:
         clay = self.clay_view
         if clay is not None and state.mode == "clay" and not clay.camera.settled():
             return True
-        poser = self.poser_viewer
-        if poser is not None and state.mode == "poser" and not poser.camera.settled():
-            return True
         # The 2026-09-26 audit, finding shell-shell-pkg-02: Mason's own
         # camera (``ui/view.py``'s ``MasonView``, the same ``viewer.camera``
-        # class Clay's and Poser's use above) had no clause here, so an
+        # class Clay's uses above) had no clause here, so an
         # in-flight glide or orbit in Mason ran throttled at ``IDLE_FPS``
         # (~12 fps) instead of the full cadence every other mode's camera
         # already gets.
         mason = self.mason_view
         if mason is not None and state.mode == "mason" and not mason.camera.settled():
             return True
-        # Poser's character-sheet section plays its sheet with no input at
-        # all -- Troupe's own reasoning, folded in whole (P9, 2026-09-18) --
-        # and ``sheet_advance`` only runs inside the preview's draw, so a
-        # skipped frame does not advance playback, it *drops* it. Throttled to
-        # IDLE_FPS the preview becomes coarse catch-up jumps that can step
-        # straight over the frame being judged, which is the one thing the
-        # section exists to make obvious.
-        if state.mode == "poser" and getattr(state.poser, "sheet_playing", False):
-            return True
+        # Clay's timeline plays with no input at all, and the playhead only
+        # advances inside the viewport's draw, so a throttled frame would drop
+        # playback in coarse jumps rather than merely slow it.
+        if state.mode == "clay":
+            tab = getattr(getattr(state, "clay", None), "active", None)
+            if tab is not None and getattr(tab.doc, "playing", False):
+                return True
         # Create's animation preview, the same class (the 2026-10-03 audit,
         # finding shell-37): it advances by ``imgui.get_time()`` with no input
         # at all, and ``preview.draw`` only samples it when a frame is drawn, so
@@ -797,12 +792,6 @@ class FrameMixin:
             from ..modes.review import mode as review_mode
 
             review_mode.scan(ctx)
-        if ctx.state.mode != self._last_mode and ctx.state.mode == "poser":
-            # Review's rule: arriving refreshes the library and asks for the
-            # armature preview, both cheap on a warm cache.
-            from ..modes.poser import mode as poser_mode
-
-            poser_mode.enter(ctx)
         self._note_last_workspace(ctx)
         self._last_mode = ctx.state.mode
 
@@ -931,8 +920,6 @@ class FrameMixin:
                         library_full.draw(ctx)
                     elif mode == "clay":
                         self._clay_workspace()
-                    elif mode == "poser":
-                        self._poser_workspace()
                     elif mode == "review":
                         self._review_workspace()
                     elif mode == "plotter":
@@ -1289,7 +1276,6 @@ class FrameMixin:
         """
         from .. import widgets
         from ..modes.create.ui.panes import settings_3d
-        from ..modes.poser.ui.panes import send as poser_send
         from ..panes import first_run, overlay, palette
 
         ctx = self.app_ctx
@@ -1360,18 +1346,6 @@ class FrameMixin:
             on_failure=lambda: tour_pane.stop(ctx),
         )
         over("overlay/palette", palette.draw, ctx, title="The command palette")
-        # The sheet-rendering question (Troupe's own "Send to Troupe" dialog,
-        # ported to Poser whole in P9, 2026-09-18), above the confirms for
-        # ``matte``'s reason: it is a modal raised from a context menu, and it
-        # must take the single popup slot before any confirm the same frame
-        # raises.
-        over(
-            "overlay/poser-send",
-            poser_send.draw,
-            ctx,
-            title="Send to Poser",
-            on_failure=lambda: poser_send.close(ctx),
-        )
         # A queue that stops drawing still reports ``modal_open``, so the
         # keyboard would be owned by a modal nobody can see. Dismissing is the
         # queue's own documented way out, and the reason ``pending`` is

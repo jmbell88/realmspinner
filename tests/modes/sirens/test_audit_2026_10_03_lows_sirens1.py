@@ -300,11 +300,11 @@ def _chapter(name: str) -> str:
 
 
 def test_manual_34_names_every_control_the_song_file_panel_draws():
-    text = _chapter("34-sirens.md")
+    text = _chapter("31-sirens.md")
     flat = " ".join(text.split())
     assert "Compose in Muse" in flat
     assert "Closeness" in flat
-    assert "35-muse.md" in text
+    assert "32-muse.md" in text
     assert "is every pattern the document holds" not in flat
     # And the pane really draws both, so the chapter is being held to the code.
     source = (Path(bridge_pane.__file__)).read_text(encoding="utf-8")
@@ -321,7 +321,7 @@ def _sirens_section(text: str) -> str:
 def test_chapter_38_lists_the_sirens_panic_key():
     from realmspinner.studio.shortcuts import shortcut_sections
 
-    assert "Shift+Esc" in _sirens_section(_chapter("38-shortcuts.md"))
+    assert "Shift+Esc" in _sirens_section(_chapter("35-shortcuts.md"))
     sheet = dict(shortcut_sections())["Sirens"]
     keys = {key for key, _what in sheet}
     assert "Shift+Esc" in keys

@@ -232,21 +232,6 @@ def resolve_lowpoly(
     params["profile"] = "raw"
 
 
-def _check_troupe(svc: RealmspinnerService, block: Any) -> dict[str, Any]:
-    """Troupe's follow-up options, validated at *this* door.
-
-    Delegated whole to ``service.troupe``, which owns the numbers and is in
-    the same layer -- the drift argument that makes a pipeline restate a
-    constant does not apply between two service modules. It is a function here
-    rather than an inline call so the import stays local: ``service.troupe``
-    imports ``pipelines.spritesynth`` for the guide variants, and this module
-    is on the import path of every job the app creates.
-    """
-    from . import troupe as svc_troupe
-
-    return svc_troupe.check_troupe(svc, block)
-
-
 def _check_sprite_sheet(svc: RealmspinnerService, block: Any) -> dict[str, Any]:
     """The follow-up sprite sheet's options, validated at *this* door.
 
@@ -352,7 +337,6 @@ def create_job(
     output: str = "model",
     count: int = 1,
     sprite_sheet: dict[str, Any] | None = None,
-    troupe: dict[str, Any] | None = None,
     guidance_fields: dict[str, Any] | None = None,
     asset_type: str | None = None,
     asset_intent: str | None = None,
@@ -461,32 +445,6 @@ def create_job(
         # walks the model registry and stats the weight files, which is a real
         # cost to pay once and a pointless one to pay twice for one submit.
         sprite_block = _check_sprite_sheet(svc, sprite_sheet)
-    if troupe is not None:
-        # Troupe's request for a follow-up, expressed the way the rig checkbox
-        # and the sprite sheet already are: a *flag on the reference job*,
-        # honoured once the picture it needs exists. Not a job kind of its own,
-        # because the thing being asked for is genuinely a chain with a human
-        # gate in the middle of it -- draw the character, approve it, and only
-        # then spend the reconstruction -- and the first link is exactly an
-        # ordinary reference.
-        if output != "reference":
-            raise Invalid(
-                "a character sheet starts from a reference you approve, so "
-                "output must be 'reference'",
-                field="output",
-            )
-        if count > 1:
-            # N characters each spawning a mesh, a rig and 256 rendered frames
-            # is not a batch, it is an afternoon. The sprite path holds the
-            # same line for the same reason.
-            raise Invalid(
-                "a character sheet is built from one reference at a time",
-                field="count",
-            )
-        # Checked here, at the top of the door, and the result carried down to
-        # the params write: it stats weight files and reads a palette, which is
-        # a real cost to pay once and a pointless one to pay twice.
-        troupe_block = _check_troupe(svc, troupe)
     if count > 1 and sweep_id:
         # A sweep unit is one job: it is what a verdict is filed against and
         # what a config vector describes. N candidates behind one unit label
@@ -651,51 +609,6 @@ def create_job(
         # VECTOR_PARAMS -- an allowlist of flat settings -- cannot pick any of
         # it up by accident.
         params["sprite_sheet"] = sprite_block
-    if troupe is not None:
-        # One nested block, for the reason the sprite block gives: a follow-up
-        # request is not a flat setting, and VECTOR_PARAMS is an allowlist of
-        # flat settings that must not pick any of this up by accident.
-        from . import troupe as svc_troupe
-
-        params["troupe"] = troupe_block
-        # The rig is not optional for a character sheet -- every cell is a
-        # posed frame -- so it is set here rather than left to a checkbox the
-        # user could clear without knowing what it cost them. The template is
-        # pinned for the same reason ``TROUPE_TEMPLATE`` exists: it is the only
-        # one the clip library carries a walk for.
-        params["rig"] = True
-        params["rig_template"] = svc_troupe.TROUPE_TEMPLATE
-        # **How the joints are found follows the pose that was asked for.**
-        # The shipped humanoid template is an A-pose. Against a T-posed
-        # reference it mis-fits badly enough to skin the arms to the chest, so
-        # those are measured off the mesh's own vertices instead; where the
-        # measurement refuses -- a mesh in neither pose -- ``jointfit`` says so
-        # and the rig falls back to the template, and the user corrects the
-        # joints in Poser and re-runs the sheet from the direct door.
-        #
-        # An A-posed reference *is* the pose the template is in, so there is
-        # nothing to correct for and it is fitted directly. That also drops the
-        # ViTPose weights from the path, which a bare install does not have --
-        # which is half of why the A-pose is the default.
-        params["guide_pose"] = troupe_block["pose"]
-        params["rig_joints"] = (
-            "template" if troupe_block["pose"] == "apose" else "measured"
-        )
-        # Pinned, deliberately not inherited: the reference stage conditions on
-        # a rendered pose guide, so it needs a base that can run a ControlNet.
-        params["base_model"] = svc_troupe.TROUPE_BASE_MODEL
-        # Set *after* the "conditioning needs a reference image" check above,
-        # and that is the point: this job's hint is not derived from a
-        # reference at all. ``guide`` tells ``_q_generate._conditioning`` to
-        # draw ``spritesynth.render_reference_guide`` straight into control.png --
-        # the guide is already line art in canny space, and running the
-        # detector over it would return two lines where it means one.
-        params["control"] = "canny"
-        params["control_hint_source"] = "guide"
-        params["guide_variant"] = troupe_block["variant"]
-        params.setdefault("control_scale", models.CONTROLNETS["canny"].default_scale)
-        params.setdefault("control_end", models.CONTROLNETS["canny"].default_end)
-
     # Last of the door checks and still before any write, so a refused job
     # leaves no input.png: the projected peak is a function of the normalized
     # params (conditioning, resolution), which is why it cannot run any earlier.

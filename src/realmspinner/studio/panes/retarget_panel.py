@@ -62,8 +62,8 @@ TIERS: tuple[tuple[str, str], ...] = tuple(
 
 # The 2026-10-11 audit, finding create-22: ``optimize_job`` refuses with
 # ``profile`` and ``custom_triangles``, the very ids Create's Budget combo rings
-# in the one flat ``ctx.state.field_errors``. ``texture_panel``, ``remesh_panel``
-# and ``sheet_panel`` already prefix the ids that collide; this panel did not.
+# in the one flat ``ctx.state.field_errors``. ``texture_panel`` and ``remesh_panel``
+# already prefix the ids that collide; this panel did not.
 _FIELD_PREFIX = {
     "profile": "retarget_profile",
     "custom_triangles": "retarget_custom_triangles",
@@ -157,7 +157,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
 
     The 2026-09-08 audit, finding create-02: this used to be one shared slot
     compared by ``form.get("job_id") != job_id``, the pattern commit
-    89cb6412 fixed on ``remesh_panel``/``sheet_panel``/``sprite_panel`` but
+    89cb6412 fixed on ``remesh_panel``/``sprite_panel`` but
     left standing here -- so looking at a different card in the Library and
     coming back silently reset a chosen custom triangle count to the default
     tier, with no undo.
@@ -310,7 +310,7 @@ def _submit(ctx: Any, job_id: str, form: dict[str, Any]) -> None:
         "Rebuild mesh",
         not problems and not busy and not dep_reason,
         (-1, 0),
-        # ``sheet_panel``'s rule: the problems are listed above the button, so
+        # The rule here: the problems are listed above the button, so
         # the reason names the other gate and defers to the list otherwise.
         reason=(
             "A rebuild is already running for this asset."

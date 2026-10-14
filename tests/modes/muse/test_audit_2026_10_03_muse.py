@@ -73,5 +73,5 @@ def test_a_reroll_of_a_derived_take_keeps_the_parents_seed_and_walks_the_retake_
 
 
 def test_the_soundtrack_tutorial_does_not_promise_a_warm_pipeline_between_takes():
-    text = (ROOT / "docs/manual/16-generating-a-soundtrack.md").read_text(encoding="utf-8")
+    text = (ROOT / "docs/manual/15-generating-a-soundtrack.md").read_text(encoding="utf-8")
     assert "reuses the loaded pipeline" not in text

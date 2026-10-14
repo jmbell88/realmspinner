@@ -1818,8 +1818,8 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     lo, hi = _scene_bounds(bpy)
     # ``spec.get("margin")`` has two writers and only one of them invents a
-    # number. ``_q_troupe``'s validation retry chooses one, re-rendering a sheet
-    # whose first attempt clipped at a wider margin; a *subset* re-render passes
+    # number. the character-sheet validation retry chose one, re-rendering a sheet
+    # whose first attempt clipped at a wider margin; a *subset* re-render passed
     # back the ``frame_margin`` its base sidecar recorded, because cells landing
     # beside existing ones have to be framed exactly as those were or the
     # character changes size inside rectangles that must not change.
@@ -1853,7 +1853,7 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     # exactly what makes it usable as a sprite pivot. Aiming here also keeps the
     # projection out of the render loop.
     #
-    # A ``front_yaw`` offset (see ``_q_troupe``/``_q_rig``) costs nothing here:
+    # A ``front_yaw`` offset (see ``_q_rig``) costs nothing here:
     # ``_union_framing`` above returns a scalar ``extent``, so the ortho window
     # is the same square whichever direction is called "front", and this pivot
     # is the projection of ``(centre[0], centre[1], lo[2])`` -- a point *on*
@@ -1885,7 +1885,7 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
             posed = key
         # Read twice below -- here to aim, and again at the socket depth
         # ordering -- which is exactly why a ``front_yaw`` offset (see
-        # ``_q_troupe``/``_q_rig``) is added into this per-cell value on the
+        # ``_q_rig``) is added into this per-cell value on the
         # host rather than carried as a separate spec key: a spec key would
         # have to be threaded to both reads and re-derived here, where adding
         # it once, upstream, means this worker keeps needing to know only one

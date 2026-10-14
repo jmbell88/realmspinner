@@ -129,7 +129,6 @@ def _ctx(svc: Any, job: dict[str, Any], *, stage: str, mode: str = "create", act
         rig_templates=[],
         rig_default="",
         rigging_available=True,
-        sheet_options={},
     )
 
 

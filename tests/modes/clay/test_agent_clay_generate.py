@@ -14,12 +14,47 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from studio.test_agent_character import _base_package_for_level, _dotted_names
-
 from realmspinner.studio.modes.clay import ops as clay_ops
 from realmspinner.studio.modes.clay.agent import dispatch as clay_dispatch
 
-del _base_package_for_level  # imported for _dotted_names' own default use only
+
+def _base_package_for_level(package: str, level: int) -> str:
+    """Python's own relative-import resolution rule, applied to a dotted
+    package name instead of a live module -- what the interpreter would
+    compute for a ``from .``/``from ..`` in a file living directly in
+    *package*."""
+    parts = package.split(".")
+    if level <= 1:
+        return package
+    trimmed = parts[: -(level - 1)] if level - 1 <= len(parts) else []
+    return ".".join(trimmed)
+
+
+def _dotted_names(node: ast.AST, package: str) -> list[str]:
+    """Every real dotted module name one import statement could resolve
+    to -- including, for ``from X import Y``, ``X.Y`` itself (an attribute
+    import can also be a submodule import in disguise: ``from ..pipelines
+    import trellis`` imports ``realmspinner.pipelines.trellis`` whether
+    ``trellis`` is read as a module or an attribute of ``pipelines``). A
+    check that only looked at ``node.module`` -- as this test used to --
+    would see ``"pipelines"`` for exactly that import and never notice
+    ``trellis`` naming the forbidden module at all.
+    """
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    if isinstance(node, ast.ImportFrom):
+        if node.level:
+            base = _base_package_for_level(package, node.level)
+            module_path = f"{base}.{node.module}" if node.module else base
+        else:
+            module_path = node.module or ""
+        names = [module_path] if module_path else []
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            names.append(f"{module_path}.{alias.name}" if module_path else alias.name)
+        return names
+    return []
 
 
 def test_generate_into_tab_is_not_a_clay_op():

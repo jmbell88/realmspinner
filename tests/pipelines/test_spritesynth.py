@@ -1250,7 +1250,7 @@ def test_the_same_inputs_twice_are_byte_identical(options):
 def test_the_report_names_the_reduction_that_actually_happened(logical, exact):
     """``pixelize_atlas`` sees an atlas already at the target and answers
     ``True`` unconditionally, so this field has to be measured against the real
-    reduction -- the same correction ``_q_troupe`` makes one path along."""
+    reduction -- the same correction the retired Troupe worker makes one path along."""
     geom, atlas = _colour_atlas()
     out, record = _assemble(geom, atlas, logical=logical, designed=RAMP)
 

@@ -353,7 +353,7 @@ def test_shift_click_extends_and_ctrl_click_subtracts_the_object_selection(
     ``shift``/``ctrl`` off the modifier state and then called
     ``doc.select([hit])`` regardless, so every click replaced the whole
     selection and a multi-object op needed the Outliner. The manual
-    (docs/manual/30-clay.md:223) has always promised Shift adds, Ctrl
+    (docs/manual/27-clay.md:223) has always promised Shift adds, Ctrl
     removes -- ``test_shift_adds_and_ctrl_subtracts`` proved the same promise
     for face mode; this is its object-mode twin.
     """

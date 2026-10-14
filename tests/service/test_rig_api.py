@@ -302,7 +302,7 @@ def test_rerigging_without_blender_is_refused_at_the_door(svc, assets, monkeypat
 
 # --- a job's own pose file, validated at the read door -----------------------
 #
-# The library pose door (service.poses._record_or_not_found) re-validates a
+# The library pose door (the retired pose-library door) re-validates a
 # saved pose's bones on every read, because a pose is a file in a directory
 # any other program can edit. A job-scoped pose (this module's list_poses/
 # save_pose/posed_model) never got that second half: store.read_pose only

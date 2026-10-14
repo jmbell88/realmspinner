@@ -1,6 +1,6 @@
 """Flourish in the editor: predicates, the pending recipe, and the render task.
 
-The headless half of the feature's UI, ``inker_sheet``'s shape: everything
+The headless half of the feature's UI: everything
 the ops registry, the inspector and the tests ask is answered here with no
 imgui in reach, so ``inker_ops`` can grey a row with the same sentence the
 panel shows and a test can drive the whole loop with a fake ``ctx``.

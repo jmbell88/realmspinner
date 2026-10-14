@@ -86,17 +86,16 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
                 rig_key, svc_rig.create_rig, ctx.svc, job["id"], template=stage_rig.skeleton(ctx)
             )
         imgui.same_line()
-        if widgets.disabled_button(
-            "Rig manually", not ctx.busy(rig_key), reason="This mesh is already being rigged."
+        if widgets.ghost_button(
+            "Rig by hand in Clay",
+            tooltip=(
+                "Open the mesh in Clay, mark the joints as bones and pose them there; "
+                "Export to the library writes the rig."
+            ),
         ):
-            # Same submit key as the automatic button: a mesh cannot be both
-            # rigs at once. "blank" is a real, hidden template (one root
-            # bone) fitted through the identical Blender pass every rig
-            # already runs, so what lands is a genuine rig.glb the skeleton
-            # editor (Poser -> Edit skeleton) can build out from nothing by
-            # hand -- Add child, Split, Attach limb, drag to reposition.
-            ctx.state.clear_field_errors()
-            ctx.submit(rig_key, svc_rig.create_rig, ctx.svc, job["id"], template="blank")
+            from ..modes.clay import mode as clay_mode
+
+            clay_mode.edit_asset_in_clay(ctx, job)
         return
 
     viewer = ctx.viewer
@@ -114,7 +113,6 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
         if loading:
             widgets.muted("Loading the rig...")
         _saved_list(ctx, job)
-        _poser_link(ctx, job)
         return
     if not _is_bound_job(viewer, job):
         _elsewhere(ctx, viewer)
@@ -127,7 +125,6 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
         else:
             _pose(ctx, job, viewer)
     _saved_list(ctx, job)
-    _poser_link(ctx, job)
 
 
 # --- entering and leaving ---------------------------------------------------
@@ -305,55 +302,10 @@ def land_enter(ctx: Any, job: Any) -> None:
         entry.then(viewer)
 
 
-def _poser_link(ctx: Any, job: Any) -> None:
-    """The way across to the Poser, said out loud.
-
-    The two editors are the same gizmo over the same rig and they answer
-    different questions -- this one poses *this asset*, the Poser authors a
-    pose for a *skeleton*, reusable by every mesh fitted to it -- and nothing
-    on either screen said the other existed. A user with six rigged props and
-    one walk cycle to make had to already know.
-
-    A ghost button rather than a filled one: it is available and it is not the
-    point of this pane.
-    """
-    from .. import icons
-
-    if widgets.ghost_button(
-        f"Author poses in Poser  {icons.CHEVRON_RIGHT}",
-        (-1, 0),
-        tooltip="Poses saved there apply to every mesh on this skeleton.",
-    ):
-        open_in_poser(ctx, job)
-
-
-def open_in_poser(ctx: Any, job: Any) -> None:
-    """Leave for the Poser, on this rig's own mesh.
-
-    Behind :func:`guard` because it is an exit from the editor like any other,
-    and through :func:`leave` because the Poser has its *own* viewer -- a
-    shared viewer left in pose mode would keep ``_sync_viewer`` returning
-    early for the rest of the session. ``poser_mode.open_asset`` is what
-    actually hands the mesh across: Poser binds its own viewer to this same
-    ``rig.glb`` rather than falling back to the generic, meshless skeleton
-    preview, so what was being posed here keeps being posed there.
-    """
-    from ..modes.poser import mode as poser_mode
-    from ..state import set_mode
-
-    def proceed() -> None:
-        leave(ctx)
-        poser_mode.open_asset(ctx, job)
-        set_mode(ctx.state, "poser")
-
-    guard(ctx, "open the Poser", proceed)
-
-
 def guard(ctx: Any, action: str, proceed: Any) -> bool:
     """Ask before discarding unsaved edits. -> whether it went ahead now.
 
-    Over the *shared* viewer, which is what makes this and ``poser_mode.guard``
-    mutually exclusive by construction. The noun is computed here rather than
+    Over the *shared* viewer. The noun is computed here rather than
     in ``docmodes``: joints mode is an inspector-only state, and a joint
     correction is a different thing to lose than a pose.
     """
@@ -568,55 +520,7 @@ def _joints(ctx: Any, job: Any, viewer: Any) -> None:
 # --- the saved list ---------------------------------------------------------
 
 
-def _library_list(ctx: Any, job: Any) -> None:
-    """Poses authored in the Poser, offered to any asset on the same skeleton.
-
-    Applying one *snapshots* it into this job's own poses/ directory (see
-    ``service.poses.apply_library_pose``): the copy is the provenance record,
-    so editing or deleting the library pose afterwards changes nothing here.
-    The rows come off the ``pose-library:{job_id}`` task the side-data refresh
-    already submits; an empty answer draws nothing at all, because an asset
-    with no applicable poses does not need a section saying so -- the Poser is
-    where the library is explained.
-    """
-    from ...service import poses as svc_poses
-
-    poses = (ctx.state.preview or {}).get("library_poses") or []
-    if not poses:
-        return
-    widgets.section("Library poses")
-    widgets.help_marker(
-        "Poses from the Poser workspace that fit this skeleton. Applying one "
-        "copies it onto this asset, so later library edits never change it."
-    )
-    job_id = job["id"]
-    needle = widgets.list_filter(ctx, "library-poses", len(poses))
-    shown = 0
-    for pose in poses:
-        pose_id = str(pose.get("id") or "")
-        name = str(pose.get("name") or pose_id)
-        if needle and needle not in name.lower():
-            continue
-        shown += 1
-        imgui.push_id(f"lib-{pose_id}")
-        imgui.text(name)
-        imgui.same_line()
-        key = f"pose-lib-apply:{job_id}:{pose_id}"
-        # The 2026-09-05 audit, finding create-09: this was the only
-        # disabled_button in the seven Create stage panes with no reason= --
-        # it greyed out while the pose applied and said nothing, unlike the
-        # near-identical "Save GLB..." button below ("This pose is already
-        # baking.").
-        if widgets.disabled_button(
-            "Apply", not ctx.busy(key), reason="This pose is already applying."
-        ):
-            ctx.submit(key, svc_poses.apply_library_pose, ctx.svc, job_id, pose_id)
-        imgui.pop_id()
-    widgets.no_matches(needle, shown)
-
-
 def _saved_list(ctx: Any, job: Any) -> None:
-    _library_list(ctx, job)
     poses = (ctx.state.preview or {}).get("poses") or []
     widgets.section("Saved poses")
     if not poses:

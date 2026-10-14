@@ -134,7 +134,7 @@ either way: everything except rigging, posing and sheets works exactly as before
 Bone-heat weighting gives up outright on the kind of non-manifold geometry a reconstruction sometimes
 produces; the worker catches that, falls back to envelope weights, and records which was used in
 `rig.json` rather than failing the job. The result is cruder around joints, not broken. See
-[When rigging is unavailable](25-rigging-and-posing.md#when-rigging-is-unavailable).
+[When rigging is unavailable](23-generating-meshes.md#when-rigging-is-unavailable).
 
 ## The GPU worker stopped
 

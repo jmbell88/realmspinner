@@ -28,7 +28,6 @@ from realmspinner.studio.state import AppState, Eta, Filters
 
 @pytest.fixture
 def app_ctx(gl, svc, tmp_path, imgui_ctx):
-    from realmspinner.service import sheets as svc_sheets
     from realmspinner.service import system as svc_system
     from realmspinner.studio import textures
     from realmspinner.studio.runtime import Runtime
@@ -50,7 +49,6 @@ def app_ctx(gl, svc, tmp_path, imgui_ctx):
         textures=textures.ThumbnailCache(gl),
     )
     ctx.guidance = svc_system.guidance_catalog(svc)
-    ctx.sheet_options = svc_sheets.sheet_options()
     ctx.base_models = [("turbo", "SDXL-Turbo")]
     ctx.style_loras = [("", "none"), ("render3d", "3D render")]
     ctx.rig_templates = [{"key": "biped", "label": "Biped"}]
@@ -758,7 +756,6 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
         inspector,
         pose_panel,
         retarget_panel,
-        sheet_panel,
     )
     from realmspinner.studio.tokens import sp
 
@@ -866,7 +863,6 @@ def test_no_pane_continues_a_line_that_has_no_room_left(app_ctx, imgui_ctx):
         ("inspector", lambda: inspector.draw(app_ctx)),
         ("retarget", lambda: retarget_panel.draw(app_ctx, job)),
         ("pose", lambda: pose_panel.draw(app_ctx, job)),
-        ("sheet", lambda: sheet_panel.draw(app_ctx, job)),
         ("clay-inspector-nothing", _clay_inspector("nothing")),
         ("clay-inspector-one", _clay_inspector("one")),
         ("clay-inspector-many", _clay_inspector("many")),
@@ -1030,91 +1026,6 @@ def test_the_pose_panel_builds_rigged_and_unrigged(app_ctx, imgui_ctx):
     _frame(imgui_ctx, lambda: pose_panel.draw(app_ctx, job))
     app_ctx.viewer.pose_mode = False
     app_ctx.viewer.pose_job_id = None
-
-
-def test_the_sheet_panel_builds_with_poses_and_a_clip(app_ctx, imgui_ctx):
-    from realmspinner.studio.panes import sheet_panel
-
-    job_id = _seeded(app_ctx)
-    job = app_ctx.cache.get(job_id)
-    job["files"] = ["model.glb", "rig.glb"]
-    app_ctx.state.preview["poses"] = [
-        {"id": "abcdef012345", "name": "idle"},
-        {"id": "abcdef012346", "name": "walk"},
-    ]
-    _frame(imgui_ctx, lambda: sheet_panel.draw(app_ctx, job))
-    # Keyed by job id since the 2026-09-07 Create review, item 5.3b (a form
-    # per job survives a selection round-trip instead of being clobbered).
-    form = app_ctx.state.preview["sheet_forms"][job_id]
-    form["clip"] = True
-    form["clip_from"] = "abcdef012345"
-    form["clip_to"] = "abcdef012346"
-    _frame(imgui_ctx, lambda: sheet_panel.draw(app_ctx, job))
-
-
-def test_the_sheet_preview_advances_a_cell_per_frame(app_ctx, imgui_ctx):
-    """The preview draws and reads back per cell, so it is spread over frames
-    rather than done in the one the button was pressed. Drawn here with a
-    strip genuinely in progress, which is the branch a static frame misses."""
-    from PIL import Image
-
-    from realmspinner.studio.panes import sheet_panel
-
-    job_id = _seeded(app_ctx)
-    job = app_ctx.cache.get(job_id)
-    job["files"] = ["model.glb", "rig.glb"]
-
-    class _Strip:
-        def __init__(self) -> None:
-            self.steps = 0
-            self.released = False
-            self.image = Image.new("RGBA", (32, 8), (0, 0, 0, 0))
-            self.index = 0
-            # The pane reads a "3 of 16" off these two (L104).
-            self.yaws = [0.0, 90.0]
-
-        def step(self) -> bool:
-            self.steps += 1
-            return self.steps >= 2
-
-        def release(self) -> None:
-            self.released = True
-
-    strip = _Strip()
-    app_ctx.viewer._strip = strip
-    # ``has_model`` gates the whole section and the fixture's viewer is empty;
-    # a stand-in is enough, since nothing in this path dereferences it.
-    app_ctx.viewer.gpu = object()
-
-    try:
-        assert app_ctx.viewer.stripping is True
-        _frame(imgui_ctx, lambda: sheet_panel.draw(app_ctx, job))
-        assert strip.steps == 1, "one cell per frame, not all of them"
-        assert app_ctx.viewer.strip_progress == (0, 2)
-        assert app_ctx.viewer.stripping is True
-
-        _frame(imgui_ctx, lambda: sheet_panel.draw(app_ctx, job))
-        assert strip.steps == 2
-        assert app_ctx.viewer.stripping is False, "finished, and let go of"
-        # *Let go of* is not enough: the finished image is a CPU-side PIL
-        # object, but the strip still owns its render target -- a 64-square
-        # texture, two multisample renderbuffers and two framebuffers -- and
-        # the moderngl context sets no ``gc_mode``, so dropping the reference
-        # frees none of it. ``cancel_sheet_strip`` released and the success
-        # path did not, which leaked one viewport per completed preview.
-        assert strip.released, "the finished strip released its render target"
-        assert app_ctx.state.preview["sheet_strip"] is strip.image
-
-        # And the release happens exactly once: the field is cleared first, so
-        # the cancel inside teardown finds nothing left to free.
-        strip.released = False
-        app_ctx.viewer.cancel_sheet_strip()
-        assert strip.released is False, "no second release from the cancel path"
-    finally:
-        app_ctx.viewer.gpu = None
-        app_ctx.viewer._strip = None
-        app_ctx.state.preview.pop("sheet_strip", None)
-        sheet_panel.release_strip_texture(app_ctx)
 
 
 def test_the_overlay_builds_with_a_toolbar_and_a_banner(app_ctx, imgui_ctx):
@@ -1908,7 +1819,7 @@ def test_the_packs_category_draws_a_pack_this_machine_has_not_got(app_ctx, imgui
             "key": "rig",
             "label": "Rigging",
             "summary": "Skeleton fitting and skinning.",
-            "modes": ["poser", "troupe"],
+            "modes": ["create"],
             "present": False,
             "missing": ["bpy"],
             "manifest": True,
@@ -3925,7 +3836,7 @@ def test_two_ghost_buttons_with_the_same_label_keep_separate_hover_state(imgui_c
     )
 
 
-@pytest.mark.parametrize("stage", ["reference", "tile", "model", "rig", "sheet"])
+@pytest.mark.parametrize("stage", ["reference", "tile", "model", "rig", "retired"])
 def test_a_library_card_says_which_kind_of_asset_it_is(app_ctx, imgui_ctx, stage):
     """The card never read ``stage``, and the only tells were a 72 px
     thumbnail, the "from a reference" note and the *absence* of a quality
@@ -3939,13 +3850,13 @@ def test_a_library_card_says_which_kind_of_asset_it_is(app_ctx, imgui_ctx, stage
     from realmspinner.studio.modes.library.ui.panes import library
     from realmspinner.studio.tokens import sp
 
-    # rig/sheet rows are follow-up jobs, minted with no ``stage=``, so they
-    # keep the jobs table's column default of "model" (INVARIANTS.md) -- the
-    # badge tells them apart by ``kind`` via ``card_kind``, not by a stage this
-    # row would never actually carry.
-    kind = stage if stage in ("rig", "sheet") else "text"
+    # rig and retired-sheet rows are follow-up jobs, minted with no ``stage=``,
+    # so they keep the jobs table's column default of "model" (INVARIANTS.md) --
+    # the badge tells them apart by ``kind`` via ``card_kind``, not by a stage
+    # this row would never actually carry.
+    kind = {"rig": "rig", "retired": "sheet"}.get(stage, "text")
     job_id = _seeded(app_ctx, kind=kind)
-    if stage not in ("rig", "sheet"):
+    if stage not in ("rig", "retired"):
         app_ctx.svc.store.set_stage(job_id, stage)
     app_ctx.cache.invalidate()
     app_ctx.cache.tick()
@@ -3985,7 +3896,7 @@ def test_the_stage_badges_tell_pixels_from_geometry_by_glyph():
     from realmspinner.studio import widgets
 
     flat = {widgets.STAGE_BADGES[k][0] for k in ("reference", "tile")}
-    solid = {widgets.STAGE_BADGES[k][0] for k in ("model", "rig", "sheet")}
+    solid = {widgets.STAGE_BADGES[k][0] for k in ("model", "rig")}
     assert not (flat & solid), "a glyph means both an image and a mesh"
     glyphs = [icon for icon, _ in widgets.STAGE_BADGES.values()]
     assert len(set(glyphs)) == len(glyphs), "two stages share one glyph"
@@ -3997,20 +3908,21 @@ def test_the_stage_badges_tell_pixels_from_geometry_by_glyph():
     "kind, badge_key",
     [
         pytest.param("rig", "rig", id="rig"),
-        pytest.param("sheet", "sheet", id="sheet"),
-        pytest.param("charsheet", "sheet", id="charsheet"),
+        pytest.param("sheet", "retired", id="sheet"),
+        pytest.param("charsheet", "retired", id="charsheet"),
+        pytest.param("pixel_sheet", "retired", id="pixel_sheet"),
         pytest.param("sprite_synthesis", "sprite", id="sprite_synthesis"),
     ],
 )
 def test_a_rig_row_that_keeps_the_stage_column_default_is_badged_rig_not_model(
     imgui_ctx, kind, badge_key
 ):
-    """Follow-up rows (rig, sheet, charsheet, sprite_synthesis, retexture,
-    pixel_sheet, remesh) are minted by ``Store.create`` with no ``stage=``, so
-    they keep the jobs table's column default of "model" (INVARIANTS.md).
-    ``stage_badge`` used to read ``job["stage"]`` straight off the row, which
-    badged every one of these "model" with the box icon and left
-    ``STAGE_BADGES["rig"]``/``["sheet"]`` unreachable. It now keys on
+    """Follow-up rows (rig, sprite_synthesis, retexture, remesh, and the retired
+    sheet, charsheet and pixel_sheet) are minted by ``Store.create`` with no
+    ``stage=``, so they keep the jobs table's column default of "model"
+    (INVARIANTS.md). ``stage_badge`` used to read ``job["stage"]`` straight off
+    the row, which badged every one of these "model" with the box icon and left
+    ``STAGE_BADGES["rig"]``/``["retired"]`` unreachable. It now keys on
     ``state.card_kind(job)``, the same table the thumbnail glyph already
     uses."""
     from realmspinner.studio import widgets as widgets_mod
@@ -6083,31 +5995,6 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
     assert ctx2.submitted is False
     assert len(ctx2.toasts) == 1
     assert ctx2.toasts[0][1] == "warn"
-
-
-def test_a_rendered_sheet_offers_both_hand_offs(app_ctx, imgui_ctx):
-    """The sheet used to dead-end at Save PNG, though everything needed to open
-    it in either editor already existed."""
-    from realmspinner.studio.panes import sheet_panel
-
-    imgui, _renderer = imgui_ctx
-    job_id = _seeded(app_ctx)
-    job = app_ctx.cache.get(job_id)
-    job["files"] = ["model.glb"]
-    app_ctx.state.preview["sheets"] = [
-        {
-            "id": "s1",
-            "name": "turnaround",
-            "columns": 4,
-            "rows": 2,
-            "frame_size": 16,
-            "cells": [{"index": i} for i in range(8)],
-        }
-    ]
-
-    labels = _drawn_labels(imgui, lambda: sheet_panel.draw(app_ctx, job), "##sheet-hand")
-    assert _index_of(labels, "Open in Inker") >= 0, labels
-    assert _index_of(labels, "Add to Packwright") >= 0, labels
 
 
 def test_the_offset_and_autocrop_controls_render(app_ctx, imgui_ctx):

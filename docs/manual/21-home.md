@@ -27,7 +27,7 @@ If the last session ended with documents still open, Home opens with an **Unsave
 of its left column: one row per document, each with a **Recover** button, and **Discard all** under the
 rows. Recovering a document opens it untitled, and you choose where to save it. The list is not there
 when there is nothing to recover. How the copies are made, when they are kept and when they are cleared
-is [Autosave and recovery](28-inker.md#autosave-and-recovery).
+is [Autosave and recovery](25-inker.md#autosave-and-recovery).
 
 ## New here?
 
@@ -78,7 +78,7 @@ The version this build is running is printed beside the title, and again under *
 
 ## Starting something
 
-One **New…** button, and a menu behind it with the nine things this app can begin from nothing: a
+One **New…** button, and a menu behind it with the eight things this app can begin from nothing: a
 2D image, a 3D model, a drawing, a Clay model, a scene, a tile map, a sprite atlas, a song and a
 character. It used to
 be six equally loud buttons in a 3-across grid, which is a menu insisting that all of them matter the same amount —
@@ -87,8 +87,8 @@ above the thing most people came back for.
 Beside it, quieter, is **Import mesh…**. That is the other errand: not starting from nothing, but
 bringing in a `.glb` you already have — a character someone modelled for you, a prop from another
 tool. You can also drag the file onto Home or onto the Library. Either way it becomes an ordinary
-library asset, which means everything that works on a generated mesh works on it too: **Send to
-Poser**, the triangle retarget and every export.
+library asset, which means everything that works on a generated mesh works on it too: **Open in
+Clay**, the triangle retarget and every export.
 
 An imported mesh keeps whatever rig it arrived with only as far as the library. Realmspinner fits its
 own skeleton when you rig it, because a supplied rig rarely maps onto the one the clips are
@@ -106,8 +106,8 @@ to go is clickable.
 | Line | What it says | Where it goes |
 |---|---|---|
 | Setup | "Generation is not set up yet — N downloads, about G GB", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](42-app-settings.md), opened on **Models**. |
-| Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | [Library](36-library-and-jobs.md), filtered to that job's status: `running` or `queued`. |
-| Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](37-review.md). |
+| Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | [Library](33-library-and-jobs.md), filtered to that job's status: `running` or `queued`. |
+| Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](34-review.md). |
 
 There used to be a **Library** line here too, counting assets and disk. It went when Resume became a
 grid of those same assets: a count of the thing you are looking at is not news, and the Library is

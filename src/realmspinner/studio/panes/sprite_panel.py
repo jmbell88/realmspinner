@@ -1,7 +1,7 @@
 """Sprite sheets from a single drawing: the form, and the drafts it produces.
 
-The 2D counterpart to :mod:`.sheet_panel`. That one renders a *mesh* from every
-direction, which is exact because the geometry already exists; this one asks
+A mesh rendered from every direction would be exact because the geometry
+already exists; this panel asks
 SDXL to imagine the three views a flat drawing has never shown, which is a
 guess -- so the deliverable is a *pair* the user picks between, and drafts
 accumulate rather than overwriting each other. Nothing here throws a candidate
@@ -354,7 +354,7 @@ def draft_records(ctx: Any, job_id: str) -> list[dict[str, Any]]:
     for another 50 ms. ``stamps.storable`` handles that window anyway.
 
     Split from the drawing half so the caching rule is assertable without a GL
-    context, which is the split ``sheet_panel.pixel_record`` makes.
+    context.
     """
     directory = store.sprite_dir(ctx.job_dir(job_id))
     stamp = stamps.stamp_ns(directory)
@@ -407,7 +407,7 @@ def _draft(ctx: Any, job_id: str, record: dict[str, Any]) -> None:
             # confirm on the theory that a draft regenerates from its recorded
             # seed -- but it removes up to 16 generations at once, with no undo,
             # and each is a text2image run to get back. Asked the way the
-            # sibling sheet Delete asks (``sheet_panel._ask_delete``).
+            # every other Delete here asks.
             dialogs.ask_delete(
                 ctx,
                 title="Delete this draft?",

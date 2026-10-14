@@ -9,7 +9,7 @@ need a GL context to assert.
 from __future__ import annotations
 
 from realmspinner.studio import widgets
-from realmspinner.studio.panes import inspector, sheet_panel
+from realmspinner.studio.panes import inspector
 from realmspinner.studio.tokens import sp
 
 # --- 9d: the reference fills the pane, and keeps its shape ------------------
@@ -155,16 +155,6 @@ def test_a_portrait_reference_is_also_stable_across_the_scrollbar():
     bar = 10.0
     without = inspector.reference_fit((512, 2048), widgets.stable_width(276.0, bar, False))
     with_bar = inspector.reference_fit((512, 2048), widgets.stable_width(266.0, bar, True))
-    assert without == with_bar
-
-
-def test_the_sheet_strip_is_the_same_size_whichever_way_the_scrollbar_goes():
-    # sheet_panel.py's direction-preview strip: no height cap at all, so this
-    # was the worst of the three sites -- every dp the width moved carried
-    # straight through to the height at the same ratio.
-    bar = 10.0
-    without = sheet_panel.strip_fit((512, 128), widgets.stable_width(276.0, bar, False))
-    with_bar = sheet_panel.strip_fit((512, 128), widgets.stable_width(266.0, bar, True))
     assert without == with_bar
 
 

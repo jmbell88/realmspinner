@@ -63,12 +63,10 @@ OUTWARD_IMPORTS = {
 
 #: Reached only inside a function, never at module scope: ``character.py``'s
 #: ``options()`` reads ``panes.stamps`` (a stdlib-only mtime cache, not a
-#: pane -- see its own module docstring) and ``_fill()`` reads
-#: ``state.default_form_2d`` for the same-shaped reason ``settings_2d.py``
-#: always did: importing ``state`` at module scope from an engine module
-#: that ``state.py`` does not itself depend on would be a needless coupling
-#: for a dataclass factory read once per prompt change.
-LAZY_ONLY = {"realmspinner.studio.panes", "realmspinner.studio.state"}
+#: pane -- see its own module docstring). ``_fill()`` used to read
+#: ``state.default_form_2d`` too, until the character sheet's defaults left
+#: the form.
+LAZY_ONLY = {"realmspinner.studio.panes"}
 
 
 def _resolve(node: ast.stmt) -> set[str]:

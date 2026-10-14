@@ -43,9 +43,9 @@ Three controls matter for a first run, and everything else has a sensible defaul
 sets several things at once, which is why it is a single combo rather than three: what the job
 produces, how the prompt is composed, and which follow-up work is offered. The other five entries
 make plain images, seamless materials, tilesets and sprite sheets — and Character, the one entry
-that needs no GPU at all: it builds, rigs and renders a mesh straight from the character registry
-rather than going through SDXL and reconstruction (see [A character sprite
-sheet](11-a-character-sprite-sheet.md)).
+that needs no GPU at all: it builds and rigs a mesh straight from the character registry rather
+than going through SDXL and reconstruction (see
+[Characters](22-generating-references.md#characters)).
 
 **The prompt field**, below the type combo. Write a subject, not a scene:
 
@@ -62,7 +62,7 @@ one underneath. For a first asset it resolves to SDXL 1.0 at full CFG — thirty
 because it was measured against the alternatives rather than chosen for speed. Name a checkpoint
 yourself when you want a specific one: the list holds three, SDXL 1.0, the same SDXL weights with two
 sampling upgrades (PAG) and FLUX.2 klein, and
-[Tuning what you get](12-tuning-what-you-get.md#models-and-loras) says what each is for.
+[Tuning what you get](11-tuning-what-you-get.md#models-and-loras) says what each is for.
 
 Press **Generate reference** — the persistent button at the bottom of the left column.
 The job appears in this creation’s Attempts strip, immediately, as a queued result. A

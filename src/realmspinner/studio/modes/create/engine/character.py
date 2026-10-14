@@ -2,14 +2,16 @@
 
 Split out of ``modes/create/ui/settings_character.py`` (2026-09-18
 restructure, P5) -- the half of that module with no imgui in it. Familiar
-(``assistant/ui.py``, ``assistant/doors.py``), Poser's character-sheet stage
-(``modes/poser/mode.py`` -- Troupe's own vocabulary, folded in whole by P9,
-2026-09-18) and the shell (``state.py``, ``shell/tasks.py``,
-``modes/create/ui/workspace.py``) all read this vocabulary today by reaching
-into a *pane*; they import this
-module directly now. What stays in ``modes/create/ui/settings_character.py``
-is the drawing and the orchestration of a press (``draw_block``, the field
-callbacks, ``preflight_fix``'s buttons, and ``submit``, which toasts).
+(``assistant/ui.py``, ``assistant/doors.py``) and the shell (``state.py``,
+``shell/tasks.py``, ``modes/create/ui/workspace.py``) all read this
+vocabulary today by reaching into a *pane*; they import this
+module directly now. A character ends at a **rigged mesh** (recipe,
+reference, mesh, rig): the camera, movements and pixel ladders of the retired
+character sheet are gone from the form, and :func:`recipe_kwargs` leaves
+those recipe fields to the recipe's own defaults. What stays in
+``modes/create/ui/settings_character.py`` is the drawing and the
+orchestration of a press (``draw_block``, the field callbacks,
+``preflight_fix``'s buttons, and ``submit``, which toasts).
 
 **Nothing here ever substitutes a species.** ``characters.resolve`` refuses
 to, by construction (``Resolution.family`` is ``None`` for a creature this
@@ -25,7 +27,6 @@ import json
 from typing import Any
 
 from .....characters import family as family_mod
-from .....characters import recipe as recipe_mod
 from .....characters import resolve as resolve_mod
 from .....service import characters as svc_characters
 from .... import problems as problem_types
@@ -37,42 +38,22 @@ from . import assets as create_assets
 #: carried onto a creature with no fire would be a look nobody chose.
 THEME_UNSET = "none"
 
-#: The movements a character sheet carries, and how many frames each is drawn
-#: in. ``recipe.DEFAULT_ANIMATIONS`` rather than the five-row legacy
-#: ``charsheet.ANIMATIONS`` table, and the recipe module says why: these three
-#: are what a character needs to read as alive in a top-down game. Read from
-#: there rather than restated, so the "144 cells" this pane prints and the cells
-#: the door plans are one arithmetic.
-MOVEMENTS: tuple[tuple[str, int], ...] = tuple(recipe_mod.DEFAULT_ANIMATIONS.items())
-
-#: How many ways each movement is drawn. The recipe's own default, and stated on
-#: the camera helper rather than offered as a control: eight is what every
-#: preset in ``charsheet.CAMERA_PRESETS`` is laid out for, and a fourth combo
-#: for a value with one sensible answer is a control that cannot be operated.
-DIRECTIONS = 8
-
 #: Where :func:`options` caches the door's answer for the life of the process.
-#: ``poser_mode.OPTIONS_SLOT``'s slot and its reason (Troupe's own, before
-#: P9 2026-09-18 folded that mode into Poser): ``character_options`` walks
-#: the palette directory, and a directory walk sixty times a second is a cost
-#: with no reader.
+#: ``character_options`` walks the palette directory, and a directory walk
+#: sixty times a second is a cost with no reader.
 OPTIONS_SLOT = "character_options"
 
 #: Which recipe field each control answers to. The door refuses in the
-#: *recipe's* vocabulary (``logical_size``, ``appearance``, ``animations``)
-#: because that is what ``Recipe.from_dict`` validates, and the controls are
-#: named for the form keys they persist under -- so without this map a refusal
-#: about a colour count would be recorded against a name nothing on the pane
-#: draws, and the ring would land nowhere. ``settings_character.mirror_errors``
+#: *recipe's* vocabulary (``appearance``, ``family_version``) because that is
+#: what ``Recipe.from_dict`` validates, and the controls are named for the form
+#: keys they persist under -- so without this map a refusal about the body
+#: sliders would be recorded against a name nothing on the pane draws, and the
+#: ring would land nowhere. ``settings_character.mirror_errors``
 #: is what walks it; ``tests/test_field_error_wiring.py`` is the standing guard
 #: on the drift.
 RECIPE_FIELDS: dict[str, tuple[str, ...]] = {
     "character_family": ("family", "family_version"),
     "character_theme": ("theme",),
-    "character_camera": ("camera", "elevation"),
-    "character_actions": ("animations", "directions"),
-    "character_pixel": ("logical_size",),
-    "character_colors": ("colors",),
     "character_body": ("appearance",),
     "character_name": ("name",),
 }
@@ -89,7 +70,7 @@ PREVIEW_KEY = "character-preview"
 
 def options(ctx: Any) -> dict[str, Any]:
     """``service.characters.character_options``, kept fresh against the
-    palette directory it nests under ``["troupe"]["palettes"]``.
+    palette directory.
 
     Keyed on ``stamps.stamp_ns`` of that directory -- ``panes.inspector.
     palette_names``'s own rule for the identical directory -- rather than read
@@ -215,8 +196,8 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
     """Write the resolved brief into the fields the user has not claimed.
 
     **A field the prompt says nothing about goes back to its default**, not to
-    whatever the last prompt left in it. "a wolf" after "an attacking fire ogre"
-    has to produce a wolf with the default actions and no fire, or the form
+    whatever the last prompt left in it. "a wolf" after "a fire ogre"
+    has to produce a wolf with no fire, or the form
     accumulates a character out of two briefs the user never wrote together.
 
     **Except a theme the resolved species does not paint.** "a swamp knight"
@@ -240,19 +221,11 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
     only honest value it can hold; ``resolution.theme`` itself still says
     "swamp" for anything that wants to read the brief rather than the form.
     """
-    from ....state import default_form_2d
-
     overrides = set(overrides_of(form))
-    defaults = default_form_2d()
-    actions = tuple(a for a in resolution.actions if a in dict(MOVEMENTS))
     values = {
         # Never a substitution: ``resolution.family`` is None for a creature
         # this program does not make, and "" is what that means here.
         "character_family": resolution.family or "",
-        "character_camera": resolution.camera_preset or "",
-        "character_actions": (
-            ",".join(actions) if actions else str(defaults["character_actions"])
-        ),
     }
     # The species this frame is actually landing on: the form's own value when
     # ``character_family`` is overridden (the prompt cannot move it), the
@@ -313,47 +286,22 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
 # --- reading the form ---------------------------------------------------------
 
 
-def actions_of(form: dict[str, Any]) -> tuple[str, ...]:
-    """The movements this sheet carries, in :data:`MOVEMENTS` order.
-
-    The stored order is not trusted: two forms that named the same movements in
-    different orders would otherwise plan two different cell layouts, which is
-    ``resolve._ACTION_ORDER``'s rule applied at the other end of the same trip.
-    """
-    stored = {
-        part.strip()
-        for part in str(form.get("character_actions") or "").split(",")
-        if part.strip()
-    }
-    return tuple(name for name, _frames in MOVEMENTS if name in stored)
-
-
 def not_interpreted(form: dict[str, Any]) -> tuple[str, ...]:
     """What the brief said that this form did nothing with.
 
-    The resolver's own unrecognised words, then every action it *understood* and
-    the sheet does not carry. The 2026-10-04 audit (create-23) found "a running
-    wolf" built a sheet with no run: ``_fill`` keeps only :data:`MOVEMENTS`, and
-    "Not interpreted" read ``resolution.unrecognised``, which an understood word
-    is never in -- so manual 22's promise that what was not acted on is listed
-    held for a greataxe and failed for run, jump, cast, death, hit and fall.
+    The resolver's own unrecognised words, then every action it *understood*:
+    a character ends at its rig now, so a walk or a run in the brief is a
+    word nothing acts on -- Clay animates it afterwards. The 2026-10-04 audit
+    (create-23) found an understood-but-dropped word vanished with nothing
+    said, so manual 22's promise that what was not acted on is listed holds
+    for every action as well as for a greataxe.
     """
     resolution = resolution_of(form)
-    carried = {name for name, _frames in MOVEMENTS}
     out = list(resolution.unrecognised)
     for action in resolution.actions:
-        if action not in carried and action not in out:
+        if action not in out:
             out.append(action)
     return tuple(out)
-
-
-def animations_of(form: dict[str, Any]) -> dict[str, int]:
-    frames = dict(MOVEMENTS)
-    return {name: frames[name] for name in actions_of(form)}
-
-
-def cell_count(form: dict[str, Any]) -> int:
-    return sum(animations_of(form).values()) * DIRECTIONS
 
 
 def family_of(form: dict[str, Any], opts: dict[str, Any]) -> dict[str, Any] | None:
@@ -406,15 +354,6 @@ def set_channel(form: dict[str, Any], key: str, value: float) -> None:
     form["character_body"] = json.dumps(body, sort_keys=True)
 
 
-def camera_of(form: dict[str, Any], opts: dict[str, Any]) -> str:
-    """The preset this form will be rendered at. Empty means the door's own."""
-    presets = opts["troupe"]["camera_presets"]
-    chosen = str(form.get("character_camera") or "")
-    if chosen in presets:
-        return chosen
-    return str(opts["troupe"]["defaults"]["camera"])
-
-
 # --- the options each picker offers -------------------------------------------
 
 
@@ -456,24 +395,6 @@ def theme_options(opts: dict[str, Any], family: str) -> tuple[tuple[str, str], .
     row = next((f for f in opts["families"] if f["key"] == family), None)
     themes = tuple((t["key"], t["label"]) for t in (row or {}).get("themes", ()))
     return ((THEME_UNSET, "The species' own"), *themes)
-
-
-def camera_options(opts: dict[str, Any]) -> tuple[tuple[str, str], ...]:
-    presets = opts["troupe"]["camera_presets"]
-    return tuple((key, str(entry["label"])) for key, entry in presets.items())
-
-
-def camera_helper(opts: dict[str, Any], camera: str) -> str:
-    """The angle and the direction count, in the numbers that transfer.
-
-    ``poser.ui.panes.sheet._camera_helper``'s argument: a user matching these
-    sprites to a Plotter map knows what elevation that map is drawn at, and a
-    preset's name does not answer that while its angle does.
-    """
-    entry = opts["troupe"]["camera_presets"].get(camera) or {}
-    if "elevation" not in entry:
-        return ""
-    return f"{float(entry['elevation']):g} degrees elevation, {DIRECTIONS} directions"
 
 
 # --- what would be refused ----------------------------------------------------
@@ -523,14 +444,6 @@ def problems(ctx: Any, form: dict[str, Any]) -> list[problem_types.Problem]:
                 "character_theme",
             )
         )
-    if not actions_of(form):
-        out.append(
-            problem_types.Problem(
-                "A character sheet is at least one movement. Turn on idle, "
-                "walk or attack.",
-                "character_actions",
-            )
-        )
     if not getattr(ctx, "rigging_available", False):
         # The Rig segment's own sentence, verbatim -- and ``create_character``
         # raises the identical one at the door. One wording for "this needs
@@ -541,19 +454,6 @@ def problems(ctx: Any, form: dict[str, Any]) -> list[problem_types.Problem]:
         # precisely so a machine-shaped refusal reaches the toast and the plan
         # block instead of ringing an arbitrary widget.
         out.append(problem_types.Problem("Rigging needs Blender, which is not installed."))
-    # Reachable from a *restored* form rather than from this frame's controls:
-    # both values are persisted and the ladders can move between releases, so a
-    # segmented control offering three sizes is not on its own a gate.
-    sizes = list(opts["troupe"]["logical_sizes"])
-    if _int(form.get("character_pixel"), -1) not in sizes:
-        out.append(
-            problem_types.Problem(f"Sprite size must be one of {sizes}.", "character_pixel")
-        )
-    colors = list(opts["troupe"]["colors"])
-    if _int(form.get("character_colors"), -1) not in colors:
-        out.append(
-            problem_types.Problem(f"Colours must be one of {colors}.", "character_colors")
-        )
     return out
 
 
@@ -609,24 +509,13 @@ def recipe_kwargs(form: dict[str, Any], opts: dict[str, Any]) -> dict[str, Any]:
     for that function's reason: the compilation of the request is the one part
     of a press no test can reach while it lives inside a closure.
 
-    ``elevation`` is sent as the *number* rather than left to the recipe's
-    default, which is ``poser.ui.panes.sheet``'s arrangement and its argument
-    (Troupe's own ``troupe_settings``, before P9 2026-09-18): a preset is
-    only a name for an angle, and a recipe carrying a camera whose elevation
-    is somebody else's default would be framed at an angle nobody picked.
-    Both come from ``service.troupe.troupe_options``, so the pane holds no
-    second copy of the table (``tests/modes/poser/test_camera_presets.py``).
+    **No camera, movements, direction count, sprite size or colour count.**
+    Those were the character sheet's fields and the form no longer asks for
+    them; the recipe fills them from its own defaults, which is what a
+    character that ends at a rigged mesh needs (it carries them, unread).
     """
-    camera = camera_of(form, opts)
-    presets = opts["troupe"]["camera_presets"]
     kwargs: dict[str, Any] = {
         "family": str(form.get("character_family") or ""),
-        "camera": camera,
-        "elevation": float(presets[camera]["elevation"]),
-        "animations": animations_of(form),
-        "directions": DIRECTIONS,
-        "logical_size": _int(form.get("character_pixel"), 64),
-        "colors": _int(form.get("character_colors"), 32),
         "appearance": body_of(form, opts),
         "seed": max(0, _int(form.get("seed"), 0)),
     }
@@ -643,12 +532,12 @@ def recipe_kwargs(form: dict[str, Any], opts: dict[str, Any]) -> dict[str, Any]:
 
 
 def toast_for(form: dict[str, Any], opts: dict[str, Any]) -> str:
-    """What the app says once the press lands. Named species, counted cells."""
+    """What the app says once the press lands. Named species, the two steps."""
     row = family_of(form, opts)
     label = str((row or {}).get("label") or "character").lower()
     return (
-        f"Building the {label}: mesh -> rig -> {cell_count(form)}-cell sheet. "
-        f"Watch it here, then in Poser."
+        f"Building the {label}: mesh -> rig. "
+        f"Watch it here, then pose and animate it in Clay."
     )
 
 

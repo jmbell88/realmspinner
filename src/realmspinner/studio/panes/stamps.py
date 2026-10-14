@@ -1,7 +1,7 @@
 """The one mtime-keyed cache rule the panes share.
 
 Not a pane: no ``draw``, no imgui, nothing on screen. It lives here because two
-panes need it and :mod:`.inspector` already imports :mod:`.sheet_panel`, so it
+panes need it and :mod:`.inspector` already imports both, so it
 could not live in either of them without a cycle.
 
 The rule is ``service.files.attach_files``' and the constant is its
@@ -16,7 +16,7 @@ left a directory's mtime unchanged 155 times in 200 on this machine (see
 landing *after* a read but still inside the stamped mtime's own tick is
 invisible to that stamp, and invisible **forever**, because every later
 comparison keeps matching the stale answer -- which is exactly the case these
-caches exist for: a re-rig, a re-derived pixel sheet, a palette dropped into
+caches exist for: a re-rig, a re-derived pixel draft, a palette dropped into
 the directory while the app is running. Git calls this racily-clean and answers
 it the same way: a stamp is remembered only once its mtime is comfortably in
 the past, so a thing touched moments ago is answered correctly and simply not

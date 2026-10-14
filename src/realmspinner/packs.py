@@ -161,11 +161,11 @@ PACKS: tuple[Pack, ...] = (
         key="rig",
         label="Rigging",
         extras=("rig",),
-        modes=("poser",),
+        modes=(),
         probe=("bpy",),
         summary=(
-            "Skeleton fitting and skinning. Without it Poser cannot rig a "
-            "mesh or render a character sheet from one."
+            "Skeleton fitting and skinning. Without it Create cannot rig a "
+            "mesh and Clay cannot weight a model against its bones."
         ),
     ),
     Pack(

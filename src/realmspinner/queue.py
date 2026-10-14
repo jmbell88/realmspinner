@@ -46,10 +46,9 @@ from ._q_rig import RigOps
 from ._q_sprite import SpriteOps
 from ._q_tileset import TileSetOps
 from ._q_tilesheet import TileSheetOps
-from ._q_troupe import TroupeOps
 from .config import Config
 from .db import JobStore
-from .kernels.rig import blender_spec, templates
+from .kernels.rig import templates
 from .pipelines import pose2d, reference
 from .pipelines.llama import EMBED_PROFILE, LlamaServer
 from .pipelines.recon import ReconBackend
@@ -357,7 +356,7 @@ teardown had not finished giving back."""
 _ALWAYS_CONDITIONED = object()
 """Stand-in ``cond`` for a caller whose every pass is conditioned.
 
-``_pixel_sheet`` and ``_retexture`` build a fresh ``Conditioning`` per band and
+``_retexture`` builds a fresh ``Conditioning`` per band and
 per view, inside the loop, so there is no single object to hand ``_needs_handoff``
 at the point the decision is made -- and passing ``None`` would silently drop the
 one term that is *always* true of them. A named sentinel says that out loud;
@@ -511,7 +510,7 @@ def _sprite_assemble(
     # ``grids`` is that same measurement taken by the caller, once per band,
     # and it arrives measured because by the time a multi-band candidate gets
     # here it is a *mosaic* of N generations: there is no single lattice over it
-    # to find, which is exactly what ``_pixel_sheet`` says about its own bands.
+    # to find, which is exactly what ``_retexture`` says about its own bands.
     grid = pixel.lattice(atlas) if grids is None else None
 
     matted, took = spritesynth.matte_cells(atlas, geom)
@@ -599,8 +598,7 @@ def _sprite_assemble(
             # from ``report``: ``pixelize_atlas`` saw an atlas already at the
             # target and answered ``True`` unconditionally -- including at 48px,
             # where nothing divides 1024 and the real reduction was the NEAREST
-            # fallback. ``_q_troupe`` corrects the same field for the same
-            # reason, one path along.
+            # fallback.
             "exact_stride": not (
                 aligned.width % small.width or aligned.height % small.height
             ),
@@ -853,52 +851,6 @@ def _safe_snapshot(job: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
-def _sheet_root_offsets(
-    records: list[dict[str, Any]], rig_meta: dict[str, Any] | None
-) -> tuple[dict[tuple[Any, int], list[float]], Any]:
-    """(pose id, frame) -> world root offset for the records that carry one,
-    plus the root bone they land on.
-
-    A pose snapshotted from the global library can carry a root offset, and a
-    sheet built from it must not silently disagree with the pose's own bake --
-    one meaning per pose. Rows without one gain no keys, so every pre-existing
-    cell dict is byte-identical to what it always was.
-
-    Clip records *do* reach this now. ``sheetlib.interpolate`` used to refuse an
-    endpoint carrying an offset and interpolates it instead, which is what a
-    walk cycle's vertical bob is made of. Nothing here had to change to allow
-    it: the map is keyed by ``(pose id, frame)`` and every frame of a clip
-    shares an id but has its own frame number, so each frame already gets its
-    own entry.
-
-    A rig.json that cannot answer (pre-template, unreadable) costs the offset,
-    never the sheet -- and says so, one warning per pose, the same sentence
-    service.rig._pose_bake_spec logs for the same case. Matched by hand rather
-    than shared, because queue.py may not import service: two spellings of one
-    sentence, accepted, and this comment is the tie between them.
-    """
-    roots: dict[tuple[Any, int], list[float]] = {}
-    offset_records = [
-        r for r in records if any(float(v) for v in (r.get("root_translation") or ()))
-    ]
-    if not offset_records:
-        return roots, None
-    meta = rig_meta or {}
-    bounds, root_bone = meta.get("bounds"), meta.get("root")
-    if not (bounds and root_bone):
-        for r in offset_records:
-            log.warning(
-                "pose %s carries a root offset but rig.json cannot scale it",
-                r.get("id"),
-            )
-        return roots, None
-    for r in offset_records:
-        roots[(r.get("id"), r.get("frame", 0))] = blender_spec.root_offset_world(
-            r["root_translation"], bounds
-        )
-    return roots, root_bone
-
-
 def commit_fraction() -> float | None:
     """System commit charge as a fraction of the limit, or None off Windows."""
     sysmem = memlog.system_memory()
@@ -908,7 +860,6 @@ def commit_fraction() -> float | None:
 class Worker(
     GenerateOps,
     RigOps,
-    TroupeOps,
     SpriteOps,
     TileSheetOps,
     TileSetOps,
@@ -1170,7 +1121,7 @@ class Worker(
             with contextlib.suppress(TrellisStopFailed):
                 await asyncio.to_thread(self.trellis.stop)
         elif phase in (
-            "rig", "sheet", "views", "project", "remesh", "lowpoly", "train", "separate",
+            "rig", "views", "project", "remesh", "lowpoly", "train", "separate",
         ):
             # Same story as trellis: bpy is inside a C weighting solve (or an
             # EEVEE render) and checks nothing, so killing the subprocess is
@@ -1811,7 +1762,7 @@ class Worker(
         if image_term > 0 and self._text2image is not None and self._text2image.loaded:
             # Gated on "did the estimate charge for a checkpoint", not on the
             # job's kind. The kind list this replaced said `text` alone, while
-            # `vram.estimate` prices pixel_sheet, sprite_synthesis and
+            # `vram.estimate` prices sprite_synthesis and
             # retexture with a full image-model term too -- so the natural
             # 2D-then-3D flow on a 32 GiB coexist card refused a sprite
             # synthesis by ~3 GiB for reusing the pipe it was being charged
@@ -2100,19 +2051,6 @@ class Worker(
                         # a mesh job's follow-up and the other a reference's --
                         # so their order relative to each other says nothing.
                         await self._maybe_queue_sprite_sheet(job)
-                        # Beside the other two and *after* the rig, which is
-                        # the whole ordering: the queue is serial and FIFO, so
-                        # a charsheet row minted here is claimed after the rig
-                        # row minted above it has finished. The three never
-                        # all fire -- a rig follows a mesh, a sprite sheet a
-                        # reference, a character sheet a promoted mesh.
-                        await self._maybe_queue_charsheet(job)
-                        # And the fourth: the sheet half of "send this mesh to
-                        # Troupe", which fires on the *rig* row the door minted
-                        # rather than on a mesh. It cannot overlap the three
-                        # above -- they are guarded on a mesh, a reference and
-                        # a promoted mesh respectively, and this on a rig.
-                        await self._maybe_queue_sheet_after_rig(job)
                         await self._record_observation(job_id)
                     else:
                         # An errored job too, and it is not a consolation

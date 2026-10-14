@@ -148,8 +148,8 @@ _CFG_TYPES = ("apg", "cfg", "cfg_star")
 #:
 #: Derived from the same defaults ``validation.check_weights`` refuses on, so
 #: the notice ahead of the button and the refusal at the door cannot name
-#: different downloads. Siblings of ``sprites.SPRITE_ROWS`` and
-#: ``sheets.PIXEL_SHEET_ROWS``.
+#: different downloads. Siblings of ``sprites.SPRITE_ROWS`` and the tile-sheet
+#: row tuples.
 MUSIC_ROWS: tuple[str, ...] = (f"music:{models.DEFAULT_MUSIC_MODEL}",)
 SEPARATION_ROWS: tuple[str, ...] = (f"separation:{models.DEFAULT_SEPARATION}",)
 

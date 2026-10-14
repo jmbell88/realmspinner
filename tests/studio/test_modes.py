@@ -15,7 +15,7 @@ from realmspinner.studio import modes
 MODES_PATH = Path(modes.__file__)
 
 ALL_MODE_KEYS = (
-    "home", "library", "create", "inker", "clay", "mason", "poser",
+    "home", "library", "create", "inker", "clay", "mason",
     "plotter", "packwright", "muse", "sirens", "review", "settings",
 )
 
@@ -29,7 +29,7 @@ def test_every_mode_carries_a_purpose_and_the_rail_shows_it():
     fresh mode could be added to ``MODES`` without ever getting a purpose --
     nothing tied the two together. This asserts the sentence is part of the
     tuple itself, that it exists (non-empty, plain, no trailing period-less
-    fragment) for all thirteen modes, and that the rail module actually wires
+    fragment) for all twelve modes, and that the rail module actually wires
     it into both the tooltip and the labelled-rail drawing path.
     """
     assert {key for key, *_rest in modes.MODES} == set(ALL_MODE_KEYS)
@@ -84,13 +84,14 @@ def _comment_before(marker: str) -> str:
 def test_rail_groups_comment_states_the_real_pipeline_and_workspace_counts():
     """The 2026-09-07 audit, finding tour-04: ``modes.py``'s comment above
     ``RAIL_GROUP_LABELS`` called the grouping's claim "these four are one
-    pipeline; these seven are workspaces", but ``RAIL_GROUPS`` holds three
-    pipeline modes (home, library, create) and eight workspace modes.
+    pipeline; these seven are workspaces", but ``RAIL_GROUPS`` held three
+    pipeline modes (home, library, create) and eight workspace modes. Poser
+    left in the 2026-10-13 rig plan, which made the seven true again.
     """
     pipeline_count = len(modes.RAIL_GROUPS[0])
     workspace_count = len(modes.RAIL_GROUPS[1])
-    assert (pipeline_count, workspace_count) == (3, 8), (
-        f"sanity: expected RAIL_GROUPS to hold 3 and 8 modes, found "
+    assert (pipeline_count, workspace_count) == (3, 7), (
+        f"sanity: expected RAIL_GROUPS to hold 3 and 7 modes, found "
         f"{pipeline_count} and {workspace_count} -- update the numbers below "
         "as well as this test"
     )
@@ -100,16 +101,16 @@ def test_rail_groups_comment_states_the_real_pipeline_and_workspace_counts():
         "modes.py's RAIL_GROUP_LABELS comment still says 'these four are one "
         f"pipeline', but RAIL_GROUPS[0] holds {pipeline_count}"
     )
-    assert "these seven are workspaces" not in comment, (
-        "modes.py's RAIL_GROUP_LABELS comment still says 'these seven are "
+    assert "these eight are workspaces" not in comment, (
+        "modes.py's RAIL_GROUP_LABELS comment still says 'these eight are "
         f"workspaces', but RAIL_GROUPS[1] holds {workspace_count}"
     )
     assert "these three are one pipeline" in comment, (
         f"modes.py's RAIL_GROUP_LABELS comment should say 'these three are "
         f"one pipeline' to match RAIL_GROUPS[0]'s {pipeline_count} entries"
     )
-    assert "these eight are workspaces" in comment, (
-        f"modes.py's RAIL_GROUP_LABELS comment should say 'these eight are "
+    assert "these seven are workspaces" in comment, (
+        f"modes.py's RAIL_GROUP_LABELS comment should say 'these seven are "
         f"workspaces' to match RAIL_GROUPS[1]'s {workspace_count} entries"
     )
 

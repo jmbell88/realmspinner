@@ -116,22 +116,17 @@ smuggle any of them across the job queue to reach them. A write that fails
 is logged and otherwise ignored -- an agent session must not die because a
 transcript path happened to be unwritable.
 
-**A second lane exists alongside the frame queue for tools that need
-neither a ``Document`` nor GL: the *service* lane.** The character tool
-surface (``agent_character``) drives ``service/`` doors -- subprocesses,
-sqlite, disk -- exactly the things the three-thread model already keeps off
-the frame thread for every other heavy job in this app (``CLAUDE.md``'s
-"Three threads" paragraph), so a character call has no more business
-running through ``pump`` than a Blender bake does. It runs instead on its
-own small ``TaskRunner`` pool (:data:`SERVICE_WORKERS` workers,
-:meth:`_submit_service`), through the exact same ``_Job``/``_Op`` machinery
-the frame lane already uses for dedup, replay, ``realmspinner_status`` and
-task-mode polling -- :meth:`_execute` is the one function either lane
-actually calls ``job.run()`` through, so neither can drift from the other's
-claim/run/finish sequence. :meth:`_call` and :meth:`_call_task` choose a
-lane per call, by name, against ``agent_character.HANDLERS``; everything
-downstream of that choice (dedup, timeout refusals, task status, transcript
-recording) is shared code that does not know or care which lane answered.
+**There is one lane, the frame queue, and owner tokens decide when it exists.**
+The pipe server (:data:`PIPE_OWNER`) and each in-app caller
+(:meth:`AgentHost.open_session`, Familiar's door) register a token with
+:meth:`AgentHost._acquire_lanes`; the queue lives while any token is held, so
+switching the agent server off never strands an in-app session and closing
+one never touches a call the pipe has in flight. Every tool left on this
+surface is a Clay tool, and every Clay tool touches a document, so none has
+any business off the frame thread. (A second ``TaskRunner`` pool, the
+*service* lane, once ran a character-pipeline tool surface beside it; both
+went with that surface, and :meth:`AgentHost._execute` is now the only place a
+job runs.)
 """
 
 from __future__ import annotations
@@ -148,8 +143,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import agent_character, agent_character_resources, agent_prompts, agent_resources
-from . import tasks as tasks_mod
+from . import agent_prompts, agent_resources
 from .modes.clay.agent import dispatch as agent_clay
 from .modes.clay.agent import transcript as agent_transcript
 
@@ -188,16 +182,6 @@ BUSY_FIRST_FRAME_TIMEOUT = 5.0
 #: next one is closed unanswered rather than given a thread to wait on.
 MAX_BUSY_REFUSALS = 8
 
-#: Workers on the *service* lane's own ``TaskRunner`` -- the character tool
-#: surface's counterpart to the frame-thread queue :meth:`AgentHost.pump`
-#: drains. Small on purpose: character calls are I/O- and subprocess-bound
-#: (Blender, gltfpack) rather than CPU-bound, and a handful of workers is
-#: enough that one slow export cannot starve every other character call on
-#: the same connection the way a single frame-thread queue would, without
-#: opening the door wide enough that an agent can flood the machine with
-#: concurrent Blender bakes.
-SERVICE_WORKERS = 2
-
 #: The settings key this host is switched on and off by. Matches the
 #: contract (``"agent_server"`` in ``ctx.settings``, bool, default False).
 SETTING = "agent_server"
@@ -206,12 +190,11 @@ SETTING = "agent_server"
 #: lanes`/:meth:`_release_lanes`). An in-app caller (Familiar, via
 #: :meth:`AgentHost.open_session`) mints its own token instead, so the two
 #: are never confused: :meth:`AgentHost.stop` fails and drops only the jobs
-#: an owner named ``PIPE_OWNER`` queued (see :meth:`_fail_pending`/
-#: :meth:`_drop_queued_service_jobs`), and the frame/service lanes
-#: themselves are torn down only once *no* owner -- pipe or in-app -- still
-#: holds them (see :meth:`_release_lanes`). Switching the agent server off
-#: must not stop an in-app session mid-flight, and closing an in-app session
-#: must not touch a call the pipe still has in flight.
+#: an owner named ``PIPE_OWNER`` queued (see :meth:`_fail_pending`), and the
+#: frame queue itself is torn down only once *no* owner -- pipe or in-app --
+#: still holds it (see :meth:`_release_lanes`). Switching the agent server
+#: off must not stop an in-app session mid-flight, and closing an in-app
+#: session must not touch a call the pipe still has in flight.
 PIPE_OWNER = "pipe"
 
 STATUS_TOOL = "realmspinner_status"
@@ -382,19 +365,12 @@ class _Job:
     error: BaseException | None = None
     state: str = QUEUED
     owner: str = PIPE_OWNER
-    tool: str | None = None
-    """The character tool name this job runs, or ``None`` for a job that
-    is not a named tool call (a dynamic-resource read, a frame-lane job).
-    Read only by :attr:`AgentHost.busy_tools` -- the 2026-09-23 (second
-    run) audit, finding agents-01, found the quit chain had no way to name
-    an in-flight ``character_export`` because nothing on ``_Job`` recorded
-    which tool it was running."""
     """Which lane owner queued this job (:data:`PIPE_OWNER` or an in-app
     session's own token from :meth:`AgentHost.open_session`) -- read only by
-    :meth:`AgentHost._fail_pending`/:meth:`_drop_queued_service_jobs`, which
-    scope a switch-off to their caller's own jobs rather than every owner's.
-    ``pump``/:meth:`AgentHost._execute` never read it: a job runs the same
-    way regardless of who queued it, on whichever lane it was put on."""
+    :meth:`AgentHost._fail_pending`, which scopes a switch-off to its
+    caller's own jobs rather than every owner's. ``pump``/
+    :meth:`AgentHost._execute` never read it: a job runs the same way
+    regardless of who queued it."""
 
 
 @dataclass
@@ -523,11 +499,6 @@ class _Calls:
         # structure just to track FIFO order.
         self._ops: dict[str, _Op] = {}
         self._minted = 0
-        # The character tool surface's own per-connection state (minted job
-        # ids, the toast callback) -- one per connection, the same lifetime
-        # as this store, for the same reason: a reconnecting agent starts
-        # over with nothing minted, exactly as it gets a fresh Clay session.
-        self.character = agent_character.Session()
 
     def mint(
         self, tool: str, args: dict, *, task_mode: bool = False, exempt: bool = False
@@ -761,13 +732,12 @@ class AgentHost:
         # Set *before* anything else in ``stop()``, and read only by
         # ``_listen`` (whether the pipe listener should keep accepting) --
         # this does not gate a job submission or a frame-thread wait: those
-        # are gated by whether the frame/service lanes are still open
-        # (``self._queue``/``self._service`` being non-``None``), which
-        # stays true for as long as any owner -- the pipe or an
-        # ``InAppSession`` -- still holds them (see ``PIPE_OWNER``'s own
-        # docstring). A pipe-only host behaves simply: stopping it releases
-        # the pipe's own hold, which is the only one there is, so the lanes
-        # close immediately.
+        # are gated by whether the frame lane is still open
+        # (``self._queue`` being non-``None``), which stays true for as long
+        # as any owner -- the pipe or an ``InAppSession`` -- still holds it
+        # (see ``PIPE_OWNER``'s own docstring). A pipe-only host behaves
+        # simply: stopping it releases the pipe's own hold, which is the
+        # only one there is, so the lane closes immediately.
         self._stopped = threading.Event()
         self._connected = False
         # Why the last :meth:`start` could not open the pipe, or ``None`` if
@@ -805,31 +775,11 @@ class AgentHost:
         # Connections currently parked in :meth:`_refuse_busy`, under
         # ``_session_lock`` -- the cap's counter.
         self._busy_refusals = 0
-        # The service lane: character tool calls run here, on their own
-        # small pool, never on the frame thread and never drained by
-        # :meth:`pump` -- see :meth:`_submit_service`. ``None`` until
-        # :meth:`start`, and set back to ``None`` by :meth:`stop`, the same
-        # lifetime ``self._queue`` already has for the frame lane.
-        self._service: tasks_mod.TaskRunner | None = None
-        # Every service-lane ``_Job`` currently registered, keyed by
-        # ``id(job)`` because ``_Job`` is an unhashable dataclass (it carries
-        # a mutable ``result``/``error``). Read and written only under
-        # ``_job_lock``, the same lock ``_Job.state`` itself is guarded by --
-        # this dict and the frame queue are the two places :meth:`_fail_pending`
-        # has to wake a waiter from when the agent server switches off.
-        self._service_jobs: dict[int, _Job] = {}
-        # Mints this connection-spanning host's own service-lane task keys
-        # (``agent-service-1``, ``agent-service-2``, ...) -- a plain counter,
-        # not per connection, because ``TaskRunner.submit`` keys only need to
-        # be unique while a job is in flight, and a single monotonically
-        # increasing sequence for the host's whole life is simpler than
-        # resetting one per connection for no behavioural difference.
-        self._service_seq = itertools.count(1)
-        # Which owners currently hold the frame/service lanes open --
+        # Which owners currently hold the frame lane open --
         # :data:`PIPE_OWNER` while the pipe server is running, plus one
         # token per open :class:`InAppSession`. Read and written only under
-        # ``_job_lock``, alongside the ``self._queue``/``self._service``
-        # swap the set's emptiness gates -- see :meth:`_acquire_lanes`/
+        # ``_job_lock``, alongside the ``self._queue`` swap the set's
+        # emptiness gates -- see :meth:`_acquire_lanes`/
         # :meth:`_release_lanes`.
         self._lane_owners: set[str] = set()
         # Mints a fresh in-app owner token per :meth:`open_session` call --
@@ -849,42 +799,12 @@ class AgentHost:
         """Whether a bridge is attached right now, for the status bar chip."""
         return self._connected
 
-    @property
-    def busy_tools(self) -> tuple[str, ...]:
-        """Names of the character tools running on the service lane right now.
-
-        The 2026-09-23 (second run) audit, finding agents-01: character-tool
-        calls (``character_export`` and the rest) run on this host's own
-        ``TaskRunner``, never on ``ctx.tasks`` -- so ``_quit_summary``, which
-        only reads ``ctx.tasks.busy_keys``, warned nothing while a quit would
-        have interrupted one mid-write. This is the read-only door
-        ``_quit_summary`` calls instead; a resource read or any other
-        untagged service job (``tool is None``) is left out, the same as an
-        untagged frame-lane job is left out of ``ctx.tasks.busy_keys``.
-        """
-        with self._job_lock:
-            # Live jobs only: a job whose waiter gave up (or that was
-            # cancelled while queued behind blocked workers) stays in the
-            # registry as a ``DROPPED`` tombstone until a worker pops it, and
-            # naming it made Quit warn "still running" about a call that will
-            # never run (the 2026-10-03 audit's agents-22).
-            return tuple(
-                sorted(
-                    {
-                        job.tool
-                        for job in self._service_jobs.values()
-                        if job.tool and job.state in (QUEUED, RUNNING)
-                    }
-                )
-            )
-
     def _acquire_lanes(self, owner: str) -> None:
-        """Register *owner* as holding the frame/service lanes open,
-        creating both -- ``self._queue`` and ``self._service`` -- the first
-        time any owner does. A second (or third...) owner joining an
-        already-open pair of lanes gets the same queue and pool everything
-        else already has, not a fresh one: the lanes are shared, ownership
-        is just what decides when they may be torn down.
+        """Register *owner* as holding the frame lane open, creating
+        ``self._queue`` the first time any owner does. A second (or third...)
+        owner joining an already-open lane gets the same queue everything
+        else already has, not a fresh one: the lane is shared, ownership is
+        just what decides when it may be torn down.
 
         Called from :meth:`start` (with :data:`PIPE_OWNER`) and
         :meth:`open_session` (with a fresh in-app token) -- the two doors
@@ -894,18 +814,13 @@ class AgentHost:
             self._lane_owners.add(owner)
             if first:
                 self._queue = queue.Queue()
-                self._service = tasks_mod.TaskRunner(workers=SERVICE_WORKERS)
 
-    def _release_lanes(self, owner: str) -> tasks_mod.TaskRunner | None:
-        """Drop *owner*'s hold on the lanes and, only if it was the last one
-        standing, tear both down -- returning the service-lane ``TaskRunner``
-        so the caller can ``shutdown(wait=False)`` it *outside* this lock
-        (never across a lock hold, the same rule every other lane-teardown
-        step in this module already follows). ``None`` if another owner
-        still needs the lanes, or if *owner* was never registered (an
+    def _release_lanes(self, owner: str) -> None:
+        """Drop *owner*'s hold on the frame lane and, only if it was the last
+        one standing, tear the queue down. A no-op if another owner still
+        needs the lane, or if *owner* was never registered (an
         already-closed :class:`InAppSession`, or a second :meth:`stop` on an
-        idle host) -- both are a no-op, the same idempotence :meth:`stop`
-        already promises.
+        idle host) -- the same idempotence :meth:`stop` already promises.
 
         Familiar must keep working while the pipe server is off, and turning
         the pipe server off must never drop an in-app session's own jobs
@@ -914,13 +829,10 @@ class AgentHost:
         makes both true at once."""
         with self._job_lock:
             if owner not in self._lane_owners:
-                return None
+                return
             self._lane_owners.discard(owner)
-            if self._lane_owners:
-                return None
-            runner, self._service = self._service, None
-            self._queue = None
-            return runner
+            if not self._lane_owners:
+                self._queue = None
 
     def start(self) -> bool:
         """Open the pipe and spawn the listener. Idempotent: the Settings
@@ -985,11 +897,10 @@ class AgentHost:
         self._server = server
         self._stopped.clear()
         self._connected = False
-        # A fresh pair of lanes if no owner (an already-open InAppSession)
-        # is holding one open already -- :meth:`_acquire_lanes` is a no-op
-        # beyond registering this owner when one is. The previous pipe-owned pair (if any) was
-        # already released by the matching stop(), and a
-        # ``ThreadPoolExecutor`` has no restart of its own.
+        # A fresh frame queue if no owner (an already-open InAppSession) is
+        # holding one open already -- :meth:`_acquire_lanes` is a no-op
+        # beyond registering this owner when one is. The previous pipe-owned
+        # queue (if any) was already released by the matching stop().
         self._acquire_lanes(PIPE_OWNER)
         self._thread = threading.Thread(
             target=self._listen,
@@ -1006,24 +917,17 @@ class AgentHost:
         # _write_catalogue_snapshot() straight from here, on whichever
         # thread called start() -- always the frame thread, for both of
         # this method's real callers (app_settings.py's Settings switch and
-        # shell/app.py's own setup_context). Building the catalogue payload
-        # twice (agent_clay's tools plus the character surface's), hashing
-        # it, and staging-then-replacing the file cost ~75ms measured, all
-        # of it spent on a frame that has no business waiting on disk.
+        # shell/app.py's own setup_context). Building the catalogue payload,
+        # hashing it, and staging-then-replacing the file cost ~75ms
+        # measured, all of it spent on a frame that has no business waiting
+        # on disk.
         #
         # Submitted through ctx.submit -- the app's own TaskRunner, the one
         # door CLAUDE.md's three-thread model names for anything that
-        # blocks -- rather than this host's own service lane
-        # (self._service): that lane's SERVICE_WORKERS=2 pool and
-        # self._service_jobs registry are sized and accounted for
-        # character-pipeline tool calls specifically (several tests assert
-        # the pool holds exactly SERVICE_WORKERS entries once saturated), so
-        # a housekeeping write racing into the same pool would either steal
-        # a worker a real tool call needed or silently grow what those
-        # tests treat as a closed count. start() always runs on the frame
-        # thread for both real callers, so calling ctx.submit directly here
-        # (not queued through self._queue the way _toast is) is the ordinary
-        # thing every pane already does.
+        # blocks. start() always runs on the frame thread for both real
+        # callers, so calling ctx.submit directly here (not queued through
+        # self._queue the way _toast is) is the ordinary thing every pane
+        # already does.
         self.ctx.submit(CATALOGUE_SNAPSHOT_TASK_KEY, self._write_catalogue_snapshot)
         return True
 
@@ -1039,17 +943,16 @@ class AgentHost:
         process open; this still bounds the wait so ``teardown`` itself
         returns promptly rather than hanging on the same platform quirk.
 
-        Stopping the pipe server releases only *its own* hold on the frame/
-        service lanes (:meth:`_release_lanes` with :data:`PIPE_OWNER`) --
-        an :class:`InAppSession` opened for Familiar keeps both lanes alive
-        for as long as it holds its own token, whether or not the pipe
-        server is running, and
-        ``self._service``/``self._queue`` are torn down here only when this
-        call turns out to be the *last* owner releasing. ``_fail_pending``
-        runs first regardless, but it is scoped to :data:`PIPE_OWNER`'s own
-        jobs (its default) -- switching the pipe off must fail and drop only
-        the pipe's own pending work, never a job an in-app session queued on
-        the lanes it still owns.
+        Stopping the pipe server releases only *its own* hold on the frame
+        lane (:meth:`_release_lanes` with :data:`PIPE_OWNER`) -- an
+        :class:`InAppSession` opened for Familiar keeps it alive for as long
+        as it holds its own token, whether or not the pipe server is
+        running, and ``self._queue`` is torn down here only when this call
+        turns out to be the *last* owner releasing. ``_fail_pending`` runs
+        first regardless, but it is scoped to :data:`PIPE_OWNER`'s own jobs
+        (its default) -- switching the pipe off must fail and drop only the
+        pipe's own pending work, never a job an in-app session queued on the
+        lane it still owns.
         """
         if self._thread is None:
             return
@@ -1064,39 +967,9 @@ class AgentHost:
             with contextlib.suppress(OSError):
                 conn.close()
         self._fail_pending()
-        # Releases only this call's own (pipe) hold on the lanes --
-        # ``None`` back if another owner still owns them, in which case
-        # neither the runner nor the queue is this stop()'s to tear down.
-        runner = self._release_lanes(PIPE_OWNER)
-        # ``wait=False`` and NEVER a ``timeout`` -- passing one takes the
-        # ``TaskRunner.shutdown`` branch that calls
-        # ``winjob.terminate_tracked()`` on whatever is still running past
-        # the grace period, which kills every tracked child process in the
-        # whole app (a Blender bake, a fetch download, a matting worker),
-        # not just this host's own service-lane workers. ``_fail_pending``
-        # just above already woke every waiter that can be woken; a call
-        # already inside ``agent_character.call`` keeps running to
-        # completion on its own thread, unowned by this host from here on,
-        # exactly as a Clay call already inside ``run()`` is not dropped
-        # either (see this module's own docstring on that).
-        if runner is not None:
-            runner.shutdown(wait=False)
-            # ``cancel_futures=True`` (see ``tasks.py``'s own ``shutdown``)
-            # cancels any future the pool had not yet started running --
-            # including one :meth:`_submit_service` handed it after
-            # ``_fail_pending``'s own snapshot above but before ``_release_
-            # lanes``'s own swap took effect (impossible now that both are
-            # one atomic step under ``_job_lock``, per :meth:`_submit_
-            # service`'s docstring, but this sweep is the cheap second line
-            # of defence rather than a proof leaned on alone). A cancelled
-            # future never calls ``_run_service_job``, so nothing would
-            # otherwise pop the job from ``_service_jobs`` or set its
-            # ``event`` -- the caller would wait out the full
-            # ``CALL_TIMEOUT`` and the tombstone would still be sitting in
-            # the registry the next time ``start()`` runs. This also
-            # guarantees the plain claim ``start()`` makes: it begins with
-            # an empty registry.
-            self._drop_queued_service_jobs()
+        # Releases only this call's own (pipe) hold on the frame queue -- an
+        # InAppSession still holding its own token keeps it open.
+        self._release_lanes(PIPE_OWNER)
         self._thread.join(timeout=STOP_JOIN_TIMEOUT)
         if self._thread.is_alive():
             # pipe.Server.close() now pokes a self-connect specifically to
@@ -1117,7 +990,7 @@ class AgentHost:
     def open_session(self) -> InAppSession:
         """Open an in-process caller of the agent tool surface -- Familiar's
         own door, independent of the pipe. Acquires its own lane-ownership
-        token (:meth:`_acquire_lanes`) so the frame/service lanes stay open
+        token (:meth:`_acquire_lanes`) so the frame lane stays open
         for this session's whole life whether or not the pipe server is
         running, or is ever switched on at all: the two owners are tracked
         entirely separately (see :data:`PIPE_OWNER`'s own docstring), so
@@ -1186,56 +1059,6 @@ class AgentHost:
                 job.event.set()
             for job in other_owners:
                 q.put(job)
-
-        # The service lane's own registry has no queue object to drain --
-        # see :meth:`_drop_queued_service_jobs`, the same sweep :meth:`stop`
-        # runs a second time after ``TaskRunner.shutdown(wait=False)`` for
-        # the job that sweep's own docstring names.
-        self._drop_queued_service_jobs(owner)
-
-    def _drop_queued_service_jobs(self, owner: str = PIPE_OWNER) -> None:
-        """Wake and drop every service-lane job still ``QUEUED`` in
-        ``self._service_jobs`` *and belonging to owner* -- the same
-        ``DROPPED`` state and switched-off refusal :meth:`_fail_pending`
-        stamps onto a frame-lane tombstone above. A job belonging to a
-        different owner is left exactly where it is, in the registry, for
-        its own lane to keep servicing.
-
-        Called twice from :meth:`stop`, and must tolerate finding nothing
-        both times: once from :meth:`_fail_pending`, for whatever had
-        already registered by the time the agent server was switched off,
-        and once more right after ``TaskRunner.shutdown(wait=False)``
-        returns, because that shutdown can itself orphan a job -- see
-        :meth:`stop`'s own comment on the race this closes -- whose
-        ``_run_service_job`` (and the registry pop inside it) then never
-        runs at all. A job sits in ``self._service_jobs`` from the moment
-        :meth:`_submit_service` registers it until :meth:`_run_service_job`
-        pops it, whether or not the underlying ``TaskRunner`` ever actually
-        got to run it.
-
-        Snapshotted under the lock rather than iterated live -- and only
-        *this owner's* entries are popped out of the live registry, so
-        leaving stale, already-``DROPPED`` entries of this owner's own
-        behind across a stop()/start() cycle would only be a slow leak for
-        no one to read, while another owner's still-live entries are
-        untouched. Popping only this owner's own jobs is also what makes
-        good on ``start()``'s claim to begin with an empty registry: a
-        fresh pipe ``start()`` only ever follows a ``stop()`` that has
-        already popped every job *it* registered.
-        """
-        from ..mcp import rpc
-
-        with self._job_lock:
-            service_jobs = [j for j in self._service_jobs.values() if j.owner == owner]
-            for job in service_jobs:
-                self._service_jobs.pop(id(job), None)
-        for job in service_jobs:
-            with self._job_lock:
-                if job.state != QUEUED:
-                    continue
-                job.state = DROPPED
-                job.result = rpc.fail("Realmspinner's agent server was switched off.")
-            job.event.set()
 
     # -- the listener thread ---------------------------------------------------
 
@@ -1317,7 +1140,7 @@ class AgentHost:
         """Answer this connection's very first RPC v1 frame -- ordinarily
         ``hello`` -- with ``{"error": {"code": "busy"}}`` and close it,
         without ever constructing an ``agent_clay.Session`` or touching the
-        frame/service lanes: this connection is not going to be served, so
+        frame lane: this connection is not going to be served, so
         there is nothing here for the frame thread to do. Any op, not just
         ``hello``, gets the same refusal -- a peer that races its `hello`
         and a second frame in before waiting for a reply would otherwise get
@@ -1361,11 +1184,6 @@ class AgentHost:
 
         session = agent_clay.Session()
         calls = _Calls()
-        # ``agent_character.call`` runs on the service lane, never the frame
-        # thread, so it cannot reach ``ctx.toast`` directly (see this
-        # module's own reasoning for why :meth:`_toast` exists at all); this
-        # gives it the exact same queued path Clay's own toasts already take.
-        calls.character.toast = self._toast
         self._active_conn = conn
         self._connected = True
         self._toast("An agent connected.")
@@ -1496,13 +1314,7 @@ class AgentHost:
             return self._cancel_task(calls, operation_id)
         if op == "resources":
             return rpc.encode_reply(
-                {
-                    "resources": [
-                        *agent_resources.list_resources(),
-                        *agent_character_resources.list_resources(),
-                    ],
-                    "templates": [],
-                }
+                {"resources": agent_resources.list_resources(), "templates": []}
             )
         if op == "read":
             uri = message.get("uri")
@@ -1523,45 +1335,22 @@ class AgentHost:
 
     def _read_resource(self, session: agent_clay.Session, uri: str) -> bytes:
         """The ``read`` RPC v1 op. A static resource (Clay's conventions,
-        generators and operations, or the character surface's vocabulary)
-        is answered right here, on the listener thread -- neither
-        :func:`agent_resources.read_static` nor
-        :func:`agent_character_resources.read_static` touches a document or
-        GL, the same reasoning :data:`STATUS_TOOL` already gets. A dynamic
-        one is run on whichever lane owns its kind of work: a character
-        resource (a charsheet's sidecar or atlas -- ``agent_character_
-        resources.owns_uri``) goes through the service lane
-        (:meth:`_run_on_service_job`), the same lane every other character
-        door uses; a Clay one (the scene, the last render) goes through the
-        frame queue, exactly as an ordinary Clay tool call does, and is
-        given the same :data:`CALL_TIMEOUT` a call gets. Either way, a read
-        that cannot be serviced within it is reported as `not_found` rather
-        than replayed or retried, since a resource read carries no dedup
-        story of its own (see :meth:`_call`'s for why a tool call needs one
-        and a read does not: nothing here mutates the document, so running
-        it again costs nothing a retry would not already cost)."""
+        generators and operations) is answered right here, on the listener
+        thread -- :func:`agent_resources.read_static` touches neither a
+        document nor GL, the same reasoning :data:`STATUS_TOOL` already gets.
+        A dynamic one (the scene, the last render) goes through the frame
+        queue, exactly as an ordinary Clay tool call does, and is given the
+        same :data:`CALL_TIMEOUT` a call gets. A read that cannot be serviced
+        within it is reported as `not_found` rather than replayed or retried,
+        since a resource read carries no dedup story of its own (see
+        :meth:`_call`'s for why a tool call needs one and a read does not:
+        nothing here mutates the document, so running it again costs nothing
+        a retry would not already cost)."""
         from ..mcp import rpc
 
         static = agent_resources.read_static(uri)
-        if static is None:
-            static = agent_character_resources.read_static(uri)
         if static is not None:
             mime, body = static
-            return rpc.encode_reply({"uri": uri, "mimeType": mime}, body)
-        if agent_character_resources.owns_uri(uri):
-            # A character resource (a charsheet's sidecar or atlas) is a pure
-            # read through ``service/`` doors -- sqlite and disk, never a
-            # Document or GL -- so it runs on the service lane, the same
-            # lane every other character door uses, rather than the frame
-            # queue a Clay dynamic resource needs.
-            _job, result, error, state = self._run_on_service_job(
-                lambda: agent_character_resources.read_dynamic(
-                    getattr(self.ctx, "svc", None), uri
-                )
-            )
-            if error is not None or state == DROPPED or result is None:
-                return rpc.encode_reply({"error": {"code": "not_found"}})
-            mime, body = result
             return rpc.encode_reply({"uri": uri, "mimeType": mime}, body)
         if uri not in agent_resources.DYNAMIC_URIS:
             return rpc.encode_reply({"error": {"code": "not_found"}})
@@ -1593,24 +1382,17 @@ class AgentHost:
     def _rpc_tools(self) -> list[Any]:
         """The exact tool list this host publishes -- see :meth:`_serve`
         for where it is served."""
-        return [*agent_clay.tools(), *agent_character.tools(), *_transport_tools()]
+        return [*agent_clay.tools(), *_transport_tools()]
 
     def _catalogue_payload(self) -> dict[str, Any]:
         from ..mcp import rpc
 
         return rpc.catalogue_payload(
             self._rpc_tools(),
-            # Clay's own conventions first, then the character surface's --
-            # a fixed order (never re-sorted or interleaved) so a client
-            # that has already read Clay's half once can skip straight to
-            # the second paragraph on a later fetch.
-            instructions=agent_clay.instructions() + "\n\n" + agent_character.instructions(),
+            instructions=agent_clay.instructions(),
             server_name=rpc.SERVER_NAME,
             server_version=self._version,
-            resources=[
-                *agent_resources.catalogue_resources(),
-                *agent_character_resources.catalogue_resources(),
-            ],
+            resources=agent_resources.catalogue_resources(),
             prompts=agent_prompts.list_prompts(),
         )
 
@@ -1717,25 +1499,10 @@ class AgentHost:
                 "connection, or retry this call once one completes.",
                 recovery="retry",
             )
-        is_character_tool = name in agent_character.HANDLERS
-        if is_character_tool:
-            # The character tool surface's own doors (subprocesses, sqlite,
-            # disk) never touch a Document, GL or imgui, so they run on the
-            # service lane instead of the frame thread -- see
-            # :meth:`_run_on_service_job`'s own docstring for why that lane
-            # exists at all rather than sharing the frame queue.
-            job, result, error, state = self._run_on_service_job(
-                lambda: agent_character.call(
-                    getattr(self.ctx, "svc", None), calls.character, name, arguments
-                ),
-                owner=owner,
-                tool=name,
-            )
-        else:
-            job, result, error, state = self._run_on_frame_job(
-                lambda: agent_clay.call(self.ctx, session, name, arguments),
-                owner=owner,
-            )
+        job, result, error, state = self._run_on_frame_job(
+            lambda: agent_clay.call(self.ctx, session, name, arguments),
+            owner=owner,
+        )
         if error is not None:
             # ``agent_clay.call`` promises never to raise; this is the same
             # backstop the RPC v1 ``call`` op keeps around its own call site,
@@ -1777,17 +1544,7 @@ class AgentHost:
             # delivered, correctly, but it is not a completed tool call --
             # recording it here misfiled a refusal as tier-two data for a
             # call that never touched the document at all.
-            #
-            # ``not is_character_tool`` is the other half of the gate: the
-            # 2026-09-26 audit (agents-host-02) found a completed
-            # character-surface call recorded here too, into the same file
-            # a Clay-only recorder and reader agree on -- ``transcript.py``'s
-            # ``UID_KEYS`` is derived from ``agent_clay.tools()``'s own
-            # schemas, and tier one's replay resolves every recorded line
-            # through ``agent_clay.call``, which has never heard of a
-            # character tool. A character call's line was one tier one's
-            # replay could not run.
-            if state != DROPPED and not is_character_tool:
+            if state != DROPPED:
                 _record_completed_call(name, arguments, result)
             return result
         # The result never reached the peer -- a timeout refusal is about to
@@ -2030,10 +1787,10 @@ class AgentHost:
         (:meth:`_acquire_lanes`/:meth:`_release_lanes`). But
         ``self._stopped`` still gates :data:`PIPE_OWNER` specifically: once
         ``stop()`` sets it, a pipe-owned call must be refused even while the
-        lanes themselves stay open for another owner holding its own lane
+        lane itself stays open for another owner holding its own lane
         token -- otherwise a pipe call arriving in the gap after ``stop()``'s
         own ``_fail_pending(PIPE_OWNER)`` sweep would be accepted onto
-        still-live lanes with nothing left to ever fail it (the pipe is gone;
+        a still-live lane with nothing left to ever fail it (the pipe is gone;
         nothing will call this job dropped). Any other owner is never gated
         by this flag -- it is gated by whatever closes its own session,
         checked before this method is ever reached.
@@ -2158,17 +1915,7 @@ class AgentHost:
             # right after this op's one and only use of its own arguments.
             op.args = None
             return {"operation_id": op.operation_id, "status": TASK_STATUS[DONE]}
-        if name in agent_character.HANDLERS:
-            job = self._queue_service_job_nowait(
-                lambda: agent_character.call(
-                    getattr(self.ctx, "svc", None), calls.character, name, arguments
-                ),
-                tool=name,
-            )
-        else:
-            job = self._queue_job_nowait(
-                lambda: agent_clay.call(self.ctx, session, name, arguments)
-            )
+        job = self._queue_job_nowait(lambda: agent_clay.call(self.ctx, session, name, arguments))
         if job is None:
             op.state, op.delivered, op.job = DROPPED, True, None
             return {"operation_id": op.operation_id, "status": TASK_STATUS[DROPPED]}
@@ -2217,13 +1964,7 @@ class AgentHost:
                     rpc.fail(f"{type(error).__name__}: {error}"), separators=(",", ":")
                 ).encode("utf-8")
             elif final_state == DONE and result is not None:
-                # The 2026-09-26 audit (agents-host-02): the same gate
-                # ``_call``'s own recording point now carries -- a
-                # character-surface tool's completed task-mode call is not
-                # Clay-only transcript data either, for the identical
-                # reason (see ``_call``'s own comment on this).
-                if op.tool not in agent_character.HANDLERS:
-                    _record_completed_call(op.tool, op.args or {}, result)
+                _record_completed_call(op.tool, op.args or {}, result)
                 body = _result_body(result)
             else:
                 body = json.dumps(rpc.fail("the call raised with no result.")).encode("utf-8")
@@ -2284,20 +2025,15 @@ class AgentHost:
             return
         q.put(_Job(lambda: self.ctx.toast(text)))
 
-    # -- shared by both lanes ---------------------------------------------------
+    # -- running a job -----------------------------------------------------
 
     def _execute(self, job: _Job) -> bool:
         """Claim *job* (``QUEUED -> RUNNING``) and run it to completion, or --
         if whichever thread was waiting on it already gave up -- wake its
-        tombstone and touch nothing else. The one place either lane actually
-        calls ``job.run()``: :meth:`pump` (the frame lane) and
-        :meth:`_run_service_job` (the service lane) both hold the exact same
-        ``_Job`` shape and race the exact same waiter-gives-up
+        tombstone and touch nothing else. The one place ``job.run()`` is
+        called, so the claim/run/finish sequence and the waiter-gives-up
         compare-and-set (see the module docstring's own account of that
-        race), so one function owns the claim/run/finish sequence rather
-        than two copies of it drifting apart the way a hand-kept registry
-        already has once in this codebase (see ``agent_clay.tools``'s own
-        docstring on derived registries).
+        race) live in exactly one function.
 
         Returns whether *job* actually ran (``True``) or was a tombstone
         (``False``) -- :meth:`pump` uses this to decide whether its one-job
@@ -2314,7 +2050,7 @@ class AgentHost:
         try:
             job.result = job.run()
         except Exception as exc:  # noqa: BLE001 -- one bad job must not stop
-            # the drain (frame or service) or take its thread down with it;
+            # the drain or take its thread down with it;
             # whoever is waiting on ``job.event`` reads ``job.error`` and
             # turns it into a refusal (``_call``) or simply ignores it
             # (``_toast``, the tab-open at connect).
@@ -2329,144 +2065,12 @@ class AgentHost:
             job.event.set()
         return True
 
-    # -- the service lane ---------------------------------------------------
-
-    def _submit_service(self, job: _Job) -> bool:
-        """Hand *job* to the service lane's own ``TaskRunner`` -- the frame
-        queue's counterpart for character tool calls, which must never touch
-        ``self._queue`` or run on the frame thread: a character call goes
-        through ``service/`` doors (subprocesses, sqlite, disk), none of
-        which need a ``Document``, GL or imgui, and none of which may block
-        the one thread that owns all three.
-
-        Runs on the **listener thread**, or on whatever thread another
-        in-process caller calls from. The "is the lane still open"
-        check and the registration into ``self._service_jobs`` (keyed by
-        ``id(job)`` -- ``_Job`` is an unhashable dataclass) happen inside one
-        ``_job_lock`` hold, not two -- :meth:`_release_lanes` swaps
-        ``self._service`` to ``None`` under that same lock, and only once no
-        owner still holds the lanes open (2026-09-13: a call that read the
-        flag, found it clear, and only then queued for a poll cycle before
-        registering could slip a
-        job past a ``stop()`` already underway; ``_fail_pending``'s own
-        snapshot would never see it, and the ``TaskRunner.shutdown(wait=
-        False)`` that follows cancels a not-yet-started future outright, so
-        the callable that would have popped the registry and set
-        ``job.event`` never runs at all -- the caller waits out the full
-        ``CALL_TIMEOUT`` for nothing and the tombstone survives into the
-        next ``start()``). With both checks made atomic against the same
-        swap, a call to this method either fully wins the race (registers
-        before the swap, so a sweep that runs after is guaranteed to find
-        and drop it) or fully loses it (sees the cleared runner, and never
-        registers at all) -- there is no window between the two. Returns
-        whether *job* was actually accepted -- the same ``False``
-        :meth:`_run_on_frame_job` reports for a closed frame lane, for the
-        same reason.
-
-        *job.owner* is checked against ``self._stopped`` under this same
-        lock, same reason as :meth:`_run_on_frame_job`'s own check: the
-        service lane can stay open past a pipe ``stop()`` (an
-        ``InAppSession`` still holding it), and a pipe-owned job must still
-        be refused rather than accepted onto lanes it no longer owns, with
-        nothing left to ever fail it once accepted. An in-app owner is never
-        gated by this flag -- see :meth:`_run_on_frame_job`'s own docstring for why.
-        """
-        with self._job_lock:
-            runner = self._service
-            if runner is None or (job.owner == PIPE_OWNER and self._stopped.is_set()):
-                return False
-            self._service_jobs[id(job)] = job
-        # Reaps whatever the pool already finished since the last submit --
-        # the exact same bookkeeping :meth:`pump` does for a running host,
-        # kept here too so a burst of task-mode calls between two frames
-        # does not pile up finished entries in the runner's own dict. Safe
-        # outside the lock above: it only touches the runner's own
-        # bookkeeping, never ``_service_jobs`` or ``_stopped``.
-        runner.poll()
-        key = f"agent-service-{next(self._service_seq)}"
-        try:
-            accepted = runner.submit(key, self._run_service_job, job)
-        except RuntimeError:
-            # The pool is already shutting down underneath this call --
-            # indistinguishable, from here, from "was never running".
-            accepted = False
-        if not accepted:
-            with self._job_lock:
-                self._service_jobs.pop(id(job), None)
-            return False
-        return True
-
-    def _run_service_job(self, job: _Job) -> None:
-        """The service lane's own thread-pool body: run *job* through the
-        shared claim/run/finish sequence (:meth:`_execute`), then drop it
-        from ``self._service_jobs`` no matter what happened. The registry
-        exists only so a job can still be found (and dropped) while it might
-        be ``QUEUED``; once ``_execute`` has claimed it -- or found it
-        already a tombstone -- there is nothing left for the registry to do
-        with it.
-        """
-        try:
-            self._execute(job)
-        finally:
-            with self._job_lock:
-                self._service_jobs.pop(id(job), None)
-
-    def _run_on_service_job(
-        self,
-        run: Any,
-        timeout: float = CALL_TIMEOUT,
-        owner: str = PIPE_OWNER,
-        tool: str | None = None,
-    ) -> tuple[_Job | None, Any, Any, str]:
-        """As :meth:`_run_on_frame_job`, but for the service lane: *run*
-        goes to :meth:`_submit_service` (a small ``TaskRunner`` pool)
-        instead of ``self._queue``, so it is never drained by :meth:`pump`
-        and never blocks the frame thread. Same contract in every other
-        respect, including the switched-off early-out (``self._service is
-        None`` alone, never ``self._stopped`` -- see :meth:`_run_on_frame_
-        job`'s own docstring for why) and the waiter-gives-up compare-and-set
-        against ``_job_lock`` -- a slow character export can no more be run
-        twice by an impatient retry than a slow Clay call can (see
-        :meth:`_call`'s own routing for how this and :meth:`_run_on_frame_
-        job` are chosen between).
-        """
-        from ..mcp import rpc
-
-        if self._service is None:
-            return None, rpc.fail("Realmspinner's agent server was switched off."), None, DROPPED
-        job = _Job(run, owner=owner, tool=tool)
-        if not self._submit_service(job):
-            return None, rpc.fail("Realmspinner's agent server was switched off."), None, DROPPED
-        if job.event.wait(timeout):
-            with self._job_lock:
-                return job, job.result, job.error, job.state
-        with self._job_lock:
-            if job.state == QUEUED:
-                job.state = DROPPED
-            return job, job.result, job.error, job.state
-
-    def _queue_service_job_nowait(
-        self, run: Any, owner: str = PIPE_OWNER, tool: str | None = None
-    ) -> _Job | None:
-        """As :meth:`_queue_job_nowait`, but for the service lane: mints a
-        ``_Job``, hands it to :meth:`_submit_service`, and returns at once --
-        never blocks. ``None`` if the service lane refused it (the agent
-        server is off), the same early-out the frame lane's own
-        :meth:`_queue_job_nowait` gives."""
-        job = _Job(run, owner=owner, tool=tool)
-        if not self._submit_service(job):
-            return None
-        return job
-
     # -- the frame thread ------------------------------------------------------
 
     def pump(self, budget: float = 0.008) -> None:
         """Drain queued work under a wall-clock budget. **Frame thread only**
         -- this is what actually calls ``agent_clay.call`` (and, at connect,
         ``agent_clay._tab``), the one place a document or GL may be touched.
-        Character tool calls never reach this method at all: they run on
-        the service lane (:meth:`_submit_service`), reaped below only to
-        keep that pool's own bookkeeping from growing unbounded.
 
         At least one job always runs, budget or not: a frame that is
         permanently over budget for other reasons must not starve an agent's
@@ -2487,16 +2091,6 @@ class AgentHost:
         q = self._queue
         if q is None:
             return
-        service = self._service
-        if service is not None:
-            # The only thing that actually removes a finished key from the
-            # runner's own bookkeeping (``TaskRunner.poll``'s own docstring)
-            # -- ``_execute`` (via ``_run_service_job``) already recorded
-            # each job's own outcome on the job itself, so the returned
-            # ``Done`` list has nothing this method still needs; not reaping
-            # it here would otherwise leak one entry in the runner's pending
-            # dict per service call, forever.
-            service.poll()
         deadline = time.monotonic() + budget
         ran_one = False
         while not ran_one or time.monotonic() < deadline:
@@ -2510,15 +2104,15 @@ class AgentHost:
 
 class InAppSession:
     """An in-process caller of Realmspinner's agent tool surface -- Familiar's
-    own door onto Clay and the character pipeline, with no pipe, no MCP
+    own door onto Clay, with no pipe, no MCP
     framing, no transcript recording and no ``realmspinner_status`` (there is no
     concurrent connection here for that tool to answer about, and nothing
     else in this class ever mints an operation for it to report on).
 
     Built only by :meth:`AgentHost.open_session`, never directly -- the
     lane-ownership token it holds is minted there. :meth:`call` reuses
-    :meth:`AgentHost._call`'s own routing (dedup, the frame/service lane
-    choice, timeout refusals) verbatim, tagged with this session's own
+    :meth:`AgentHost._call`'s own routing (dedup, timeout refusals)
+    verbatim, tagged with this session's own
     owner so :meth:`AgentHost.stop` can never fail or drop a job this
     session is waiting on -- see :data:`PIPE_OWNER`'s docstring for the
     scoping rule that makes that true.
@@ -2559,10 +2153,10 @@ class InAppSession:
         return self._host._call(self._session, self._calls, name, arguments, owner=self._owner)
 
     def close(self) -> None:
-        """Release this session's own hold on the frame/service lanes.
-        Idempotent. Tears the lanes down only if this was the last owner
-        still holding them (see :meth:`AgentHost._release_lanes`) -- the
-        pipe server, if running, keeps them regardless.
+        """Release this session's own hold on the frame lane.
+        Idempotent. Tears the lane down only if this was the last owner
+        still holding it (see :meth:`AgentHost._release_lanes`) -- the
+        pipe server, if running, keeps it regardless.
 
         Fails this session's own pending work first, the same order
         :meth:`AgentHost.stop` follows -- ordinarily a no-op, since
@@ -2573,7 +2167,4 @@ class InAppSession:
             return
         self._closed = True
         self._host._fail_pending(self._owner)
-        runner = self._host._release_lanes(self._owner)
-        if runner is not None:
-            runner.shutdown(wait=False)
-            self._host._drop_queued_service_jobs(self._owner)
+        self._host._release_lanes(self._owner)

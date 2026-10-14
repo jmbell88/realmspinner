@@ -1,6 +1,6 @@
 """What a follow-up row made, drawn where the row is selected.
 
-A rig, a sheet, a sprite draft, a retexture and a remesh write into the *source*
+A rig, a sprite draft, a retexture and a remesh write into the *source*
 job's directory and never their own (``asset_open``'s docstring says why), so
 selecting one in the Library used to show a block of settings and nothing else:
 the pictures it had made were one directory over, reachable only by opening the
@@ -50,7 +50,8 @@ def product_images(job: Any, job_dir_of: Any) -> list[Product]:
     the same fact ``Open folder`` and ``asset_open`` are built on.
 
     A row that is not finished, or a kind that draws no picture of its own (a
-    character sheet is Poser's to draw; a LoRA run has no image), answers
+    retired sheet row keeps its files but shows nothing; a LoRA run has no
+    image), answers
     ``[]``: the honest floor, and what makes the section draw nothing rather
     than a heading over nothing.
     """
@@ -79,13 +80,6 @@ def product_images(job: Any, job_dir_of: Any) -> list[Product]:
             Product(letter, store.sprite_draft_png_path(job_dir, draft_id, letter), True)
             for letter in letters
         ]
-    if kind in ("sheet", "pixel_sheet"):
-        sheet_id = str(params.get("sheet_id") or "")
-        if not store.is_valid_id(sheet_id):
-            return []
-        if kind == "pixel_sheet":
-            return [Product("pixel sheet", store.sheet_pixel_png_path(job_dir, sheet_id), True)]
-        return [Product("sheet", store.sheet_png_path(job_dir, sheet_id), False)]
     if kind == "rig":
         return [Product("rig check", job_dir / "rig_qa.png", False)]
     if kind in ("retexture", "remesh"):

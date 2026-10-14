@@ -108,15 +108,15 @@ def test_manual_44_lists_every_worker_module_and_the_agent_host_thread():
 
     assert "realmspinner-agent-host" in inspect.getsource(agent_host)
     assert "realmspinner-agent-host" in text, "chapter 44 never names the agent-host thread"
-    assert "two workers" in _flat(text), "chapter 44 omits the agent host's second TaskRunner pool"
-    assert agent_host.SERVICE_WORKERS == 2
+    assert not hasattr(agent_host, "SERVICE_WORKERS"), "the service lane was removed"
+    assert "second `TaskRunner` pool the host owns" not in text
     assert "A vendored native binary; it was never Python" not in text
 
 
 def test_manual_29_does_not_place_the_exports_on_the_timeline_strip():
     """docs-26: the exports and their settings moved to the Export block and the File
     menu (2026-09-05); chapter 28 says so and chapter 29 still put them on the strip."""
-    ch29 = _flat(_chapter("29-inker-animation.md"))
+    ch29 = _flat(_chapter("26-inker-animation.md"))
     for stale in (
         "the three exports",
         "export magnification",
@@ -124,7 +124,7 @@ def test_manual_29_does_not_place_the_exports_on_the_timeline_strip():
     ):
         assert stale not in ch29, f"chapter 29 still says {stale!r}"
     assert "Export** block" in ch29 and "File** menu" in ch29
-    ch28 = _flat(_chapter("28-inker.md"))
+    ch28 = _flat(_chapter("25-inker.md"))
     assert "keeps only the two switches" in ch28  # the sentence chapter 29 now agrees with
 
     from realmspinner.studio.modes.inker.ui.panes import timeline
@@ -133,14 +133,13 @@ def test_manual_29_does_not_place_the_exports_on_the_timeline_strip():
     assert '"Onion"' in source and '"Thumbs"' in source
 
 
-def test_manual_25_agrees_with_manual_23_on_how_rig_controls_look_without_blender():
+def test_manual_23_says_how_rig_controls_look_without_blender():
     """docs-27: chapter 25 said the rig controls are hidden, never greyed; the Mesh
     stage's checkbox and the stage rail's segments are greyed with a reason."""
-    ch25 = _flat(_chapter("25-rigging-and-posing.md"))
-    assert "hides the rig controls entirely" not in ch25
-    assert "rather than greying them out" not in ch25
-    assert "greyed" in ch25 and "Rig when the mesh lands" in ch25
-    assert "greyed" in _flat(_chapter("23-generating-meshes.md"))
+    ch23 = _flat(_chapter("23-generating-meshes.md"))
+    assert "hides the rig controls entirely" not in ch23
+    assert "rather than greying them out" not in ch23
+    assert "greyed" in ch23 and "Rig when the mesh lands" in ch23
 
     from realmspinner.studio.modes.create.ui import stages
     from realmspinner.studio.modes.create.ui.panes import settings_3d
@@ -154,21 +153,18 @@ def test_manual_25_agrees_with_manual_23_on_how_rig_controls_look_without_blende
 
 
 def test_manual_20_scopes_the_file_panel_promise_to_document_modes():
-    """docs-28: Poser and Muse draw no file panel, four file verbs or document tabs."""
+    """docs-28: Muse draws no file panel, four file verbs or document tabs."""
     from realmspinner.studio import mode_manifest
 
     section = _flat(_section(_chapter("20-overview.md"), "What is the same in every workspace"))
     assert "Whichever one is open:" not in section
-    for named in ("Inker", "Clay", "Mason", "Plotter", "Packwright", "Sirens", "Poser", "Muse"):
+    for named in ("Inker", "Clay", "Mason", "Plotter", "Packwright", "Sirens", "Muse"):
         assert named in section, f"the scoped paragraph never names {named}"
-    assert "pose library" in section and "job row" in section
+    assert "job row" in section
 
     keys = {m.key for m in mode_manifest.DOC_MODES}
     assert "muse" not in keys, "Muse became a document mode: the overview's scoping is stale"
-    # Poser is in the manifest for its journal and palette rows but owns no persist and no
-    # opener, which is why it has no file panel to promise.
-    poser = mode_manifest.by_key("poser")
-    assert poser is not None and poser.opener is None
+    assert mode_manifest.by_key("poser") is None, "Poser was removed with the Clay rig plan"
 
 
 def test_manual_23_documents_the_finishing_choice_beside_budget():

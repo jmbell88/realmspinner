@@ -3,10 +3,9 @@
 The P4 restructure split ``studio/main.py`` (5,971 lines) into
 ``shell/{app,frame,events,tasks,quit}.py``, plus one module per mode for the
 six inline ``_*_workspace`` methods; this is the module that assembles the
-whole of it. :class:`App` is built from thirteen mixins (fourteen before P9,
-2026-09-18 folded Troupe's own ``TroupeWorkspace`` into Poser's stage rather
-than a workspace of its own): the four that already lived beside ``main.py``
-(``ClayViewport``, ``MasonViewport``, ``PoserViewport``, ``ReviewPanes``, each
+whole of it. :class:`App` is built from twelve mixins (thirteen before the 2026-10-13
+Clay rig plan folded Poser into Clay and removed it): the three that already lived
+beside ``main.py`` (``ClayViewport``, ``MasonViewport``, ``ReviewPanes``, each
 "this repository's idiom for a body of drawing that belongs to the shell",
 per ``studio/modes/clay/ui/viewport.py``'s own module docstring);
 :class:`FrameMixin`, :class:`TasksMixin`, :class:`EventsMixin` and
@@ -48,7 +47,6 @@ from ..modes.mason.ui.viewport import MasonViewport
 from ..modes.muse.ui.workspace import MuseWorkspace
 from ..modes.packwright.ui.workspace import PackwrightWorkspace
 from ..modes.plotter.ui.workspace import PlotterWorkspace
-from ..modes.poser.ui.viewport import PoserViewport
 from ..modes.review.ui.workspace import ReviewPanes
 from ..modes.sirens.ui.workspace import SirensWorkspace
 from .events import EventsMixin
@@ -82,7 +80,6 @@ class App(
     QuitMixin,
     ClayViewport,
     MasonViewport,
-    PoserViewport,
     ReviewPanes,
     InkerWorkspace,
     PlotterWorkspace,
@@ -195,13 +192,6 @@ class App(
         self.mason_view = None
         self._mason_camera_tab = ""
         self._mason_hovered = False
-        # Poser's own Viewer and hover flag, for Clay's reasons: built on first
-        # entry (a session that never poses pays for no second renderer), and
-        # a separate instance so loading the armature preview can never call
-        # ``adopt_model``'s unconditional ``exit_pose_mode`` over an inspector
-        # pose session on the shared viewer.
-        self.poser_viewer = None
-        self._poser_hovered = False
         # What is typed into the shortcuts popup's own filter box (UX.md Phase
         # 4). Not persisted and cleared on every open: it is a way through
         # sixty rows, not a preference about them.
@@ -605,7 +595,6 @@ class App(
     def _load_static_answers(self) -> None:
         """Read the things that cannot change without a restart, once."""
         from ...service import rig as svc_rig
-        from ...service import sheets as svc_sheets
         from ...service import system as svc_system
 
         ctx = self.app_ctx
@@ -613,7 +602,6 @@ class App(
         ctx.quit_to_install = self._quit_to_install
         ctx.clear_viewport = self._clear_viewport
         ctx.guidance = svc_system.guidance_catalog(self.svc)
-        ctx.sheet_options = svc_sheets.sheet_options()
         self._refresh_model_answers()
         # Off the frame thread: rig_templates asks doctor.blender_check, whose
         # first answer is a seconds-long bpy subprocess probe that no longer

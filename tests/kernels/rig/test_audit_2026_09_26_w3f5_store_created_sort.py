@@ -18,18 +18,6 @@ def _touch_png(path: Path) -> None:
     path.write_bytes(b"")
 
 
-def test_list_sheets_tolerates_a_string_typed_created_sidecar(tmp_path):
-    job_dir = tmp_path / "job"
-    (job_dir / store.SHEET_DIR_NAME).mkdir(parents=True)
-    good_id, bad_id = store.new_id(), store.new_id()
-    for sid, created in ((good_id, 100.0), (bad_id, "not-a-number")):
-        path = store.sheet_path(job_dir, sid)
-        store.write_json_staged(path, {"id": sid, "created": created}, prefix=f".{sid}.")
-        _touch_png(store.sheet_png_path(job_dir, sid))
-    sheets = store.list_sheets(job_dir)
-    assert {s["id"] for s in sheets} == {good_id, bad_id}
-
-
 def test_list_sprite_drafts_tolerates_a_string_typed_created_sidecar(tmp_path):
     job_dir = tmp_path / "job"
     (job_dir / store.SPRITE_DIR_NAME).mkdir(parents=True)

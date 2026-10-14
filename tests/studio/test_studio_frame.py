@@ -867,7 +867,7 @@ def test_every_input_free_animation_is_named_in_the_idle_check():
         "state.toasts",             # TTL fade
         "ctx.tasks.busy_keys",      # spinners
         "camera.settled()",         # the viewers
-        'state.poser, "sheet_playing"',  # Poser's sheet playback (Troupe's own)
+        'tab.doc, "playing"',       # Clay's timeline playback
         'tab, "playing"',           # Inker's timeline playback
         "sirens_audio.playing()",   # Sirens' playhead, off the mixer clock
     ):

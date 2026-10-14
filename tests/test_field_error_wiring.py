@@ -40,14 +40,7 @@ FIELD_FORMS = (
     ("modes/settings/ui/panes/app_settings.py", "lora-import"),
     ("modes/settings/ui/panes/app_settings.py", "lora-train"),
     ("panes/remesh_panel.py", "remesh-settings"),
-    ("panes/sheet_panel.py", "sheet-settings"),
     ("panes/sprite_panel.py", "sprite-settings"),
-    # Troupe's own "troupe-settings" form, folded into Poser's character-sheet
-    # section by P9 (2026-09-18) as two collapsible entry points onto the
-    # same shared form (``poser_mode.sheet_form``) -- "Start a new character"
-    # and "Build a new sheet" for the bound asset.
-    ("modes/poser/ui/panes/sheet.py", "poser-new-character"),
-    ("modes/poser/ui/panes/sheet.py", "poser-sheet-build"),
     ("panes/retarget_panel.py", "retarget-settings"),
     ("panes/reorient_panel.py", "reorient-settings"),
     ("panes/texture_panel.py", "retexture-settings"),
@@ -150,13 +143,11 @@ def test_every_submit_that_can_be_refused_by_name_drops_last_times_rings():
     for rel in (
         "modes/create/ui/settings_2d.py",
         "modes/create/ui/settings_3d.py",
-        "panes/sheet_panel.py",
         "panes/sprite_panel.py",
         "panes/retarget_panel.py",
         "panes/remesh_panel.py",
         "panes/texture_panel.py",
         "modes/settings/ui/panes/app_settings.py",
-        "modes/poser/mode.py",
     ):
         assert "clear_field_errors()" in _source(rel), rel
 
@@ -196,8 +187,6 @@ LAYOUT_ONLY = {
     "generation-settings": "readonly rows",
     # The label grid alone -- these three draw no typed field at all.
     "pose-controls": "layout only",
-    "poser-controls": "layout only",
-    "poser-clips": "layout only",
     # ``review_mode.record`` is inline on the frame thread on purpose and
     # catches its own ``ServiceError``, so nothing here ever reaches
     # ``main._collect_tasks`` to be recorded. Its two refusals are unreachable
@@ -254,11 +243,11 @@ ELSEWHERE = {
 
 # --- Create's Character arm: two vocabularies, one address --------------------
 #
-# ``Recipe.from_dict`` refuses in the *recipe's* words -- ``logical_size``,
-# ``appearance``, ``animations`` -- because those are the keys it validates, and
+# ``Recipe.from_dict`` refuses in the *recipe's* words -- ``family_version``,
+# ``appearance`` -- because those are the keys it validates, and
 # ``service.errors.invalid_from`` passes that address through untouched. The
-# controls are named for the form keys they persist under (``character_pixel``,
-# ``character_body``, ``character_actions``). That is exactly the shape of drift
+# controls are named for the form keys they persist under (``character_family``,
+# ``character_body``). That is exactly the shape of drift
 # this file caught in ``retarget_panel`` -- ``profile`` on the form,
 # ``remesh_profile`` in the refusal -- so the map between them is asserted in
 # both directions rather than trusted.
@@ -279,7 +268,7 @@ def test_the_character_panes_own_refusals_name_its_own_controls():
     drawn = _form_field_ids("modes/create/ui/settings_character.py")
     source = inspect.getsource(character_engine.problems)
     source += inspect.getsource(character_engine._no_species)
-    fields = set(re.findall(r'problem_types\.Problem\([^)]*?,\s*"([a-z_]+)"\s*\)', source, re.S))
+    fields = set(re.findall(r'problem_types\.Problem\(.*?,\s*"([a-z_]+)"\s*\)', source, re.S))
     assert fields, "the extraction found nothing, which is not an answer"
     for name in sorted(fields):
         assert name in drawn or name in ELSEWHERE, (
@@ -291,8 +280,8 @@ def test_the_character_panes_own_refusals_name_its_own_controls():
 def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
     """The other direction, and the one a call-site scan cannot see.
 
-    ``mirror_errors`` is what turns the door's ``logical_size`` into the pane's
-    ``character_pixel``. Every alias it maps has to be a name ``Recipe`` really
+    ``mirror_errors`` is what turns the door's ``appearance`` into the pane's
+    ``character_body``. Every alias it maps has to be a name ``Recipe`` really
     refuses with, and every control it maps onto has to be one the pane really
     draws -- otherwise the map is a comment rather than a mechanism.
     """
@@ -311,20 +300,9 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
         "family": {"family": "not-a-species"},
         "family_version": {"family_version": 99},
         "theme": {"theme": "not-a-look"},
-        "camera": {"camera": "nowhere"},
-        "elevation": {"elevation": 200.0},
-        # "flying" used to be this row's refusal, but the 2026-09-12 clip
-        # vocabulary opening (dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md)
-        # made any name legal, so it stopped being a refusal at all --
-        # "walk_front" now provokes the direction-suffix refusal instead.
-        "animations": {"animations": {"walk_front": 4}},
-        "directions": {"directions": 3},
-        # 300 is off the ladder *and* outside the 2026-09-14 agents-01 widening
-        # (Recipe now also accepts any whole size in LOGICAL_SIZE_RANGE,
-        # 8-256px, to match the pipeline it feeds) -- 17 used to provoke this
-        # refusal but is now a legal in-range custom size and no longer does.
-        "logical_size": {"logical_size": 300},
-        "colors": {"colors": 7},
+        # The camera, movements, direction count, sprite size and colour count
+        # were mapped here while the form drew controls for them; a character
+        # ends at its rig now, so the form sends none and the map has none.
         "appearance": {"appearance": {"not-a-channel": 1.0}},
         "name": {"name": "x" * 500},
     }
@@ -341,18 +319,18 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
                 f"it under {excinfo.value.field!r} instead"
             )
 
-    # And it actually moves one. A door refusal about the colour count must
-    # come back rung on the Colours control.
-    state = SimpleNamespace(field_errors={"colors": "colours must be one of [8, 16, 32, 64]"})
+    # And it actually moves one. A door refusal about the body sliders must
+    # come back rung on the sliders' own address.
+    state = SimpleNamespace(field_errors={"appearance": "no such channel"})
     character_engine.mirror_errors(SimpleNamespace(state=state))
-    assert state.field_errors["character_colors"] == state.field_errors["colors"]
+    assert state.field_errors["character_body"] == state.field_errors["appearance"]
     # An address the pane already holds is never overwritten: the pane's own
     # sentence is about this frame's form, and the door's is about the last
     # submitted one.
-    state.field_errors["character_pixel"] = "mine"
-    state.field_errors["logical_size"] = "theirs"
+    state.field_errors["character_name"] = "mine"
+    state.field_errors["name"] = "theirs"
     character_engine.mirror_errors(SimpleNamespace(state=state))
-    assert state.field_errors["character_pixel"] == "mine"
+    assert state.field_errors["character_name"] == "mine"
 
 
 def _field_names(fn) -> set[str]:
@@ -367,8 +345,8 @@ def _form_field_ids(rel: str) -> set[str]:
     ``widgets.field_error``/``clear_field_error``."""
     source = _source(rel)
     # Hyphens allowed in the pattern deliberately, so an id that *cannot* be an
-    # address is still collected and compared -- ``sheet_panel``'s Name field
-    # was ``sheet-name`` while the refusal said ``name``, and a pattern that
+    # address is still collected and compared -- the removed ``sheet_panel``'s Name
+    # field was ``sheet-name`` while the refusal said ``name``, and a pattern that
     # skipped it would have read as "the pane draws no such control" either
     # way, which is the right verdict for the wrong reason.
     ids = set(re.findall(r'form_ui\.[a-z_]+\(\s*(?:#[^\n]*\n\s*)*"([a-z_-]+)"', source))
@@ -387,15 +365,12 @@ def _form_field_ids(rel: str) -> set[str]:
 
 
 def test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws():
-    from realmspinner.service import _jobs_rework, sheets, sprites, troupe
+    from realmspinner.service import _jobs_rework, sprites
 
     cases = (
-        ("panes/sheet_panel.py", sheets.create_sheet),
-        ("panes/sheet_panel.py", sheets.create_pixel_sheet),
         ("panes/sprite_panel.py", sprites.create_sprite_synthesis),
         ("panes/retarget_panel.py", _jobs_rework.optimize_job),
         ("panes/remesh_panel.py", _jobs_rework.remesh_job),
-        ("modes/poser/ui/panes/sheet.py", troupe.check_troupe),
     )
     for rel, fn in cases:
         drawn = _form_field_ids(rel)
@@ -464,7 +439,7 @@ def test_the_error_map_is_a_snapshot():
 # ``widgets.field_error(ctx.state, "rig_template")`` with a bare
 # ``widgets.labeled_combo`` -- no ``forms.Form``, so neither is reachable from
 # ``FIELD_FORMS`` above. That made the gap invisible to this file's own sweep:
-# ``create_rig`` and ``service/poses.py`` both refuse with
+# ``create_rig`` refuses with
 # ``field="rig_template"``, and once they did, the ring stayed lit on the Rig
 # stage forever -- arguing about a value the user had long since changed --
 # until some unrelated pane's submit happened to call the global

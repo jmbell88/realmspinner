@@ -233,9 +233,8 @@ def _build(mesh: Mesh) -> Adjacency:
 # the same premise ``mesh.py``'s ``_RAW_CACHE`` was before the 2026-09-12
 # audit's clay-04 gave it a lock -- that every caller runs on the frame
 # thread -- and that premise is just as false here. The character pipeline's
-# generators (``characters/*/generate.py``) run on the MCP service lane's own
-# ``TaskRunner`` (``studio/agent_host.py``'s ``SERVICE_WORKERS`` pool), and so
-# does Familiar's scratch preview (``kernels/mesh/scratch.py``, on
+# generators (``characters/*/generate.py``) run off the frame thread (on a
+# ``TaskRunner``), and so does Familiar's scratch preview (``kernels/mesh/scratch.py``, on
 # ``Mesh`` objects shared with the live document, not copied by its
 # ``clone``) on ``realmspinner-task`` -- both off the frame thread, and any of
 # ``adjacency``/``cached_positions_f8``/``cached_triangulation`` reached from
@@ -249,7 +248,7 @@ def _build(mesh: Mesh) -> Adjacency:
 # intent, not what shipped.** All three functions below held ``_CACHE_LOCK``
 # across their own ``_build``/``triangulate`` call too, not just the
 # dictionary access either side of it -- so a slow build for one mesh on the
-# service lane (a dense character import, off the frame thread) held the
+# worker thread (a dense character import, off the frame thread) held the
 # *one* lock every other mesh's cached lookup on the frame thread also
 # needs, blocking every pick and hover in the whole app for as long as that
 # unrelated mesh took to adjacency-build

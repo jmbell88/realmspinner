@@ -528,7 +528,6 @@ DENSE_PANES = (
     "clay_props.py",  # now modes/clay/ui/panes/props.py -- looked up via PANES
     "clay_inspector.py",  # the Inspector that took clay-props' slot
     "clay_outliner.py",  # now modes/clay/ui/panes/outliner.py
-    "sheet_panel.py",
 )
 
 

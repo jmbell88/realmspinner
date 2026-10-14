@@ -1,6 +1,5 @@
 """Regression tests for the 2026-10-03 audit's Low findings agents-15..38 (the
-agents/ segment: Clay's tool door, the MCP host, the protocol, the character
-surface and the prompts), fixer ``agents1``.
+agents/ segment: Clay's tool door, the MCP host, the protocol and the prompts), fixer ``agents1``.
 
 One file for all of them although they span ``tests/modes/clay``,
 ``tests/mcp`` and ``tests/studio``: the fixer rules ask for a single new test
@@ -20,7 +19,6 @@ from typing import Any
 import pytest
 
 from realmspinner.mcp import pipe, protocol, rpc
-from realmspinner.studio import agent_character as ac
 from realmspinner.studio import agent_host, agent_prompts
 from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
@@ -86,21 +84,6 @@ def test_a_required_prompt_argument_that_is_blank_is_reported_missing(blank: str
         "description"
     ]
     assert agent_prompts.render("model_from_reference", {"job_id": blank}) == ["job_id"]
-    # An optional blank falls back to its own default instead of rendering "".
-    _desc, messages = agent_prompts.render(
-        "character_sheets_from_description", {"description": "a knight", "movements": " "}
-    )
-    assert "movements omitted" in messages[0]["content"]["text"]
-
-
-def test_character_sheets_prompt_renders_movements_in_the_shape_character_create_accepts() -> None:
-    _desc, messages = agent_prompts.render(
-        "character_sheets_from_description",
-        {"description": "a knight", "movements": "walk, idle"},
-    )
-    text = messages[0]["content"]["text"]
-    assert '{"name": "walk"}' in text and '{"name": "idle"}' in text
-    assert "[walk, idle]" not in text
 
 
 # --- agents-21: no stale generator count in anything published -------------------
@@ -127,20 +110,6 @@ def test_no_published_tool_description_states_a_stale_generator_count() -> None:
             token = match.group(1)
             claimed = words.get(token) or int(token)
             assert claimed == real, f"{match.group(0)!r} but the registry holds {real}"
-
-
-# --- agents-22: busy_tools -------------------------------------------------------
-
-
-def test_busy_tools_does_not_name_a_dropped_job() -> None:
-    host = agent_host.AgentHost(_Ctx(), Path("unused-for-these-tests"))
-    live = agent_host._Job(lambda: None, tool="character_export")
-    live.state = agent_host.RUNNING
-    queued = agent_host._Job(lambda: None, tool="character_rig")
-    dropped = agent_host._Job(lambda: None, tool="character_cancel")
-    dropped.state = agent_host.DROPPED
-    host._service_jobs = {id(j): j for j in (live, queued, dropped)}
-    assert host.busy_tools == ("character_export", "character_rig")
 
 
 # --- agents-23: realmspinner_status refuses what it does not take ----------------
@@ -255,141 +224,6 @@ def test_a_notification_naming_a_modern_version_does_not_lock_the_era() -> None:
     )
     assert raw is None
     assert state.era is None
-
-
-# --- agents-27 / agents-29: character prose ---------------------------------------
-
-
-def test_the_polling_instructions_name_every_terminal_status() -> None:
-    for text in (
-        ac.instructions(),
-        agent_prompts.render(
-            "character_sheets_from_description", {"description": "a knight"}
-        )[1][0]["content"]["text"],
-    ):
-        assert "cancelled" in text, text
-        assert "error" in text, text
-
-
-def test_the_character_instructions_do_not_say_the_call_blocks_on_the_rig() -> None:
-    text = ac.instructions()
-    assert "subprocess the call blocks on" not in text
-    assert "returns as soon as" in text or "return as soon as" in text
-
-
-def test_character_options_reports_the_size_range_the_schema_accepts(svc: Any) -> None:
-    result = ac.call(svc, ac.Session(), "character_options", {})
-    assert result["isError"] is False
-    payload = result["structuredContent"]
-    assert payload["size_range"] == list(ac._enums().size_range)
-
-
-# --- agents-30: a movement's frames refusal names the entry and the key ------------
-
-
-def test_a_bad_movement_frames_refusal_names_frames_and_the_entry(svc: Any) -> None:
-    names = list(ac._enums().movements)
-    result = ac.call(
-        svc,
-        ac.Session(),
-        "character_create",
-        {
-            "prompt": "a knight",
-            "movements": [{"name": names[0]}, {"name": names[1], "frames": 100000}],
-        },
-    )
-    assert result["isError"]
-    assert result["structuredContent"]["field"] == "movements"
-    assert "movements[1].frames" in result["content"][0]["text"]
-    result = ac.call(
-        svc,
-        ac.Session(),
-        "character_create",
-        {"prompt": "a knight", "movements": [{"name": names[0], "frames": "x"}]},
-    )
-    assert "movements[0].frames must be a number" in result["content"][0]["text"]
-
-
-# --- agents-28: follow_up_sheet_job -------------------------------------------------
-
-
-def _mesh(svc: Any) -> str:
-    """A finished character mesh row, minted directly -- no Blender, no queue."""
-    params = {"asset_type": "character", "family": "ogre", "built": True}
-    return svc.store.create("image", "an ogre", params, stage="model", status="done")
-
-
-def _rig_row(svc: Any, mesh_id: str, *, troupe_sheet: dict, status: str) -> str:
-    params = {
-        "source_job": mesh_id,
-        "template": "humanoid",
-        "auto": True,
-        "troupe_sheet": troupe_sheet,
-    }
-    return svc.store.create("rig", "a hooded ranger", params, stage="model", status=status)
-
-
-def _charsheet_row(svc: Any, mesh_id: str, *, sheet_id: str, extra: dict) -> str:
-    params = {"source_job": mesh_id, "sheet_id": sheet_id, **extra}
-    return svc.store.create("charsheet", "a hooded ranger", params, stage="model", status="queued")
-
-
-def _touch(svc: Any, job_id: str, column: str, value: float) -> None:
-    svc.store._conn.execute(f"UPDATE jobs SET {column} = ? WHERE id = ?", (value, job_id))
-    svc.store._conn.commit()
-
-
-def _touch_created_at(svc: Any, job_id: str, value: float) -> None:
-    _touch(svc, job_id, "created_at", value)
-
-
-def _touch_finished_at(svc: Any, job_id: str, value: float) -> None:
-    _touch(svc, job_id, "finished_at", value)
-
-
-
-def test_a_humans_identical_sheet_is_not_the_follow_up_when_the_real_one_failed_to_queue(
-    svc: Any,
-) -> None:
-    from realmspinner import followups
-    from realmspinner.kernels.rig import store
-    from realmspinner.service import troupe as svc_troupe
-
-    block = {"template": "humanoid", "logical_size": 32}
-
-    # (a) A human's sheet made *before* the rig finished is never its follow-up.
-    mesh_id = _mesh(svc)
-    rig_id = _rig_row(svc, mesh_id, troupe_sheet=block, status="done")
-    _touch_created_at(svc, rig_id, 900.0)
-    _touch_finished_at(svc, rig_id, 1000.0)
-    early = _charsheet_row(svc, mesh_id, sheet_id=store.new_id(), extra=dict(block))
-    _touch_created_at(svc, early, 990.0)
-    assert svc_troupe.follow_up_sheet_job(svc, rig_id) is None
-
-    # (b) The real follow-up failed to queue (a failure is on the mesh), and a
-    # human pressed the same settings seconds later: it is theirs, not the rig's.
-    mesh_id = _mesh(svc)
-    rig_id = _rig_row(svc, mesh_id, troupe_sheet=block, status="done")
-    _touch_created_at(svc, rig_id, 1900.0)
-    _touch_finished_at(svc, rig_id, 2000.0)
-    svc.store.merge_param_entry(
-        mesh_id,
-        followups.PARAM_KEY,
-        "charsheet",
-        followups.failure_record("charsheet", "x", recorded_at=2000.5),
-    )
-    human = _charsheet_row(svc, mesh_id, sheet_id=store.new_id(), extra=dict(block))
-    _touch_created_at(svc, human, 2010.0)
-    assert svc_troupe.follow_up_sheet_job(svc, rig_id) is None
-
-    # (c) Without a recorded failure the same row IS the follow-up.
-    mesh_id = _mesh(svc)
-    rig_id = _rig_row(svc, mesh_id, troupe_sheet=block, status="done")
-    _touch_created_at(svc, rig_id, 2900.0)
-    _touch_finished_at(svc, rig_id, 3000.0)
-    real = _charsheet_row(svc, mesh_id, sheet_id=store.new_id(), extra=dict(block))
-    _touch_created_at(svc, real, 3000.2)
-    assert svc_troupe.follow_up_sheet_job(svc, rig_id) == real
 
 
 # --- agents-35: a silent second connection ------------------------------------------

@@ -89,13 +89,13 @@ def test_alt_drag_orbits_in_the_pose_viewer_as_it_does_in_clay(monkeypatch):
     assert viewer._grab is None, "the right button is not a second orbit"
 
 
-def test_the_axis_view_keys_are_one_function_both_viewports_call():
+def test_the_axis_view_keys_are_one_function_clay_calls():
+    """Two viewports called one ``axis_view_key`` (Poser's was the second, and
+    left with the mode); Clay's own copy must not grow back as a local table."""
     from realmspinner.studio.modes.clay import mode as clay_mode
-    from realmspinner.studio.modes.poser import mode as poser_mode
 
-    assert "clay_mode.axis_view_key(" in inspect.getsource(poser_mode.handle_key)
     assert "axis_view_key(" in inspect.getsource(clay_mode)
-    assert "look_along" not in inspect.getsource(poser_mode.handle_key)
+    assert "look_along" not in inspect.getsource(clay_mode.handle_key)
 
 
 # --- drops, tabs, the status bar (A4-A7) ------------------------------------
@@ -195,7 +195,6 @@ def test_the_status_bar_reports_zoom_and_tool_for_every_canvas_mode():
     assert items["document"] == "Untitled"
     assert items["tool"] == "Stamp"
     assert items["zoom"] == "107%"
-    assert "poser_mode.document_label" in inspect.getsource(status_bar.items)
 
 
 # --- exports, the sheet, recovery, refusals, the write gate (A8-A12) ---------
@@ -222,15 +221,14 @@ def test_sirens_binds_the_file_export_and_clay_no_longer_aliases_it():
     assert 'name == "e" and not shift' in inspect.getsource(clay_mode._ctrl_key)
 
 
-@pytest.mark.parametrize("group", ["Clay", "Inker", "Plotter", "Packwright", "Sirens", "Poser"])
+@pytest.mark.parametrize("group", ["Clay", "Inker", "Plotter", "Packwright", "Sirens"])
 def test_the_sheet_says_ctrl_shift_z_redoes_wherever_it_does(group):
     from realmspinner.studio import shortcuts
 
     rows = dict(shortcuts.shortcut_sections())[group]
     text = " ".join(f"{keys} {what}" for keys, what in rows)
     assert "Ctrl+Shift+Z" in text
-    if group != "Poser":
-        assert "Ctrl+Shift+Tab" in text
+    assert "Ctrl+Shift+Tab" in text
 
 
 def test_a_crash_copy_that_will_not_reopen_warns_the_same_way_in_every_mode():
@@ -324,7 +322,7 @@ def test_every_transport_is_the_one_helper():
         "plotter_tileset_editor.py",
     ):
         assert "widgets.transport(" in sources[name], name
-    for name in ("inker_timeline.py", "poser_sheet.py"):
+    for name in ("inker_timeline.py",):
         assert "widgets.transport_label(" in sources[name], name
     for name, text in sources.items():
         assert '"Pause"' not in text, name
@@ -337,9 +335,9 @@ def test_every_transport_is_the_one_helper():
 
 def test_frame_counters_are_one_spelling():
     sources = _pane_sources()
-    for name in ("inker_preview.py", "poser_sheet.py", "plotter_tileset_editor.py"):
+    for name in ("inker_preview.py", "plotter_tileset_editor.py"):
         assert "widgets.frame_counter(" in sources[name], name
-    for name in ("inker_preview.py", "poser_sheet.py", "plotter_tileset_editor.py"):
+    for name in ("inker_preview.py", "plotter_tileset_editor.py"):
         assert 'f"frame {' not in sources[name], name
         assert 'imgui.text(f"{index + 1}/' not in sources[name], name
 
@@ -381,7 +379,7 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
     from realmspinner.studio import widgets
 
     sources = _pane_sources()
-    for name in ("packwright_bridge.py", "sirens_bridge.py", "poser_sheet.py"):
+    for name in ("packwright_bridge.py", "sirens_bridge.py"):
         assert "widgets.primary_button(" in sources[name], name
     for name in (
         # Clay's bridge is the Properties pane's Document tab since 2026-10-07, and the
@@ -392,7 +390,6 @@ def test_every_bridge_has_one_primary_and_the_exits_heading():
         # one widget it does draw itself, ``widgets.document_header``).
         "clay_props.py",
         "packwright_bridge.py",
-        "poser_sheet.py",
         "plotter_bridge.py",
         "sirens_bridge.py",
         "inker_generate.py",
@@ -463,11 +460,9 @@ def test_a_form_field_is_labelled_in_the_one_field_face():
 
 
 def test_every_column_pane_opens_with_a_section():
-    """Poser folded its panes under collapsing headers; Muse's recipe used
-    the full-window title rung."""
+    """Poser folded its panes under collapsing headers (and left the app);
+    Muse's recipe used the full-window title rung."""
     sources = _pane_sources()
-    for name in ("poser_clips.py", "poser_controls.py", "poser_library.py"):
-        assert "widgets.header(" not in sources[name], name
     assert 'widgets.section("Recipe")' in sources["muse_recipe.py"]
     for name, text in sources.items():
         # Full-window panes, and the tour's overlay card, keep the louder rung.

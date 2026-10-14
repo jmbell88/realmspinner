@@ -1003,7 +1003,7 @@ def _shade_reason(doc: Any) -> str:
 
 
 def _has_two_visible_reason(doc: Any) -> str:
-    # The manual's own wording for this gate (docs/manual/30-clay.md, "Merging
+    # The manual's own wording for this gate (docs/manual/27-clay.md, "Merging
     # objects"): "greys out unless two visible objects are selected".
     return "" if has_two_visible(doc) else "Select two visible objects first."
 

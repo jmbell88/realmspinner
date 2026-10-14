@@ -458,7 +458,7 @@ def _expand(
     ``{"name", "bones"[, "root_translation"]}`` with no ``id`` at all -- so the
     join collapsed to ``":" * (len(keys) - 1)`` and every clip with the same
     number of keys shared one identity. ``walk`` and ``run`` both have four,
-    and ``_q_troupe._charsheet`` keys its lookup on ``(id, frame)``: run
+    and the character-sheet renderer keyed its lookup on ``(id, frame)``: run
     overwrote walk, and all 64 walk cells of every character sheet rendered the
     run cycle. See :func:`realmspinner.clips.expand_clips`, which passes the name.
     """
@@ -790,8 +790,6 @@ def sidecar(
     direction list that is not literally a preset value), so a cell still
     says which way the sprite faces and this key alone says the camera angle
     actually used to shoot it was ``(yaw + front_yaw) % 360``.
-    ``sheetcheck.metadata_findings`` is what flags a sidecar where that split
-    has been violated.
 
     On a non-square plan ``frame_size`` is emitted as **0** and ``frame_w`` /
     ``frame_h`` carry the truth. Zero is a loud wrong answer rather than a quiet

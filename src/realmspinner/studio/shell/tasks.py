@@ -296,16 +296,6 @@ class TasksMixin:
                     # Same rule: ``scanning`` gates every button and key, so a
                     # failed scan that left it set would make the mode inert.
                     review_mode.on_task_failed(ctx, done)
-                elif done.key.startswith(("poser-", "troupe-")):
-                    from ..modes.poser import mode as poser_mode
-
-                    # Same rule again: ``loading``/``building`` gate the pane
-                    # and the viewport's progress row. ``troupe-`` is Troupe's
-                    # own task-key prefix, kept exactly as it was when the
-                    # mode folded into Poser as a character-sheet stage (P9,
-                    # 2026-09-18) -- every one of those tasks is a door, so a
-                    # failure here is always a refusal with a sentence in it.
-                    poser_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("matte-"):
                     from .. import matte_preview
 
@@ -528,18 +518,16 @@ class TasksMixin:
             ctx.rig_templates = list(templates.get("templates") or [])
             ctx.rig_default = templates.get("default") or ctx.rig_default
             return
-        # The side data the pose and sheet panels read. Keyed by job so a
+        # The side data the pose panel reads. Keyed by job so a
         # result that arrives after the selection moved on can be dropped
         # rather than shown against the wrong asset.
-        if key.startswith(("poses:", "sheets:", "presets:")):
+        if key.startswith(("poses:", "presets:")):
             name, _, job_id = key.partition(":")
             if name != "presets" and job_id != ctx.state.selected:
                 return
             if name == "poses" and isinstance(done.result, dict):
                 ctx.state.preview["poses"] = done.result.get("poses") or []
                 ctx.state.preview["bones"] = done.result.get("bones") or []
-            elif name == "sheets" and isinstance(done.result, dict):
-                ctx.state.preview["sheets"] = done.result.get("sheets") or []
             elif name == "presets" and isinstance(done.result, dict):
                 ctx.state.preview["presets"] = done.result.get("poses") or []
             return
@@ -773,15 +761,6 @@ class TasksMixin:
 
             review_mode.on_task_done(ctx, done)
             return
-        if key.startswith(("poser-", "troupe-")):
-            # ``troupe-`` is Troupe's own task-key prefix, kept exactly as it
-            # was when the mode folded into Poser as a character-sheet stage
-            # (P9, 2026-09-18) -- renaming a UI-side key with no corresponding
-            # module rename underneath would be pure churn.
-            from ..modes.poser import mode as poser_mode
-
-            poser_mode.on_task_done(ctx, done)
-            return
         if key.startswith("matte-"):
             from .. import matte_preview
 
@@ -828,7 +807,7 @@ class TasksMixin:
             waiting = sum(1 for j in ctx.cache.jobs if j.get("status") == "queued") + 1
             ctx.toast("Queued." if waiting <= 1 else f"Queued - {waiting} jobs in line.")
             return
-        if key.startswith(("save:", "bake:", "sheet-save:")) or key == "screenshot":
+        if key.startswith(("save:", "bake:")) or key == "screenshot":
             # ``screenshot`` was outside this and outside every other branch,
             # so a viewport capture the user had just chosen a destination for
             # finished in silence -- the one shape a save must never have,
@@ -969,14 +948,8 @@ class TasksMixin:
                 else "Mesh restored."
             )
             return
-        if key.startswith("sheet-del:"):
-            # Not covered by the "sheet:" prefix below, and _sync_viewer's
-            # early-return means nothing else refetches the list: a deleted
-            # sheet stayed on screen with live-looking buttons.
-            self._refresh_rig_side_data()
-            return
         if key.startswith(
-            ("cancel:", "rerun:", "remesh:", "retexture:", "retry:", "rig:", "joints:", "sheet:")
+            ("cancel:", "rerun:", "remesh:", "retexture:", "retry:", "rig:", "joints:")
         ):
             # "retexture:" joined this tuple for the 2026-09-23 audit's
             # shell-01: a queued re-texture job (texture_panel.py's
@@ -985,18 +958,6 @@ class TasksMixin:
             # backstop caught up with it -- the same cache-drop "remesh:"
             # already got.
             ctx.cache.invalidate()
-            if key.startswith("sheet:"):
-                # A rendered sheet is side data, not a job-row change, so the
-                # cache invalidation above does not bring it back.
-                self._refresh_rig_side_data()
-            if key.startswith(("rig:", "joints:")):
-                # Poser's own "Rigged assets" picker is throttled -- up to
-                # CAST_REFRESH_LIVE stale on its own -- but a rig landing
-                # while the mode is already open should not need a restart to
-                # appear in it.
-                from ..modes.poser import mode as poser_mode
-
-                poser_mode.invalidate_riggable(ctx)
             return
         if key == "create-preview":
             from ..modes.create.ui import preview as create_preview
@@ -1021,15 +982,6 @@ class TasksMixin:
             self._refresh_model_answers()
             present = {row["row_key"] for row in ctx.model_rows if row.get("present")}
             ctx.model_picks -= present
-            return
-        if key.startswith("pose-library:"):
-            # The global pose library rows the asset Pose panel offers, keyed
-            # by job like poses:/sheets: so an answer that lands after the
-            # selection moved on is dropped rather than shown against the
-            # wrong asset.
-            job_id = key.partition(":")[2]
-            if job_id == ctx.state.selected and isinstance(done.result, dict):
-                ctx.state.preview["library_poses"] = done.result.get("poses") or []
             return
         if key.startswith("pose-"):
             if key.startswith("pose-save:") and self.viewer.pose_mode:
@@ -1574,7 +1526,7 @@ class TasksMixin:
             # The 2026-09-26 audit, finding create-brief-03: this used to
             # return here with ``state.preview`` untouched, so a failed load
             # -- or a selection that moved on before this one landed -- left
-            # the *previous* asset's poses/sheets/bones on screen under the
+            # the *previous* asset's poses/bones on screen under the
             # new (broken or abandoned) selection. ``_reached_pose`` reads
             # exactly that evidence (``state.preview["poses"]``) to tick the
             # Pose stage, so the rail kept showing a step as reached for an
@@ -1614,23 +1566,19 @@ class TasksMixin:
             self.app_ctx.capture_thumbnail(job_id)
 
     def _refresh_rig_side_data(self) -> None:
-        """Poses, sheets and the shipped preset library, off-thread.
+        """Poses and bones, off-thread.
 
         Cleared first: these belong to a job, and leaving the previous one's
         poses on screen while the new one's are read would offer a list that
         applies to nothing.
         """
-        from ...service import poses as svc_poses
         from ...service import rig as svc_rig
-        from ...service import sheets as svc_sheets
 
         ctx = self.app_ctx
         job = ctx.job()
         for key in (
             "poses",
-            "sheets",
             "bones",
-            "library_poses",
             # The sprite panel's three, for the same reason: a form
             # holds this attempt's seeds, a draft listing holds one
             # reference's drafts, and the running bar names one job.
@@ -1644,10 +1592,6 @@ class TasksMixin:
         job_id = job["id"]
         if "rig.glb" in (job.get("files") or []):
             ctx.submit(f"poses:{job_id}", svc_rig.list_poses, ctx.svc, job_id)
-            # The global pose library, filtered to this rig's own skeleton --
-            # what the Pose panel's "Library poses" section offers.
-            ctx.submit(f"pose-library:{job_id}", svc_poses.library_for_job, ctx.svc, job_id)
-        ctx.submit(f"sheets:{job_id}", svc_sheets.list_sheets, ctx.svc, job_id)
 
     def load_presets(self, template: str | None) -> None:
         """The shipped pose library for a skeleton.

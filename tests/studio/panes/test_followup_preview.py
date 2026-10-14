@@ -44,12 +44,11 @@ def test_a_single_candidate_draft_shows_one_picture():
     assert [p.label for p in got] == ["a"]
 
 
-def test_a_sheet_and_a_pixel_sheet_read_the_sources_sheets_directory():
-    sheet = fp.product_images(_row("sheet", sheet_id="abcdef123456"), _job_dir)
-    pixel = fp.product_images(_row("pixel_sheet", sheet_id="abcdef123456"), _job_dir)
-
-    assert _names(sheet) == [("sheet", "lib/SRC/sheets/abcdef123456.png", False)]
-    assert _names(pixel) == [("pixel sheet", "lib/SRC/sheets/abcdef123456.pixel.png", True)]
+def test_a_retired_sheet_row_draws_no_picture_even_though_its_files_are_kept():
+    """The files stay on disk (a retired row is never deleted) but nothing reads
+    them: there is no sheet viewer left to draw one with."""
+    for kind in ("sheet", "pixel_sheet", "charsheet"):
+        assert fp.product_images(_row(kind, sheet_id="abcdef123456"), _job_dir) == []
 
 
 def test_a_rig_and_a_retexture_read_the_sources_own_pictures():
@@ -65,8 +64,7 @@ def test_a_rig_and_a_retexture_read_the_sources_own_pictures():
 def test_nothing_is_drawn_for_a_row_that_is_unfinished_or_has_no_picture():
     assert fp.product_images(_row("rig", status="running"), _job_dir) == []
     assert fp.product_images(_row("rig", status="error"), _job_dir) == []
-    # Poser draws a character sheet, and a LoRA run has no image.
-    assert fp.product_images(_row("charsheet", sheet_id="abcdef123456"), _job_dir) == []
+    # A LoRA run has no image.
     assert fp.product_images(_row("lora_train"), _job_dir) == []
     # An ordinary asset is drawn by the inspector's own sections.
     assert fp.product_images({"id": "A", "kind": "text", "status": "done"}, _job_dir) == []
@@ -78,7 +76,6 @@ def test_a_malformed_id_never_becomes_a_path():
     on a bad one, and the inspector runs every frame."""
     assert fp.product_images(_row("sprite_synthesis", draft_id="../x"), _job_dir) == []
     assert fp.product_images(_row("sprite_synthesis"), _job_dir) == []
-    assert fp.product_images(_row("sheet", sheet_id="..\\x"), _job_dir) == []
 
 
 def test_pixel_art_is_drawn_at_a_whole_multiple_and_a_render_is_never_upscaled():

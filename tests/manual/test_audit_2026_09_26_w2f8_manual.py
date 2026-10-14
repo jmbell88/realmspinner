@@ -33,6 +33,6 @@ def test_review_manual_names_the_server_axes_the_cancel_uses():
     assert len(sweeps.SERVER_AXES) == 7
     assert "resolution" not in sweeps.SERVER_AXES
 
-    text = _flat(_chapter("37-review.md"))
+    text = _flat(_chapter("34-review.md"))
     assert "six `trellis_` flags plus resolution" not in text
     assert "seven `trellis_` flags" in text

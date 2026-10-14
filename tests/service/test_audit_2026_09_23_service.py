@@ -1,115 +1,20 @@
 """Regression tests for the service-misc fix-brief of the 2026-09-23 audit.
 
-service-02, service-04 and service-05 share one shape: a table that is either
-read straight off a hand-edited sidecar (``characters.py``) or shared live
-with another thread (``fetch.py``, ``guidance.py``), indexed or iterated bare
-instead of validated or snapshotted first. pipelines-01 is a different shape
-(two independent budget constants that disagree) but lands here too, per the
+service-04 and service-05 share one shape: a table shared live with another
+thread (``fetch.py``, ``guidance.py``), iterated bare instead of snapshotted
+first. (service-02's sidecar-reading doors, ``export_frames`` and
+``sheet_preview_png``, left with the character sheets, ``retired.py``.)
+pipelines-01 is a different shape (two independent budget constants that
+disagree) but lands here too, per the
 fixer brief's instruction to put every new regression test in its own file
 so no two fixers edit one test module.
 """
 
 from __future__ import annotations
 
-import json
-
 import pytest
-from PIL import Image
 
-from realmspinner.kernels.rig import store
-from realmspinner.service import characters as svc_characters
-from realmspinner.service.errors import Invalid
 from realmspinner.studio import readiness
-
-# --- service-02: export_frames / sheet_preview_png must refuse, not KeyError ---
-
-
-def _mesh_with_sheet(svc, *, frame_size=16, columns=2, rows=1):
-    """A finished character mesh plus a hand-built character sheet -- the
-    same minimal shape ``tests/test_audit_2026_09_15_troupe.py``'s own
-    ``_mesh_with_sheet`` uses, with a real ``"troupe"`` block (movements,
-    runs, cells) a hand-edit can then corrupt.
-    """
-    from realmspinner.service import jobs as svc_jobs
-
-    mesh_id = svc_jobs.create_job(svc, kind="text", prompt="a knight")["id"]
-    svc.store.set_status(mesh_id, "done")
-    job_dir = svc.job_dir(mesh_id)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "model.glb").write_bytes(b"glb")
-
-    sheet_id = store.new_id()
-    atlas = Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 255))
-    png_path = store.sheet_png_path(job_dir, sheet_id)
-    png_path.parent.mkdir(parents=True, exist_ok=True)
-    atlas.save(png_path, format="PNG")
-
-    movements = [
-        {
-            "key": "walk", "label": "Walk", "frames": 2, "loop": False,
-            "duration_ms": 100,
-            "directions": [{"key": "front", "label": "Front", "yaw": 0.0}],
-        }
-    ]
-    runs = [{"movement": "walk", "direction": "front", "yaw": 0.0, "start": 0, "end": 1}]
-    cells = [
-        {"index": i, "x": (i % columns) * frame_size, "y": 0, "w": frame_size, "h": frame_size}
-        for i in range(columns * rows)
-    ]
-    sidecar = {
-        "version": 1, "id": sheet_id, "name": "service-02 test", "source_job": mesh_id,
-        "created": 0.0, "image": png_path.name, "frame_size": frame_size,
-        "columns": columns, "rows": rows, "width": frame_size * columns,
-        "height": frame_size * rows, "yaws": [0.0], "poses": [], "cells": cells,
-        "troupe": {"version": 3, "columns": columns, "movements": movements, "runs": runs,
-                   "cell_count": len(cells)},
-    }
-    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(sidecar), encoding="utf-8")
-    return mesh_id, sheet_id
-
-
-def test_export_frames_refuses_a_sidecar_whose_movement_is_missing_its_key(svc, tmp_path):
-    """service-02 (the 2026-09-23 audit): ``export_frames`` built its
-    ``movements`` table with ``{m["key"]: m for m in ...}`` -- a bare
-    subscript. A hand-edited sidecar whose movement entry lost its ``"key"``
-    field used to raise ``KeyError`` right there, before the door's own
-    "refused, not crashed" cell-index guard ever ran. Must raise
-    ``service.errors.Invalid`` with ``field="sheet_id"`` instead.
-    """
-    mesh_id, sheet_id = _mesh_with_sheet(svc)
-    job_dir = svc.job_dir(mesh_id)
-    sidecar_path = store.sheet_path(job_dir, sheet_id)
-    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    del sidecar["troupe"]["movements"][0]["key"]
-    sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
-
-    with pytest.raises(Invalid) as excinfo:
-        svc_characters.export_frames(svc, mesh_id, sheet_id, dest_dir=tmp_path)
-    assert excinfo.value.field == "sheet_id"
-
-
-def test_sheet_preview_png_refuses_a_sidecar_whose_cells_are_missing_index_rather_than_keyerror(
-    svc,
-):
-    """service-02 (the 2026-09-23 audit): ``sheet_preview_png`` built its
-    ``cell_by_index`` table with ``{int(c["index"]): c for c in ...}`` -- a
-    bare subscript, exercised before any of this door's own guards. A
-    hand-edited sidecar whose cell entry lost its ``"index"`` field used to
-    raise ``KeyError`` instead of a service refusal.
-    """
-    mesh_id, sheet_id = _mesh_with_sheet(svc)
-    job_dir = svc.job_dir(mesh_id)
-    sidecar_path = store.sheet_path(job_dir, sheet_id)
-    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    del sidecar["cells"][0]["index"]
-    sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
-
-    with pytest.raises(Invalid) as excinfo:
-        svc_characters.sheet_preview_png(
-            svc, mesh_id, sheet_id, max_side=64, max_bytes=200_000,
-        )
-    assert excinfo.value.field == "sheet_id"
-
 
 # --- service-04 / service-05: STYLE_LORAS must be snapshotted, not iterated live ---
 

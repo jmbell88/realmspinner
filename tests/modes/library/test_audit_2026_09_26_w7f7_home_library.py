@@ -14,7 +14,6 @@ from typing import Any
 from realmspinner.studio import candidates as candidates_mod
 from realmspinner.studio.modes.home.ui.panes import landing
 from realmspinner.studio.modes.library.ui.panes import library
-from realmspinner.studio.modes.settings.ui.panes import app_settings
 from realmspinner.studio.panes import candidates_panel, inspector
 from realmspinner.studio.state import AppState
 
@@ -57,71 +56,6 @@ def test_resume_excludes_sweep_units_and_undecided_candidates():
 
 
 # --- shell-home-library-03: "New character" has no gate ---------------------
-
-
-def test_new_character_routes_to_settings_when_the_poser_pack_is_missing():
-    """``start_poser`` used to call ``set_mode`` with no gate at all, unlike
-    Create's own tiles (``_create_door``) -- so on a base install missing the
-    Poser (rig) pack, ``poser_mode.ensure`` inside the target mode silently
-    returned False and the tile did nothing that told the user why or where
-    to go. This pins that a missing pack is caught before ``set_mode`` and
-    routed to Settings > Packs instead, the same door the rail and the
-    palette already use."""
-    state = AppState()
-    ctx = SimpleNamespace(
-        state=state,
-        pack_rows=[
-            {
-                "key": "rig",
-                "label": "Rigging",
-                "modes": ["poser"],
-                "present": False,
-                "download_gib": 0.3,
-            }
-        ],
-        model_rows=[],
-        cache=None,  # no finished work anywhere -- the pack gate must not be bypassed
-        model_picks=set(),
-    )
-
-    landing.start_poser(ctx)
-
-    assert state.mode != "poser"
-    assert state.mode == "settings"
-    assert state.preview.get(app_settings.CATEGORY_SLOT) == "packs"
-
-
-def test_new_character_still_opens_poser_when_the_pack_is_present():
-    """The gate must not lock out a machine that already has the pack -- the
-    ordinary path (``poser_mode.ensure`` + the new-character section opening)
-    still has to run when nothing is missing."""
-    opened: list[str] = []
-    state = AppState()
-    ctx = SimpleNamespace(
-        state=state,
-        pack_rows=[
-            {"key": "rig", "label": "Rigging", "modes": ["poser"], "present": True}
-        ],
-        model_rows=[],
-        cache=None,
-        model_picks=set(),
-    )
-
-    import realmspinner.studio.modes.poser.mode as poser_mode
-    from realmspinner.studio import widgets
-
-    real_ensure = poser_mode.ensure
-    real_request_open = widgets.request_open
-    try:
-        poser_mode.ensure = lambda _ctx: SimpleNamespace(docs=[])  # type: ignore[assignment]
-        widgets.request_open = lambda name: opened.append(name)  # type: ignore[assignment]
-        landing.start_poser(ctx)
-    finally:
-        poser_mode.ensure = real_ensure  # type: ignore[assignment]
-        widgets.request_open = real_request_open  # type: ignore[assignment]
-
-    assert state.mode == "poser"
-    assert opened, "expected the new-character section to be requested open"
 
 
 # --- shell-home-library-06: delete_assets' toast ignores submit failures ----

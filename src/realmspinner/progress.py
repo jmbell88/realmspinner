@@ -74,13 +74,6 @@ PHASES_IMAGE: dict[str, tuple[float, float]] = {
 # Rig jobs are one Blender subprocess that reports its own 0..1 fraction, so
 # the phase owns the whole bar and the worker's own milestones do the shaping.
 PHASES_RIG: dict[str, tuple[float, float]] = {"rig": (0.00, 1.00)}
-# A sheet job is the same shape -- one Blender subprocess reporting its own
-# fraction -- plus a short packing tail on the host once the frames land.
-PHASES_SHEET: dict[str, tuple[float, float]] = {
-    "sheet": (0.00, 0.95),
-    "pack": (0.95, 1.00),
-}
-
 # A sprite synthesis is N SDXL generations -- one per candidate for the legacy
 # kinds, one per candidate *per direction* for a planned one -- followed by a
 # short CPU assembly (matte, baseline, reduce, quantize) per candidate. The
@@ -96,32 +89,13 @@ PHASES_SHEET: dict[str, tuple[float, float]] = {
 # case for every eight-direction sheet -- finished at 52% and jumped, and a
 # candidate drawn as eight bands had nowhere to say which band it was on. The
 # worker walks this window with (k*n + i) / (N*n) across every candidate and
-# band at once, which is ``PHASES_PIXEL_SHEET``'s arithmetic and generalises to
-# any count of either.
+# band at once, which generalises to any count of either.
 PHASES_SPRITE: dict[str, tuple[float, float]] = {
     "condition": (0.00, 0.08),
     "generate": (0.08, 0.92),
     "assemble": (0.92, 1.00),
 }
 
-# A pixel sheet is one img2img pass per *band* of the atlas, through the
-# resident pipe, followed by a short CPU reassembly. The load is a real slice
-# because the pipe is often cold when a sheet is started from the library, and
-# the sampling slice is the rest: an N-band sheet reports band k's steps inside
-# it, which is why the table needs no per-band entries.
-#
-# It had none at all, and the fallback is ``PHASES_IMAGE`` -- whose only real
-# phase is ``trellis``. An unknown phase maps onto the *whole* bar, so the last
-# sampling step of the **first** band emitted 100%, and the never-regress creep
-# then pinned it there for the rest of a multi-minute job (CON-02). Exactly the
-# trap dev/INVARIANTS.md documents; ``_sprite_synthesis`` routed around it with
-# its own table and its two siblings walked in.
-PHASES_PIXEL_SHEET: dict[str, tuple[float, float]] = {
-    "restyle": (0.00, 0.10),
-    "t2i_load": (0.10, 0.20),
-    "t2i_sample": (0.20, 0.90),
-    "quantize": (0.90, 1.00),
-}
 # A re-texture is six img2img passes over one mesh's renders, with a Blender
 # render before them and a Blender bake plus a host-side assemble after. The
 # two Blender halves are out of process and report nothing of their own, so
@@ -166,42 +140,6 @@ PHASES_TILE_SHEET: dict[str, tuple[float, float]] = {
     "quantize": (0.94, 1.00),
 }
 
-# A character sheet is ``PHASES_SHEET``'s shape with the pixel-art pass bolted
-# on: one Blender subprocess rendering 256 cells at ``charsheet.RENDER_SIZE``
-# and reporting its own fraction, then a host-side tail of three steps -- reduce
-# every frame to the logical size, pack them, and quantise the packed atlas
-# against one palette.
-#
-# The tail is a fifth of the bar rather than ``PHASES_SHEET``'s twentieth,
-# because it is doing far more here than packing: 256 supersampled reductions
-# and a nearest-search over the whole atlas. ``_q_jobs`` calls the stretch
-# between the pack and the publish "the longest gap in the job" in as many
-# words, and the slices follow the ``nominal`` hints ``_charsheet`` already
-# passes (6 s, 3 s, 8 s).
-#
-# It had no table at all, which is CON-02 for the fourth time and the reason
-# the sweep test below is parametrised rather than hand-written: the Blender
-# render's closing ``on_progress(1.0, ...)`` landed in an undeclared phase,
-# mapped onto the whole bar, and the never-regress creep pinned it at 100% for
-# the entire tail. This table is one of the nine stage-keyed tables a new job
-# kind must sweep (``dev/INVARIANTS.md``), and Troupe swept eight of them.
-#
-# ``effects`` joined on 2026-09-05, between the reduction and the pack, and it
-# is where a themed character's flames are composited onto the reduced cells.
-# It is narrow -- one 32px Flourish render per cell that projects the socket,
-# against 256 supersampled reductions before it -- and it is *skipped entirely*
-# on a sheet whose source has no ``character.json``, which is every sheet this
-# program rendered before the registry existed. The span it takes comes out of
-# ``reduce``'s rather than out of the pack's, so a sheet that skips it simply
-# sits at 0.79 a moment longer.
-PHASES_CHARSHEET: dict[str, tuple[float, float]] = {
-    "sheet": (0.00, 0.70),
-    "reduce": (0.70, 0.79),
-    "effects": (0.79, 0.82),
-    "pack": (0.82, 0.88),
-    "pixel": (0.88, 1.00),
-}
-
 # A music job is one load and one sampling loop, with nothing after it: the WAV
 # is written by the model call itself. The load is a larger share of the bar
 # than the image pipeline's because 8.3 GiB is a bigger read than 7, and the
@@ -229,14 +167,11 @@ _PHASES_BY_KIND: dict[str, dict[str, tuple[float, float]]] = {
     "text": PHASES_TEXT,
     "image": PHASES_IMAGE,
     "rig": PHASES_RIG,
-    "sheet": PHASES_SHEET,
     "sprite_synthesis": PHASES_SPRITE,
-    "pixel_sheet": PHASES_PIXEL_SHEET,
     "retexture": PHASES_RETEXTURE,
     "remesh": PHASES_REMESH,
     "lora_train": PHASES_LORA_TRAIN,
     "tile_sheet": PHASES_TILE_SHEET,
-    "charsheet": PHASES_CHARSHEET,
     "music": PHASES_MUSIC,
     "separate": PHASES_SEPARATE,
 }

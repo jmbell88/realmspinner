@@ -135,7 +135,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
     glanced at another asset, and came back found the defaults again rather
     than what they had typed. Keyed by job id instead: nothing here names a
     file or a resource tied to the *previous* selection, so there is nothing
-    that must reset on a reselect the way ``sheet_panel``/``sprite_panel``'s
+    that must reset on a reselect the way ``sprite_panel``'s
     viewer-bound caches do.
     """
     forms_by_job = ctx.state.preview.setdefault("remesh_forms", {})

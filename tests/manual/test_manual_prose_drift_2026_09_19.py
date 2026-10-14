@@ -53,7 +53,7 @@ def test_chapter_07_does_not_promise_the_decimate_and_retopology_clay_dropped():
     assert "there is no decimate or retopology operation" not in text
     assert "Retopologize" not in text
     assert "Decimate" not in text
-    assert "30-clay.md" in text
+    assert "27-clay.md" in text
 
 
 # --- clay-31: chapter 30 and the engine collider names ---------------------
@@ -68,6 +68,6 @@ def test_chapter_30_names_no_collider_or_engine_profile_the_exporter_no_longer_w
     """
     assert not (KERNELS / "mesh" / "engines.py").exists()
 
-    text = _flat(_chapter("30-clay.md"))
+    text = _flat(_chapter("27-clay.md"))
     for stale in ("-convcolonly", "-colonly", "UCX_", "export engine", "Game check"):
         assert stale not in text, f"chapter 30 still mentions {stale!r}"

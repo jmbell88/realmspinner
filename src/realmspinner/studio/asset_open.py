@@ -1,8 +1,9 @@
 """Where a job row opens, and the one function that goes there.
 
-**A row is not always an asset.** ``rig``, ``sheet``, ``pixel_sheet``,
-``sprite_synthesis``, ``charsheet`` and ``retexture`` are *products of another
-asset*: every one of them is minted with ``params["source_job"]`` and writes
+**A row is not always an asset.** ``rig``, ``sprite_synthesis``, ``retexture``
+and ``remesh`` (and, while old rows survive, the retired ``sheet``,
+``pixel_sheet`` and ``charsheet``) are *products of another asset*: every one
+of them is minted with ``params["source_job"]`` and writes
 its artifacts into that job's directory, never into its own -- which is the
 same fact ``service._jobs_lifecycle.dependent_jobs`` is built on ("a rig or a
 sheet is a separate job row whose artifacts land beside the ``model.glb`` they
@@ -28,21 +29,22 @@ this row open", which is a different question the moment a row can be a product
 of something else.
 
 Kept out of ``create_stages`` deliberately: that module is *Create's* stages,
-and a ``charsheet`` opens in **Poser** (Troupe's character-sheet stage, folded
-in whole by P9, 2026-09-18), which is not a stage. An edge from there to
-``poser_mode`` would quietly make Create's stage module the navigation layer
-for the whole app under a name that says otherwise.
+and a Muse take or a retired row is not a stage. An edge from there to a mode
+would quietly make Create's stage module the navigation layer for the whole
+app under a name that says otherwise.
 """
 
 from __future__ import annotations
 
 from typing import Any, NamedTuple
 
+from ..retired import RETIRED_KINDS
+
 
 class Route(NamedTuple):
     """Where one row opens. Pure data, so :func:`route` needs no ``ctx``."""
 
-    #: ``"create"``, ``"poser"``, ``"muse"`` or ``"settings"``.
+    #: ``"create"``, ``"library"`` (a retired row), ``"muse"`` or ``"settings"``.
     mode: str
     #: A key of ``create_stages.STAGES``; ``""`` when the mode is not Create.
     stage: str
@@ -54,26 +56,23 @@ class Route(NamedTuple):
     section: str
 
 
-#: The section keys :func:`open_asset` asks ``widgets.request_open`` for. Named
-#: here rather than at the two headers because a ``request_open`` for a key no
+#: The section key :func:`open_asset` asks ``widgets.request_open`` for. Named
+#: here rather than at the header because a ``request_open`` for a key no
 #: header registers matches nothing and merely accumulates for the life of the
 #: process -- a bug this codebase has already shipped once (see the comment in
 #: ``main`` about the 2D pane's Reference block). One spelling, in the module
 #: that asks.
 SPRITES_SECTION = "inspector/sprites"
-SHEET_SECTION = "inspector/sheet"
 
 #: Which Create stage each follow-up's *product* is drawn at. The surface, not
-#: the row: a rig lands as ``rig.glb`` beside the mesh, a sheet and a pixel
-#: sheet are drawn by ``panes.sheet_panel`` which ``inspector._STAGE_SECTIONS``
-#: hangs off Pose, a sprite draft by ``panes.sprite_panel`` which hangs off
-#: Reference, and a retexture rewrites the mesh's own skin.
+#: the row: a rig lands as ``rig.glb`` beside the mesh, a sprite draft is drawn
+#: by ``panes.sprite_panel`` which hangs off Reference, and a retexture
+#: rewrites the mesh's own skin.
 #:
-#: ``charsheet`` is deliberately absent: it opens in Poser, not in Create.
+#: The retired kinds (``retired.RETIRED_KINDS``) are deliberately absent: they
+#: open the Library, not a Create stage.
 FOLLOWUP_STAGES: dict[str, str] = {
     "rig": "rig",
-    "sheet": "pose",
-    "pixel_sheet": "pose",
     "sprite_synthesis": "reference",
     "retexture": "mesh",
     "remesh": "mesh",
@@ -85,16 +84,11 @@ FOLLOWUP_STAGES: dict[str, str] = {
 #: is ready and the pane holding it is closed.
 FOLLOWUP_SECTIONS: dict[str, str] = {
     "sprite_synthesis": SPRITES_SECTION,
-    "sheet": SHEET_SECTION,
-    "pixel_sheet": SHEET_SECTION,
 }
 
 #: Which params key names the individual artifact inside the surface.
 FOLLOWUP_DETAIL_KEYS: dict[str, str] = {
     "sprite_synthesis": "draft_id",
-    "sheet": "sheet_id",
-    "pixel_sheet": "sheet_id",
-    "charsheet": "sheet_id",
 }
 
 
@@ -104,7 +98,7 @@ FOLLOWUP_DETAIL_KEYS: dict[str, str] = {
 #: ``lora_train`` row holds a ``.safetensors`` that no viewer draws. Every one is
 #: routed by *kind* in :func:`route` -- the card, the menu, the inspector and a
 #: double-click all ask :func:`opens_elsewhere` rather than each keeping a list.
-OPENS_ELSEWHERE: frozenset[str] = frozenset({*FOLLOWUP_STAGES, "charsheet", "lora_train"})
+OPENS_ELSEWHERE: frozenset[str] = frozenset({*FOLLOWUP_STAGES, *RETIRED_KINDS, "lora_train"})
 
 
 def opens_elsewhere(job: Any) -> bool:
@@ -162,9 +156,12 @@ def route(job: Any) -> Route:
         # beside its parent.
         return Route("muse", "", str(job.get("id") or ""), "", "")
 
+    if kind in RETIRED_KINDS:
+        # The Library, on the row itself: it has nothing to open and no mesh of its own,
+        # and anywhere else is the blank arrival this module exists to stop.
+        return Route("library", "", str(job.get("id") or ""), "", "")
+
     if source:
-        if kind == "charsheet":
-            return Route("poser", "", source, detail, "")
         stage = FOLLOWUP_STAGES.get(kind)
         if stage is not None:
             return Route("create", stage, source, detail, FOLLOWUP_SECTIONS.get(kind, ""))
@@ -199,7 +196,6 @@ def open_asset(ctx: Any, job_or_id: Any, *, inspect_only: bool = False) -> None:
     from . import widgets
     from .modes.create.ui import stages as create_stages
     from .modes.library.ui.panes import library
-    from .modes.poser import mode as poser_mode
 
     job = job_or_id if isinstance(job_or_id, dict) else ctx.cache.get(job_or_id)
     if job is None:
@@ -235,15 +231,14 @@ def open_asset(ctx: Any, job_or_id: Any, *, inspect_only: bool = False) -> None:
         muse_mode.ensure(ctx).selected_job = target.job_id
         set_mode(ctx.state, "muse")
         return
-    if target.mode == "poser":
-        if poser_mode.open_character_sheet(ctx, target.job_id, target.detail):
-            return
-        # Only reachable if the sidecar has gone -- it is written last, as the
-        # completion marker -- but the sheet section would otherwise draw "No
-        # character on screen", which is the blank arrival this module exists
-        # to stop.
-        ctx.toast("That character sheet is not on disk any more.", "error")
-        create_stages.go(ctx, "pose", select=target.job_id)
+    if target.mode == "library":
+        from .. import retired
+        from .state import set_mode
+
+        library.select(ctx, target.job_id)
+        set_mode(ctx.state, "library")
+        ctx.state.library_scroll_to = target.job_id
+        ctx.toast(retired.NOTE)
         return
 
     # Defer draft adoption together with navigation when a pose needs saving.

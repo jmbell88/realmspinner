@@ -266,7 +266,7 @@ def revert_model(
     the module's own canonical stage-then-rename, rather than through
     ``get_file``'s ``derived`` table of pure functions of ``model.glb``.
 
-    Whether the restore drops the rig, its poses and its sheets, or only the
+    Whether the restore drops the rig and its poses, or only the
     surface exports, depends on what changed **between** the restored version
     and the mesh on disk now -- not on what kind of rework produced the
     version being restored. ``modelhistory.crossed_geometry`` walks the whole
@@ -609,7 +609,7 @@ def retexture_job(
     two Blender ops, so it takes the queue for the reason every other GPU path
     does: it needs the resident pipe, and a TaskRunner thread racing the worker
     for VRAM is the OOM that only reproduces under load. Every refusal is still
-    *here* rather than in the worker, exactly as ``create_pixel_sheet`` states:
+    *here* rather than in the worker, exactly as the sprite doors do:
     a mesh with no atlas to replace should cost the request, not a place in the
     queue and a minute of GPU.
 
@@ -944,7 +944,7 @@ def _check_retexture_family(base: models.BaseModel) -> None:
     ``REALMSPINNER_T2I_MODEL`` names a klein entry qualified merely by leaving the
     field alone -- and ``rerun_job --reroll`` repeated the whole thing.
 
-    Mirrors ``create_pixel_sheet``'s refusal in shape and in field, including
+    Mirrors the sprite doors' refusal in shape and in field, including
     naming the models that *would* work: a door that only says no is a door the
     user has to guess their way past.
     """
@@ -967,7 +967,7 @@ def stale_surface_artifacts(job_dir: Path) -> list[str]:
     """What a re-texture will invalidate, so the panel can say so beforehand.
 
     Deliberately *not* ``stale_rig_artifacts``, and the difference is the whole
-    point: a rig, its poses and its sheets reference geometry, and a re-texture
+    point: a rig and its poses reference geometry, and a re-texture
     changes no geometry -- so none of them appears here, and
     ``tests/test_retexture.py`` asserts that rather than leaving it to be
     "fixed" later. What does appear is the exports that carry the skin.
@@ -995,8 +995,5 @@ def stale_rig_artifacts(job_dir: Path) -> list[str]:
     if out:
         out += sorted(
             f"{store.POSE_DIR_NAME}/{p.name}" for p in store.pose_dir(job_dir).glob("*.glb")
-        )
-        out += sorted(
-            f"{store.SHEET_DIR_NAME}/{p.name}" for p in store.sheet_dir(job_dir).glob("*.png")
         )
     return out

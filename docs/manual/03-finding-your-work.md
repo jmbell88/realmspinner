@@ -73,7 +73,7 @@ small download that runs on the processor), a plain word you type also finds job
 about: `blade` turns up the job whose prompt says "a rusty iron longsword". It records each job quietly
 in the background after it finishes, and the history you already have a few jobs at a time, so there
 is nothing to switch on and nothing to wait for. Without the row, nothing changes: the box matches
-words, as described above. [Library and jobs](36-library-and-jobs.md#selecting-and-filtering) has the
+words, as described above. [Library and jobs](33-library-and-jobs.md#selecting-and-filtering) has the
 details.
 
 **Sorting** offers date, name, kind, time taken, size on disk, score, and grade. Under *date* the
@@ -85,7 +85,7 @@ A **Usable** toggle sits beside Favourites: it shows only meshes graded at or ab
 **Opening** an asset is a double-click on its picture in the grid, Enter on the selection, or **Open**
 on the card, in the right-click menu or at the top of the inspector — a single click only selects.
 Where it lands depends on what it is: a reference opens on the Reference stage, a mesh on Mesh, a
-character sheet in Poser, a music take in Muse, a style LoRA run on the Models page of Settings. You
+music take in Muse, a style LoRA run on the Models page of Settings. You
 do not choose the destination and you should not have to. A drawing or a tile map goes on to Inker or
 Plotter from the buttons under **Take it somewhere**.
 

@@ -137,11 +137,11 @@ def test_an_out_of_range_value_is_never_quietly_clamped(payload):
 def test_character_create_accepts_an_off_ladder_size_its_own_schema_calls_legal():
     """The 2026-09-14 audit (agents-01): ``agent_character``'s
     ``character_create`` schema and description promise any whole size in
-    ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` (8-256px), "off [the ladder]
+    the retired Troupe door (8-256px), "off [the ladder]
     resized nearest-neighbour" -- but the value used to go straight into
     ``Recipe.from_dict``, which refused anything not exactly on
     ``charsheet.SIZES``. 100 is off that ladder but squarely inside the range
-    ``charsheet.plan``/``service.troupe._check_options`` already render
+    ``charsheet.plan``/the retired Troupe door already render
     correctly (since master's 8b091e98), so it must be accepted, not
     refused."""
     assert 100 not in recipelib.LOGICAL_SIZES
@@ -173,10 +173,11 @@ def test_the_size_and_direction_ladders_are_charsheets():
     assert set(recipelib.DIRECTION_CHOICES) == set(charsheet.DIRECTION_PRESETS)
 
 
-def test_the_colour_ladder_is_troupes():
-    from realmspinner.service import troupe
-
-    assert recipelib.COLOR_CHOICES == troupe.TROUPE_COLOR_CHOICES
+def test_the_colour_ladder_is_the_pixel_art_ladder():
+    """The recipe restates the ladder (it may not import ``service``); the
+    Troupe door that owned the other copy left with the sheets, so what is left
+    to agree with is the sheet kernel's own."""
+    assert recipelib.COLOR_CHOICES == (8, 16, 32, 64)
 
 
 def test_the_outline_and_reduce_modes_are_pixelizes():

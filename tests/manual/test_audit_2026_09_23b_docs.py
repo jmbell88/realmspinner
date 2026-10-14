@@ -53,14 +53,14 @@ def test_review_manual_sweep_axis_count_matches_kwarg_axes():
     }
     counted = words[len(axis_params())]
 
-    text = _flat(_chapter("37-review"))
+    text = _flat(_chapter("34-review"))
     assert f"There are {counted}" in text, (
-        f"docs/manual/37-review.md disagrees with axis_params(), which has "
+        f"docs/manual/34-review.md disagrees with axis_params(), which has "
         f"{len(axis_params())} axes"
     )
     if counted != "eighteen":
         assert "There are eighteen" not in text, (
-            "docs/manual/37-review.md still says 'eighteen' sweep axes, "
+            "docs/manual/34-review.md still says 'eighteen' sweep axes, "
             "stale against KWARG_AXES"
         )
 
@@ -97,7 +97,7 @@ def test_review_manual_sweep_axis_count_matches_kwarg_axes():
     )
     for axis, phrase in axis_phrases.items():
         assert phrase in text, (
-            f"docs/manual/37-review.md never names axis {axis!r} (expected "
+            f"docs/manual/34-review.md never names axis {axis!r} (expected "
             f"the phrase {phrase!r} in the 'What you can vary' prose)"
         )
 
@@ -134,12 +134,12 @@ def test_inker_manual_transform_fields_match_the_canvas_toolbar_labels():
         "W-less description needs revisiting"
     )
 
-    text = _flat(_chapter("28-inker"))
+    text = _flat(_chapter("25-inker"))
     assert "canvas toolbar adds typed **Angle**, **X**, **Y**" in text
     assert "**Link** checkbox" in text
     assert "**H** and **V**" in text
     assert "typed **X**, **Y**, **W**, **H**, **Angle** and **Slant**" not in text, (
-        "docs/manual/28-inker.md still describes the stale tool-options-panel "
+        "docs/manual/25-inker.md still describes the stale tool-options-panel "
         "X/Y/W/H/Angle/Slant row"
     )
 
@@ -182,7 +182,7 @@ def test_inker_manual_fit_command_matches_its_op_label():
     assert '"fit_view"' in ops
     assert '"Fit in window"' in ops
 
-    text = _chapter("28-inker")
+    text = _chapter("25-inker")
     assert "come out of a **Fit in window**" in text
     assert "come out of a **Fit view**" not in text
 
@@ -211,35 +211,9 @@ def test_plotter_manual_places_snap_pills_beside_the_view_popover():
     assert "_snap_choice(state)" in tools
     assert 'SNAP_LABELS = (("off", "Off"), ("grid", "Grid"), ("pixel", "Pixel"))' in tools
 
-    text = _flat(_chapter("32-plotter"))
+    text = _flat(_chapter("29-plotter"))
     assert "beside the **View** popover button" in text
     assert "**Snap objects to** in the View block" not in text
-
-
-# --- docs-07: manual 29's mirror-run button label ---------------------------
-
-
-def test_inker_animation_manual_apply_whole_run_label_names_its_direction():
-    """The 2026-09-23b audit, finding docs-07: chapter 29 called the mirror
-    button "Apply whole run"; ``sheet.py`` always draws it as
-    ``f"Apply whole {run.direction} run"`` -- the direction is always
-    named on screen."""
-    sheet = (
-        ROOT
-        / "src"
-        / "realmspinner"
-        / "studio"
-        / "modes"
-        / "inker"
-        / "ui"
-        / "panes"
-        / "sheet.py"
-    ).read_text(encoding="utf-8")
-    assert 'f"Apply whole {run.direction} run"' in sheet
-
-    text = _chapter("29-inker-animation")
-    assert "**Apply whole *{direction}* run**" in text
-    assert "**Apply whole run**" not in text
 
 
 # --- familiar-04: manual 20's navigable-destinations list -------------------

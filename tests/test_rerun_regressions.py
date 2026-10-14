@@ -246,41 +246,6 @@ def test_a_sprite_reroll_readmits_the_weights(svc, monkeypatch):
     assert exc.value.field in ("ip_adapter", "control", "style_lora")
 
 
-def _pixel_sheet_job(svc) -> str:
-    """A finished ``pixel_sheet`` row carrying the params its door writes."""
-    from realmspinner.kernels.rig import store
-
-    render = _reference(svc)  # stands in for the sheet render's source job
-    params = {
-        "source_job": render,
-        "sheet_id": store.new_id(),
-        "logical_size": 32,
-        "colors": 32,
-        "strength": 0.5,
-        "structure_lock": True,
-        "seed": 7,
-        "base_model": "sdxl_cfg",
-    }
-    job_id = svc.store.create("pixel_sheet", "a barrel", params)
-    svc.store.set_status(job_id, "done")
-    return job_id
-
-
-def test_a_pixel_sheet_reroll_keeps_its_sheet_id(svc):
-    """``sheet_id`` is on DERIVED_PARAMS for the *sheet* render kind, where the
-    worker records it about its artifact; on this kind it is the input naming
-    which sheet the restyle depicts. Stripped, every reroll of a pixel sheet
-    dispatched straight into ``sheet_id is not a sheet id: ''``."""
-    from realmspinner.kernels.rig import store
-
-    job_id = _pixel_sheet_job(svc)
-    wanted = svc.store.get(job_id)["params"]["sheet_id"]
-    new = svc_jobs.rerun_job(svc, job_id, mode="reroll")
-    kept = svc.store.get(new["id"])["params"]["sheet_id"]
-    assert kept == wanted
-    assert store.is_valid_id(kept)
-
-
 # --- the seeds DERIVED_PARAMS deliberately does not carry ---------------------
 
 

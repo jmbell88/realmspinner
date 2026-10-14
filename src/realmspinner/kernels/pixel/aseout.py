@@ -1422,15 +1422,6 @@ def dropped_by_aseprite(doc) -> list[str]:
         out.append("Flourish recipes (the layers travel; regenerating does not)")
     if getattr(doc, "matte", None) is not None:
         out.append("the flatten matte")
-    # The 2026-10-03 audit, inker-78: the recorded render digests travel in an
-    # .ora (animation.json's "sheet") and have no chunk here, yet no line said
-    # so -- after Save As .aseprite a Merge against a re-rendered sheet was
-    # silently off. docs/COMPAT.md's ORA -> aseprite table has the matching row.
-    if getattr(doc, "sheet_base", None) is not None:
-        out.append(
-            "the sheet merge base (Merge against a re-rendered sheet stops"
-            " working)"
-        )
     if str(getattr(doc, "color_mode", "rgb")) == "rgb" and getattr(doc, "palette", None):
         # Palette-constrained RGB: the chunks *are* written, so the file
         # carries the colours -- what has nowhere to live is the constraint.

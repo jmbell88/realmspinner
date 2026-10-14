@@ -435,6 +435,7 @@ def _character_options(ctx: Any) -> dict[str, Any]:
     gate, but it does touch ``ctx.state.preview``'s own cache slot, which is
     frame-thread state exactly like the Clay scene capture is.
     """
+    from ...characters import recipe as recipe_mod
     from ...kernels.rig import cliplib
     from ..modes.create.engine import character as character_engine
 
@@ -448,8 +449,11 @@ def _character_options(ctx: Any) -> dict[str, Any]:
     return {
         "families": families,
         "movements": movements,
-        "directions": list(raw["directions"]),
-        "size_range": tuple(raw["troupe"]["logical_size_range"]),
+        # The recipe's own ladders rather than the door's: the plan still names
+        # them (``familiar.character_plan``) but the Create form no longer
+        # offers either, and the door's answer is not the place to read them.
+        "directions": list(recipe_mod.DIRECTION_CHOICES),
+        "size_range": tuple(recipe_mod.LOGICAL_SIZE_RANGE),
     }
 
 
@@ -1313,34 +1317,21 @@ def discard_preview(ctx: Any) -> None:
 
 def _character_fields(plan: dict[str, Any]) -> dict[str, Any]:
     """*plan* (:func:`~.familiar.character_plan.parse_plan`'s own shape) ->
-    the Create form's own ``character_*`` field names -- the same subset
-    ``poser_mode.vary_in_create`` writes for a recipe it is varying, built
-    only from whichever of *plan*'s fields are actually present (never
-    invents a theme, a camera or a name the plan itself does not carry).
+    the Create form's own ``character_*`` field names, built only from
+    whichever of *plan*'s fields are actually present (never invents a theme
+    or a name the plan itself does not carry).
 
-    ``movements`` is filtered against ``character_engine.MOVEMENTS`` (the
-    closed default trio Create's own action checkboxes offer), the same
-    filter ``vary_in_create`` applies to a recipe's ``animations`` keys --
-    Create's form has no control for a movement outside that ladder, so one
-    from the plan's own wider vocabulary (any shipped clip, not just the
-    default three) is silently absent from the brief rather than fed to a
-    checkbox that cannot show it; the plan itself still built the full list
-    into *its own* ``overrides``, for the Create button's own path.
+    **Species, look and name only.** Create's Character form ends at a rigged
+    mesh and has no movements or sprite-size controls any more, so a plan's
+    ``movements`` and ``size`` are silently absent from the brief rather than
+    fed to a control that cannot show them; the plan itself still built the
+    full list into *its own* ``overrides``, for the Create button's own path.
     """
-    from ..modes.create.engine import character as character_engine
-
     fields: dict[str, Any] = {}
     if "family" in plan:
         fields["character_family"] = plan["family"]
     if "theme" in plan:
         fields["character_theme"] = plan["theme"]
-    if "movements" in plan:
-        wanted = set(plan["movements"])
-        fields["character_actions"] = ",".join(
-            name for name, _frames in character_engine.MOVEMENTS if name in wanted
-        )
-    if "size" in plan:
-        fields["character_pixel"] = str(int(plan["size"]))
     if "name" in plan:
         fields["character_name"] = plan["name"]
     return fields
@@ -1485,14 +1476,9 @@ def _draw_plan_card(ctx: Any, ui: FamiliarUIState) -> None:
     imgui.text_wrapped(str(summary.get("species") or ""))
     if summary.get("theme"):
         widgets.secondary(f"Theme: {summary['theme']}")
-    movements = summary.get("movements") or []
-    if movements:
-        widgets.secondary("Movements: " + ", ".join(movements))
-    if summary.get("directions"):
-        widgets.secondary(f"Directions: {summary['directions']}")
-    widgets.secondary(
-        f"~{summary.get('estimate_minutes', 0):.1f} min, {summary.get('cells', 0)} cells"
-    )
+    # Species, look and time: a character ends at its rig now, so the plan's
+    # movements, directions and cell count (the retired sheet's) are not shown.
+    widgets.secondary(f"~{summary.get('estimate_minutes', 0):.1f} min")
     for item in summary.get("ignored") or ():
         widgets.secondary(f"(not used: {item.get('text', '')})")
 

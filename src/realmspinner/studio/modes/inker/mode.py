@@ -1122,12 +1122,6 @@ def _done_open(ctx: Any, state: Any, done: Any) -> None:
         inker_open._report_import_warnings(ctx, result.get("warnings"))
 
 
-def _done_merge(ctx: Any, state: Any, done: Any) -> None:
-    from . import sheet as inker_sheet
-
-    inker_sheet.land_merge(ctx, state, done)
-
-
 def _done_inpaint(ctx: Any, state: Any, done: Any) -> None:
     result = done.result
     from .ui.panes import bridge as inker_bridge
@@ -1296,7 +1290,7 @@ def _done_convert(ctx: Any, state: Any, done: Any) -> None:
     ``convert_to_rgb``/``convert_to_palette``'s own ``_resolved`` parameter,
     which applies them and pushes the one undo step the whole gesture earns,
     on this thread -- the same thread every other heavy Inker door (inpaint
-    landing, sheet merge, tileset import) already lands its result on.
+    landing, tileset import) already lands its result on.
 
     The toast text mirrors ``inker_palette_io.set_color_mode``'s three
     mode-branch messages by hand (see ``apply_convert``'s docstring for why
@@ -1445,7 +1439,6 @@ def _TASK_HANDLERS() -> dict[str, Any]:
         inker_flourish.RESTYLE_KEY: _done_flourish_restyle_queued,
         inker_flourish.RESTYLE_LAND_KEY: _done_flourish_restyle,
         "inker-open": _done_open,
-        "inker-merge": _done_merge,
         "inker-inpaint": _done_inpaint,
         "inker-sheetin": _done_sheetin,
         "inker-recover": _done_recover,
@@ -2760,7 +2753,6 @@ _MOVED: dict[str, str] = {
     "_load": "opening",
     "_load_aseprite": "opening",
     "_load_job": "opening",
-    "_load_rendered_sheet": "opening",
     "_load_sprite_draft": "opening",
     "_modal": "keys",
     "_palette_text": "palette_io",
@@ -2797,14 +2789,11 @@ _MOVED: dict[str, str] = {
     "import_palette": "palette_io",
     "import_sheet": "opening",
     "index_to": "palette_io",
-    "load_sheet_cells": "opening",
     "new_from_selection": "opening",
-    "newest_sheet_after": "opening",
     "open_job_reference": "opening",
     "open_path": "opening",
     "open_pixel_artifact": "opening",
     "open_pixels": "opening",
-    "open_rendered_sheet": "opening",
     "open_sprite_draft": "opening",
     "palette_from_image": "palette_io",
     "palette_strip": "palette_io",
@@ -2814,7 +2803,6 @@ _MOVED: dict[str, str] = {
     "repeat_export": "export",
     "set_color_mode": "palette_io",
     "set_transparent_slot": "palette_io",
-    "sheet_grid": "opening",
     "step_frame": "playback",
     "stop_play": "playback",
     "tick_playback": "playback",

@@ -196,7 +196,7 @@ def test_the_manual_agrees_the_clean_cutout_switch_is_on_by_default():
     assert "Don't ask for clean cutouts** switch, **on by default**" in text
 
 
-@pytest.mark.parametrize("chapter", ["22-generating-references.md", "38-shortcuts.md"])
+@pytest.mark.parametrize("chapter", ["22-generating-references.md", "35-shortcuts.md"])
 def test_the_manual_documents_the_history_pane_and_the_labelling_keys(chapter):
     manual = Path(__file__).resolve().parents[2] / "docs" / "manual" / chapter
     text = manual.read_text(encoding="utf-8")

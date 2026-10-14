@@ -23,17 +23,19 @@ def _chapter(name: str) -> str:
     return (MANUAL / name).read_text(encoding="utf-8")
 
 
-def _section(text: str, heading: str) -> str:
-    """The prose under one ``##`` heading, up to the next ``##`` (or EOF).
+def _section(text: str, heading: str, level: int = 2) -> str:
+    """The prose under one heading of *level* hashes, up to the next heading of the same
+    or a higher level (or EOF).
 
-    Matches on a bare ``## <heading>`` line so a ``###`` subheading inside the
-    section (three hashes, not two-then-space) does not end it early.
+    Matches on a bare ``<hashes> <heading>`` line so a deeper subheading inside the
+    section does not end it early.
     """
-    pattern = rf"^## {re.escape(heading)}\s*$"
+    hashes = "#" * level
+    pattern = rf"^{hashes} {re.escape(heading)}\s*$"
     match = re.search(pattern, text, re.MULTILINE)
-    assert match, f"no '## {heading}' heading found"
+    assert match, f"no '{hashes} {heading}' heading found"
     rest = text[match.end():]
-    nxt = re.search(r"^## ", rest, re.MULTILINE)
+    nxt = re.search(rf"^#{{1,{level}}} ", rest, re.MULTILINE)
     return rest[: nxt.start()] if nxt else rest
 
 
@@ -58,15 +60,15 @@ def test_manual_ch28_zoom_ceiling_matches_inker_state_constant():
 
     ceiling_pct = inker_state.zoom_key(inker_state.INKER_MAX_ZOOM)
     floor_pct = inker_state.zoom_key(inker_state.INKER_MIN_ZOOM)
-    zooming = _section(_chapter("28-inker.md"), "Zooming")
+    zooming = _section(_chapter("25-inker.md"), "Zooming")
 
     assert _has_percent(zooming, ceiling_pct), (
-        f"docs/manual/28-inker.md's Zooming section does not state the real "
+        f"docs/manual/25-inker.md's Zooming section does not state the real "
         f"ceiling of {ceiling_pct}% (inker_state.INKER_MAX_ZOOM="
         f"{inker_state.INKER_MAX_ZOOM})"
     )
     assert _has_percent(zooming, floor_pct), (
-        f"docs/manual/28-inker.md's Zooming section does not state the real "
+        f"docs/manual/25-inker.md's Zooming section does not state the real "
         f"floor of {floor_pct}% (inker_state.INKER_MIN_ZOOM="
         f"{inker_state.INKER_MIN_ZOOM})"
     )
@@ -82,14 +84,14 @@ def test_manual_ch28_zoom_ladder_matches_ZOOM_LADDER():
     from realmspinner.studio.modes.inker import state as inker_state
     from realmspinner.studio.shell import paintview
 
-    zooming = _section(_chapter("28-inker.md"), "Zooming")
+    zooming = _section(_chapter("25-inker.md"), "Zooming")
     missing = [
         inker_state.zoom_key(rung)
         for rung in paintview.ZOOM_LADDER
         if not _has_percent(zooming, inker_state.zoom_key(rung))
     ]
     assert not missing, (
-        "docs/manual/28-inker.md's +/- ladder list is missing rungs present "
+        "docs/manual/25-inker.md's +/- ladder list is missing rungs present "
         f"in shell.paintview.ZOOM_LADDER: {missing}% "
         f"(full ladder: {[inker_state.zoom_key(r) for r in paintview.ZOOM_LADDER]}%)"
     )
@@ -102,14 +104,14 @@ def test_manual_ch28_status_bar_picker_matches_ZOOM_PRESETS():
     """
     from realmspinner.studio.modes.inker import state as inker_state
 
-    status_bar = _section(_chapter("28-inker.md"), "The status bar")
+    status_bar = _section(_chapter("25-inker.md"), "The status bar")
     missing = [
         inker_state.zoom_key(preset)
         for preset in inker_state.ZOOM_PRESETS
         if not _has_percent(status_bar, inker_state.zoom_key(preset))
     ]
     assert not missing, (
-        "docs/manual/28-inker.md's status-bar picker list is missing "
+        "docs/manual/25-inker.md's status-bar picker list is missing "
         f"presets present in inker_state.ZOOM_PRESETS: {missing}% "
         f"(full presets: {[inker_state.zoom_key(p) for p in inker_state.ZOOM_PRESETS]}%)"
     )
@@ -127,9 +129,9 @@ def test_packwright_manual_does_not_promise_a_gitignored_examples_directory():
     gitignore = (MANUAL.parent.parent / ".gitignore").read_text(encoding="utf-8")
     assert "/examples/" in gitignore, "sanity: examples/ expected gitignored"
 
-    text = _chapter("33-packwright.md")
+    text = _chapter("30-packwright.md")
     assert "examples/" not in text, (
-        "docs/manual/33-packwright.md still points the reader at examples/, "
+        "docs/manual/30-packwright.md still points the reader at examples/, "
         "which .gitignore excludes from every checkout"
     )
 
@@ -148,8 +150,8 @@ def test_templates_table_lists_all_eight_shipped_skeletons_including_blob():
     catalog = templates.catalog()
     assert len(catalog) == 8, f"sanity: expected eight shipped templates, found {len(catalog)}"
 
-    text = _chapter("25-rigging-and-posing.md")
-    templates_section = _section(text, "Templates")
+    text = _chapter("23-generating-meshes.md")
+    templates_section = _section(text, "Templates", 3)
     lowered = templates_section.lower()
 
     missing = [
@@ -159,11 +161,11 @@ def test_templates_table_lists_all_eight_shipped_skeletons_including_blob():
         and entry["label"].split()[0].lower() not in lowered
     ]
     assert not missing, (
-        "docs/manual/25-rigging-and-posing.md's Templates table does not "
+        "docs/manual/23-generating-meshes.md's Templates table does not "
         f"mention the shipped template(s) {missing}"
     )
     assert "eight" in lowered, (
-        "docs/manual/25-rigging-and-posing.md's Templates section still says "
+        "docs/manual/23-generating-meshes.md's Templates section still says "
         "the app fits one of seven shipped templates; templates.catalog() "
         "offers eight"
     )
@@ -238,14 +240,14 @@ def test_rig_stage_offers_no_measured_joints_control():
         "chapter 08 should describe it rather than deny it"
     )
 
-    trap = _section(_chapter("08-rigging-and-posing.md"), "The A-pose trap")
+    trap = _section(_chapter("23-generating-meshes.md"), "The A-pose trap", 3)
     assert "**Measured joints**" not in trap, (
-        "docs/manual/08-rigging-and-posing.md's A-pose trap section still "
+        "docs/manual/23-generating-meshes.md's A-pose trap section still "
         "offers 'Measured joints' as a control to press, which does not "
         "exist in the Rig stage"
     )
     assert "Adjust joints" in trap, (
-        "docs/manual/08-rigging-and-posing.md's A-pose trap section should "
+        "docs/manual/23-generating-meshes.md's A-pose trap section should "
         "still point the reader at Adjust joints, the control that does "
         "exist"
     )
@@ -301,7 +303,7 @@ def test_manual_ch04_and_ch37_name_the_labelling_section_teach_the_judge():
         "section -- update this test and the manual together"
     )
 
-    for name in ("04-judging-what-you-made.md", "37-review.md"):
+    for name in ("04-judging-what-you-made.md", "34-review.md"):
         text = _chapter(name)
         assert "Teaching the judge" not in text, (
             f"docs/manual/{name} still calls the section 'Teaching the "
@@ -331,7 +333,7 @@ def test_chapter_03_and_32_quote_the_real_add_to_packwright_label():
         f"sanity: verbs.add_to changed shape, got {label!r}"
     )
 
-    for name in ("03-finding-your-work.md", "33-packwright.md"):
+    for name in ("03-finding-your-work.md", "30-packwright.md"):
         text = _chapter(name)
         assert "Add to a Packwright atlas" not in text, (
             f"docs/manual/{name} still quotes the stale 'Add to a "
@@ -343,77 +345,6 @@ def test_chapter_03_and_32_quote_the_real_add_to_packwright_label():
         assert label in normalized, (
             f"docs/manual/{name} does not quote the real label {label!r}"
         )
-
-
-# --- poser-03: root-offset clips are interpolated, not refused -------------
-
-
-def test_manual_26_does_not_claim_clip_root_offsets_are_refused():
-    """The 2026-09-07 audit, finding poser-03: chapter 26 said a clip with
-    root offsets "is refused by name rather than rendered subtly wrong",
-    but that refusal was deliberately removed and ``resample_clip`` now
-    interpolates root translation, pinned by
-    ``test_sheet.py::test_a_clip_end_with_a_root_offset_is_accepted_and_interpolated``.
-    Stale since 2026-08-19, through a 2026-09-04 edit of the same page.
-    """
-    from realmspinner.kernels import sheet as sheet_pipeline
-
-    keys = [
-        {"id": "a", "name": "A", "bones": {}, "root_translation": [0.0, 0.0, 0.0]},
-        {"id": "b", "name": "B", "bones": {}, "root_translation": [0.0, 0.0, 0.25]},
-    ]
-    records = sheet_pipeline.resample_clip(keys, [1], 4)
-    offsets = [r["root_translation"][2] for r in records]
-    assert offsets[0] == 0.0 and offsets[-1] == 0.25 and offsets == sorted(offsets), (
-        f"sanity: resample_clip no longer interpolates root translation "
-        f"from one endpoint's offset to the other's, got {offsets}"
-    )
-
-    text = _chapter("26-poser.md")
-    assert "refused by name" not in text, (
-        "docs/manual/26-poser.md still claims a clip with root offsets is "
-        "refused by name; resample_clip interpolates it instead"
-    )
-
-
-# --- packwright-04: the character-sheet handoff belongs in Packwright's own
-# chapter -----------------------------------------------------------------
-
-
-def test_the_packwright_manual_chapter_lists_every_source_door_the_code_has():
-    """The 2026-09-07 audit, finding packwright-04: chapter 32 said "Four
-    ways in" and never mentioned the character-sheet handoff that chapter 10
-    documents as a door -- ``poser_mode.add_to_packwright`` calls
-    ``packwright_mode.add_rendered_sheet``, the same bridge. A reader
-    consulting Packwright's own reference chapter was told the door did
-    not exist.
-
-    P9 (2026-09-18): the door moved with Troupe into Poser's character-sheet
-    section, unrenamed -- ``add_to_packwright`` is exactly the function it
-    was.
-    """
-    from realmspinner.studio.modes.packwright import mode as packwright_mode
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    assert hasattr(packwright_mode, "add_rendered_sheet"), (
-        "sanity: packwright_mode lost its rendered-sheet door"
-    )
-    assert hasattr(poser_mode, "add_to_packwright"), (
-        "sanity: poser_mode lost its Packwright bridge"
-    )
-
-    ch10_bridges = ("From Inker", "From the library", "From Poser")
-    ch10 = _chapter("10-packing-an-atlas.md")
-    for bridge in ch10_bridges:
-        assert f"**{bridge}**" in ch10, f"sanity: chapter 10 no longer lists {bridge!r}"
-
-    sources = _section(_chapter("33-packwright.md"), "Sources")
-    missing = [b for b in ch10_bridges if f"**{b}**" not in sources]
-    assert not missing, (
-        "docs/manual/33-packwright.md's Sources section is missing the "
-        f"door(s) {missing}, which chapter 10 documents and the code has "
-        "(poser_mode.add_to_packwright -> packwright_mode.add_rendered_sheet)"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -571,12 +502,12 @@ def test_the_shortcuts_chapter_does_not_send_the_reader_to_a_rail_button_that_do
         "backwards"
     )
 
-    text = _chapter("38-shortcuts.md")
+    text = _chapter("35-shortcuts.md")
     assert "rail's footer" not in text, (
-        "docs/manual/38-shortcuts.md sends the reader to a Shortcuts button "
+        "docs/manual/35-shortcuts.md sends the reader to a Shortcuts button "
         f"in the rail's footer; RAIL_GROUPS' footer group is {footer}"
     )
     assert "Help" in text, (
-        "docs/manual/38-shortcuts.md no longer names where the sheet actually "
+        "docs/manual/35-shortcuts.md no longer names where the sheet actually "
         "lives (the Help menu / command palette)"
     )

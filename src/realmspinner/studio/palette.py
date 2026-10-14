@@ -9,7 +9,7 @@ Two things here are deliberate and easy to undo.
 
 **The mode commands are derived from** :data:`.modes.MODES`, not written out.
 A palette is a second index of everything the app can do, and a hand-written
-one is a second index that drifts -- a fourteenth mode would gain a switch
+one is a second index that drifts -- a thirteenth mode would gain a switch
 segment and be missing from the one surface whose entire job is telling the
 user what exists. It is also, since the positional Alt+digit bindings went
 away, the *only* keyboard route to a mode, which is what turns the derivation
@@ -250,12 +250,9 @@ def _any_trashed(ctx: Any) -> bool:
 # label) -- rather than written out here a second time: that is the one
 # manifest field this table needed, character for character (Sirens' label
 # names a folder because it is the one export in the app that writes a family
-# -- song.wav, stems/, sfx/ -- into a directory the user picks; Poser's empty
-# label suppresses the command rather than forcing a fake one, since a pose
-# is a library record, saved and never exported -- and its character-sheet
-# stage, folded in from Troupe in P9 (2026-09-18), changes nothing here: a
-# sheet is a selection over files a worker already published, the same "no
-# document" reason the empty label already covers).
+# -- song.wav, stems/, sfx/ -- into a directory the user picks; an empty
+# label suppresses the command rather than forcing a fake one, for a document
+# that is a library record, saved and never exported).
 _DOC_MODES: dict[str, tuple[str, str]] = mode_manifest.export_table()
 
 _DOC_WHY = "Open a drawing, model, map, atlas or song first."
@@ -1150,7 +1147,7 @@ def commands(ctx: Any) -> list[Command]:
             enabled=_can_export,
             why=_DOC_WHY
             if _doc_export_label(ctx)
-            else "A pose is saved into the library rather than exported.",
+            else "This document is saved into the library rather than exported.",
         ),
         Command(
             key="undo",

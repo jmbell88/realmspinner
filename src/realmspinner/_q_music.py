@@ -726,7 +726,7 @@ class MusicOps:
         # service-queue-02 (the 2026-09-16 audit): every sibling stage that
         # finishes with a served-name write re-checks the cancel event here,
         # immediately before its own commit, and returns early when the user
-        # cancelled in the interim -- ``_rig``, ``_remesh``, ``_charsheet``,
+        # cancelled in the interim -- ``_rig``, ``_remesh``,
         # ``_lora_train`` and ``_music`` itself (muse-01, above). ``_separate``
         # was the one kind with none: a Cancel landing after
         # ``blender_run.run_worker`` returned ``ok=True`` used to reach

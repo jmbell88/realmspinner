@@ -19,7 +19,6 @@ import pytest
 from realmspinner.kernels import pixel as inker
 from realmspinner.studio import state as state_mod
 from realmspinner.studio.modes.inker import ops as inker_ops
-from realmspinner.studio.modes.inker import sheet as inker_sheet
 from realmspinner.studio.modes.inker import state as inker_state
 
 SIZE = (32, 32)
@@ -112,26 +111,10 @@ def test_a_greyed_op_with_no_document_open_says_so_rather_than_naming_busy_or_a_
     )
 
 
-#: The Sheet menu's nine ops all delegate their reason to ``inker_sheet``,
-#: whose functions already answer "Open a character sheet -- its tags
-#: are named animation_direction, and that is what a sheet correction reads."
-#: with nothing open (``inker_sheet.NO_SHEET``, via ``no_sheet_reason``/
-#: ``is_sheet(None)``). That sentence never names a document that does not
-#: exist -- it is the same actionable instruction whether nothing is open or
-#: a non-sheet document is -- so it is named here rather than made to say
-#: ``NO_DOC``, per the finding's own allowance for a reason that is "correct
-#: even with nothing open". Named explicitly, not excluded by menu, so a
-#: Sheet op added later with a real defect still fails the sweep below.
+#: Named explicitly, not excluded by menu, so an op added later with a real
+#: defect still fails the sweep below. (The Sheet menu's nine ops, whose reason
+#: was a document-free instruction, went with the character-sheet loop.)
 _LEGITIMATE_NON_NO_DOC_REASON = {
-    "sheet_merge": inker_sheet.NO_SHEET,
-    "sheet_conflict_next": inker_sheet.NO_SHEET,
-    "sheet_keep_edit": inker_sheet.NO_SHEET,
-    "sheet_propagate": inker_sheet.NO_SHEET,
-    "sheet_remark": inker_sheet.NO_SHEET,
-    "sheet_replace": inker_sheet.NO_SHEET,
-    "sheet_shift": inker_sheet.NO_SHEET,
-    "sheet_mirror": inker_sheet.NO_SHEET,
-    "sheet_mirror_run": inker_sheet.NO_SHEET,
     # ``clear_brush``'s ``enabled`` reads ``state.stamp`` alone -- the
     # captured-brush flag lives on ``InkerState``, not on a tab -- so it is
     # never gated on a document being open at all, and "No brush has been

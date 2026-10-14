@@ -900,8 +900,7 @@ DERIVED_IMAGE = ("input.webp", "input.jpg")
 #: branch on, and a name in ``DERIVED`` would make this wait on a mesh being
 #: finished while ignoring whether the thing it is actually made of exists.
 #: The second gate is the clip library: a skeleton nobody authored a walk cycle
-#: for has nothing to animate, which is ``create_charsheet``'s refusal in
-#: another door.
+#: for has nothing to animate.
 #:
 #: **Digest staleness, not bare existence** (design decision D6): existence
 #: alone could never reach a clip edited in Poser after the bake, or a clip
@@ -1080,9 +1079,8 @@ def _rig_has_clips(job_dir: Path) -> bool:
     """Whether this job's rig is on a skeleton with authored clips.
 
     Read off ``rig.json``, which is where the template is recorded and the only
-    place it is -- ``create_charsheet`` asks the same question of the same file.
-    Through ``kernels.rig`` rather than ``service.troupe``: that module imports
-    this one, and a listing loop must not depend on a door.
+    place it is. Through ``kernels.rig`` rather than a service door: a listing
+    loop must not depend on a door.
     """
     from ..kernels.rig import cliplib, store
 
@@ -1238,8 +1236,6 @@ def unready_reason(job: dict[str, Any], job_dir: Path, name: str) -> str:
     if name in DERIVED_RIG and not (job_dir / "rig.json").exists():
         return "This asset has not been rigged yet."
     if name in DERIVED_RIG and not _rig_has_clips(job_dir):
-        # ``create_charsheet``'s sentence, so one fact has one wording wherever
-        # it is met.
         return (
             "An animated GLB is baked from a clip library, and nothing is "
             "authored for this rig's skeleton."

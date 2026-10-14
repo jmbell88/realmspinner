@@ -92,7 +92,11 @@ def test_the_rows_still_describe_every_pack_without_a_manifest(monkeypatch, tmp_
     rows = svc_packs.rows(svc)
     assert [row["key"] for row in rows] == list(packs.KEYS)
     assert all(row["manifest"] is False for row in rows)
-    assert all(row["summary"] and row["modes"] for row in rows)
+    assert all(row["summary"] for row in rows)
+    # Every pack says which modes stop working without it -- except Rigging, since
+    # Poser left (``retired.py``): no whole mode stops working without bpy any more,
+    # only the Rig segment of Create and Clay's Blender weights.
+    assert all(row["modes"] for row in rows if row["key"] != "rig")
 
 
 def test_a_malformed_manifest_is_a_refusal_naming_the_fault(monkeypatch, tmp_path):

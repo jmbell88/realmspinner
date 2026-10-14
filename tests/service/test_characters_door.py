@@ -1,9 +1,9 @@
-"""``service.troupe``'s doors, seen from the character rather than the mesh.
+"""``service.characters``: a recipe in, a finished mesh and a queued rig out.
 
-What a character sheet actually needs is a rig with clips authored for it. The
-door used to ask a narrower question -- "is this the humanoid template?" -- and
-that answer was right only for as long as ``humanoid`` was the one template with
-a clip library.
+The door ends at a rigged mesh -- the character sheet that used to follow the rig
+left with Poser (``retired.py``). Alongside it, ``service.clips.has_clips``, the
+question "does this skeleton have clips authored for it" that the Troupe door
+used to answer and Clay's Import-animation sources still ask.
 """
 
 from __future__ import annotations
@@ -11,84 +11,50 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 from pathlib import Path
 
 import pytest
 
 from realmspinner import doctor
 from realmspinner.characters import family as family_mod
-from realmspinner.kernels.rig import cliplib, store, templates
+from realmspinner.kernels.rig import cliplib, templates
 from realmspinner.service import characters as svc_characters
-from realmspinner.service import export as svc_export
 from realmspinner.service import jobs as svc_jobs
-from realmspinner.service import troupe as svc_troupe
-from realmspinner.service.errors import Invalid, NotFound
+from realmspinner.service.errors import Invalid
 
 
-def _rigged_mesh(svc, template):
-    job_id = svc.store.create("image", "a ranger", {}, stage="model")
-    job_dir = svc.job_dir(job_id)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "model.glb").write_bytes(b"fake-glb")
-    (job_dir / "rig.glb").write_bytes(b"fake-glb")
-    (job_dir / "rig.json").write_text(json.dumps({"template": template}), "utf-8")
-    svc.store.set_status(job_id, "done")
-    return job_id
+def test_has_clips_asks_the_clip_library_not_the_template_name(monkeypatch):
+    """**The question is about clips, not about ``humanoid``.**
 
-
-def test_create_charsheet_accepts_any_template_with_a_clip_library_and_refuses_one_without(
-    svc, monkeypatch
-):
-    """**The refusal is about clips, not about ``humanoid``.**
-
-    A family that ships its own skeleton and its own walk cycle was turned away
-    for not being the one template that happened to have a library first -- and
-    the message told it so, which sent the reader to change the rig rather than
-    to author the clips. Now the door asks ``cliplib.clip_library`` (which
-    answers "no clips" rather than failing, so somebody has to ask) and the
-    sheet is expanded from the rig's *own* template.
+    A family that ships its own skeleton and its own walk cycle is not turned
+    away for being a different template: ``cliplib.clip_library`` answers "no
+    clips" rather than failing, and ``has_clips`` is the one place that is read.
     """
-    # Nothing is authored for a fish, so the sheet is refused by what is
-    # missing -- and the sentence names the rig rather than naming humanoid.
-    #
-    # ``fish`` and not ``quadruped``: the quadruped, bird and blob skeletons
-    # gained authored clip libraries on 2026-09-05 for the character families,
-    # so the example this test was written around stopped being an example of
-    # anything. The claim is unchanged; only the template that still has no
-    # clips is.
-    fish = _rigged_mesh(svc, "fish")
-    with pytest.raises(Invalid) as refused:
-        svc_troupe.create_charsheet(svc, fish)
-    assert "clip library" in str(refused.value)
-    assert "fish" in str(refused.value)
+    from realmspinner.service import clips as svc_clips
 
-    # The same rig, once clips exist for it, is accepted -- and the row is
-    # minted on its own template, because that is the skeleton on disk.
-    library = cliplib.clip_library(svc_troupe.TROUPE_TEMPLATE)
+    assert svc_clips.has_clips("humanoid") is True
+    # Nothing is authored for a fish.
+    assert svc_clips.has_clips("fish") is False
+    # And a template that is not recorded at all, or not a template, is the same
+    # fact from the user's side -- not the ``ValueError`` ``get_template`` raises.
+    assert svc_clips.has_clips("") is False
+    assert svc_clips.has_clips("no-such-skeleton") is False
+
+    library = cliplib.clip_library("humanoid")
     monkeypatch.setattr(
         cliplib,
         "clip_library",
         lambda key: library if key == "fish" else {"poses": {}, "clips": []},
     )
-    made = svc_troupe.create_charsheet(svc, fish)
-    row = svc.store.get(made["id"])
-    assert row["params"]["template"] == "fish"
-
-    # And a rig whose template is not recorded at all is still refused, rather
-    # than raising the ``ValueError`` ``get_template`` answers an unknown key
-    # with -- from the user's side it is the same missing clip library.
-    monkeypatch.undo()
-    nameless = _rigged_mesh(svc, "")
-    with pytest.raises(Invalid, match="clip library"):
-        svc_troupe.create_charsheet(svc, nameless)
+    assert svc_clips.has_clips("fish") is True
+    assert [row["key"] for row in svc_clips.clip_templates()] == ["fish"]
 
 
 # --- the character door ------------------------------------------------------
 #
-# ``service.characters`` is one press that produces a body, a skeleton and a
-# queued sheet. What these pin is the *order* it does that in and the fact that
-# nothing in it is humanoid-shaped.
+# ``service.characters`` is one press that produces a body and a queued rig.
+# What these pin is the *order* it does that in and the fact that nothing in it
+# is humanoid-shaped.
 
 @pytest.fixture
 def blender(monkeypatch):
@@ -109,11 +75,10 @@ ONE_PER_ARCHETYPE = ["human", "wolf", "dragon", "slime"]
 
 
 def _recipe(family_key, **changes):
-    """The smallest recipe that renders: one animation, one direction.
+    """The smallest recipe: one animation, one direction.
 
-    Deliberately not ``DEFAULT_RECIPE`` -- that is 144 cells, and the plan this
-    door runs up front walks every one of them. The claims here are about rows
-    and params, none of which change with the cell count.
+    Deliberately not ``DEFAULT_RECIPE``: the claims here are about rows and
+    params, none of which change with the cell count.
     """
     fam = family_mod.get_family(family_key)
     return {
@@ -136,9 +101,8 @@ def test_a_character_mints_a_built_done_model_row_and_one_rig_row(svc, blender, 
     would spend two minutes of GPU reproducing what this door just built.
 
     Parameterised across all four body plans because the first draft of a door
-    like this reads its rig template and its clip library off
-    ``TROUPE_TEMPLATE``, passes for a human and mints a wolf on a humanoid
-    skeleton -- which fails an hour later in the worker as a frame-count error.
+    like this reads its rig template off a constant, passes for a human and
+    mints a wolf on a humanoid skeleton.
     """
     made = svc_characters.create_character(svc, _recipe(family_key))
     assert made["kind"] == "character"
@@ -157,54 +121,30 @@ def test_a_character_mints_a_built_done_model_row_and_one_rig_row(svc, blender, 
     rig = svc.store.get(made["rig"])
     assert rig["kind"] == "rig"
     assert rig["params"]["source_job"] == made["id"]
-    # The species' own skeleton and the species' own clips, read off the
-    # archetype. This is the assertion the parameterisation exists for.
+    # The species' own skeleton, read off the archetype. This is the assertion
+    # the parameterisation exists for.
     arch = family_mod.get_family(family_key).arch
     assert rig["params"]["template"] == arch.template
-    assert rig["params"]["troupe_sheet"]["template"] == arch.template
+    assert "troupe_sheet" not in rig["params"]
 
-    # And exactly two rows: no third row minted eagerly. The sheet is the
-    # worker's to mint on the finished rig, so it cancels on its own.
+    # And exactly two rows, with nothing to follow the rig: the chain ends at a
+    # rigged mesh (``retired.py``).
     assert len(svc.store.list(limit=50)) == 2
 
 
-def test_a_character_recipe_asking_for_hit_and_death_creates_its_sheet_row(svc, blender):
-    """A recipe may name any clip its archetype's own library defines, per
-    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` -- not
-    only the closed legacy five (``idle``/``walk``/``run``/``attack``/``jump``)
-    ``charsheet.ANIMATIONS`` used to enumerate. Naming ``hit``/``death`` --
-    real clips the humanoid archetype's library defines -- gets a sheet row
-    whose layout names them; at HEAD, ``Recipe``'s closed vocabulary check
-    refused either name before a character could even be built.
-    """
+def test_a_character_recipe_naming_any_clip_of_its_library_still_builds(svc, blender):
+    """A recipe may name any clip its archetype's own library defines -- not only
+    the closed legacy five -- and an HD recipe (``pixel_art`` off) builds as well.
+    Neither names anything the rig needs: the rows are the same two."""
     made = svc_characters.create_character(
         svc, _recipe("human", animations={"hit": 4, "death": 6})
     )
     assert made["kind"] == "character"
-    row = svc.store.get(made["id"])
-    assert row["status"] == "done"
-    rig = svc.store.get(made["rig"])
-    spec = rig["params"]["troupe_sheet"]
-    assert {m["key"] for m in spec["layout"]["movements"]} == {"hit", "death"}
+    assert svc.store.get(made["id"])["status"] == "done"
+    assert svc.store.get(made["rig"])["kind"] == "rig"
 
-
-def test_an_hd_recipe_sends_an_hd_sheet(svc, blender):
-    """``Recipe.pixel_art`` (D5 HD mode) used to be dropped on the floor
-    between the recipe and ``send_to_troupe``: colours, outline and dither
-    rode along regardless of the switch, and an HD request refuses any of
-    them outright (``service.troupe._check_options``: "pixel_art is off, so
-    there is no outline mode to set"). The recipe's own ``outline`` default
-    is "outer", not "none", so an HD recipe that touched nothing else used to
-    fail the very call ``create_character`` made to build it.
-    """
-    made = svc_characters.create_character(svc, _recipe("human", pixel_art=False))
-    spec = svc.store.get(made["rig"])["params"]["troupe_sheet"]
-    assert spec["pixel_art"] is False
-    for key in ("colors", "palette", "dither", "outline"):
-        assert key not in spec
-    # The size ladder still applies -- an HD sheet is still laid out at a
-    # chosen cell size, it is just never reduced into one.
-    assert spec["logical_size"] == 32
+    hd = svc_characters.create_character(svc, _recipe("human", pixel_art=False))
+    assert svc.store.get(hd["rig"])["kind"] == "rig"
 
 
 def test_the_rig_row_carries_the_exact_joints_and_never_measures_them(svc, blender):
@@ -212,8 +152,8 @@ def test_the_rig_row_carries_the_exact_joints_and_never_measures_them(svc, blend
 
     ``joints="measured"`` reads joint positions off a *reference image*, which
     this character never had -- there is no reference, only a recipe. Passing
-    ``bones`` withholds that flag in ``send_to_troupe``, and the pin is here as
-    well as there because this is the one door that always has an exact answer.
+    ``bones`` withholds that flag, and the pin is here because this is the one
+    door that always has an exact answer.
     """
     made = svc_characters.create_character(svc, _recipe("human"))
     params = svc.store.get(made["rig"])["params"]
@@ -255,44 +195,8 @@ def test_a_character_refuses_a_rerun_and_reroll_character_is_the_door_instead(sv
     }
 
 
-def test_a_re_render_of_a_subset_keeps_the_recipe_seed_byte_for_byte(svc, blender):
-    """**The flames in twelve re-rendered cells must match the ones beside them.**
-
-    ``rerender_charsheet`` copies the row's params wholesale and strips only
-    what the *worker* recorded, so the nested character block -- and the recipe
-    seed inside it that drives every procedural effect -- rides through
-    untouched. Exactly the pinned-palette argument: a door that re-rolled it
-    would produce a subset whose effects are a different draw from the cells it
-    is landing among.
-    """
-    made = svc_characters.create_character(svc, _recipe("human"))
-    block = svc.store.get(made["rig"])["params"]["troupe_sheet"]["character"]
-
-    job_dir = svc.job_dir(made["id"])
-    (job_dir / "rig.glb").write_bytes(b"fake-glb")
-    (job_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
-    sheet = svc_troupe.create_charsheet(svc, made["id"], character=block)
-    sheet_params = svc.store.get(sheet["id"])["params"]
-    # The sheet has to exist on disk for the re-render door to read its layout.
-    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    store.sheet_path(job_dir, sheet["sheet_id"]).write_text(
-        json.dumps({"troupe": sheet_params["layout"]}), "utf-8"
-    )
-    store.sheet_png_path(job_dir, sheet["sheet_id"]).write_bytes(b"png")
-
-    again = svc_troupe.rerender_charsheet(
-        svc,
-        made["id"],
-        sheet_id=sheet["sheet_id"],
-        subset=[{"animation": "idle", "direction": "front"}],
-    )
-    copied = svc.store.get(again["id"])["params"]["character"]
-    assert copied["recipe"]["seed"] == block["recipe"]["seed"]
-    assert copied == block
-
-
-def test_the_character_block_rides_every_row_of_the_chain(svc, blender):
-    """Model, rig and sheet all say who this is -- and it is always *nested*.
+def test_the_character_block_rides_the_model_row_and_is_nested(svc, blender):
+    """The model row says who this is -- and it is always *nested*.
 
     Flattened, any of ``seed``, ``palette`` or ``colors`` inside the recipe
     would be one entry away from being picked up by ``VECTOR_PARAMS``, which is
@@ -312,17 +216,8 @@ def test_the_character_block_rides_every_row_of_the_chain(svc, blender):
     assert block["recipe"]["family"] == "wolf"
     assert block["prompt"] == "a grey wolf"
     assert block["resolution"]["family"] is None  # nothing was resolved
-    assert rig["troupe_sheet"]["character"] == block
-
-    # And the third row, minted the way the worker mints it -- from the block
-    # the rig row is carrying.
-    job_dir = svc.job_dir(made["id"])
-    (job_dir / "rig.glb").write_bytes(b"fake-glb")
-    (job_dir / "rig.json").write_text(json.dumps({"template": "quadruped"}), "utf-8")
-    sheet = svc_troupe.create_charsheet(
-        svc, made["id"], character=rig["troupe_sheet"]["character"]
-    )
-    assert svc.store.get(sheet["id"])["params"]["character"] == block
+    # The rig row is the skeleton's, and says nothing about who it is for.
+    assert "character" not in rig
 
     # Nested, and provably so. ``VECTOR_PARAMS`` is an allowlist of *flat*
     # settings, and the block is not on it -- nor is any recipe setting a
@@ -336,7 +231,7 @@ def test_the_character_block_rides_every_row_of_the_chain(svc, blender):
     assert not flattened & set(model)
     assert not flattened & set(rig)
     # And it is the *request*, not something the worker learned: stripping it
-    # on a rerun would leave a sheet that no longer knows who it depicts.
+    # on a rerun would leave a row that no longer knows who it depicts.
     assert "character" not in DERIVED_PARAMS
 
 
@@ -381,19 +276,21 @@ def test_a_build_that_fails_halfway_takes_its_directory_with_it(svc, blender, mo
     assert svc.store.list(limit=50) == []
 
 
-def test_create_character_leaves_no_orphaned_row_when_send_to_troupe_fails(
+def test_create_character_leaves_no_orphaned_row_when_the_rig_door_fails(
     svc, blender, monkeypatch
 ):
     """troupe-01 (2026-09-07 audit): the door's own docstring claims "the mesh
-    is built only once nothing left can refuse it", but ``send_to_troupe`` was
-    called after the mesh row was already committed with no cleanup around it
-    -- a failure there left a permanently orphaned "done" mesh row with no rig
-    and no sheet. This must cost the request exactly as an earlier refusal
-    does: no row, no directory.
+    is built only once nothing left can refuse it", but the rig door was called
+    after the mesh row was already committed with no cleanup around it -- a
+    failure there left a permanently orphaned "done" mesh row with no rig. This
+    must cost the request exactly as an earlier refusal does: no row, no
+    directory.
     """
+    from realmspinner.service import rig as svc_rig
+
     monkeypatch.setattr(
-        svc_troupe,
-        "send_to_troupe",
+        svc_rig,
+        "create_rig",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rig door exploded")),
     )
     before = sorted(p.name for p in svc.config.data_dir.iterdir())
@@ -417,64 +314,6 @@ def test_without_blender_a_character_is_refused_in_the_rig_segments_words(svc, m
         svc_characters.create_character(svc, _recipe("human"))
     assert str(refused.value) == "Rigging needs Blender, which is not installed."
     assert svc.store.list(limit=50) == []
-
-
-# --- the exported package ----------------------------------------------------
-
-
-def _sheet_on_disk(svc, job_id):
-    sheet_id = store.new_id()
-    job_dir = svc.job_dir(job_id)
-    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    store.sheet_png_path(job_dir, sheet_id).write_bytes(b"png-bytes")
-    store.sheet_path(job_dir, sheet_id).write_text(json.dumps({"cells": []}), "utf-8")
-    return sheet_id
-
-
-def test_an_exported_package_lands_as_a_pair_and_leaves_no_temp(svc, blender, tmp_path):
-    """**Both files or neither.** The PNG is the atlas and the JSON is what says
-    which cell is ``walk`` facing south-east; a folder holding one without the
-    other holds an asset nothing can interpret. The copy is staged for
-    ``export.staged_copy``'s reason -- the destination is a watched project
-    folder, and a torn read there is a hot-reloading engine's crash."""
-    made = svc_characters.create_character(svc, _recipe("human", name="Ranger"))
-    sheet_id = _sheet_on_disk(svc, made["id"])
-
-    dest = tmp_path / "project" / "assets"
-    out = svc_characters.export_package(svc, made["id"], sheet_id, dest_dir=dest)
-
-    assert Path(out["png"]).read_bytes() == b"png-bytes"
-    assert json.loads(Path(out["json"]).read_text("utf-8")) == {"cells": []}
-    assert Path(out["png"]).stem == Path(out["json"]).stem == "Ranger"
-    assert sorted(p.name for p in dest.iterdir()) == ["Ranger.json", "Ranger.png"]
-
-    # Neither, when the pair cannot be completed: the sidecar's copy fails and
-    # the PNG must not be standing at the destination on its own.
-    real_copy = shutil.copyfile
-
-    def _half(src, dst, *a, **k):
-        if str(src).endswith(".json"):
-            raise OSError("no space left on device")
-        return real_copy(src, dst, *a, **k)
-
-    other = tmp_path / "second"
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(svc_export.shutil, "copyfile", _half)
-        with pytest.raises(OSError):
-            svc_characters.export_package(svc, made["id"], sheet_id, dest_dir=other)
-    assert list(other.iterdir()) == []
-
-
-def test_export_refuses_without_an_export_folder_in_the_librarys_exact_words(svc, blender):
-    """``export_to_folder``'s sentence verbatim. Two wordings for one condition
-    is how a user comes to believe they are two different problems."""
-    made = svc_characters.create_character(svc, _recipe("human"))
-    sheet_id = _sheet_on_disk(svc, made["id"])
-    assert svc.config.export_dir is None
-
-    with pytest.raises(NotFound) as refused:
-        svc_characters.export_package(svc, made["id"], sheet_id)
-    assert str(refused.value) == "no export folder configured (set REALMSPINNER_EXPORT_DIR)"
 
 
 def test_a_preview_is_a_temp_glb_and_never_a_row(svc):
@@ -576,10 +415,11 @@ def test_character_options_answers_for_every_archetype_and_species(svc):
     assert len(options["families"]) == len(family_mod.families())
     assert set(options["channels"]) == set(family_mod.families())
     assert options["default_recipe"]["family"]
-    assert options["troupe"]["camera_presets"]
+    # The sheet ladders left with the sheets: no ``troupe`` block rides along.
+    assert "troupe" not in options
 
 
-def test_a_finished_character_offers_poser_once_it_is_rigged_and_clay_before(svc):
+def test_a_finished_character_offers_clay_before_and_after_it_is_rigged(svc):
     """The card's one action, for the intent this door writes.
 
     Never "rig": the rig row was minted in the same press, and offering to make
@@ -597,6 +437,7 @@ def test_a_finished_character_offers_poser_once_it_is_rigged_and_clay_before(svc
     }
     assert state.primary_action(body) == "clay"
     rigged = {**body, "files": ["model.glb", "rig.glb"]}
-    assert state.primary_action(rigged) == "poser"
+    # Poser left (``retired.py``): a rigged character is posed in Clay too.
+    assert state.primary_action(rigged) == "clay"
     # And the label exists, because the library looks it up by name.
-    assert state.ACTIONS["poser"]
+    assert state.ACTIONS["clay"]

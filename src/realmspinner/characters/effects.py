@@ -8,7 +8,7 @@ every one of the 256 rendered cells, and Flourish already knows how to draw a
 flame. What was missing was the four lines of arithmetic between them.
 
 **The composite happens between the reduction and the pack**, which is
-``_q_troupe``'s ordering to defend and not this module's; what this module owes
+the retired Troupe worker's ordering to defend and not this module's; what this module owes
 that ordering is that it works at the *logical* cell size, so the flame it
 returns is a drop-in replacement for the reduced frame it was handed.
 

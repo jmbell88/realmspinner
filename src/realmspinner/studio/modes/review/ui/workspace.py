@@ -662,7 +662,7 @@ class ReviewPanes:
         # ``note_field_error``, but this form drew every control by hand, with
         # nowhere for ``ctx.state.field_errors`` to land -- a toast was the
         # whole of what a rejected sweep ever showed. ``forms.Form`` is the
-        # door ``sheet_panel``/``settings_2d`` already use for the same shape;
+        # door ``settings_2d`` already uses for the same shape;
         # ``on_edit`` clears a field's ring the moment it is retyped.
         with forms.Form(
             "review-sweep",

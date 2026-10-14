@@ -240,12 +240,6 @@ class EventsMixin:
                 if ctx.state.mode == "mason":
                     self._mason_event(event)
                     continue
-                # Poser too, and for a stronger reason: it has its own Viewer
-                # instance, so the shared-viewer path below must never see its
-                # events or one drag would orbit both cameras.
-                if ctx.state.mode == "poser":
-                    self._poser_event(event)
-                    continue
                 # The viewer sees the mouse when it is over the viewport image, and
                 # a drag already in progress keeps it wherever the cursor goes.
                 if _takes_pointer(self.viewer, self._viewport_hovered):
@@ -341,20 +335,6 @@ class EventsMixin:
         if _takes_pointer(self.mason_view, hovered):
             source = mason_assets.ensure(self.app_ctx)
             self.mason_view.handle_event(tab.doc, source, event, hovered)
-
-    def _poser_event(self, event: Any) -> None:
-        """Route the mouse to Poser's viewer, on the same hover rule as Clay's.
-
-        A drag already in progress ignores the hover, so crossing onto a panel
-        mid-orbit does not drop it.
-        """
-        from .frame import _takes_pointer
-
-        viewer = self.poser_viewer
-        if viewer is None:
-            return
-        if _takes_pointer(viewer, self._poser_hovered):
-            viewer.handle_event(event, hovered=self._poser_hovered)
 
     def _ends_running_tour(self, event: Any) -> bool:
         """Whether this is an Esc press that a running tour owes an answer to.
@@ -673,14 +653,6 @@ class EventsMixin:
             # consumes it, because framing needs a viewport this module owns
             # and that one may not import (B6).
             clay_mode.handle_key(ctx, event)
-            return
-        if ctx.state.mode == "poser":
-            from ..modes.poser import mode as poser_mode
-
-            # Unconditional for the workspace-mode reason: handle_key returns
-            # False with nothing selected, and letting that fall through would
-            # let F/W/S act on the asset viewport Poser has replaced.
-            poser_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "review":
             from ..modes.review import mode as review_mode

@@ -22,8 +22,7 @@ from realmspinner.studio.modes.muse.ui.panes import results as muse_results
 from realmspinner.studio.modes.packwright.ui.panes import bridge as packwright_bridge
 from realmspinner.studio.modes.plotter.ui.panes import layers as plotter_layers
 from realmspinner.studio.modes.plotter.ui.panes import menu as plotter_menu
-from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
-from realmspinner.studio.panes import inspector, sheet_panel, sprite_panel
+from realmspinner.studio.panes import inspector, sprite_panel
 
 # --- property labels --------------------------------------------------------
 
@@ -48,14 +47,14 @@ def test_verbs_are_spelt_from_the_mode_table():
     assert verbs.open_in("inker") == "Open in Inker"
     assert verbs.add_to("packwright") == "Add to Packwright"
     assert verbs.add_to("plotter", "as a tileset") == "Add to Plotter as a tileset"
-    assert verbs.send_to("poser") == "Send to Poser"
+    assert verbs.send_to("clay") == "Send to Clay"
     assert verbs.EXPORT_TO_LIBRARY == "Export to the library"
 
 
 def test_no_pane_spells_a_cross_workspace_verb_by_hand():
     panes = (
         clay_props, inspector, library, muse_results, packwright_bridge,
-        plotter_menu, sheet_panel, sprite_panel, poser_sheet,
+        plotter_menu, sprite_panel,
         inker_ops,
     )
     literal = re.compile(r'"(Open in|Send to|Add to) [A-Z]|Export to (the )?library"')

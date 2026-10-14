@@ -83,21 +83,15 @@ def plan_for(form: dict[str, Any], resolved: Any = None, *, installed: bool = Tr
     elif spec.key == "character":
         # **Zero image generations, and the plan says so out loud.** Every other
         # arm here counts SDXL passes; a character spends none -- the body comes
-        # off the baked registry assets, the rig is Blender and the cells are
-        # EEVEE, all of it CPU. A user with a small card is owed that before the
-        # press rather than after it, which is why "no GPU needed" is in the
-        # line rather than in a tooltip.
+        # off the baked registry assets, the rig is Blender, all of it CPU. A user with a
+        # small card is owed that before the press rather than after it, which
+        # is why "no GPU needed" is in the line rather than in a tooltip.
         from .....service import characters as svc_characters
-        from ..engine import character as character_engine
 
         candidates = 1
         generations = 0
-        cells = character_engine.cell_count(form)
-        stages = (
-            f"1 character ({_species_label(form)}) → rig → {cells}-cell "
-            f"sheet, CPU only, no GPU needed"
-        )
-        duration = _about_minutes(svc_characters.estimate_minutes(cells))
+        stages = f"1 character ({_species_label(form)}) → rig, CPU only, no GPU needed"
+        duration = _about_minutes(svc_characters.estimate_minutes(0))
     if not duration:
         duration = svc_sprites.generation_time_phrase(generations)
     recipe = "Automatic recipe"
@@ -910,7 +904,7 @@ def estimated_seconds(job: dict[str, Any]) -> float | None:
     params = job.get("params") or {}
     if job.get("stage") == "model":
         return MESH_SECONDS
-    if job.get("stage") == "reference" and not (params.get("sprite_sheet") or params.get("troupe")):
+    if job.get("stage") == "reference" and not params.get("sprite_sheet"):
         return float(svc_sprites.SECONDS_PER_GENERATION)
     return None
 

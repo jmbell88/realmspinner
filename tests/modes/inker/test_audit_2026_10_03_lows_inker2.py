@@ -294,48 +294,6 @@ def test_a_save_still_gets_the_write_sentence_even_while_playing():
     assert inker_export.door_state(sheet, tab) == (False, inker_export.BUSY_WHY)
 
 
-# --- inker-88: the Merge re-render lists sheets on the task thread ----------------------------
-
-
-def test_merge_rerender_lists_sheets_on_the_task_thread(monkeypatch):
-    import threading
-
-    from realmspinner.kernels.pixel.sheetin import document_from_sheet
-    from realmspinner.studio.modes.inker import ops as inker_ops
-
-    cell = np.zeros((8, 8, 4), dtype=np.uint8)
-    cell[..., 3] = 255
-    atlas = np.concatenate([cell, cell], axis=1)
-    cells = [{"x": 0, "y": 0, "w": 8, "h": 8}, {"x": 8, "y": 0, "w": 8, "h": 8}]
-    anim = {"tags": [{"name": "walk_front", "start": 0, "end": 1, "loop": True}], "frames": []}
-    doc = document_from_sheet(atlas, cells, anim, source={"job": "J", "sheet": "S1"})
-    tab = inker_state.InkerDoc(doc=doc, title="walk.ora")
-    state = inker_state.InkerState()
-    state.add(tab)
-
-    seen: list[str] = []
-    submitted: list = []
-    ctx = SimpleNamespace(
-        state=SimpleNamespace(inker=state),
-        svc=object(),
-        toast=lambda *a, **k: None,
-        submit=lambda key, fn, *a, **k: submitted.append(fn) or True,
-    )
-
-    def _newest(svc, job, sheet):
-        seen.append(threading.current_thread().name)
-        return ""
-
-    monkeypatch.setattr(inker_mode, "newest_sheet_after", _newest)
-
-    inker_ops._sheet_merge(ctx, tab)
-
-    assert seen == [], "the sheet listing ran in the click, on the frame thread"
-    assert len(submitted) == 1
-    submitted[0]()
-    assert seen, "the listing moved into the submitted task"
-
-
 # --- inker-90: Alt+0 does not set the opacity --------------------------------------------------
 
 

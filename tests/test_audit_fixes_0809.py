@@ -64,12 +64,14 @@ def test_raw_is_still_allowed_without_gltfpack(svc, done_job_with_source, monkey
     assert svc_jobs.optimize_job(svc, done_job_with_source, profile="raw")
 
 
-# --- #4: a pixel sheet is priced from the registry ---------------------------
+# --- #4: an img2img kind is priced from the registry -------------------------
 
 
-def test_a_pixel_sheet_is_priced_from_its_own_checkpoint():
-    """`queue._pixel_sheet` reads params["base_model"], so a flat SDXL_GIB was
-    correct only for as long as the one caller kept writing "sdxl_cfg".
+def test_a_retexture_is_priced_from_its_own_checkpoint():
+    """`queue._retexture` reads params["base_model"], so a flat SDXL_GIB was
+    correct only for as long as the one caller kept writing "sdxl_cfg". (This
+    pinned the pixel sheet's estimate until that kind left, ``retired.py``; the
+    retexture is the img2img kind with the same shape.)
 
     ``"control": "canny"`` is here to keep pinning the ControlNet term this
     test was written for: the 2026-09-18 audit, finding service-02, made
@@ -88,7 +90,7 @@ def test_a_pixel_sheet_is_priced_from_its_own_checkpoint():
         pytest.skip("no base model with a distinct vram_gib to tell the two apart")
 
     priced = vram.estimate(
-        "pixel_sheet", "model", {"base_model": offloaded, "control": "canny"}, exclusive=True
+        "retexture", "model", {"base_model": offloaded, "control": "canny"}, exclusive=True
     )
     expected = models.BASE_MODELS[offloaded].vram_gib + vram.CONTROLNET_GIB
     assert priced == pytest.approx(expected)
@@ -101,7 +103,7 @@ def test_an_unknown_checkpoint_still_falls_back_to_sdxl():
     the SDXL fallback, not whether a ControlNet is charged (service-02).
     """
     priced = vram.estimate(
-        "pixel_sheet", "model", {"base_model": "gone", "control": "canny"}, exclusive=True
+        "retexture", "model", {"base_model": "gone", "control": "canny"}, exclusive=True
     )
     assert priced == pytest.approx(vram.SDXL_GIB + vram.CONTROLNET_GIB)
 

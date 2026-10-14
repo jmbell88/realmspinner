@@ -69,50 +69,11 @@ def test_reroll_of_a_masked_job_keeps_its_mask(svc):
     assert (svc.job_dir(new_id) / "ref.png").exists()
 
 
-def _sheet_and_animated_job(svc):
-    import json
+def _animated_job(svc):
+    from test_character_exports import _rigged_and_animated
 
-    from test_character_exports import (
-        _build_sheet,
-        _fake_glb,
-        _two_movement_layout,
-    )
-
-    from realmspinner import clips
-    from realmspinner.service import derive as svc_derive
-
-    job_id, sheet_id, _colors = _build_sheet(
-        svc, _two_movement_layout(), with_troupe_block=True, name="Knight"
-    )
-    job_dir = svc.job_dir(job_id)
-    (job_dir / "rig.glb").write_bytes(b"fake-rig")
-    (job_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
-    glb = _fake_glb(
-        ["idle", "walk"],
-        loops=["idle", "walk"],
-        digest=clips.library_digest("humanoid"),
-        rig_digest=svc_derive._rig_digest(job_dir),
-    )
-    (job_dir / "animated.glb").write_bytes(glb)
-    return job_id, sheet_id
-
-
-def test_a_frames_export_and_a_godot_export_of_one_character_do_not_replace_each_other(
-    svc, tmp_path
-):
-    from realmspinner.service import characters as svc_characters
-
-    job_id, sheet_id = _sheet_and_animated_job(svc)
-    out = tmp_path / "out"
-    frames = svc_characters.export_frames(svc, job_id, sheet_id, dest_dir=out)
-    godot = svc_characters.export_godot(svc, job_id, dest_dir=out)
-    assert frames != godot
-    assert frames.is_dir() and (frames / "manifest.json").exists()
-    assert godot.is_dir() and list(godot.glob("*.tscn"))
-    # and a re-export replaces its own folder only when told to
-    assert (
-        svc_characters.export_frames(svc, job_id, sheet_id, dest_dir=out, overwrite=True)
-        == frames
+    return _rigged_and_animated(
+        svc, animation_names=["idle", "walk"], loops=["idle", "walk"], name="Knight"
     )
 
 
@@ -120,7 +81,7 @@ def test_an_export_never_replaces_a_folder_it_did_not_write(svc, tmp_path):
     from realmspinner.service import characters as svc_characters
     from realmspinner.service.errors import Conflict
 
-    job_id, sheet_id = _sheet_and_animated_job(svc)
+    job_id = _animated_job(svc)
     out = tmp_path / "out"
     mine = out / "Knight-godot"
     mine.mkdir(parents=True)

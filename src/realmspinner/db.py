@@ -16,18 +16,22 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from . import retired
+
 log = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id          TEXT PRIMARY KEY,
     kind        TEXT NOT NULL,              -- illustrative, not enforced -- SQLite has no
-                                            --   CHECK here and the service writes thirteen:
-                                            --   'text' | 'image' | 'rig' | 'sheet'
-                                            --   | 'pixel_sheet' | 'sprite_synthesis'
+                                            --   CHECK here and the service writes ten:
+                                            --   'text' | 'image' | 'rig'
+                                            --   | 'sprite_synthesis'
                                             --   | 'retexture' | 'tile_sheet' | 'remesh'
-                                            --   | 'lora_train' | 'charsheet' | 'music'
-                                            --   | 'separate'. Kept illustrative rather than
+                                            --   | 'lora_train' | 'music'
+                                            --   | 'separate' (and rows of the retired
+                                            --   'sheet' | 'pixel_sheet' | 'charsheet',
+                                            --   see retired.py). Kept illustrative rather than
                                             --   exhaustively maintained after the 2026-09-07
                                             --   audit (service-07) found it listing ten while
                                             --   the service already wrote thirteen.
@@ -481,6 +485,29 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def retire_stuck_rows(conn: sqlite3.Connection) -> int:
+    """Turn every queued or running row of a retired kind into an error row.
+
+    Run on every open rather than as a ``MIGRATIONS`` entry: an entry runs once
+    per database, and the point is that a *restored* library -- a backup taken
+    before the kinds left -- must not hand the worker a ``charsheet`` row to
+    claim either. ``Worker._generate`` refuses one that still gets through.
+
+    Only ``status`` changes. The row, its params and everything on disk under
+    its directory stay (``retired.py``: the user's work is theirs until they
+    trash it). -> the number of rows changed.
+    """
+    kinds = sorted(retired.RETIRED_KINDS)
+    marks = ",".join("?" for _ in kinds)
+    cur = conn.execute(
+        "UPDATE jobs SET status = 'error', error = ?, finished_at = ?"
+        f" WHERE status IN ('queued', 'running') AND kind IN ({marks})",
+        (retired.NOTE, time.time(), *kinds),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
 def _like_escape(value: str) -> str:
     """Escape LIKE's own wildcards (and the escape character) so a typed ``%``
     or ``_`` is searched for rather than read as a pattern."""
@@ -612,6 +639,7 @@ class JobStore:
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(_SCHEMA)
             _migrate(self._conn)
+            retire_stuck_rows(self._conn)
         except (sqlite3.DatabaseError, OSError) as exc:
             with contextlib.suppress(Exception):
                 # A half-opened connection is still a file handle, and the
@@ -1927,8 +1955,9 @@ class JobStore:
         and mixing the two would list every sweep unit twice.
 
         ``kind IN ('text', 'image')`` -- the 2026-09-26 audit, service-queue-03:
-        every one of ``followups.PRODUCTS``' eight derived kinds (rig, sheet,
-        pixel_sheet, sprite_synthesis, charsheet, retexture, remesh, separate)
+        every one of ``followups.PRODUCTS``' derived kinds (rig, sprite_synthesis,
+        retexture, remesh, separate -- and the retired sheet kinds, in rows an
+        earlier build wrote)
         defaults to ``stage = 'model'`` exactly like an ordinary reconstruction
         does (``JobStore.create``'s own default), and none of them carries the
         generation vector a mesh verdict is meant to grade -- so a finished rig,

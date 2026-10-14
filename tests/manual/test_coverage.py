@@ -107,8 +107,8 @@ NO_HELP_BUTTON = {
     # inline help button beside its "Current: W x H" line, so the exemption is
     # no longer true and the file is gated like every other pane.
     # Not a pane at all: the mtime-cache rule several panes share, kept beside
-    # them because inspector already imports sheet_panel and so neither of the
-    # two could host it. Nothing on screen, so nothing to document.
+    # them because several panes import it and so none of them
+    # could host it. Nothing on screen, so nothing to document.
     "stamps",
     # A search box over whatever is on screen: it has no titled section to hang
     # a (?) beside, and a help button inside a list the arrow keys walk is a
@@ -142,13 +142,6 @@ NO_HELP_BUTTON = {
     # square of pixels. Home's grid and the library's cards each carry their
     # own, pointing at the chapters that describe them.
     "thumbs",
-    # A modal raised by two doors elsewhere -- the library's menu item and the
-    # inspector's button -- and drawn at top level because the first of those
-    # is inside a context popup. It has no titled section to hang a (?) beside,
-    # and the settings it asks about are the ones ``poser-new-character``
-    # already documents, so a second target would point at the same chapter
-    # under a different name.
-    "poser_send",
 }
 
 

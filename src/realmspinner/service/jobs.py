@@ -56,7 +56,6 @@ from ._jobs_lifecycle import (  # noqa: F401  -- the facade's re-export
     prune_jobs,
     restore_job,
     retained_job_ids,
-    set_front_yaw,
     trash_job,
     trash_size,
     update_job,

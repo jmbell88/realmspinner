@@ -568,17 +568,6 @@ def test_the_content_box_cache_forgets_a_document_that_is_gone():
     assert not any(key[0] == ident for key in inker_canvas._CONTENT_BOX)
 
 
-def test_the_mirror_preview_draws_runs_rather_than_pixels():
-    from realmspinner.studio.modes.inker.ui.panes.canvas import _runs
-
-    assert _runs([1, 2, 3, 7], [0, 0, 0, 0], None) == [
-        (1, 0, 3, False),
-        (7, 0, 1, False),
-    ]
-    # The face box splits a run: the two sides are different colours.
-    assert len(_runs([1, 2, 3], [0, 0, 0], (2, 0, 3, 1))) == 3
-
-
 def test_the_gif_palette_map_is_over_distinct_colours():
     import numpy as np
 

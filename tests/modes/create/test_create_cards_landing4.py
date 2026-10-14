@@ -140,7 +140,6 @@ def _ctx(svc: Any, job: dict[str, Any], *, mode: str, stage: str = "reference") 
         rig_templates=[],
         rig_default="",
         rigging_available=False,
-        sheet_options={},
     )
 
 

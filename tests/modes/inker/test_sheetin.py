@@ -266,7 +266,7 @@ def test_document_from_sheet_refuses_a_cell_count_past_max_sheet_frames():
     before it is checked, and it is enforced inside ``grid_rects()``
     (``document_from_grid``'s door, the test above) -- but
     ``document_from_sheet`` takes ``cells`` verbatim from a rendered sheet's
-    on-disk sidecar JSON via ``inker_open.sheet_grid`` and built one Frame
+    on-disk sidecar JSON and built one Frame
     plus one Layer per entry with no ceiling of its own. A 1MB sidecar (the
     generic size cap every sidecar gets) can still encode roughly 28,000 cell
     entries, about 7x past this ceiling.

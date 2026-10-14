@@ -601,9 +601,8 @@ def _pixel_look(ctx: Any, form: dict[str, Any], form_ui: forms.Form, *, sprite: 
     whatever ``resolve_palette`` returned. So on this form a dither with no
     palette dithers against the derived table, which is a real and different
     picture -- and hiding the box would make *that* the unreachable capability.
-    Poser's character-sheet form (Troupe's own pane, before P9 2026-09-18
-    folded that mode in, shipped these controls first) draws it
-    unconditionally for the same reason.
+    Poser's character-sheet form (a retired feature) drew it unconditionally
+    for the same reason.
 
     The palette list comes from the arm's own door and never from
     ``tile_sheet_options`` / ``create_recipe.sprite_options``: those are pure functions of
@@ -723,7 +722,7 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         # over a blank form value and wrote nothing until it was edited, so a
         # Generate pressed straight after choosing Custom submitted the blank
         # (keep working resolution) beside a box reading 256. Store what is
-        # shown, as ``sheet_panel._seed_clip_ends`` does for its own boxes.
+        # shown.
         form["target_cell_px"] = str(number)
     # The 2026-09-26 audit, finding create-panes-05: this used to answer to
     # "target_cell_px_custom", a name ``field_errors`` never carries -- the
@@ -820,7 +819,7 @@ def reset(ctx: Any) -> None:
     zeroed, which is what that default does and why it is a function.
 
     ``state.preview`` is a shared dict, not a 2D-owned one: the Pose stage
-    keeps poses/sheets/bones/``library_poses`` there and the Mesh pane keeps
+    keeps its poses and bones there and the Mesh pane keeps
     ``_LAST_AUTO_MATTE_SLOT`` there. The 2026-09-23 audit (create-01) found
     this function doing ``ctx.state.preview = {}``, which wiped all of that
     on a Reset the confirm dialog promises is 2D-only ("The 3D form is
@@ -1582,7 +1581,7 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
         # The second output that does not go through ``create_job``, and the
         # only one that generates no image at all: ``create_character`` builds
         # a mesh from the recipe, mints its row finished and queues the rig
-        # that will mint the sheet. ``create_job``'s own allowlist refuses
+        # that ends the character. ``create_job``'s own allowlist refuses
         # ``asset_type="character"`` by name, which is what keeps this branch
         # from being merely a convention.
         if settings_character.submit(ctx, form):

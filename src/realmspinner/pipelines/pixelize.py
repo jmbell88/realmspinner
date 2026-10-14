@@ -1,7 +1,7 @@
 """The AI-free pixeliser: a rendered sheet becomes pixel art by arithmetic.
 
-``create_pixel_sheet`` always queues an SDXL img2img job. That is the right
-tool for restyling, and the wrong one for a Troupe character: at hard-edged,
+An SDXL img2img restyle was the only way to a pixel-art sheet. That is the
+right tool for restyling, and the wrong one for a rendered character: at hard-edged,
 alpha-255, low-colour pixel art a single drifted pixel is visible in every
 frame and there is no averaging to hide it. Everything needed to do it
 deterministically already shipped in ``pixel.py`` -- ``map_palette`` (nearest

@@ -1416,7 +1416,6 @@ async def test_an_image_job_gets_no_credit_for_the_resident_pipe(
     "kind,params",
     [
         ("sprite_synthesis", {"base_model": "sdxl_cfg"}),
-        ("pixel_sheet", {"base_model": "sdxl_cfg"}),
         ("retexture", {"base_model": "sdxl_cfg"}),
     ],
 )
@@ -3948,7 +3947,7 @@ async def test_a_cancel_verdict_survives_a_transient_store_error(worker, monkeyp
 
 # --- the 2026-09-07 audit, finding service-01 --------------------------------
 #
-# Four job kinds -- ``_sheet`` (_q_rig.py), ``_sprite_synthesis`` (_q_sprite.py),
+# Four job kinds -- ``_sheet`` (_q_rig.py, retired), ``_sprite_synthesis`` (_q_sprite.py),
 # ``_tile_sheet`` (_q_tilesheet.py) and ``_tile_set`` (_q_tileset.py, reached
 # through the "tile_sheet" kind's materials mode) -- published their completion
 # marker and then never called ``self._cancel.commit()``, unlike every sibling
@@ -3957,45 +3956,6 @@ async def test_a_cancel_verdict_survives_a_transient_store_error(worker, monkeyp
 # whatever the stage just published -- deleting a finished sheet, draft or
 # tileset the user can already see, and recording the row as cancelled when it
 # is not.
-
-
-def _sheet_kind_job(worker):
-    """A rig ``sheet`` job over an unrigged mesh, with the Blender render faked
-    the way ``test_sheet.py``'s ``_fake_render`` does."""
-    from pathlib import Path
-
-    from PIL import Image
-
-    from realmspinner.kernels.rig import store as rig_store
-    from realmspinner.pipelines import blender_run
-
-    def fake_render(spec, *, on_progress=None, on_start=None, timeout=0.0):
-        frames_dir = Path(spec["frames_dir"])
-        for cell in spec["cells"]:
-            Image.new(
-                "RGBA", (spec["frame_size"],) * 2, (cell["index"], 0, 0, 255)
-            ).save(frames_dir / f"{cell['index']:04d}.png")
-        return {"ok": True}
-
-    def setup(monkeypatch):
-        monkeypatch.setattr(blender_run, "run_worker", fake_render)
-        source = worker.store.create("text", "a knight", {"seed": 1})
-        source_dir = worker.config.job_dir(source)
-        source_dir.mkdir(parents=True, exist_ok=True)
-        (source_dir / "model.glb").write_bytes(b"fake-glb")
-        worker.store.set_status(source, "done")
-        sheet_id = rig_store.new_id()
-        job_id = worker.store.create(
-            "sheet", None,
-            {"source_job": source, "sheet_id": sheet_id, "poses": [], "frame_size": 64},
-        )
-        artifacts = [
-            rig_store.sheet_png_path(source_dir, sheet_id),
-            rig_store.sheet_path(source_dir, sheet_id),
-        ]
-        return job_id, artifacts
-
-    return setup
 
 
 def _sprite_synthesis_kind_job(worker):
@@ -4088,8 +4048,8 @@ def _tile_set_kind_job(worker):
 
 @pytest.mark.parametrize(
     "make_setup",
-    [_sheet_kind_job, _sprite_synthesis_kind_job, _tile_sheet_kind_job, _tile_set_kind_job],
-    ids=["sheet", "sprite_synthesis", "tile_sheet", "tile_set"],
+    [_sprite_synthesis_kind_job, _tile_sheet_kind_job, _tile_set_kind_job],
+    ids=["sprite_synthesis", "tile_sheet", "tile_set"],
 )
 async def test_a_cancel_after_publish_does_not_discard_the_finished_sheet_draft_or_tileset(
     worker, monkeypatch, make_setup
@@ -4100,11 +4060,11 @@ async def test_a_cancel_after_publish_does_not_discard_the_finished_sheet_draft_
     job_id, artifacts = setup(monkeypatch)
 
     # The cancel lands the instant the stage writes its completion marker --
-    # exactly the window ``_charsheet`` and ``_pixel_sheet`` already close with
-    # their own ``self._cancel.commit()`` call, and the four kinds above did
-    # not. ``_publish_text`` is the one function every one of them calls to
-    # write that marker, so patching it here reaches all four without knowing
-    # which kind is under test.
+    # exactly the window the retired sheet workers closed with their own
+    # ``self._cancel.commit()`` call, and the three kinds above did not.
+    # ``_publish_text`` is the one function every one of them calls to write
+    # that marker, so patching it here reaches all three without knowing which
+    # kind is under test.
     real_publish = queue_mod._publish_text
     fired = {"done": False}
 

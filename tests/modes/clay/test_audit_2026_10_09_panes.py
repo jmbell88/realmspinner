@@ -1,6 +1,6 @@
 """The 2026-10-09 audit's panes findings: clay-04, 05, 16, 23, 27, 44, 47 and 48.
 
-One block per finding id. The manual blocks read ``docs/manual/30-clay.md`` against
+One block per finding id. The manual blocks read ``docs/manual/27-clay.md`` against
 the constants and tables the sentences describe.
 """
 
@@ -28,7 +28,7 @@ from realmspinner.studio.modes.clay.ui.panes import swatches
 from realmspinner.studio.modes.clay.ui.panes import tools as clay_tools
 
 _PANES = Path(clay_outliner.__file__).parent
-_MANUAL = Path(__file__).resolve().parents[3] / "docs" / "manual" / "30-clay.md"
+_MANUAL = Path(__file__).resolve().parents[3] / "docs" / "manual" / "27-clay.md"
 
 
 class _Ctx:

@@ -16,6 +16,8 @@ from typing import Any
 from imgui_bundle import imgui
 
 from ... import followups
+from ...retired import NOTE as retired_note
+from ...retired import is_retired
 from ...service import derive as svc_derive
 from ...service import files as svc_files
 from ...service import jobs as svc_jobs
@@ -31,7 +33,6 @@ from . import (
     overlay,
     pose_panel,
     retarget_panel,
-    sheet_panel,
     sprite_panel,
     stamps,
     texture_panel,
@@ -109,8 +110,9 @@ _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
     # deformation sheet. The decision and the button are in the stage's own
     # column.
     "rig": ("_weighting", "_bones", "_deform_qa"),
-    # Posing produces poses, and the thing made *of* poses is a sprite sheet.
-    "pose": ("sheet",),
+    # Posing's whole surface is its own column (``pose_panel``); nothing is
+    # made *of* poses any more, so there is no side pane to draw here.
+    "pose": (),
     # The grid itself is the stage's *column*; this side answers the question
     # a person actually has in front of it -- is this the right asset, and
     # what was it made from. ``_readiness`` goes first: standing at Export, the
@@ -125,7 +127,6 @@ def _stage_body(ctx: Any, job: Any) -> None:
         remesh_panel,
         reorient_panel,
         retarget_panel,
-        sheet_panel,
         sprite_panel,
         texture_panel,
     )
@@ -148,7 +149,6 @@ def _stage_body(ctx: Any, job: Any) -> None:
         "remesh": lambda: remesh_panel.draw(ctx, job),
         "retexture": lambda: texture_panel.draw(ctx, job),
         "_history": lambda: history_panel.draw(ctx, job),
-        "sheet": lambda: sheet_panel.draw(ctx, job),
     }
     for name in _STAGE_SECTIONS.get(ctx.state.create.stage, ()):
         # Close the open card first. A section reached straight after an *open*
@@ -210,6 +210,14 @@ def draw(ctx: Any) -> None:
             viewer = getattr(ctx, "viewer", None)
             if viewer is not None and getattr(viewer, "pending", None) is not None:
                 widgets.busy(f"Loading {job.get('name') or job['id']}")
+        if is_retired(job.get("kind")):
+            # A row of a removed kind (``retired.RETIRED_KINDS``): its files are
+            # kept, and nothing else is offered -- no Open, no exits, no tabs of
+            # rerun or export. The note says why, and what the user can still do
+            # (rename, tag, trash it from the Library).
+            widgets.muted_wrapped(retired_note)
+            _meta(ctx, job)
+            return
         if in_create:
             from ..modes.create.ui import workspace
 
@@ -505,7 +513,6 @@ def _rig_tab(ctx: Any, job: Any) -> None:
     texture_panel.draw(ctx, job)
     history_panel.draw(ctx, job)
     pose_panel.draw(ctx, job)
-    sheet_panel.draw(ctx, job)
 
 
 def rig_meta(ctx: Any, job: Any) -> dict[str, Any] | None:
@@ -1987,8 +1994,7 @@ def downloads(ctx: Any, job: Any) -> None:
     if job.get("stage") not in ("reference", "tile", "tilesheet", "music"):
         # Godot's importer is a mesh concern -- a reference, a tile or a music
         # row has no rig for it to describe -- so this sits beside the mesh
-        # grid rather than in it, the way ``export_package`` sits beside
-        # Troupe's sheet grid rather than in ``ARTIFACTS``.
+        # grid rather than in it.
         imgui.spacing()
         _godot_export(ctx, job)
 
@@ -2016,8 +2022,8 @@ def _godot_export_blocked(ctx: Any, job: Any) -> str | None:
 def _submit_export_godot(ctx: Any, job_id: str) -> bool:
     """Write the Godot scene, on the task thread.
 
-    ``troupe_mode.export_package``'s arrangement, restated here for the same
-    reason ``library._export_zip`` gives it: ``dialogs.select_folder`` blocks,
+    The arrangement ``library._export_zip`` gives its own export:
+    ``dialogs.select_folder`` blocks,
     so it is asked inside ``run`` -- never on the frame thread, or the window
     behind it freezes -- and only when no export folder is configured.
     ``None`` back from the picker means the user cancelled, which is why this

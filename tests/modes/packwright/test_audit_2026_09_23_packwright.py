@@ -103,19 +103,6 @@ def test_a_library_add_while_saving_is_refused_too():
     assert ctx.submitted == [], "a library add onto a saving tab must not start a decode"
 
 
-def test_a_rendered_sheet_handoff_while_saving_is_refused_too():
-    """Poser's sheet hand-off (Troupe's before P9, 2026-09-18) is the third
-    door ``add_rendered_sheet`` covers, and it had the same gap: the busy
-    check has to happen before this even looks at ``job_id``/``sheet_id``, so
-    a monkeypatched ``service.sheets`` is not needed to prove the refusal."""
-    ctx = FakeCtx()
-    _busy_tab(ctx)
-
-    packwright_mode.add_rendered_sheet(ctx, "job1", "sheet1")
-
-    assert ctx.submitted == [], "a sheet hand-off onto a saving tab must not start a decode"
-
-
 def test_a_drop_with_no_atlas_open_still_mints_one():
     """The busy guard must not swallow the existing "no tab yet" behaviour:
     dropping with nothing open still starts an atlas, since an atlas has no

@@ -510,7 +510,7 @@ def test_align_on_three_nodes_undoes_in_one_step():
     and Drop selection to ground's shared engine) used to push one
     ``TransformEdit`` per moved node with no ``mark``/``collapse_since``
     around the loop, so aligning three nodes cost three Ctrl+Z presses.
-    docs/manual/31-mason.md promises "Each of these lands as a single undo
+    docs/manual/28-mason.md promises "Each of these lands as a single undo
     step" and every other multi-node mutator in ``mason_mode.py``
     (``group_selected``, ``duplicate_selected``...) already folds this way.
 

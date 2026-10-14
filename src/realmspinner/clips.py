@@ -241,9 +241,9 @@ def _attach_root_offsets(tracks: list[dict[str, Any]], job_dir: Path) -> None:
     ``root_offset``, in place -- ``op_sheet``'s per-cell ``root_offset``,
     mirrored for a track's per-frame one.
 
-    ``clips.py`` may not import ``queue.py`` (``queue`` imports ``_q_troupe``,
-    which imports ``clips`` -- a cycle), so this is this module's own copy of
-    ``queue._sheet_root_offsets``'s arithmetic against
+    ``clips.py`` may not import ``queue.py`` (``queue`` imports the Worker
+    mixins, which import ``clips`` -- a cycle), so this is this module's own
+    copy of the sheet renderer's old root-offset arithmetic against
     ``blender_spec.root_offset_world``, and tolerant the same way
     ``service.rig._pose_bake_spec`` is: a rig.json this job directory does not
     have yet, or one built before bounds/root were recorded, costs every

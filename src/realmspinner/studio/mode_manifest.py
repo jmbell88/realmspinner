@@ -73,20 +73,20 @@ class ModeManifest:
     #: The mode key, one of ``modes.KEYS``.
     key: str
     #: The module (nested under :data:`_PACKAGE`, e.g. ``"modes.inker.mode"``)
-    #: that owns ``active``, ``JOURNAL`` and (for six of the seven) ``persist``.
+    #: that owns ``active``, ``JOURNAL`` and ``persist``.
     module: str
-    #: The journal/document kind string. Equal to ``key`` for six of the
-    #: seven; Poser's is ``"pose"`` -- a pose is authored in Poser, but
-    #: nothing else in the app ever calls the *document* a "poser".
+    #: The journal/document kind string. Equal to ``key`` for every mode today;
+    #: a mode whose document is not what the app calls the mode (Poser's was
+    #: ``"pose"``) is why this is a field and not derived.
     kind: str
     #: ``palette._DOC_MODES``'s export command label, character for
-    #: character. Empty suppresses the command instead of forcing a fake one:
-    #: Poser's document is a library record, saved and never exported.
+    #: character. Empty suppresses the command instead of forcing a fake one
+    #: (a mode whose document is a library record, saved and never exported).
     export_label: str
     #: The module whose ``open_path`` reopens a recent row of this kind, or
-    #: ``None`` when this kind has no recent-row opener at all (Poser: a pose
-    #: begins by rigging a library asset already there, never by reopening a
-    #: path, so it is not offered through Recents at all). Usually equal to
+    #: ``None`` when this kind has no recent-row opener at all (a document that
+    #: begins from a library asset already there and is never reopened by path).
+    #: Usually equal to
     #: ``module`` -- Sirens is the one exception, opened by ``sirens_io``
     #: rather than ``sirens_mode``.
     opener: str | None
@@ -116,9 +116,6 @@ DOC_MODES: tuple[ModeManifest, ...] = (
     ModeManifest(
         "sirens", "modes.sirens.mode", "sirens", "Export WAV + stems", "modes.sirens.fileio"
     ),
-    # An empty export label suppresses the command (see the field's own
-    # docstring); no opener, for the same reason a pose has no New command.
-    ModeManifest("poser", "modes.poser.mode", "pose", "", None),
 )
 
 
@@ -139,7 +136,7 @@ def export_table() -> dict[str, tuple[str, str]]:
 
 def opener_table() -> dict[str, str]:
     """``landing.KIND_OPENERS``'s shape: recent-doc kind -> opener module.
-    Poser is left out -- see :attr:`ModeManifest.opener`."""
+    A kind with no opener is left out -- see :attr:`ModeManifest.opener`."""
     return {m.kind: m.opener for m in DOC_MODES if m.opener is not None}
 
 

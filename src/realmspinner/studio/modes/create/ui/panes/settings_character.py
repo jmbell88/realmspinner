@@ -68,9 +68,6 @@ def draw_block(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         manual_render.help_button(ctx, "settings-character")
         _family(ctx, form, form_ui, opts)
         _theme(ctx, form, form_ui, opts)
-        _camera(ctx, form, form_ui, opts)
-        _actions(ctx, form, form_ui)
-        _pixels(ctx, form, form_ui, opts)
         _appearance(ctx, form, form_ui, opts)
         settings_2d.seed_row(ctx, form, form_ui)
         _name(ctx, form, form_ui)
@@ -123,85 +120,6 @@ def _theme(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, 
         character_engine.clear_refusal(ctx.state, "character_theme")
 
 
-def _camera(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:
-    current = character_engine.camera_of(form, opts)
-    changed, picked = form_ui.combo(
-        "character_camera",
-        "Camera",
-        current,
-        character_engine.camera_options(opts),
-        help_text="Where the eye is while the frames are rendered.",
-        helper=character_engine.camera_helper(opts, current),
-    )
-    if changed:
-        form["character_camera"] = picked
-        character_engine.touched(form, "character_camera")
-        character_engine.clear_refusal(ctx.state, "character_camera")
-
-
-def _actions(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
-    """One switch per movement, each carrying the frames it costs."""
-    form_ui.note("character_actions")
-    live = set(character_engine.actions_of(form))
-    directions = character_engine.DIRECTIONS
-    for name, frames in character_engine.MOVEMENTS:
-        changed, on = form_ui.switch(
-            f"character_action_{name}",
-            name.title(),
-            name in live,
-            help_text=f"{frames} frames, drawn {directions} ways.",
-            helper=f"{frames} frames x {directions} = {frames * directions} cells",
-        )
-        if changed:
-            if on:
-                live.add(name)
-            else:
-                live.discard(name)
-            form["character_actions"] = ",".join(
-                key for key, _f in character_engine.MOVEMENTS if key in live
-            )
-            character_engine.touched(form, "character_actions")
-            character_engine.clear_refusal(ctx.state, "character_actions")
-            live = set(character_engine.actions_of(form))
-    widgets.muted(f"{character_engine.cell_count(form)} cells")
-
-
-def _pixels(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:
-    """The two ladders the door enforces, read from the door.
-
-    Two calls rather than a loop over a table of two, deliberately: the field id
-    is the *address* a refusal is rung on, and
-    ``tests/test_field_error_wiring.py`` reads those ids out of this file's
-    source. An id built from a loop variable is an address no scan can see, and
-    an address no scan can see is how ``retarget_panel`` came to draw a control
-    a refusal could never reach.
-    """
-    changed, picked = form_ui.segmented_choice(
-        "character_pixel",
-        "Sprite size",
-        str(form.get("character_pixel") or ""),
-        tuple((str(v), f"{v} px") for v in opts["troupe"]["logical_sizes"]),
-        compact=True,
-        help_text="How many pixels across one rendered frame is.",
-    )
-    if changed:
-        form["character_pixel"] = picked
-        character_engine.touched(form, "character_pixel")
-        character_engine.clear_refusal(ctx.state, "character_pixel")
-    changed, picked = form_ui.segmented_choice(
-        "character_colors",
-        "Colours",
-        str(form.get("character_colors") or ""),
-        tuple((str(v), str(v)) for v in opts["troupe"]["colors"]),
-        compact=True,
-        help_text="How many colours the finished sheet is reduced to.",
-    )
-    if changed:
-        form["character_colors"] = picked
-        character_engine.touched(form, "character_colors")
-        character_engine.clear_refusal(ctx.state, "character_colors")
-
-
 def _appearance(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[str, Any]) -> None:
     """One slider per channel the *species' archetype* declares.
 
@@ -214,8 +132,7 @@ def _appearance(ctx: Any, form: dict[str, Any], form_ui: forms.Form, opts: dict[
         return
     # Above the sliders rather than rung onto one of them: the door refuses the
     # ``appearance`` *block*, and a ring on an arbitrary channel would point at
-    # the wrong control. ``poser.ui.panes.sheet``'s handling of ``layout``,
-    # which is the same shape of address.
+    # the wrong control.
     form_ui.note("character_body")
     body = character_engine.body_of(form, opts)
     for channel in channels:
@@ -256,9 +173,10 @@ def _unrecognised(form: dict[str, Any]) -> None:
 
     Said out loud rather than dropped: a user who typed "a fire ogre with a
     greataxe" is owed the fact that the axe was not understood, or they will
-    look for it on the sheet. An action the resolver understood and the sheet
-    does not carry ("a running wolf") is listed too -- the 2026-10-04 audit
-    (create-23) found it vanished with nothing said.
+    look for it on the character. An action the resolver understood ("a
+    running wolf") is listed too, since a character ends at its rig and Clay
+    does the moving -- the 2026-10-04 audit (create-23) found it vanished with
+    nothing said.
     """
     words = character_engine.not_interpreted(form)
     if words:
@@ -363,7 +281,7 @@ def preflight_fix(ctx: Any, form: dict[str, Any], problem: problems.Problem) -> 
 
 
 def _offer_fixes(ctx: Any, form: dict[str, Any]) -> None:
-    """Three real ways forward from "we do not make that", and no fourth.
+    """Two real ways forward from "we do not make that", and no third.
 
     **The substitution is one of them, and it is a press.** Applying the offer
     is the *only* place in this program where a species the user did not name
@@ -371,8 +289,8 @@ def _offer_fixes(ctx: Any, form: dict[str, Any]) -> None:
     sentence and clicked the button that repeats it. Nothing on any automatic
     path may do this -- see the module docstring.
 
-    The other two keep the brief and change the deliverable, which is why both
-    leave ``form["prompt"]`` alone: a user who came here for a manticore still
+    The other keeps the brief and changes the deliverable, which is why it
+    leaves ``form["prompt"]`` alone: a user who came here for a manticore still
     wants a manticore, and the question is only which surface can draw one.
     """
     opts = character_engine.options(ctx)
@@ -389,24 +307,3 @@ def _offer_fixes(ctx: Any, form: dict[str, Any]) -> None:
     ):
         character_engine.switch_to_sprite_sheet(form)
         ctx.state.clear_field_errors()
-    if controls.button("Draw it in Poser##character-poser", role=controls.ButtonRole.GHOST):
-        hand_to_poser(ctx, form)
-
-
-def hand_to_poser(ctx: Any, form: dict[str, Any]) -> None:
-    """The third route: a generated reference and a reconstruction.
-
-    Troupe's own ``hand_to_troupe``, repointed at Poser's character-sheet
-    stage now that the mode folded into it (P9, 2026-09-18). The brief goes
-    into ``poser_mode.sheet_form`` -- *the* form that stage's pane draws, not
-    a copy -- and then the mode opens. The prompt here is left exactly as it
-    was, ``switch_to_sprite_sheet``'s rule and its reason.
-
-    Not in the engine: it imports ``poser_mode``, a sibling mode's UI module,
-    which an engine module may never do.
-    """
-    from .....state import set_mode
-    from ....poser import mode as poser_mode
-
-    poser_mode.sheet_form(ctx)["prompt"] = str(form.get("prompt") or "")
-    set_mode(ctx.state, "poser")

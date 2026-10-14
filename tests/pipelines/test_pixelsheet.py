@@ -232,7 +232,7 @@ def test_with_no_palette_the_median_cut_becomes_the_palette_source():
 
 
 def test_the_derived_branch_is_exactly_the_hex_list_parsed_back():
-    """The collapse ``_q_troupe._quantise`` was refactored onto, pinned: the
+    """The collapse the retired Troupe worker was refactored onto, pinned: the
     triples are ``quantize_shared``'s own answer and nothing else."""
     atlas = _atlas(_meta(columns=2))
     _mapped, hexes = pixelsheet.quantize_shared(atlas, 8)

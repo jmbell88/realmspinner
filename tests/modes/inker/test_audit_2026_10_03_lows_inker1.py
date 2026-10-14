@@ -323,23 +323,6 @@ def test_a_tag_wholly_past_the_end_is_exported_the_same_whole_and_in_part():
     assert [(t.start, t.end) for t in remapped] == [(2, 2)]
 
 
-# --- inker-78 ----------------------------------------------------------------
-
-
-def test_dropped_by_aseprite_reports_a_sheet_merge_base():
-    """The recorded render digests travel in .ora (animation.json's ``sheet``)
-    and are dropped by aseout, yet no line said so: after Save As .aseprite a
-    Merge against a re-rendered sheet was silently off."""
-    from realmspinner.kernels.pixel import sheetmerge
-
-    doc = Document.blank(4, 4)
-    doc.ensure_animation()
-    assert not any("merge" in line for line in aseout.dropped_by_aseprite(doc))
-    doc.sheet_base = sheetmerge.SheetBase(digests={1: "abc"})
-    lines = aseout.dropped_by_aseprite(doc)
-    assert any("sheet merge base" in line for line in lines), lines
-
-
 # --- inker-79 ----------------------------------------------------------------
 
 
@@ -412,7 +395,7 @@ def test_the_texture_and_restyle_refusals_describe_the_scope_they_enforce():
 
     assert "this effect" not in flourish.RESTYLE_PENDING
     assert "this effect" not in flourish.TEXTURE_PENDING
-    chapter = Path(__file__).resolve().parents[3] / "docs" / "manual" / "29-inker-animation.md"
+    chapter = Path(__file__).resolve().parents[3] / "docs" / "manual" / "26-inker-animation.md"
     manual = chapter.read_text(encoding="utf-8")
     assert "one runs at a time per document" not in manual
 

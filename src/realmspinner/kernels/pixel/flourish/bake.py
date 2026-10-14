@@ -9,8 +9,8 @@ both borrowed from the character-sheet pipeline and recorded there first:
   pixel pass looks at *every* composited frame before it picks a colour set
   (``pipelines.pixelsheet.resolve_palette`` over a contact sheet of them), or
   takes the recipe's own, and maps every frame through that one set.
-* **Quantise last.** The pixel pass is not idempotent (``sheetmerge`` records
-  the trap), so it runs on the finished composite -- after the direction
+* **Quantise last.** The pixel pass is not idempotent (a second pass
+  moves pixels the first one settled), so it runs on the finished composite -- after the direction
   rotation, after every layer is blended -- and never on a layer. In pixel
   mode the bake therefore carries **one cel per frame** and no per-layer
   planes: a stack of individually quantised layers would not composite to the

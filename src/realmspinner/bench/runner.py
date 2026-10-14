@@ -422,15 +422,16 @@ def _run_unit(
         job_id = submitted["id"]
         job = _await_job(svc, job_id)
         if stage == "create" and family in ("sprite_sheet", "authored_character"):
-            next_id = submitted.get("rig")
-            if next_id:
-                active_followups.append(next_id)
-                rig = _await_job(svc, next_id)
+            rig_id = submitted.get("rig")
+            next_id = None
+            if rig_id:
+                # A character ends at its rig: the sheet that used to follow
+                # it left with ``retired.py``'s kinds.
+                active_followups.append(rig_id)
+                rig = _await_job(svc, rig_id)
                 chain.append(rig)
                 if rig["status"] != "done":
                     job = {**job, "status": rig["status"], "error": rig.get("error")}
-                else:
-                    next_id = _followup(svc, job_id, "charsheet")
             else:
                 next_id = (
                     _followup(svc, job_id, "sprite_synthesis") if job["status"] == "done" else None
@@ -440,7 +441,7 @@ def _run_unit(
                 child = _await_job(svc, next_id)
                 chain.append(child)
                 job = {**job, "status": child["status"], "error": child.get("error")}
-            elif job["status"] == "done":
+            elif job["status"] == "done" and not rig_id:
                 job = {**job, "status": "error", "error": "follow-up output was not queued"}
     except Exception as exc:
         with _suppressed():
@@ -517,7 +518,7 @@ def _copy_artifacts(job_dir: Path, item_dir: Path, *, keep_source: bool = False)
         src = job_dir / name
         if src.exists():
             shutil.copyfile(src, item_dir / name)
-    for name in ("sheets", "sprites", "tiles"):
+    for name in ("sprites", "tiles"):
         source = job_dir / name
         if source.is_dir():
             shutil.copytree(source, item_dir / name, dirs_exist_ok=True)

@@ -61,6 +61,7 @@ def create_rig(
     *,
     template: str | None = None,
     refuse_existing: bool = False,
+    bones: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Queue a rig for a finished job's mesh.
 
@@ -70,13 +71,16 @@ def create_rig(
     or SDXL run.
 
     ``refuse_existing`` is opt-in and defaults to False because this door has
-    two different callers with two different rules: Library's "Rig this mesh
-    again" and Poser's re-rig (``modes/poser/mode.py:rerig``) both call this
-    same door *to replace* an existing rig on purpose, while the MCP agent
-    surface's ``character_rig`` must never replace one. See
-    ``agent_character._h_character_rig``'s own call for why the check moved
-    here instead of staying a read the caller does before calling in (finding
-    agents-character-03, the 2026-09-26 audit, below).
+    callers with different rules: Library's "Rig this mesh again" calls it *to
+    replace* an existing rig on purpose, while a caller that must never replace
+    one asks for the check here rather than doing a read of its own before
+    calling in (finding agents-character-03, the 2026-09-26 audit, below).
+
+    ``bones`` is an exact skeleton the caller already holds -- a registry-built
+    character's own joints -- validated against *template* the way
+    :func:`adjust_joints` validates a user correction. It rides in ``params``
+    where ``_rig`` reads it, which also keeps the rig from being measured off a
+    reference image the character never had.
     """
     source = svc.require_job(job_id)
     if source["kind"] == "rig":
@@ -84,29 +88,24 @@ def create_rig(
     if source["status"] != "done" or not (svc.job_dir(job_id) / "model.glb").exists():
         raise Invalid("job has no finished mesh to rig")
     # The 2026-09-14 audit (service-03): this door minted a fresh rig job with
-    # no check at all -- only troupe.send_to_troupe and the agent wrapper
-    # called rig_in_flight, so Library's "Rig this mesh" and Poser's "Re-rig"
-    # (different ctx.submit keys, rig:<id> vs poser-asset-rerig:<id>) could
-    # both queue one for the same mesh. Both finalize_rig into the same
-    # job_dir, and history showed two "done" rigs for one served result. Moved
-    # into the door itself so every caller is covered, not just the two that
-    # remembered to ask first -- send_to_troupe and the agent wrapper still
-    # call it too, which is harmless double-checking.
+    # no check at all, so two callers (different ctx.submit keys) could both
+    # queue one for the same mesh. Both finalize_rig into the same job_dir, and
+    # history showed two "done" rigs for one served result. Moved into the door
+    # itself so every caller is covered, not just the ones that remembered to
+    # ask first.
     # The 2026-09-20 audit, finding agents-03: the check above and the insert
     # below used to be two separate operations with nothing holding the gap
-    # between them, so two ``character_rig`` calls landing on AgentHost's two
-    # service workers could both read "no rig in flight" and both mint a rig
+    # between them, so two concurrent calls (an agent host has two service
+    # workers) could both read "no rig in flight" and both mint a rig
     # row for the same mesh -- both finalizing into the same job_dir.
-    # ``troupe.send_to_troupe`` already wraps its identical guard in
-    # ``convert_lock``; copied here, keyed on this door's own name rather than
-    # "sheets" since a plain rig is not a sheet reservation.
+    # The guard is wrapped in ``convert_lock``, keyed on this door's own name.
     with svc.convert_lock(job_id, "rig"):
-        # The 2026-09-26 audit, finding agents-character-03: character_rig's
-        # own "never replaces an existing rig" check used to be a
-        # store.read_rig read entirely outside this lock, in
-        # agent_character.py -- the exact TOCTOU shape the 2026-09-20 audit
+        # The 2026-09-26 audit, finding agents-character-03: an agent's
+        # "never replaces an existing rig" check used to be a
+        # store.read_rig read entirely outside this lock -- the exact TOCTOU
+        # shape the 2026-09-20 audit
         # (agents-03, just below) already fixed for rig_in_flight. Two
-        # concurrent character_rig calls on a mesh with no rig yet could both
+        # concurrent calls on a mesh with no rig yet could both
         # read "no rig" before either had reached this lock at all. Checked
         # here instead, under the same hold as rig_in_flight's own check, so
         # a caller that opts in (refuse_existing) gets one atomic
@@ -115,27 +114,28 @@ def create_rig(
         if refuse_existing and store.read_rig(svc.job_dir(job_id)) is not None:
             raise Conflict("an agent adds rigs; it never replaces one", field="job_id")
         if rig_in_flight(svc, job_id) is not None:
-            # send_to_troupe's own sentence, verbatim (troupe.py:981) -- one
-            # wording for "there is already a rig job for this mesh" wherever it
-            # is met, mirroring create_rig's own Blender refusal below. Unlike
-            # that door's comment, this one carries ``job_id``: this is the
-            # direct door (Library's "Rig this mesh", Poser's "Re-rig", and the
-            # agent's own character_rig, which already checks first and so never
-            # reaches this line) rather than the sheet reservation's own door,
-            # which draws no job_id control to ring.
+            # One wording for "there is already a rig job for this mesh"
+            # wherever it is met, mirroring create_rig's own Blender refusal
+            # below, and carrying ``job_id`` for the control to ring.
             raise Conflict("a rig for this mesh is already running", field="job_id")
         params = {
             "source_job": job_id,
             "template": valid_template(template, svc.config.rig_template),
         }
+        if bones is not None:
+            try:
+                params["bones"] = skeleton.validate_joints(
+                    {"bones": list(bones)}, templates.get_template(params["template"])
+                )
+            except ValueError as exc:
+                raise invalid_from(exc, "Those joint positions cannot be used") from exc
         # After every other refusal, and still before the row is written: this UI
         # hides the Rig button when ``rig_templates``' own probe says bpy is
         # absent, so the only paths that reach here on such a host are the MCP
         # agent surface and a stale frame -- exactly the reachable-by-an-agent case
         # worth refusing at the door rather than leaving to queue a job that dies
-        # in ``pipelines/blender_worker.py`` with exit code 3. ``troupe.py``'s own
-        # gate's sentence, verbatim, so the app has one wording for "this needs
-        # Blender" wherever it is met.
+        # in ``pipelines/blender_worker.py`` with exit code 3. One sentence, so the app
+        # has one wording for "this needs Blender" wherever it is met.
         if not doctor.blender_check().ok:
             raise Invalid("Rigging needs Blender, which is not installed.")
         new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
@@ -146,10 +146,9 @@ def create_rig(
 def rig_in_flight(svc: RealmspinnerService, job_id: str) -> str | None:
     """The id of a queued or running rig job for *job_id*'s mesh, or None.
 
-    ``send_to_troupe``'s guard against minting a second rig -- and so a second
-    ``troupe_sheet`` reservation -- for the same mesh while the first is still
-    in flight (the 2026-09-13 audit's own finding: it did not check before
-    this existed). ``store.active_jobs()`` is already oldest-first, so the
+    The guard against minting a second rig for the same mesh while the first is
+    still in flight (the 2026-09-13 audit's own finding: it did not check
+    before this existed). ``store.active_jobs()`` is already oldest-first, so the
     first match is the request the user is already waiting on, never a later
     duplicate.
     """
@@ -456,13 +455,10 @@ def save_pose(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]) ->
     except ValueError as exc:
         raise invalid_from(exc, "That pose cannot be saved") from exc
 
-    # A root offset, when the caller sends one -- poser_mode.save_pose_to_asset
-    # now does, mirroring the shared library's own save (poselib.validate_record
-    # via _payload/apply_pose). Absent from the payload stores nothing, so
-    # every save that never touched the root (and every payload built before
-    # this field existed) is unaffected; the same field on the shared library
-    # goes through the identical validator, so a root offset means the same
-    # thing -- character-height units, +/-2.0 -- wherever it is authored
+    # A root offset, when the caller sends one. Absent from the payload stores
+    # nothing, so every save that never touched the root (and every payload
+    # built before this field existed) is unaffected; a root offset means
+    # character-height units, +/-2.0, wherever it is authored
     # (poser-02, the 2026-09-11 audit: this door used to drop the field on the
     # floor, silently losing a crouch or hop saved directly onto an asset).
     extra: dict[str, Any] = {}
@@ -486,7 +482,7 @@ def save_pose(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]) ->
         # held, so a delete_pose landing in that gap could remove the pose
         # file and release the lock before this write landed -- the delete
         # then silently undone, the pose reappearing with no error to either
-        # caller. Moved inside the lock, as service.poses.update_library_pose
+        # caller. Moved inside the lock, as the retired pose-library door
         # already reads its own record under its lock rather than before it.
         with svc.convert_lock(job_id, f"pose:{pose_id}"):
             if not store.pose_path(job_dir, pose_id).exists():
@@ -494,7 +490,7 @@ def save_pose(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]) ->
             return store.save_pose(job_dir, pose, pose_id, extra=extra or None)
     # The cap is a check-then-write, so the count and the write that depends on
     # it happen under one hold -- exactly the rule the library's own cap in
-    # service/poses.py states. Lock-free, two callers saving at once both read
+    # the retired pose-library door states. Lock-free, two callers saving at once both read
     # MAX_POSES - 1 and both save, and the job ends up over its cap with no way
     # to notice. A job-wide key rather than a per-pose one, because what is
     # being guarded is the *set* of poses, not any one of them; it is a
@@ -530,11 +526,9 @@ def delete_pose(svc: RealmspinnerService, job_id: str, pose_id: str) -> dict[str
 def _pose_or_not_found(job_dir: Path, pose_id: str) -> dict[str, Any]:
     """The semantic read door for a job's own saved pose.
 
-    ``service.poses._record_or_not_found``'s shape, for a job-scoped pose
-    instead of a library one: ``store.read_pose`` only gives ``read_record``'s
-    three file-level guards (valid JSON, valid dict, under the byte ceiling),
-    never the bones check a *library* pose gets through
-    ``poselib.validate_record``. A hand-edited pose file missing "bones" used
+    ``store.read_pose`` only gives ``read_record``'s three file-level guards
+    (valid JSON, valid dict, under the byte ceiling), never a check of the
+    bones. A hand-edited pose file missing "bones" used
     to reach ``_pose_bake_spec``'s ``pose["bones"]`` as a bare ``KeyError``, and
     one with a malformed quaternion was forwarded straight into the Blender
     worker spec with nothing to catch ``blender_worker.main()``'s unwrapped

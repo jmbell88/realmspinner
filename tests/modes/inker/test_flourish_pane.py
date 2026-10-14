@@ -195,7 +195,7 @@ def test_the_insert_popup_does_not_reread_the_preset_directory_every_frame(ui, m
 
 
 def test_flourish_insert_refuses_a_preset_the_manual_says_works_at_more_directions():
-    """The 2026-09-08 audit, finding inker-05: docs/manual/15-casting-a-spell.md's
+    """The 2026-09-08 audit, finding inker-05: docs/manual/14-casting-a-spell.md's
     walkthrough tells the reader to insert "fireball" "With Four directions or
     Eight", but ``check_bake_cost`` (gated at submission since the 2026-09-07
     audit's inker-10) refuses ``fireball`` at both -- the manual's own example

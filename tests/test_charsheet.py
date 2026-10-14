@@ -576,8 +576,8 @@ def test_a_stored_fps_snapshot_resolves_again_for_every_frame_rate():
     that is not a multiple of 10 (167, 125, 83, 67, 42, 33ms for 6/8/12/15/24/
     30 fps), and a stored sheet's ``params["layout"]`` -- ``as_dict()``'s v3
     output -- is exactly a snapshot re-resolved with no ``timing`` in hand,
-    the way the worker (``_q_troupe.py``), a subset re-render
-    (``service.troupe.rerender_charsheet``) and ``export_frames`` all resolve
+    the way the worker (the retired Troupe worker), a subset re-render
+    (the retired Troupe door) and ``export_frames`` all resolve
     it. Before this fix, only ``fps=10`` round-tripped; every other rate's
     stored snapshot refused with "duration_ms must be a multiple of 10" on a
     row that had already rendered once.
@@ -773,13 +773,14 @@ def test_a_clip_library_that_says_nothing_is_read_as_node_local(tmp_path):
 
 
 def test_a_delta_clip_reaches_the_worker_as_a_cell_that_says_so():
-    """The end of the thread: ``_q_rig`` puts ``pose_space`` on the cell only
-    where the record carries one, so every pose row is the cell it always was."""
+    """The end of the thread: ``_q_rig``'s deformation QA puts ``pose_space`` on
+    the cell only where the battery's pose carries one, so every other pose is
+    the cell it always was."""
     import realmspinner._q_rig as q_rig
 
     source = Path(q_rig.__file__).read_text(encoding="utf-8")
-    assert '"pose_space"] = space' in source
-    assert 'r["space"] for r in records if r.get("space")' in source
+    assert '{"pose_space": space}' in source
+    assert 'for p in poses if p.get("space")' in source
 
 
 # --- the pivot's unit --------------------------------------------------------

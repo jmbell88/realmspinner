@@ -96,7 +96,7 @@ RENDER_SIZE = 512
 #: the ladder of presets a form offers and stays the ladder the tests pin
 #: (``tests/modes/poser/test_sheet_geometry_agreement.py`` ties
 #: ``studio.modes.poser.engine.spec`` to it); these two are the wider question ``plan``
-#: itself answers, matching ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` -- see
+#: itself answers, matching the retired Troupe door -- see
 #: that constant's comment for why 8 and 256 are the floor and ceiling.
 MIN_FRAME_SIZE = 8
 MAX_FRAME_SIZE = 256
@@ -114,7 +114,7 @@ MAX_FRAME_SIZE = 256
 #: seen straight down is a pair of shoulders and a hat brim -- it reads as a
 #: blob, and every "top-down" sprite anyone actually ships is tilted.
 #:
-#: **The table lives in ``kernels`` rather than in ``service.troupe``**
+#: **The table lives in ``kernels`` rather than in the retired Troupe door**
 #: because the worker frames from it too, and ``kernels`` is the one layer
 #: both the door and the worker can see -- ``service`` is importable in neither
 #: the Blender process nor the worker.
@@ -225,7 +225,7 @@ def movement_min_frames(name: str) -> int:
     A function rather than a dict lookup, now that a layout may name a
     movement :data:`MOVEMENT_MIN_FRAMES` (built from the closed
     :data:`ANIMATIONS` table) has never heard of. ``characters/recipe.py``
-    and ``service/troupe.py`` both already call this function rather than
+    and the retired Troupe door both already call this function rather than
     indexing the dict directly -- the 2026-09-14 audit (troupe-04) found this
     docstring still claiming otherwise. ``MOVEMENT_MIN_FRAMES`` itself is
     kept only because it is part of this module's exported surface
@@ -798,7 +798,7 @@ def plan(
         raise ValueError("elevation must be between -89 and 89 degrees")
     # Task G: any whole number in [MIN_FRAME_SIZE, MAX_FRAME_SIZE] is a size
     # this function lays out correctly -- SIZES/FRAME_SIZES are presets, not
-    # the limit -- so a caller offering a custom size (service.troupe) is
+    # the limit -- so a caller offering a custom size (the retired Troupe door) is
     # answered rather than refused for being off two ladders it was never on.
     if (
         frame_size not in SIZES
@@ -924,7 +924,7 @@ def point_in_cell(
     would put a composited flame sixteen cells away from the hand rather than
     the feet.
 
-    Here rather than inline in ``_q_troupe`` because this module is the
+    Here rather than inline in the retired Troupe worker because this module is the
     filesystem-free half of the character sheet -- it decides what cell 137
     depicts and never reads a file -- which is what makes the arithmetic
     testable at all.

@@ -28,7 +28,7 @@ def test_export_godot_docstring_names_the_module_that_actually_defines_rename_an
 
 def test_movement_min_frames_docstring_does_not_claim_callers_that_do_not_exist():
     """troupe-04: ``movement_min_frames``'s docstring claimed
-    ``characters/recipe.py`` and ``service/troupe.py`` "still index"
+    ``characters/recipe.py`` and the retired Troupe door "still index"
     ``MOVEMENT_MIN_FRAMES`` directly -- both already call the function
     instead, and nothing in ``src/`` indexes the dict directly any more."""
     doc = inspect.getdoc(charsheet.movement_min_frames) or ""

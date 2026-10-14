@@ -192,34 +192,6 @@ def test_the_shortcut_sheet_lists_every_binding_the_registry_has():
     assert modifiers == {m.name for m in inker_ops.ACTION_MODIFIERS}
 
 
-# --- the sheet-section panes (Troupe's own, folded into Poser by P9) --------
-
-
-def test_the_sheet_and_bridge_functions_import_without_a_context():
-    """Both had no test reference at all. Importing them is the floor: a pane
-    that cannot be imported takes the whole frame down through ``guard``, and
-    the smoke pass is what draws them."""
-    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
-
-    assert callable(poser_sheet.draw_info)
-    assert callable(poser_sheet._bridge)
-    assert callable(poser_sheet._pixel_report)
-
-
-def test_a_rerender_names_the_runs_it_was_asked_for():
-    """``_rerender`` is the subset door -- the one place a partial re-render's
-    run list is turned into a request -- and nothing named it.
-
-    Moved onto ``troupe_mode`` by the 2026-09-08 audit's troupe-02 fix: the
-    slot now has to be owned by the module that clears it in ``select``, not
-    by the pane that only reads it. P9 (2026-09-18) moved both again, onto
-    ``poser_mode``/``select_sheet``.
-    """
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    assert poser_mode.RERENDER_SLOT == "troupe_rerender_runs"
-
-
 # --- packwright_items ---------------------------------------------------------
 
 

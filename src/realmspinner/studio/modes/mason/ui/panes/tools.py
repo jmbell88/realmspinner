@@ -189,7 +189,7 @@ def _apply_deltas(doc: md.MasonDoc, deltas: dict[int, Any]) -> None:
     The 2026-09-14 audit's mason-02: this used to push one ``TransformEdit``
     per node with no ``mark``/``collapse_since`` around the loop, so Align,
     Distribute and Drop selection to ground each cost as many Ctrl+Z presses
-    as nodes moved -- docs/manual/31-mason.md promises "Each of these lands as
+    as nodes moved -- docs/manual/28-mason.md promises "Each of these lands as
     a single undo step", and every other multi-node mutator in
     ``mason_mode.py`` (``group_selected``, ``duplicate_selected``...) already
     folds the same way. This is the one call site all three buttons share.

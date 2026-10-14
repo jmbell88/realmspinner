@@ -18,7 +18,7 @@ first, and past two million it refuses. The editor holds two copies of a mesh pe
 model that fits comfortably in a viewer does not necessarily fit comfortably in an editor.
 
 A rigged `.glb` opens rigged: its joints become bones and its skinned meshes keep their weights
-(see [Importing an asset](30-clay.md#importing-an-asset) for the limits).
+(see [Importing an asset](27-clay.md#importing-an-asset) for the limits).
 
 ## Primitives
 
@@ -54,7 +54,7 @@ One undo step per drag, committed on release, not one per mouse-move.
 
 Snapping is a grid for moving and an angle for rotating, and it applies to drags only. Set
 either to zero and that half is off. In an element mode each moved vertex lands on a grid point. The
-details are in [Clay](30-clay.md), under *Snapping*. The grid is all there is to snap to, with no snap
+details are in [Clay](27-clay.md), under *Snapping*. The grid is all there is to snap to, with no snap
 to another object's vertex and no soft falloff: to make two things touch, type their positions.
 
 Camera: dragging empty space looks around (`Alt`-drag orbits even over the model), the middle button
@@ -80,7 +80,7 @@ other are joined. Everything else survives — including, if the shapes interpen
 walls now buried inside your model, which will z-fight where they touch the surface and which no light
 will ever reach. For a low-poly model the buried faces cost nothing you can see, and where they do, either
 delete them in face mode or use **Union Objects** (`Ctrl+Shift+M`) instead, which cuts them away but gives you
-triangles with no texture coordinates; see [Booleans](30-clay.md#booleans).
+triangles with no texture coordinates; see [Booleans](27-clay.md#booleans).
 
 Often you do not want a merge at all. **Group Selected** keeps the parts as separate objects under one
 empty, so the set moves as one thing and each part is still a box you can resize.
@@ -97,7 +97,7 @@ makes a blank 32, 64 or 128 pixel picture in the slot's colour (box-unwrapping a
 UVs), and **Edit texture in Inker** opens it there with the sixteen PICO-8 colours; what you paint
 lands back in Clay, one undo step per return. Textures Clay makes render crisp, in the viewport and as
 a NEAREST sampler in the GLB, and **Export OBJ** writes them as PNGs beside the file with a `map_Kd`
-line. The whole round trip is in [Clay](30-clay.md), under *Texturing*.
+line. The whole round trip is in [Clay](27-clay.md), under *Texturing*.
 
 Adding a material always appends and never inserts, because inserting would renumber every face
 assignment in the document. Removing one is only allowed when nothing uses it, and a document always
@@ -124,7 +124,7 @@ a generation, either; the reconstruction pipeline starts from a picture, in [Cre
 
 Clay does not rebuild a mesh as quads. It can bring an imported or heavily subdivided object down
 toward a face count: **Simplify...** (Clean Up, object mode) merges flat neighbouring faces into larger
-ones and, if that is not enough, collapses edges, as [Simplifying a mesh](30-clay.md#simplifying-a-mesh)
+ones and, if that is not enough, collapses edges, as [Simplifying a mesh](27-clay.md#simplifying-a-mesh)
 describes. A triangle budget on a finished asset is still applied downstream, in the retarget panel, and
 you can read the triangle count you are working to on the **Statistics** overlay as you model.
 
@@ -152,5 +152,6 @@ you through a whole small prop. The exercise below is the free-form version.
 
 ## What to read next
 
-[Rigging and posing](08-rigging-and-posing.md) — giving a mesh a skeleton, and the two traps that
-catch everyone.
+[Rigging and animating](08-rigging-and-animating.md) — giving the model bones, posing them and walking
+them on a timeline. For a generated mesh rather than one built here, see
+[Rigging and posing](23-generating-meshes.md#rigging-and-posing) and the two traps that catch everyone.

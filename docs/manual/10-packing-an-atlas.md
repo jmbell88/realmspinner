@@ -19,9 +19,6 @@ Six doors, and they all produce the same kind of thing:
   frame, pixel-identical to the timeline; a still one contributes one sprite per layer, including
   hidden ones.
 - **From the library** — right-click a card, *Add to Packwright as an atlas source*.
-- **From Poser** — a rendered character sheet is parked as a pending tile-set import, opening the
-  tile-size popup with the cell size already filled in; nothing is added until you confirm
-  **Import**.
 
 A sprite's identity comes from where it came from, never from its display name, so renaming one is
 cosmetic and cannot collide with anything.
@@ -129,5 +126,4 @@ documents and tabs. `Ctrl+0` fits, `Ctrl+1` goes to 100%. Middle-drag pans and t
 
 ## What to read next
 
-[A character sprite sheet](11-a-character-sprite-sheet.md) — the most ambitious pipeline in the app,
-and the one with the most honest caveats.
+[Tuning what you get](11-tuning-what-you-get.md) — the knobs that change what the generator hands back.

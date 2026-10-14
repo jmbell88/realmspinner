@@ -20,6 +20,7 @@ from imgui_bundle import imgui
 
 from ...... import followups, vectors
 from ......core.safeio import atomic
+from ......retired import is_retired
 from ......service import derive as svc_derive
 from ......service import export as svc_export
 from ......service import jobs as svc_jobs
@@ -565,10 +566,12 @@ KIND_OPTIONS = [
     ("tile", "tiles"),
     ("model", "meshes"),
     ("rig", "rigs"),
-    ("sheet", "sheets"),
     ("sprite", "sprite sheets"),
     ("tilesheet", "tile sheets"),
     ("music", "tracks"),
+    # Rows of the removed character-sheet kinds: kept, never deleted, and
+    # findable so the user can trash them themselves.
+    ("retired", "retired"),
 ]
 
 
@@ -1116,7 +1119,8 @@ def _overflow(ctx: Any, job: Any) -> None:
                 ),
             )
         )
-    copyable = bool(job.get("params"))
+    # Not for a retired row: its settings describe a sheet no form can make now.
+    copyable = bool(job.get("params")) and not is_retired(job.get("kind"))
     if copyable and controls.menu_item("Copy settings to form", "", False)[0]:
         copy_settings(ctx, job)
     if job["status"] in ("done", "error", "cancelled"):
@@ -1171,9 +1175,9 @@ def _overflow(ctx: Any, job: Any) -> None:
         if (
             ctx.rigging_available
             and "rig.glb" not in files
-            and controls.menu_item("Rig manually", "", False)[0]
+            and controls.menu_item("Rig by hand in Clay", "", False)[0]
         ):
-            run_action(ctx, job, "rig_manual")
+            run_action(ctx, job, "clay")
     widgets.divider()
     if controls.menu_item("Delete", "Delete", False)[0]:
         # No confirm (J91): the trash *is* the confirmation, and it is a better
@@ -1419,6 +1423,7 @@ def _remeshable(job: Any) -> bool:
         "input.png" in (job.get("files") or [])
         and job.get("stage") != "tile"
         and job.get("kind") != "tile_sheet"
+        and not is_retired(job.get("kind"))
     )
 
 
@@ -1452,20 +1457,6 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
             job_id,
             template=stage_rig.skeleton(ctx),
         )
-    elif action == "rig_manual":
-        # The blank template (one root bone, hidden from every normal
-        # skeleton picker -- templates.catalog() filters it out) fitted onto the
-        # mesh through the exact same queued Blender pass every automatic rig
-        # already runs, so bounds and the root bone's placement are real
-        # Blender output rather than host-side coordinate math this app has
-        # no way to verify against Blender's own Y-up -> Z-up import
-        # rotation. The same submit key as "Rig": a mesh cannot be both rigs
-        # at once.
-        from .....panes import stage_rig
-
-        ctx.submit(
-            stage_rig.rig_key(job), svc_rig.create_rig, ctx.svc, job_id, template="blank"
-        )
     elif action == "open":
         # A job that stops at an image opens at the stage that made it; a tile
         # has no mesh at all; and a follow-up row opens the asset whose
@@ -1487,24 +1478,18 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         from ....plotter import mode as plotter_mode
 
         plotter_mode.use_as_tileset(ctx, job)
-    elif action in ("poser", "muse"):
-        # **Both through ``asset_open``, which already knows where each of these
-        # goes.** Neither had an arm here, and the two failed differently:
-        # ``primary_action`` has returned ``"muse"`` for a finished take and for
-        # a separate row since Muse shipped, and ``"muse"`` was in neither this
-        # chain *nor* ``state.ACTIONS`` -- so ``ACTIONS[action]`` on the card
-        # (``_result_row`` above) raised ``KeyError`` and took the whole library
-        # pane down on a music row. ``"poser"`` (``"troupe"`` before P9,
-        # 2026-09-18 folded that mode in) was the same gap caught one step
-        # earlier: the character work gave it a label, which turned the crash
-        # into a button that silently did nothing.
+    elif action == "muse":
+        # **Through ``asset_open``, which already knows where this goes.** It had
+        # no arm here: ``primary_action`` has returned ``"muse"`` for a finished
+        # take and for a separate row since Muse shipped, and ``"muse"`` was in
+        # neither this chain *nor* ``state.ACTIONS`` -- so ``ACTIONS[action]`` on
+        # the card (``_result_row`` above) raised ``KeyError`` and took the whole
+        # library pane down on a music row.
         #
         # Delegated rather than restated because ``asset_open`` is the module
-        # that owns "where does this asset open", including the two refusals
-        # neither arm could sensibly repeat here -- a character sheet whose
-        # sidecar has gone, and a take whose selection has to be set before the
-        # mode switch. A third spelling of that routing is a third thing to go
-        # stale.
+        # that owns "where does this asset open", including a take whose
+        # selection has to be set before the mode switch. A second spelling of
+        # that routing is a second thing to go stale.
         from ..... import asset_open
 
         asset_open.open_asset(ctx, job)

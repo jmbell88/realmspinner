@@ -807,7 +807,7 @@ def test_shipped_clips_survive_a_cache_invalidation_mid_read(monkeypatch):
 # --- the authored clip libraries --------------------------------------------
 #
 # A template can only produce a character sheet if its skeleton has clips --
-# ``service.troupe.create_charsheet`` refuses on exactly that, and for a long
+# the retired Troupe door refuses on exactly that, and for a long
 # time ``humanoid`` was the only template that had any. These are the families
 # that can be sent to Troupe, so the list is a claim and not a fixture: adding
 # a library is a deliberate act and so is losing one.
@@ -1871,7 +1871,7 @@ def test_a_landmark_informed_rig_builds_the_armature_from_the_landmarks(tmp_path
 # --- the pose library's engine half ------------------------------------------
 #
 # pose_spec's root kwargs, save_pose's extra merge, root_offset_world and
-# armature_spec are what service.poses stands on; all four are host-side pure.
+# armature_spec are what the retired pose-library door stands on; all four are host-side pure.
 
 
 def test_pose_spec_without_root_kwargs_is_byte_identical_to_the_old_shape(tmp_path):
@@ -1994,25 +1994,17 @@ def test_an_oversized_pose_is_refused_without_being_parsed(tmp_path, monkeypatch
     assert store.read_pose(tmp_path, pose_id) is None
 
 
-# The same three guards on the three readers that never had them. ``read_sheet``,
-# ``read_sheet_pixel`` and ``read_sprite_draft`` each caught only
+# The same three guards on the readers that never had them. ``read_sprite_draft``
+# (and, before the sheet kinds left, ``read_sheet``) caught only
 # ``json.JSONDecodeError`` and checked neither the size nor the shape --
 # ``UnicodeDecodeError`` is a ``ValueError`` and is *not* a ``JSONDecodeError``,
 # so a sidecar holding bytes that are not UTF-8 raised straight out of the
-# reader, through ``list_sheets``, and into the pane that called it.
+# reader, through the listing, and into the pane that called it.
 
 
 def _reader_cases(job_dir):
-    sheet_id, draft_id = store.new_id(), store.new_id()
+    draft_id = store.new_id()
     return (
-        (
-            store.sheet_path(job_dir, sheet_id),
-            lambda: store.read_sheet(job_dir, sheet_id),
-        ),
-        (
-            store.sheet_pixel_path(job_dir, sheet_id),
-            lambda: store.read_sheet_pixel(job_dir, sheet_id),
-        ),
         (
             store.sprite_draft_path(job_dir, draft_id),
             lambda: store.read_sprite_draft(job_dir, draft_id),
@@ -2078,29 +2070,12 @@ def test_an_oversized_rig_json_is_refused_without_being_parsed(tmp_path, monkeyp
     assert store.read_rig(tmp_path) is None
 
 
-def test_list_sheets_skips_a_sidecar_whose_png_name_is_a_directory(tmp_path):
-    """troupe-06, the 2026-09-11 audit: list_sheets guarded a sheet's PNG with
-    ``.exists()``, which is also True for a directory -- unlike the identical
-    presence check everywhere else in this area (sheet.pack,
-    pixelize.reduce_frames, troupe_mode.scores/atlas_texture), fixed to
-    ``.is_file()`` by the 2026-09-07/2026-09-08 audits for the same reason."""
-    sheet_id = store.new_id()
-    store.sheet_dir(tmp_path).mkdir(parents=True, exist_ok=True)
-    store.sheet_path(tmp_path, sheet_id).write_text(
-        json.dumps({"id": sheet_id, "created": 1.0}), encoding="utf-8"
-    )
-    # A directory where the completed sheet's PNG belongs -- exists() is True
-    # for this, is_file() is not.
-    store.sheet_png_path(tmp_path, sheet_id).mkdir()
-    assert store.list_sheets(tmp_path) == []
-
-
 def test_list_sprite_drafts_does_not_offer_a_directory_standing_in_for_a_candidate_png(
     tmp_path,
 ):
     """poser-02, the 2026-09-18 audit: ``list_sprite_drafts`` gated a candidate
-    PNG on ``.exists()``, the same troupe-06 gap ``list_sheets`` was fixed for
-    above -- a directory at ``<id>.a.png`` read as a ready candidate."""
+    PNG on ``.exists()`` -- a directory at ``<id>.a.png`` read as a ready
+    candidate."""
     draft_id = store.new_id()
     store.sprite_dir(tmp_path).mkdir(parents=True, exist_ok=True)
     store.sprite_draft_path(tmp_path, draft_id).write_text(
@@ -2113,25 +2088,14 @@ def test_list_sprite_drafts_does_not_offer_a_directory_standing_in_for_a_candida
     assert store.list_sprite_drafts(tmp_path) == []
 
 
-def test_delete_sheet_does_not_choke_on_a_directory_standing_in_for_a_png(tmp_path):
-    """poser-02, the 2026-09-18 audit: ``delete_sheet`` gated "is there
-    anything here" on ``.exists()`` too, so a directory alone at one of its
-    four paths would pass that gate and then reach ``Path.unlink()``, which
-    raises on a directory (``IsADirectoryError`` on POSIX, ``PermissionError``
-    on Windows) -- ``missing_ok`` only swallows ``FileNotFoundError``. With
-    nothing but a directory present, this must report "nothing to delete"
-    rather than raise."""
-    sheet_id = store.new_id()
-    store.sheet_dir(tmp_path).mkdir(parents=True, exist_ok=True)
-    store.sheet_png_path(tmp_path, sheet_id).mkdir()
-    assert store.delete_sheet(tmp_path, sheet_id) is False
-
-
 def test_delete_sprite_draft_does_not_choke_on_a_directory_standing_in_for_a_png(
     tmp_path,
 ):
-    """The same fix as ``delete_sheet`` above, on the sprite draft trio
-    (poser-02, the 2026-09-18 audit)."""
+    """poser-02, the 2026-09-18 audit: ``delete_sprite_draft`` gated "is there
+    anything here" on ``.exists()``, so a directory alone at one of its paths
+    would pass that gate and then reach ``Path.unlink()``, which raises on a
+    directory. With nothing but a directory present, this must report "nothing
+    to delete" rather than raise."""
     draft_id = store.new_id()
     store.sprite_dir(tmp_path).mkdir(parents=True, exist_ok=True)
     store.sprite_draft_png_path(tmp_path, draft_id, "a").mkdir()

@@ -264,7 +264,7 @@ Wave 5 of the Aseprite parity programme promised alongside them.
 **Two readers, two writers, one ledger.** ORA is this editor's native format
 and the direction Aseprite interop travels *through*: an `.aseprite` file
 opens into the same `Document` an `.ora` does, and Save As can now put that
-document back into either format (`manual/28-inker.md#saving`). The two
+document back into either format (`manual/25-inker.md#saving`). The two
 tables below are therefore about the two directions a document can leave
 Inker's own model — **ORA → aseprite** is what `aseout.py` drops writing a
 document out; **aseprite → ORA** is what `asein.py` drops reading one in —
@@ -310,8 +310,7 @@ three fixtures that would settle the first question.
 | What | State | Divergence | Notes |
 |---|---|---|---|
 | The `plus-lighter` blend mode | dropped to the nearest mode | — | Premultiplied plus-lighter (what a Flourish glow track carries) has no Aseprite number, so the layer is written as **Addition**, which is the W3C separable add and reads darker over a thin or transparent backdrop. `aseout.dropped_by_aseprite` names it so the lossy-save prompt fires, and the layer reopens as `add`. |
-| Sheet merge base (`Document.sheet_base`) | dropped | — | The per-cell render digests a sheet import records (and the cells a merge flagged as conflicts) travel in `animation.json`'s `sheet` key and have no chunk in this format. A document saved as `.aseprite` and reopened has no base, so Merge against a re-rendered sheet is off until the sheet is imported again. `aseout.dropped_by_aseprite` names it so the lossy-save prompt fires. |
-| Flourish recipe | dropped | — | An effect group's recipe, track map and per-cel render digests (`animation.json`'s `flourish` key) have no chunk to live in. The layers, the group and the tags all travel; what is lost is the ability to *regenerate* — the document opens as if the effect had been detached (`manual/29-inker-animation.md#effects`). |
+| Flourish recipe | dropped | — | An effect group's recipe, track map and per-cel render digests (`animation.json`'s `flourish` key) have no chunk to live in. The layers, the group and the tags all travel; what is lost is the ability to *regenerate* — the document opens as if the effect had been detached (`manual/26-inker-animation.md#effects`). |
 | Cel opacity | round-trips | #1 (retired 2026-08-30) | ~~Opacity is a track/layer property here; every cel writes at 255.~~ A cel's own opacity is written from `Animation.cel_opacity`, keyed by *slot* -- so the two chunks of a linked cel carry two independent bytes, exactly as the format allows. A slot nobody dimmed still writes 255, which is what keeps an undimmed document byte-for-byte the file it was. |
 | Cel z-index | round-trips | #12 (retired 2026-08-30) | ~~This build has none — track order *is* stack order, so there is nothing to write per cel.~~ A cel's own z-index is written from `Animation.cel_z`, keyed by *slot* — so the two chunks of a linked cel carry two independent offsets, exactly as the format allows. A slot nobody moved still writes 0, which is what keeps an unmoved document byte-for-byte the file it was. |
 | User data (tileset/tile) | dropped | #14 (partially retired 2026-08-30) | Not modeled; nothing is written to the `0x2020` chunk this format offers for it. Layer, cel and tag notes round-trip — see that row below. |

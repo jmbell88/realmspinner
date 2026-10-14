@@ -3,7 +3,7 @@
 The 2026-09-02 review's theme T2 listed nine places where a decode, an encode
 or a batch of inserts ran on the pygame frame thread: the Review sweep launch
 and its mesh loads, the reference PNG on job completion, the Clay crash
-recovery, the Troupe atlas, the Inker revert reload, the Packwright save
+recovery, the (since removed) Troupe atlas, the Inker revert reload, the Packwright save
 encodes, the Sirens sample re-encode per snapshot, and the settings flush
 during a splitter drag. Each had a sibling in the tree that already did it
 right (the GLB parse/adopt split, the ``inker-recover`` task), and each is
@@ -59,7 +59,6 @@ from realmspinner.studio.modes.packwright import fileio as packwright_io
 from realmspinner.studio.modes.packwright.engine import rpack
 from realmspinner.studio.modes.packwright.engine.document import PackDoc
 from realmspinner.studio.modes.packwright.engine.sources import Sprite
-from realmspinner.studio.modes.poser import mode as poser_mode
 from realmspinner.studio.modes.sirens.engine import rsng
 from realmspinner.studio.viewer_embed import Viewer
 
@@ -204,75 +203,6 @@ def test_the_pose_pane_submits_the_rig_parse_and_adopts_it_on_landing():
     adopt = inspect.getsource(pose_panel.land_enter)
     assert "adopt_model" in adopt and "parse_model" not in adopt
     assert "land_enter(ctx, job)" in inspect.getsource(pose_panel.draw)
-
-
-# --- 2. the character-sheet atlas (Troupe's own, folded into Poser by P9) ---
-
-
-class _PoserSheetCtx(_Threaded):
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.state = SimpleNamespace(poser=None, preview={}, mode="poser")
-        self.viewer = SimpleNamespace(ctx=_GL())
-        self.submitted, self.tags, self.result = [], [], None
-        self.toasts: list[tuple[str, str]] = []
-
-    def job_dir(self, job_id: str) -> Path:
-        return self.root / job_id
-
-    def busy(self, key: str) -> bool:
-        return False
-
-    def toast(self, text: str, level: str = "info", *a: Any, **k: Any) -> None:
-        self.toasts.append((text, level))
-
-
-def _sheet(ctx: _PoserSheetCtx) -> tuple[str, str]:
-    from realmspinner.kernels.rig import store
-
-    state = poser_mode.ensure(ctx)
-    state.job_id, state.sheet_id = "job1", store.new_id()
-    _png(store.sheet_png_path(ctx.job_dir("job1"), state.sheet_id), (16, 8))
-    return "job1", state.sheet_id
-
-
-def test_the_sheet_atlas_is_decoded_on_a_task_and_uploaded_when_it_lands(tmp_path, monkeypatch):
-    ctx = _PoserSheetCtx(tmp_path)
-    key = _sheet(ctx)
-    threads = _spy(monkeypatch, poser_mode, "_decode_atlas")
-
-    assert poser_mode.atlas_texture(ctx) is None, "not yet: the decode is in flight"
-    assert ctx.submitted == [poser_mode.atlas_key(*key)]
-    assert threads == [WORKER]
-    assert ctx.viewer.ctx.uploads == [], "nothing touched GL on the frame thread"
-
-    poser_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result, tag=key))
-    texture = poser_mode.atlas_texture(ctx)
-    assert texture is not None and texture.size == (16, 8)
-    assert ctx.viewer.ctx.uploads == [((16, 8), 16 * 8 * 4)]
-    assert len(ctx.submitted) == 1, "cached: the second ask decodes nothing"
-
-
-def test_a_decoded_atlas_for_a_sheet_no_longer_on_screen_is_dropped(tmp_path):
-    from realmspinner.kernels.rig import store
-
-    ctx = _PoserSheetCtx(tmp_path)
-    key = _sheet(ctx)
-    poser_mode.atlas_texture(ctx)
-    poser_mode.ensure(ctx).sheet_id = store.new_id()
-    poser_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result, tag=key))
-    assert ctx.viewer.ctx.uploads == []
-    assert "troupe_texture" not in ctx.state.preview
-
-
-def test_an_unreadable_atlas_is_tried_once(tmp_path):
-    ctx = _PoserSheetCtx(tmp_path)
-    key = _sheet(ctx)
-    poser_mode.atlas_texture(ctx)
-    poser_mode.on_task_failed(ctx, _Done(ctx.submitted[-1], tag=key, error=OSError("bad png")))
-    for _ in range(3):
-        assert poser_mode.atlas_texture(ctx) is None
-    assert len(ctx.submitted) == 1
 
 
 # --- 3. the Clay crash recovery -----------------------------------------------

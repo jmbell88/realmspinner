@@ -25,7 +25,7 @@ from .. import icons
 # the call sites that only want the sentence keyed by mode.
 #
 # **The order is the rail's order** (the UI redesign, wave 3): where you start and
-# what you look at, then the eight creative workspaces, then Settings. It used to
+# what you look at, then the seven creative workspaces, then Settings. It used to
 # be the *segmented control's* order, grouped by a predicate over
 # ``WORK_MODES`` -- a rule that rendered correctly and explained nothing, and
 # which put Library and Review on the far side of a break from the panes they
@@ -88,13 +88,6 @@ MODES: list[tuple[str, str, str, str]] = [
     # *contains* is job rows, which is the thing that makes it a workspace
     # rather than a second library -- a scene references assets and is not one.
     ("mason", "Mason", icons.BLOCKS, "Build 3D scenes, export to engines."),
-    # Troupe folded into Poser as a stage (P9, 2026-09-18): rig, then clips,
-    # then a character sheet, one workspace rather than a hand-off between
-    # two. What Troupe added to the purpose line below -- *watching* a walk
-    # cycle play continuously and judging it, a use of the whole window and
-    # not of a 300px column beside a form -- is still true of the sheet
-    # section; it is no longer a second door to get there through.
-    ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh, author clips and sheets."),
     ("plotter", "Plotter", icons.GRID, "Paint maps, export to Tiled."),
     ("packwright", "Packwright", icons.LAYERS, "Pack sprites into an atlas."),
     # Muse: added after Sirens landed, and the one whose output is a **job row**.
@@ -157,7 +150,7 @@ MODES: list[tuple[str, str, str, str]] = [
 # drawing path.
 RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
     ("home", "library", "create"),
-    ("inker", "clay", "mason", "poser", "plotter", "packwright", "muse", "sirens"),
+    ("inker", "clay", "mason", "plotter", "packwright", "muse", "sirens"),
     ("review", "settings"),
 )
 
@@ -170,11 +163,8 @@ RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
 #: a caption-height off the item it names.
 #:
 #: The grouping above is a *claim* ("these three are one pipeline;
-#: these eight are workspaces") and until these existed the only thing
+#: these seven are workspaces") and until these existed the only thing
 #: asserting it was a gap, which at a glance reads as an accident of spacing.
-#: (The 2026-09-26 audit, finding shell-chrome-11: this quoted the middle
-#: group's count as nine, from before Troupe folded into Poser as a stage,
-#: P9 2026-09-18, left it at eight.)
 RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
 
 # The modes that own a viewport or a form, and so have work in them. Home, the
@@ -183,7 +173,7 @@ RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
 # shortcuts at all.
 WORK_MODES = frozenset(
     {
-        "create", "inker", "clay", "mason", "poser", "review", "plotter",
+        "create", "inker", "clay", "mason", "review", "plotter",
         "packwright", "muse", "sirens",
     }
 )
@@ -204,15 +194,15 @@ WORK_MODES = frozenset(
 VIEWPORT_MODES = frozenset({"create"})
 
 # Neither one pane nor the asset viewport: a mode that fills the window with
-# its own three-column workspace. Inker, Clay, Mason, Poser, Review, Plotter,
-# Packwright, Muse and Sirens are the nine (Troupe folded into Poser as a
-# stage, P9 2026-09-18); Library is a single pane, not a workspace, and joins
+# its own three-column workspace. Inker, Clay, Mason, Review, Plotter,
+# Packwright, Muse and Sirens are the eight (Poser folded into Clay and was
+# removed, 2026-10-13); Library is a single pane, not a workspace, and joins
 # Home/Manual/Settings there. The three categories partition KEYS exactly --
 # which matters because ``_build_ui``'s dispatch ends in a bare ``else``, so
 # an unlisted mode would draw one of these rather than fail.
 WORKSPACE_MODES = frozenset(
     {
-        "inker", "clay", "mason", "poser", "review", "plotter", "packwright",
+        "inker", "clay", "mason", "review", "plotter", "packwright",
         "muse", "sirens",
     }
 )
@@ -226,10 +216,6 @@ WORKSPACE_MODES = frozenset(
 # the arrows belong to the surface. This is the "which surface" half, listed
 # here beside the other mode groupings rather than inside the backend, because
 # it is a fact about the modes and not about the input door.
-# Poser joins them for Troupe's own version of the same clash, folded in
-# whole (P9, 2026-09-18): with the character-sheet section on screen, Space
-# toggles playback and Left/Right step one frame of a clip, so one press must
-# not also move a focus ring through the direction buttons.
 # Muse joins them for the mildest version: Space auditions the selected take,
 # which must not also activate whatever button the focus ring is on.
 # Sirens joins them for the sharpest version of the clash: all four arrows move
@@ -237,23 +223,21 @@ WORKSPACE_MODES = frozenset(
 # bar -- so every key imgui would use to walk a focus ring is a key the grid
 # has already spoken for.
 #
-# **Membership is "may reserve", and Poser reserves only while a sheet is on
-# screen.** The 2026-10-03 audit (poser-render-04): "poser" sat here
-# unconditionally while the comment above and ``poser.mode.sheet_handle_key``
-# both say the keys are Poser's only with the sheet section up, so in the pose
-# view all nine reserved keys were withheld from imgui's focus navigation and
-# given to no consumer -- a keyboard user could not walk the focus ring with
-# the arrows or press Space on a focused button. :func:`reserves_nav_keys` is
-# what the frame loop asks; this set stays the list of modes it may say yes for.
+# **Membership is "may reserve".** A mode that binds the keys only while a
+# particular surface of its own is up (Poser did, with a character sheet on
+# screen) is named in :data:`NAV_KEY_SURFACES` below; :func:`reserves_nav_keys` is
+# what the frame loop asks, and this set stays the list of modes it may say yes for.
 NAV_KEY_MODES = frozenset(
-    {"home", "library", "review", "inker", "plotter", "poser", "muse", "sirens"}
+    {"home", "library", "review", "inker", "plotter", "muse", "sirens"}
 )
 
 #: Modes in :data:`NAV_KEY_MODES` that reserve the keys only while a surface of
 #: theirs is up: ``mode -> (attribute of the app state holding the mode's own
 #: state, boolean field on it)``. Read by ``getattr`` rather than by importing
-#: the mode, because this module is data and the shell reads it.
-NAV_KEY_SURFACES: dict[str, tuple[str, str]] = {"poser": ("poser", "sheet_view")}
+#: the mode, because this module is data and the shell reads it. Empty since
+#: Poser (the one row it ever had) was removed; the mechanism stays because the
+#: next mode with a conditional surface needs exactly this and not a new rule.
+NAV_KEY_SURFACES: dict[str, tuple[str, str]] = {}
 
 
 def reserves_nav_keys(mode: str, state: object) -> bool:
@@ -274,12 +258,9 @@ KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
 #: One line saying what each mode is *for*, keyed by mode -- derived from
 #: ``MODES``' own fourth field, not hand-copied, so the two cannot drift.
 #:
-#: The rail is the primary navigation and eight of its thirteen labels --
-#: Inker, Clay, Mason, Poser, Plotter, Packwright, Muse, Sirens -- are
-#: invented names. (The 2026-09-26 audit, finding shell-chrome-11: this named
-#: Troupe among the nine and fourteen labels, from before it folded into
-#: Poser as a stage, P9 2026-09-18; MODES holds thirteen now and eight of
-#: them are invented names.) A new user hovering one used to get a word and
+#: The rail is the primary navigation and seven of its twelve labels --
+#: Inker, Clay, Mason, Plotter, Packwright, Muse, Sirens -- are
+#: invented names. A new user hovering one used to get a word and
 #: an icon,
 #: because ``rail._item`` suppresses its accessible-name tooltip once the
 #: label is legible (correctly: a tooltip repeating a word already on screen
@@ -289,14 +270,6 @@ KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
 PURPOSE: dict[str, str] = {key: purpose for key, _label, _icon, purpose in MODES}
 
 #: Modes whose maturity the rail says out loud, and the word it uses.
-#:
-#: **Troupe's own "Experimental" chip did not move with it into Poser** (P9,
-#: 2026-09-18, decision 3 of the folding brief): dropped outright rather than
-#: relabelled onto the merged mode. Troupe's provisional keyframes and
-#: untested-by-reconstruction caveats are still true and still worth a
-#: reader's caution, but they belong in the manual's own prose now
-#: (``docs/manual``) rather than as a rail-wide badge on a mode most of whose
-#: surface -- ordinary pose authoring -- was never provisional at all.
 #:
 #: **Sirens' chip came off on 2026-09-02.** It went on because the mode shipped
 # in halves, and the note was narrowed at every landing rather than left
@@ -323,7 +296,7 @@ MATURITY_NOTE: dict[str, str] = {}
 #: ``fetch.find``, so a renamed model breaks a test rather than silently
 #: ungating a mode.
 #:
-#: Only the two generation modes are listed. The eight editing workspaces need
+#: Only the two generation modes are listed. The seven editing workspaces need
 #: no weights at all, and Home, Library, Review and **Settings** are never
 #: gated -- Settings is where the download lives, so gating it would lock the
 #: user out of the only thing that unlocks anything.

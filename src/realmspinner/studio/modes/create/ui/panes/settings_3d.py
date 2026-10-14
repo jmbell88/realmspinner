@@ -27,7 +27,6 @@ from ......bench import findings as findings_lib
 from ......pipelines import optimize, remesh
 from ......service import findings as svc_findings
 from ......service import jobs as svc_jobs
-from ......service import sheets as svc_sheets
 from ......service.errors import Invalid
 from ......service.validation import MAX_UPLOAD_BYTES, random_seed
 from ..... import controls, dialogs, focus, forms, matte_preview, theme, widgets
@@ -57,7 +56,7 @@ SKIP_CLEAN_MATTE_SETTING = "skip_clean_matte_preview"
 # column can still show what Make 3D actually used (the review's ask, done
 # with what this pane already owns rather than a new preview pipeline).
 # ``state.preview`` because it is exactly this kind of frame-scoped, UI-only
-# fact -- the sheet strip cache and the settings category tab already live
+# fact -- the settings category tab and the other one-frame UI facts already live
 # there for the same reason.
 _LAST_AUTO_MATTE_SLOT = "mesh_last_auto_matte"
 
@@ -178,7 +177,6 @@ def _draw_form(
         findings_doc,
         leading=lambda: _advanced_basics(ctx, form, form_ui, mesh_resolution_label, findings_doc),
     )
-    _turnaround(ctx)
 
 
 def _advanced_basics(
@@ -1024,71 +1022,6 @@ def _engine(
             # The 2026-09-20 audit, finding create-01: see trellis_max_tokens above.
             form["trellis_atlas"] = create_mesh.clamp_atlas(int(value))
         _hint(ctx, form, "trellis_atlas", form["trellis_atlas"], findings_doc)
-
-
-def _turnaround(ctx: Any) -> None:
-    """ "Render turnaround": the sprite-sheet control, reached from the mesh
-    that already exists rather than from a rig-shaped stage.
-
-    The 2026-09-07 review, item 7.1: ``docs/manual/27-sprite-sheets.md`` is
-    plain that a turnaround needs no rig at all, but its only door was a
-    collapsed header on the Pose stage (``sheet_panel.py``) -- so a finished,
-    unrigged prop needed a stage built around a skeleton it does not have.
-    This draws only while the job on screen is itself a finished mesh
-    (:func:`_selected_mesh`) and submits through the identical door and key
-    ``sheet_panel._submit`` does: ``svc_sheets.create_sheet`` under
-    ``f"sheet:{job_id}"``. Same key means a press here and a press on the Pose
-    stage's own button are the same in-flight submit as far as
-    ``TaskRunner.submit`` is concerned, so a second one anywhere is refused
-    exactly as it is there -- nothing here duplicates that door's own submit
-    logic, it only reaches it from a second place.
-    """
-    mesh = _selected_mesh(ctx)
-    if mesh is None or "model.glb" not in (mesh.get("files") or []):
-        return
-    from .....panes import sheet_panel
-
-    job_id = mesh["id"]
-    with widgets.group("Turnaround", id="turnaround"):
-        if not ctx.rigging_available:
-            # Rendering a sheet is Blender out of process the same way rigging is
-            # (S138); the pattern every "needs Blender" sentence in the app
-            # follows (service/characters.py's own comment states it), applied to
-            # this door.
-            widgets.muted("Rendering a sheet needs Blender, which is not installed.")
-            return
-        key = f"sheet:{job_id}"
-        busy = ctx.busy(key)
-        saved = (ctx.state.preview or {}).get("sheets") or []
-        cap_reason = None if busy else sheet_panel.sheet_cap_reason(saved, ctx.cache.jobs, job_id)
-        widgets.cost_note(
-            "Queued like a generation: the default 8-direction turnaround is "
-            "eight Blender renders, run in a separate process."
-        )
-        if widgets.disabled_button(
-            "Render turnaround",
-            not busy and not cap_reason,
-            reason="A sheet is already rendering for this asset." if busy else (cap_reason or ""),
-        ):
-            # Last time's rings first, sheet_panel._submit's own rule: a new
-            # submit is judged on its own.
-            ctx.state.clear_field_errors()
-            defaults = (ctx.sheet_options or {}).get("defaults") or {}
-            ctx.submit(
-                key,
-                svc_sheets.create_sheet,
-                ctx.svc,
-                job_id,
-                poses=[],
-                elevation=float(defaults.get("elevation") or 0.0),
-                frame_size=int(defaults.get("frame_size") or 128),
-                lighting=defaults.get("lighting") or "flat",
-                name="",
-                clip_from=None,
-                clip_to=None,
-                clip_frames=8,
-                yaws=8,
-            )
 
 
 def problems(

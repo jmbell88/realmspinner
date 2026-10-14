@@ -28,7 +28,7 @@ def _flat(text: str) -> str:
 
 
 def _chapter() -> str:
-    return _flat(loader.load("30-clay").replace("\r\n", "\n"))
+    return _flat(loader.load("27-clay").replace("\r\n", "\n"))
 
 
 def test_the_manual_lists_every_parameterised_clay_op_in_its_dialog_sentence() -> None:

@@ -206,7 +206,6 @@ def app_context(gl: Any, svc: Any, data_dir: Any):
     The smoke suite's ``app_ctx`` fixture, as a context manager (see
     :func:`gl_imgui`).
     """
-    from realmspinner.service import sheets as svc_sheets
     from realmspinner.service import system as svc_system
     from realmspinner.studio import textures
     from realmspinner.studio.app_ctx import Ctx
@@ -232,7 +231,6 @@ def app_context(gl: Any, svc: Any, data_dir: Any):
         textures=textures.ThumbnailCache(gl),
     )
     ctx.guidance = svc_system.guidance_catalog(svc)
-    ctx.sheet_options = svc_sheets.sheet_options()
     ctx.base_models = [("turbo", "SDXL-Turbo")]
     ctx.style_loras = [("", "none")]
     ctx.rig_templates = [{"key": "biped", "label": "Biped"}]

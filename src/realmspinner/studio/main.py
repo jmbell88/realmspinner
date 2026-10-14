@@ -158,11 +158,9 @@ _FUNCTION_KEYS = frozenset(f"f{n}" for n in range(1, 13))
 # enough that an idle session stops burning a core and the GPU.
 IDLE_FPS = 12
 # The modes that fill the host window with one pane. Inker, Clay, Mason,
-# Poser, Review, Plotter, Packwright, Muse and Sirens are not here: each fills
+# Review, Plotter, Packwright, Muse and Sirens are not here: each fills
 # it with a three-column *workspace* instead, which is ``modes.WORKSPACE_MODES``
-# -- nine of them now (the 2026-09-26 audit, finding shell-boot-05: this
-# comment still named the five from before Mason, Poser, Muse and Sirens
-# joined the set). Those three categories partition ``modes.KEYS`` exactly,
+# -- eight of them now. Those three categories partition ``modes.KEYS`` exactly,
 # and the partition is the guard on ``shell.frame.FrameMixin._build_ui``'s
 # dispatch.
 #
@@ -179,23 +177,17 @@ _SINGLE_PANE_MODES = ("home", "settings", "library")
 DROPPABLE_IMAGES = filetypes.IMAGE_SUFFIXES
 
 #: What a drop is told in a mode that opens no files. **A table, not a chain
-#: of branches**, because the chain had a hole: Poser and Troupe were given a
-#: refusal on 2026-09-04 (a drop there "fell through to Create's branches
-#: below, which would either refuse it by describing a generation form that
-#: is not on screen or accept it by switching modes out from under the
-#: user"), and Muse, Review and Settings were still falling through on
-#: 2026-09-05 -- a PNG dropped on a results tray switched the window to
-#: Create. Each sentence names what the mode works on instead (H71's rule).
+#: of branches**, because the chain had a hole: modes were given a refusal one
+#: at a time (a drop there "fell through to Create's branches below, which
+#: would either refuse it by describing a generation form that is not on
+#: screen or accept it by switching modes out from under the user"), and Muse,
+#: Review and Settings were still falling through on 2026-09-05 -- a PNG
+#: dropped on a results tray switched the window to Create. Each sentence names
+#: what the mode works on instead (H71's rule).
 #: A test holds this table and the document branches of ``_on_drop`` against
 #: ``modes.KEYS``, so a new mode cannot be forgotten. Home, Library and Create
 #: are the modes a drop *starts* something in and are deliberately absent.
-#: Troupe's own row folded into Poser's (P9, 2026-09-18) when the mode did.
 DROP_REFUSALS: dict[str, str] = {
-    "poser": (
-        "Poser opens no files: it edits poses on a rig you already have and "
-        "plays the character sheets a render has already produced, both "
-        "chosen from its own library."
-    ),
     "muse": (
         "Muse opens no files: it makes music from a brief, and a take goes to "
         "Sirens from its own card."

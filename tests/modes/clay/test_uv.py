@@ -297,7 +297,7 @@ def test_every_primitive_the_manual_says_has_no_overlapping_uv_has_none():
     from realmspinner.kernels.mesh import uvtools
     from realmspinner.kernels.mesh.elements import OpError
 
-    text = (Path(__file__).parents[3] / "docs" / "manual" / "30-clay.md").read_text(
+    text = (Path(__file__).parents[3] / "docs" / "manual" / "27-clay.md").read_text(
         encoding="utf-8"
     )
     section = text.split("## Texture coordinates", 1)[1]

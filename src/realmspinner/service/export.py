@@ -372,10 +372,10 @@ def staged_copy(source: Path, dest: Path) -> None:
     the copy. Outside the letter of the staged-writes invariant, which is about
     files this app serves, and squarely inside its reasoning (SVC-06).
 
-    Public since 2026-09-05: ``service.characters.export_package`` writes a
-    sheet and its sidecar into the same watched folder and needs exactly this
-    guarantee, and a second private copy of it in that module would be one edit
-    away from a plain ``copyfile`` landing in a project's assets directory.
+    Public since 2026-09-05: ``service.characters`` writes into the same
+    watched folder and needs exactly this guarantee, and a second private copy
+    of it in that module would be one edit away from a plain ``copyfile``
+    landing in a project's assets directory.
     """
     staged_copy_all([(source, dest)])
 
@@ -384,10 +384,8 @@ def staged_copy_all(pairs: list[tuple[Path, Path]]) -> None:
     """Stage *every* copy first, then rename them all. Both land or neither.
 
     The pair case is why this exists rather than a loop over :func:`staged_copy`
-    at each call site. A character sheet is a PNG **and** its JSON sidecar, and
-    a reader that finds one without the other has an asset it cannot interpret
-    -- ``store.list_sheets`` states the same rule for the directory this app
-    serves, where the sidecar is written last as the completion marker. Copying
+    at each call site. An asset that is a PNG **and** its JSON sidecar is
+    useless to a reader that finds one without the other. Copying
     one at a time puts a disk-full between them; staging both and then replacing
     both narrows the window to two renames.
 
@@ -532,8 +530,10 @@ def staged_tree(dest_root: Path, name: str, write: Callable[[Path], None]) -> Pa
 # --- the character-export menu ------------------------------------------------
 #
 # One registry for every "Export..." control a character's card can offer,
-# so a pane never hand-lists the four ways out and a fifth is one row added
-# here rather than a fourth `if key == ...` somewhere in `studio/`.
+# so a pane never hand-lists the ways out and another is one row added
+# here rather than an `if key == ...` somewhere in `studio/`. (There used to be
+# two more -- the sprite-sheet pair and the frame folders -- which left with the
+# character sheets, ``retired.py``.)
 #
 # ``service.characters`` is not imported at this module's top level on
 # purpose: it is the *other* half of this pair (it already reaches back into
@@ -549,8 +549,7 @@ def staged_tree(dest_root: Path, name: str, write: Callable[[Path], None]) -> Pa
 class CharacterExport:
     """One row of the character-export menu.
 
-    ``door`` is called uniformly as ``door(svc, job_id, sheet_id, stem, overwrite=...)`` --
-    ``sheet_id`` is ``None`` for the two rows that export the mesh alone, and
+    ``door`` is called uniformly as ``door(svc, job_id, stem, overwrite=...)`` --
     ``stem`` is ``None`` for an ordinary (human) export, which names its own
     folder/file after the job the way it always has -- so
     :func:`run_character_export` never has to know one door's signature from
@@ -559,14 +558,12 @@ class CharacterExport:
 
     key: str
     label: str
-    needs_sheet: bool
     door: Callable[..., Any]
 
 
 def _export_animated_glb(
     svc: RealmspinnerService,
     job_id: str,
-    sheet_id: str | None,
     stem: str | None,
     overwrite: bool = False,
 ) -> Any:
@@ -583,9 +580,9 @@ def _export_animated_glb(
     ``characters.agent_export_stem`` -- the copy is named ``<stem>.glb``
     through :func:`staged_copy` (a temp file beside the destination, then
     ``os.replace``) rather than ``export_to_folder``'s job-named arcname:
-    the same scope rule ``export_frames``/``export_godot``/``export_package``
-    already keep, closing the one format that used to let two agent-built
-    characters sharing a display name replace each other's animated GLB.
+    the same scope rule ``export_godot`` keeps, closing the one format that
+    used to let two agent-built characters sharing a display name replace each
+    other's animated GLB.
     Without ``stem`` this is byte-for-byte today's behaviour.
     """
     from . import derive as svc_derive
@@ -629,24 +626,9 @@ def _export_animated_glb(
     }
 
 
-def _export_sheet_package(
-    svc: RealmspinnerService,
-    job_id: str,
-    sheet_id: str | None,
-    stem: str | None,
-    overwrite: bool = False,
-) -> Any:
-    from . import characters as svc_characters
-
-    return svc_characters.export_package(
-        svc, job_id, str(sheet_id or ""), stem=stem, overwrite=overwrite
-    )
-
-
 def _export_godot_scene(
     svc: RealmspinnerService,
     job_id: str,
-    sheet_id: str | None,
     stem: str | None,
     overwrite: bool = False,
 ) -> Any:
@@ -655,36 +637,12 @@ def _export_godot_scene(
     return svc_characters.export_godot(svc, job_id, stem=stem, overwrite=overwrite)
 
 
-def _export_frame_folders(
-    svc: RealmspinnerService,
-    job_id: str,
-    sheet_id: str | None,
-    stem: str | None,
-    overwrite: bool = False,
-) -> Any:
-    from . import characters as svc_characters
-
-    return svc_characters.export_frames(
-        svc, job_id, str(sheet_id or ""), stem=stem, overwrite=overwrite
-    )
-
-
 #: Every character export a card may offer, in menu order. Additive: a fifth
 #: export is a fifth row here (plus its own door and test), never a change to
-#: the four already shipped.
+#: the ones already shipped.
 CHARACTER_EXPORTS: dict[str, CharacterExport] = {
-    "animated_glb": CharacterExport(
-        "animated_glb", "Animated GLB", False, _export_animated_glb
-    ),
-    "sheet_package": CharacterExport(
-        "sheet_package", "Sprite sheet + JSON", True, _export_sheet_package
-    ),
-    "godot_scene": CharacterExport(
-        "godot_scene", "Godot scene", False, _export_godot_scene
-    ),
-    "frame_folders": CharacterExport(
-        "frame_folders", "Frame folders", True, _export_frame_folders
-    ),
+    "animated_glb": CharacterExport("animated_glb", "Animated GLB", _export_animated_glb),
+    "godot_scene": CharacterExport("godot_scene", "Godot scene", _export_godot_scene),
 }
 
 
@@ -692,7 +650,6 @@ def run_character_export(
     svc: RealmspinnerService,
     key: str,
     job_id: str,
-    sheet_id: str | None = None,
     *,
     stem: str | None = None,
     overwrite: bool = False,
@@ -700,11 +657,7 @@ def run_character_export(
     """The one door every character-export control calls.
 
     Refused before any door runs: an unknown *key* on ``field="format"`` --
-    the control that offered it -- and a missing *sheet_id* on
-    ``field="sheet_id"`` for a row :data:`CHARACTER_EXPORTS` marks
-    ``needs_sheet``, so a caller that forgot to pick a sheet is told which
-    control is at fault rather than reaching ``export_package``'s or
-    ``export_frames``' own id check with an empty string.
+    the control that offered it.
 
     ``stem`` passes straight through to whichever door *key* names --
     ``characters.agent_export_stem`` is what an agent calls to build one, so
@@ -721,6 +674,4 @@ def run_character_export(
     row = CHARACTER_EXPORTS.get(key)
     if row is None:
         raise Invalid(f"{key!r} is not a character export format", field="format")
-    if row.needs_sheet and not sheet_id:
-        raise Invalid("choose a sheet to export", field="sheet_id")
-    return row.door(svc, job_id, sheet_id, stem, overwrite=overwrite)
+    return row.door(svc, job_id, stem, overwrite=overwrite)

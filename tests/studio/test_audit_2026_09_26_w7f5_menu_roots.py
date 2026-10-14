@@ -85,4 +85,4 @@ def test_every_mode_the_manual_says_has_its_own_menu_root_has_one():
     inker_rows = menus.specs(inker_ctx, evaluate=False)
     inker_roots = menus.roots(inker_rows)
     contextual = [r for r in inker_roots if r not in menus.ROOTS]
-    assert contextual == ["Sprite", "Layer", "Frame", "Select", "Sheet", "Flourish"]
+    assert contextual == ["Sprite", "Layer", "Frame", "Select", "Flourish"]

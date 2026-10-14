@@ -141,6 +141,11 @@ CORE_TOP = frozenset({
     # explicitly compare themselves in their own docstrings to vram/memlog,
     # this tree's two canonical "pure, importable from anywhere" examples.
     "errors.py", "changelog.py",
+    # The retired job kinds (the 2026-10-13 character-sheet removal): a module
+    # with no imports at all, read by ``db`` (L0), the queue and the service
+    # layer alike -- which is why it sits at the bottom with ``errors`` rather
+    # than in ``service``, a place the queue may not import from.
+    "retired.py",
 })
 #: P3 landed: ``core/safeio/*`` and ``core/undo.py`` are today's paths, not a
 #: plan destination -- so this is a plain prefix now rather than a hand list
@@ -511,7 +516,6 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("realmspinner.studio.shell.app", "realmspinner.studio.modes.muse.ui.workspace"),
     ("realmspinner.studio.shell.app", "realmspinner.studio.modes.packwright.ui.workspace"),
     ("realmspinner.studio.shell.app", "realmspinner.studio.modes.plotter.ui.workspace"),
-    ("realmspinner.studio.shell.app", "realmspinner.studio.modes.poser.ui.viewport"),
     ("realmspinner.studio.shell.app", "realmspinner.studio.modes.review.ui.workspace"),
     ("realmspinner.studio.shell.app", "realmspinner.studio.modes.sirens.ui.workspace"),
     ("realmspinner.studio.shell.frame", "realmspinner.studio.modes.create.ui.brief"),

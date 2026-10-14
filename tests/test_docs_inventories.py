@@ -201,13 +201,15 @@ def test_network_workers_are_the_three_this_test_was_written_for():
     assert network_workers() == ("fetch_worker", "pack_worker", "update_worker")
 
 
-def test_editor_packages_are_the_eight_this_test_was_written_for():
+def test_editor_packages_are_the_seven_this_test_was_written_for():
     """Sanity check on the derivation itself, mirroring the network-worker one
-    above: a ninth headless workspace enrolling itself should make this fail
+    above: an eighth headless workspace enrolling itself should make this fail
     first, legibly, rather than surface as a confusing diff inside the
     CONTRIBUTING.md assertion below.
 
-    Still eight, but ``troupe`` became ``poser`` in this tuple on 2026-09-18:
+    Seven since the 2026-10-13 Clay rig plan removed Poser (its ``engine/`` --
+    the old Troupe engine -- left with it; this tuple was eight before). History
+    of the name: ``troupe`` became ``poser`` in this tuple on 2026-09-18:
     P9 of ``dev/RESTRUCTURE.md`` (Troupe folds into Poser as a stage) moved
     ``spec``/``qa``/``ulpc`` from ``modes/troupe/engine/`` to
     ``modes/poser/engine/`` verbatim as its first step, so
@@ -229,7 +231,6 @@ def test_editor_packages_are_the_eight_this_test_was_written_for():
         "muse",
         "packwright",
         "plotter",
-        "poser",
         "sirens",
     )
 

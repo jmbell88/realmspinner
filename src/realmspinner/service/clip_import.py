@@ -7,7 +7,7 @@ writes nothing durable of its own: the sampled transforms live only long
 enough to be converted (``cliptransfer.transfer``, pure host math) and handed
 back or merged into a clip library. There is no ``job_dir`` for this to write
 into and nothing for a queue row, a progress bar or a cancel button to track.
-``service.poses.template_preview`` is the same shape for the same reason --
+the retired pose-library door is the same shape for the same reason --
 Blender work with no artifact of its own -- and this module follows it: a
 plain synchronous call a pane (or a script, or a future MCP tool) makes on the
 ``TaskRunner`` thread and waits out, not a ``_q_*`` module.
@@ -196,7 +196,7 @@ def analyse(
         # scratch file with no reader of its own once this call returns, and
         # a raise between writing the spec and calling the worker (or a
         # worker that dies before producing one) must not strand it, the same
-        # rule ``service.poses.template_preview``'s ``tmp.unlink`` follows.
+        # rule the retired pose-library door's ``tmp.unlink`` follows.
         with contextlib.suppress(OSError):
             result_path.unlink(missing_ok=True)
 

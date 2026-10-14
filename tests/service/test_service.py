@@ -24,7 +24,6 @@ from realmspinner.service import export as svc_export
 from realmspinner.service import files as svc_files
 from realmspinner.service import jobs as svc_jobs
 from realmspinner.service import rig as svc_rig
-from realmspinner.service import sheets as svc_sheets
 from realmspinner.service.validation import DERIVED_PARAMS, MAX_SEED
 
 
@@ -1042,8 +1041,6 @@ def test_a_retexture_does_not_make_the_rig_stale(svc):
     (job_dir / "rig.json").write_text("{}")
     store.pose_dir(job_dir).mkdir(parents=True, exist_ok=True)
     (store.pose_dir(job_dir) / "abcdef012345.glb").write_bytes(b"x")
-    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    (store.sheet_dir(job_dir) / "abcdef012345.png").write_bytes(b"x")
 
     assert svc_jobs.stale_surface_artifacts(job_dir) == []
     assert svc_jobs.retexture_job(svc, job_id, "rusted iron")["stale"] == []
@@ -1257,7 +1254,7 @@ def test_the_lock_table_hands_out_one_lock_per_artifact(svc):
     assert len({id(lock) for lock in seen}) == 1
 
 
-# --- rigs and sheets --------------------------------------------------------
+# --- rigs --------------------------------------------------------
 
 
 def test_a_rig_job_cannot_be_rigged(svc):
@@ -1271,21 +1268,6 @@ def test_rigging_needs_a_finished_mesh(svc):
     job_id = _finished_job(svc)
     with pytest.raises(Invalid):
         svc_rig.create_rig(svc, job_id)
-
-
-def test_a_sheet_needs_a_finished_mesh(svc):
-    job_id = _finished_job(svc)
-    with pytest.raises(Invalid):
-        svc_sheets.create_sheet(svc, job_id)
-
-
-def test_a_clip_needs_both_ends(svc):
-    job_id = _finished_job(svc)
-    job_dir = svc.job_dir(job_id)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "model.glb").write_bytes(b"x")
-    with pytest.raises(Invalid):
-        svc_sheets.create_sheet(svc, job_id, clip_from="abcdef012345")
 
 
 def test_a_pose_id_is_validated_before_it_names_a_file(svc):

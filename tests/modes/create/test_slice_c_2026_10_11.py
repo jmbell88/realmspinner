@@ -754,7 +754,7 @@ def _cards(monkeypatch, *, open_collapsible: bool):
 
 def test_the_mesh_basic_view_holds_the_budget_size_and_rig_and_one_fold(monkeypatch):
     drawn: list[str] = []
-    for name in ("_budget", "_size", "_rig", "_turnaround"):
+    for name in ("_budget", "_size", "_rig"):
         monkeypatch.setattr(settings_3d, name, lambda *a, _n=name, **k: drawn.append(_n))
     monkeypatch.setattr(settings_3d, "_advanced_basics", lambda *a, **k: drawn.append("advanced"))
     monkeypatch.setattr(settings_3d, "_hint", lambda *a, **k: None)
@@ -763,10 +763,10 @@ def test_the_mesh_basic_view_holds_the_budget_size_and_rig_and_one_fold(monkeypa
     cards = _cards(monkeypatch, open_collapsible=False)
     ctx = _ctx(svc=SimpleNamespace(config=SimpleNamespace(bench_dir="nowhere")))
     settings_3d._draw_form(ctx, SimpleNamespace(), "Mesh resolution", None)
-    # The Mesh card, then the one collapsible card (Rig and Turnaround open
-    # their own cards inside the functions replaced above).
+    # The Mesh card, then the one collapsible card (Rig opens its own card
+    # inside the function replaced above).
     assert cards == [("Mesh", False), ("Advanced", True)]
-    assert drawn == ["_budget", "_size", "_rig", "_turnaround"], "the fold was closed"
+    assert drawn == ["_budget", "_size", "_rig"], "the fold was closed"
 
 
 def test_the_fold_opens_onto_the_old_top_level_controls_and_the_engine_flags(monkeypatch):

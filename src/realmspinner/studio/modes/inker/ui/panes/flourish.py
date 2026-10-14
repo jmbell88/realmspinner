@@ -5,7 +5,7 @@ Drawn only when they apply. The popup opens from the **Flourish** menu
 every other Inker dialog uses). The inspector draws under the timeline's
 transport when the active layer is inside an effect group, and nowhere else:
 an ordinary drawing has nothing for it to say, and a panel that appears only
-for the thing it describes is the rule the sheet strip already follows.
+for the thing it describes is the rule.
 
 **No control here writes the document.** Every slider and field writes the
 *pending* recipe in ``inker_state`` and starts a short clock; when the value

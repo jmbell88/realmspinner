@@ -1,6 +1,6 @@
 """Durable, user-facing records for automatic follow-up admission failures.
 
-The parent artifact is already complete when an automatic rig or sheet is
+The parent artifact is already complete when an automatic rig or sprite sheet is
 queued. Failing that second insert must not fail the parent, but logging alone
 also makes the requested work appear to have vanished. This module owns the
 small params schema that bridges those two requirements and is shared by the
@@ -18,7 +18,6 @@ MAX_MESSAGE = 500
 LABELS = {
     "rig": "Automatic rig",
     "sprite_synthesis": "Sprite sheet",
-    "charsheet": "Character sheet",
 }
 
 #: What a *finished* follow-up is called, for the toast that announces it.
@@ -29,27 +28,16 @@ LABELS = {
 #:
 #: Every kind here mints its row with its *source's* prompt, so without a noun
 #: the toast said "fire guardian finished." twice for one character and named
-#: neither half. Eight entries, because eight kinds carry
-#: ``params["source_job"]`` and write into that source's directory rather than
-#: their own -- the shape ``_q_jobs.Worker._discard_artifacts`` enumerates
-#: kind by kind. **Not** the same seven :mod:`realmspinner.studio.asset_open`
-#: routes "where that asset is": ``separate`` carries ``source_job`` exactly
-#: like the other seven, but ``asset_open.route`` deliberately opens it in
-#: Muse, on the *take*, rather than hopping to the source job the way
-#: ``FOLLOWUP_STAGES`` and the ``charsheet`` special case both do (see the
-#: comment at ``asset_open.py``'s ``if kind == "separate":`` branch) -- so the
-#: two counts, coincidentally equal at seven, diverge here at eight. (Was
-#: "Six" until the 2026-09-07 audit, service-06: ``remesh`` was added here
-#: without updating the count. Was "Seven" -- and still claimed to equal
-#: asset_open's routed count -- until the 2026-09-11 audit, finding muse-08:
-#: ``separate``'s finished-stem toast was falling back to the generic
-#: wording because it had no entry here at all.)
+#: neither half. One entry per kind that carries ``params["source_job"]`` and
+#: writes into that source's directory rather than its own -- the shape
+#: ``_q_jobs.Worker._discard_artifacts`` enumerates kind by kind, plus
+#: ``separate``, which :mod:`realmspinner.studio.asset_open` deliberately opens
+#: in Muse on the *take* rather than hopping to the source job. The retired
+#: sheet kinds (:mod:`realmspinner.retired`) are not here: a row of one never
+#: finishes again, so there is no toast to name.
 PRODUCTS = {
     "rig": "Rig",
-    "sheet": "Sprite sheet",
-    "pixel_sheet": "Pixel sheet",
     "sprite_synthesis": "Sprite sheet",
-    "charsheet": "Character sheet",
     "retexture": "Re-texture",
     "remesh": "Remesh",
     "separate": "Stems",
@@ -58,7 +46,7 @@ PRODUCTS = {
 #: Which stage a follow-up can be attempted from, and therefore which rows may
 #: carry a failure record about it. A record on any other stage is not evidence
 #: of anything -- it is the fingerprint of a missing guard. ``_maybe_queue_rig``
-#: had no stage guard until 2026-08-21, so it ran on every Troupe *reference*
+#: had no stage guard until 2026-08-21, so it ran on every character *reference*
 #: completion and wrote "the generated mesh artifact is missing" onto rows that
 #: had not been asked for a mesh yet. The guard is in place now; this keeps the
 #: rows already written from showing a warning that was never true.
@@ -69,7 +57,6 @@ PRODUCTS = {
 #: also covers a row restored from a backup taken before the guard landed.
 APPLICABLE_STAGES = {
     "rig": ("model",),
-    "charsheet": ("model",),
     "sprite_synthesis": ("reference",),
 }
 

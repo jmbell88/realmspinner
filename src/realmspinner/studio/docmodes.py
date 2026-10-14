@@ -581,18 +581,16 @@ def _doc_modes() -> tuple[str, ...]:
     **Derived from** :data:`mode_manifest.DOC_MODES`, **not a second
     hand-written tuple** (the 2026-09-20 audit, finding shell-05): this used
     to be a literal ``("inker", "clay", "mason", "plotter", "packwright",
-    "sirens")`` that happened to agree with the manifest minus "poser", with
+    "sirens")`` that happened to agree with the manifest, with
     a comment recording that the 2026-09-13 audit (shell-12) had already once
     found it stuck at "five" after Mason's addition made it six -- the same
     hand-list drifting the same way twice. ``status_bar._document_modes``
     carried the identical twin and was fixed for it in the 2026-09-08 audit
     (shell-08); this is that fix applied to its sibling.
 
-    Poser is excluded: its unsaved work lives in a ``PoseEditor``, not a
-    ``DocTabs`` with an ``any_dirty`` property, so there is nothing here for
-    :func:`any_unsaved` to ask -- :func:`viewer_guard` asks the equivalent
-    question over the pose viewer instead. The same exclusion
-    ``status_bar._document_modes`` makes off the same registry.
+    A mode whose unsaved work is not a ``DocTabs`` with an ``any_dirty`` property
+    would have to be excluded here (Poser's was: a ``PoseEditor``, asked about by
+    :func:`viewer_guard` instead); none is today.
 
     ``mode_manifest`` is imported here, at the call site, rather than at
     module scope -- this module's own import-discipline rule (see the module
@@ -604,7 +602,7 @@ def _doc_modes() -> tuple[str, ...]:
     """
     from . import mode_manifest
 
-    return tuple(m.key for m in mode_manifest.DOC_MODES if m.key != "poser")
+    return tuple(m.key for m in mode_manifest.DOC_MODES)
 
 
 def __getattr__(name: str) -> Any:
@@ -669,12 +667,9 @@ def guard(ctx: Any, attr: str, singular: str, plural: str, verb: str, proceed: A
 def pose_undo_key(viewer: Any, event: Any) -> bool:
     """Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y over a pose editor. -> consumed?
 
-    Here for ``viewer_guard``'s reason: the two entry points into pose editing
-    -- Poser's authoring session and the inspector's asset pose mode -- are
-    different viewers and different keyboard doors, and the binding is the same
-    one over the same ``PoseEditor``. Written twice it would drift, and the
-    half that drifted would be the inspector's, which is the one nobody opens
-    on purpose.
+    Here for ``viewer_guard``'s reason: the pose editor is a keyboard door of its
+    own beside the document modes', and the binding is the one the rest of the
+    app answers to.
 
     Both spellings of redo, because both are in the app already: Inker binds
     Ctrl+Shift+Z and Clay binds Ctrl+Y, and a user who learned either in one
@@ -713,12 +708,10 @@ def pose_undo_key(viewer: Any, event: Any) -> bool:
 def viewer_guard(ctx: Any, viewer: Any, noun: str, verb: str, proceed: Any) -> bool:
     """:func:`guard`'s rule over a pose viewer. -> whether it went ahead now.
 
-    The two pose editors keep their unsaved work in a ``PoseEditor`` rather
-    than in a tab list, but they ask the same question in the same words. The
-    caller passes the viewer *and* the noun because which viewer is the right
-    one is the whole distinction between them -- the Poser reads its own
-    instance, the inspector reads the shared one, and no edit can live in both
-    -- and the inspector's noun changes with the editor's mode.
+    The pose editor keeps its unsaved work in a ``PoseEditor`` rather than in a
+    tab list, but asks the same question in the same words. The caller passes the
+    viewer *and* the noun because the inspector's noun changes with the editor's
+    mode.
     """
     if viewer is None or not viewer.pose_mode or not viewer.editor.has_unsaved_edits():
         proceed()
@@ -730,9 +723,8 @@ def viewer_guard(ctx: Any, viewer: Any, noun: str, verb: str, proceed: Any) -> b
 def confirm_discard(ctx: Any, noun: str, verb: str, proceed: Any) -> None:
     """The one "Discard unsaved changes?" sentence, asked unconditionally.
 
-    Split out of :func:`viewer_guard` for Poser's quit guard (poser-07,
-    2026-10-03): the clip editor's working copy is not on any viewer, so that
-    guard decides *whether* to ask itself and must still ask in these words
+    Split out of :func:`viewer_guard` for a guard whose working copy is not on any
+    viewer: it decides *whether* to ask itself and must still ask in these words
     rather than keep a second copy of the sentence.
     """
     from . import dialogs

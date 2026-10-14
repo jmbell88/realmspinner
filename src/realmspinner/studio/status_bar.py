@@ -43,8 +43,7 @@ def _document_name(tab: Any) -> str:
 
 def _document_modes() -> frozenset[str]:
     """The modes this bar reports a document/tool/zoom row for -- every
-    document mode except "poser", which is handled by its own branch above
-    (a viewer, not a tab).
+    document mode.
 
     Derived rather than a second, hand-written tuple: the two used to be two
     independent literals, and a document mode added to the registry in future
@@ -60,7 +59,7 @@ def _document_modes() -> frozenset[str]:
     """
     from . import mode_manifest
 
-    return frozenset(m.key for m in mode_manifest.DOC_MODES) - {"poser"}
+    return frozenset(m.key for m in mode_manifest.DOC_MODES)
 
 
 def items(ctx: Any) -> list[StatusItem]:
@@ -74,18 +73,7 @@ def items(ctx: Any) -> list[StatusItem]:
     )
     out = [StatusItem("workspace", label)]
 
-    if mode == "poser":
-        # Poser's "tab" is the viewer (``poser_mode.active``), which has no
-        # label and no ``dirty``: the row read a constant ``Untitled`` however
-        # dirty the pose was, until 2026-09-05. The name and the flag come
-        # from the mode, which knows which library record is being edited.
-        from .modes.poser import mode as poser_mode
-
-        named = poser_mode.document_label(ctx)
-        if named is not None:
-            name, dirty = named
-            out.append(StatusItem("document", f"{name}{' *' if dirty else ''}"))
-    elif mode in _document_modes():
+    if mode in _document_modes():
         # **One branch for every document mode.** Inker alone reported its
         # tool and zoom, from a branch of its own; Plotter and Packwright
         # carry the identical ``PaintView.zoom`` and Plotter has tools, and

@@ -142,6 +142,20 @@ def test_a_failed_reorient_leaves_the_mesh_the_history_and_no_scratch(svc, monke
     assert not list((job_dir / "versions").glob("*")) if (job_dir / "versions").exists() else True
 
 
+def _set_front_yaw(svc, job_id, degrees):
+    """What the removed ``set_front_yaw`` door recorded, written straight to the row.
+
+    The door left with Poser (the overlay control was its only caller); the
+    param it wrote is still what ``reorient_model(bake_front=True)`` and the
+    rig QA read, so these tests set it the way the door did: removed at zero
+    rather than stored as 0.0.
+    """
+    value = float(degrees) % 360.0
+    svc.store.merge_params(
+        job_id, {"front_yaw": value} if value else {}, remove=() if value else ("front_yaw",)
+    )
+
+
 def test_reorient_model_drops_every_derived_export(svc):
     job_id = _job(svc)
     job_dir = svc.job_dir(job_id)
@@ -153,7 +167,7 @@ def test_reorient_model_drops_every_derived_export(svc):
 
 def test_bake_front_turns_the_mesh_and_clears_the_front(svc):
     job_id = _job(svc)
-    svc_jobs.set_front_yaw(svc, job_id, 90.0)
+    _set_front_yaw(svc, job_id, 90.0)
     svc_jobs.reorient_model(svc, job_id, bake_front=True)
     nub, body, _ = _nub_and_body(svc.job_dir(job_id) / "model.glb")
     assert nub[2] > body[2] + 0.4
@@ -163,7 +177,7 @@ def test_bake_front_turns_the_mesh_and_clears_the_front(svc):
 def test_reorient_bake_front_is_refused_while_a_rig_exists(svc):
     job_id = _job(svc)
     job_dir = svc.job_dir(job_id)
-    svc_jobs.set_front_yaw(svc, job_id, 90.0)
+    _set_front_yaw(svc, job_id, 90.0)
     (job_dir / "rig.glb").write_bytes(b"rig")
     (job_dir / "rig.json").write_text("{}")
     original = (job_dir / "model.glb").read_bytes()
@@ -228,7 +242,7 @@ def test_revert_across_a_reorient_restores_size_m_and_the_front(svc):
     a mesh that already faces front from an angle that is no longer true."""
     job_id = _job(svc)
     job_dir = svc.job_dir(job_id)
-    svc_jobs.set_front_yaw(svc, job_id, 90.0)
+    _set_front_yaw(svc, job_id, 90.0)
     original_nub = _nub_and_body(job_dir / "model.glb")
     svc_jobs.reorient_model(svc, job_id, size_m=2.0, bake_front=True)
     params = svc.store.get(job_id)["params"]
@@ -251,10 +265,10 @@ def test_revert_across_a_reorient_restores_size_m_and_the_front(svc):
 
 def test_a_resize_only_reorient_leaves_front_yaw_alone_on_revert(svc):
     job_id = _job(svc)
-    svc_jobs.set_front_yaw(svc, job_id, 90.0)
+    _set_front_yaw(svc, job_id, 90.0)
     svc_jobs.reorient_model(svc, job_id, size_m=2.0)
     assert svc.store.get(job_id)["params"]["front_yaw"] == 90.0
-    svc_jobs.set_front_yaw(svc, job_id, 45.0)
+    _set_front_yaw(svc, job_id, 45.0)
     svc_jobs.revert_model(svc, job_id, version=1)
     params = svc.store.get(job_id)["params"]
     assert params["size_m"] == 1.3
@@ -264,7 +278,7 @@ def test_a_resize_only_reorient_leaves_front_yaw_alone_on_revert(svc):
 def test_history_entries_only_carry_a_front_when_the_geometry_was_turned(svc):
     job_id = _job(svc)
     svc_jobs.reorient_model(svc, job_id, size_m=2.0)
-    svc_jobs.set_front_yaw(svc, job_id, 30.0)
+    _set_front_yaw(svc, job_id, 30.0)
     svc_jobs.reorient_model(svc, job_id, bake_front=True)
     entries = svc.store.get(job_id)["params"]["model_history"]
     assert "front_yaw" not in entries[0]

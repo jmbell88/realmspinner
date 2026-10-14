@@ -4,9 +4,10 @@ The 2026-09-07 audit, finding create-01: ``ctx.state.field_errors`` is one
 flat, unnamespaced dict, and three rework panels reused the bare ids
 "strength", "texture_size" and "custom_faces" for unrelated controls
 (``texture_panel``'s restyle strength and atlas size, ``remesh_panel``'s bake
-size, ``sheet_panel``'s pixel-restyle strength) -- so a refusal from one door
-rang a sibling panel's unrelated control, and the inspector draws these panels
-together routinely. Each panel's submit door is now wrapped to relabel its
+size, and the since-removed ``sheet_panel``'s pixel-restyle strength) -- so a
+refusal from one door rang a sibling panel's unrelated control, and the
+inspector draws these panels together routinely. Each panel's submit door is
+now wrapped to relabel its
 service call's colliding refusal before it ever reaches
 ``ctx.state.field_errors``; the widget drawing the control is keyed by the
 same, now-unique, name (see each panel's own ``_FIELD_PREFIX``).
@@ -19,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from realmspinner.service.errors import Invalid
-from realmspinner.studio.panes import remesh_panel, sheet_panel, texture_panel
+from realmspinner.studio.panes import remesh_panel, texture_panel
 
 
 def test_a_remesh_texture_size_refusal_does_not_ring_the_retexture_atlas_control(monkeypatch):
@@ -40,10 +41,10 @@ def test_a_remesh_texture_size_refusal_does_not_ring_the_retexture_atlas_control
     assert excinfo.value.field != texture_panel._FIELD_PREFIX["texture_size"]
 
 
-def test_a_retexture_strength_refusal_does_not_ring_the_sheet_pixel_strength_control(monkeypatch):
+def test_a_retexture_strength_refusal_does_not_carry_the_bare_strength_id(monkeypatch):
     """Same collision, the other pairing: a re-texture strength refusal must
-    not carry the bare "strength" id ``sheet_panel`` also uses for its pixel
-    restyle's own strength control."""
+    not carry the bare "strength" id other rework panels used for their own,
+    unrelated strength controls."""
 
     def _boom(svc, job_id, prompt, **kwargs):
         raise Invalid("strength must be between 0 and 1", field="strength")
@@ -55,21 +56,6 @@ def test_a_retexture_strength_refusal_does_not_ring_the_sheet_pixel_strength_con
 
     assert excinfo.value.field == "retexture_strength"
     assert excinfo.value.field != "strength"
-    assert excinfo.value.field != sheet_panel._FIELD_PREFIX["strength"]
-
-
-def test_a_pixel_sheet_strength_refusal_does_not_ring_the_retexture_strength_control(monkeypatch):
-    def _boom(svc, job_id, sheet_id, **kwargs):
-        raise Invalid("strength must be between 0 and 1", field="strength")
-
-    monkeypatch.setattr(sheet_panel.svc_sheets, "create_pixel_sheet", _boom)
-
-    with pytest.raises(Invalid) as excinfo:
-        sheet_panel._create_pixel_sheet(object(), "job-1", "sheet-1", strength=5.0)
-
-    assert excinfo.value.field == "sheet_pixel_strength"
-    assert excinfo.value.field != "strength"
-    assert excinfo.value.field != texture_panel._FIELD_PREFIX["strength"]
 
 
 def test_an_unrelated_refusal_field_passes_through_unchanged(monkeypatch):
@@ -154,12 +140,10 @@ def test_texture_panel_warn_does_not_touch_the_filesystem_from_the_frame_thread(
     assert any("model_obj.zip" in call[1] and "textures.zip" in call[1] for call in calls)
 
 
-def test_the_three_panels_field_prefix_tables_do_not_reintroduce_the_collision():
+def test_the_panels_field_prefix_tables_do_not_reintroduce_the_collision():
     """A direct check on the fix's data, not just one instance of it: every
-    renamed id these three panels hand out is unique across the three tables."""
-    renamed = (
-        list(texture_panel._FIELD_PREFIX.values())
-        + list(remesh_panel._FIELD_PREFIX.values())
-        + list(sheet_panel._FIELD_PREFIX.values())
+    renamed id these panels hand out is unique across the tables."""
+    renamed = list(texture_panel._FIELD_PREFIX.values()) + list(
+        remesh_panel._FIELD_PREFIX.values()
     )
     assert len(renamed) == len(set(renamed))

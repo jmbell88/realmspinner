@@ -629,7 +629,7 @@ def test_mirror_copy_selects_its_copies_so_mirroring_twice_makes_four() -> None:
 
 def test_mirror_copy_distinguishes_itself_from_mirror_x_y_z_in_its_hint() -> None:
     """The manual draws the same distinction in the paragraph that already
-    describes Mirror X/Y/Z (docs/manual/30-clay.md); the hint is the one
+    describes Mirror X/Y/Z (docs/manual/27-clay.md); the hint is the one
     place a user reaches for it mid-gesture."""
     assert "Mirror X/Y/Z" in clay_ops.get("mirror-copy").hint
 

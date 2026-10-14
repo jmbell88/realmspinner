@@ -182,7 +182,7 @@ def _modes_sharing_axis_view_key() -> set[str]:
         text = path.read_text(encoding="utf-8")
         if re.search(r"\baxis_view_key\(", text):
             found.add(labels[key])
-    assert {"Clay", "Mason", "Poser"} <= found, found
+    assert {"Clay", "Mason"} <= found, found
     return found
 
 

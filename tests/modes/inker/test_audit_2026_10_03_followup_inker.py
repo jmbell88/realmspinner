@@ -1,6 +1,6 @@
 """The 2026-10-03 audit's Inker follow-ups: inker-41's Export doors, the tile
 conversion and the layer-properties popup's greyed controls, an alpha-locked
-landing, and the sheet-merge refusal's sentence.
+landing.
 
 Each test's name is the claim, and each fails against the code as it stood
 before the fix.
@@ -19,7 +19,6 @@ from realmspinner.kernels.pixel.animation import Tag
 from realmspinner.studio import state as state_mod
 from realmspinner.studio.modes.inker import export as inker_export
 from realmspinner.studio.modes.inker import mode as inker_mode
-from realmspinner.studio.modes.inker import sheet as inker_sheet
 from realmspinner.studio.modes.inker import state as inker_state
 from realmspinner.studio.modes.inker.ui.panes import generate as inker_generate
 from realmspinner.studio.modes.inker.ui.panes import menu as inker_menu_pane
@@ -256,12 +255,3 @@ def test_an_unlocked_landing_is_unchanged():
     doc.commit_floating()
 
     assert tuple(doc.stack.active.pixels[3, 3]) == (255, 0, 0, 255)
-
-
-# --- the sheet-merge refusal -------------------------------------------------------
-
-
-def test_the_no_base_sentence_covers_a_pixel_restyled_sheet_too():
-    assert "restyle" in inker_sheet.NO_BASE
-    # The sentence the Poser wiring test has always pinned stays in it.
-    assert "not opened from a rendered sheet" in inker_sheet.NO_BASE

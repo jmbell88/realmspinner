@@ -27,7 +27,7 @@ POPUP = "Welcome to Realmspinner"
 #: What *generation* needs -- not what the app needs.
 #:
 #: Renamed from ``REQUIRED_ROWS`` on 2026-09-04. Nothing here is required to
-#: run Realmspinner: the eight non-generative workspaces (Inker, Clay, Plotter,
+#: run Realmspinner: the seven non-generative workspaces (Inker, Clay, Plotter,
 #: Packwright, Sirens and the rest) open and work with none of it on disk. The
 #: old name was read as "the app requires these", which is what put a red
 #: banner and a blocking-looking panel in front of a healthy first launch.

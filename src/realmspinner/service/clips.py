@@ -75,10 +75,8 @@ MAX_SEGMENT = 64
 MIN_KEYS = 2
 MAX_KEYS = 64
 
-#: How many poses one library file may carry. ``poselib.MAX_LIBRARY_POSES`` is
-#: the pose library's own cap and is deliberately not reused: that one bounds a
-#: directory the user browses, this one bounds a single JSON file the renderer
-#: parses on every expansion.
+#: How many poses one library file may carry: a bound on a single JSON file the
+#: renderer parses on every expansion.
 #:
 #: Raised from 256 to 1024 alongside ``cliplib.MAX_CLIP_LIBRARY_POSES`` when
 #: the schema moved to v3 -- see that constant's own comment for why
@@ -89,11 +87,32 @@ MAX_LIBRARY_KEYS = 1024
 def _lock(svc: RealmspinnerService) -> Any:
     """The one hold every clip write takes.
 
-    The same sentinel-key idiom ``service.poses`` uses, and for the same
-    reason: name uniqueness and the caps are properties of the *file*, so read,
+    A sentinel key the per-artifact lock table is happy to hold: name
+    uniqueness and the caps are properties of the *file*, so read,
     check and write have to be one hold or two saves both pass the check.
     """
     return svc.convert_lock("clips", "store")
+
+
+def has_clips(template: str) -> bool:
+    """Whether a skeleton has a clip library to import animations from.
+
+    An unknown or unrecorded template is False rather than an error: from the
+    user's side it is the same fact as a skeleton with no clips authored.
+    """
+    try:
+        return bool(cliplib.clip_library(str(template or "")).get("clips"))
+    except ValueError:
+        return False
+
+
+def clip_templates() -> list[dict[str, str]]:
+    """The skeletons that carry a clip library.
+
+    ``templates.catalog()`` filtered by :func:`has_clips`, in the catalog's own
+    order, so a picker offers exactly the set the doors accept.
+    """
+    return [row for row in templates.catalog() if has_clips(row["key"])]
 
 
 def _template_or_invalid(template: str) -> str:
@@ -403,17 +422,10 @@ def _check_renders(template: str) -> None:
     """Refuse a library the character sheet could not be laid out from.
 
     For every template that has a clip library to animate a sheet from --
-    ``has_clips``, the same test ``troupe.clip_templates`` filters the
-    Skeleton picker by -- because a sheet can be requested against any of
-    them (``troupe.create_charsheet``/``check_troupe`` call ``expand_clips``
-    for whichever template the request names, not only the humanoid one).
-    The 2026-09-23 audit, finding poser-02: this used to check only
-    ``TROUPE_TEMPLATE`` (humanoid), so a quadruped, bird or blob library
-    saved without a clip its own default sheet layout needs, contradicting
-    this module's own docstring ("the editor refuses the edit") for three of
-    the four shipped skeletons -- ``troupe.py``'s own comment at the
-    ``create_charsheet`` door already named the gap by number
-    (``service-06``) as the reason *that* door has to re-check by hand. A
+    ``has_clips``, because the character sheet could be requested against any
+    of them. The 2026-09-23 audit, finding poser-02: this used to check only
+    the humanoid, so a quadruped, bird or blob library saved without a clip
+    its own default sheet layout needs. A
     template with no clips at all (an empty user override, or one nobody has
     authored yet) is skipped rather than refused: ``has_clips`` is exactly
     "nothing to check against" here, not "broken".
@@ -424,7 +436,6 @@ def _check_renders(template: str) -> None:
     imagines it. :func:`save` puts the previous bytes back if this raises.
     """
     from ..clips import expand_clips
-    from .troupe import has_clips
 
     if not has_clips(template):
         return

@@ -1,7 +1,8 @@
-"""The 2026-10-03 audit's Medium findings inker-57, -58, -59, -60 and -66.
+"""The 2026-10-03 audit's Medium findings inker-57, -58, -59 and -60.
 
-Tiles, sheets-in, palettes and opening: five defects with workarounds, each
-pinned by a test whose name is the claim.
+Tiles, palettes and opening: four defects with workarounds, each pinned by a
+test whose name is the claim. (inker-66, the pixel restyle's render base, went
+with the character-sheet correction loop.)
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ import numpy as np
 from PIL import Image
 
 from realmspinner.kernels.pixel import tiling
-from realmspinner.kernels.pixel.sheetin import document_from_sheet
 from realmspinner.kernels.pixel.tiles import TilemapCel, TilesetSlot
 from realmspinner.pipelines import pixel
 
@@ -159,61 +159,6 @@ def test_every_pipelines_palette_reader_accepts_a_bom_prefixed_file() -> None:
         plain = pixel.parse_palette(text, suffix)
         assert pixel.parse_palette(_BOM + text, suffix) == plain, suffix
         assert plain == ((255, 0, 0), (0, 255, 0))
-
-
-# --- inker-66 ---------------------------------------------------------------
-
-
-def test_a_pixel_restyle_sheet_opens_with_no_render_base_to_merge_against(
-    tmp_path, monkeypatch
-) -> None:
-    """A pixel restyle opened with the *render's* ``{job, sheet}`` source, so
-    Merge re-render loaded the newest raw render and swapped the cleaned pixel
-    art for it. A pixel sheet has no re-renderer behind it, so no base."""
-    from realmspinner.studio.modes.inker import opening
-
-    size = 8
-    atlas = np.zeros((size, 2 * size, 4), dtype=np.uint8)
-    atlas[..., 3] = 255
-    atlas[:, size:, 0] = 90
-    Image.fromarray(atlas, "RGBA").save(tmp_path / "sheet.png")
-    record = {
-        "name": "walker",
-        "frame_size": size,
-        "columns": 2,
-        "rows": 1,
-        "cells": [
-            {"x": 0, "y": 0, "w": size, "h": size},
-            {"x": size, "y": 0, "w": size, "h": size},
-        ],
-        "animation": {
-            "tags": [{"name": "walk_front", "start": 0, "end": 1, "loop": True}],
-            "frames": [],
-        },
-    }
-    for name in ("get_sheet", "get_pixel_sheet"):
-        monkeypatch.setattr(
-            f"realmspinner.service.sheets.{name}", lambda svc, job, sid: record
-        )
-    for name in ("sheet_png", "sheet_pixel_png"):
-        monkeypatch.setattr(
-            f"realmspinner.service.sheets.{name}",
-            lambda svc, job, sid: tmp_path / "sheet.png",
-        )
-
-    rendered = opening._load_rendered_sheet(object(), "j1", "s1", False)["doc"]
-    restyled = opening._load_rendered_sheet(object(), "j1", "s1", True)["doc"]
-
-    assert rendered.sheet_base is not None
-    assert rendered.sheet_base.source == {"job": "j1", "sheet": "s1"}
-    assert restyled.sheet_base is None
-    # The document is otherwise the same sheet: tags and frames survive.
-    assert len(restyled.anim.frames) == 2
-
-    # And the ordinary door still records a base when asked, so record_base is a
-    # real switch rather than a removal.
-    direct = document_from_sheet(atlas, record["cells"], record["animation"])
-    assert direct.sheet_base is not None
 
 
 # --- the extra: Auto-fit nine-slice centre on a keyed frame ------------------

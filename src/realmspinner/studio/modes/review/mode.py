@@ -1976,7 +1976,7 @@ def launch(ctx: Any) -> bool:
         # toast only, so a refusal naming ``field="prompt"`` (or "seeds",
         # "axes", ...) never reached a control -- the "New sweep" form had no
         # ``forms.Form`` to attach it to. ``note_field_error`` is the same
-        # door ``settings_2d``/``sheet_panel`` already use for a service
+        # door ``settings_2d`` already uses for a service
         # refusal that names a field; ``_review_form`` now reads it back
         # through ``forms.Form("review-sweep", errors=...)``. The toast stays
         # too -- it is the only copy of the message for a field this form

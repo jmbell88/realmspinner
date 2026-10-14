@@ -36,7 +36,7 @@ _B = 0.75
 
 # search() regroups a section's split chunks (see _split_long_section) back
 # into one citation so a reader sees one source, not several near-duplicates
-# -- but a section with many split chunks (28-inker#tools has ten) rejoins
+# -- but a section with many split chunks (25-inker#tools has ten) rejoins
 # them all with no cap of its own. The 2026-09-18 audit (familiar-06) found
 # this made the "Inker tools" query's first (always-admitted) citation 2209
 # tokens, over 7x _MAX_CHUNK_TOKENS, because the per-citation size check in

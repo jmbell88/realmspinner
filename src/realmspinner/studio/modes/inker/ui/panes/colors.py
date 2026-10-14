@@ -34,7 +34,7 @@ SWATCH = 20.0
 # way to type one was a popup nothing advertised.
 #
 # **This is every colour control in the mode, not just this pane's.** The
-# toolbox chips, the sheet's replace pair and Flourish's colour params all read
+# toolbox chips and Flourish's colour params all read
 # it, which is what makes "a colour can be typed" one fact with one spelling
 # rather than four call sites that agree until one of them is edited. It is
 # ``display_hex`` and not the default RGBA quartet for exactly that reason: one

@@ -3547,8 +3547,7 @@ _PLANS: weakref.WeakKeyDictionary[bm.Mesh, list[tuple[int, bm.RenderLayout]]] = 
 # The 2026-09-23 audit's clay-12: unsynchronized on the same false premise
 # ``mesh.py``'s ``_RAW_CACHE`` carried before the 2026-09-12 audit's clay-04
 # gave it a lock -- that every caller runs on the frame thread. The character
-# pipeline's generators run on the MCP service lane's own ``TaskRunner``
-# (``studio/agent_host.py``'s ``SERVICE_WORKERS`` pool), and a Familiar
+# pipeline's generators run off the frame thread (on a ``TaskRunner``), and a Familiar
 # scratch preview (``kernels/mesh/scratch.py``'s ``clone``) shares ``Mesh``
 # objects with the live document and runs its batch on ``realmspinner-task``;
 # both are off the frame thread, and a call to :func:`render_plan` for a mesh

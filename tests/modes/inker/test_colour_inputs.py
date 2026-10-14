@@ -20,11 +20,10 @@ from imgui_bundle import imgui
 from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
 from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 from realmspinner.studio.modes.inker.ui.panes import flourish as inker_flourish
-from realmspinner.studio.modes.inker.ui.panes import sheet as inker_sheet
 from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
 
 #: Every module that draws a colour the user is meant to be able to type into.
-COLOUR_PANES = (inker_colors, inker_tools, inker_sheet, inker_flourish, inker_bridge)
+COLOUR_PANES = (inker_colors, inker_tools, inker_flourish, inker_bridge)
 
 
 def test_no_colour_in_inker_is_drawn_without_its_inputs():
@@ -51,12 +50,12 @@ def test_the_shared_set_is_a_hex_box_rather_than_four_fields():
 
 
 def test_every_colour_call_site_reaches_for_the_one_set():
-    """Five spellings is how the Colour panel came to be fixed alone. The
+    """Four spellings is how the Colour panel came to be fixed alone. The
     chips add presentation on top -- a label suppressed, a split alpha preview
     -- and that is the only thing a caller may vary."""
     assert inker_tools._CHIP_FLAGS & inker_colors.FLAGS == inker_colors.FLAGS
     assert inker_tools._CHIP_FLAGS & imgui.ColorEditFlags_.no_label.value
-    for module in (inker_tools, inker_sheet, inker_flourish, inker_bridge):
+    for module in (inker_tools, inker_flourish, inker_bridge):
         assert "inker_colors.FLAGS" in inspect.getsource(module), module.__name__
 
 

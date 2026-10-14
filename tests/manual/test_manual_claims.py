@@ -1,7 +1,7 @@
 """One chapter's claims, pinned against the code that makes them true or false.
 
 Created for the 2026-09-08 audit's finding inker-03:
-``docs/manual/28-inker.md``'s Zooming section promises "The wheel zooms in
+``docs/manual/25-inker.md``'s Zooming section promises "The wheel zooms in
 steps of 5% (`Ctrl` and the wheel does the same)" with no qualification, but
 above ``inker_state.FINE_ZOOM_MAX`` the wheel switches to walking
 ``ZOOM_LADDER`` rungs instead -- rungs far larger than 5% per notch (one
@@ -66,17 +66,17 @@ def test_manual_zooming_section_names_the_wheels_gear_change_above_800_percent()
     from realmspinner.studio.shell import paintview
 
     gear_change_pct = inker_state.zoom_key(paintview.FINE_ZOOM_MAX)
-    wheel = _wheel_paragraph(_section(_chapter("28-inker.md"), "Zooming"))
+    wheel = _wheel_paragraph(_section(_chapter("25-inker.md"), "Zooming"))
 
     assert gear_change_pct in wheel, (
-        f"docs/manual/28-inker.md's Zooming section's wheel paragraph never "
+        f"docs/manual/25-inker.md's Zooming section's wheel paragraph never "
         f"names {gear_change_pct}% (shell.paintview.FINE_ZOOM_MAX), the zoom "
         "above which the wheel stops taking 5% notches and starts walking "
         "ZOOM_LADDER rungs instead"
     )
     gear_change_words = ("rung", "ladder", "jump", "no longer")
     assert any(word in wheel.lower() for word in gear_change_words), (
-        "docs/manual/28-inker.md's Zooming section's wheel paragraph names "
+        "docs/manual/25-inker.md's Zooming section's wheel paragraph names "
         f"{gear_change_pct}% but does not say the wheel's own step size "
         "changes there -- a reader still expects 5% notches past it"
     )
@@ -99,9 +99,9 @@ def test_sirens_manual_sample_ceiling_matches_max_sample_frames():
 
     ``wavout.MAX_SAMPLE_FRAMES`` was raised from four minutes to ten
     (``48_000 * 600``) on 2026-09-07 ("Muse ... reaches ten minutes"), and
-    that commit updated ``docs/manual/35-muse.md`` and
-    ``docs/manual/16-generating-a-soundtrack.md`` but never touched
-    ``docs/manual/34-sirens.md``'s own Samples section, which still promised
+    that commit updated ``docs/manual/32-muse.md`` and
+    ``docs/manual/15-generating-a-soundtrack.md`` but never touched
+    ``docs/manual/31-sirens.md``'s own Samples section, which still promised
     "one sample runs to four minutes ... and past that the import is
     refused" -- telling a reader that a 5-9 minute Muse take would be refused
     on import when the code has accepted it since the day before.
@@ -132,13 +132,13 @@ def test_sirens_manual_sample_ceiling_matches_max_sample_frames():
     # of the number passes -- the chapter's own style (spelled out) and the
     # digit form both say the same true thing, and this pin cares which
     # *number* the chapter states, not which numeral style it is written in.
-    normalized = re.sub(r"\s+", " ", _chapter("34-sirens.md"))
+    normalized = re.sub(r"\s+", " ", _chapter("31-sirens.md"))
     phrasings = (
         f"one sample runs to {word} minutes",
         f"one sample runs to {minutes} minutes",
     )
     assert any(phrasing in normalized for phrasing in phrasings), (
-        "docs/manual/34-sirens.md's Samples section does not say 'one sample"
+        "docs/manual/31-sirens.md's Samples section does not say 'one sample"
         f" runs to {word} minutes' or '...{minutes} minutes', which is what"
         f" wavout.MAX_SAMPLE_FRAMES ({wavout.MAX_SAMPLE_FRAMES}) is"
     )
@@ -160,7 +160,7 @@ def _element_drag_paragraph(section: str) -> str:
 def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element_drags():
     """The 2026-09-09 audit, finding clay-02.
 
-    ``docs/manual/30-clay.md``'s Transforming section says an element-mode
+    ``docs/manual/27-clay.md``'s Transforming section says an element-mode
     gizmo drag across several objects is "one undo step per object per
     drag". ``_view_drag.DragOps._commit_element_drag`` folds the whole
     multi-object gesture into a single history step instead
@@ -209,9 +209,9 @@ def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element
     DragOps._commit_element_drag(view, doc)
     steps_per_drag = len(doc.history) - depth
 
-    paragraph = _element_drag_paragraph(_section(_chapter("30-clay.md"), "Transforming"))
+    paragraph = _element_drag_paragraph(_section(_chapter("27-clay.md"), "Transforming"))
     assert "per object" not in paragraph.lower(), (
-        "docs/manual/30-clay.md's Transforming section still claims an "
+        "docs/manual/27-clay.md's Transforming section still claims an "
         "element-mode gizmo drag across several objects is undone one "
         f"object at a time, but _commit_element_drag folds it into "
         f"{steps_per_drag} undo step regardless of how many objects it "

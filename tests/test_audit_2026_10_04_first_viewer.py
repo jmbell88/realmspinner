@@ -160,39 +160,6 @@ def test_a_refused_reference_request_leaves_the_inflight_loads_pending_alone(tmp
     assert viewer.pending == inflight, "the load already running lost its freshness check"
 
 
-def test_a_refused_preview_load_leaves_the_inflight_loads_pending_alone(tmp_path):
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    inflight = tmp_path / "earlier.glb"
-    ctx, viewer = _refusing_ctx(inflight, state=SimpleNamespace(poser=None, preview={}))
-    state = poser_mode.ensure(ctx)
-    state.preview_path = tmp_path / "preview.glb"
-    state.preview_template = state.template
-
-    assert poser_mode.sync_preview(ctx, viewer) is False
-
-    assert viewer.pending == inflight
-
-
-def test_a_refused_asset_load_leaves_the_inflight_loads_pending_alone(tmp_path):
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    inflight = tmp_path / "earlier.glb"
-    ctx, viewer = _refusing_ctx(
-        inflight,
-        state=SimpleNamespace(poser=None, preview={}),
-        job_dir=lambda job_id: tmp_path / job_id,
-    )
-    viewer.pose_mode = False
-    viewer.pose_job_id = None
-    state = poser_mode.ensure(ctx)
-    state.job_id = "abcdef012345"
-
-    assert poser_mode.sync_asset(ctx, viewer) is False
-
-    assert viewer.pending == inflight
-
-
 def test_a_refused_review_mesh_load_leaves_the_inflight_loads_pending_alone(tmp_path):
     from realmspinner.studio.modes.review.ui.workspace import ReviewPanes
 

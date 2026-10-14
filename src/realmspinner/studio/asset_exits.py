@@ -4,11 +4,11 @@ somewhere".
 
 **There were two of these lists, and they disagreed.** The library's overflow
 menu (``modes/library/ui/panes/library.py``'s ``_overflow``) offered the full run -- Inker, Plotter,
-Packwright, Clay, Poser, Troupe, both directions -- because it grew one item at
+Packwright, Clay and the rest, both directions -- because it grew one item at
 a time as each bridge shipped. The inspector's "Take it somewhere" section
 (``studio/panes/inspector.py``'s ``_edit_actions``) offered a hand-picked four, because it was
-wired once, before Poser and the reopen doors existed, and nobody came back to
-widen it. A mesh selected in the Library could reach Poser from the overflow
+wired once, before the later bridges and the reopen doors existed, and nobody came back to
+widen it. A mesh selected in the Library could reach a destination from the overflow
 menu and not from the pane six inches to its right showing the same mesh. This
 module is the one reading both surfaces draw from, so the two cannot drift
 again -- ``tests/test_asset_exits.py`` is the test that says so by name.
@@ -28,22 +28,17 @@ builder gated on the row in hand and that row has no ``model.glb``.
 :func:`_mesh_for` resolves ``source_job`` through ``ctx.cache.get`` -- still a
 cached-row read, not a filesystem call -- for exactly the kinds
 ``asset_open.FOLLOWUP_STAGES`` already names as a mesh's own product, never on
-``source_job`` alone: a character sheet carries that same field but is not
-one of them (it opens in Poser, not in Create), and hopping for it too
-resolved it straight back to the mesh it was rendered from -- offering Clay
-and Poser on a row that has neither, plus, while Troupe was still its own
-mode, a second, duplicate "Open in Troupe" beside the reopen door's own --
-the same trap :func:`_mesh_for`'s docstring below dates to before P9
-(2026-09-18) folded Troupe into Poser and retired that second door. The
-mesh-shaped builders (Clay, Poser, and Poser's own sheet render) read every
-gate off the *resolved* mesh, closing their door over it rather than over
-the selected row. A source that has
-fallen off the loaded page, or a kind the hop does not cover, answers None,
+``source_job`` alone: a character sheet (a retired kind) carries that same field
+but is not one of them, and hopping for it too resolved it straight back to the
+mesh it was rendered from, offering Clay on a row that has no mesh of its own.
+The mesh-shaped builders (Clay and the Mason add door) read every gate off the
+*resolved* mesh, closing their door over it rather than over the selected row.
+A source that has fallen off the loaded page, or a kind the hop does not cover, answers None,
 the same floor ``asset_open.open_asset`` already takes for the identical
 reason.
 
 **Every door is the mode's own, called verbatim.** This module does not
-reimplement Clay's 200k-triangle confirm or Troupe's skeleton question; it
+reimplement Clay's 200k-triangle confirm; it
 calls the function that already asks them, so an exit taken from here behaves
 exactly as the one that already shipped from wherever it shipped first.
 
@@ -117,12 +112,6 @@ class Exit(NamedTuple):
 #: Clay's box read as "edit this" at button size faster than the rail's
 #: pen-tool and ruler do. One rule -- the rail's icon, except these two,
 #: kept for continuity with what shipped first.
-#:
-#: Troupe's own override (its standing figure, worn by the "Send to Troupe"
-#: button before the rail's glyph for Troupe moved to FILM) did not survive
-#: the mode's fold into Poser (P9, 2026-09-18): :func:`_render_sheet` opens
-#: onto Poser now, whose rail icon already *is* a standing figure, so a
-#: second copy of it here would be the identical picture twice.
 _ICON_OVERRIDES: dict[str, str] = {
     "inker": icons.BRUSH,
     "clay": icons.BOX,
@@ -183,7 +172,7 @@ def _is_mesh(job: Any) -> bool:
     minted with ``params["source_job"]`` and write their artifacts into *that*
     job's directory, never into their own -- so their own row never gets a
     ``model.glb``, and without this check a finished character sheet showed a
-    dimmed "Send to Poser" for the mesh it does not have. ``source_job`` is
+    dimmed "Open in Clay" for the mesh it does not have. ``source_job`` is
     the exact field ``service._jobs_lifecycle.dependent_jobs`` filters on for
     the same fact, read from the other side.
     """
@@ -206,21 +195,15 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
     ``job`` when :func:`_is_mesh` already agrees. Otherwise the hop is gated
     on membership of ``asset_open.FOLLOWUP_STAGES`` -- **kind-scoped, not
     ``source_job``-scoped** -- because a bare "carries a ``source_job``" test
-    also matches ``charsheet``, whose own row is not a mesh follow-up at all:
-    it opens in Poser, never in Create (``FOLLOWUP_STAGES``'s own comment
-    says so). Gating on ``source_job`` alone hopped for a charsheet too and
-    resolved it straight back to the mesh it was rendered from, so a
-    charsheet row offered Clay and Poser it has no business offering, *and* --
-    while Troupe was still its own mode, before P9 (2026-09-18) folded it into
-    Poser -- a second, duplicate "Open in Troupe" beside the reopen door's own
-    -- exactly the outcome ``_is_mesh``'s docstring already names as the trap
-    this module exists to avoid, reintroduced one layer down. The reopen door
-    is gone now (``_poser`` above covers it -- binding the asset is how you
-    reach its sheets), but the kind-scoped gate stays: a charsheet row still
-    has no mesh of its own to offer Clay or Poser's pose door on. Importing
-    the mapping (lazily, as every other cross-module read here is) means the
-    charsheet exclusion is inherited from the one place that already states
-    it, rather than restated and risking a second copy that drifts.
+    also matches ``charsheet``, a retired kind whose row is not a mesh follow-up
+    at all. Gating on ``source_job`` alone hopped for one too and resolved it
+    straight back to the mesh it was rendered from, so a charsheet row offered
+    Clay it has no business offering -- exactly the outcome ``_is_mesh``'s
+    docstring already names as the trap this module exists to avoid,
+    reintroduced one layer down. Importing the mapping (lazily, as every other
+    cross-module read here is) means the charsheet exclusion is inherited from
+    the one place that already states it, rather than restated and risking a
+    second copy that drifts.
 
     Resolved through ``ctx.cache.get`` -- a cached-row read, not a ``stat`` or
     a service call, so this survives the same filesystem ban every other gate
@@ -304,7 +287,13 @@ def _clay(ctx: Any, job: Any) -> Exit | None:
     from .modes.clay import mode as clay_mode
     from .panes import inspector
 
-    hint = "Opens the authored document when there is one, else the mesh."
+    rigged = "rig.glb" in _files(mesh)
+    hint = (
+        "Opens the authored document when there is one, else the rig (its bones, weights and "
+        "animations), else the mesh."
+        if rigged
+        else "Opens the authored document when there is one, else the mesh."
+    )
 
     # Closed over ``mesh``, not the selected row: both call sites invoke
     # ``exit_.open(ctx, job)`` with the row the user actually picked, which
@@ -324,111 +313,6 @@ def _clay(ctx: Any, job: Any) -> Exit | None:
     else:
         return None
     return Exit("clay", verbs.open_in("clay"), hint, "", reason, door)
-
-
-# --- Poser ------------------------------------------------------------------
-
-
-def _poser(ctx: Any, job: Any) -> Exit | None:
-    mesh = _mesh_for(ctx, job)
-    if mesh is None:
-        return None
-    from .panes import pose_panel
-
-    hint = "Pose this mesh's own rig, or author clips for its skeleton."
-
-    # Closed over ``mesh``, ``_clay``'s reason: the selected row a rig job's
-    # own door is opened with (``exit_.open(ctx, job)``) is the rig row, and
-    # ``pose_panel.open_in_poser`` needs the *mesh* id -- that is what
-    # ``poser_mode.open_asset`` binds the session to.
-    def door(ctx: Any, job: Any, _mesh: Any = mesh) -> None:
-        pose_panel.open_in_poser(ctx, _mesh)
-
-    if "rig.glb" in _files(mesh):
-        return Exit("poser", verbs.open_in("poser"), hint, "", "", door)
-
-    if mesh.get("status") != "done":
-        reason = _status_reason(mesh)
-    elif "model.glb" not in _files(mesh):
-        # The 2026-09-18 audit, finding create-02: this branch was missing --
-        # ``_clay`` right above makes it ("This mesh has no model yet.") but
-        # this door fell straight to "Rig this mesh first", which is wrong
-        # for a done row that has no model at all (a reference or tile row,
-        # or a mesh job whose mesh stage never wrote ``model.glb``): there is
-        # nothing here to rig yet, and the rig reason names an action the
-        # user cannot take.
-        reason = "This mesh has no model yet."
-    else:
-        reason = "Rig this mesh first -- Poser edits poses on a rig."
-    return Exit("poser", verbs.open_in("poser"), hint, "", reason, door)
-
-
-# --- Poser's character-sheet stage (Troupe, folded in -- P9, 2026-09-18) ----
-#
-# Two doors used to exist here -- ``_troupe_in`` (render a sheet, minting a
-# rig first if the mesh needed one) and ``_troupe_out`` (reopen a finished
-# character sheet). Now that both destinations are one mode, ``_poser`` above
-# already covers the "reopen" case: it binds the asset, and the bound asset's
-# sheets are read from inside Poser's own library pane, so a second "Open in
-# Poser" beside it would be the exact duplicate-door shape this module's own
-# docstring names as the trap (a charsheet row resolving back to its source
-# mesh and offering two ways to the same place). ``_troupe_out`` is deleted
-# outright rather than kept as a second entry, and the ``troupe_send`` state
-# slot it shared with ``_render_sheet`` moved with the survivor to
-# ``poser_send`` (``state.py``).
-
-
-def _render_sheet(ctx: Any, job: Any) -> Exit | None:
-    """Render a character sheet from a mesh -- rigging it first if it is not
-    rigged. Troupe's own ``_troupe_in``, repointed at Poser's door: the modal
-    it opens (``modes.poser.ui.panes.send``) is Troupe's own "Send to Troupe"
-    dialog, moved whole.
-
-    The hint and tooltip wording is carried over verbatim from the two call
-    sites this module replaces (``studio/panes/inspector.py``'s ``_edit_actions``
-    and the Library overflow menu's Troupe item, since folded into Poser),
-    which is why it names the rig step even
-    on the label's own line: for an unrigged mesh this button is minutes of
-    CPU behind a button that is not called "Rig", and a user who is not told
-    reads the quiet as a hang.
-    """
-    mesh = _mesh_for(ctx, job)
-    if mesh is None:
-        return None
-    from .modes.poser import mode as poser_mode
-    from .modes.poser.ui.panes import send as poser_send
-
-    rigged = "rig.glb" in _files(mesh)
-    hint = (
-        "Render a character sheet from this mesh, on the skeleton it is "
-        "already rigged on. Asks for the sprite size first."
-        if rigged
-        else "Rigs the mesh on a skeleton you choose, then renders a sheet."
-    )
-    tooltip = (
-        "Render a character sheet from this mesh, rigging it first if it is "
-        "not rigged yet. Asks for the sprite size -- and, for an unrigged "
-        "mesh, the skeleton -- before anything is queued."
-    )
-    label = f"{verbs.send_to('poser')}..."
-
-    # Closed over ``mesh``, ``_clay``'s and ``_poser``'s reason: a follow-up
-    # row's own send would ask this door to rig or sheet a row with no
-    # ``model.glb``, since the mesh it actually needs is the one this door
-    # already resolved to.
-    def door(ctx: Any, job: Any, _mesh: Any = mesh) -> None:
-        poser_send.ask(ctx, _mesh)
-
-    if poser_mode.can_render_sheet(ctx, mesh):
-        return Exit("poser", label, hint, tooltip, "", door)
-
-    if mesh.get("status") != "done":
-        reason = _status_reason(mesh)
-    elif "model.glb" not in _files(mesh):
-        reason = "This mesh has no model yet."
-    else:
-        return None
-    return Exit("poser", label, hint, tooltip, reason, door)
 
 
 # --- Plotter ----------------------------------------------------------------
@@ -575,11 +459,10 @@ def _mason_reopen(ctx: Any, job: Any) -> Exit | None:
 def _mason_add(ctx: Any, job: Any) -> Exit | None:
     """Drop a library mesh into the open scene.
 
-    Gated on the *resolved* mesh like ``_clay``, ``_poser`` and
-    ``_render_sheet``, for their reason: a rig or a retexture row writes into
-    its source's
-    directory and has no ``model.glb`` of its own, so a door keyed on the
-    selected row would place a reference to a job with no mesh behind it.
+    Gated on the *resolved* mesh like ``_clay``, for its reason: a rig or a retexture
+    row writes into its source's directory and has no ``model.glb`` of its own, so a
+    door keyed on the selected row would place a reference to a job with no mesh
+    behind it.
 
     It offers to add rather than to open, so the label is ``add_to`` and not
     ``open_in`` -- ``verbs``' own distinction: the asset joins a document there
@@ -647,8 +530,6 @@ _BUILDERS: tuple[Callable[[Any, Any], Exit | None], ...] = (
     _clay,
     _mason_reopen,
     _mason_add,
-    _poser,
-    _render_sheet,
     _plotter_reopen,
     _plotter_add,
     _packwright_reopen,

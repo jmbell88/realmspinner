@@ -241,62 +241,42 @@ def test_a_tileset_reference_offers_exactly_the_same_run(svc):
     assert plain == tileset == {"inker", "plotter", "packwright"}
 
 
-def test_an_unrigged_mesh_offers_clay_mason_and_a_sheet_render_and_dims_pose(svc):
+def test_an_unrigged_mesh_offers_clay_and_mason(svc):
     """The pinned set gained ``mason`` in Stage G, deliberately: a mesh is a
-    thing a *scene* is built out of, so every row that offers Clay and Poser
-    now offers somewhere to place it as well. The set is asserted exactly,
-    not with ``<=``, because the whole reason this module exists is that two
-    surfaces grew different lists -- an assertion that only checked for
-    presence would let a sixth destination appear on one and not the other
-    without saying so.
+    thing a *scene* is built out of, so every row that offers Clay now offers
+    somewhere to place it as well. The set is asserted exactly, not with
+    ``<=``, because the whole reason this module exists is that two surfaces
+    grew different lists -- an assertion that only checked for presence would
+    let a sixth destination appear on one and not the other without saying so.
 
-    P9 (2026-09-18): Troupe folded into Poser as a stage, and its own exit
-    (``_render_sheet``, "Send to Poser...") shares ``_poser``'s mode string --
-    the two are not the same door (posing versus rendering a sheet, the
-    Mason reopen/add-to-scene pair's own shape), so ``_labels``' one-exit-
-    per-mode collapse cannot tell them apart and this reads the unfiltered
-    list for the ``poser`` pair instead.
+    Poser, and its character-sheet render, left with the mode (the 2026-10-13
+    Clay rig plan, T5): a rigged mesh is posed and animated in Clay now.
     """
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _rows(svc)["mesh"])
-    modes_present = {e.mode for e in exits}
-    assert modes_present == {"clay", "mason", "poser"}
+    assert {e.mode for e in exits} == {"clay", "mason"}
     clay = next(e for e in exits if e.mode == "clay")
     assert not clay.reason
 
-    poser_exits = [e for e in exits if e.mode == "poser"]
-    assert len(poser_exits) == 2, "posing and rendering a sheet are two doors, not one"
-    pose = next(e for e in poser_exits if e.label == verbs.open_in("poser"))
-    assert "Rig" in pose.reason
-    render = next(e for e in poser_exits if e.label.startswith(verbs.send_to("poser")))
-    assert not render.reason, "an unrigged mesh is exactly what the render door is for"
-
-
-def test_a_done_mesh_with_no_model_dims_poser_with_the_model_reason_not_the_rig_one(svc):
-    """The 2026-09-18 audit, finding create-02: ``_poser`` skips the
-    ``model.glb`` check its sibling ``_clay`` makes (line 287 above), so a
-    done row with no model at all fell straight to "Rig this mesh first" --
-    an instruction the user cannot follow, since there is nothing here to
-    rig yet. The mesh reason (``_clay``'s own wording) is what belongs
-    here."""
+def test_a_done_mesh_with_no_model_dims_clay_with_the_model_reason(svc):
+    """A done row with no model at all (a reference or tile row, or a mesh job
+    whose mesh stage never wrote ``model.glb``) has nothing for Clay to open,
+    and the reason says exactly that."""
     job = _job(svc, "image", stage="model", status="done", params={})
     job["files"] = ["input.png"]  # no model.glb
     ctx = FakeCtx(svc)
-    poser = next(e for e in asset_exits.exits_for(ctx, job) if e.mode == "poser")
-    assert poser.reason == "This mesh has no model yet."
-    assert "Rig" not in poser.reason
+    clay = next(e for e in asset_exits.exits_for(ctx, job) if e.mode == "clay")
+    assert clay.reason == "This mesh has no model yet."
 
-
-def test_a_rigged_mesh_dims_nothing(svc):
+def test_a_rigged_mesh_dims_nothing_and_says_clay_opens_its_rig(svc):
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _rows(svc)["rigged_mesh"])
-    modes_present = {e.mode for e in exits}
-    assert modes_present == {"clay", "mason", "poser"}
+    assert {e.mode for e in exits} == {"clay", "mason"}
     assert not any(e.reason for e in exits)
-    # Posing and rendering a sheet are two doors sharing one mode string --
-    # see ``test_an_unrigged_mesh_offers_clay_mason_and_a_sheet_render_and_dims_pose``.
-    assert len([e for e in exits if e.mode == "poser"]) == 2
-
+    clay = next(e for e in exits if e.mode == "clay")
+    assert "rig" in clay.hint, "a rigged row says Clay opens the rig, not just the mesh"
+    plain = next(e for e in asset_exits.exits_for(ctx, _rows(svc)["mesh"]) if e.mode == "clay")
+    assert "rig" not in plain.hint
 
 def test_a_finished_mesh_does_not_offer_plotter_or_packwright_add_doors(svc):
     """The 2026-09-14 audit, finding create-02: ``_plotter_add`` and
@@ -315,47 +295,38 @@ def test_a_finished_mesh_does_not_offer_plotter_or_packwright_add_doors(svc):
     assert "packwright" not in modes_offered
 
 
-def test_a_rig_row_offers_its_mesh_destinations_and_poser_opens_the_source(svc, monkeypatch):
+def test_a_rig_row_offers_its_mesh_destinations_and_clay_opens_the_source(svc, monkeypatch):
     """A rig row is a dead end on its own -- ``asset_open``'s own docstring:
     its artifacts land beside the mesh, never in its own directory -- so
     selecting it must offer exactly what its *mesh* reaches, and a press on
-    Poser must open the mesh the rig belongs to, never the rig row itself
+    Clay must open the mesh the rig belongs to, never the rig row itself
     (the door is invoked with the selected row, ``exit_.open(ctx, job)``, so
     a door that read its own ``job`` argument would get this wrong)."""
-    from realmspinner.studio.panes import pose_panel
+    from realmspinner.studio.modes.clay import mode as clay_mode
 
     mesh = _mesh(svc, rigged=True)
     rig_row = _rig_followup(svc, mesh["id"])
     ctx = FakeCtx(svc)
     ctx.cache.rows[mesh["id"]] = mesh
     exits = asset_exits.exits_for(ctx, rig_row)
-    modes_present = {e.mode for e in exits}
-    assert modes_present == {"clay", "mason", "poser"}
+    assert {e.mode for e in exits} == {"clay", "mason"}
     assert not any(e.reason for e in exits)
 
     opened: list = []
-    monkeypatch.setattr(pose_panel, "open_in_poser", lambda ctx, job: opened.append(job))
-    poser = next(e for e in exits if e.mode == "poser")
-    poser.open(ctx, rig_row)
+    monkeypatch.setattr(clay_mode, "edit_asset_in_clay", lambda ctx, job: opened.append(job))
+    next(e for e in exits if e.mode == "clay").open(ctx, rig_row)
     assert opened and opened[0]["id"] == mesh["id"], "the door must open the source mesh"
 
-
-def test_a_rig_row_over_an_unrigged_mesh_dims_poser_with_the_mesh_reason(svc):
-    """The near-miss reason has to be the *mesh*'s, not a generic one --
-    ``asset_exits``'s own near-miss rule names why: a dimmed button without a
-    reason is noise."""
+def test_a_rig_row_over_an_unrigged_mesh_still_offers_clay_and_mason(svc):
+    """The rig row resolves to its mesh, and an unrigged mesh is as openable as
+    any other: nothing is dimmed."""
     mesh = _mesh(svc, rigged=False)
     rig_row = _rig_followup(svc, mesh["id"])
     ctx = FakeCtx(svc)
     ctx.cache.rows[mesh["id"]] = mesh
     exits = asset_exits.exits_for(ctx, rig_row)
-    modes_present = {e.mode for e in exits}
-    assert modes_present == {"clay", "mason", "poser"}
-    clay = next(e for e in exits if e.mode == "clay")
-    assert not clay.reason
-    pose = next(e for e in exits if e.mode == "poser" and e.label == verbs.open_in("poser"))
-    assert "Rig" in pose.reason
-
+    assert {e.mode for e in exits} == {"clay", "mason"}
+    assert not next(e for e in exits if e.mode == "clay").reason
 
 def test_a_rig_row_whose_source_is_not_in_the_cache_offers_nothing_at_all(svc):
     """A source that has fallen off the loaded page -- or was never a real
@@ -524,7 +495,6 @@ def test_no_gate_touches_the_filesystem(svc, monkeypatch):
     patch below, so this only catches a stat made by a gate itself and not
     one made by some unrelated module's own import machinery.
     """
-    from realmspinner.studio.modes.poser.ui.panes import send as poser_send  # noqa: F401
     from realmspinner.studio.panes import pose_panel  # noqa: F401
 
     def _raise(self, *_a, **_k):

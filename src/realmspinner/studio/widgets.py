@@ -482,7 +482,9 @@ STAGE_BADGES: dict[str, tuple[str, str]] = {
     "tile": (icons.GRID, "tile"),
     "model": (icons.BOX, "model"),
     "rig": (icons.BONE, "rig"),
-    "sheet": (icons.FILM, "sheet"),
+    # The three removed sheet kinds (``retired.RETIRED_KINDS``) share one
+    # badge: the row is kept, with nothing it can still do.
+    "retired": (icons.SQUARE_DASHED, "retired"),
     # Deliberately *not* the grid glyph a tile wears: the badges are told apart
     # by icon before they are read, and "one seamless surface" and "a sheet of
     # sixty-four different tiles" are the two things a user most needs to tell
@@ -525,13 +527,12 @@ def stage_badge(job: dict[str, Any], *, inline: bool = False) -> None:
     is honest here -- a ``same_line`` issued for it is always spent.
 
     Keyed on ``card_kind(job)``, not ``job["stage"]``: a follow-up row (rig,
-    sheet, charsheet, retexture, pixel_sheet, sprite_synthesis, remesh) is a
-    product of another asset and deliberately keeps the ``stage`` column's
-    default of ``"model"`` (see dev/INVARIANTS.md), so reading ``stage`` here badged
-    every one of them "model" and left ``STAGE_BADGES["rig"]``/``["sheet"]``
-    unreachable. ``card_kind`` is the same table the thumbnail glyph
-    (``panes.thumbs.thumb_glyph``) already keys on, so the two halves of one
-    card agree again.
+    retexture, sprite_synthesis, remesh) is a product of another asset and
+    deliberately keeps the ``stage`` column's default of ``"model"`` (see
+    dev/INVARIANTS.md), so reading ``stage`` here badged every one of them
+    "model" and left ``STAGE_BADGES["rig"]`` unreachable. ``card_kind`` is the
+    same table the thumbnail glyph (``panes.thumbs.thumb_glyph``) already keys
+    on, so the two halves of one card agree again.
     """
     stage_chip(app_state.card_kind(job), inline=inline)
 
@@ -3051,8 +3052,8 @@ def segmented_control(
     ``breaks`` is a set of indices *after* which the track is split (UX.md
     Phase 2). Splitting the track rather than merely spacing the segments is
     the point: a gap inside one continuous track reads as a missing segment,
-    where two tracks read as two groups -- which is what the app's thirteen
-    modes needed, since five of them are places and eight are workspaces and a
+    where two tracks read as two groups -- which is what the app's twelve
+    modes needed, since five of them are places and seven are workspaces and a
     flat row said they were all the same kind of thing. The pill still slides across
     a break, because it is one selection over all of them.
 

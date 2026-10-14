@@ -20,9 +20,8 @@ from realmspinner.studio import widgets
 
 STUDIO = Path(inspect.getfile(widgets)).resolve().parent
 
-#: Every pane drawing a ``list_filter``. ``pose_panel`` holds two of them --
-#: the library list and the saved list -- which is why this is a file list and
-#: the count assertion below is separate.
+#: Every pane drawing a ``list_filter``, as a file list; the count of
+#: ``pose_panel``'s own is a separate assertion below.
 FILTERED = (
     # Review's sweep list. In ``review_panes`` rather than ``main`` since
     # 2026-09-04, when Review's pane drawing moved out of the shell as a mixin
@@ -37,7 +36,6 @@ FILTERED = (
     # filtered -- the timeline's track column (W2.5a).
     "modes/inker/ui/panes/timeline.py",
     "panes/pose_panel.py",
-    "modes/poser/ui/panes/library.py",
     # The one list in the app that grows without bound: an atlas's sources are
     # whatever has been dropped on it, which is hundreds by the end of a sheet.
     # Packwright's *items* pane is deliberately not here -- it is a result list
@@ -72,12 +70,12 @@ def test_every_list_filter_call_site_is_listed_above():
     assert found - {"widgets.py"} == set(FILTERED)
 
 
-def test_the_two_pose_lists_each_got_their_own_row():
-    """``pose_panel`` filters twice -- library poses and saved poses -- and a
-    single call would leave one of them still drawing nothing."""
+def test_the_pose_list_has_its_own_row():
+    """``pose_panel`` filters its saved poses (the library-poses list left with
+    Poser) and the call must come with its matching empty row."""
     source = (STUDIO / "panes" / "pose_panel.py").read_text(encoding="utf-8")
-    assert source.count("widgets.list_filter(") == 2
-    assert source.count("widgets.no_matches(") == 2
+    assert source.count("widgets.list_filter(") == 1
+    assert source.count("widgets.no_matches(") == 1
 
 
 def test_the_row_is_drawn_only_for_a_filter_that_matched_nothing(monkeypatch):

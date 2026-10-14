@@ -1,7 +1,7 @@
 """Findings from the 2026-09-26 audit closed in this pass (w2f8).
 
 Each test reproduces one finding against the unfixed code and pins the fix:
-service-assets-01 (export.py), service-kinds-02 (a ``sheet`` reroll),
+service-assets-01 (export.py), service-kinds-02 (a ``sheet`` reroll, retired),
 poser-jobs-03 (the same reroll's missing cap/lock), service-assets-03 (the
 same missing lock on ``adjust_joints``/``edit_skeleton``), service-gates-02
 (``check_glb``'s untrusted mesh walk), service-kinds-03 (a sprite cell size
@@ -65,70 +65,7 @@ def test_export_planned_to_folder_writes_a_keep_both_plan_under_the_suffixed_nam
     assert (dest / job_id / "model.glb").read_bytes() == b"already-here"
 
 
-# --- service-kinds-02: a sheet reroll needs a fresh sheet_id -----------------
-
-
-def _mesh_job(svc) -> str:
-    mesh_id = svc_jobs.create_job(svc, kind="text", prompt="a barrel")["id"]
-    svc.store.set_status(mesh_id, "done")
-    return mesh_id
-
-
-def test_a_sheet_reroll_mints_a_fresh_sheet_id(svc):
-    """``rerun_job`` strips ``sheet_id`` (it is on ``DERIVED_PARAMS``) and used
-    to re-seed it only for ``pixel_sheet``/``charsheet`` -- so a reroll of a
-    plain ``sheet`` row minted a row with no ``sheet_id`` at all, which
-    ``_q_rig.Worker._sheet`` refuses at dispatch with "sheet_id is not a
-    sheet id: ''", even though ``rerollable`` says a sheet is rerollable."""
-    mesh_id = _mesh_job(svc)
-    old_sheet_id = rig_store.new_id()
-    job_id = svc.store.create(
-        "sheet", "a barrel", {"source_job": mesh_id, "sheet_id": old_sheet_id, "seed": 1}
-    )
-    svc.store.set_status(job_id, "done")
-
-    new = svc_jobs.rerun_job(svc, job_id, mode="reroll")
-
-    row = svc.store.get(new["id"])
-    assert row["kind"] == "sheet"
-    assert rig_store.is_valid_id(row["params"]["sheet_id"]), (
-        f"a rerolled sheet must carry a fresh, valid sheet_id, got "
-        f"{row['params'].get('sheet_id')!r}"
-    )
-    assert row["params"]["sheet_id"] != old_sheet_id
-
-
 # --- poser-jobs-03: the same reroll needs the cap and the lock ---------------
-
-
-def test_rerunning_a_charsheet_at_the_sheet_cap_is_refused(svc, assets, monkeypatch):
-    """``rerun_job`` mints a fresh ``sheet_id`` for a ``charsheet``/``sheet``
-    reroll (above) but used to insert the new row with no job-wide hold and no
-    ``MAX_SHEETS`` check at all -- unlike every other door onto the same pool
-    (``sheets.create_sheet``, ``troupe.create_charsheet``) -- so a reroll
-    could push a mesh's sheet count straight past its cap with no refusal.
-
-    The cap is occupied by a sheet already *published* to disk rather than by
-    a second queued job: a queued sibling would instead be caught by
-    ``_require_no_dependents`` (a different, earlier refusal), and the
-    finding is specifically that nothing catches the published case.
-    """
-    monkeypatch.setattr(rig_store, "MAX_SHEETS", 1)
-    mesh_id = _mesh_job(svc)
-    job_dir = assets / mesh_id
-    job_dir.mkdir(parents=True, exist_ok=True)
-    sid = rig_store.new_id()
-    rig_store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    rig_store.sheet_path(job_dir, sid).write_text("{}", encoding="utf-8")
-    rig_store.sheet_png_path(job_dir, sid).write_bytes(b"png")
-
-    job_id = svc.store.create(
-        "charsheet", "a barrel", {"source_job": mesh_id, "sheet_id": sid}
-    )
-    svc.store.set_status(job_id, "done")
-
-    with pytest.raises(Conflict, match="at most 1 sheet"):
-        svc_jobs.rerun_job(svc, job_id, mode="reroll")
 
 
 def test_rerunning_a_sprite_synthesis_draft_at_the_cap_is_refused(svc, assets, monkeypatch):

@@ -26,7 +26,7 @@ import shutil
 import uuid
 from typing import Any
 
-from .. import guidance, models
+from .. import guidance, models, retired
 from ..pipelines import recon, reference
 from ..provenance import file_fingerprint
 from . import matte
@@ -94,6 +94,10 @@ def rerollable(job: dict[str, Any]) -> bool:
     #   and then fail at dispatch with "this job has no training images".
     if job.get("kind") in ("separate", "lora_train"):
         return False
+    # A retired kind (``retired.py``) never runs again, so there is nothing a
+    # new seed could produce.
+    if retired.is_retired(job.get("kind")):
+        return False
     # A hand-made reference has no generator behind it either.
     return not (job.get("kind") == "image" and job.get("stage") == "reference")
 
@@ -121,6 +125,8 @@ def rerollable_reason(job: dict[str, Any] | None) -> str:
         return "A stem split has no seed to change."
     if kind == "lora_train":
         return "A LoRA training run has no seed to reroll."
+    if retired.is_retired(kind):
+        return retired.NOTE
     if job.get("kind") == "image" and job.get("stage") == "reference":
         return "This reference was made by hand; there is nothing to reroll."
     return ""
@@ -155,6 +161,11 @@ def rerun_job(
         raise Invalid("mode must be 'reroll' or 'remesh'", field="mode")
     check_seed("seed", seed)
     source = svc.require_job(job_id)
+
+    if retired.is_retired(source["kind"]):
+        # Both modes, by name: the kind is gone, so a row of it cannot be run
+        # again from its own params. The row and its files stay as they were.
+        raise Invalid(retired.NOTE)
 
     if mode == "remesh" and source["kind"] == "tile_sheet":
         # Refused by name, and only in this mode: a reroll of a tile sheet is
@@ -311,29 +322,6 @@ def rerun_job(
     # finishes at a mesh, so it keeps the default.
     stage = source["stage"] if mode == "reroll" else "model"
 
-    if kind == "pixel_sheet":
-        # ``sheet_id`` sits on DERIVED_PARAMS for the *sheet* render kind,
-        # where the worker records it about the atlas it produced. On this
-        # kind it is an input the door validated -- which sheet the restyle
-        # depicts -- so the strip above must not cost it, or the minted job
-        # dispatches straight into "sheet_id is not a sheet id: ''".
-        params["sheet_id"] = source["params"].get("sheet_id")
-    if kind in ("charsheet", "sheet"):
-        # A *fresh* sheet id, not the source's: a rerun of a character sheet
-        # (or, the 2026-09-26 audit, service-kinds-02, a plain pose x
-        # direction sheet) is another sheet beside the first one, never an
-        # overwrite of it -- which is what the strip above already implies,
-        # made true here rather than left to the worker's ``or new_id()``
-        # fallback. Minted at the door so ``_discard_artifacts`` has an id to
-        # name this run's atlas by; without one a cancel leaves the staged
-        # render behind, having nothing to look for. Before this, ``"sheet"``
-        # fell through neither this arm nor ``pixel_sheet``'s re-seed, so the
-        # strip above left the minted row with no ``sheet_id`` at all and
-        # ``_q_rig.Worker._sheet`` refused it at dispatch with "sheet_id is
-        # not a sheet id: ''", even though ``rerollable`` had said yes.
-        from ..kernels.rig import store
-
-        params["sheet_id"] = store.new_id()
     if kind == "sprite_synthesis":
         # Reroll only: remesh forced ``kind`` to "image" above (and a sprite
         # job has no input.png, so it is refused there anyway).
@@ -393,9 +381,9 @@ def rerun_job(
             params["sheet"] = sheet
 
     if params.get("source_job"):
-        # Every one of the seven kinds that carries ``params["source_job"]``
-        # (``followups.PRODUCTS``: retexture, remesh, rig, sheet, pixel_sheet,
-        # charsheet, sprite_synthesis) writes onto that mesh's served
+        # Every kind that carries ``params["source_job"]``
+        # (``followups.PRODUCTS``: retexture, remesh, rig, sprite_synthesis)
+        # writes onto that mesh's served
         # artifacts when it finishes -- and the five dedicated doors onto
         # them (``optimize_job``, ``retexture_job``, ``remesh_job``,
         # ``separate_job``, ``revert_model``, added in ea7ba4b6 -- the
@@ -479,17 +467,6 @@ def rerun_job(
             with_reference=(svc.job_dir(job_id) / "ref.png").exists(),
             style_lock=style_locked,
         )
-    if kind == "pixel_sheet":
-        # The same door ``create_pixel_sheet`` holds, held again on the way
-        # back in -- the tile-sheet precedent above, for the same reason:
-        # ``check_weights`` is text-only, and the pixel LoRA is what makes
-        # this kind pixel art at all. Missing, the worker logs and restyles
-        # bare, so a reroll against a pruned models directory would finish
-        # looking like plain img2img while its sidecar claims a LoRA that
-        # never loaded.
-        from .sheets import _check_weights as _check_pixel_weights
-
-        _check_pixel_weights(svc)
     if kind == "sprite_synthesis":
         # The same door ``create_sprite_synthesis`` holds, held again on the
         # way back in -- the tile-sheet precedent above, for the same reason:
@@ -588,27 +565,7 @@ def rerun_job(
         # a *reference* a mesh was promoted from, and a reroll of that mesh is
         # a fresh attempt rather than a second promotion.
         parent = source.get("parent_id") if kind == "music" else None
-        if kind in ("charsheet", "sheet"):
-            # The 2026-09-26 audit, poser-jobs-03: this mints a fresh
-            # ``sheet_id`` above but, unlike every *other* door onto the same
-            # pool (``sheets.create_sheet``, ``troupe.create_charsheet``),
-            # used to insert straight through with no job-wide hold and no
-            # ``MAX_SHEETS`` check -- so a reroll could take the mesh past the
-            # cap those doors enforce, and N rapid rerolls could all read the
-            # same "N sheets so far" count and all pass. ``params["source_job"]``
-            # is the mesh this sheet renders against, not ``job_id`` (the row
-            # being rerolled, itself a sheet), which is what the lock and the
-            # cap must be keyed on -- the same key ``_require_no_dependents``
-            # above already uses for this reason.
-            from .sheets import check_sheet_cap
-
-            mesh_id = str(params.get("source_job") or "")
-            with svc.convert_lock(mesh_id, "sheets"):
-                check_sheet_cap(svc, mesh_id, svc.job_dir(mesh_id))
-                svc.store.create(
-                    kind, source["prompt"], params, new_id, stage=stage, parent_id=parent
-                )
-        elif kind == "sprite_synthesis":
+        if kind == "sprite_synthesis":
             # Same incident, same fix, the sprite draft pool: ``draft_id`` is
             # minted above with none of ``create_sprite_synthesis``'s
             # ``check_sprite_draft_cap`` under ``convert_lock(..., "sprite_drafts")``.

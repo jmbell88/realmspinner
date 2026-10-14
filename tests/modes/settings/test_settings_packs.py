@@ -73,7 +73,9 @@ def test_a_row_names_the_modes_it_turns_on(rows):
     """``packs.Pack.modes`` is deliberately mode *keys*, so that
     ``realmspinner.packs`` imports no ``studio``. The pane is the one place holding
     both tables, and the user reads rail labels rather than keys."""
-    assert app_settings.pack_unlocks(rows["rig"]) == "Unlocks Poser"
+    # Rigging gates no mode any more (Poser was its only one); it is a capability of
+    # Create's Rig stage and of Clay's Blender-backed weights, not a rail entry.
+    assert app_settings.pack_unlocks(rows["rig"]) == ""
     assert app_settings.pack_unlocks(rows["music"]) == "Unlocks Muse"
 
 

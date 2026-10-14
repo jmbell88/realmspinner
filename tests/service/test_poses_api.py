@@ -12,11 +12,10 @@ from pathlib import Path
 import pytest
 
 import realmspinner.config as config_mod
-from realmspinner.kernels.rig import poses, store, templates
+from realmspinner.kernels.rig import poses, store
 from realmspinner.pipelines import blender_run
 from realmspinner.service import Conflict, Failed, Invalid, NotFound
 from realmspinner.service import jobs as svc_jobs
-from realmspinner.service import poses as svc_poses
 from realmspinner.service import rig as svc_rig
 
 BONES = ["hips", "spine", "head"]
@@ -210,35 +209,6 @@ def test_a_rig_with_a_nameless_bone_refuses_cleanly_instead_of_a_keyerror(svc, a
 
     with pytest.raises(Invalid) as caught:
         svc_rig.get_rig(svc, job_id)
-    assert caught.value.field == "bones"
-
-
-def test_applying_a_library_pose_to_a_rig_with_a_nameless_bone_refuses_cleanly(svc, assets):
-    """The same hole, a second door: service.poses.apply_library_pose built
-    ``known`` with the identical bare ``[b["name"] for b in rig.get("bones",
-    [])]`` comprehension as service.rig._rig_bones, fixed alongside it for
-    the same 2026-09-08 audit (poser-02)."""
-    template = templates.get_template("humanoid")
-    stored = svc_poses.create_library_pose(
-        svc,
-        {
-            "name": "Crouch",
-            "template": "humanoid",
-            "bones": {b["name"]: IDENTITY for b in template.bones},
-        },
-    )
-    job_id = svc_jobs.create_job(svc, kind="text", prompt="a knight")["id"]
-    job_dir = assets / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "model.glb").write_bytes(b"fake-glb")
-    (job_dir / "rig.glb").write_bytes(b"fake-rig")
-    (job_dir / "rig.json").write_text(
-        json.dumps({"version": 1, "template": "humanoid", "bones": [{"name": "hips"}, {}]})
-    )
-    svc.store.set_status(job_id, "done")
-
-    with pytest.raises(Invalid) as caught:
-        svc_poses.apply_library_pose(svc, job_id, stored["id"])
     assert caught.value.field == "bones"
 
 

@@ -39,8 +39,8 @@ from . import model_gate
 
 # The 2026-09-07 audit, finding create-01: ``ctx.state.field_errors`` is one
 # flat, unnamespaced dict, and this panel's "strength" and "texture_size"
-# controls are also ``sheet_panel``'s and ``remesh_panel``'s bare ids for
-# their own, unrelated fields -- so a refusal from either sibling door rang
+# controls share bare ids with ``remesh_panel``'s
+# own, unrelated fields -- so a refusal from either sibling door rang
 # this panel's control too, whenever the inspector drew them together (which
 # is routine). The widgets below are keyed by the prefixed names, and
 # ``_retexture_job`` relabels ``retexture_job``'s own refusal to match before
@@ -184,7 +184,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
 
     The 2026-09-08 audit, finding create-02: this used to be one shared slot
     compared by ``form.get("job_id") != job_id``, the pattern commit
-    89cb6412 fixed on ``remesh_panel``/``sheet_panel``/``sprite_panel`` but
+    89cb6412 fixed on ``remesh_panel``/``sprite_panel`` but
     left standing here -- so looking at a different card in the Library and
     coming back silently reset a typed surface description to defaults, with
     no undo. A surface description is a sentence somebody wrote, not a tier

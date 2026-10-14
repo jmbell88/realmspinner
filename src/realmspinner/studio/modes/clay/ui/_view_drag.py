@@ -245,7 +245,7 @@ class DragOps:
         # ``ctrl`` above and then never consulted -- every click replaced the
         # whole selection and a multi-object op needed the Outliner. Combined
         # with ``doc.selection`` the same way ``_press_element`` combines with
-        # an element selection, and the manual (30-clay.md:223) has always
+        # an element selection, and the manual (27-clay.md:223) has always
         # promised Shift adds, Ctrl removes.
         #
         # A press on *nothing* no longer clears at the press: the clear used

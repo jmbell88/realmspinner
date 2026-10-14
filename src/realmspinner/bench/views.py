@@ -1,7 +1,7 @@
 """Eight views of a finished mesh, rendered for measurement.
 
 Reuses ``kernels/sheet.py`` directly and deliberately does *not* go through
-``service/sheets.py``. That route queues a job on the serial GPU queue, writes
+the retired sheets door. That route queues a job on the serial GPU queue, writes
 into the source job's directory (160 rows of pollution in the user's
 history), enforces a per-job sheet cap that has nothing to do with a
 benchmark, and packs to an atlas the metrics would have to crop back out of.

@@ -210,46 +210,6 @@ def test_the_rail_always_contains_the_stage_the_user_is_standing_on(monkeypatch)
 # --- create-08 ---------------------------------------------------------------
 
 
-def test_a_deleted_pose_is_not_submitted_by_the_sheet_form(monkeypatch):
-    """``form["poses"]`` outlived the pose it named: the Rows list is drawn from
-    the surviving poses so the dead id could not be unticked, and every Render
-    sheet press was refused with a fieldless "no such pose"."""
-    from realmspinner.studio import widgets
-    from realmspinner.studio.panes import sheet_panel
-
-    submitted: dict[str, Any] = {}
-    ctx = SimpleNamespace(
-        state=SimpleNamespace(
-            preview={"poses": [{"id": "p1", "name": "idle"}, {"id": "p2", "name": "wave"}]},
-            clear_field_errors=lambda: None,
-        ),
-        sheet_options=None,
-        busy=lambda _key: False,
-        cache=SimpleNamespace(jobs=[]),
-        viewer=None,
-        submit=lambda key, fn, *a, **k: submitted.update(k),
-        svc=None,
-    )
-    job = {"id": "m1", "status": "done", "files": ["model.glb", "rig.glb"]}
-
-    form = sheet_panel._form(ctx, "m1")
-    form["poses"].update({"p1", "p2"})
-    form["clip"] = True
-    form["clip_from"], form["clip_to"] = "p1", "p2"
-
-    # p2 is deleted; the panel's own listing no longer carries it.
-    ctx.state.preview["poses"] = [{"id": "p1", "name": "idle"}]
-    monkeypatch.setattr(widgets, "disabled_button", lambda *_a, **_k: True)
-    monkeypatch.setattr(widgets, "muted", lambda *_a, **_k: None)
-    monkeypatch.setattr(widgets, "text_colored", lambda *_a, **_k: None)
-
-    form = sheet_panel._form(ctx, "m1")
-    sheet_panel._submit(ctx, job, form)
-
-    assert submitted["poses"] == ["p1"], submitted
-    assert submitted["clip_to"] != "p2"
-
-
 # --- create-17 ---------------------------------------------------------------
 
 

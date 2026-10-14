@@ -1,19 +1,17 @@
-"""The door for a character: a recipe in, a finished mesh and a queued sheet out.
+"""The door for a character: a recipe in, a finished mesh and a queued rig out.
 
-One press has to produce the whole chain -- a body, a skeleton, and 144 rendered
-cells -- and the chain is still ordinary rows (model, rig, sheet) rather than
-an orchestrator. That is the shape ``troupe.send_to_troupe`` already
-establishes and this module extends by exactly one link at the front: instead
-of taking a mesh the user already has, it *builds* one from a
-:class:`~realmspinner.characters.recipe.Recipe` and hands it straight to that
-door.
+One press produces the chain -- a body and a skeleton -- and the chain is still
+ordinary rows (model, rig) rather than an orchestrator. This door *builds* the
+mesh from a :class:`~realmspinner.characters.recipe.Recipe` instead of taking
+one the user already has, and then hands it straight to
+``rig.create_rig``. It ends at a rigged mesh: the character sheet that used to
+follow was removed with Poser (``retired.py``), and a rigged character is posed
+and animated in Clay now.
 
 **Order is the whole design.** Everything knowable is refused before a byte is
-written -- the recipe, the pixel block, the clip expansion, the frame plan, and
-whether Blender exists at all -- because ``_charsheet_spec`` states the rule
-this module obeys: an unrenderable request must cost the request, not a mesh
-plus a rig plus 144 EEVEE frames. The mesh is built only once nothing left can
-refuse it.
+written -- the recipe and whether Blender exists at all -- because an
+unrenderable request should cost the request, not a mesh plus a rig. The mesh is
+built only once nothing left can refuse it.
 
 **The mesh row is minted finished**, ``import_mesh``'s arrangement line for
 line: ``stage="model"``, ``status="done"``, ``params["built"]=True``. A
@@ -21,18 +19,16 @@ generated character has no generator behind it -- no seed a reconstruction could
 re-roll, no reference image to re-derive from -- so ``rerun_job`` refuses it and
 :func:`reroll_character` is the door that means "build that recipe again".
 
-**``params["character"]`` rides every row of the chain** -- model, rig, sheet --
-and is *nested* for the reason ``send_to_troupe`` gives about ``troupe_sheet``:
+**``params["character"]`` rides the model row** and is *nested*:
 ``VECTOR_PARAMS`` is an allowlist of flat settings, so a nested block cannot
 have a field of it quietly promoted into a rerun vector. It is deliberately
 **not** in ``DERIVED_PARAMS`` either: it is the *request*, not something a
-worker learned about its output, and stripping it on a rerun would leave a
-character sheet that no longer knows who it depicts.
+worker learned about its output.
 
-Nothing here is humanoid-shaped. The rig template and the clip library come off
-the species' archetype every time (``Family.template`` / ``Family.clip_library``),
-because a door that works for one body plan is a door that fails for every
-other one in the registry the moment somebody picks a wolf.
+Nothing here is humanoid-shaped. The rig template comes off the species'
+archetype every time (``Family.template``), because a door that works for one
+body plan is a door that fails for every other one in the registry the moment
+somebody picks a wolf.
 """
 
 from __future__ import annotations
@@ -42,7 +38,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import shutil
 import uuid
 from collections.abc import Mapping
@@ -83,18 +78,14 @@ ASSET_INTENT = "character"
 #: before the user presses the button. **An estimate, not a measurement** --
 #: there is no dated document behind these two numbers, so nothing may key a
 #: decision on them and they are only ever rendered as "about N minutes".
-#: Rigging is the fixed half (``docs/manual/26-poser.md``: "rigging is a real
-#: cost: minutes of CPU" -- chapter 34 is Sirens now, P9 (2026-09-18) folded
-#: Troupe into Poser and the manual renumbered; the 2026-09-26 audit, finding
-#: poser-jobs-07, found this comment still citing the pre-fold chapter), the
-#: cells are the linear half, and both are CPU: a character sheet spends no
-#: GPU at all.
+#: Rigging is the fixed half (it is minutes of CPU), the cells are the linear
+#: half and are 0 now that no sheet follows the rig.
 RIG_MINUTES = 1.5
 SECONDS_PER_CELL = 1.0
 
 #: :func:`list_character_assets`' own ``filter`` vocabulary. ``"all"`` first,
 #: matching the pane's own "no opinion" convention elsewhere in this module.
-ASSET_FILTERS: tuple[str, ...] = ("all", "riggable", "rigged", "has_sheets")
+ASSET_FILTERS: tuple[str, ...] = ("all", "riggable", "rigged")
 
 #: :func:`recipe_from_prompt`'s ``overrides`` -- exactly :class:`Recipe.from_dict`'s
 #: own keys, minus ``family_version`` (a recipe field this door never lets a
@@ -136,15 +127,12 @@ def estimate_minutes(cells: int) -> float:
 def character_options(svc: RealmspinnerService) -> dict[str, Any]:
     """Everything a character form may offer. One source for the whole surface.
 
-    Read off the registries and off ``troupe.troupe_options`` rather than
-    restated: ``recipe`` refuses against its own copies of the ladders (it may
-    not import ``service``) and ``tests/characters/test_recipe.py`` owns the
-    agreement between the two, so a form built from either offers the same set.
-    The ladders here are the *recipe's*, because the recipe is what refuses.
+    Read off the registries rather than restated: ``recipe`` refuses against
+    its own copies of the ladders (it may not import ``service``). The ladders
+    here are the *recipe's*, because the recipe is what refuses.
     """
     from ..characters import family as family_mod
     from ..characters import recipe as recipe_mod
-    from . import troupe as svc_troupe
 
     archetypes = family_mod.archetypes()
     families = family_mod.families()
@@ -192,12 +180,6 @@ def character_options(svc: RealmspinnerService) -> dict[str, Any]:
         "reduce_modes": list(recipe_mod.REDUCE_MODES),
         "directions": list(recipe_mod.DIRECTION_CHOICES),
         "default_recipe": recipe_mod.DEFAULT_RECIPE.as_dict(),
-        # The Troupe ladders whole -- animations with their frame bounds, the
-        # camera presets and their elevations, the palettes on disk, the cell
-        # caps. Nested under one key rather than spread across this dict so a
-        # reader can see which half of the form is Troupe's and which is the
-        # character registry's.
-        "troupe": svc_troupe.troupe_options(svc),
     }
 
 
@@ -397,60 +379,24 @@ def create_character(
     resolution: Any = None,
     extra_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a character and queue its sheet. Two rows, one press.
+    """Build a character and queue its rig. Two rows, one press.
 
     Returns ``{"id", "rig", "kind"}``: the finished model row, and the rig row
-    that will mint the character sheet when it lands. Two ids and not one
-    because they cancel independently and the library shows both -- the same
-    property ``send_to_troupe`` keeps for the mesh it is handed.
+    that rigs it. Two ids and not one because they cancel independently and the
+    library shows both. The chain ends at the rigged mesh -- there is no sheet
+    after it any more (``retired.py``).
     """
     from .. import meshreport
     from ..characters import instantiate as instantiate_mod
     from ..pipelines import postprocess
-    from . import troupe as svc_troupe
+    from . import rig as svc_rig
 
     check_prompt(prompt or None)
     spec = _recipe(recipe)
     fam = spec.spec
     arch = fam.arch
 
-    # 1. The pixel block, through the same function every Troupe door uses --
-    #    so a colour count refused here is refused in Troupe's words, on
-    #    Troupe's field. ``pixel_art`` rides along, and colour/outline/dither/
-    #    palette are sent only when it is on: ``_check_options`` refuses an
-    #    HD request (D5) that names any of the four outright, the same as
-    #    every other caller of it -- and a recipe's HD switch is D5's own,
-    #    per ``Recipe.pixel_art``.
-    pixel_kwargs: dict[str, Any] = (
-        {
-            "colors": spec.colors,
-            "outline": spec.outline,
-            "dither": spec.dither,
-            "palette": spec.palette or None,
-        }
-        if spec.pixel_art
-        else {}
-    )
-    options = svc_troupe._check_options(
-        svc,
-        {
-            "logical_size": spec.logical_size,
-            "reduce_mode": spec.reduce_mode,
-            "pixel_art": spec.pixel_art,
-            **pixel_kwargs,
-        },
-    )
-
-    # 2. The frame plan, expanded and planned -- and this time kept, not
-    #    thrown away: ``_plan`` returns the ``LayoutSpec`` it resolved against
-    #    the archetype's own clip library timing, and step 6 hands that
-    #    exact object on to ``send_to_troupe`` rather than re-resolving the
-    #    recipe's layout a second time with no timing in hand (which can only
-    #    ever mean one of the closed legacy five -- see ``_plan``'s
-    #    docstring).
-    layout = _plan(spec, arch.clip_library, options["logical_size"])
-
-    # 3. And Blender, before the mesh rather than after it. The chain's second
+    # 1. Blender, before the mesh rather than after it. The chain's second
     #    row is a rig; without Blender it can never run, and a character whose
     #    body exists and whose skeleton never will is the half-built asset this
     #    ordering exists to prevent. The Rig segment's own sentence, verbatim,
@@ -460,9 +406,9 @@ def create_character(
     if not doctor.blender_check().ok:
         raise Invalid("Rigging needs Blender, which is not installed.")
 
-    # 4. Seeds. The recipe's own seed is the *character's* -- it is what a
+    # 2. Seeds. The recipe's own seed is the *character's* -- it is what a
     #    sibling's procedural flames read, so it belongs in the recipe where a
-    #    re-render copies it unchanged. ``mesh_seed`` is the row's, minted here
+    #    re-roll copies it unchanged. ``mesh_seed`` is the row's, minted here
     #    because every model row carries one and ``rerun_job`` expects it.
     if not spec.seed:
         spec = spec.replace(seed=_fresh_seed())
@@ -471,7 +417,7 @@ def create_character(
 
     block = character_block(spec, prompt=prompt, resolution=resolution)
 
-    # 5. Now, and only now, the mesh. ``import_mesh``'s arrangement line for
+    # 3. Now, and only now, the mesh. ``import_mesh``'s arrangement line for
     #    line, including the two non-fatal post-processing steps and the
     #    directory cleanup on any failure.
     job_id = uuid.uuid4().hex[:12]
@@ -554,45 +500,21 @@ def create_character(
     if label:
         svc.store.set_meta(job_id, name=label[:MAX_JOB_NAME])
 
-    # 6. And the rest of the chain, through the door that already knows how to
-    #    build it. ``template`` and ``bones`` are the two things this door knows
-    #    that no other caller does: the species' own skeleton, stated exactly,
-    #    which also withholds ``joints="measured"`` -- measuring reads joints
-    #    off a reference image this character never had.
+    # 4. And the rig, through the door that already knows how to queue one.
+    #    ``template`` and ``bones`` are the two things this door knows that no
+    #    other caller does: the species' own skeleton, stated exactly -- which
+    #    also means the rig is never measured off a reference image this
+    #    character never had.
     try:
-        # No ``front_yaw`` here, and there never will be: it is set by orbiting
-        # a viewport and pressing a button, and a registry-built character has
-        # no viewport session behind it to have done that in. Absent means the
-        # sheet renders its front row from yaw 0, same as every mesh before
-        # this feature existed.
-        rig = svc_troupe.send_to_troupe(
-            svc,
-            job_id,
-            logical_size=spec.logical_size,
-            reduce_mode=spec.reduce_mode,
-            elevation=spec.elevation,
-            name=spec.name,
-            # ``layout`` is what step 2 already resolved against the
-            # archetype's own clip library timing -- not
-            # ``spec.layout_dict()``, which resolves the recipe's payload
-            # with no timing at all and so can only ever mean one of the
-            # closed legacy five. See ``_plan``'s docstring.
-            layout=layout.as_dict(),
-            template=arch.template,
-            bones=joints,
-            character=block,
-            pixel_art=spec.pixel_art,
-            **pixel_kwargs,
-        )
+        rig = svc_rig.create_rig(svc, job_id, template=arch.template, bones=joints)
     except Exception:
         # The 2026-09-07 audit (troupe-01) found a failure here left a
-        # permanently orphaned "done" mesh row with no rig and no sheet --
-        # this module's own docstring claims "the mesh is built only once
-        # nothing left can refuse it", which was untrue the moment this call
-        # could still fail after the row above was committed. Undo the row
-        # the same way a failed ``instantiate`` undoes its directory, so a
-        # refusal this late costs the request exactly as one raised earlier
-        # would have.
+        # permanently orphaned "done" mesh row with no rig -- this module's own
+        # docstring claims "the mesh is built only once nothing left can
+        # refuse it", which was untrue the moment this call could still fail
+        # after the row above was committed. Undo the row the same way a
+        # failed ``instantiate`` undoes its directory, so a refusal this late
+        # costs the request exactly as one raised earlier would have.
         svc.store.delete(job_id)
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
@@ -717,472 +639,6 @@ def preview_character(svc: RealmspinnerService, recipe: Mapping[str, Any]) -> Pa
     return dest
 
 
-def export_package(
-    svc: RealmspinnerService,
-    job_id: str,
-    sheet_id: str,
-    dest_dir: Any = None,
-    *,
-    stem: str | None = None,
-    overwrite: bool = False,
-) -> dict[str, Any]:
-    """Copy one character sheet and its sidecar out as a pair.
-
-    The deliverable is **both files**: the PNG is the atlas and the JSON is what
-    says which cell is ``walk`` facing south-east. A folder that has one without
-    the other holds an asset nothing can interpret, which is why the copy goes
-    through ``export.staged_copy_all`` rather than two ``copyfile`` calls.
-
-    Refuses in ``export_to_folder``'s exact words when no destination is given
-    and none is configured -- one sentence for one condition, wherever it is met.
-
-    ``stem``, when given, replaces the name this export writes under --
-    ``agent_export_stem``'s own answer, for the caller (an agent) that must
-    never replace a human's export of the same character just because the two
-    share a display name. Validated through ``export._safe_export_name`` on
-    ``field="name"``, the same refusal ``export_frames``/``export_godot``
-    already raise for a bad name -- this door writes the pair directly rather
-    than through ``staged_tree``, so it is the one door that has to check by
-    hand rather than inheriting the check.
-
-    ``overwrite`` is the one way to replace what is already there. By default the
-    export lands under the first free name (``<stem>``, ``<stem>-2``, ...) and
-    nothing in the export folder is touched or removed.
-    """
-    from ..kernels.rig import store
-    from . import export as svc_export
-
-    check_job_id(job_id)
-    job = svc.require_job(job_id)
-    job_dir = svc.job_dir(job_id)
-    if not store.is_valid_id(str(sheet_id or "")):
-        raise Invalid("that is not a sheet id", field="sheet_id")
-
-    dest = Path(dest_dir) if dest_dir is not None else svc.config.export_dir
-    if dest is None:
-        raise NotFound("no export folder configured (set REALMSPINNER_EXPORT_DIR)")
-
-    png = store.sheet_png_path(job_dir, str(sheet_id))
-    sidecar = store.sheet_path(job_dir, str(sheet_id))
-    if not png.is_file() or not sidecar.is_file():
-        raise NotFound("that sheet is no longer on disk", field="sheet_id")
-
-    # Named after the *job*, not after the sheet id: a folder full of
-    # ``a3f01c9b2d4e.png`` is a folder nobody can read, and the name is the one
-    # thing the user actually chose. Falls back to the id when there is none.
-    stem = svc_export._safe_export_name(stem) if stem else _package_stem(job, str(sheet_id))
-    dest.mkdir(parents=True, exist_ok=True)
-    if not overwrite:
-        stem = _free_stem(dest, stem, (".png", ".json"))
-    svc_export.staged_copy_all(
-        [(png, dest / f"{stem}.png"), (sidecar, dest / f"{stem}.json")]
-    )
-    return {
-        "png": str(dest / f"{stem}.png"),
-        "json": str(dest / f"{stem}.json"),
-        "dir": str(dest),
-    }
-
-
-#: A clip name used as a frame-folder path component must be plain: lowercase
-#: ASCII, digits and underscores only. Everything a movement or clip can
-#: actually be named already satisfies this in the shipped registries -- the
-#: legacy five, the templates' clip libraries -- but a rig's clip library is
-#: user-authored (Poser), and this is the one door that turns a clip's name
-#: into a folder on the caller's own disk rather than a JSON string, so it
-#: gets its own refusal instead of trusting the name a second time.
-_CLIP_FOLDER_NAME_RE = re.compile(r"^[a-z0-9_]+$")
-
-
-def _sheet_movements_by_key(layout: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """Index a sheet's ``troupe`` layout's ``movements`` list by key.
-
-    The 2026-09-23 audit, finding service-02: both ``export_frames`` and
-    ``sheet_preview_png`` used to build this table with a bare
-    ``m["key"]`` subscript, so a hand-edited sidecar whose movement entry
-    lost its ``"key"`` field raised ``KeyError`` here, before either door's
-    own "refused, not crashed" guard ever ran. A sidecar is not always this
-    module's own write -- an agent can name a job id it does not own, or the
-    file can simply be corrupted -- so every field it is read for gets
-    checked before it is used, the same rule the rest of this module already
-    keeps for cell indices and frame sizes.
-    """
-    out: dict[str, dict[str, Any]] = {}
-    for entry in layout.get("movements") or []:
-        if not isinstance(entry, Mapping) or "key" not in entry:
-            raise Invalid(
-                "this sheet's layout is corrupted (a movement is missing its key)",
-                field="sheet_id",
-            )
-        out[str(entry["key"])] = dict(entry)
-    return out
-
-
-def _sheet_whole(value: Any, what: str) -> int:
-    """A sidecar number read as a whole number, refused by name rather than raised.
-
-    The 2026-10-03 audit, finding poser-25: the 2026-09-26 "refused, not
-    crashed" contract was applied to ``export_frames``' ``frame_size`` only, so
-    ``sheet_preview_png`` and a run's ``yaw`` or a cell's ``x`` still met a
-    hand-edited or corrupt sidecar with a bare ``int()``/``float()`` and let a
-    ``ValueError``/``TypeError`` out with no ``field``. Every sidecar read in
-    this module goes through here (or through ``_sheet_cells_by_index``/
-    ``_sheet_runs``, which do), and the refusal rings ``sheet_id``.
-    """
-    try:
-        return int(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise invalid_from(
-            exc, f"this sheet's layout is corrupted ({what} is invalid)", field="sheet_id"
-        ) from exc
-
-
-def _sheet_cells_by_index(record: Mapping[str, Any]) -> dict[int, dict[str, Any]]:
-    """Index a sheet sidecar's ``cells`` list by cell index -- see
-    :func:`_sheet_movements_by_key`; same finding, same reasoning. ``x``/
-    ``y``/``w``/``h`` are required too: ``export_frames``'s crop box
-    (``cell["x"]``, ``cell["w"]``, ...) is bare and sits inside the same
-    cited line range as the index lookup itself."""
-    out: dict[int, dict[str, Any]] = {}
-    for entry in record.get("cells") or []:
-        if not isinstance(entry, Mapping) or not {"index", "x", "y", "w", "h"} <= set(entry):
-            raise Invalid(
-                "this sheet's layout is corrupted (a cell is missing a field)",
-                field="sheet_id",
-            )
-        try:
-            index = int(entry["index"])
-        except (TypeError, ValueError) as exc:
-            raise invalid_from(
-                exc, "this sheet's layout is corrupted", field="sheet_id"
-            ) from exc
-        cell = dict(entry)
-        # The crop box is read bare by both readers of this table; whole numbers
-        # here are what keeps a cell with ``x: "a"`` out of ``Image.crop``.
-        for edge in ("x", "y", "w", "h"):
-            cell[edge] = _sheet_whole(cell[edge], f"a cell's {edge}")
-        out[index] = cell
-    return out
-
-
-def _sheet_runs(layout: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """A sheet sidecar's ``runs`` list, validated to carry the fields every
-    reader of it indexes bare -- see :func:`_sheet_movements_by_key`; same
-    finding, same reasoning. ``"direction"`` is read with ``.get`` by
-    ``sheet_preview_png`` already, so it is not required here."""
-    out: list[dict[str, Any]] = []
-    for entry in layout.get("runs") or []:
-        if not isinstance(entry, Mapping) or not {"movement", "start", "end", "yaw"} <= set(
-            entry
-        ):
-            raise Invalid(
-                "this sheet's layout is corrupted (a run is missing a field)",
-                field="sheet_id",
-            )
-        try:
-            float(entry["yaw"])
-        except (TypeError, ValueError) as exc:
-            raise invalid_from(
-                exc, "this sheet's layout is corrupted (a run's yaw is invalid)",
-                field="sheet_id",
-            ) from exc
-        out.append(dict(entry))
-    return out
-
-
-def export_frames(
-    svc: RealmspinnerService,
-    job_id: str,
-    sheet_id: str,
-    dest_dir: Any = None,
-    *,
-    stem: str | None = None,
-    overwrite: bool = False,
-) -> Path:
-    """One folder per clip, one subfolder per compass direction, one PNG per frame.
-
-    Where :func:`export_package` hands over the atlas whole, this cuts it up:
-    an engine that wants ``AnimatedSprite2D``-style frame folders rather than
-    an atlas-plus-sidecar pair gets ``<clip>/<COMPASS>/<nnn>.png`` for every
-    cell, named the way
-    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``'s compass
-    table names them -- never the raw facing key, which is Troupe's own
-    internal spelling (``front_left``) and not a direction word an importer
-    should have to know.
-
-    The frame table comes from the sidecar's own ``"troupe"`` block -- the
-    immutable snapshot ``_q_troupe`` wrote the moment the sheet was rendered
-    -- rather than from today's registries, for the reason every re-render
-    door already gives: a clip a user has since renamed or retimed must not
-    reshuffle a sheet that was already handed to a player. A sheet with no
-    ``"troupe"`` block (drawn by hand, or rendered before this feature
-    existed) resolves through the closed legacy table instead, via
-    ``charsheet.resolve_layout(None)`` -- the same fallback ``troupe_options``
-    and every default row use.
-
-    ``stem``, when given, replaces the folder name -- see
-    :func:`export_package`'s own paragraph about it. Reaches ``staged_tree``
-    unchanged, which is what actually validates it (``_safe_export_name``,
-    ``field="name"``); this door does not check it twice.
-
-    ``overwrite`` is the one way to replace what is already there. By default the
-    export lands under the first free name (``<stem>``, ``<stem>-2``, ...) and
-    nothing in the export folder is touched or removed.
-    """
-    from PIL import Image
-
-    from ..kernels import charsheet
-    from ..kernels import sheet as sheetlib
-    from ..kernels.rig import store
-    from . import export as svc_export
-
-    check_job_id(job_id)
-    job = svc.require_job(job_id)
-    job_dir = svc.job_dir(job_id)
-    if not store.is_valid_id(str(sheet_id or "")):
-        raise Invalid("that is not a sheet id", field="sheet_id")
-
-    dest = Path(dest_dir) if dest_dir is not None else svc.config.export_dir
-    if dest is None:
-        raise NotFound("no export folder configured (set REALMSPINNER_EXPORT_DIR)")
-
-    png_path = store.sheet_png_path(job_dir, str(sheet_id))
-    record = store.read_sheet(job_dir, str(sheet_id))
-    if record is None or not png_path.is_file():
-        raise NotFound("that sheet is no longer on disk", field="sheet_id")
-
-    troupe_block = record.get("troupe")
-    layout = (
-        troupe_block
-        if isinstance(troupe_block, Mapping)
-        else charsheet.resolve_layout(None).as_dict()
-    )
-    runs = _sheet_runs(layout)
-    movements = _sheet_movements_by_key(layout)
-    layout_fps = layout.get("fps")
-
-    cell_by_index = _sheet_cells_by_index(record)
-    # The 2026-09-26 audit, finding poser-jobs-06: read bare, a corrupted or
-    # hand-edited ``frame_size`` (a string, a float) raised a raw
-    # ``TypeError``/``ValueError`` here instead of the "refused, not crashed"
-    # contract every other sidecar field in this door already keeps --
-    # ``run["start"]``/``run["end"]`` a few lines below already learned this
-    # lesson (2026-09-26 audit, finding service-assets-08).
-    try:
-        frame_size = int(record.get("frame_size") or 0)
-    except (TypeError, ValueError) as exc:
-        raise invalid_from(
-            exc,
-            "this sheet's layout is corrupted (frame_size is invalid)",
-            field="sheet_id",
-        ) from exc
-    if not frame_size:
-        # Every 3D character sheet is square by construction (``charsheet.plan``
-        # never sets ``frame_w``/``frame_h``) -- a 0 here means this sidecar is
-        # something else ``sheet.sidecar`` also writes, not a Troupe sheet.
-        raise Invalid(
-            "that sheet is not square, so it cannot export to frame folders",
-            field="sheet_id",
-        )
-
-    if not stem:
-        # Its own namespace beside Godot's: both folders were named after the
-        # character, so exporting one format deleted the other (2026-10-03
-        # audit, service-01).
-        stem = f"{_package_stem(job, str(sheet_id))}-frames"
-    if overwrite:
-        # Explicit opt-in, but still never onto a folder this app did not write.
-        _refuse_foreign_folder(dest, stem)
-    else:
-        stem = _free_stem(dest, stem)
-    # **Top-level first, then the recipe, then True.** ``_q_troupe`` writes
-    # the worker's own D5 answer at the sidecar's top level (``"pixel_art":
-    # False``, absent when the render was pixel art) -- the recipe's nested
-    # copy is what was *asked for* and can be a species theme's HD default
-    # rather than what this particular sheet actually rendered, so reading it
-    # first mislabelled every HD Troupe sheet's manifest as pixel art.
-    raw_pixel_art = record.get("pixel_art")
-    if raw_pixel_art is None:
-        raw_pixel_art = ((record.get("character") or {}).get("recipe") or {}).get(
-            "pixel_art", True
-        )
-    pixel_art = bool(raw_pixel_art)
-
-    # The 2026-09-23 audit, finding service-04: a run's span was fed straight
-    # into ``range()`` (and then a set comprehension) with no ceiling at all,
-    # before the "does this sheet even have these cells" refusal below ever
-    # ran -- so a sidecar naming, say, ``end=10**18`` tried to materialise
-    # that many ints rather than being refused. Checked arithmetically first,
-    # against ``charsheet.MAX_CELLS`` (the most a sheet's atlas can ever hold,
-    # same ceiling ``troupe.send_to_troupe`` enforces on the way in), the same
-    # "arithmetic before allocation" rule ``sheet_preview_png`` already keeps
-    # for its own frame count (2026-09-15 audit, finding troupe-03).
-    for run in runs:
-        # The 2026-09-26 audit (service-assets-08): ``run["end"]``/
-        # ``run["start"]`` were already known to be present (``_sheet_runs``
-        # checks the key set) but not that they are numbers -- a corrupted
-        # ``"end": "many"`` raised a bare ``ValueError``/``TypeError`` from
-        # ``int()`` here rather than the "corrupted" refusal two lines down.
-        try:
-            span = int(run["end"]) - int(run["start"]) + 1
-        except (TypeError, ValueError) as exc:
-            raise invalid_from(
-                exc,
-                "this sheet's layout is corrupted (a run's frame span is invalid)",
-                field="sheet_id",
-            ) from exc
-        if not 0 < span <= charsheet.MAX_CELLS:
-            raise Invalid(
-                "this sheet's layout is corrupted (a run's frame span is invalid)",
-                field="sheet_id",
-            )
-
-    # **Refused, not crashed.** A sheet with no ``"troupe"`` block whose cells
-    # do not happen to match the closed legacy 256-cell table (a hand-drawn
-    # sheet, or one from a format ``sheet.sidecar`` also writes) fell through
-    # to a bare ``KeyError`` inside ``write`` the moment the plan below asked
-    # for a cell index the sidecar never recorded. Checked here, before a
-    # single frame is cropped -- the same "refused before anything renders"
-    # rule every other export door in this module already keeps.
-    needed_indices = {
-        i for run in runs for i in range(int(run["start"]), int(run["end"]) + 1)
-    }
-    if not needed_indices <= set(cell_by_index):
-        raise Invalid(
-            "this sheet's cells don't match a character layout; export it as "
-            "a package instead",
-            field="sheet_id",
-        )
-
-    def write(tmp: Path) -> None:
-        plan: list[tuple[str, str, int, int]] = []
-        seen_folders: set[tuple[str, str]] = set()
-        clip_directions: dict[str, list[str]] = {}
-        for run in runs:
-            clip = str(run["movement"])
-            if not _CLIP_FOLDER_NAME_RE.match(clip):
-                raise Invalid(
-                    f"the clip {clip!r} cannot be used as an export folder name "
-                    "(lowercase letters, digits and underscores only)",
-                    field="sheet_id",
-                )
-            try:
-                compass = charsheet.compass_name(float(run["yaw"]))
-            except (TypeError, ValueError, OverflowError) as exc:
-                raise invalid_from(
-                    exc,
-                    "this sheet's layout is corrupted (a run's yaw is invalid)",
-                    field="sheet_id",
-                ) from exc
-            key = (clip, compass)
-            if key in seen_folders:
-                raise Invalid(
-                    f"two runs of {clip!r} would both export to {clip}/{compass}",
-                    field="sheet_id",
-                )
-            seen_folders.add(key)
-            clip_directions.setdefault(clip, []).append(compass)
-            plan.append((clip, compass, int(run["start"]), int(run["end"])))
-
-        # The 2026-09-26 audit, finding poser-jobs-06: this opened straight
-        # into ``.load()`` with no ceiling on the file itself -- everything
-        # above bounds the *sidecar's* claimed cells, not what a hand-edited
-        # or otherwise oversized ``sheet.png`` beside a small, innocent sidecar
-        # actually decodes to. Read from the header first, the same shape
-        # ``sheet_preview_png`` already uses (service-queue-03, the 2026-09-16
-        # audit) and ``files._check_pixels``/``loras.py``'s training-image
-        # door before that: ``Image.open`` alone parses only the header, so
-        # ``.width``/``.height`` are free -- ``.load()`` is the expensive part.
-        try:
-            with Image.open(png_path) as probe:
-                atlas_width, atlas_height = probe.width, probe.height
-        except Exception as exc:
-            raise invalid_from(
-                exc, "that sheet's PNG could not be read", field="sheet_id"
-            ) from exc
-        try:
-            sheetlib.check_atlas_size(atlas_width, atlas_height)
-        except ValueError as exc:
-            raise invalid_from(
-                exc, "that sheet's PNG is corrupted", field="sheet_id"
-            ) from exc
-
-        with Image.open(png_path) as opened:
-            opened.load()
-            atlas = opened.convert("RGBA")
-        try:
-            for clip, compass, start, end in plan:
-                folder = tmp / clip / compass
-                folder.mkdir(parents=True, exist_ok=True)
-                for frame_index, cell_index in enumerate(range(start, end + 1)):
-                    cell = cell_by_index[cell_index]
-                    box = (
-                        cell["x"],
-                        cell["y"],
-                        cell["x"] + cell["w"],
-                        cell["y"] + cell["h"],
-                    )
-                    atlas.crop(box).save(folder / f"{frame_index:03d}.png", "PNG")
-        finally:
-            atlas.close()
-
-        clips_meta: dict[str, Any] = {}
-        for clip, directions in clip_directions.items():
-            # The 2026-09-23 audit, finding poser-04: a bare ``movements[clip]``
-            # raised ``KeyError`` (not ``Invalid``) for a sidecar whose run
-            # names a movement the ``troupe`` layout's own ``movements`` table
-            # no longer has -- a rig's clip library can rename or drop a clip
-            # after a sheet naming it was already rendered, the same "layout
-            # has moved on" case ``_sheet_movements_by_key`` already guards
-            # for a movement entry that lost its own ``"key"`` field.
-            movement = movements.get(clip)
-            if movement is None:
-                raise Invalid(
-                    f"this sheet's layout is corrupted ({clip!r} is not one of "
-                    "its movements)",
-                    field="sheet_id",
-                )
-            # The 2026-09-26 audit (service-assets-08): only ``"key"`` is
-            # checked by ``_sheet_movements_by_key`` -- everything else on a
-            # movement entry was read bare here, so a hand-edited sidecar
-            # missing ``duration_ms``/``loop``/``frames``, or carrying
-            # ``duration_ms: 0``, raised ``KeyError``/``ZeroDivisionError``
-            # straight past this door's own "refused, not crashed" contract.
-            try:
-                duration_ms = int(movement["duration_ms"])
-                if duration_ms <= 0:
-                    raise ValueError("duration_ms must be positive")
-                fps = float(layout_fps) if layout_fps is not None else 1000.0 / duration_ms
-                loop = bool(movement["loop"])
-                frames = int(movement["frames"])
-            except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
-                raise invalid_from(
-                    exc,
-                    f"this sheet's layout is corrupted ({clip!r}'s movement entry)",
-                    field="sheet_id",
-                ) from exc
-            clips_meta[clip] = {
-                "loop": loop,
-                "frames": frames,
-                "duration_ms": duration_ms,
-                "fps": fps,
-                "directions": directions,
-            }
-        manifest = {
-            "format": "realmspinner-frames",
-            "version": 1,
-            "name": stem,
-            "frame_size": frame_size,
-            "pixel_art": pixel_art,
-            "clips": clips_meta,
-        }
-        (tmp / "manifest.json").write_text(
-            json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
-        )
-
-    return svc_export.staged_tree(dest, stem, write)
-
-
 def export_godot(
     svc: RealmspinnerService,
     job_id: str,
@@ -1206,8 +662,9 @@ def export_godot(
     sentence and this door's sentence can never drift apart.
 
     ``stem``, when given, replaces the folder (and ``.glb``/``.tscn`` file)
-    name -- see :func:`export_package`'s own paragraph about it. Reaches
-    ``staged_tree`` unchanged, which is what actually validates it.
+    name -- ``agent_export_stem``'s own answer, for the caller (an agent) that
+    must never replace a human's export. Reaches ``staged_tree`` unchanged,
+    which is what actually validates it.
 
     ``overwrite`` is the one way to replace what is already there. By default the
     export lands under the first free name (``<stem>``, ``<stem>-2``, ...) and
@@ -1304,12 +761,11 @@ def _character_asset_row(svc: RealmspinnerService, row: Mapping[str, Any]) -> di
     ``riggable`` is folded into the returned dict as ``"_riggable"`` and
     popped by the caller before this reaches an agent or a pane -- it is a
     filter predicate, not a fact about the asset worth carrying past this
-    function, unlike ``rigged``/``sheets``, which the door's own return shape
-    states.
+    function, unlike ``rigged``, which the door's own return shape states.
     """
     from ..kernels.rig import store
+    from . import clips as svc_clips
     from . import rig as svc_rig
-    from . import troupe as svc_troupe
 
     if row.get("stage") != "model" or row.get("status") != "done":
         return None
@@ -1323,8 +779,7 @@ def _character_asset_row(svc: RealmspinnerService, row: Mapping[str, Any]) -> di
     rigged = rig_meta is not None
     family_key = str(params.get("family") or "")
     template = _character_asset_template(job_dir, family_key, rig_meta)
-    has_clips = bool(template) and svc_troupe.has_clips(template)
-    sheets = len(store.list_sheets(job_dir))
+    has_clips = bool(template) and svc_clips.has_clips(template)
     riggable = (
         (job_dir / "model.glb").exists()
         and not rigged
@@ -1339,7 +794,6 @@ def _character_asset_row(svc: RealmspinnerService, row: Mapping[str, Any]) -> di
         "rigged": rigged,
         "template": template,
         "has_clips": has_clips,
-        "sheets": sheets,
         "created_at": row.get("created_at"),
         "_riggable": riggable,
     }
@@ -1409,7 +863,6 @@ def list_character_assets(
                     filter == "all"
                     or (filter == "riggable" and riggable)
                     or (filter == "rigged" and asset["rigged"])
-                    or (filter == "has_sheets" and asset["sheets"])
                 )
                 if keep:
                     assets.append(asset)
@@ -1432,27 +885,19 @@ def list_character_assets(
 def character_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     """One character-chain job's status, whichever link it is.
 
-    An agent (and ``create_character``'s own two-id return) hands out a mesh
-    id and a rig id, and the sheet that eventually lands has neither --
-    ``_q_jobs._maybe_queue_sheet_after_rig`` mints it with a fresh random id
-    and no back-link. So this is the one door that answers for a mesh, a rig
-    or a charsheet row alike: whichever kind *job_id* names, the mesh's own
-    rig/template/sheets are resolved off the mesh directory the row actually
-    writes into (``params["source_job"]`` for a rig or charsheet row, the row
-    itself for a mesh), because that is where ``_q_rig``/``_q_troupe`` put
-    the artifacts -- never the rig or charsheet row's own, empty directory.
+    ``create_character``'s two-id return hands out a mesh id and a rig id; this
+    is the one door that answers for either: whichever kind *job_id* names, the
+    mesh's own rig/template are resolved off the mesh directory the row
+    actually writes into (``params["source_job"]`` for a rig row, the row
+    itself for a mesh), because that is where ``_q_rig`` puts the artifacts --
+    never the rig row's own, empty directory.
 
     ``rig_job_id`` is *this* row's rig, not the mesh's: a mesh row names the
-    newest rig row minted for it whose ``params`` still carry a
-    ``troupe_sheet`` reservation (the same shape ``send_to_troupe`` mints and
-    ``follow_up_sheet_job`` reads), a rig row names itself, and a charsheet
-    row has none. It exists so ``follow_up_sheet_job`` can be answered for a
-    mesh id too -- the id an agent is actually told to poll -- rather than
-    only for the rig id it never receives.
+    newest rig row minted for it, a rig row names itself. It lets a caller that
+    only holds the mesh id find the row it should be polling.
     """
     from ..kernels.rig import store
     from . import jobs as svc_jobs
-    from . import troupe as svc_troupe
 
     job = svc_jobs.get_job(svc, job_id)
     kind = str(job.get("kind") or "")
@@ -1460,7 +905,7 @@ def character_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     raw_source = params.get("source_job")
     source_job = str(raw_source) if raw_source else None
 
-    mesh_id = source_job if kind in ("rig", "charsheet") and source_job else str(job_id)
+    mesh_id = source_job if kind == "rig" and source_job else str(job_id)
     mesh_dir = svc.job_dir(mesh_id) if store.is_valid_id(mesh_id) else None
 
     rig_meta = store.read_rig(mesh_dir) if mesh_dir is not None else None
@@ -1471,77 +916,22 @@ def character_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     elif kind == "rig":
         template = str(params.get("template") or "") or None
 
-    # A caller only ever has two ids for this chain -- ``create_character``'s
-    # own two-id return -- and the mesh is the one an agent is told to poll.
-    # Its own kind is "image", not "rig", so answering ``follow_up_sheet_job``
-    # only for a rig row left a mesh's own status report with nothing to name:
-    # the row it should be polling exists (or will), and the answer was
-    # always None regardless. ``rig_job_id`` closes that gap by finding the
-    # rig row itself first, the same way an agent would have to if it walked
-    # the library by hand -- newest match wins, so a remesh that rigs twice
-    # (the second rig cancelled or superseded) still points at the live one.
     rig_job_id: str | None
     if kind == "rig":
         rig_job_id = str(job_id)
-        follow_up_sheet_job = svc_troupe.follow_up_sheet_job(svc, job_id)
     else:
         rig_job_id = None
         newest: tuple[float, str] | None = None
-        for candidate in svc.store.list(limit=svc_troupe._SCAN_LIMIT, kind="rig"):
+        for candidate in svc.store.list(limit=_CHARACTER_ASSET_SCAN_CAP, kind="rig"):
             cparams = candidate.get("params") or {}
             if str(cparams.get("source_job") or "") != str(job_id):
-                continue
-            if not isinstance(cparams.get("troupe_sheet"), Mapping):
                 continue
             key = (float(candidate.get("created_at") or 0), str(candidate["id"]))
             if newest is None or key > newest:
                 newest = key
         if newest is not None:
             rig_job_id = newest[1]
-        follow_up_sheet_job = (
-            svc_troupe.follow_up_sheet_job(svc, rig_job_id) if rig_job_id else None
-        )
-    follow_up_failure = (
-        svc_troupe.follow_up_failure(svc, mesh_id) if store.is_valid_id(mesh_id) else None
-    )
 
-    sheets: list[dict[str, Any]] = []
-    if mesh_dir is not None:
-        for record in store.list_sheets(mesh_dir):
-            troupe_block = record.get("troupe") if isinstance(record.get("troupe"), Mapping) else {}
-            movement_rows = troupe_block.get("movements") or []
-            directions_seen: set[str] = set()
-            for m in movement_rows:
-                for d in m.get("directions") or []:
-                    key = d.get("key")
-                    if key:
-                        directions_seen.add(str(key))
-            cell_count = troupe_block.get("cell_count")
-            if cell_count is None:
-                cell_count = len(record.get("cells") or [])
-            # The 2026-10-03 audit, finding poser-25: a bare ``int()`` here let
-            # one corrupt sidecar's ``frame_size``/``cell_count`` raise for the
-            # whole report; the other sheets are still worth listing, and the
-            # corrupt one is refused by name wherever it is opened.
-            try:
-                frame_size = int(record.get("frame_size") or 0)
-                cell_total = int(cell_count)
-            except (TypeError, ValueError, OverflowError):
-                continue
-            sheets.append(
-                {
-                    "sheet_id": str(record.get("id") or ""),
-                    "name": str(record.get("name") or ""),
-                    "frame_size": frame_size,
-                    "cell_count": cell_total,
-                    "movements": [str(m.get("key")) for m in movement_rows],
-                    "directions": len(directions_seen),
-                    "fps": troupe_block.get("fps"),
-                    "pixel_art": bool(record.get("pixel_art", True)),
-                }
-            )
-
-    raw_sheet_id = params.get("sheet_id")
     return {
         "job_id": str(job_id),
         "kind": kind,
@@ -1554,234 +944,8 @@ def character_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
         "source_job": source_job,
         "rigged": rigged,
         "template": template,
-        "sheet_id": str(raw_sheet_id) if raw_sheet_id else None,
         "rig_job_id": rig_job_id,
-        "follow_up_sheet_job": follow_up_sheet_job,
-        "follow_up_failure": follow_up_failure,
-        "sheets": sheets,
     }
-
-
-def sheet_preview_png(
-    svc: RealmspinnerService,
-    job_id: str,
-    sheet_id: str,
-    *,
-    max_side: int,
-    movement: str | None = None,
-    direction: str | None = None,
-    max_bytes: int,
-) -> tuple[bytes, dict[str, Any]]:
-    """One PNG crop of a character sheet, fit to *max_side* -- the whole
-    atlas, one movement's every direction stacked as rows, or a single
-    movement/direction strip.
-
-    Built for an MCP preview: the agent surface's own frame ceiling
-    (``rpc.MAX_FRAME``) cannot carry a multi-thousand-pixel atlas, and an
-    agent asking "show me the walk" wants one small, legible image rather
-    than the whole sheet. Cropped from the sidecar's own recorded cell
-    rectangles, never re-planned -- a stale layout would crop the wrong cell
-    for a sheet rendered before a clip was retimed.
-    """
-    import io
-
-    from PIL import Image
-
-    from ..kernels import charsheet
-    from ..kernels import sheet as sheetlib
-    from ..kernels.rig import store
-
-    check_job_id(job_id)
-    svc.require_job(job_id)
-    job_dir = svc.job_dir(job_id)
-    if not store.is_valid_id(str(sheet_id or "")):
-        raise Invalid("that is not a sheet id", field="sheet_id")
-
-    png_path = store.sheet_png_path(job_dir, str(sheet_id))
-    record = store.read_sheet(job_dir, str(sheet_id))
-    if record is None or not png_path.is_file():
-        raise NotFound("that sheet is no longer on disk", field="sheet_id")
-
-    troupe_block = record.get("troupe")
-    layout = (
-        troupe_block
-        if isinstance(troupe_block, Mapping)
-        else charsheet.resolve_layout(None).as_dict()
-    )
-    runs = _sheet_runs(layout)
-    movements = _sheet_movements_by_key(layout)
-    cell_by_index = _sheet_cells_by_index(record)
-
-    if direction is not None and movement is None:
-        raise Invalid("choose a movement before a direction", field="movement")
-
-    movement_row = None
-    matching_runs: list[dict[str, Any]] = []
-    if movement is not None:
-        movement_row = movements.get(str(movement))
-        matching_runs = [r for r in runs if str(r.get("movement")) == str(movement)]
-        if movement_row is None or not matching_runs:
-            raise Invalid(f"{movement!r} is not a movement on this sheet", field="movement")
-
-    chosen_run = None
-    if direction is not None:
-        chosen_run = next(
-            (r for r in matching_runs if str(r.get("direction")) == str(direction)), None
-        )
-        if chosen_run is None:
-            raise Invalid(
-                f"{direction!r} is not a direction {movement!r} was rendered facing",
-                field="direction",
-            )
-
-    frame_size = _sheet_whole(record.get("frame_size") or 0, "frame_size")
-    if frame_size <= 0:
-        raise Invalid(
-            "that sheet is not square, so it has no fixed frame size to crop", field="sheet_id"
-        )
-    # The 2026-09-15 audit, finding troupe-03: everything below this point
-    # used to allocate a fresh ``Image.new`` sized from the sidecar's own
-    # ``frame_size``/``frames`` before any bound was applied -- ``max_side``
-    # only *downscaled* the finished composite, well after the allocation
-    # had already happened. A sidecar this function does not itself write
-    # (an agent names a job id it does not own; a corrupted or hand-edited
-    # file) claiming an enormous frame_size or frame count would try to
-    # allocate that many pixels regardless of what the caller asked for.
-    # Checked against charsheet's own ceilings first, the same ones
-    # ``charsheet.build`` refuses a *render* request against, so a preview
-    # can never demand more than a render could ever have produced.
-    if not charsheet.MIN_FRAME_SIZE <= frame_size <= charsheet.MAX_FRAME_SIZE:
-        raise Invalid(
-            f"that sheet's frame_size is {frame_size}, outside charsheet's "
-            f"{charsheet.MIN_FRAME_SIZE}-{charsheet.MAX_FRAME_SIZE} ceiling; "
-            "its sidecar is corrupted",
-            field="sheet_id",
-        )
-
-    def _crop(image: Any, index: int) -> Any:
-        cell = cell_by_index.get(index)
-        if cell is None:
-            raise Invalid("that sheet's cells do not match its own layout", field="sheet_id")
-        x, y = cell["x"], cell["y"]
-        return image.crop((x, y, x + frame_size, y + frame_size))
-
-    if movement is None:
-        frame_count = len(cell_by_index)
-    elif chosen_run is not None:
-        start = _sheet_whole(chosen_run["start"], "a run's start")
-        end = _sheet_whole(chosen_run["end"], "a run's end")
-        # Arithmetic only, never ``list(range(...))``, until the bound below
-        # has passed: a corrupted ``end`` is exactly the kind of value this
-        # check exists to catch, and materialising the list first would
-        # already have paid for the huge allocation this refuses.
-        frame_count = max(0, end - start + 1)
-        try:
-            sheetlib.check_atlas_size(frame_count * frame_size, frame_size)
-        except ValueError as exc:
-            raise invalid_from(exc, "that sheet's sidecar is corrupted", field="sheet_id") from exc
-        indices = list(range(start, end + 1))
-    else:
-        frame_count = int(movement_row.get("frames") or 0)
-        direction_keys = [str(d.get("key")) for d in (movement_row.get("directions") or [])]
-        runs_by_direction = {str(r.get("direction")): r for r in matching_runs}
-        ordered_runs = [runs_by_direction[k] for k in direction_keys if k in runs_by_direction]
-        try:
-            sheetlib.check_atlas_size(
-                frame_count * frame_size, frame_size * max(1, len(ordered_runs))
-            )
-        except ValueError as exc:
-            raise invalid_from(exc, "that sheet's sidecar is corrupted", field="sheet_id") from exc
-        # The 2026-09-20 audit, finding troupe-01: this branch sized the canvas
-        # from the movement's *declared* ``frames`` and pasted each run into it
-        # by its own start/end, never checking the two against each other --
-        # a run whose actual span was shorter than the declared count left the
-        # tail of its row silently blank, and a longer one clipped rather than
-        # refused. The single-run branch above never has this gap because its
-        # own ``frame_count`` *is* the run's span; here it is asserted instead.
-        for run in ordered_runs:
-            start = _sheet_whole(run["start"], "a run's start")
-            end = _sheet_whole(run["end"], "a run's end")
-            if end - start + 1 != frame_count:
-                raise Invalid(
-                    f"movement {movement!r} declares {frame_count} frames but its "
-                    f"{run.get('direction')!r} run spans {end - start + 1}; "
-                    "its sidecar is corrupted",
-                    field="sheet_id",
-                )
-
-    # service-queue-03 (the 2026-09-16 audit): everything above this point
-    # bounds the *composed* preview built from the sidecar's own numbers --
-    # the ``movement is None`` (whole-atlas) branch never calls
-    # ``check_atlas_size`` at all, and even where it does, none of those
-    # checks ever read ``png_path``'s own declared dimensions. A hand-edited,
-    # corrupted, or otherwise oversized ``sheet.png`` beside a small,
-    # innocent-looking sidecar used to be decoded in full (``opened.load()``)
-    # before any ceiling on the file itself applied. Read from the header,
-    # the same shape ``files._check_pixels`` / ``loras.py``'s training-image
-    # door use: ``Image.open`` alone parses only the header, so ``.width``/
-    # ``.height`` are free -- the expensive part is ``.load()`` below.
-    try:
-        with Image.open(png_path) as probe:
-            atlas_width, atlas_height = probe.width, probe.height
-    except Exception as exc:
-        raise invalid_from(
-            exc, "that sheet's PNG could not be read", field="sheet_id"
-        ) from exc
-    try:
-        sheetlib.check_atlas_size(atlas_width, atlas_height)
-    except ValueError as exc:
-        raise invalid_from(
-            exc, "that sheet's PNG is corrupted", field="sheet_id"
-        ) from exc
-
-    with Image.open(png_path) as opened:
-        opened.load()
-        atlas = opened.convert("RGBA")
-    try:
-        if movement is None:
-            composed = atlas.copy()
-        elif chosen_run is not None:
-            composed = Image.new("RGBA", (frame_count * frame_size, frame_size))
-            for col, index in enumerate(indices):
-                composed.paste(_crop(atlas, index), (col * frame_size, 0))
-        else:
-            composed = Image.new(
-                "RGBA", (frame_count * frame_size, frame_size * max(1, len(ordered_runs)))
-            )
-            for row_i, run in enumerate(ordered_runs):
-                start, end = int(run["start"]), int(run["end"])
-                for col, index in enumerate(range(start, end + 1)):
-                    composed.paste(_crop(atlas, index), (col * frame_size, row_i * frame_size))
-    finally:
-        atlas.close()
-
-    width, height = composed.size
-    largest = max(width, height)
-    if largest > max_side:
-        scale = max_side / float(largest)
-        new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
-        composed = composed.resize(new_size, Image.NEAREST)
-        width, height = composed.size
-
-    buf = io.BytesIO()
-    composed.save(buf, format="PNG")
-    data = buf.getvalue()
-    if len(data) > max_bytes:
-        raise Invalid(
-            f"that preview is {len(data)} bytes, over the {max_bytes} limit; "
-            "try a smaller max_side",
-            field="max_side",
-        )
-
-    meta = {
-        "width": width,
-        "height": height,
-        "movement": movement,
-        "direction": direction,
-        "frames": frame_count,
-        "compass": charsheet.COMPASS_16.get(str(direction)) if direction is not None else None,
-    }
-    return data, meta
 
 
 # --- the pieces the doors above share ----------------------------------------
@@ -1792,9 +956,8 @@ def character_block(
 ) -> dict[str, Any]:
     """The ``params["character"]`` block: who this is, and what was asked for.
 
-    Nested rather than flattened onto the row, for the reason ``send_to_troupe``
-    gives about ``troupe_sheet``: ``VECTOR_PARAMS`` is an allowlist of *flat*
-    settings, so nesting is what stops ``seed`` or ``palette`` inside a recipe
+    Nested rather than flattened onto the row: ``VECTOR_PARAMS`` is an
+    allowlist of *flat* settings, so nesting is what stops ``seed`` or ``palette`` inside a recipe
     being picked up as a rerun vector for the row that carries it.
 
     ``resolution`` takes a :class:`~realmspinner.characters.resolve.Resolution`, the
@@ -1841,27 +1004,24 @@ def _plan(spec: Recipe, clip_library: str, frame_size: int) -> charsheet.LayoutS
     """Expand the clips and plan the frames -- the render is thrown away, the
     resolved layout is not.
 
-    ``create_charsheet`` does exactly this planning step and says why: a clip
-    library that does not fill the frame table, or a size whose atlas is over
-    the texture limit, is refused now instead of failing a job that has
-    already rendered. The library is the **archetype's**, never a constant --
+    A clip library that does not fill the frame table, or a size whose atlas is
+    over the texture limit, is refused now. The library is the **archetype's**,
+    never a constant --
     a wolf is animated from the quadruped clips, and pinning humanoid here
     would fill a quadruped frame table from a library whose skeleton it does
     not have.
 
-    **The returned ``LayoutSpec`` is what ``create_character`` sends on to
-    ``send_to_troupe``, not ``spec.layout_dict()``.** ``Recipe.layout_dict``
+    **The returned ``LayoutSpec`` is the recipe's layout resolved against the
+    library's own ``timing``, not ``spec.layout_dict()``.** ``Recipe.layout_dict``
     resolves the recipe's v2/v3 *payload* with no ``timing`` at all, so it can
     only ever mean one of the closed :data:`charsheet.ANIMATIONS` five -- a
     recipe naming ``hit`` or any other clip the archetype's own library
-    defines resolved here, against *this* ``timing``, and nowhere else, and
-    then failed a second, untimed resolution downstream with a bare
-    ``'hit' is not a Troupe movement`` after the mesh row was already
-    committed. Reusing this call's own answer is what keeps there being only
-    one resolution of the recipe's layout in the whole door.
+    defines resolves here, against *this* ``timing``, and nowhere else. Since
+    the sheet left (``retired.py``) this is only the dry run
+    :func:`recipe_from_prompt` reports ``cells`` from.
 
-    ``timing`` is passed the same way ``troupe._timed_layout`` passes it, so
-    a recipe may name any clip *clip_library* actually defines -- not just the
+    ``timing`` is passed so a recipe may name any clip *clip_library* actually
+    defines -- not just the
     closed :data:`charsheet.ANIMATIONS` five -- per
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A clip the
     library has never heard of surfaces as ``resolve_layout``'s own
@@ -1891,10 +1051,7 @@ def _plan(spec: Recipe, clip_library: str, frame_size: int) -> charsheet.LayoutS
             f"the {clip_library} clip library is missing {exc}", field="animations"
         ) from exc
     except ValueError as exc:
-        # field="layout", the 2026-09-11 audit's finding troupe-01: the same
-        # plan-and-throw-away shape ``troupe.check_troupe``/``create_charsheet``
-        # carry, with the same fieldless branch -- see the comment in
-        # ``troupe.check_troupe``.
+        # field="layout", the 2026-09-11 audit's finding troupe-01.
         raise invalid_from(exc, "That character cannot be laid out", field="layout") from exc
     return layout
 
@@ -1977,19 +1134,14 @@ def _refuse_foreign_folder(dest_root: Path, stem: str) -> None:
         )
 
 
-def _package_stem(job: Mapping[str, Any], sheet_id: str) -> str:
-    """A filesystem-safe stem for the exported pair, from the job's name.
+def _package_stem(job: Mapping[str, Any], fallback: str) -> str:
+    """A filesystem-safe stem for an export, from the job's name.
 
     **A DOS device name is refused the same as an empty one.** ``CON``, and
     just as much ``con.txt`` or ``com1``, is what this function used to hand
-    ``export_package``/``export_frames`` for a character *named* one of
-    them -- neither door sanitises the stem any further before writing
-    ``<stem>.png`` -- and Windows resolves that path to the console/serial
-    device rather than a file. ``export_godot``'s own ``staged_tree`` catches
-    the same name through ``export._safe_export_name`` and raises instead, so
-    a hostile job name used to export cleanly through two of the four formats
-    and hard-refuse through the third; the id is the same honest fallback
-    every other empty-name case already uses. Lazy import: ``export`` reaches
+    the export doors for a character *named* one of them, and Windows resolves
+    that path to the console/serial device rather than a file; the id is the
+    same honest fallback every other empty-name case already uses. Lazy import: ``export`` reaches
     back into this module for ``staged_copy_all``/``staged_tree``, so a
     module-level import here in both directions would be an import cycle.
     """
@@ -1998,13 +1150,13 @@ def _package_stem(job: Mapping[str, Any], sheet_id: str) -> str:
     raw = str(job.get("name") or "").strip()
     safe = "".join(c if c.isalnum() or c in "-_ " else "-" for c in raw).strip()
     if not safe:
-        return sheet_id
+        return fallback
     if safe.split(".", 1)[0].upper() in svc_export._RESERVED_WINDOWS_NAMES:
-        return sheet_id
+        return fallback
     return safe[:MAX_JOB_NAME]
 
 
-def agent_export_stem(svc: RealmspinnerService, job_id: str, sheet_id: str | None = None) -> str:
+def agent_export_stem(svc: RealmspinnerService, job_id: str) -> str:
     """The export ``stem`` an agent should pass to a character export door.
 
     ``_package_stem`` alone names from the job's own display name -- exactly
@@ -2014,23 +1166,19 @@ def agent_export_stem(svc: RealmspinnerService, job_id: str, sheet_id: str | Non
     was minted with, so two different characters that happen to share a
     display name (the default, for anything built from the same family and
     never renamed) would otherwise both resolve to the same
-    ``export_dir/Knight`` folder or ``Knight.png``/``.json`` pair -- an agent
+    ``export_dir/Knight`` folder or ``Knight.glb`` -- an agent
     exporting its own Knight would silently replace a human's.
 
-    ``job_id`` (and, when given, ``sheet_id``) is appended, which is what
-    makes the answer unique per asset (and per sheet on the same asset): an
+    ``job_id`` is appended, which is what makes the answer unique per asset: an
     agent's own export can then only ever replace its own earlier export of
-    that exact thing. Both are already the app's own hex ids -- plain
-    ``[0-9a-f]{12}`` -- so appending them can never introduce a separator,
+    that exact thing. It is already the app's own hex id -- plain
+    ``[0-9a-f]{12}`` -- so appending it can never introduce a separator,
     a reserved Windows device name, or anything else
     ``export._safe_export_name`` would refuse.
     """
     check_job_id(job_id)
     job = svc.require_job(job_id)
-    stem = f"{_package_stem(job, job_id)}-{job_id}"
-    if sheet_id:
-        stem = f"{stem}-{sheet_id}"
-    return stem
+    return f"{_package_stem(job, job_id)}-{job_id}"
 
 
 def _fresh_seed(*, avoid: int | None = None) -> int:

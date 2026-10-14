@@ -385,7 +385,7 @@ def test_every_axis_the_sweep_form_offers_has_help_and_is_counted_in_the_manual(
     assert offered <= set(AXIS_HELP), sorted(offered - set(AXIS_HELP))
     assert all(len(AXIS_HELP[axis]) > 30 for axis in offered)
 
-    text = _manual("37-review")
+    text = _manual("34-review")
     assert f"There are {_NUMBER_WORDS[len(offered)]}," in text, len(offered)
     for phrase in ("Base model", "Platform", "Style LoRA", "IP-Adapter", "Control"):
         assert phrase in text, phrase
@@ -514,12 +514,8 @@ def test_every_doc_mode_has_a_guard_in_the_quit_chain(monkeypatch):
     app._request_quit()
 
     assert app._running is False, "the chain ran to the end"
-    # Manifest order, with the inspector's pose guard just before Poser's own.
-    expected = []
-    for entry in mode_manifest.DOC_MODES:
-        if entry.key == "poser":
-            expected.append("pose-panel")
-        expected.append(entry.key)
+    # The inspector's pose guard first, then the manifest's order.
+    expected = ["pose-panel", *(entry.key for entry in mode_manifest.DOC_MODES)]
     assert asked == expected
     assert "fakedoc" in asked
 
@@ -527,18 +523,15 @@ def test_every_doc_mode_has_a_guard_in_the_quit_chain(monkeypatch):
 # --- shell-74: a colon-less save key still warns on quit ---------------------
 
 
-def test_quit_summary_warns_while_a_poser_clips_save_is_busy():
+def test_quit_summary_warns_while_a_colonless_save_key_is_busy():
+    """The run that *ends the key* counts: a write key spelled "<mode>-save"
+    carries no colon for the pattern to wait on (Poser's clips save was the
+    case that found it, and the pattern stayed general when Poser left)."""
     from realmspinner.studio import main as main_mod
-    from realmspinner.studio.modes.poser import mode as poser_mode
 
     app = main_mod.App.__new__(main_mod.App)
     app.runtime = SimpleNamespace(current_job_id=None)
-    for key in (
-        poser_mode.SAVE_KEY,
-        poser_mode.CLIPS_SAVE_KEY,
-        poser_mode.RENAME_KEY,
-        poser_mode.DUPLICATE_KEY,
-    ):
+    for key in ("clay-save", "mason-exportglb", "sirens-export"):
         app.app_ctx = SimpleNamespace(
             cache=SimpleNamespace(active=None),
             tasks=SimpleNamespace(busy_keys={key}),
@@ -546,15 +539,14 @@ def test_quit_summary_warns_while_a_poser_clips_save_is_busy():
         assert app._quit_summary() == "An export is still being written.", key
 
 
-def test_a_read_only_poser_key_does_not_raise_the_export_warning():
+def test_a_read_only_key_does_not_raise_the_export_warning():
     from realmspinner.studio import main as main_mod
-    from realmspinner.studio.modes.poser import mode as poser_mode
 
     app = main_mod.App.__new__(main_mod.App)
     app.runtime = SimpleNamespace(current_job_id=None)
     app.app_ctx = SimpleNamespace(
         cache=SimpleNamespace(active=None),
-        tasks=SimpleNamespace(busy_keys={poser_mode.LIST_KEY, poser_mode.CLIPS_KEY}),
+        tasks=SimpleNamespace(busy_keys={"clay-list", "mason-open"}),
     )
     assert app._quit_summary() == ""
 

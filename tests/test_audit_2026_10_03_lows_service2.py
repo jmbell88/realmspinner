@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
-import threading
 import time
 
 import pytest
@@ -81,61 +80,6 @@ def _rendered_sheet(worker, source, *, frame_size=128, columns=8, rows=1):
     }
     rig_store.sheet_path(source_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
     return sheet_id
-
-
-@pytest.mark.asyncio
-async def test_pixel_sheet_band_tail_runs_off_the_loop_thread(worker, monkeypatch):
-    """The band tail (decode the generation, crop it back, remask against the
-    atlas, paste) ran inline on ``realmspinner-loop`` -- the thread every job's
-    progress and cancel is served from -- once per band, up to eight times.
-    Spies on the work itself, not on ``to_thread`` (which the unfixed code
-    already uses for the band's *other* steps)."""
-    import PIL.Image as pil_image
-
-    from realmspinner.pipelines import pixelsheet
-
-    loop_thread = threading.get_ident()
-    seen: dict[str, set[int]] = {"open": set(), "crop_back": set(), "remask": set()}
-
-    real_open = pil_image.open
-
-    def spying_open(*args, **kwargs):
-        seen["open"].add(threading.get_ident())
-        return real_open(*args, **kwargs)
-
-    real_crop = pixelsheet.crop_back
-    real_remask = pixelsheet.remask
-
-    def spying_crop(*args, **kwargs):
-        seen["crop_back"].add(threading.get_ident())
-        return real_crop(*args, **kwargs)
-
-    def spying_remask(*args, **kwargs):
-        seen["remask"].add(threading.get_ident())
-        return real_remask(*args, **kwargs)
-
-    monkeypatch.setattr(pil_image, "open", spying_open)
-    monkeypatch.setattr(pixelsheet, "crop_back", spying_crop)
-    monkeypatch.setattr(pixelsheet, "remask", spying_remask)
-
-    source = worker.store.create("text", "a knight", {"seed": 1})
-    job_dir = worker.config.job_dir(source)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "model.glb").write_bytes(b"fake-glb")
-    worker.store.set_status(source, "done")
-    sheet_id = _rendered_sheet(worker, source)
-    job_id = worker.store.create(
-        "pixel_sheet", "a knight",
-        {"source_job": source, "sheet_id": sheet_id, "logical_size": 32,
-         "colors": 8, "seed": 3},
-    )
-
-    row = await _run(worker, job_id)
-
-    assert row["status"] == "done", row.get("error")
-    for name, threads in seen.items():
-        assert threads, f"{name} was never observed"
-        assert loop_thread not in threads, f"{name} ran on the loop thread"
 
 
 # --- service-29 --------------------------------------------------------------

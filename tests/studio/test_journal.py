@@ -814,20 +814,6 @@ def test_an_adopter_that_raises_is_still_spoken_for_exactly_once(tmp_path, kind)
     assert ctx.toasts == [("A recovered probe could not be reopened.", "warn")]
 
 
-def test_an_unreadable_recovered_pose_says_so_instead_of_declining_in_silence(tmp_path):
-    """The one synchronous decline that spoke to nobody: a pose copy that will
-    not read returned False with no toast, which only Home's generic one
-    covered."""
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    ctx = _Ctx(tmp_path)
-    missing = tmp_path / "gone.pose.json"
-
-    assert poser_mode._journal_adopt(ctx, missing, {}) is False
-
-    assert ctx.toasts == [("A recovered pose could not be reopened.", "warn")]
-
-
 # --- the whole span, 1 through 5 ----------------------------------------------
 
 
@@ -917,7 +903,7 @@ def test_every_real_provider_is_registered_by_ensure():
     # ``sirens_mode``'s provider missing from this set, nor would it catch a
     # kind's deletion the way ``test_journal_docstring_and_kind_modes_comment_
     # name_no_deleted_profile_kind`` needs this set to be trustworthy.
-    assert kinds == {"inker", "clay", "plotter", "packwright", "sirens", "pose", "mason"}
+    assert kinds == {"inker", "clay", "plotter", "packwright", "sirens", "mason"}
 
 
 @pytest.mark.parametrize("kind", ["clay", "mason", "packwright", "plotter"])
@@ -992,31 +978,6 @@ def test_every_journalled_state_class_declares_all_three_mark_fields(module, cls
     assert {"journal_name", "journal_head", "journal_at"} <= names, sorted(names)
 
 
-def test_a_pose_slots_journal_bookkeeping_fields_are_declared_somewhere_a_test_can_check():
-    """The docstring above claims the pose slot "carries the same three as
-    properties ... checked by their own modes' tests" -- but until the
-    2026-09-16 audit's finding shell-02, that claim was false.
-    ``poser_mode._PoseSlot`` proxies ``journal_name``/``journal_head``/
-    ``journal_at`` onto ``viewer_embed.Viewer`` through bare properties, and
-    neither ``_PoseSlot`` nor ``Viewer`` is a dataclass, so
-    ``dataclasses.fields()`` cannot even be applied to either one -- the
-    parametrized test above structurally cannot be widened to cover the
-    seventh registered provider (Poser's ``pose`` kind), and nothing anywhere
-    pinned these three names for it. That is exactly the failure shape the
-    2026-08-18 ``PlotterDoc.journal_at`` incident describes, just unreachable
-    by the guard built to catch it.
-
-    Fixed by giving ``_PoseSlot`` class-level annotations for the three names
-    -- a form ``__annotations__`` can introspect without requiring the actual
-    storage (which has to keep living on the viewer, whose lifetime the slot
-    itself does not share) to be a dataclass.
-    """
-    import realmspinner.studio.modes.poser.mode as poser_mode_module
-
-    names = set(getattr(poser_mode_module._PoseSlot, "__annotations__", {}))
-    assert {"journal_name", "journal_head", "journal_at"} <= names, sorted(names)
-
-
 def test_no_two_kinds_share_a_name_or_an_extension():
     """A shared extension would let two providers claim one file, and the
     sidecar's ``kind`` would be the only thing distinguishing them."""
@@ -1026,21 +987,20 @@ def test_no_two_kinds_share_a_name_or_an_extension():
     assert len({p.ext for p in all_of}) == len(all_of)
 
 
-@pytest.mark.parametrize(
-    "suffix", [".ora", ".rblk", ".rmap", ".rpack", ".rsng", ".pose.json", ".rscn"]
-)
+@pytest.mark.parametrize("suffix", [".ora", ".rblk", ".rmap", ".rpack", ".rsng", ".rscn"])
 def test_each_document_kind_writes_its_own_format(suffix: str):
     """A recovered file is openable by hand and by the mode's ordinary reader,
     which is what makes a crash copy inspectable rather than opaque. The list
-    above is exact -- Sirens' ``.rsng`` and Poser's ``.pose.json`` were absent
-    from it and from ``test_every_real_provider_is_registered_by_ensure``'s
+    above is exact -- Sirens' ``.rsng`` and the (since removed) Poser's
+    ``.pose.json`` were absent from it and from
+    ``test_every_real_provider_is_registered_by_ensure``'s
     ``>=`` check alike, so a deleted format (the 2026-09-11 audit's shell-10:
     ``.profile.json``, gone since commit 39f1bf97) could drop out of either
     without either test noticing."""
     journal.ensure_providers()
     exts = {p.ext for p in journal.providers()}
     assert suffix in exts
-    assert len(exts) == 7, sorted(exts)
+    assert len(exts) == 6, sorted(exts)
 
 
 def test_a_map_with_a_layer_tree_journals_and_comes_back():
@@ -1202,7 +1162,7 @@ def test_journal_docstring_and_kind_modes_comment_name_no_deleted_profile_kind()
 
     journal.ensure_providers()
     exts = {p.ext for p in journal.providers()}
-    assert exts == {".ora", ".rblk", ".rmap", ".rpack", ".rsng", ".pose.json", ".rscn"}
+    assert exts == {".ora", ".rblk", ".rmap", ".rpack", ".rsng", ".rscn"}
 
     module_doc = journal.__doc__ or ""
     provider_doc = journal.Provider.__doc__ or ""

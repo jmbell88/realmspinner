@@ -293,8 +293,8 @@ def test_start_writes_a_catalogue_snapshot_matching_the_catalogue_op(tmp_path) -
         # hash, json.dumps and os.replace this file straight inline -- ~75ms
         # measured, all of it spent on whichever thread called start() (the
         # frame thread, for both of start()'s real callers). It is now
-        # queued onto the service lane (AgentHost._queue_service_job_nowait)
-        # instead, so it lands a moment after start() returns rather than
+        # submitted through ctx.submit (the app's own TaskRunner) instead, so
+        # it lands a moment after start() returns rather than
         # before -- waited for here rather than asserted immediately.
         deadline = time.monotonic() + WAIT
         while not snapshot_path.exists() and time.monotonic() < deadline:
@@ -387,10 +387,6 @@ def test_resources_op_lists_every_resource_uri(tmp_path) -> None:
                 "realmspinner://clay/conventions",
                 "realmspinner://clay/generators",
                 "realmspinner://clay/operations",
-                # The character surface's own static resource -- folded into
-                # the same "resources" list Clay's own five already ride on
-                # (see agent_host._serve_rpc_frame's "resources" op).
-                "realmspinner://character/vocabulary",
             }
             assert header["templates"] == []
             # A listing is metadata only -- the static resources' inline
@@ -605,11 +601,6 @@ def test_prompts_op_lists_every_prompt_name(tmp_path) -> None:
             assert names == {
                 "model_from_description",
                 "model_from_reference",
-                # The character surface's own prompt (agent_prompts.py,
-                # widened for tranche 3) -- prompts are listed unchanged by
-                # this module, but the registry it reads from now has one
-                # more entry.
-                "character_sheets_from_description",
             }
         finally:
             conn.close()
@@ -675,21 +666,16 @@ def test_rendered_prompt_carries_description_and_a_text_message(tmp_path) -> Non
 
 def test_every_tool_name_a_prompt_mentions_is_a_real_tool(tmp_path) -> None:
     """Test names are claims: this one scans every prompt's *rendered* text
-    for clay_*/realmspinner_*/character_* tokens and checks each is a real tool,
+    for clay_*/realmspinner_* tokens and checks each is a real tool,
     so a rename that forgets to update a prompt's prose fails here rather
     than shipping a prompt that quietly points an agent at a tool that no
     longer exists."""
     import re
 
-    from realmspinner.studio import agent_character
     from realmspinner.studio import agent_host as ah
     from realmspinner.studio.modes.clay.agent import dispatch as agent_clay
 
-    real_tools = (
-        {t.name for t in agent_clay.tools()}
-        | {t.name for t in agent_character.tools()}
-        | {ah.STATUS_TOOL}
-    )
+    real_tools = {t.name for t in agent_clay.tools()} | {ah.STATUS_TOOL}
 
     host, stop_pumping, pumper = _started_host(tmp_path)
     try:
@@ -706,7 +692,7 @@ def test_every_tool_name_a_prompt_mentions_is_a_real_tool(tmp_path) -> None:
                 header, _body = rpc.split_reply(_recv(conn))
                 assert "error" not in header, (prompt["name"], header)
                 text = header["messages"][0]["content"]["text"]
-                mentioned = set(re.findall(r"\bclay_\w+|\brealmspinner_\w+|\bcharacter_\w+", text))
+                mentioned = set(re.findall(r"\bclay_\w+|\brealmspinner_\w+", text))
                 unknown = mentioned - real_tools
                 assert not unknown, (prompt["name"], unknown)
                 all_mentioned |= mentioned
@@ -716,13 +702,9 @@ def test_every_tool_name_a_prompt_mentions_is_a_real_tool(tmp_path) -> None:
         _stop(host, stop_pumping, pumper)
 
     # A guard on the guard: if every rendered prompt stopped mentioning any
-    # ``character_*`` tool by name (the character surface vanishing, or a
-    # rename this scan happened not to catch), the loop above would pass
-    # vacuously -- there would be nothing left to check ``real_tools``
-    # against. ``character_sheets_from_description`` names several by
-    # design (see agent_prompts.py), so this must never be empty while that
-    # prompt exists.
-    assert any(name.startswith("character_") for name in all_mentioned), all_mentioned
+    # ``clay_*`` tool by name, the loop above would pass vacuously -- there
+    # would be nothing left to check ``real_tools`` against.
+    assert any(name.startswith("clay_") for name in all_mentioned), all_mentioned
 
 
 def test_catalogue_op_includes_resources_and_prompts(tmp_path) -> None:
@@ -741,88 +723,3 @@ def test_catalogue_op_includes_resources_and_prompts(tmp_path) -> None:
             conn.close()
     finally:
         _stop(host, stop_pumping, pumper)
-
-
-# --- the character surface's resources join Clay's on the same wire --------
-
-
-def test_catalogue_op_includes_the_character_vocabulary_resource(tmp_path, monkeypatch) -> None:
-    """``_catalogue_payload`` folds ``agent_character_resources.
-    catalogue_resources()`` into the same ``resources`` list Clay's own
-    static resources already ride on -- proven over a real pipe by
-    monkeypatching the character surface's own catalogue function (its real
-    vocabulary resource is ``tests/studio/test_agent_character_resources.py``'s own
-    job to prove)."""
-    from realmspinner.studio import agent_character_resources
-
-    vocabulary_uri = "realmspinner://character/vocabulary"
-    monkeypatch.setattr(
-        agent_character_resources,
-        "catalogue_resources",
-        lambda: [
-            {
-                "uri": vocabulary_uri,
-                "name": "vocabulary",
-                "mimeType": "application/json",
-                "text": "{}",
-            }
-        ],
-    )
-
-    host, stop_pumping, pumper = _started_host(tmp_path)
-    try:
-        conn = pipe.connect(tmp_path)
-        try:
-            conn.send_bytes(rpc.encode_request("catalogue"))
-            header, _body = rpc.split_reply(_recv(conn))
-            assert vocabulary_uri in {r["uri"] for r in header["resources"]}
-        finally:
-            conn.close()
-    finally:
-        _stop(host, stop_pumping, pumper)
-
-
-def test_a_character_sheet_resource_is_read_over_the_pipe(tmp_path, monkeypatch) -> None:
-    """The ``read`` RPC v1 op routes a URI ``agent_character_resources.
-    owns_uri`` claims to ``read_dynamic``, run on the *service* lane (never
-    the frame queue Clay's own dynamic resources use, and never the
-    listener thread answering this very request) -- proven end to end over
-    a real pipe against a started host by recording which thread actually
-    calls the monkeypatched ``read_dynamic``: a ``realmspinner-task*`` thread
-    (``tasks.TaskRunner``'s own ``thread_name_prefix``, see ``tasks.py``) is
-    the service lane's worker pool, and neither the pump thread
-    (``_started_host``'s own ``pumper``) nor the listener
-    (``"realmspinner-agent-host"``) may be it. The real charsheet sidecar/atlas
-    format is ``tests/studio/test_agent_character_resources.py``'s own claim to
-    prove, so ``read_dynamic`` itself stays monkeypatched here."""
-    from realmspinner.studio import agent_character_resources
-
-    sheet_uri = "realmspinner://character/sheet/0123456789ab/ba9876543210/atlas.png"
-    fake_png = b"\x89PNG-fake-bytes"
-    seen_thread_names: list[str] = []
-
-    monkeypatch.setattr(agent_character_resources, "owns_uri", lambda uri: uri == sheet_uri)
-
-    def fake_read_dynamic(svc, uri):  # noqa: ARG001
-        seen_thread_names.append(threading.current_thread().name)
-        return ("image/png", fake_png) if uri == sheet_uri else None
-
-    monkeypatch.setattr(agent_character_resources, "read_dynamic", fake_read_dynamic)
-
-    host, stop_pumping, pumper = _started_host(tmp_path)
-    try:
-        conn = pipe.connect(tmp_path)
-        try:
-            conn.send_bytes(rpc.encode_request("read", uri=sheet_uri))
-            header, body = rpc.split_reply(_recv(conn))
-            assert "error" not in header, header
-            assert header["mimeType"] == "image/png"
-            assert body == fake_png
-        finally:
-            conn.close()
-    finally:
-        _stop(host, stop_pumping, pumper)
-
-    assert seen_thread_names, "read_dynamic never ran"
-    assert seen_thread_names[0] not in ("realmspinner-agent-host", pumper.name)
-    assert seen_thread_names[0].startswith("realmspinner-task"), seen_thread_names

@@ -245,7 +245,7 @@ def _plotter_chapter_keys() -> str:
     from pathlib import Path
 
     text = (
-        Path(__file__).resolve().parents[3] / "docs" / "manual" / "38-shortcuts.md"
+        Path(__file__).resolve().parents[3] / "docs" / "manual" / "35-shortcuts.md"
     ).read_text(encoding="utf-8")
     section = text.split("\n## Plotter", 1)[1].split("\n## ", 1)[0]
     return "\n".join(line for line in section.splitlines() if line.startswith("|"))
@@ -544,7 +544,7 @@ def test_tmx_module_docstring_does_not_list_modelled_features_as_refused():
 def test_manual_does_not_claim_object_template_contents_load():
     from pathlib import Path
 
-    text = (Path(__file__).resolve().parents[3] / "docs" / "manual" / "32-plotter.md").read_text(
+    text = (Path(__file__).resolve().parents[3] / "docs" / "manual" / "29-plotter.md").read_text(
         encoding="utf-8"
     )
     flat = " ".join(text.split())

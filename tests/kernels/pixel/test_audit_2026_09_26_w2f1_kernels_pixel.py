@@ -189,34 +189,17 @@ def test_merge_down_out_of_a_hidden_group_does_not_change_the_composite():
 # --- inker-document-06: write_locked doors -----------------------------------
 
 
-def test_sheet_verbs_paste_cels_and_place_tiles_refuse_a_write_locked_row():
-    """The 2026-09-26 audit, finding inker-document-06: ``map_frames`` (and
-    every sheet verb that resolves to it), ``paste_cels`` and ``place_tiles``
-    never consulted ``write_locked``, so a content-locked track (or one inside
-    a locked group) still took a sheet correction, a pasted cel or a placed
-    tile the same as any unlocked row."""
-    # -- map_frames / replace_colour_frames, through the one sheet funnel --
+def test_paste_cels_and_place_tiles_refuse_a_write_locked_row():
+    """The 2026-09-26 audit, finding inker-document-06: ``paste_cels`` and
+    ``place_tiles`` never consulted ``write_locked``, so a content-locked track
+    (or one inside a locked group) still took a pasted cel or a placed tile the
+    same as any unlocked row."""
     doc = inker.Document.blank(8, 8)
     doc.ensure_animation()
     doc.add_frame()
     track0_uid = doc.anim.tracks[0].uid
     frame0_uid = doc.anim.frames[0].uid
     assert doc.set_layer_props(0, locked=True)
-    before_cel = doc.anim.cels.get((track0_uid, frame0_uid))
-    before_pixels = None if before_cel is None else before_cel.pixels.copy()
-
-    changed = doc.map_frames(track0_uid, [0], lambda before: np.zeros_like(before))
-    assert changed is False
-    after_cel = doc.anim.cels.get((track0_uid, frame0_uid))
-    if before_pixels is not None and after_cel is not None:
-        assert np.array_equal(after_cel.pixels, before_pixels)
-
-    assert (
-        doc.replace_colour_frames(
-            track0_uid, [0], (0, 0, 0, 0), (255, 255, 255, 255)
-        )
-        is False
-    )
 
     # -- paste_cels: a locked target track must refuse the whole paste -----
     doc.add_layer()  # track 1, unlocked, now active

@@ -70,14 +70,14 @@ LOGICAL_SIZES: tuple[int, ...] = charsheet.SIZES
 #: ``kernels.charsheet.MIN_FRAME_SIZE``/``MAX_FRAME_SIZE``, restated for the
 #: same reason ``LOGICAL_SIZES`` is derived rather than hand-typed. Since
 #: master's 8b091e98, the render path underneath a character
-#: (``service.troupe._check_options`` and ``charsheet.plan`` itself) accepts
+#: (the retired Troupe door and ``charsheet.plan`` itself) accepts
 #: any whole pixel size in this range, not only the preset ladder -- the
 #: 2026-09-14 audit (agents-01) found this module still refusing an
-#: off-ladder size that ``agent_character``'s own ``character_create`` schema
+#: off-ladder size that an agent's ``character_create`` schema
 #: advertised as legal, because this module's ``logical_size`` check had not
 #: been widened to match the pipeline it feeds.
 LOGICAL_SIZE_RANGE: tuple[int, int] = (charsheet.MIN_FRAME_SIZE, charsheet.MAX_FRAME_SIZE)
-#: ``service.troupe.TROUPE_COLOR_CHOICES``.
+#: the retired Troupe door.
 COLOR_CHOICES: tuple[int, ...] = (8, 16, 32, 64)
 #: ``pipelines.pixelize.OUTLINE_MODES`` / ``REDUCE_MODES``.
 OUTLINE_MODES: tuple[str, ...] = ("none", "inner", "outer")
@@ -185,7 +185,7 @@ class Recipe:
     name: str
     #: D5 HD mode -- off is the pixel-art render every recipe has always
     #: produced, so this defaults True and ``as_dict`` omits it at that value,
-    #: the same "absence is not a claim" rule ``service.troupe``'s row carries.
+    #: the same "absence is not a claim" rule the retired Troupe door's row carries.
     pixel_art: bool = True
     #: A layout-wide frame rate, the same :data:`charsheet.FPS_CHOICES` ladder
     #: Troupe offers. ``None`` means the recipe named none -- every movement
@@ -306,7 +306,7 @@ class Recipe:
         # The 2026-09-26 audit, finding poser-characters-03: ``bool(raw)`` on a
         # non-bool answers "false" with ``True`` (``bool("false")`` is truthy),
         # which is exactly the clamp this module's docstring refuses to do.
-        # ``service.troupe._check_options``' three-way ``isinstance`` pattern,
+        # the retired Troupe door' three-way ``isinstance`` pattern,
         # restated here for the one bool this door owns that isn't already
         # a real control-side bool the way ``pixel_art`` above is documented
         # to be.
@@ -353,7 +353,7 @@ class Recipe:
         out["appearance"] = dict(self.appearance)
         out["animations"] = dict(self.animations)
         out["version"] = VERSION
-        # Absence is not the same claim as the default -- ``service.troupe``'s
+        # Absence is not the same claim as the default -- the retired Troupe door's
         # row carries the identical rule for the identical reason: a recipe
         # that never touched either control round-trips to a dict byte-
         # identical to one written before they existed.

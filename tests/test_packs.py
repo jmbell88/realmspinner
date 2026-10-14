@@ -135,7 +135,9 @@ def test_the_modes_a_pack_names_are_real_modes():
 
     known = {key for key, _label, _icon, _purpose in modes.MODES}
     for pack in packs.PACKS:
-        assert pack.modes, f"{pack.key} unlocks nothing"
+        # Rigging gates no rail mode since Poser (its only one) was removed: it
+        # is a capability of Create's Rig stage and Clay's Blender-backed ops.
+        assert pack.modes or pack.key == "rig", f"{pack.key} unlocks nothing"
         for key in pack.modes:
             assert key in known, f"{pack.key} names a mode that does not exist: {key}"
 

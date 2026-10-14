@@ -317,8 +317,7 @@ def _free_name(root: Path, provider: Provider, slot: Any) -> str:
     document computes exactly the same name as the *previous* session's first
     untitled document -- and if that copy is still sitting here unrecovered,
     the write below clobbered it, because nothing had ever checked disk.
-    Poser's provider names every pose ``Pose-poser.pose.json`` regardless of
-    uid, which is the same collision with no counter needed at all. Checked
+    Checked
     against disk rather than against this run's own marks, because the
     collision is always with a file this process has no memory of writing.
     """

@@ -28,7 +28,6 @@ import pytest
 from realmspinner import db as db_mod
 from realmspinner.config import Config
 from realmspinner.db import JobStore
-from realmspinner.kernels.rig import store as rig_store
 from realmspinner.queue import Worker
 
 
@@ -184,15 +183,16 @@ def _function_source(module: Any, name: str) -> str:
 #: The stages that publish onto a served name, and the call that publishes it.
 #: Every one has to commit the cancel token: once the artifact is on the served
 #: name a cancel cannot take it back, so recording the row as "cancelled" is a
-#: lie about the file on disk -- and for the sheet kinds it is worse than a
-#: lie, because ``_discard_artifacts`` then deletes a sheet the user can see.
+#: lie about the file on disk -- and for a kind whose cancel arm deletes the
+#: served name it is worse than a lie, because ``_discard_artifacts`` then deletes
+#: a file the user can see.
 #:
 #: **Hand-maintained, deliberately, not scanned out of the ``_q_*.py`` tree.**
 #: "Publishes onto a served name" is a semantic fact the source does not spell
 #: syntactically: several of these functions call ``os.replace``/
-#: ``_publish_text`` *more than once* -- ``_sheet`` renames its atlas onto the
-#: served PNG and only *then* writes the sidecar that is the actual completion
-#: marker, and ``_deform_qa`` (``_q_rig.py``), the model-promotion stage
+#: ``_publish_text`` *more than once* -- the retired ``_sheet`` renamed its atlas
+#: onto the served PNG and only *then* wrote the sidecar that was the actual
+#: completion marker, and ``_deform_qa`` (``_q_rig.py``), the model-promotion stage
 #: (``_q_generate.py``) and ``_remesh`` (``_q_mesh.py``) all rename onto a
 #: served name too, for reasons ranging from "this is the completion marker"
 #: to "this is a safe mid-job checkpoint a cancel may still unwind." Which
@@ -260,13 +260,10 @@ PUBLISHERS = [
     # ``tests/service/test_import_reference_door.py`` pins the rename.
     ("realmspinner._q_mesh", "_remesh", "_publish_model_version"),
     ("realmspinner._q_rig", "_rig", "finalize_rig"),
-    ("realmspinner._q_rig", "_sheet", "_publish_text"),
-    ("realmspinner._q_sprite", "_pixel_sheet", "_publish_text"),
     ("realmspinner._q_sprite", "_sprite_synthesis", "_publish_text"),
     ("realmspinner._q_sprite", "_retexture", "_publish_model_version"),
     ("realmspinner._q_tilesheet", "_tile_sheet", "_publish_text"),
     ("realmspinner._q_tileset", "_tile_set", "_publish_text"),
-    ("realmspinner._q_troupe", "_charsheet", "_publish_text"),
     # muse-02 (the 2026-09-15 audit): ``_music`` and ``_separate`` publish and
     # commit correctly -- ``client.generate`` writes ``track.wav`` before
     # ``self._cancel.commit()``, and ``blender_run.run_worker`` writes the stem
@@ -291,7 +288,7 @@ PUBLISHERS = [
 def test_every_served_publish_commits_the_cancel_token(module, func, publish):
     """A scan, because two of the original four had no commit and nothing said
     so -- and the 2026-09-07 audit (finding service-01) found that the list
-    itself was stale rather than merely incomplete: ``_sheet``,
+    itself was stale rather than merely incomplete: the retired ``_sheet``,
     ``_sprite_synthesis``, ``_tile_sheet`` and ``_tile_set`` published without
     committing and were never in ``PUBLISHERS`` at all, so this scan never
     looked at them. Six of the first eleven rows have shipped the bug this test
@@ -336,7 +333,7 @@ def test_deform_qa_runs_after_the_rig_commits_the_cancel_token():
     ``finalize_rig`` earlier in the same function) as "cancelled", and the
     finally in ``queue.py`` would run ``_discard_artifacts`` over a row whose
     real mesh is sitting there finished -- silently stalling
-    ``_maybe_queue_charsheet``, which is gated on ``status == "done"``, with a
+    the follow-ups queued after a rig, which are gated on ``status == "done"``, with a
     perfectly good rig nobody points at (the exact failure ``_rig``'s own
     comment above ``self._cancel.commit()`` describes).
     """
@@ -353,88 +350,6 @@ def test_deform_qa_runs_after_the_rig_commits_the_cancel_token():
         "during the QA tail would record an already-published rig as "
         "cancelled"
     )
-
-
-async def test_a_cancel_after_a_character_sheet_is_published_records_it_as_done(
-    worker, monkeypatch
-):
-    """The sharpest form of the missing commit.
-
-    ``_discard_artifacts``'s sheet branch deletes the *served* pair, not temps
-    -- so a cancel landing after the sidecar has been published recorded the
-    row "cancelled" and then unlinked a character sheet Troupe was already
-    drawing. Two hundred and fifty-six rendered frames, gone, with the row
-    saying it never happened.
-    """
-    from PIL import Image
-
-    from realmspinner import queue as queue_mod
-    from realmspinner.kernels import charsheet
-    from realmspinner.kernels import sheet as sheetlib
-    from realmspinner.pipelines import pixelize, pixelsheet
-
-    source = worker.store.create("image", "a ranger", {"seed": 1}, stage="model")
-    source_dir = worker.config.job_dir(source)
-    source_dir.mkdir(parents=True, exist_ok=True)
-    (source_dir / "model.glb").write_bytes(b"fake-glb")
-    (source_dir / "rig.glb").write_bytes(b"fake-rig")
-    worker.store.set_status(source, "done")
-
-    async def fake_render(glb, layout, cells, *, pack_target, **kwargs):
-        pack_target.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGBA", (8, 8), (1, 2, 3, 255)).save(pack_target, "PNG")
-        # Three values, not two: ``_render_charsheet`` grew the projected
-        # sockets on 2026-09-05 for the character effects pass. Empty here
-        # because this fixture has no ``character.json``, which is the same
-        # thing a sheet built before characters existed carries -- so this fake
-        # keeps standing for the case the test is actually about.
-        return {"pivot": (0.0, 0.0)}, {}, {}
-
-    async def no_roots(*_args):
-        return {}, None
-
-    monkeypatch.setattr(worker, "_render_charsheet", fake_render)
-    monkeypatch.setattr(worker, "_charsheet_roots", no_roots)
-    monkeypatch.setattr(
-        pixelsheet, "quantize_shared", lambda atlas, colors: (atlas, ["#010203"])
-    )
-    monkeypatch.setattr(
-        pixelize,
-        "pixelize_atlas",
-        lambda atlas, **kwargs: (Image.new("RGBA", (8, 8), (1, 2, 3, 255)), {}),
-    )
-    monkeypatch.setattr(sheetlib, "measure_trim", lambda _image: None)
-
-    sheet_id = rig_store.new_id()
-    job_id = worker.store.create(
-        "charsheet",
-        None,
-        {"source_job": source, "sheet_id": sheet_id, "logical_size": 16},
-    )
-
-    # The cancel lands the instant the sidecar -- the completion marker -- is
-    # on disk, which is the window the commit exists to close.
-    real_publish = queue_mod._publish_text
-
-    def publish_then_cancel(path, text):
-        real_publish(path, text)
-        if worker._cancel is not None:
-            worker._cancel.event.set()
-
-    monkeypatch.setattr(queue_mod, "_publish_text", publish_then_cancel)
-
-    worker.start()
-    await _wait_until(
-        lambda: worker.store.get(job_id)["status"] in ("done", "error", "cancelled"),
-        timeout=60.0,
-    )
-    await worker.shutdown()
-
-    row = worker.store.get(job_id)
-    assert row["status"] == "done", row["error"]
-    assert rig_store.sheet_path(source_dir, sheet_id).exists()
-    assert rig_store.sheet_png_path(source_dir, sheet_id).exists()
-    assert charsheet  # imported for the fakes above to be the right shapes
 
 
 async def test_separate_job_discards_stems_when_cancelled_after_the_split_finishes(
@@ -497,29 +412,6 @@ async def test_separate_job_discards_stems_when_cancelled_after_the_split_finish
 
 
 # --- stable ids --------------------------------------------------------------
-
-
-@pytest.mark.parametrize("kind", ["sheet", "charsheet"])
-async def test_a_sheet_row_without_an_id_is_refused_rather_than_given_one(
-    worker, kind
-):
-    """``_discard_artifacts`` deletes this kind's served pair by ``sheet_id``,
-    a pure function of a stable id. That is safe only while every door mints a
-    fresh one -- and both workers used to paper over a missing id with ``or
-    new_id()``, which is exactly how the assumption would have been broken
-    without anything going red."""
-    source = worker.store.create("text", "a knight", {"seed": 1})
-    source_dir = worker.config.job_dir(source)
-    source_dir.mkdir(parents=True, exist_ok=True)
-    (source_dir / "model.glb").write_bytes(b"fake-glb")
-    (source_dir / "rig.glb").write_bytes(b"fake-rig")
-    worker.store.set_status(source, "done")
-
-    job_id = worker.store.create(kind, None, {"source_job": source})
-    worker.start()
-    await _wait_until(lambda: worker.store.get(job_id)["status"] == "error")
-    await worker.shutdown()
-    assert "sheet_id" in (worker.store.get(job_id)["error"] or "")
 
 
 def test_no_worker_mints_a_sheet_id_of_its_own() -> None:

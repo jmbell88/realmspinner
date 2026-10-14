@@ -1,11 +1,11 @@
-"""``Worker``'s restyle stages: pixel sheets, sprite drafts, re-texture.
+"""``Worker``'s restyle stages: sprite drafts, re-texture.
 
-The three jobs that take something already finished and give it a new surface.
+The two jobs that take something already finished and give it a new surface.
 Split out of ``queue.py`` for the reason every mixin here is: the class had 35
 methods and five unrelated subjects, and the loop core -- which is the part
 with the invariants -- was buried among them.
 
-What these share, and why they are one module rather than three: every one of
+What these share, and why they are one module rather than two: every one of
 them is an **img2img pass on the resident SDXL pipe**, so every one of them
 makes the VRAM handoff (``Worker._acquire_t2i``) and gives the checkpoint back
 in a ``finally`` (``Worker._release_t2i``) -- and every one of them publishes
@@ -45,358 +45,13 @@ log = logging.getLogger(__name__)
 class SpriteOps:
     """The restyle stages, mixed into :class:`~.queue.Worker`."""
 
-    async def _pixel_sheet(self: Worker, job: dict[str, Any]) -> None:
-        """Restyle a finished sprite sheet into pixel art, one band at a time.
-
-        A queue job rather than a derivation, for the reason every other GPU
-        path here is one: it needs the resident SDXL pipe, and a TaskRunner
-        thread racing the worker for VRAM is the OOM that only reproduces under
-        load. And a job of its own rather than a stage of the sheet render: the
-        EEVEE render is slow and deterministic, while the restyle is the part a
-        user iterates on -- strength, palette, seed -- so paying for the render
-        again on every attempt would be the whole cost for none of the change.
-
-        The output belongs to the render, so it lands beside it in the *source*
-        job's directory, and the JSON is written last as the completion marker
-        -- the same rule ``_sheet`` and ``_rig`` follow.
-        """
-        from PIL import Image
-
-        from . import queue as queue_mod
-        from .pipelines import pixel, pixelize, pixelsheet
-        from .pipelines.conditioning import Conditioning
-
-        job_id = job["id"]
-        params = job["params"]
-        source_id = str(params.get("source_job") or "")
-        if not store.is_valid_id(source_id):
-            raise ValueError(f"source_job is not a job id: {source_id!r}")
-        sheet_id = str(params.get("sheet_id") or "")
-        if not store.is_valid_id(sheet_id):
-            raise ValueError(f"sheet_id is not a sheet id: {sheet_id!r}")
-        source_dir = self.config.job_dir(source_id)
-
-        meta = await asyncio.to_thread(store.read_sheet, source_dir, sheet_id)
-        if meta is None:
-            # Deleted between queueing and running -- the same failure `poses`
-            # gets in _sheet, and for the same reason: a restyle of a sheet
-            # that is gone would depict nothing.
-            raise RuntimeError(f"sheet {sheet_id} no longer exists")
-        png = store.sheet_png_path(source_dir, sheet_id)
-        if not png.exists():
-            raise RuntimeError(f"sheet {sheet_id} has no rendered atlas")
-
-        logical = int(params.get("logical_size", 32))
-        colors = int(params.get("colors", 32))
-        palette_name = str(params.get("palette") or "")
-        dither = bool(params.get("dither"))
-        # ``"none"`` and not this file's sprite default: the restyle's default
-        # path has to stay byte-identical, and an outline is a pixel this path
-        # did not draw before today.
-        outline = str(params.get("outline") or "none")
-        # Resolved before the GPU is asked for anything -- a palette deleted
-        # since the door should cost the second before the checkpoint loads, not
-        # the minute after it. Costs nothing when no palette was named: an empty
-        # name is ``()`` with no file touched at all.
-        designed = await asyncio.to_thread(
-            queue_mod._palette_entries, self.config, palette_name
-        )
-        strength = float(params.get("strength", models.DEFAULT_IMG2IMG_STRENGTH))
-        structure = bool(params.get("structure_lock", True))
-        seed = int(params.get("seed", 42))
-        # Re-checked here as well as at the door: params outlive the sheet they
-        # name, and a re-rendered sheet is a different grid.
-        pixelsheet.check_restylable(meta, logical)
-
-        base_key = self._resolve_base_key(params, default="sdxl_cfg")
-        spec = models.BASE_MODELS[base_key]
-        pixel_style = models.STYLE_LORAS[models.PIXEL_SHEET_LORA]
-        lora: str | None = models.PIXEL_SHEET_LORA
-        if not models.lora_fits(spec, pixel_style):
-            # The same tolerance _generate applies to a stored style the base
-            # cannot take, and needed here for the same reason: params outlive
-            # the service that wrote them, and create_pixel_sheet's refusal
-            # guards only the door. Without this, a klein base ran the restyle
-            # bare while the sidecar below claimed the pixel LoRA styled it.
-            log.warning(
-                "base model %s (%s) cannot take the pixel-sheet LoRA %s (%s); "
-                "restyling without it",
-                spec.key, spec.family, pixel_style.key, pixel_style.family,
-            )
-            lora = None
-        # The same handoff a text job makes, through the same preamble.
-        t2i, _handoff = await self._acquire_t2i(spec, base_key)
-        # The 2026-09-26 audit (service-kinds-08): the ``try`` used to start
-        # at the loop below, so a raise from opening ``png``, composing the
-        # prompt or planning the bands -- all fallible, all between the
-        # acquire and here -- left the resident pipe (and the VRAM handoff)
-        # never released. Everything reachable after the acquire now sits
-        # inside the same bracket that frees it.
-        try:
-            # The 2026-09-26 audit (service-kinds-10): decode ran straight on
-            # ``realmspinner-loop`` -- the same thread every other job's
-            # progress and cancel check is served from -- instead of behind
-            # ``asyncio.to_thread`` like every other blocking call in this
-            # module.
-            def _load_atlas() -> Any:
-                with Image.open(png) as opened:
-                    opened.load()
-                    return opened.convert("RGBA")
-
-            atlas = await asyncio.to_thread(_load_atlas)
-
-            prompt = guidance.compose_prompt(job["prompt"] or "", params)
-            plan = pixelsheet.bands(meta)
-            styled = Image.new("RGBA", atlas.size, (0, 0, 0, 0))
-            # One lattice measurement per band, because one band is one
-            # generation: ``pixel.lattice`` is measuring what the model
-            # drew, and this kind draws a sheet taller than 1024 in several
-            # passes. Recorded in the recipe below and read by nothing --
-            # see ``pixel.lattice`` for why acting on it has to wait for a
-            # calibration run.
-            grids: list[dict[str, Any]] = []
-            for band in plan:
-                if self._cancel is not None and self._cancel.event.is_set():
-                    # The 2026-09-20 audit, finding troupe-03: _sprite_synthesis
-                    # already checks between bands (its own docstring gives the
-                    # reason -- eight bands is minutes of GPU), and this loop is
-                    # the same shape. Without this, a cancel landing between two
-                    # bands still paid for the next band's hint render and
-                    # conditioning setup before the cancel was ever read.
-                    return
-                self.progress.update(
-                    job_id, phase="restyle", label="Restyling sheet",
-                    inner=band.index / len(plan),
-                    inner_next=(band.index + 1) / len(plan),
-                    nominal=30.0, detail=f"band {band.index + 1}/{len(plan)}",
-                )
-                with tempfile.TemporaryDirectory(prefix="realmspinner-pixel-") as tmp:
-                    scratch = Path(tmp)
-                    init_path = scratch / "init.png"
-                    out_path = scratch / "out.png"
-                    await asyncio.to_thread(
-                        pixelsheet.band_init(atlas, band).save, init_path, "PNG"
-                    )
-                    control_path = None
-                    if structure and spec.controlnet:
-                        # Canny off the flat render, which is clean unlit
-                        # albedo -- so the hint is each cell's real silhouette
-                        # rather than an edge map of its lighting.
-                        control_path = scratch / "hint.png"
-                        await asyncio.to_thread(
-                            functools.partial(
-                                control.write_hint,
-                                init_path,
-                                control_path,
-                                kind="canny",
-                                size=pixelsheet.BAND_PX,
-                            )
-                        )
-                    cond = Conditioning(
-                        init_image=init_path,
-                        strength=strength,
-                        control="canny" if control_path else None,
-                        control_image=control_path,
-                    )
-                    await asyncio.to_thread(
-                        functools.partial(
-                            t2i.generate,
-                            prompt,
-                            out_path,
-                            # One seed for every band, so a multi-band sheet
-                            # keeps one identity all the way down the atlas.
-                            seed=seed,
-                            lora=lora,
-                            lora_weight=pixel_style.default_weight,
-                            conditioning=cond,
-                            on_state=lambda s: self._t2i_state(job_id, s),
-                            # Band k's steps *inside* the one t2i_sample
-                            # window -- (k*n + i) / (N*n), the CON-02
-                            # arithmetic. Raw (i, n) per band walked the whole
-                            # window on band one and the never-regress floor
-                            # pinned the bar at its top for every later band.
-                            on_step=lambda i, n, k=band.index: self._t2i_step(
-                                job_id, k * n + i, len(plan) * n
-                            ),
-                            cancel_event=self._cancel.event if self._cancel else None,
-                            sheet=True,
-                        )
-                    )
-                    # The 2026-10-03 audit (service-27): this tail -- decode,
-                    # lattice, crop back, remask, paste -- ran inline on
-                    # ``realmspinner-loop`` once per band (up to eight), the
-                    # thread every job's progress and cancel is served from,
-                    # after the 2026-09-26 audit had moved the atlas and the
-                    # other kinds' decodes behind ``to_thread`` and missed
-                    # this one. One call, not five, and nothing else touches
-                    # ``styled`` while it runs.
-                    def _band_tail(
-                        out_path: Path = out_path, band: Any = band
-                    ) -> dict[str, Any]:
-                        with Image.open(out_path) as generated:
-                            generated.load()
-                            # On the square the model returned, before the crop
-                            # back out: the phase is only meaningful against
-                            # the frame the lattice was drawn on, and the crop
-                            # moves it.
-                            grid = pixel.lattice(generated)
-                            piece = pixelsheet.crop_back(generated, band)
-                        top = band.first_row * band.frame
-                        source_band = atlas.crop((0, top, band.width, top + band.height))
-                        styled.paste(pixelsheet.remask(piece, source_band), (0, top))
-                        return {"band": band.index, **grid}
-
-                    grids.append(await asyncio.to_thread(_band_tail))
-        finally:
-            await self._release_t2i(t2i, spec)
-
-        self.progress.update(
-            job_id, phase="quantize", label="Reducing to pixels",
-            inner=0.0, inner_next=1.0, nominal=3.0, detail="",
-        )
-        factor = int(meta["frame_size"]) // logical
-        small = await asyncio.to_thread(pixelsheet.downscale, styled, factor)
-
-        def _styled_pixels() -> tuple[Any, list[str], str]:
-            """The three new options, applied. Only reached when one is set.
-
-            **A branch and not a switch**, which is the whole shape of this
-            change. ``PIXEL_SHEET_VERSION`` is recorded in every restyled sheet
-            already on disk, and the default request has to keep producing the
-            bytes those sheets claim -- so the two lines below stay exactly as
-            they were and this runs only when the user actually asked for a
-            palette, a dither or an outline. ``asset2d.pixel`` set the
-            precedent: "with ``opts`` left at its default the result is
-            byte-identical ... which is pinned by a test".
-
-            ``reduce_mode="point"`` for honesty in the report and nothing else:
-            ``small`` is already at the logical size, so ``pixelize.reduce``
-            returns it untouched whatever the mode says, and calling that a box
-            supersample would be a report claiming an average that never
-            happened.
-
-            And no lattice-aware reduction here, deliberately. Each band is a
-            separate generation pasted at its own ``y``, so the phase differs
-            per band and there is no single lattice over the assembled sheet to
-            reduce on.
-            """
-            import numpy as np
-
-            entries, source = pixelsheet.resolve_palette(
-                small, colors=colors, entries=designed or None
-            )
-            out, _report = pixelize.pixelize_atlas(
-                small,
-                columns=int(meta["columns"]),
-                rows=int(meta["rows"]),
-                cell=logical,
-                palette=entries,
-                dither=dither,
-                reduce_mode="point",
-                outline_mode=outline,
-            )
-            arr = np.asarray(out)
-            used = {tuple(int(c) for c in p) for p in arr[arr[:, :, 3] > 0][:, :3]}
-            return (
-                out,
-                [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in sorted(used)],
-                source,
-            )
-
-        if not palette_name and not dither and outline == "none":
-            reduced, palette = await asyncio.to_thread(
-                pixelsheet.quantize_shared, small, colors
-            )
-            palette_source = "derived"
-        else:
-            reduced, palette, palette_source = await asyncio.to_thread(_styled_pixels)
-
-        if self._cancel is not None and self._cancel.event.is_set():
-            # Nothing is published for a cancelled restyle. The run loop is
-            # about to call _discard_artifacts, and writing the pair first
-            # would leave it deleting files it had just been told to make --
-            # the same reason _rig skips finalize_rig on a cancel.
-            return
-
-        out_png = store.sheet_pixel_png_path(source_dir, sheet_id)
-        # Staged and renamed, not saved in place. ``sheets.py`` serves this
-        # name as soon as a *previous* restyle's sidecar exists, and restyling
-        # the same sheet again is allowed -- so a bare save tears a file that
-        # is already being served, with the old sidecar still calling it ready.
-        out_tmp = out_png.with_name(f".{out_png.name}.tmp")
-        try:
-            await asyncio.to_thread(reduced.save, out_tmp, "PNG")
-            await asyncio.to_thread(os.replace, out_tmp, out_png)
-        finally:
-            with contextlib.suppress(OSError):
-                out_tmp.unlink(missing_ok=True)
-        # The recipe records what ran, not what was asked for -- the rule
-        # guidance.normalize applies to a stored lora_weight. A style dropped
-        # above is simply absent, exactly as structure_lock already reads
-        # False when the base has no ControlNet to lock with.
-        recipe: dict[str, Any] = {
-            "base_model": base_key,
-            "strength": strength,
-            "structure_lock": bool(structure and spec.controlnet),
-            "seed": seed,
-            "colors": colors,
-            # Always recorded, on both branches, and additive rather than a
-            # format change -- the argument ``draft_sidecar``'s ``grid`` block
-            # makes: a new optional key readers may ignore is not a new format,
-            # and ``PIXEL_SHEET_VERSION`` describes the sidecar's shape rather
-            # than the recipe's contents. Recording them only when set would
-            # make "no outline" and "an older Realmspinner" the same reading.
-            "palette": palette_name,
-            "palette_source": palette_source,
-            "palette_hash": pixel.palette_digest(designed) if designed else "",
-            "dither": dither,
-            "outline": outline,
-            "prompt": t2i.last_prompt or prompt,
-            "bands": len(plan),
-            # In the recipe rather than at the top of the sidecar because it is
-            # a fact about what ran, which is what a recipe records -- and there
-            # is one per band, so there is no single number a top-level key
-            # could honestly hold.
-            "grids": grids,
-        }
-        if lora is not None:
-            recipe["style_lora"] = lora
-        doc = pixelsheet.pixel_sidecar(
-            meta,
-            image=out_png.name,
-            logical_size=logical,
-            palette=palette,
-            recipe=recipe,
-            created=time.time(),
-        )
-        # Last, and only after the PNG: this file is what the service treats as
-        # the completion marker, so publishing it first would advertise an
-        # atlas that is still being written.
-        await asyncio.to_thread(
-            queue_mod._publish_text,
-            store.sheet_pixel_path(source_dir, sheet_id),
-            json.dumps(doc, indent=2),
-        )
-        # Published onto the served pair, so from here a cancel cannot take the
-        # artifact back -- ``_rig``'s reason exactly. ``_discard_artifacts``
-        # removes only this run's temps, but a row recorded "cancelled" with a
-        # perfectly good restyle sitting under it is the same lie, and
-        # ``sheets.py`` serves the pair off the sidecar that now exists.
-        if self._cancel is not None:
-            self._cancel.commit()
-        log.info(
-            "restyled sheet %s for job %s: %d bands, %d colours at %dpx",
-            sheet_id, source_id, len(plan), len(palette), logical,
-        )
-
     async def _sprite_synthesis(self: Worker, job: dict[str, Any]) -> None:
         """Candidate sprite atlases from one finished 2D reference.
 
-        A queue job for ``_pixel_sheet``'s reason exactly -- it needs the
-        resident SDXL pipe, and a TaskRunner thread racing the worker for VRAM
-        is the OOM that only reproduces under load -- and it writes into the
-        *source* job's directory for ``_sheet``'s reason: a draft depicts that
-        reference and belongs beside it.
+        A queue job because it needs the resident SDXL pipe, and a TaskRunner
+        thread racing the worker for VRAM is the OOM that only reproduces under
+        load -- and it writes into the *source* job's directory, because a
+        draft depicts that reference and belongs beside it.
 
         Two candidates in one job rather than two jobs, because the expensive
         part (loading the checkpoint, both adapters and the LoRA) is paid once
@@ -483,7 +138,8 @@ class SpriteOps:
         pixel_style = models.STYLE_LORAS[models.PIXEL_SHEET_LORA]
         lora: str | None = models.PIXEL_SHEET_LORA
         if not models.lora_fits(spec, pixel_style):
-            # The same tolerance _pixel_sheet applies, for its reason: params
+            # The same tolerance _generate applies to a stored style the base
+            # cannot take, and for its reason: params
             # outlive the service that wrote them, and a draft whose recipe
             # claimed a LoRA that never ran would be evidence about a style
             # nobody generated.
@@ -619,7 +275,7 @@ class SpriteOps:
                                 subject,
                                 out_path,
                                 # One seed for every band of a candidate, which
-                                # is ``_pixel_sheet``'s rule and ``_retexture``'s
+                                # is ``_retexture``'s rule
                                 # -- a multi-band sheet keeps one identity all
                                 # the way down the atlas. What holds a character
                                 # together across the seam between two
@@ -637,8 +293,8 @@ class SpriteOps:
                                 # drag the bar back to zero once per generation.
                                 #
                                 # Pass k's steps *inside* the one "generate"
-                                # window -- (k*n + i) / (N*n), ``_pixel_sheet``'s
-                                # CON-02 arithmetic. Raw (i, n) per pass walks
+                                # window -- (k*n + i) / (N*n), the CON-02
+                                # arithmetic. Raw (i, n) per pass walks
                                 # the whole window on the first band and the
                                 # never-regress floor then pins the bar there
                                 # for every band after it.
@@ -723,8 +379,7 @@ class SpriteOps:
                 await self._release_t2i(t2i, spec)
 
             if self._cancel is not None and self._cancel.event.is_set():
-                # Nothing is published for a cancelled synthesis, exactly as
-                # _pixel_sheet says: the run loop is about to call
+                # Nothing is published for a cancelled synthesis: the run loop is about to call
                 # _discard_artifacts, and writing the trio first would leave it
                 # deleting files it had just been told to make.
                 return
@@ -826,7 +481,7 @@ class SpriteOps:
             # cancelled and run ``_discard_artifacts`` on the served draft PNGs
             # and sidecar it just published -- the 2026-09-07 audit found this
             # kind was still deletable after publish because nothing committed
-            # the cancel here, unlike ``_pixel_sheet``.
+            # the cancel here.
             if self._cancel is not None:
                 self._cancel.commit()
 
@@ -842,8 +497,7 @@ class SpriteOps:
 
         ``step``/``total`` are across the *whole job* rather than within one
         generation, which is why this takes no phase: every candidate and every
-        band walks the one ``generate`` window, exactly as ``_pixel_sheet``'s
-        bands walk its ``t2i_sample``.
+        band walks the one ``generate`` window.
         """
         self._step_progress(job_id, "generate", "Drawing the sheet", step, total)
 
@@ -858,7 +512,7 @@ class SpriteOps:
         ops rather than one because the restyle sits between them and Blender
         is a separate interpreter with no way to call back into this one.
 
-        A queue job for ``_pixel_sheet``'s reason: it needs the resident SDXL
+        A queue job because it needs the resident SDXL
         pipe, and a TaskRunner thread racing the worker for VRAM is the OOM
         that only reproduces under load.
 

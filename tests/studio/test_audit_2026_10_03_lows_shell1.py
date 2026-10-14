@@ -162,13 +162,14 @@ def test_a_palette_label_ends_in_an_ellipsis_only_when_its_command_opens_a_dialo
 
 def test_the_manual_names_every_nav_key_mode():
     """Chapter 38 listed six surfaces ("In those six") while
-    ``NAV_KEY_MODES`` holds eight: Muse and Sirens were never named."""
-    text = (MANUAL / "38-shortcuts.md").read_text(encoding="utf-8")
+    ``NAV_KEY_MODES`` held eight: Muse and Sirens were never named. (Seven
+    since Poser left; the paragraph names exactly the set that remains.)"""
+    text = (MANUAL / "35-shortcuts.md").read_text(encoding="utf-8")
     paragraph = text.split("**The arrow keys belong to whatever is on screen.**", 1)[1]
     paragraph = paragraph.strip().split("\n\n", 1)[0]
     words = {6: "six", 7: "seven", 8: "eight", 9: "nine"}
     assert f"In those {words[len(modes.NAV_KEY_MODES)]}" in paragraph
-    for name in ("Home", "library", "Review", "Poser", "Inker", "Plotter", "Muse", "Sirens"):
+    for name in ("Home", "library", "Review", "Inker", "Plotter", "Muse", "Sirens"):
         assert name in paragraph, f"{name} is not named in the arrow-key paragraph"
 
 
@@ -442,7 +443,7 @@ def test_every_palette_command_has_a_menu_path():
             assert f"command:{command.key}" in drawn, (
                 f"{command.key!r} ({mode}) is in the palette but not in the menu bar"
             )
-    text = (MANUAL / "38-shortcuts.md").read_text(encoding="utf-8")
+    text = (MANUAL / "35-shortcuts.md").read_text(encoding="utf-8")
     assert "Everything in the palette is also in the menu bar, and the reverse" not in text
 
 

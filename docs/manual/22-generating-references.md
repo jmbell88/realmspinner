@@ -27,7 +27,7 @@ and the button is not drawn. Picking one replaces what is in the box. The histor
 the session (it is saved with your other Realmspinner preferences and is there again after a restart), and
 it is per prompt text only — if you want a whole recipe back, use **Copy settings to form** from a
 job's overflow menu instead, which is described in [Rerun and
-promotion](36-library-and-jobs.md#rerun-and-promotion).
+promotion](33-library-and-jobs.md#rerun-and-promotion).
 
 Under **Advanced → Avoid**, further down the pane, is a second box listing what the image must not
 contain. It is pre-filled with the things that most often ruin a reconstruction, and it is yours:
@@ -310,7 +310,7 @@ Each finished reference therefore carries a **rank**, shown as a percentage on i
 it exists to answer one question: which of these is worth opening first. It is labelled *rank* and
 nothing else, because that is all it claims — where this candidate sits in its own strip, not whether
 it is any good. (Through v0.0.38 the same figure was drawn as "judge: N% likely a keeper", which named
-the wrong instrument: the trained probe in [Review](37-review.md) is a different thing and is never
+the wrong instrument: the trained probe in [Review](34-review.md) is a different thing and is never
 consulted here.)
 
 Three things go into it, and each is absent-changes-nothing — a term that could not be measured
@@ -375,7 +375,7 @@ All four strengths above — Appearance, Structure's two, and this one — carry
 machinery as the Model and Style LoRA pickers once enough verdicts exist behind a value: a muted line
 saying what the current setting scored, and, when a different value has scored better, a **Use ...**
 button that sets it exactly. See [Measuring instead of
-guessing](12-tuning-what-you-get.md#measuring-instead-of-guessing).
+guessing](11-tuning-what-you-get.md#measuring-instead-of-guessing).
 
 ## Approving a reference
 
@@ -392,7 +392,7 @@ about.
 
 If the image is nearly right, you can fix it by hand: **Open in Inker** on the viewport toolbar
 opens the reference as a layered document, and saving writes it back in place. See
-[Pipeline bridges](28-inker.md#pipeline-bridges).
+[Pipeline bridges](25-inker.md#pipeline-bridges).
 
 When you are happy, press **Make 3D** on the card (or select the reference and step to **Mesh**).
 That carries the reference and everything it recorded into the mesh stage, where you can override
@@ -453,7 +453,7 @@ the artifact is derived, so it is rebuilt whenever the settings above make the c
 and a document that saved back over it would have that edit thrown away — the first `Ctrl+S` is a
 Save As. **Export as PNG** writes the size selected here to wherever you choose. Both derive the
 artifact first if it does not exist yet, so neither waits on **Preview pixels**. The
-[downloads grid](36-library-and-jobs.md) exports the same files; what these add is that they act on
+[downloads grid](33-library-and-jobs.md) exports the same files; what these add is that they act on
 the size you are looking at.
 
 Both settings are app preferences rather than properties of the job, so they persist across
@@ -572,7 +572,7 @@ both, so two separate generations come back sharing a world and a palette ("a te
 It is not a description of the join: the join is computed from a coverage field, and drawn edge art
 would be cut straight across by it. What comes out is a complete forty-seven-case blob set, and it
 lands in **Plotter** with the Terrain tool already working — see
-[Tools](32-plotter.md#tools).
+[Tools](29-plotter.md#tools).
 
 *Grid (legacy)* is the original single-generation path. It stays for two reasons and the pane says
 both: it is the only layout that offers a **View** other than top-down, and it is how a sheet made
@@ -652,7 +652,75 @@ made from, to reroll, edit or synthesise again with different settings. An attac
 the character.
 
 The drafts appear under **Sprite sheet** in the inspector when the character is selected. See
-[Sprite sheets](27-sprite-sheets.md#from-a-single-drawing) for what to do with them.
+[From a single drawing](#from-a-single-drawing) for what to do with them.
+
+### From a single drawing
+
+A finished **2D reference** can become a sprite sheet: the inspector's **Sprite sheet** header offers to
+invent a sheet from the one drawing you have. It is a
+different bargain and worth understanding before you press it. There is no object here — only a picture of
+one — so the front view is the drawing and the other three are the image model's guess at what the
+subject looks like from the side and the back.
+
+That is why it produces **two candidates**, from two different seeds, side by side. You pick.
+Nothing is chosen for you, nothing is overwritten, and drafts accumulate until you delete them. The
+exception is size: past sixteen cells a sheet draws one candidate instead of two, because at that
+point a second guess is another eight generations and costs more than it is worth.
+
+**Type** is which sheet to draw, listed with the grid each one makes. Two are fixed atlases drawn in
+a single generation: `turnaround` (a 2x2 grid: front, left, right, back) and `walk` (a 4x4 grid: one
+row per direction, four frames of a walk cycle across). The rest are actions — idle, walk, run,
+attack, cast, hurt, jump — each drawn one whole direction per generation, so an eight-direction run
+is eight of them. The list is discovered from the pose guides on this installation's disk rather
+than hardcoded, so an action with no guide behind it is simply absent, and one you add appears.
+
+**Cell size** is the finished pixel size of one cell, 32, 48 or 64 — but only the sizes the chosen
+type can actually be drawn at are offered. All three are available for the fixed atlases and for the
+four-frame actions; a six- or eight-frame action fits one generation only at 32 px. **Palette** is
+how many colours the whole sheet is reduced to. Each candidate has its own seed with a **Reroll**
+beside it; the two must differ, or you would be asking for the same picture twice.
+
+Three things make the result hang together rather than being four unrelated drawings:
+
+- **One generation per candidate.** The whole atlas is drawn in a single 1024-pixel pass under a
+  single seed, so there is one character wearing one shirt, not four.
+- **Pose guides.** Each cell is drawn over a stick figure fed to the edge ControlNet, so where the
+  limbs go is imposed rather than requested — and the walk rows get a real contact-passing cycle
+  rather than four poses that happen to differ.
+- **One palette and one baseline.** The colour reduction runs once across the whole atlas, and
+  every cell's subject is moved onto a shared floor line. Feet that move between frames is what
+  reads as a broken animation, far more than a slightly wrong arm does.
+
+For a turnaround, your own drawing is pasted back into the front cell when its proportions match
+what the model drew — so the one view that is definitely right is definitely right. The panel says
+whether it was, and why not when it was not.
+
+Under each candidate is a line per cell that came out doubtful: empty, running off the edge of its
+cell, or far off the size of the rest of the sheet. These are notes, never refusals — a warning
+costs you a sentence to read, and throwing a candidate away would leave you comparing one draft
+against nothing.
+
+**Open in Inker** opens that candidate as an animation, one frame per cell, and this is the point of
+the whole feature: what arrives is editable, not final. Any sheet of an action arrives with a tag
+per direction — `walk_front`, `walk_front_left` and so on — carrying that action's own frame
+duration and whether it loops, so pressing Play loops one direction at a time at the speed it was
+meant to run. A turnaround carries none, deliberately: four still views are not an animation, and
+tagging them would put four one-frame loops in the timeline that mean nothing to play. The document
+is unsaved and belongs to no
+file — the first `Ctrl+S` asks where to put it, and the draft on disk is left alone. **Export
+sheet** from there writes the atlas back out on the sheet's own fixed grid rather than wrapping it,
+so a walk cycle stays four rows of four and each cell's sidecar entry carries the direction and the
+frame. See [Inker: animation](26-inker-animation.md).
+
+A finished synthesis also appears in the Library as its own row. Select it and the inspector shows
+both candidates; **Open** — the button, the right-click item, or a double-click — takes you back to
+this section on the reference it was drawn from, with that draft marked.
+
+A synthesis is a queued job, so it waits its turn behind whatever else is generating. How much it
+costs depends on the type: a fixed atlas is one full image generation per candidate, and an action
+is one per direction per candidate — sixteen for a pair of eight-direction sheets, which is why a
+sheet past sixteen cells draws one candidate rather than two. **Delete draft** removes a pair; a
+reference keeps at most 50.
 
 ### The pixel look
 
@@ -686,18 +754,19 @@ around anything in them.
 
 **Character** is the one asset type on this screen that generates no image at all. There is no
 model, no LoRA, no seed-per-candidate and no reference: the body is built from a registry of
-thirty-one species across four body plans, it is rigged, and its frames are rendered. All of that is
-CPU work, which is why the plan block says *no GPU needed* — on a machine that cannot run SDXL at
-all, this type still works.
+thirty-one species across four body plans, and it is rigged. The building is CPU work, which is why
+the plan block says *no GPU needed* — on a machine that cannot run SDXL at all, this type still
+works. (The rig needs Blender; see [What one press makes](#what-one-press-makes).)
 
 Type a brief the way you would for anything else. The Character column reads it and fills itself in:
-the species, the look, the camera and the actions all move to what the words said. A hyphenated or
-slashed spelling reads the same as a spaced one: `ogre-king` and `side-view` find the species and
-the camera exactly as `ogre king` and `side view` do. Everything the
+the species and the look move to what the words said. A hyphenated or
+slashed spelling reads the same as a spaced one: `ogre-king` finds the species
+exactly as `ogre king` does. Everything the
 brief did not mention keeps its default, and anything it said that Realmspinner did not understand is
 listed under **Not interpreted** so you can see what was ignored rather than wonder. That line also
-names an action Realmspinner understood but a character sheet does not draw: a sheet carries Idle,
-Walk and Attack, so "a running wolf" lists *run* there instead of silently losing it.
+names an action: Realmspinner understands "a running wolf", but a character is a rigged mesh with
+no pose of its own, so *run* is listed there instead of silently disappearing — you animate the
+character afterwards in [Clay](27-clay.md#bones-and-rigs).
 
 Change a control and it becomes yours. From then on editing the prompt leaves that control alone —
 otherwise every keystroke would undo the species you just picked. **Reset to prompt** forgets those
@@ -707,7 +776,7 @@ choices and reads the brief again.
 
 Realmspinner never substitutes. If you ask for a phoenix, the prompt resolver does not quietly hand you a
 dragon: the species stays empty, Generate is refused, and the refusal says exactly what happened —
-*Realmspinner has no phoenix yet. The closest it makes is a dragon.* Under that sentence are the three
+*Realmspinner has no phoenix yet. The closest it makes is a dragon.* Under that sentence are the two
 ways forward, and each of them is a press you make:
 
 - **Make it a dragon** applies the offer. This is the only place in the program where a species you
@@ -716,8 +785,6 @@ ways forward, and each of them is a press you make:
   winged thing, never a puddle.
 - **Sprite sheet (experimental)** switches the asset type and leaves your brief alone. SDXL will
   draw things the registry does not model; see [Sheets](#sheets) for what that costs.
-- **Draw it in Poser** copies the brief into [Poser](26-poser.md#starting-a-new-character) and opens
-  it, which is the route through a generated reference and a reconstruction.
 
 A brief that names no creature at all is refused in the same register, and the Species picker is
 there to answer it directly.
@@ -728,19 +795,14 @@ there to answer it directly.
 appearance sliders this character has. **Look** offers only the palettes that species is painted in;
 *The species' own* means its first one. A Look you picked is dropped when an edit to the brief moves
 the species to one that is not painted in it, and a Look the species cannot be painted in is refused
-on the Look control itself. **Camera** is the same preset table Poser's own sheet form
-uses, and its helper states the elevation in degrees and the direction count, which is what transfers
-when you are matching sprites to a map.
+on the Look control itself.
 
-**Idle**, **Walk** and **Attack** are switches, each carrying the frames it costs; the muted total
-under them is the cell count the render will produce. **Sprite size** and **Colours** are the same
-two ladders every other pixel surface in Realmspinner offers. Below them is one slider per appearance
-channel the species' body plan declares — an ogre and a wolf do not have the same ones — and a
-**Name**, which is what the library will call it.
+Below them is one slider per appearance channel the species' body plan declares — an ogre and a wolf
+do not have the same ones — and a **Name**, which is what the library will call it.
 
 The same **Seed** row as every other type closes the column, with its **Reroll** and **Lock seed**.
-Here the seed is the recipe's own: it is stored with the character, and it feeds what the render
-leaves to chance, such as the flame on a socket, so the same recipe and seed build the same sheet.
+Here the seed is the recipe's own: it is stored with the character, and it feeds what the build
+leaves to chance, such as the flame on a socket, so the same recipe and seed build the same character.
 **Reroll** replaces it with a fresh random number. Unlocked, every Generate draws a fresh seed; with
 **Lock seed** on, the seed is reused, so an unchanged recipe builds the same character again.
 
@@ -749,10 +811,10 @@ row and never blocks Generate, so it is safe to press while you are still decidi
 
 ### What one press makes
 
-Generate builds the mesh, mints it as a finished asset, and queues the rig that will produce the
-sheet. Create moves to the Mesh stage, because there is no reference image to look at — a character
-has no drawing behind it. When the rig lands, the sheet follows, and the finished character is
-played in [Poser](26-poser.md).
+Generate builds the mesh, mints it as a finished asset, and queues its rig. Create moves to the Mesh
+stage, because there is no reference image to look at — a character has no drawing behind it. When the
+rig lands, the finished character is a rigged mesh like any other: open it in
+[Clay](27-clay.md#bones-and-rigs) to pose it and animate it.
 
 Rigging needs Blender. Without it the press is refused before anything is built, because a body with
 no skeleton is half an asset and the whole ordering of that door exists to prevent one.

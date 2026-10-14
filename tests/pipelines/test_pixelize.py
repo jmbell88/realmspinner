@@ -280,7 +280,7 @@ def test_an_atlas_is_byte_identical_run_to_run():
 
 # --- the palette-resolution collapse ------------------------------------------
 #
-# ``_q_troupe._quantise`` used to inline both halves of "where do the colours
+# the retired Troupe worker used to inline both halves of "where do the colours
 # come from"; it now calls ``pixelsheet.resolve_palette``. That is a pure
 # refactor, so the bar is this file's own: the same atlas must come out
 # byte-identical through the new path. These reproduce the old inline code
@@ -289,7 +289,7 @@ def test_an_atlas_is_byte_identical_run_to_run():
 
 
 def _old_troupe_palette(atlas, palette, colors):
-    """``_q_troupe._quantise``'s palette branch as it stood before 2026-08-29."""
+    """the retired Troupe worker's palette branch as it stood before 2026-08-29."""
     from realmspinner.pipelines import pixelsheet
 
     if palette:

@@ -1,7 +1,7 @@
 """The 2026-10-04 audit's Character-column findings (create-23, -28, -29, -55).
 
 All four are the Character column telling the user less than it knew: an action
-the resolver understood and the sheet does not carry vanished without a word
+the resolver understood and nothing acts on vanished without a word
 (create-23), a Look picked under one species rode onto a species that cannot
 paint it (create-28), a refusal's red ring came back the frame after the user
 fixed the control (create-29), and the offer button misspelt the article its own
@@ -46,21 +46,18 @@ def ctx(svc):
 # --- create-23 ------------------------------------------------------------------
 
 
-def test_an_understood_action_the_sheet_does_not_carry_is_listed_as_not_interpreted(
-    monkeypatch,
-):
-    """"a running wolf": the resolver understood ``run``, ``_fill`` kept only the
-    three movements a sheet carries, and "Not interpreted" read
-    ``resolution.unrecognised`` -- empty -- so the sheet had no run and nothing
+def test_an_understood_action_is_listed_as_not_interpreted(monkeypatch):
+    """"a running wolf": the resolver understood ``run``, a character ends at its
+    rig (Clay does the moving), and "Not interpreted" read
+    ``resolution.unrecognised`` -- empty -- so the run was dropped and nothing
     said so (the 2026-10-04 audit, create-23)."""
     said: list[str] = []
     monkeypatch.setattr(settings_character.widgets, "muted_wrapped", said.append)
     form = _form("a running wolf")
     character_engine.sync_from_prompt(form)
     resolution = character_engine.resolution_of(form)
-    carried = {name for name, _frames in character_engine.MOVEMENTS}
-    dropped = [a for a in resolution.actions if a not in carried]
-    assert dropped, "the premise: the resolver understood an action the sheet lacks"
+    dropped = list(resolution.actions)
+    assert dropped, "the premise: the resolver understood an action"
 
     settings_character._unrecognised(form)
 
@@ -69,10 +66,10 @@ def test_an_understood_action_the_sheet_does_not_carry_is_listed_as_not_interpre
         assert action in said[0]
 
 
-def test_a_carried_action_is_not_listed_as_not_interpreted(monkeypatch):
+def test_a_brief_naming_no_action_lists_nothing_as_not_interpreted(monkeypatch):
     said: list[str] = []
     monkeypatch.setattr(settings_character.widgets, "muted_wrapped", said.append)
-    form = _form("a walking wolf")
+    form = _form("a wolf")
     character_engine.sync_from_prompt(form)
     settings_character._unrecognised(form)
     assert not said
@@ -142,32 +139,33 @@ def test_a_theme_the_species_paints_is_not_a_problem(ctx):
 
 
 class _EditingForm:
-    """Answers every segmented control as if the user had just changed it."""
+    """Answers every combo as if the user had just changed it."""
 
     def __init__(self, value: str) -> None:
         self.value = value
 
-    def segmented_choice(self, *_a, **_k):
+    def combo(self, *_a, **_k):
         return True, self.value
 
 
 def test_editing_a_ringed_character_control_clears_its_refusal_for_good(ctx):
-    """The door refuses ``logical_size``; ``mirror_errors`` copies it onto
-    ``character_pixel``; the edit handler cleared only the copy, so the next
+    """The door refuses ``family_version``; ``mirror_errors`` copies it onto
+    ``character_family``; the edit handler cleared only the copy, so the next
     frame's mirror re-filed the alias and the ring came back (the 2026-10-04
     audit, create-29)."""
     opts = character_engine.options(ctx)
-    ctx.state.field_errors["logical_size"] = "Sprite size must be one of [32, 64]"
+    ctx.state.field_errors["family_version"] = "That species has moved on."
     form = _form("a wolf")
+    character_engine.sync_from_prompt(form)
 
     character_engine.mirror_errors(ctx)
-    assert "character_pixel" in ctx.state.field_errors  # frame 1: the ring
+    assert "character_family" in ctx.state.field_errors  # frame 1: the ring
 
-    settings_character._pixels(ctx, form, _EditingForm("32"), opts)  # the edit
+    settings_character._family(ctx, form, _EditingForm("ogre"), opts)  # the edit
     character_engine.mirror_errors(ctx)  # frame 2
 
-    assert "character_pixel" not in ctx.state.field_errors
-    assert "logical_size" not in ctx.state.field_errors
+    assert "character_family" not in ctx.state.field_errors
+    assert "family_version" not in ctx.state.field_errors
 
 
 def test_every_character_control_edit_clears_its_recipe_aliases_too(ctx):

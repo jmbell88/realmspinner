@@ -1,9 +1,9 @@
-"""Everything about a rig, a pose, a sheet or a sprite draft that is a path
+"""Everything about a rig, a pose or a sprite draft that is a path
 or a record on disk.
 
 Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure): this is
 the storage half -- resource ids, the rig's own temp/served-name convention,
-and one file per pose/sheet/sprite-draft under a job directory, with no
+and one file per pose/sprite-draft under a job directory, with no
 skeleton math and no template registry in it. Deliberately a leaf inside
 ``kernels/rig/``: :mod:`.templates` and :mod:`.skeleton` both import
 :class:`RigError` from here, so this module may not import either of them
@@ -252,9 +252,8 @@ MAX_RECORD_BYTES = 1 << 20
 def read_record(path: Path, what: str) -> dict[str, Any] | None:
     """One JSON sidecar, or ``None`` -- with the three guards every one needs.
 
-    Written once because it was written four times and skipped three: the sheet,
-    the pixel-sheet and the sprite-draft readers each had the two-line version
-    of this, and each was missing all three guards.
+    Written once because the sidecar readers each had a two-line version of
+    this, and each was missing all three guards.
 
     - **The ceiling is checked by ``stat`` before the read.** A blob dropped
       into a job directory should cost a log line, not the RAM to parse it.
@@ -422,8 +421,8 @@ def delete_pose(job_dir: Path, pose_id: str) -> bool:
     path = pose_path(job_dir, pose_id)
     # ``is_file``, not ``exists``: the 2026-10-03 audit (poser-32) -- a directory
     # squatting at ``poses/<id>.json`` read as found and ``unlink`` raised
-    # PermissionError on Windows, the failure ``delete_sheet`` and
-    # ``delete_sprite_draft`` were already fixed against (2026-09-18, poser-02).
+    # PermissionError on Windows, the failure ``delete_sprite_draft`` was
+    # already fixed against (2026-09-18, poser-02).
     if not path.is_file():
         return False
     # The derived GLB goes before the source JSON it depends on, matching
@@ -439,32 +438,14 @@ def delete_pose(job_dir: Path, pose_id: str) -> bool:
     return True
 
 
-# --- sprite sheets ----------------------------------------------------------
-#
-# Same storage shape as poses, and beside them, for the same reasons: a sheet
-# belongs to the mesh it depicts, one file per sheet needs no locking, and the
-# id guard is the only thing between a caller and an arbitrary path.
-
-SHEET_DIR_NAME = "sheets"
-
-MAX_SHEETS = 200
-
-# Same cap as MAX_POSE_NAME (poses.py), for the same reason: a label the UI
-# has to render.
-MAX_SHEET_NAME = 64
-
-
-def sheet_dir(job_dir: Path) -> Path:
-    return job_dir / SHEET_DIR_NAME
-
-
 # --- the deformation QA sheet -----------------------------------------------
 #
 # One per rig, overwritten by the next rig, and deliberately *not* in sheets/:
-# it is a review artifact about the rig, not a sprite sheet the user asked for,
-# so it must not appear in list_sheets, count against MAX_SHEETS or be deleted
-# by delete_sheet. It lands in the source job's directory beside rig.glb for
-# the reason the rig itself does -- it describes that mesh.
+# it is a review artifact about the rig, not a sprite sheet the user asked for.
+# (``sheets/`` itself is where the retired character-sheet kinds wrote --
+# ``retired.py`` -- and nothing lists or deletes it any more.) It lands in the
+# source job's directory beside rig.glb for the reason the rig itself does --
+# it describes that mesh.
 
 RIG_QA_PNG = "rig_qa.png"
 RIG_QA_JSON = "rig_qa.json"
@@ -478,108 +459,16 @@ def rig_qa_path(job_dir: Path) -> Path:
     return job_dir / RIG_QA_JSON
 
 
-def sheet_path(job_dir: Path, sheet_id: str) -> Path:
-    if not is_valid_id(sheet_id):
-        raise ValueError(f"malformed sheet id {sheet_id!r}")
-    return sheet_dir(job_dir) / f"{sheet_id}.json"
-
-
-def sheet_png_path(job_dir: Path, sheet_id: str) -> Path:
-    return sheet_path(job_dir, sheet_id).with_suffix(".png")
-
-
-def sheet_pixel_path(job_dir: Path, sheet_id: str) -> Path:
-    """The pixel restyle's sidecar, beside the render's.
-
-    ``<id>.pixel.json`` rather than a second directory, and it is invisible to
-    ``list_sheets`` for free: ``<id>.pixel`` fails ``is_valid_id``, so the
-    listing skips it without needing to know this feature exists.
-    """
-    return sheet_path(job_dir, sheet_id).with_suffix(".pixel.json")
-
-
-def sheet_pixel_png_path(job_dir: Path, sheet_id: str) -> Path:
-    return sheet_path(job_dir, sheet_id).with_suffix(".pixel.png")
-
-
-def read_sheet_pixel(job_dir: Path, sheet_id: str) -> dict[str, Any] | None:
-    return read_record(sheet_pixel_path(job_dir, sheet_id), "pixel sheet")
-
-
-def read_sheet(job_dir: Path, sheet_id: str) -> dict[str, Any] | None:
-    return read_record(sheet_path(job_dir, sheet_id), "sheet")
-
-
-def list_sheets(job_dir: Path) -> list[dict[str, Any]]:
-    """Every finished sheet, oldest first.
-
-    A sidecar with no PNG beside it is skipped: the queue writes the PNG first
-    and the sidecar last, so the sidecar is the completion marker -- but a
-    half-cleaned directory should not advertise an image that isn't there.
-    """
-    directory = sheet_dir(job_dir)
-    if not directory.is_dir():
-        return []
-    sheets = []
-    for path in sorted(directory.glob("*.json")):
-        # .is_file(), not .exists(): the 2026-09-07/2026-09-08 audits fixed the
-        # identical presence check at every other site in this area (sheet.pack,
-        # pixelize.reduce_frames, poser_mode.scores/atlas_texture -- Troupe's
-        # own copies, before P9 (2026-09-18) folded that mode into Poser) because
-        # .exists() is also True for a directory, which a completed sheet's PNG
-        # name never is but a hand-dropped one could be -- and this reader was
-        # the one site the 2026-09-11 audit (troupe-06) found still unfixed.
-        if not is_valid_id(path.stem) or not path.with_suffix(".png").is_file():
-            continue
-        record = read_sheet(job_dir, path.stem)
-        if record is not None:
-            sheets.append(record)
-    # The 2026-09-26 audit, finding poser-rig-04: a raw ``s.get("created")``
-    # sorts fine until one sidecar's ``created`` is string-typed (a hand
-    # edit, an externally produced file) -- Python's sort then raises
-    # comparing a float against a str and costs the *whole* listing, not
-    # just the one record, the same failure mode ``_created_key`` (below
-    # ``list_poses``) already tolerates.
-    sheets.sort(key=_created_key)
-    return sheets
-
-
-def delete_sheet(job_dir: Path, sheet_id: str) -> bool:
-    """Both files, and the pixel restyle's pair if one was ever made.
-
-    The restyle is derived from this render and depicts nothing else, so
-    leaving it behind would leave a sprite sheet of a sheet that is gone.
-    """
-    paths = [
-        sheet_path(job_dir, sheet_id),
-        sheet_png_path(job_dir, sheet_id),
-        sheet_pixel_path(job_dir, sheet_id),
-        sheet_pixel_png_path(job_dir, sheet_id),
-    ]
-    # .is_file(), not .exists(): the same swap list_sheets got below (the
-    # 2026-09-07/2026-09-08 audits) -- a directory squatting at one of these
-    # names would otherwise read as "found" and then fail ``unlink`` (raises
-    # ``IsADirectoryError`` on POSIX, ``PermissionError`` on Windows) instead
-    # of the clean "nothing to delete" this returns (poser-02, the 2026-09-18
-    # audit).
-    if not any(p.is_file() for p in paths):
-        return False
-    for path in paths:
-        path.unlink(missing_ok=True)
-    return True
-
-
 # --- sprite sheet drafts ----------------------------------------------------
 #
-# Same storage shape again, and for the same reasons -- but with one rule the
+# Same storage shape as poses, and for the same reasons -- but with one rule the
 # others do not have: a draft is **write-once**. Every generate run mints a new
 # id, so no draft is ever rewritten in place, and the pane can therefore cache
 # this listing behind the directory's mtime without a stale record surviving an
 # edit that never happens. Deleting is the only mutation.
 #
 # A draft is a *pair* of candidates from one run, so it is three files: the two
-# PNGs, then the sidecar last, which is the completion marker -- the same order
-# and the same reason as sheets.
+# PNGs, then the sidecar last, which is the completion marker.
 
 SPRITE_DIR_NAME = "sprites"
 
@@ -650,13 +539,12 @@ def list_sprite_drafts(job_dir: Path) -> list[dict[str, Any]]:
             else SPRITE_CANDIDATES
         )
         # .is_file(), not .exists(): a directory at ``<id>.a.png`` would
-        # otherwise read as a ready candidate the way an empty one could at
-        # ``list_sheets`` before the 2026-09-07/2026-09-08 audits fixed it
-        # there (poser-02, the 2026-09-18 audit).
+        # otherwise read as a ready candidate (poser-02, the 2026-09-18
+        # audit).
         if not all(path.with_suffix(f".{c}.png").is_file() for c in letters):
             continue
         drafts.append(record)
-    # Same tolerance as list_sheets above, same reason (poser-rig-04): a
+    # Same tolerance as ``list_poses``, same reason (poser-rig-04): a
     # string-typed ``created`` on one sidecar must cost that field, not the
     # whole listing.
     drafts.sort(key=_created_key)
@@ -668,8 +556,8 @@ def delete_sprite_draft(job_dir: Path, draft_id: str) -> bool:
     paths = [sprite_draft_path(job_dir, draft_id)] + [
         sprite_draft_png_path(job_dir, draft_id, c) for c in SPRITE_CANDIDATES
     ]
-    # .is_file(), not .exists(): same reason as delete_sheet above
-    # (poser-02, the 2026-09-18 audit).
+    # .is_file(), not .exists(): a directory squatting at one of these names
+    # would fail ``unlink`` (poser-02, the 2026-09-18 audit).
     if not any(p.is_file() for p in paths):
         return False
     for path in paths:

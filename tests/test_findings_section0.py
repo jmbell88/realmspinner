@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
-import pytest
 
 from realmspinner.core.undo import CompoundEdit, Edit, UndoStack
 from realmspinner.kernels import pixel as inker
@@ -185,66 +183,6 @@ def test_ctrl_z_during_a_live_clay_drag_is_swallowed(svc):
 
 
 # --- 6/7. Poser: key navigation is guarded, a save carries a copy ------------
-
-
-def test_selecting_another_key_asks_before_discarding_an_edit():
-    from modes.poser.test_poser_mode import _clip_ctx, _turned
-
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    ctx, state = _clip_ctx()
-    editor = ctx.poser_viewer.editor
-    editor.apply({"head": _turned()}, dirty=True)
-    poser_mode.select_key(ctx, 1)
-    assert len(ctx.confirms.asked) == 1
-    assert state.key_index == 0, "nothing moved until the user answers"
-    assert editor.pose()["head"] == pytest.approx(_turned())
-    ctx.confirms.asked[0].on_confirm()
-    assert state.key_index == 1
-
-
-def test_scrubbing_over_an_unsaved_pose_refuses_in_words():
-    from modes.poser.test_poser_mode import _clip_ctx, _turned
-
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    ctx, state = _clip_ctx()
-    editor = ctx.poser_viewer.editor
-    editor.apply({"head": _turned()}, dirty=True)
-    poser_mode.scrub(ctx, 2)
-    assert state.frame == -1
-    assert editor.has_unsaved_edits()
-    assert ctx.toasts, "the refusal is said"
-
-
-def test_edits_made_while_a_clip_save_is_writing_survive_the_landing(monkeypatch):
-    from modes.poser.test_poser_mode import _clip_ctx
-
-    from realmspinner.service import clips as svc_clips
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    ctx, state = _clip_ctx()
-    pending: dict[str, Any] = {}
-
-    def defer(key, fn, *args, **kwargs):
-        pending[key] = (fn, args, kwargs)
-        return True
-
-    ctx.submit = defer
-    monkeypatch.setattr(
-        svc_clips, "save", lambda svc, template, payload: {"template": template, **payload}
-    )
-    poser_mode.set_segment(ctx, 0, 5)
-    poser_mode.save_clips(ctx)
-    fn, args, kwargs = pending[poser_mode.CLIPS_SAVE_KEY]
-    # The payload is a copy: an edit made now does not reach the writer.
-    poser_mode.set_segment(ctx, 1, 7)
-    result = fn(*args, **kwargs)
-    written = [c for c in result["clips"] if c["name"] == state.clip][0]
-    assert written["segments"][1] != 7
-    poser_mode.on_task_done(ctx, SimpleNamespace(key=poser_mode.CLIPS_SAVE_KEY, result=result))
-    assert state.clips_unsaved is True, "the later edit is still owed a save"
-    assert state.open_clip()["segments"][1] == 7
 
 
 # --- 8. Plotter: Delete/Cut/Copy respect the wand mask -----------------------

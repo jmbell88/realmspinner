@@ -1,18 +1,18 @@
 # Realmspinner
 
-A local, fully offline indie art studio for game assets — one desktop window, everything on your own GPU, no provider API, no account, no network. It folds the jobs of several tools into one pipeline-aware app: AI 2D/3D asset generation you would otherwise rent from Meshy.ai, polygon modelling, rigging and posing in the spirit of Blender, layered painting and animation in the spirit of Krita and Aseprite, tile-map editing that speaks Tiled's formats, and atlas packing that speaks TexturePacker's — and because they share one library, a mesh built in one workspace can be rigged, posed, sheeted and packed by the others. The newest of those paths runs end to end: a described character becomes a reference, a mesh, a rig, and a directional sprite sheet you can open on a timeline and paint over.
+A local, fully offline indie art studio for game assets — one desktop window, everything on your own GPU, no provider API, no account, no network. It folds the jobs of several tools into one pipeline-aware app: AI 2D/3D asset generation you would otherwise rent from Meshy.ai, polygon modelling, rigging and posing in the spirit of Blender, layered painting and animation in the spirit of Krita and Aseprite, tile-map editing that speaks Tiled's formats, and atlas packing that speaks TexturePacker's — and because they share one library, a mesh built in one workspace can be rigged, posed, animated and packed by the others. A model built from boxes in Clay can be given bones, posed and animated on a timeline, and leave as a rigged GLB.
 
 The generation pipeline:
 
 - **Image → 3D**: reference image → textured GLB (base colour plus a combined metallic/roughness texture; surface detail rides on vertex normals, not a normal map), powered by Microsoft **TRELLIS.2-4B** running natively via [trellis.cpp](https://github.com/pwilkin/trellis.cpp) (C++/GGML, CUDA).
 - **Text → 3D**: prompt → reference image via a diffusers pipeline, loaded from a local weights dir. **SDXL 1.0 at full CFG** is the default and the one base download the setup below asks for — 30 steps at 1024 px, with the negative prompt and ControlNet live; the same 7 GB also powers the PAG recipe. Three base models are registered (`src/realmspinner/models.py`): full-CFG SDXL, SDXL + PAG and FLUX.2 klein-base, with per-job style LoRAs, IP-Adapter appearance conditioning, ControlNet silhouette lock, and a seamless-tile mode with seam measurement. See [docs/MODELS.md](docs/MODELS.md).
 - **Text → 2D sheets**: the same prompt as a **tileset**, in one of three layouts — *Materials* (1–16 surface descriptions × 1–4 draws, capped at 64 cells, each cell its own **seamless** generation, so the tiles genuinely repeat), *Terrain set* (an inside and an outside surface composited into a complete 47-case blob autotile that lands in Plotter with the Terrain tool live, by record, with no import prompt), or *Grid (legacy)* (the original 8×8 single generation onto a ControlNet grid guide — the only layout offering 3/4 and 2:1 isometric, and the only one offering a 48 px tile; the seamless two are top-down at 16/32/64 px, since a seamless tile must divide the 1024 px material and must wrap a square). Or as a **sprite sheet**: pick an action (idle, walk, run, attack, cast, hurt, jump) and a direction count, and it draws the character first, keeps it as its own asset, then imagines candidate sheets from it with animation tags and frame durations baked in. Neither is reconstructed into a mesh; a tileset goes on to Plotter or Packwright. The legacy grid mechanism is measured on the maintainer's own corpus; its art direction is not settled.
-- **Rig → pose → sprite sheet**: fit one of eight template skeletons (humanoid, quadruped, bird, blob, fish, insect, serpent, tailed biped), pose it with 3D gizmos or reusable poses from the Poser's global library, and bake poses into sprite sheets — flat or lit, 4/8/16 directions, optionally restyled into pixel art. Beyond single poses, Poser's own character-sheet section renders whole animation clips: keyframes authored in the Poser, interpolated into a 256-cell character sheet of five animations across eight directions.
+- **Rig → pose → animate**: fit one of eight template skeletons (humanoid, quadruped, bird, blob, fish, insect, serpent, tailed biped) to a generated mesh, or build bones by hand in Clay (marked shapes, rigid binding, or Blender's automatic weights); pose them with 3D gizmos, key the poses on a timeline, import an animation by bone name from another GLB, and write a rigged GLB with its animations.
 - **The approval gate**: text jobs stop at the reference by default — the image is shown full-size for approval (with candidate fan-out and per-stage seeds) before anything pays for a trellis run.
 
 ## The modes
 
-A rail down the left of the window chooses between **thirteen** top-level modes
+A rail down the left of the window chooses between **twelve** top-level modes
 (`src/realmspinner/studio/modes/__init__.py` is the authoritative list, and `RAIL_GROUPS` is
 the grouping) in three sections: **Pipeline**, **Workspaces**, and an
 unlabelled footer. There is no per-mode key — the `Ctrl+K` command palette is
@@ -29,10 +29,10 @@ are looking at.
    of the question: what do I have, then make another one.
 3. **Create** — the whole generation pipeline in one mode, staged: the
    reference (prompt, guidance, base model and style LoRA, conditioning, seeds
-   and candidates), then the mesh, then rig, pose, sprite sheet and surface
+   and candidates), then the mesh, then rig, pose and surface
    re-texture. Text jobs stop at the reference for approval by default, before
    anything pays for a trellis run. A "send this asset to..." menu — Inker,
-   Clay, Poser, Plotter, Packwright, whichever the asset in front of
+   Clay, Plotter, Packwright, whichever the asset in front of
    you can actually become — is on every stage and in the Library alike, so a
    destination that isn't reachable yet says why rather than disappearing.
 
@@ -55,9 +55,13 @@ are looking at.
    UVs, a colour-and-texture material palette (paint faces from the swatch
    row, make a texture and paint it in Inker on the 16 PICO-8 colours, crisp in
    the viewport and the GLB), GLB/OBJ/STL/PLY import, and a
-   diffable `.rblk` native format. Two ways out: export to the library as an
-   ordinary asset (rigging, posing, sheets and every mesh export then work on it
-   unchanged), or write a plain GLB or OBJ. An external AI agent can
+   diffable `.rblk` native format. **Bones and animation**: mark any shape as a
+   bone, bind shapes to bones rigidly or let Blender weight a smooth mesh, pose
+   them (Pose mode), key poses on a timeline with several animations per
+   document, and bring in an animation from another GLB by bone name; a rigged
+   GLB with its animations is written on export. Two ways out: export to the
+   library as an ordinary asset (rigging, posing and every mesh export then work
+   on it unchanged), or write a plain GLB or OBJ. An external AI agent can
    drive this same workspace over MCP — off by default, switched on in Settings,
    in a Clay tab of its own (see Development below).
 6. **Mason** — a 3D scene editor: place library assets and primitives into a
@@ -65,46 +69,29 @@ are looking at.
    arrangement as a glTF scene, an engine-friendly GLB-plus-manifest, or merged
    OBJ geometry. Native `.rscn` format, with a full round trip through the
    library — export as an asset row, reopen the scene from it.
-7. **Poser** — authoring reusable poses against a skeleton template, kept in a
-   global pose library rather than belonging to any one asset; poses can move
-   their root. Also the **clip editor**: the keyframes a character sheet
-   animates — which keys, in what order, how many frames apart — with
-   onion-skinned neighbours, a scrubber that plays the renderer's own
-   interpolation, and your edits saved beside the shipped clips rather than over
-   them. And, in the same workspace, **character sprite sheets** from a 3D
-   model, as a chain rather than a button: a prompt draws a reference against a
-   drawn pose guide — **A-pose by default**, because the shipped humanoid rig
-   template is itself an A-pose, with T-pose still on offer for the limb
-   separation a single-view reconstruction prefers — you approve it, and the
-   same asset then goes through reconstruction, the auto-rig and a 256-cell
-   render without being asked again. Five animations (idle, walk, run, attack,
-   jump) across eight directions, rendered large and reduced to the pixel size
-   you asked for, quantised against one palette. The sidecar carries a tag per
-   animation and direction, so **Edit in Inker** opens the whole sheet on its
-   own timeline with the spans already set.
-8. **Plotter** — a tile-map editor: grid, layer stack, tilesets and object
+7. **Plotter** — a tile-map editor: grid, layer stack, tilesets and object
    layers, terrain/Wang sets, per-tile metadata, hexagonal and staggered maps,
    infinite maps, native `.rmap`, and Tiled interop in both directions
    (`.tmx`/`.tmj` import and export; unsupported Tiled features are refused
    explicitly, never partially loaded).
-9. **Packwright** — a sprite-atlas packer: files, drops, Inker documents or
+8. **Packwright** — a sprite-atlas packer: files, drops, Inker documents or
    library assets in; a deterministic atlas out (Grid or MaxRects, with
    trim/padding/extrude/power-of-two), as PNG plus TexturePacker JSON, and a
    `.tsx` for grid packs. Re-export of an unchanged document is byte-identical.
-10. **Muse** — generated music: comma-separated style tags and an optional lyric
+9. **Muse** — generated music: comma-separated style tags and an optional lyric
     block become a finished track from **ACE-Step v1** (3.5B, text-to-music,
     local and offline) — up to ten minutes per generation (30s/60s/120s/240s/10m
     presets, or any typed length in between), four minutes when extending an
     existing take — one job row per take, auditioned in the mode and openable
     in Sirens as a sample instrument.
-11. **Sirens** — a chiptune tracker: the synthesis engine, a five-column pattern
+10. **Sirens** — a chiptune tracker: the synthesis engine, a five-column pattern
    grid, an envelope editor, sample import and sound effects, with WAV, stems
    and sfx export.
 
 **The footer** carries no caption, and holds the two destinations where you are
 not making something — entered rarely and left again:
 
-12. **Review** — judging finished meshes with graded verdicts (−5..+5 plus
+11. **Review** — judging finished meshes with graded verdicts (−5..+5 plus
     tags), parameter sweeps over arbitrary setting axes, an advisory DINOv2-probe
     quality judge taught by in-app labelling, and the "What works" findings the
     verdicts add up to — which surface as hints beside the generate controls.
@@ -112,7 +99,7 @@ not making something — entered rarely and left again:
     the shipped defaults, a blind grading pass on 2026-09-02 found **11 of 22**
     prop meshes usable on a representative corpus and 10 of 20 on a second.
     Single-view humanoids grade poorly on both.
-13. **Settings** — the app's own preferences: theme, UI scale, layout, and the
+12. **Settings** — the app's own preferences: theme, UI scale, layout, and the
     model list, from which a missing one can be downloaded.
 
 Two things are deliberately *not* modes, and both are overlays. The
@@ -126,9 +113,9 @@ holding them rather than in place of it.
 
 Everything but the primary artifacts is derived lazily on first request and cached (`service/derive.py`):
 
-- **Per mesh**: `model.glb` (optimised, grounded), `source.glb` (raw reconstruction), STL, OBJ (zip), FBX, `collision.glb` (convex hull), `textures.zip`, `rig.glb` once rigged, and a baked GLB per saved pose.
+- **Per mesh**: `model.glb` (optimised, grounded), `source.glb` (raw reconstruction), STL, OBJ (zip), FBX, `collision.glb` (convex hull), `textures.zip`, `rig.glb` once rigged, an `animated.glb` for a rig with shipped clips, and a baked GLB per saved pose.
 - **Per reference**: `icon.png` (512 transparent cutout), `sprite.png` (trimmed, pivot recorded), `pixel_{32,64,128}.png` (palette-capped or mapped to a user palette in Oklab, optional dither), and a `manifest.json` carrying sizes, trim boxes, pivots and the recipe. Tiles additionally get an estimated PBR material set.
-- **Per workspace**: sprite sheets as PNG plus an engine-neutral JSON sidecar (poses down, compass directions across; animated clips are cells with a `frame` above zero), plus a **Pixelate** variant restyling the whole sheet under one seed and palette; Inker's ORA/PNG/GIF/sheet; Plotter's TMX/TMJ; Packwright's atlases.
+- **Per workspace**: Clay's rigged GLB with its animations; Inker's ORA/PNG/GIF/sheet; Plotter's TMX/TMJ; Packwright's atlases.
 - **Bulk**: zip named artifacts across many jobs, or mirror exports into `REALMSPINNER_EXPORT_DIR` (e.g. a Godot project's `assets/`).
 
 ## Requirements
@@ -137,7 +124,7 @@ Everything but the primary artifacts is derived lazily on first request and cach
 - **16 GB VRAM** for 3D reconstruction: both stages run, one at a time (exclusive mode is auto-selected below ~24.5 GB), and the engine is charged 12 GiB at the default resolution (`vram.py`'s `TRELLIS_GIB`; measured ~6.5 GiB on the pinned engine). Resolution 1536 needs a 24 GB card. Tested on an RTX 5090 / 32 GB; a 4080/5080-class card or better is the comfortable range.
 - **32 GB system RAM.** More than the GPU figure suggests it should need: Windows charges trellis's ~16 GiB device allocation against *host* commit, so admission control refuses jobs at 96% commit on a 63.5 GB machine even with 24 GB physically free. 16 GB will fight you.
 - **~24 GB disk before the first asset** — 16.1 GB of TRELLIS.2 GGUF weights, 7.0 GB for SDXL 1.0 and 0.8 GB for the reconstruction engine itself — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
-- **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the eight workspaces get cramped.
+- **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the seven workspaces get cramped.
 - [uv](https://docs.astral.sh/uv/) and **Python 3.13** — `bpy` ships CPython 3.13 wheels only, and rigging is not optional enough to support a Python it can never run on. The floor was 3.12 until 2026-09-03, when the CI leg testing that claim was read for the first time and was not green. On 3.14 or later the rig extra installs nothing, `realmspinner doctor` reports rigging unavailable, and the app hides the rig controls; everything else works unchanged.
 
 **How long a generation takes:** roughly two minutes of GPU per 3D attempt on the tested card — a reference image in seconds, then the reconstruction. Budget for more than one attempt: the approval gate exists because the first reference is often not the one you want.
@@ -155,7 +142,7 @@ Two steps in a terminal, then the app fetches its own weights.
 ```powershell
 # 1. Python deps. --extra studio is the app's window and renderer; add
 #    --extra text2image for text-to-3D (pulls torch cu128), --extra rig
-#    for rigging/posing/sheets, and --extra music for Muse's ACE-Step
+#    for rigging and posing, and --extra music for Muse's ACE-Step
 #    subprocess. Contributors running the test suite want all four -- a bare
 #    `uv sync` prunes the extras and breaks ~10 test files.
 uv sync --extra studio --extra text2image --extra rig --extra music
@@ -179,8 +166,8 @@ share one 7 GB checkpoint.
 Nothing above is required to *run* Realmspinner, and since 2026-09-10 that includes
 the reconstruction engine: it is a registry row like a model, so the installer
 no longer carries its 838 MB and a machine that only draws pixel art never
-fetches it. Seven of the eight workspaces --
-Inker, Clay, Mason, Poser, Plotter, Packwright and the Sirens tracker --
+fetches it. Six of the seven workspaces --
+Inker, Clay, Mason, Plotter, Packwright and the Sirens tracker --
 open and work with an empty model directory, and `realmspinner doctor` exits 0 on a
 machine that has downloaded none of it, reporting the absent rows as `[SETUP]`
 rather than as failures. What the weights buy is generation: **Create** and
@@ -284,9 +271,9 @@ The app is a single process: a pygame window, one ModernGL context, and [imgui-b
 
 **An AI agent can drive Clay.** `uv run realmspinner mcp` is the bridge an agent's MCP client spawns; it relays calls over a named pipe to a running app process and touches no model, no inference and no network (`HF_HUB_OFFLINE` is untouched). It's off until switched on in Settings under "Allow AI agents to drive Realmspinner," which gives the agent its own Clay tab it can't reach out of. The feature landed 2026-09-09 and is still being hardened release to release, so treat it as young: the plumbing is tracked as solid but the output as ungraded — no agent-built mesh has gone through the benchmark yet.
 
-Outputs land in `~/.realmspinner/assets/<job_id>/` (`input.png`, `model.glb`, `rig.glb`/`rig.json`, `poses/`, `sheets/`); the SQLite job store lives at `~/.realmspinner/assets/jobs.sqlite`. Everything the app generates — the library, benchmark runs, palettes and model weights — sits under that one home directory rather than inside the checkout; an install that predates it has its directories moved there on the next start (copy, verify, then delete), and `REALMSPINNER_HOME` or `REALMSPINNER_NO_MIGRATE` opts out. See [Data locations](docs/manual/41-configuration.md#data-locations).
+Outputs land in `~/.realmspinner/assets/<job_id>/` (`input.png`, `model.glb`, `rig.glb`/`rig.json`, `poses/`); the SQLite job store lives at `~/.realmspinner/assets/jobs.sqlite`. Everything the app generates — the library, benchmark runs, palettes and model weights — sits under that one home directory rather than inside the checkout; an install that predates it has its directories moved there on the next start (copy, verify, then delete), and `REALMSPINNER_HOME` or `REALMSPINNER_NO_MIGRATE` opts out. See [Data locations](docs/manual/41-configuration.md#data-locations).
 
-Where to read more: the user manual is [docs/manual/00-index.md](docs/manual/00-index.md) (43 chapters, also embedded in the app); the hard invariants and their measured reasoning, and past measurement write-ups, are kept in the maintainer's own local development notes rather than in this public repo; and `CHANGELOG.md` tracks releases.
+Where to read more: the user manual is [docs/manual/00-index.md](docs/manual/00-index.md) (39 chapters, also embedded in the app); the hard invariants and their measured reasoning, and past measurement write-ups, are kept in the maintainer's own local development notes rather than in this public repo; and `CHANGELOG.md` tracks releases.
 
 ## Licence
 

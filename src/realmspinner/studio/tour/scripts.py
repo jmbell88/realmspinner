@@ -66,7 +66,7 @@ FIRST_HOUR = Tour(
             title="The rail",
             body=(
                 "Everything lives behind these. The top group is the pipeline that turns "
-                "an idea into a finished asset; the group under it is the eight workspaces "
+                "an idea into a finished asset; the group under it is the seven workspaces "
                 "you edit in. Settings sits at the bottom.\n\n"
                 "Ctrl+K opens the command palette, which reaches every one of them by "
                 "name -- it is the keyboard's way through this tour and through the app."
@@ -277,7 +277,7 @@ INKER_BASICS = Tour(
             ),
             mode="inker",
             anchor="inker/picker",
-            chapter=("28-inker", "the-colour-picker"),
+            chapter=("25-inker", "the-colour-picker"),
         ),
         Step(
             id="layer",
@@ -345,7 +345,7 @@ INKER_BASICS = Tour(
             ),
             mode="inker",
             anchor="inker/generate",
-            chapter=("28-inker", "pipeline-bridges"),
+            chapter=("25-inker", "pipeline-bridges"),
         ),
     ),
 )
@@ -394,7 +394,7 @@ SIRENS_BASICS = Tour(
             ),
             mode="sirens",
             anchor="sirens/grid",
-            chapter=("34-sirens", "the-pattern-grid"),
+            chapter=("31-sirens", "the-pattern-grid"),
         ),
         Step(
             id="type-a-bar",
@@ -414,7 +414,7 @@ SIRENS_BASICS = Tour(
             # somebody who typed their four somewhere else has still learned
             # the thing this step teaches.
             done=Condition("notes_at_least", "4"),
-            chapter=("14-making-a-soundtrack", "a-bassline-on-the-triangle"),
+            chapter=("13-making-a-soundtrack", "a-bassline-on-the-triangle"),
         ),
         Step(
             id="transport",
@@ -428,7 +428,7 @@ SIRENS_BASICS = Tour(
             ),
             mode="sirens",
             anchor="sirens/transport",
-            chapter=("34-sirens", "playing-it"),
+            chapter=("31-sirens", "playing-it"),
         ),
         Step(
             id="instruments",
@@ -443,7 +443,7 @@ SIRENS_BASICS = Tour(
             ),
             mode="sirens",
             anchor="sirens/instruments",
-            chapter=("34-sirens", "instruments"),
+            chapter=("31-sirens", "instruments"),
         ),
         Step(
             id="envelopes",
@@ -458,7 +458,7 @@ SIRENS_BASICS = Tour(
             ),
             mode="sirens",
             anchor="sirens/envelopes",
-            chapter=("34-sirens", "the-envelope-editor"),
+            chapter=("31-sirens", "the-envelope-editor"),
         ),
         Step(
             id="order",
@@ -473,7 +473,7 @@ SIRENS_BASICS = Tour(
             ),
             mode="sirens",
             anchor="sirens/orders",
-            chapter=("34-sirens", "patterns-and-the-order"),
+            chapter=("31-sirens", "patterns-and-the-order"),
         ),
         Step(
             id="effects",
@@ -488,7 +488,7 @@ SIRENS_BASICS = Tour(
             ),
             mode="sirens",
             anchor="sirens/effects",
-            chapter=("34-sirens", "sound-effects"),
+            chapter=("31-sirens", "sound-effects"),
         ),
         Step(
             id="export",
@@ -503,7 +503,7 @@ SIRENS_BASICS = Tour(
             ),
             mode="sirens",
             anchor="sirens/bridge",
-            chapter=("34-sirens", "exporting-the-audio"),
+            chapter=("31-sirens", "exporting-the-audio"),
         ),
     ),
 )
@@ -548,7 +548,7 @@ SIRENS_SFX = Tour(
             ),
             mode="sirens",
             anchor="sirens/effects",
-            chapter=("34-sirens", "sound-effects"),
+            chapter=("31-sirens", "sound-effects"),
         ),
         Step(
             id="add-one",
@@ -574,7 +574,7 @@ SIRENS_SFX = Tour(
                 "Eight rows rather than sixty-four. An effect is short by construction."
             ),
             mode="sirens",
-            chapter=("34-sirens", "the-pattern-grid"),
+            chapter=("31-sirens", "the-pattern-grid"),
         ),
         Step(
             id="write-a-blip",
@@ -590,7 +590,7 @@ SIRENS_SFX = Tour(
             # "Type two notes", so: two. The count is the step's own text
             # rather than a number picked to be easy.
             done=Condition("notes_at_least", "2"),
-            chapter=("14-making-a-soundtrack", "a-sound-effect"),
+            chapter=("13-making-a-soundtrack", "a-sound-effect"),
         ),
         Step(
             id="pick-an-instrument",
@@ -604,7 +604,7 @@ SIRENS_SFX = Tour(
             ),
             mode="sirens",
             anchor="sirens/instruments",
-            chapter=("34-sirens", "instruments"),
+            chapter=("31-sirens", "instruments"),
         ),
         Step(
             id="shape-it",
@@ -618,7 +618,7 @@ SIRENS_SFX = Tour(
             ),
             mode="sirens",
             anchor="sirens/envelopes",
-            chapter=("34-sirens", "the-envelope-editor"),
+            chapter=("31-sirens", "the-envelope-editor"),
         ),
         Step(
             id="tempo-and-speed",
@@ -632,7 +632,7 @@ SIRENS_SFX = Tour(
             ),
             mode="sirens",
             anchor="sirens/effects",
-            chapter=("34-sirens", "sound-effects"),
+            chapter=("31-sirens", "sound-effects"),
         ),
         Step(
             id="audition",
@@ -646,7 +646,7 @@ SIRENS_SFX = Tour(
             ),
             mode="sirens",
             anchor="sirens/effects",
-            chapter=("34-sirens", "sound-effects"),
+            chapter=("31-sirens", "sound-effects"),
         ),
         Step(
             id="export",
@@ -660,7 +660,7 @@ SIRENS_SFX = Tour(
             ),
             mode="sirens",
             anchor="sirens/bridge",
-            chapter=("34-sirens", "exporting-the-audio"),
+            chapter=("31-sirens", "exporting-the-audio"),
         ),
     ),
 )
@@ -696,7 +696,7 @@ MUSE_BASICS = Tour(
             ),
             mode="muse",
             anchor="muse/tags",
-            chapter=("35-muse", "what-it-takes"),
+            chapter=("32-muse", "what-it-takes"),
         ),
         Step(
             id="lyrics",
@@ -708,7 +708,7 @@ MUSE_BASICS = Tour(
             ),
             mode="muse",
             anchor="muse/lyrics",
-            chapter=("35-muse", "what-it-takes"),
+            chapter=("32-muse", "what-it-takes"),
         ),
         Step(
             id="generate",
@@ -721,7 +721,7 @@ MUSE_BASICS = Tour(
             ),
             mode="muse",
             anchor="muse/generate",
-            chapter=("35-muse", "the-window"),
+            chapter=("32-muse", "the-window"),
         ),
         Step(
             id="audition",
@@ -733,7 +733,7 @@ MUSE_BASICS = Tour(
                 "With no sound device the button says so rather than doing nothing."
             ),
             mode="muse",
-            chapter=("35-muse", "the-takes"),
+            chapter=("32-muse", "the-takes"),
         ),
         Step(
             id="into-sirens",
@@ -747,7 +747,7 @@ MUSE_BASICS = Tour(
                 "through."
             ),
             mode="muse",
-            chapter=("35-muse", "the-bridge-to-sirens"),
+            chapter=("32-muse", "the-bridge-to-sirens"),
         ),
     ),
 )
@@ -798,7 +798,7 @@ CLAY_TORCH = Tour(
             ),
             mode="clay",
             anchor="clay/outliner",
-            chapter=("30-clay", "adding-a-primitive"),
+            chapter=("27-clay", "adding-a-primitive"),
         ),
         Step(
             id="plate-add",
@@ -827,7 +827,7 @@ CLAY_TORCH = Tour(
             anchor="clay/props/size",
             done=Condition("clay_shape_placed", "box"),
             gate=True,
-            chapter=("30-clay", "transforming"),
+            chapter=("27-clay", "transforming"),
         ),
         Step(
             id="shaft",
@@ -903,7 +903,7 @@ CLAY_TORCH = Tour(
             anchor="clay/palette",
             done=Condition("clay_palette_at_least", "3"),
             gate=True,
-            chapter=("30-clay", "materials"),
+            chapter=("27-clay", "materials"),
         ),
         Step(
             id="paint",
@@ -946,7 +946,7 @@ CLAY_TORCH = Tour(
             anchor="clay/props/save",
             done=Condition("clay_saved"),
             gate=True,
-            chapter=("30-clay", "saving"),
+            chapter=("27-clay", "saving"),
         ),
         Step(
             id="export",
@@ -961,7 +961,7 @@ CLAY_TORCH = Tour(
             anchor="clay/props/export",
             done=Condition("clay_exported"),
             gate=True,
-            chapter=("30-clay", "the-two-ways-out"),
+            chapter=("27-clay", "the-two-ways-out"),
         ),
         Step(
             id="where-next",
@@ -975,7 +975,7 @@ CLAY_TORCH = Tour(
                 "From here the same moves build anything: add, size, colour, repeat."
             ),
             mode="clay",
-            chapter=("30-clay", "the-two-ways-out"),
+            chapter=("27-clay", "the-two-ways-out"),
         ),
     ),
 )

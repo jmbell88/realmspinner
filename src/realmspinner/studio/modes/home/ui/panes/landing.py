@@ -1350,44 +1350,6 @@ def start_sirens(ctx: Any) -> None:
         sirens_mode.new_document(ctx)
 
 
-def start_poser(ctx: Any) -> None:
-    """Poser's character-sheet stage, from Home. It asks for nothing and
-    invents nothing.
-
-    Troupe's own ``start_troupe``, repointed at the stage that mode folded
-    into (P9, 2026-09-18). Unlike the four document modes above it, this does
-    not create anything: the stage is a selection over character sheets a
-    worker published, and what a user does first here is either bind an
-    existing asset or describe a new character in the "Start a new character"
-    section -- opened on arrival (``widgets.request_open``) so the one thing
-    this tile promises is not a scroll away. Creating something on entry
-    would be the "entering Plotter *was* the act of creating a map" mistake
-    the function above it exists to have stopped making.
-
-    **Checked at the door first (2026-09-26 audit, finding
-    shell-home-library-03).** This used to call ``set_mode`` with no gate at
-    all, unlike ``_create_door`` above it -- so on a base install missing the
-    Poser pack, ``poser_mode.ensure`` inside the target mode silently returned
-    ``False`` and the tile did nothing that told the user why, or where to go.
-    Same fix as Create's: ask ``model_gate.mode_gate`` first and route to
-    Settings when it is shut, the way the rail and the palette already do for
-    every other gated mode.
-    """
-    from .....panes import model_gate
-
-    where, _keys = model_gate.mode_gate(ctx, "poser")
-    if where:
-        model_gate.request_for_mode(ctx, "poser")
-        return
-
-    from ....poser import mode as poser_mode
-    from ....poser.ui.panes.sheet import NEW_CHARACTER_SECTION
-
-    set_mode(ctx.state, "poser")
-    poser_mode.ensure(ctx)
-    widgets.request_open(NEW_CHARACTER_SECTION)
-
-
 #: The things this app can start from nothing, in the order the menu offers
 #: them. Not counted by number in prose: the 2026-09-13 audit's shell-15
 #: found this comment stuck at "eight" after Troupe's addition made it nine.
@@ -1410,5 +1372,4 @@ NEW_ITEMS: tuple[tuple[str, str, str, object], ...] = (
     ("plotter", "New tile map", icons.GRID, start_plotter),
     ("packwright", "New sprite atlas", icons.LAYERS, start_packwright),
     ("sirens", "New song", icons.AUDIO_WAVEFORM, start_sirens),
-    ("poser", "New character", icons.PERSON_STANDING, start_poser),
 )

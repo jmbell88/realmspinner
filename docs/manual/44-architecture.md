@@ -42,10 +42,8 @@ binds to and what deduplicates a double-clicked button into one export.
 
 **The agent-host thread** is `realmspinner-agent-host` (`studio/agent_host.py`), and it does not exist
 until an agent client is allowed in. It only listens: a Clay call is queued for the frame thread to
-run, because Clay's document is the frame thread's to touch. A character-pipeline call can block
-(a Blender probe, an `animated.glb` bake), so it runs on a second `TaskRunner` pool the host owns,
-two workers wide, never on the frame thread and never on the listener. Stopping the host shuts that
-pool down without touching the tracked children of ordinary jobs.
+run, because Clay's document is the frame thread's to touch. There is no second pool: the
+host never works, and nothing that can block runs on it.
 
 Progress needs no protocol at all as a result. The worker keeps its progress in memory, behind its
 own lock, never touching the database from its reader side; the frame loop asks it for a snapshot

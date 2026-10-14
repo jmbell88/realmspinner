@@ -85,7 +85,7 @@ from . import parser
 # so it belongs there rather than appended at 39 behind the keyboard-shortcuts
 # chapter. Appending would have been seven renames instead of fifteen and would
 # have told every reader the mode was an afterthought. Its tutorial
-# (17-dressing-a-scene) cost zero renames, which is what reserving 01-19 as a
+# (16-dressing-a-scene) cost zero renames, which is what reserving 01-19 as a
 # block bought -- the second time that reservation has paid for itself.
 PARTS: tuple[tuple[str, range], ...] = (
     ("Tutorials", range(1, 20)),

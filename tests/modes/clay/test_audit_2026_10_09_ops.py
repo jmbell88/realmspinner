@@ -134,7 +134,7 @@ def test_drag_input_carries_no_field_nothing_reads():
 
 
 def test_the_manual_says_frame_selection_is_in_the_right_click_menu_exactly_when_flat_draws_it():
-    text = (ROOT / "docs/manual/30-clay.md").read_text(encoding="utf-8")
+    text = (ROOT / "docs/manual/27-clay.md").read_text(encoding="utf-8")
     text = " ".join(text.split())
     drawn = all(
         any(op.name == "frame" for run in menutree.flat(mode) for op in run)

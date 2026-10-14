@@ -31,15 +31,12 @@ def test_the_node_delta_conversion_is_one_function():
     assert poses.delta_from_node(rest, node) == pytest.approx(delta)
 
 
-def test_both_ends_of_the_conversion_call_it():
+def test_the_worker_calls_the_conversion():
     import inspect
 
     from realmspinner.pipelines import blender_worker
-    from realmspinner.studio.modes.poser import mode as poser_mode
 
     assert "poses.delta_from_node" in inspect.getsource(blender_worker)
-    assert "poses.node_from_delta" in inspect.getsource(poser_mode)
-    assert "poses.delta_from_node" in inspect.getsource(poser_mode)
 
 
 # --- what a file is allowed to contain ----------------------------------------

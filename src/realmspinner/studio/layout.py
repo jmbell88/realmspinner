@@ -443,11 +443,6 @@ class Layout:
     _SHARE_SPLITS: dict[str, tuple[str, ...]] = {
         "clay": ("clay-tools", "clay-outliner"),
         "plotter": ("plotter-tools", "plotter-layers"),
-        # Troupe's own ``troupe-cast``/``troupe-sheets`` split left this table
-        # when the mode folded into Poser as a stage (P9, 2026-09-18): Poser's
-        # sheet section draws inline in the existing library/controls panes
-        # rather than as a split column of its own, so there is no pane id
-        # left for a migrated share to seed.
         "packwright": ("packwright-sources", "packwright-items"),
         "sirens": ("sirens-transport", "sirens-instruments"),
         "review": ("review-runs",),
@@ -768,7 +763,7 @@ def pane_child(
 def sidebar_width(side: str = "left") -> float:
     """A sidebar's width this frame, in physical px. Narrowed to fit (UX-01).
 
-    What the eight workspaces call instead of ``sp(SIDEBAR_W)``. Same value
+    What the seven workspaces call instead of ``sp(SIDEBAR_W)``. Same value
     whenever there is room, which is the ordinary case; the difference only
     shows at high UI scale in a small window, which is exactly the case a user
     who enlarged the UI to read it is in.

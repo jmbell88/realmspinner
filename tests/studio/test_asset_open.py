@@ -1,9 +1,10 @@
 """Where a job row opens.
 
 The bug these hold the line on: a finished sprite sheet toasted "finished" and
-its ``Show`` opened a blank screen. Six job kinds -- ``rig``, ``sheet``,
-``pixel_sheet``, ``sprite_synthesis``, ``charsheet``, ``retexture`` -- are
-*products of another asset*: each is minted with ``params["source_job"]``,
+its ``Show`` opened a blank screen. Job kinds like ``rig``, ``sprite_synthesis``,
+``retexture`` and ``remesh`` (and the retired ``sheet``, ``pixel_sheet`` and
+``charsheet``, which survive only as old rows) are *products of another asset*:
+each is minted with ``params["source_job"]``,
 writes its artifacts into that job's directory and never creates its own, so
 ``job["files"]`` is empty and ``db.Store.create``'s default leaves
 ``stage='model'``. Routing them by stage sent every one to Create's Mesh stage
@@ -19,6 +20,7 @@ import pathlib
 
 import pytest
 
+from realmspinner.retired import RETIRED_KINDS
 from realmspinner.studio import asset_open
 
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "realmspinner"
@@ -32,8 +34,6 @@ def _row(kind, stage="model", **params):
     ("kind", "stage"),
     [
         ("rig", "rig"),
-        ("sheet", "pose"),
-        ("pixel_sheet", "pose"),
         ("sprite_synthesis", "reference"),
         ("retexture", "mesh"),
     ],
@@ -45,21 +45,19 @@ def test_a_follow_up_opens_the_asset_that_holds_its_artifacts(kind, stage):
     assert target.stage == stage
 
 
-def test_a_character_sheet_opens_in_poser_with_its_sheet_selected():
-    target = asset_open.route(_row("charsheet", source_job="MESH", sheet_id="S1"))
-    assert target == asset_open.Route("poser", "", "MESH", "S1", "")
+@pytest.mark.parametrize("kind", sorted(RETIRED_KINDS))
+def test_a_retired_sheet_row_opens_the_library_on_itself(kind):
+    """It has no mesh of its own and no mode left to show it: routing it to its
+    source (Create, or Poser as it once did) is the blank arrival this module
+    exists to stop. The row is selected in the Library, which says why."""
+    target = asset_open.route(_row(kind, source_job="MESH", sheet_id="S1"))
+    assert target == asset_open.Route("library", "", "self", "", "")
 
 
 def test_a_sprite_sheet_opens_the_reference_with_the_panel_open():
     target = asset_open.route(_row("sprite_synthesis", source_job="REF", draft_id="D1"))
     assert target.section == asset_open.SPRITES_SECTION
     assert target.detail == "D1"
-
-
-def test_a_rendered_sheet_opens_the_mesh_with_the_sheet_panel_open():
-    target = asset_open.route(_row("sheet", source_job="MESH", sheet_id="S9"))
-    assert target.section == asset_open.SHEET_SECTION
-    assert target.detail == "S9"
 
 
 @pytest.mark.parametrize(
@@ -77,8 +75,8 @@ def test_an_ordinary_asset_still_routes_by_its_stage(stage, expected):
     assert target == asset_open.Route("create", expected, "A", "", "")
 
 
-def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_poser():
-    """The two halves of a character land in two different places, on purpose.
+def test_a_character_model_row_opens_on_the_mesh_stage():
+    """A character is a mesh, and opens as one.
 
     ``create_character`` mints the *model* row finished, with ``stage="model"``
     and no ``input.png`` at all -- there is no generator behind a character, so
@@ -86,12 +84,8 @@ def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_poser():
     on Mesh, which is the surface that draws a body, and never on Reference,
     where the canvas would be empty with a row selected.
 
-    Its ``charsheet`` follow-up is unchanged: it holds nothing of its own and
-    opens in Poser (Troupe's own character-sheet stage, folded in by P9,
-    2026-09-18) against the mesh it was rendered from. So one press produces
-    an asset that opens in Create and a product that opens in a mode, and the
-    routing table says which is which without either of them knowing about the
-    other.
+    (Its ``charsheet`` follow-up, which once opened in Poser, is a retired
+    kind now and opens the Library: ``test_a_retired_sheet_row_opens_the_library_on_itself``.)
     """
     from realmspinner.service import characters as svc_characters
 
@@ -107,9 +101,6 @@ def test_a_character_model_row_opens_on_the_mesh_stage_and_its_sheet_in_poser():
         },
     }
     assert asset_open.route(body) == asset_open.Route("create", "mesh", "CHAR", "", "")
-
-    sheet = _row("charsheet", source_job="CHAR", sheet_id="S1")
-    assert asset_open.route(sheet) == asset_open.Route("poser", "", "CHAR", "S1", "")
 
 
 def test_a_character_row_wears_the_placeholder_glyph_of_a_built_mesh():
@@ -127,7 +118,7 @@ def test_a_character_row_wears_the_placeholder_glyph_of_a_built_mesh():
 def test_a_follow_up_with_no_source_falls_back_rather_than_going_nowhere():
     """An old row or a hand-edited params blob. The old blank stage is still
     better than a click that does nothing."""
-    target = asset_open.route(_row("sheet"))
+    target = asset_open.route(_row("retexture"))
     assert target.job_id == "self"
     assert target.mode == "create"
 
@@ -140,15 +131,13 @@ def test_every_section_key_is_registered_by_a_header():
     sources = "\n".join(
         p.read_text(encoding="utf-8") for p in (SRC / "studio").rglob("*.py")
     )
-    for key in (asset_open.SPRITES_SECTION, asset_open.SHEET_SECTION):
+    for key in (asset_open.SPRITES_SECTION,):
         assert f"persist_key=asset_open.{_const_name(key)}" in sources, key
 
 
 def _const_name(value: str) -> str:
     return next(
-        name
-        for name in ("SPRITES_SECTION", "SHEET_SECTION")
-        if getattr(asset_open, name) == value
+        name for name in ("SPRITES_SECTION",) if getattr(asset_open, name) == value
     )
 
 
@@ -172,7 +161,7 @@ def test_every_kind_that_writes_into_another_jobs_directory_is_routed():
     """The guard against the *next* follow-up kind silently re-acquiring this
     bug. A ``store.create`` whose params carry ``source_job`` is a row that
     holds nothing of its own, so it has to be in the routing table."""
-    routed = set(asset_open.FOLLOWUP_STAGES) | {"charsheet"}
+    routed = set(asset_open.FOLLOWUP_STAGES) | set(RETIRED_KINDS)
     found = set()
     for path in (SRC / "service").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -212,11 +201,21 @@ def _done(kind, **params):
     }
 
 
-@pytest.mark.parametrize("kind", sorted(asset_open.OPENS_ELSEWHERE))
+@pytest.mark.parametrize("kind", sorted(asset_open.OPENS_ELSEWHERE - RETIRED_KINDS))
 def test_a_finished_row_that_holds_nothing_of_its_own_offers_open_on_its_card(kind):
     from realmspinner.studio import state
 
     assert state.primary_action(_done(kind, source_job="SRC")) == "open"
+
+
+@pytest.mark.parametrize("kind", sorted(RETIRED_KINDS))
+def test_a_finished_retired_row_offers_no_action_at_all(kind):
+    """The opposite of the row above, and deliberate: a removed kind has no
+    pipeline to open into, so its card draws no button (the Library explains
+    itself when the row is clicked)."""
+    from realmspinner.studio import state
+
+    assert state.primary_action(_done(kind, source_job="SRC")) is None
 
 
 def test_a_running_or_failed_follow_up_keeps_its_own_action():
@@ -268,7 +267,7 @@ def test_the_destination_sentence_is_derived_from_the_route():
         asset_open.destination(_done("sprite_synthesis", source_job="R"))
         == "Create, reference stage"
     )
-    assert asset_open.destination(_done("charsheet", source_job="M")) == "Poser"
+    assert asset_open.destination(_done("charsheet", source_job="M")) == "Library"
     assert asset_open.destination(_done("music")) == "Muse"
 
 
@@ -282,7 +281,11 @@ def test_every_job_kind_is_either_an_asset_or_routed_by_kind():
     from realmspinner import progress
 
     assets = {"text", "image", "tile_sheet", "music", "separate"}
-    assert set(progress._PHASES_BY_KIND) == assets | set(asset_open.OPENS_ELSEWHERE)
+    # The retired kinds are routed (they open the Library) but have no phase
+    # table any more: nothing runs them.
+    assert set(progress._PHASES_BY_KIND) == assets | (
+        set(asset_open.OPENS_ELSEWHERE) - RETIRED_KINDS
+    )
 
 
 def test_arriving_at_a_sprite_draft_keeps_its_just_made_marker(monkeypatch):

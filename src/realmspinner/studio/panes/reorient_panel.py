@@ -65,7 +65,7 @@ def front_reason(job: Any) -> str:
     """
     front = float((job.get("params") or {}).get("front_yaw") or 0.0)
     if not front:
-        return "Set the front first: orbit the viewport to the model's front, then press Set front."
+        return "This asset has no recorded front to turn the mesh by."
     files = set(job.get("files") or [])
     if "rig.glb" in files or "rig.json" in files:
         return (
@@ -141,7 +141,11 @@ def draw(ctx: Any, job: Any) -> None:
 
     reason = front_reason(job)
     front = float((job.get("params") or {}).get("front_yaw") or 0.0)
-    if widgets.disabled_button(
+    # Only for an asset that already carries a front: the viewport control that set one left with
+    # Poser (the 2026-10-13 Clay rig plan), so a front recorded earlier can still be baked into the
+    # mesh but a new one cannot be recorded, and a button that could only ever be greyed would
+    # point at a control that no longer exists.
+    if front and widgets.disabled_button(
         "Make current front the model's front",
         not reason and not busy and not dep_reason,
         (-1, 0),

@@ -56,9 +56,6 @@ _OWNED_FILES = (
     "plotter_tools.py",
     "plotter_tileset.py",
     "plotter_tileset_editor.py",
-    "poser_controls.py",
-    "poser_clips.py",
-    "sheet_panel.py",
     "packwright_sources.py",
     "library.py",
     "sirens_envelopes.py",
@@ -150,16 +147,6 @@ _ALLOW: dict[str, set[str]] = {
         # line would double every row's height.
         "Probability",
     },
-    "poser_controls.py": {
-        "Move root",  # sentence checkbox
-    },
-    "poser_clips.py": {
-        "Onion skin",  # a toggle's short name, not named by the inventory
-        "Loops",  # sentence checkbox
-    },
-    "sheet_panel.py": {
-        "Lock silhouettes",  # sentence checkbox
-    },
     "packwright_sources.py": {
         "Drop duplicate tiles",  # sentence checkbox
         "match flipped / rotated",  # sentence checkbox, sub-option
@@ -232,26 +219,6 @@ def test_settings_2d_sub_fields_each_get_their_own_name_line():
         window = source[pos : pos + 700]
         assert hidden in window, (label, hidden)
         cursor = pos + len(marker)
-
-
-def test_poser_xyz_triples_are_one_label_above_short_letters():
-    """Rotate X/Y/Z and Offset X/Y/Z are coordinate rows, not three fields --
-    one ``field_label`` above, ``X``/``Y``/``Z`` beside each box, the
-    ``plotter_canvas._setup_body`` precedent this pass's brief pointed at."""
-    from realmspinner.studio.modes.poser.ui.panes import controls as poser_controls
-
-    source = Path(poser_controls.__file__).read_text(encoding="utf-8")
-    assert 'widgets.field_label("Rotate")' in source
-    assert 'widgets.field_label("Offset")' in source
-    # The old three-spelled-out-labels tuple is gone as code (it survives
-    # only in this pass's own explanatory comments, which name the old form
-    # on purpose).
-    assert 'enumerate(("Rotate X", "Rotate Y", "Rotate Z"))' not in source
-    assert 'enumerate(("Offset X", "Offset Y", "Offset Z"))' not in source
-    assert 'enumerate(("X", "Y", "Z"))' in source
-    # Ids kept stable: the load-bearing suffix survives under the new letters.
-    assert '##poser-joint-rot-{axis}' in source
-    assert '##poser-root-offset-{axis}' in source
 
 
 def test_plotter_goto_popup_matches_its_own_files_precedent():

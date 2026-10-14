@@ -1341,7 +1341,7 @@ def apply_convert(ctx: Any, tab: Any) -> bool:
     to ``Document.convert_to_indexed``/``convert_to_palette``/
     ``convert_to_grayscale``'s own ``_resolved`` parameter -- the actual
     mutation and the undo push, on the calling thread, the same shape every
-    other heavy Inker door (inpaint landing, sheet merge, tileset import)
+    other heavy Inker door (inpaint landing, tileset import)
     already lands its result on.
 
     Which target the palette-snap (``mode == ""``) branch resolves onto has to

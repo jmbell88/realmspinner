@@ -227,7 +227,7 @@ def test_staged_set_replaces_per_file_so_an_obj_export_is_not_all_or_nothing(
 
 
 def test_the_manual_does_not_promise_an_obj_export_is_all_or_nothing() -> None:
-    text = (_ROOT / "docs" / "manual" / "30-clay.md").read_text(encoding="utf-8")
+    text = (_ROOT / "docs" / "manual" / "27-clay.md").read_text(encoding="utf-8")
     flat = " ".join(text.split())
     assert "together or not at all" not in flat
     assert "textured material's `Kd` is white" not in flat

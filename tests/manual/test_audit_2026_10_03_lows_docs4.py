@@ -72,7 +72,7 @@ def test_manual_28_tool_letters_and_menu_rows_match_the_bindings():
     from realmspinner.studio.modes.inker.state import TOOLS
 
     letters = {key: letter for key, _label, letter in TOOLS}
-    text = " ".join(_text("28-inker.md").split())
+    text = " ".join(_text("25-inker.md").split())
     assert f"**polyline** (`{letters['polyline']}`)" in text
     assert f"**polygon** (`{letters['polygon']}`)" in text
     assert "**Edit > Fill** " not in text and "**Edit > Stroke** " not in text
@@ -80,23 +80,6 @@ def test_manual_28_tool_letters_and_menu_rows_match_the_bindings():
     assert "**Edit > Stroke selection...**" in text
     src = inspect.getsource(ops)
     assert '"Fill selection"' in src and '"Stroke selection..."' in src
-
-
-def test_manual_26_clip_counts_match_the_shipped_libraries():
-    import json
-
-    clips = ROOT / "src" / "realmspinner" / "templates" / "clips"
-    libs = sorted(p.stem for p in clips.glob("*.json"))
-    counts = set()
-    for n in libs:
-        data = json.loads((clips / f"{n}.json").read_text(encoding="utf-8"))
-        counts.add(len(data.get("clips", data)))
-    assert counts == {10} and len(libs) == 4
-    text = " ".join(_text("26-poser.md").split())
-    assert "every skeleton ships ten" not in text
-    assert "each of the four skeletons with a clip library ships ten" in text
-    assert "each carries all five movements" not in text
-    assert "each ships all ten clips" in text
 
 
 def test_manual_24_lists_every_viewport_toolbar_control():
@@ -114,17 +97,9 @@ def test_manual_32_find_box_threshold_matches_list_filter():
 
     minimum = inspect.signature(widgets.list_filter).parameters["minimum"].default
     assert minimum == 8
-    text = " ".join(_text("32-plotter.md").split())
+    text = " ".join(_text("29-plotter.md").split())
     assert "Past eight of them a **Find** box" not in text
     assert "From eight of them a **Find** box" in text
-
-
-def test_sprite_panel_delete_comment_matches_sheet_panel_behaviour():
-    from realmspinner.studio.panes import sheet_panel, sprite_panel
-
-    assert "dialogs.ask_delete" in inspect.getsource(sheet_panel._ask_delete)
-    source = inspect.getsource(sprite_panel)
-    assert "exactly as deleting a rendered sheet has none" not in source
 
 
 def test_settings_2d_negative_has_no_unreachable_inert_branch():

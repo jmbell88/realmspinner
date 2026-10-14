@@ -196,15 +196,6 @@ def test_manual_45_does_not_count_blender_ops_by_ordinal():
     assert "clay_bake" not in blender_worker.OPS, "Clay no longer has a Blender-backed op"
 
 
-def test_manual_45_256px_claim_is_scoped_to_the_character_sheet_ladder():
-    from realmspinner.kernels import charsheet
-
-    text = _flat(MANUAL / "45-pipelines.md")
-    assert "The size ladder now runs to 256 px" not in text
-    assert "character-sheet size ladder" in text
-    assert max(charsheet.SIZES) == 256
-
-
 # --- docs-84: chapter 21 ----------------------------------------------------------
 
 
@@ -218,7 +209,7 @@ def test_manual_21_describes_what_home_draws():
     assert "three bullets" in text
     assert "You are running Realmspinner" in text
     assert "Unsaved work" in text
-    assert "28-inker.md#autosave-and-recovery" in text
+    assert "25-inker.md#autosave-and-recovery" in text
 
 
 # --- docs-89: chapter 30 ----------------------------------------------------------
@@ -228,7 +219,7 @@ def test_manual_30_op_names_match_registered_labels():
     from realmspinner.studio.modes.clay import ops
 
     labels = {op.label.rstrip(".") for op in ops.OPS}
-    text = (MANUAL / "30-clay.md").read_text(encoding="utf-8")
+    text = (MANUAL / "27-clay.md").read_text(encoding="utf-8")
     flat = " ".join(text.split())
     for name in ("Inset Faces",):
         assert name in labels, name

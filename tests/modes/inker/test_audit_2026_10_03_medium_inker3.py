@@ -15,13 +15,11 @@ import pytest
 
 from realmspinner.kernels import pixel as inker
 from realmspinner.kernels.pixel import brush, filters
-from realmspinner.kernels.pixel.sheetin import document_from_sheet
 from realmspinner.studio import state as state_mod
 from realmspinner.studio.modes.inker import mode as inker_mode
 from realmspinner.studio.modes.inker import ops as inker_ops
 from realmspinner.studio.modes.inker import palette_io as inker_palette_io
 from realmspinner.studio.modes.inker import playback as inker_playback
-from realmspinner.studio.modes.inker import sheet as inker_sheet
 from realmspinner.studio.modes.inker import state as inker_state
 from realmspinner.studio.modes.inker.ui import ants
 
@@ -98,25 +96,8 @@ def test_nothing_commits_the_float_while_a_transform_is_open():
     assert inker_palette_io.index_to(ctx, tab, [(0, 0, 0, 255), (255, 255, 255, 255)]) is False
     assert tab.doc.palette in (None, [], ())
 
-    assert inker_sheet.land_merge(
-        ctx,
-        state,
-        SimpleNamespace(key=f"inker-merge:{tab.uid}", result={"cells": [], "sheet": "S"}),
-    ) is False
-
 
 # --- inker-42 ----------------------------------------------------------------
-
-
-def _sheet_session():
-    cell = 8
-    atlas = np.zeros((cell, cell * 2, 4), dtype=np.uint8)
-    atlas[..., 3] = 255
-    cells = [{"x": i * cell, "y": 0, "w": cell, "h": cell} for i in range(2)]
-    anim = {"tags": [{"name": "walk_front", "start": 0, "end": 1, "loop": True}], "frames": []}
-    doc = document_from_sheet(atlas, cells, anim, source={"job": "J", "sheet": "S"})
-    doc.history.clear()
-    return _session(doc)
 
 
 def _indexed_animated():
@@ -138,7 +119,6 @@ _HISTORY_ROWS = {
     "select_unused_colours": lambda: _indexed_animated(),
     "frame_palette": lambda: _indexed_animated(),
     "clear_frame_palette": lambda: _own_palette_session(),
-    "sheet_keep_edit": lambda: _sheet_session(),
     "next_frame": lambda: _session(frames=3),
     "prev_frame": lambda: _session(frames=3),
 }
@@ -490,16 +470,11 @@ def _fixture_background():
     return ctx, state, tab
 
 
-def _fixture_sheet():
-    return _sheet_session()
-
-
 _FIXTURES = (
     _fixture_layers,
     _fixture_linked,
     _fixture_animated,
     _fixture_background,
-    _fixture_sheet,
     _indexed_animated,
     _own_palette_session,
 )
@@ -547,22 +522,3 @@ def test_a_greyed_op_names_busy_when_only_busy_greys_it():
         "delete_frame",
     ):
         assert name in flipped, f"{name} was never exercised by the sweep"
-
-
-def test_sheet_ops_greyed_by_a_busy_tab_say_why():
-    for name in (
-        "sheet_propagate",
-        "sheet_replace",
-        "sheet_shift",
-        "sheet_mirror",
-        "sheet_mirror_run",
-        "sheet_merge",
-        "sheet_keep_edit",
-        "sheet_conflict_next",
-    ):
-        op = _op(name)
-        for variant in ("saving", "playing", "transforming"):
-            ctx, state, tab = _sheet_session()
-            _busy_variants(state, tab)[variant](True)
-            assert not op.enabled(state, tab), f"{name} stayed enabled while {variant}"
-            assert inker_ops.reason_for(op, state, tab) == inker_ops.BUSY, (name, variant)

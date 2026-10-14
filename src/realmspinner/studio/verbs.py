@@ -8,8 +8,9 @@ menu row. The wording is fixed here and the panes ask for it.
 
 - :func:`open_in` -- the asset opens *for editing* in that workspace.
 - :func:`add_to` -- the asset joins an open document there as a *source*.
-- :func:`send_to` -- the asset starts a *process* there (Poser's character-
-  sheet stage rigs and renders; nothing is opened for editing).
+- :func:`send_to` -- the asset starts a *process* there (nothing is opened for
+  editing). No live button uses it since Poser's character-sheet stage left; it
+  stays as the one spelling the next such hand-off must use.
 - :data:`EXPORT_TO_LIBRARY` -- the document is *published* as a library asset.
 
 The module imports :mod:`.modes` and nothing else, so anything can use it --
@@ -40,7 +41,7 @@ def add_to(mode: str, what: str = "") -> str:
 
 
 def send_to(mode: str) -> str:
-    """``Send to Poser``: starts that workspace's process on the asset."""
+    """``Send to Clay``: starts that workspace's process on the asset."""
     return f"Send to {_mode(mode)}"
 
 

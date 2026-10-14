@@ -175,7 +175,7 @@ def test_open_door_dispatches_the_five_and_nothing_else(monkeypatch):
 
 
 def test_the_manual_says_where_the_five_doors_are():
-    text = Path("docs/manual/28-inker.md").read_text(encoding="utf-8")
+    text = Path("docs/manual/25-inker.md").read_text(encoding="utf-8")
     assert "Export** block of the right-hand panel" in text
     assert "also a row in the **File** menu" in text
     assert "timeline's second row" not in text

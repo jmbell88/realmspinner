@@ -35,7 +35,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import fetch, guidance, models, provenance
+from . import fetch, guidance, models, provenance, retired
 from .pipelines import control, recon, reference, seam
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -62,7 +62,7 @@ class GenerateOps:
         from .pipelines.conditioning import Conditioning
 
         # A guide the caller drew itself, rather than a hint derived from a
-        # reference. Troupe's reference stage records ``control_hint_source``
+        # reference. a reference stage that records ``control_hint_source``
         # and the guide's variant and pose at the door and *this worker* draws
         # ``control.png`` (``spritesynth.render_reference_guide``, below) --
         # the door writes no file -- for the reason ``render_guide``'s docstring gives: the
@@ -187,6 +187,14 @@ class GenerateOps:
     async def _generate(self: Worker, job: dict[str, Any]) -> None:
         from . import queue as queue_mod
 
+        if retired.is_retired(job["kind"]):
+            # A row of a kind that left the product (``retired.py``) is never
+            # run: ``migrate`` flips the ones already stuck at open, and this
+            # catches one queued afterwards -- a restored database, a hand-
+            # written row. An error with the note rather than a silent skip, so
+            # the Library card says why the row did not do anything. Its files
+            # are not touched here or anywhere else.
+            raise RuntimeError(retired.NOTE)
         if job["kind"] == "music":
             # The whole integration with the generic done/error/cancelled
             # machinery: everything below this line is about images and meshes.
@@ -199,15 +207,6 @@ class GenerateOps:
             return
         if job["kind"] == "rig":
             await self._rig(job)
-            return
-        if job["kind"] == "sheet":
-            await self._sheet(job)
-            return
-        if job["kind"] == "charsheet":
-            await self._charsheet(job)
-            return
-        if job["kind"] == "pixel_sheet":
-            await self._pixel_sheet(job)
             return
         if job["kind"] == "sprite_synthesis":
             await self._sprite_synthesis(job)
@@ -591,8 +590,8 @@ class GenerateOps:
                     # unload-before-next-start choreography.
                     #
                     # Deliberately *not* followed by `self._text2image = None`,
-                    # which the three later teardown sites (_pixel_sheet,
-                    # _sprite_synthesis, _retexture) do. That asymmetry looks
+                    # which the later teardown sites (_sprite_synthesis,
+                    # _retexture) do. That asymmetry looks
                     # like drift and is not: every reader of the field asks
                     # `is not None and .loaded`, so `.loaded` is what answers
                     # "is a pipe resident" -- including the idle-timeout sweep

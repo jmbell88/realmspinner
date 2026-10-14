@@ -81,6 +81,36 @@ RETIRED: list[tuple[str, re.Pattern[str], str]] = [
         re.compile(r"tests[./]test_exercise_mode\b"),
         "dev/scripts/exercise_mode.py (now a dev tool, not a pytest file)",
     ),
+    # The 2026-10-13 character-sheet removal (Tranche 5 of the Clay rig plan,
+    # ``retired.py``): these modules were deleted outright, not moved, so the
+    # "where it lives now" column names what the work became.
+    (
+        "_q_troupe (the Worker's charsheet mixin)",
+        re.compile(r"\b_q_troupe\b"),
+        "gone -- a charsheet row is marked an error with retired.NOTE",
+    ),
+    (
+        "service/troupe.py / service.troupe",
+        re.compile(
+            r"service[./]troupe\b|(?<![-\w])troupe\.(?:py\b|[a-z_]+\()|\bsvc_troupe\b"
+        ),
+        "gone; has_clips/clip_templates live in service/clips.py",
+    ),
+    (
+        "service/sheets.py / service.sheets",
+        re.compile(r"service[./]sheets\b|(?<![-\w])sheets\.py\b|\bsvc_sheets\b"),
+        "gone with the sheet kinds",
+    ),
+    (
+        "pipelines/sheetcheck.py",
+        re.compile(r"\bsheetcheck\b"),
+        "gone with the character sheet's structural check",
+    ),
+    (
+        "service/poses.py / service.poses (the pose library)",
+        re.compile(r"service[./]poses\b|\bsvc_poses\b"),
+        "gone; poselib.py keeps only the shared constants and the clip folder",
+    ),
 ]
 
 # (file relative to repo root, retired name from RETIRED's first column) ->
@@ -228,6 +258,14 @@ ALLOWED: dict[tuple[str, str], str] = {
         "\"P3 ... moved this module from studio/undo.py to "
         "realmspinner/core/undo.py\" -- explicitly the pre-move name."
     ),
+    (
+        "tests/test_retired_kinds.py",
+        "_q_troupe (the Worker's charsheet mixin)",
+    ): "the gate asserts that module is gone (find_spec is None) and that no table names it.",
+    (
+        "tests/test_retired_kinds.py",
+        "pipelines/sheetcheck.py",
+    ): "the gate asserts that module is gone (find_spec is None).",
     (
         "src/realmspinner/studio/modes/inker/state.py",
         "panes/<mode>_<name>.py / panes.<mode>_<name>",

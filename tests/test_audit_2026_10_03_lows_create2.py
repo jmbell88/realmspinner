@@ -392,19 +392,6 @@ def test_save_draft_does_not_copy_an_unchanged_form(monkeypatch):
 # --- create-51: the Pixelate sizes ---------------------------------------------
 
 
-def test_pixel_sizes_offers_only_exact_divisors_no_larger_than_the_cell():
-    from realmspinner.service import sheets as svc_sheets
-    from realmspinner.studio.panes import sheet_panel
-
-    assert sheet_panel._pixel_sizes(128) == [16, 32, 64, 128]
-    assert sheet_panel._pixel_sizes(100) == []
-    assert sheet_panel._pixel_sizes(0) == []
-    for frame in (16, 48, 96, 128, 200):
-        for size in sheet_panel._pixel_sizes(frame):
-            assert size in svc_sheets.PIXEL_LOGICAL_SIZES
-            assert frame % size == 0 and size <= frame
-
-
 # --- create-53: mesh_finishing at the request-document level ------------------
 
 

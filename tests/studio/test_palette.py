@@ -376,15 +376,11 @@ def test_the_document_dispatch_covers_every_document_mode():
     from realmspinner.studio import modes as modes_mod
 
     assert set(palette._DOC_MODES) <= {key for key, _label, _icon, _purpose in modes_mod.MODES}
-    # Poser joined in B1: it has a Save and a Save-as and had neither a key
-    # nor a palette entry for them. **Troupe deliberately does not** -- it has
-    # no document, so all four commands would be empty rows.
     assert set(palette._DOC_MODES) == {
         "inker",
         "clay",
         "plotter",
         "packwright",
-        "poser",
         # Sirens exports a folder rather than a file -- song.wav, stems/ and
         # sfx/ -- so its label names the folder's contents.
         "sirens",
@@ -396,11 +392,7 @@ def test_the_document_dispatch_covers_every_document_mode():
 
 
 #: Every ``_DOC_MODES`` entry that starts from a blank document, and the
-#: palette key its New command lives under. Poser is the deliberate hole --
-#: it has a Save, an Export and an Undo/Redo, exactly like these six, but a
-#: pose document begins by rigging a character already in the library, not
-#: from a New button, so it is not in this table and must not gain a "New
-#: pose" entry by the same reasoning this test applies to the other six.
+#: palette key its New command lives under.
 _NEW_DOCUMENT_COMMANDS = {
     "inker": "new-drawing",
     "clay": "new-clay",
@@ -552,11 +544,19 @@ def test_undo_falls_back_to_the_document_for_a_mode_with_no_wrapper():
 
 
 def test_a_mode_with_no_export_suppresses_the_command_rather_than_faking_one():
-    """A pose *is* a library record, so it is saved and never exported --
-    offering an Export row here would be one that has to refuse."""
+    """A document that *is* a library record is saved and never exported --
+    offering an Export row here would be one that has to refuse. No mode is
+    like that today (the one that was, Poser's pose, left with the mode), so
+    the mechanism is held on a probe row with an empty label."""
     ctx = _ctx()
-    ctx.state.mode = "poser"
-    assert palette._doc_export_label(ctx) == ""
-    assert palette._can_export(ctx) is False
-    command = next(c for c in palette.commands(ctx) if c.key == "export")
-    assert "library" in command.why
+    ctx.state.mode = "inker"
+    original = dict(palette._DOC_MODES)
+    palette._DOC_MODES["inker"] = (original["inker"][0], "")
+    try:
+        assert palette._doc_export_label(ctx) == ""
+        assert palette._can_export(ctx) is False
+        command = next(c for c in palette.commands(ctx) if c.key == "export")
+        assert "library" in command.why
+    finally:
+        palette._DOC_MODES.clear()
+        palette._DOC_MODES.update(original)

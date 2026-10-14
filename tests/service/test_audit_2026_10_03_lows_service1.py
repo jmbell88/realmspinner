@@ -231,46 +231,6 @@ def _mesh_job(svc) -> str:
     return job_id
 
 
-def test_create_sheet_refuses_a_zero_frame_size_rather_than_defaulting_it(svc):
-    from realmspinner.service import sheets as svc_sheets
-
-    job_id = _mesh_job(svc)
-    with pytest.raises(Invalid) as caught:
-        svc_sheets.create_sheet(svc, job_id, frame_size=0)
-    assert caught.value.field == "frame_size"
-
-
-def test_create_sheet_refuses_zero_directions_rather_than_defaulting_them(svc):
-    from realmspinner.service import sheets as svc_sheets
-
-    job_id = _mesh_job(svc)
-    with pytest.raises(Invalid) as caught:
-        svc_sheets.create_sheet(svc, job_id, yaws=0)
-    assert caught.value.field == "yaws"
-
-
-def test_create_pixel_sheet_refuses_a_non_numeric_strength_by_name(svc):
-    from realmspinner.kernels.rig import store
-    from realmspinner.service import sheets as svc_sheets
-
-    job_id = _mesh_job(svc)
-    job_dir = svc.job_dir(job_id)
-    sheet_id = store.new_id()
-    png = store.sheet_png_path(job_dir, sheet_id)
-    png.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGBA", (1024, 128), (0, 0, 0, 0)).save(png)
-    meta = {
-        "version": 1, "id": sheet_id, "name": "turnaround", "source_job": job_id,
-        "created": 1.0, "image": png.name, "frame_size": 128, "columns": 8, "rows": 1,
-        "width": 1024, "height": 128, "yaws": [i * 45.0 for i in range(8)],
-        "poses": [{"id": None, "name": "rest"}], "cells": [],
-    }
-    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
-    with pytest.raises(Invalid) as caught:
-        svc_sheets.create_pixel_sheet(svc, job_id, sheet_id, strength="strong")
-    assert caught.value.field == "strength"
-
-
 # --- service-23: palettes refuse before reading -------------------------------------
 
 
@@ -529,7 +489,7 @@ def test_a_request_with_too_many_references_is_refused_at_the_door():
 
 #: Kinds whose ``estimate_parts`` is deliberately zero: Blender or numpy, out of
 #: process or CPU-side, costing the VRAM budget nothing (vram.py's own comment).
-_DELIBERATE_ZERO_VRAM = {"rig", "sheet", "charsheet", "remesh"}
+_DELIBERATE_ZERO_VRAM = {"rig", "remesh"}
 
 #: Kinds ``_discard_artifacts`` serves with its generic (mesh-filename) arm.
 _GENERIC_DISCARD = {"text", "image"}
@@ -601,7 +561,12 @@ def test_every_dispatched_job_kind_is_in_vram_discard_and_progress_tables():
     # ``text`` and ``image`` are the fall-through the chain above them leaves.
     dispatched |= {"text", "image"}
     discard = _kinds_named_in(_function(SRC / "_q_jobs.py", "_discard_artifacts"))
-    assert {"rig", "sheet", "charsheet", "pixel_sheet", "tile_sheet", "music"} <= dispatched
+    assert {"rig", "sprite_synthesis", "tile_sheet", "music"} <= dispatched
+    # The retired sheet kinds (``retired.py``) are dispatched nowhere: ``_generate``
+    # errors a row of one before it reaches a stage, so no table may keep a row for it.
+    from realmspinner import retired
+
+    assert not (retired.RETIRED_KINDS & dispatched)
     gaps = _site_gaps(
         dispatched, discard, set(progress._PHASES_BY_KIND), _DELIBERATE_ZERO_VRAM, _estimate
     )

@@ -35,7 +35,7 @@ the table below are the whole story, and a group's letter is simply the letter o
 letter usually means. `B` is the brush and `A` is the spray; pressing `B` twice leaves you on the
 brush. Where a tool has a second binding it is the group letter with Shift, so Spray answers to
 both `A` and `Shift+B`. The Aseprite bindings are the primary ones; see
-[Keyboard shortcuts](38-shortcuts.md) for the full table and the compatibility aliases.
+[Keyboard shortcuts](35-shortcuts.md) for the full table and the compatibility aliases.
 
 | Key | Tools |
 | --- | --- |
@@ -156,7 +156,7 @@ saves it.
 Beyond that: PNG (`Ctrl+Shift+E`) flattens; there is an `.aseprite` writer; and sheets and GIFs come
 from the timeline, which is the next chapter.
 
-If you use Aseprite, read [the divergence list](28-inker.md) before assuming a habit transfers.
+If you use Aseprite, read [the divergence list](25-inker.md) before assuming a habit transfers.
 Inker is deliberately close but not identical, and the differences are documented individually
 rather than discovered.
 

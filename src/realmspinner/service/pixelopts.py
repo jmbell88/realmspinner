@@ -1,24 +1,18 @@
 """The pixelisation options a door validates, once, for every path that has them.
 
-Five paths in this program end in a pixel-art atlas and each one asks the same
-four or five questions: how big is a logical pixel, how many colours, which
+The paths in this program that end in a pixel-art atlas each ask the same four
+or five questions: how big is a logical pixel, how many colours, which
 authored palette, dither, and -- where there is a reduction or an outline pass
-to configure -- which mode. ``service/troupe._check_options`` answered them
-first and answered them well; this is that function with its two Troupe-shaped
-constants (the size ladder and the colour ladder) lifted into parameters, so a
-second and third caller is a call rather than a copy.
+to configure -- which mode. This is the one function that answers them, with
+the size ladder and the colour ladder as parameters, so a further caller is a
+call rather than a copy. (The Troupe character-sheet door it was lifted out of
+left with the sheets, ``retired.py``.)
 
-The wordings are Troupe's verbatim, down to the ``field=`` names, because a
-refusal is a string a user reads and a field a form highlights: two paths that
-refuse the same value in two different sentences is the drift this module
-exists to stop.
-
-Same layer as ``service/troupe``, which is why that module delegates here
-rather than the other way round. It states the rule it is now obeying: its own
-numbers "come from ``kernels.charsheet`` and ``pipelines.pixelize`` rather
-than being restated ... a second copy here would be one edit away from a form
-that offers a size the renderer refuses". Four more doors restating these four
-refusals is the same hazard one layer up.
+The wordings are the original's verbatim, down to the ``field=`` names, because
+a refusal is a string a user reads and a field a form highlights: two paths
+that refuse the same value in two different sentences is the drift this module
+exists to stop. The numbers come from ``pipelines.pixelize`` and the callers'
+own ladders rather than being restated.
 """
 
 from __future__ import annotations

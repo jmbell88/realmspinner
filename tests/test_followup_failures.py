@@ -3,13 +3,9 @@ from __future__ import annotations
 import ast
 import inspect
 
-import pytest
-
 import realmspinner._q_jobs as q_jobs
 from realmspinner import followups
-from realmspinner.config import Config
 from realmspinner.db import JobStore
-from realmspinner.queue import Worker
 from realmspinner.service.validation import DERIVED_PARAMS
 from realmspinner.studio.modes.library.ui.panes import library
 from realmspinner.studio.panes import inspector
@@ -20,11 +16,11 @@ def test_persist_keeps_parent_params_and_each_followup(tmp_path):
     try:
         job_id = store.create("image", "a ranger", {"seed": 7})
         assert followups.persist(store, job_id, "rig", OSError("read-only"))
-        assert followups.persist(store, job_id, "charsheet", "rig row was not queued")
+        assert followups.persist(store, job_id, "sprite_synthesis", "sprite row was not queued")
 
         params = store.get(job_id)["params"]
         assert params["seed"] == 7
-        assert set(params[followups.PARAM_KEY]) == {"rig", "charsheet"}
+        assert set(params[followups.PARAM_KEY]) == {"rig", "sprite_synthesis"}
         assert params[followups.PARAM_KEY]["rig"]["error_type"] == "OSError"
     finally:
         store.close()
@@ -75,60 +71,10 @@ def test_a_rerun_cannot_inherit_an_earlier_followup_failure():
 
 # --- the 2026-09-11 audit, findings service-04 and muse-08 --------------------
 #
-# ``tests/test_jobs_followups.py`` does not exist in this tree; both
-# regressions land here because this module is the one that already covers
-# ``followups`` (muse-08 is a ``followups.PRODUCTS`` gap) and the door
-# ``_maybe_queue_sheet_after_rig`` feeds it (service-04's ``source_job``).
-
-
-@pytest.fixture
-def worker(tmp_path, fake_pipelines):
-    config = Config(
-        data_dir=tmp_path / "assets",
-        db_path=tmp_path / "assets" / "jobs.sqlite",
-        trellis_server_exe=tmp_path / "missing.exe",
-        trellis_models_dir=tmp_path / "models",
-    )
-    store = JobStore(config.db_path)
-    w = Worker(config, store)
-    yield w
-    store.close()
-
-
-async def test_maybe_queue_sheet_after_rig_refuses_a_malformed_source_job_before_it_becomes_a_path(
-    worker, tmp_path
-):
-    """service-04: the three other ``source_job``-to-path sites in
-    ``_q_jobs.py`` (``_discard_artifacts``'s two branches) validate with
-    ``store.is_valid_id`` before joining the string onto a path;
-    ``_maybe_queue_sheet_after_rig`` only checked truthiness, so a malformed
-    id reached ``config.job_dir()`` -- a bare ``data_dir / job_id`` with no
-    containment check -- as a live filesystem probe.
-
-    Proven with a real path-traversal payload rather than an assertion about
-    which function was called: a ``rig.glb`` planted *outside* the job tree,
-    at the location the unvalidated ``"../evil-payload"`` string resolves to,
-    is what a pre-fix run would find and then mint a charsheet job around.
-    """
-    evil = tmp_path / "evil-payload"
-    evil.mkdir(parents=True, exist_ok=True)
-    (evil / "rig.glb").write_bytes(b"not this job's rig")
-
-    rig_id = worker.store.create(
-        "rig",
-        "a ranger",
-        {
-            "source_job": "../evil-payload",
-            "troupe_sheet": {"logical_size": 32, "colors": 16},
-        },
-    )
-    await worker._maybe_queue_sheet_after_rig(worker.store.get(rig_id))
-
-    # Not merely "no failure was recorded" -- the sibling branches record
-    # nothing for a malformed id either, on purpose (there is nothing to
-    # attribute the cleanup to). What must not happen is a charsheet row
-    # minted around a string that was never validated as a job id.
-    assert [j for j in worker.store.list() if j["kind"] == "charsheet"] == []
+# ``tests/test_jobs_followups.py`` does not exist in this tree; the regression
+# lands here because this module is the one that already covers ``followups``
+# (muse-08 is a ``followups.PRODUCTS`` gap). service-04's ``source_job`` check
+# on ``_maybe_queue_sheet_after_rig`` left with that follow-up (``retired.py``).
 
 
 def _source_job_carrying_kinds() -> set[str]:
@@ -190,7 +136,7 @@ def test_followups_products_names_every_source_job_carrying_kind_including_separ
     # kind this finding is about -- otherwise a bug in the ast extraction
     # above would make this test vacuously true.
     assert "separate" in carrying
-    assert "rig" in carrying and "charsheet" in carrying
+    assert "rig" in carrying and "sprite_synthesis" in carrying
     missing = carrying - set(followups.PRODUCTS)
     assert not missing, (
         f"followups.PRODUCTS has no entry for: {sorted(missing)} -- every kind "

@@ -17,7 +17,7 @@ from realmspinner.service import matte as svc_matte
 from realmspinner.studio import matte_preview
 from realmspinner.studio.modes.create.engine import mesh as create_mesh
 from realmspinner.studio.modes.create.ui.panes import settings_3d
-from realmspinner.studio.panes import sheet_panel, stage_rig
+from realmspinner.studio.panes import stage_rig
 from realmspinner.studio.state import DEFAULT_FORM_3D, AppState
 
 
@@ -230,39 +230,6 @@ def test_the_setting_off_never_skips_a_clean_matte_either():
 
 
 # --- item 7.1: a turnaround needs no rig, but its button was on the Pose stage
-
-
-def test_the_mesh_stage_renders_a_turnaround_for_an_unrigged_prop():
-    """The 2026-09-07 review, item 7.1.
-
-    ``docs/manual/27-sprite-sheets.md`` states a turnaround needs no rig; this
-    checks the new Mesh-stage control submits through ``sheet_panel``'s own
-    door (``svc_sheets.create_sheet``) under ``sheet_panel``'s own key
-    (``f"sheet:{job_id}"``) with no rigged-mesh requirement anywhere in its
-    guard, and that it is actually wired into the stage's draw.
-    """
-    source = inspect.getsource(settings_3d._turnaround)
-    assert 'f"sheet:{job_id}"' in source, (
-        "must submit under sheet_panel's own key, or a press here and a press "
-        "on the Pose stage's own button would not be refused as one submit"
-    )
-    assert "svc_sheets.create_sheet" in source
-    assert "poses=[]" in source, "a turnaround needs no rig and asks for no poses"
-    assert "yaws=8" in source, "defaults to the 8-direction turnaround"
-    assert "ctx.rigging_available" in source, "still respects the Blender gate"
-    assert "sheet_panel.sheet_cap_reason(" in source
-    assert "rig.glb" not in source, "no rigged-mesh requirement belongs in this guard"
-
-    assert "_turnaround(ctx)" in inspect.getsource(settings_3d._draw_form)
-
-
-def test_the_turnaround_key_matches_the_pose_stages_own_sheet_submit():
-    """Both doors must agree on the in-flight key or a second press from the
-    other stage would not be refused."""
-    turnaround_src = inspect.getsource(settings_3d._turnaround)
-    pose_stage_src = inspect.getsource(sheet_panel._submit)
-    assert 'f"sheet:{job_id}"' in turnaround_src
-    assert 'f"sheet:{job_id}"' in pose_stage_src
 
 
 # --- one place picks between candidates ---------------------------------------

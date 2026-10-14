@@ -378,12 +378,13 @@ def test_the_battery_plans_a_grid_through_the_one_sheet_planner(tmp_path):
 # --- the artifact -----------------------------------------------------------
 
 
-def test_the_qa_sheet_is_not_a_sheet_in_the_users_sheet_list(tmp_path):
-    """It belongs to the rig, so it must not join list_sheets, count against
-    MAX_SHEETS or be deleted by a sheet delete."""
-    store.rig_qa_png_path(tmp_path).write_bytes(b"png")
-    store.rig_qa_path(tmp_path).write_text("{}", encoding="utf-8")
-    assert store.list_sheets(tmp_path) == []
+def test_the_qa_sheet_lives_beside_the_rig_not_in_a_sheets_folder(tmp_path):
+    """It belongs to the rig: both files sit in the mesh's own directory, next
+    to ``rig.glb``, and never under the ``sheets/`` folder the retired
+    character-sheet kinds wrote into (``retired.py``)."""
+    assert store.rig_qa_png_path(tmp_path).parent == tmp_path
+    assert store.rig_qa_path(tmp_path).parent == tmp_path
+    assert not hasattr(store, "sheet_dir")
 
 
 def test_the_qa_sheet_is_served_only_once_its_sidecar_is_written(tmp_path):

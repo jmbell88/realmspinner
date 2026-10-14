@@ -109,9 +109,9 @@ def test_manual_ch12_count_control_has_no_how_many_label():
     (``_count``, lines 177-216) is an unlabelled segmented row of 1/2/4/8 with
     per-value tooltips only -- there is no "How many" string anywhere in the
     widget code."""
-    text = _read("12-tuning-what-you-get")
+    text = _read("11-tuning-what-you-get")
     assert "**How many**" not in text, (
-        "docs/manual/12-tuning-what-you-get.md still bolds '**How many**' as "
+        "docs/manual/11-tuning-what-you-get.md still bolds '**How many**' as "
         "a control caption, but Create's count row has no such label -- only "
         "per-value tooltips (create_brief.py's _COUNT_HINTS)"
     )
@@ -121,21 +121,21 @@ def test_manual_ch12_retexture_labels_match_the_pane():
     """The 2026-09-06 audit, finding docs-26: chapter 12 names the re-texture
     controls "Strength" and "Anchor to geometry"; ``texture_panel.py`` draws
     "Restyle strength" (line 76) and "Anchor to geometry (depth)" (line 90)."""
-    text = _read("12-tuning-what-you-get")
+    text = _read("11-tuning-what-you-get")
     assert "**Restyle strength**" in text, (
-        "docs/manual/12-tuning-what-you-get.md never names the real label "
+        "docs/manual/11-tuning-what-you-get.md never names the real label "
         "'Restyle strength'"
     )
     assert "**Anchor to geometry (depth)**" in text, (
-        "docs/manual/12-tuning-what-you-get.md never names the real label "
+        "docs/manual/11-tuning-what-you-get.md never names the real label "
         "'Anchor to geometry (depth)'"
     )
     assert "**Strength**" not in text, (
-        "docs/manual/12-tuning-what-you-get.md still bolds the stale, "
+        "docs/manual/11-tuning-what-you-get.md still bolds the stale, "
         "unqualified 'Strength' rather than the pane's 'Restyle strength'"
     )
     assert "**Anchor to geometry**," not in text, (
-        "docs/manual/12-tuning-what-you-get.md still bolds the stale "
+        "docs/manual/11-tuning-what-you-get.md still bolds the stale "
         "'Anchor to geometry' rather than the pane's "
         "'Anchor to geometry (depth)'"
     )

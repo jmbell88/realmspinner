@@ -272,7 +272,7 @@ def _clay_chapter() -> str:
     import realmspinner
 
     root = Path(realmspinner.__file__).resolve().parents[2]
-    return " ".join((root / "docs" / "manual" / "30-clay.md").read_text(encoding="utf-8").split())
+    return " ".join((root / "docs" / "manual" / "27-clay.md").read_text(encoding="utf-8").split())
 
 
 def test_manual_describes_import_as_one_object_per_primitive():

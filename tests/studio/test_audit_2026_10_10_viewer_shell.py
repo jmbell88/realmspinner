@@ -6,8 +6,6 @@ nudge and the pose editor's undo).
 
 from __future__ import annotations
 
-import importlib.util
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -44,7 +42,6 @@ def _toolbar_with_pressed(monkeypatch, pressed_tooltip_prefix: str, camera: Came
     monkeypatch.setattr(overlay.manual_render, "help_button_inline", lambda *_a, **_k: None)
     monkeypatch.setattr(overlay, "offers_inker", lambda *_a: False)
     monkeypatch.setattr(overlay, "shows_tiled", lambda *_a: False)
-    monkeypatch.setattr(overlay, "shows_front", lambda *_a: False)
     monkeypatch.setattr(overlay, "_has_content", lambda *_a: False)
     monkeypatch.setattr(overlay, "_texture_losses", lambda *_a: None)
     monkeypatch.setattr(overlay.controls, "button", lambda *_a, **_k: False)
@@ -139,46 +136,6 @@ def test_adopting_a_model_drops_the_previous_models_bounds_memo(monkeypatch):
     viewer.adopt_model(object(), Path("next.glb"))
     memo = getattr(viewer, "_bounds_memo", None)
     assert memo is None or memo[0] is not old, "the replaced model must not stay referenced"
-
-
-# --- create-34: Poser's asset open parses off the frame thread ---------------
-
-
-def _load(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def test_poser_opens_an_asset_rig_without_parsing_on_the_frame_thread(tmp_path):
-    # The 2026-10-10 audit: _bind_asset_now called viewer.load_model, a full glTF
-    # parse and texture decode, on the frame thread; the precedent it cited
-    # (pose_panel._enter) was moved onto a task by the 2026-10-04 audit.
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    pm = _load(_HERE.parent / "modes" / "poser" / "test_poser_mode.py", "_pm_2026_10_10_shell")
-    ctx = pm._ThreadedCtx(tmp_path)
-    viewer = ctx.poser_viewer = pm.FakeViewer()
-    state = poser_mode.ensure(ctx)
-    job_id = "abcdef012345"
-    state.job_id = job_id
-    state.asset_rig = {}
-
-    poser_mode._bind_asset_now(ctx, state, viewer, job_id)
-
-    threads = getattr(ctx, "threads", [])
-    assert threads == [pm.WORKER], "the parse must run on a task thread"
-    assert threading.current_thread().name not in threads
-    assert viewer.loaded == [], "load_model is the blocking spelling and is not the door"
-    assert viewer.pose_mode is False, "nothing is adopted until the parse lands"
-
-    key = poser_mode.ASSET_LOAD_KEY
-    poser_mode.on_task_done(
-        ctx, SimpleNamespace(key=key, result=ctx.results[key], tag=ctx.tags[key])
-    )
-    assert viewer.pose_mode is True and viewer.pose_job_id == job_id
-    assert viewer.loaded == [ctx.job_dir(job_id) / "rig.glb"]
 
 
 # --- create-35: a refused reference request is retried -----------------------

@@ -36,7 +36,7 @@ from realmspinner.kernels.mesh import primitives
 # shape existed, which is a gate that cannot fail.
 SECTIONS = {
     "07-modelling": "## Primitives",
-    "30-clay": "## Adding a primitive",
+    "27-clay": "## Adding a primitive",
 }
 CHAPTERS = tuple(SECTIONS)
 

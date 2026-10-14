@@ -160,7 +160,7 @@ RETIRED_PLANS = (
     # that outlives the file: the units and handedness in
     # ``dev/INVARIANTS.md``, the three stored-document ceilings in two dated
     # ``dev/measurements/`` documents, and the mode itself in
-    # ``docs/manual/31-mason.md``. Its six citations under ``src`` and
+    # ``docs/manual/28-mason.md``. Its six citations under ``src`` and
     # ``tests`` were rewritten to name the programme rather than the file.
     "MASON-PLAN" ".md",
     # The Clay programme's plan file (tranches 2-7): not in the tree, and
@@ -336,7 +336,6 @@ REASON_SWEPT = (
     _PANES["plotter_tools.py"],
     _PANES["candidates_panel.py"],
     _PANES["retarget_panel.py"],
-    _PANES["sheet_panel.py"],
     _PANES["sprite_panel.py"],
     _PANES["settings_2d.py"],
     _PANES["settings_3d.py"],
@@ -571,11 +570,12 @@ def test_the_fields_own_ctrl_chords_do_not_leak_out(monkeypatch):
 # --- a permanent delete is asked about first ---------------------------------
 
 
-def test_the_pose_and_sheet_deletes_go_through_a_confirm():
-    """Both sat one pixel from a save button and deleted on the click. The
-    scan is on the source because the alternative is driving two imgui panes;
-    what it pins is that neither ``Delete`` submits directly again."""
-    for name in ("pose_panel.py", "sheet_panel.py"):
+def test_the_pose_delete_goes_through_a_confirm():
+    """It sat one pixel from a save button and deleted on the click (and so
+    did the sheet panel's, which left with the character sheets). The scan is
+    on the source because the alternative is driving an imgui pane; what it pins
+    is that ``Delete`` does not submit directly again."""
+    for name in ("pose_panel.py",):
         text = (STUDIO / "panes" / name).read_text(encoding="utf-8")
         assert "_ask_delete" in text, name
         # Either spelling of "a modal is raised": both panes went through
@@ -606,20 +606,6 @@ def test_clay_state_close_has_a_caller():
     # ``main`` as a mixin (T7 of the 2026-09-02 review).
     assert "close_tab" in (STUDIO / "modes/clay/ui/viewport.py").read_text(encoding="utf-8")
     assert 'name == "w"' in text
-
-
-def test_poser_saves_from_the_keyboard_and_the_palette():
-    """B1. Both functions existed and neither had a key: saving a pose was a
-    button in one pane and nothing else."""
-    import inspect
-
-    from realmspinner.studio import palette
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    assert "poser" in palette._DOC_MODES
-    assert callable(poser_mode.active)
-    source = inspect.getsource(poser_mode.handle_key)
-    assert 'ctrl and name == "s"' in source
 
 
 def test_clays_frame_key_lives_with_clays_other_keys():

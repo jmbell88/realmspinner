@@ -1,10 +1,10 @@
 """Every way a drawing gets into Inker, and the decode behind each.
 
 A picker, a path, a pixel array, a sprite sheet, an .aseprite, a sprite draft,
-a rendered character sheet, a job's reference image -- eight doors, and each is
-a frame-thread half that opens the picker and a task-thread half that decodes.
-The split is the rule, not a habit: a native picker is modal to the OS and an
-image is as large as anything this app opens.
+a job's reference image -- seven doors, and each is a frame-thread half that
+opens the picker and a task-thread half that decodes. The split is the rule,
+not a habit: a native picker is modal to the OS and an image is as large as
+anything this app opens.
 
 Lifted out of ``studio/inker_mode`` on 2026-09-04 (T7 of the 2026-09-02
 review), after every behavioural finding that touches it was closed, so the
@@ -349,7 +349,7 @@ def new_from_selection(ctx: Any, tab: InkerDoc | None = None) -> bool:
 
     Through ``open_pixels``, which is the door every other "here are some
     pixels, make a document of them" path already uses (a sheet import, a
-    sprite draft, a rendered sheet) -- so the new tab is adopted, titled,
+    sprite draft) -- so the new tab is adopted, titled,
     journalled and made active by the same code, and this function is the
     crop and nothing else.
     """
@@ -419,40 +419,6 @@ def _load_sprite_draft(
     }
 
 
-def open_rendered_sheet(
-    ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = False
-) -> None:
-    """Open a rendered 8-direction sheet (or its pixel restyle) in the Inker.
-
-    :func:`open_sprite_draft`'s shape, and unlinked for exactly its reason: it
-    carries no ``job_id`` and no ``link_kind``, so the first Ctrl+S is a Save
-    As. The sheet on disk is where the document *came from*, not its file --
-    saving over the render would destroy the thing the document is derived from.
-
-    **Sliced by** :func:`sheetin.document_from_grid`, **not**
-    ``document_from_atlas``. The render's sidecar fully describes a uniform grid
-    -- columns, rows, frame size, cells -- but it is not a
-    ``DirectionalLayout`` *kind*: ``animation.SHEET_KINDS`` names the two legacy
-    sprite atlases and the planned ``f"{action}{directions}"`` sheets, and a
-    Blender render is none of them, so ``DirectionalLayout.of()`` would return
-    ``None`` and the whole door would refuse. The grid slicer wants only the
-    geometry, which the sidecar has.
-    """
-    inker_mode.ensure(ctx)
-    set_mode(ctx.state, "inker")
-    if not ctx.submit(
-        f"inker-open:sheet:{sheet_id}:{'pixel' if pixel else 'render'}",
-        _load_rendered_sheet,
-        ctx.svc,
-        job_id,
-        sheet_id,
-        pixel,
-    ):
-        # No picker here, a decode of a known sheet -- the 2026-09-14 audit,
-        # inker-12, widened to this sibling on 2026-09-14.
-        ctx.toast("That is already opening.", "info")
-
-
 def open_pixel_artifact(
     ctx: Any,
     job_id: str,
@@ -507,146 +473,6 @@ def open_pixel_artifact(
         # No picker here, a derive-and-decode of a known artifact -- the
         # 2026-09-14 audit, inker-12, widened to this sibling on 2026-09-14.
         ctx.toast("That is already opening.", "info")
-
-
-def sheet_grid(record: dict[str, Any]) -> tuple[tuple[int, int], int]:
-    """``(cell, count)`` from a rendered sheet's sidecar.
-
-    ``frame_size`` is the square case and is written as **0** on a non-square
-    plan, where ``frame_w``/``frame_h`` carry the truth -- so this reads the
-    pair first and falls back to the square. ``cells`` is the authority on how
-    many there are; ``columns * rows`` would count a padded final row.
-    """
-    width = int(record.get("frame_w") or 0)
-    height = int(record.get("frame_h") or 0)
-    if not width or not height:
-        square = int(record.get("frame_size") or 0)
-        width = height = square
-    if width < 1 or height < 1:
-        raise ValueError("that sheet's sidecar records no frame size")
-    count = len(record.get("cells") or []) or int(
-        int(record.get("columns") or 0) * int(record.get("rows") or 0)
-    )
-    if count < 1:
-        raise ValueError("that sheet's sidecar records no cells")
-    return (width, height), count
-
-
-def _load_rendered_sheet(
-    svc: Any, job_id: str, sheet_id: str, pixel: bool
-) -> dict[str, Any]:
-    """Blocking; task thread only."""
-    from ....core.safeio import pixelguard
-    from ....kernels.pixel import sheetin
-    from ....service import sheets as svc_sheets
-
-    if pixel:
-        record = svc_sheets.get_pixel_sheet(svc, job_id, sheet_id)
-        png = svc_sheets.sheet_pixel_png(svc, job_id, sheet_id)
-    else:
-        record = svc_sheets.get_sheet(svc, job_id, sheet_id)
-        png = svc_sheets.sheet_png(svc, job_id, sheet_id)
-    cell, count = sheet_grid(record)
-    atlas = pixelguard.decode_rgba(png, png.name)
-    cells = record.get("cells") or []
-    animation = record.get("animation")
-    if cells and animation:
-        # The sidecar knows what its own frames mean, so the document opens
-        # with them: one tag per animation and direction, and each frame at its
-        # own ``duration_ms`` -- a six-per-second idle and a twelve-per-second
-        # run in one timeline, which is the whole reason those were written
-        # into the sidecar.
-        #
-        # ``document_from_sheet`` was added for exactly this and then never
-        # called: this line said ``document_from_grid``, which is geometry
-        # only, so a Troupe sheet opened as 256 untagged frames at one default
-        # duration -- while the button's tooltip and the manual both promised
-        # the tags. ``document_from_grid`` stays as the fallback for the sheets
-        # that have no ``animation`` block: every one written before
-        # ``charsheet.animation_block`` existed.
-        # ``source`` is what lets the document remember which sheet these
-        # pixels came from, so a re-render of the same character can be found
-        # and merged later. Only on this branch: the fallback below has no
-        # ``animation`` block and therefore no run vocabulary to re-render in.
-        #
-        # ``record_base=not pixel`` (the 2026-10-03 audit, inker-66): a pixel
-        # restyle is not the render, so recording the render's source against
-        # its pixelised cells let Merge re-render swap the cleaned art for the
-        # newest raw render. No base, and the merge door refuses by name.
-        doc = sheetin.document_from_sheet(
-            atlas,
-            cells,
-            animation,
-            source={"job": job_id, "sheet": sheet_id},
-            record_base=not pixel,
-        )
-    else:
-        doc = sheetin.document_from_grid(atlas, cell, count=count)
-    name = str(record.get("name") or sheet_id)
-    return {
-        "doc": doc,
-        "path": None,
-        "format": "ora",
-        "title": f"{name} (pixel)" if pixel else name,
-    }
-
-
-def newest_sheet_after(svc: Any, job_id: str, sheet_id: str) -> str:
-    """The most recent character sheet of one job newer than ``sheet_id``.
-
-    What "the re-render" means without asking: a re-render publishes a new
-    sheet in the same job's directory, so the newest one that is not the
-    document's own base is the one to merge. Returns "" when there is none.
-
-    Older sheets are deliberately not offered. Merging one would run the
-    three-way comparison backwards -- the "incoming" render would be the older
-    picture -- and every cell the user has since had re-rendered would read as
-    a conflict.
-    """
-    from ....kernels.rig import store
-
-    try:
-        records = store.list_sheets(svc.job_dir(job_id))
-    except OSError:
-        return ""
-    current = next((r for r in records if str(r.get("id") or "") == sheet_id), None)
-    since = float((current or {}).get("created") or 0.0)
-    newer = [
-        record
-        for record in records
-        if (record.get("animation") or {}).get("tags")
-        and str(record.get("id") or "") != sheet_id
-        and float(record.get("created") or 0.0) > since
-    ]
-    newer.sort(key=lambda r: float(r.get("created") or 0.0), reverse=True)
-    return str(newer[0].get("id") or "") if newer else ""
-
-
-def load_sheet_cells(svc: Any, job_id: str, sheet_id: str) -> list[Any]:
-    """One re-rendered sheet's cells, in frame order. Blocking; task thread only.
-
-    ``_load_rendered_sheet``'s first half, for the merge -- which wants the
-    pixels and not a document. Refused here rather than inside the funnel when
-    the geometry disagrees, so the sentence names the *sheet* the user picked
-    instead of surfacing from three layers down.
-    """
-    from ....core.safeio import pixelguard
-    from ....service import sheets as svc_sheets
-
-    record = svc_sheets.get_sheet(svc, job_id, sheet_id)
-    png = svc_sheets.sheet_png(svc, job_id, sheet_id)
-    atlas = pixelguard.decode_rgba(png, png.name)
-    cells = record.get("cells") or []
-    if not cells:
-        raise ValueError("that sheet's sidecar lists no cells")
-    out = []
-    for cell in cells:
-        x, y = int(cell.get("x", 0)), int(cell.get("y", 0))
-        w, h = int(cell.get("w", 0)), int(cell.get("h", 0))
-        if w <= 0 or h <= 0 or y + h > atlas.shape[0] or x + w > atlas.shape[1]:
-            raise ValueError("that sheet's cells do not fit its own atlas")
-        out.append(atlas[y : y + h, x : x + w].copy())
-    return out
 
 
 # --- the job bridge ---------------------------------------------------------

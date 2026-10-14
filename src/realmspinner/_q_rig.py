@@ -1,17 +1,17 @@
-"""``Worker``'s Blender stages: rig, deformation QA, sprite sheet.
+"""``Worker``'s Blender stages: rig and its deformation QA.
 
-The three jobs that run bpy out-of-process, plus the render-and-pack step two
-of them share. Split out of ``queue.py`` for the reason every mixin here is:
+The jobs that run bpy out-of-process, plus the render-and-pack step the QA
+sheet uses. Split out of ``queue.py`` for the reason every mixin here is:
 the class had 35 methods and five unrelated subjects, and the loop core --
 which is the part with the invariants -- was buried among them.
 
 What these share, and why they are one module: none of them touches a resident
 model or the VRAM handoff at all. They are CPU and an EEVEE render, and the
 serial queue is the only thing keeping them from overlapping a trellis run.
-They also all write into *another* job's directory -- a rig, its QA sheet and
-its sprite sheets belong to the mesh they depict, not to the job that asked for
-them -- which is what makes the staged-write and completion-marker rules in
-here load-bearing rather than tidy.
+They also all write into *another* job's directory -- a rig and its QA sheet
+belong to the mesh they depict, not to the job that asked for them -- which is
+what makes the staged-write and completion-marker rules in here load-bearing
+rather than tidy.
 
 ``bpy`` never runs in this process: ``blender_run.run_worker`` spawns
 ``pipelines/blender_worker.py``, and ``_note_blender`` (which stays on
@@ -65,8 +65,8 @@ class RigOps:
             # detector to produce a second one they would also overrule is pure
             # cost.
             and not params.get("bones")
-            # The 2026-09-08 audit's poser-03: joints="measured" (Troupe's
-            # T-pose route) resolves off the mesh's own vertices in op_rig
+            # The 2026-09-08 audit's poser-03: joints="measured" (the T-pose
+            # route) resolves off the mesh's own vertices in op_rig
             # *before* _rig_bones ever looks at template_bones, so a landmark
             # set computed here is always thrown away on that path -- a model
             # load and a CPU forward pass paid for an answer nothing reads.
@@ -92,7 +92,7 @@ class RigOps:
         job_id = job["id"]
         params = job["params"]
         source_id = str(params.get("source_job") or "")
-        # Validated before it becomes a path, the same way sheet_id already is.
+        # Validated before it becomes a path.
         # This is the directory the Blender worker is pointed at and writes its
         # temps into, and job_dir("") is the assets root -- the whole reason
         # check_job_id and pose_path exist is to keep params off the filesystem
@@ -135,8 +135,8 @@ class RigOps:
             params.get("bones"),
             template_bones=landmarks,
             fit=fit,
-            # Where the job asked for it -- Troupe does, because its reference
-            # is a constrained T-pose and the shipped humanoid template is an
+            # Where the job asked for it -- a reference drawn as a constrained
+            # T-pose does, because the shipped humanoid template is an
             # A-pose, which fits a T-pose mesh badly enough to skin the arms to
             # the chest. ``rig_spec`` documents where this sits in the order of
             # preference: below a user correction, above the template.
@@ -174,9 +174,9 @@ class RigOps:
             # only the temps, because a cancelled *re*-rig must not destroy an
             # earlier successful one -- so the row must not say "cancelled"
             # either. It would leave a real rig under a row claiming it never
-            # happened, and ``_maybe_queue_charsheet`` is gated on "done", so a
-            # cancel during the QA tail below silently stalled the Troupe chain
-            # with a perfectly good rig nobody pointed at.
+            # happened, and the follow-ups are gated on "done", so a
+            # cancel during the QA tail below would silently stall whatever
+            # chain waited on a perfectly good rig nobody pointed at.
             if self._cancel is not None:
                 self._cancel.commit()
         finally:
@@ -263,9 +263,8 @@ class RigOps:
         is the ordinary sheet path -- ``sheetlib.plan``/``pack``/``sidecar``
         around ``op_sheet`` -- because a second renderer is a second set of
         camera conventions to keep in agreement with the first. The output is
-        not a sheet in ``sheets/``: it belongs to the rig, so it must not join
-        the user's sheet list, count against MAX_SHEETS, or be deleted by a
-        sheet delete.
+        not a sheet in ``sheets/``: it belongs to the rig, and is deleted with
+        it.
         """
         from . import queue as queue_mod
         from .kernels import sheet as sheetlib
@@ -294,8 +293,7 @@ class RigOps:
             yaws=queue_mod.DEFORM_QA_YAWS,
         )
         bones = {(p["id"], 0): p["bones"] for p in poses}
-        # Per pose, the same way ``_sheet`` builds ``spaces`` from its own
-        # records in this file: the battery is authored as deltas
+        # Per pose: the battery is authored as deltas
         # from rest (see templates/deform_qa/humanoid.json's ``space``), and
         # dropping it here left every cell rendering in the pose editor's
         # ``node`` frame instead -- broken on a ``measured`` rig, the
@@ -413,237 +411,6 @@ class RigOps:
         )
         return {"poses": [str(p["name"]) for p in poses], "cells": len(cells)}
 
-    async def _sheet(self: Worker, job: dict[str, Any]) -> None:
-        """Render a pose x direction sprite sheet for a finished job's mesh.
-
-        Like a rig, the output belongs to the mesh and lands in the *source*
-        job's directory (``sheets/<sheet_id>.png`` plus its sidecar). The grid
-        and the packing are pure host-side code in ``kernels/sheet.py``;
-        Blender only ever renders one square transparent frame per cell into a
-        scratch directory that goes away either way.
-
-        CPU and an EEVEE render, so nothing here touches the resident models or
-        the VRAM handoff -- the serial queue is what keeps it from overlapping
-        a trellis run.
-        """
-        from . import queue as queue_mod
-        from .kernels import sheet as sheetlib
-
-        job_id = job["id"]
-        params = job["params"]
-        source_id = str(params.get("source_job") or "")
-        # Validated before it becomes a path, the same way sheet_id already is.
-        # This is the directory the Blender worker is pointed at and writes its
-        # temps into, and job_dir("") is the assets root -- the whole reason
-        # check_job_id and pose_path exist is to keep params off the filesystem
-        # unchecked.
-        if not store.is_valid_id(source_id):
-            raise ValueError(f"source_job is not a job id: {source_id!r}")
-        source_dir = self.config.job_dir(source_id)
-        # Refused, never minted. ``_discard_artifacts``'s sheet branch unlinks
-        # ``sheet_path``/``sheet_png_path`` -- pure functions of this id, and
-        # the *served* names rather than temps -- which is safe only because
-        # every door mints a fresh id, so a cancelled run can only ever be
-        # deleting its own atlas. A ``or new_id()`` fallback here made that
-        # invariant unenforced in the one place it could be broken silently: a
-        # row arriving without an id got one *after* the door had had its
-        # chance, and a row carrying an *older* sheet's id would have this
-        # method pack over that sheet and a cancel then delete it. The four
-        # doors (sheets.create_sheet, troupe.create_charsheet, the two
-        # follow-up queuers in _q_jobs) and the resubmit path all mint one; a
-        # row without one is a bug in a door, and a refusal names it.
-        sheet_id = str(params.get("sheet_id") or "")
-        if not store.is_valid_id(sheet_id):
-            raise ValueError(f"sheet_id is not a sheet id: {sheet_id!r}")
-
-        records = []
-        for pose_id in params.get("poses") or []:
-            record = await asyncio.to_thread(store.read_pose, source_dir, str(pose_id))
-            if record is None:
-                # Deleted between queueing and running. Failing beats quietly
-                # rendering a sheet with a row missing that the user asked for.
-                raise RuntimeError(f"pose {pose_id} no longer exists")
-            records.append(record)
-
-        clip = params.get("clip")
-        if clip:
-            # Rebuilt from the same two poses rather than shipped in params: the
-            # host is the single place a grid or a clip is decided (see
-            # kernels/sheet.py), and storing the expanded frames would be a
-            # second copy that could disagree with it.
-            ends = [
-                await asyncio.to_thread(store.read_pose, source_dir, str(clip[k]))
-                for k in ("from", "to")
-            ]
-            if any(e is None for e in ends):
-                raise RuntimeError("a pose in this clip no longer exists")
-            records = sheetlib.interpolate(ends[0], ends[1], int(clip["frames"]))
-
-        layout = sheetlib.plan(
-            records,
-            frame_size=int(params.get("frame_size", sheetlib.DEFAULT_FRAME_SIZE)),
-            elevation=float(params.get("elevation", sheetlib.DEFAULT_ELEVATION)),
-            lighting=str(params.get("lighting", "flat")),
-            yaws=int(params.get("yaws", sheetlib.DEFAULT_YAWS)),
-        )
-        # The direction the user pressed, added to every cell's camera yaw so
-        # the sheet is shot from the front the user chose rather than always
-        # yaw 0. ``dev/measurements/2026-08-04-view-calibration.md``: a
-        # mesh's matched view scatters 330 degrees across 37 jobs, uniformly,
-        # so this cannot be derived and has to be a human's press.
-        front_yaw = float(params.get("front_yaw") or 0.0) % 360.0
-        # A rig if there is one, so poses can apply; otherwise the plain mesh,
-        # which is all an unrigged prop's turnaround needs.
-        source_glb = source_dir / "rig.glb"
-        if not source_glb.exists():
-            source_glb = source_dir / "model.glb"
-        if not source_glb.exists():
-            raise RuntimeError("source job has no mesh to render")
-
-        # Keyed by (pose id, frame) rather than pose id: every frame of a clip
-        # shares an id by construction, and keying on the id alone would render
-        # frame 0 in every row of the clip.
-        bones = {(r.get("id"), r.get("frame", 0)): r["bones"] for r in records}
-        # A clip authored as deltas from rest rather than in the pose editor's
-        # node frame says so per record; see ``blender_worker.POSE_SPACES``.
-        spaces = {
-            (r.get("id"), r.get("frame", 0)): r["space"] for r in records if r.get("space")
-        }
-        # The why lives on _sheet_root_offsets, which is module-level so a test
-        # can drive the map-building without a Worker or a Blender fake. The
-        # read stays here: it is I/O, and only worth doing when some record
-        # actually carries an offset.
-        roots: dict[tuple[Any, int], list[float]] = {}
-        root_bone: Any = None
-        if any(float(v) for r in records for v in (r.get("root_translation") or ())):
-            rig_meta = await asyncio.to_thread(store.read_rig, source_dir)
-            roots, root_bone = queue_mod._sheet_root_offsets(records, rig_meta)
-        cells = []
-        for c in layout.cells:
-            cell: dict[str, Any] = {
-                "index": c.index,
-                # The guard makes "no front set renders byte-identical to
-                # before" an inspectable fact rather than an arithmetic claim
-                # about ``(x + 0.0) % 360.0`` -- ``_q_jobs.py:358-365`` already
-                # makes the same call. Re-rounded to 4dp so the offset does
-                # not put float noise into the spec sent to Blender.
-                "yaw": c.yaw if not front_yaw else round((c.yaw + front_yaw) % 360.0, 4),
-                "pose": c.pose,
-                "frame": c.frame,
-                "bones": bones.get((c.pose, c.frame)) or {},
-            }
-            # Only where the record says so, so an ordinary pose row is the
-            # byte-identical cell it always was and the worker's default holds.
-            space = spaces.get((c.pose, c.frame))
-            if space:
-                cell["pose_space"] = space
-            offset = roots.get((c.pose, c.frame))
-            if offset:
-                cell["root_bone"] = root_bone
-                cell["root_offset"] = offset
-            cells.append(cell)
-
-        # The 2026-09-13 audit (docs-18): ``_sheet`` had no
-        # ``self._cancel.event.is_set()`` check anywhere in its body -- only
-        # the ``commit()`` at the very end -- so a cancel landing at any point
-        # (including here, before the render has even started) still paid for
-        # the whole Blender render. Nothing has been produced yet, so there is
-        # nothing to discard beyond returning.
-        if self._cancel is not None and self._cancel.event.is_set():
-            return
-        self.progress.update(
-            job_id, phase="sheet", label="Starting Blender", inner=0.0,
-            inner_next=0.05, nominal=12.0, detail=f"{len(cells)} frames",
-        )
-
-        def on_progress(frac: float, label: str) -> None:
-            self.progress.update(
-                job_id, phase="sheet", label=label, inner=frac,
-                inner_next=min(frac + 0.05, 1.0), nominal=20.0, detail="",
-            )
-
-        png = store.sheet_png_path(source_dir, sheet_id)
-        # Packed to a staging name and renamed in, exactly as ``_deform_qa``
-        # eighteen lines up already does and for its stated reason: the sidecar
-        # is the completion marker, so an *existing* sheet's sidecar goes on
-        # calling this PNG ready for the whole minute the pack spends writing
-        # over it, and a reader in that window gets a torn atlas that nothing
-        # marks as suspect. That window only opens when a run reuses an id, and
-        # the check above now makes that a refusal rather than a possibility --
-        # but "a write onto a served path is staged" is not a rule with an
-        # exception for "nothing should be reading it yet" (``_charsheet`` says
-        # the same thing about its own atlas), and a cancel mid-pack should not
-        # be able to leave a half-packed PNG under a name the id owns.
-        png_tmp = png.with_name(f".{png.name}.tmp")
-
-        def before_pack() -> None:
-            self.progress.update(
-                job_id, phase="pack", label="Packing sheet", inner=0.0,
-                inner_next=1.0, nominal=3.0, detail="",
-            )
-
-        try:
-            result, trims = await self._render_sheet_atlas(
-                source_glb,
-                layout,
-                cells,
-                prefix="realmspinner-sheet-",
-                on_progress=on_progress,
-                pack_target=png_tmp,
-                before_pack=before_pack,
-            )
-            # The second of docs-18's two checks: png_tmp already holds the
-            # packed atlas at this point, exactly as ``_deform_qa``'s own
-            # second check (docs-10) found it does, so skipping the publish
-            # below leaves nothing behind but a temp for the ``finally`` to
-            # discard -- a cancel landing mid-render no longer buys a published
-            # sheet nobody asked to keep.
-            if self._cancel is not None and self._cancel.event.is_set():
-                return
-            await asyncio.to_thread(os.replace, png_tmp, png)
-        finally:
-            with contextlib.suppress(OSError):
-                png_tmp.unlink(missing_ok=True)
-
-        # The sidecar is written last and is what list_sheets treats as the
-        # completion marker, the same way rig.json is for a rig.
-        #
-        # A worker that reported no pivot (an older result, or a fake in a test)
-        # falls back to the cell's centre-bottom rather than failing the sheet:
-        # the atlas is already on disk and correct, and the pivot is metadata.
-        pivot = result.get("pivot") if isinstance(result, dict) else None
-        meta = sheetlib.sidecar(
-            layout,
-            sheet_id=sheet_id,
-            source_job=source_id,
-            image=png.name,
-            created=time.time(),
-            name=str(params.get("name") or ""),
-            pivot=(float(pivot[0]), float(pivot[1])) if pivot else None,
-            trims=trims,
-            front_yaw=front_yaw,
-        )
-        await asyncio.to_thread(
-            queue_mod._publish_text,
-            store.sheet_path(source_dir, sheet_id),
-            json.dumps(meta, indent=2),
-        )
-        # The sidecar above is the completion marker, so a cancel arriving in
-        # the tail below must not have ``queue.py`` record this job cancelled
-        # and run ``_discard_artifacts`` on the served sheet_path/sheet_png_path
-        # pair the user can already see -- the 2026-09-07 audit found this sheet
-        # kind was still deletable after publish because nothing committed the
-        # cancel here, unlike ``_charsheet`` and ``_pixel_sheet``.
-        if self._cancel is not None:
-            self._cancel.commit()
-        params["sheet_id"] = sheet_id
-        params["cells"] = len(cells)
-        await asyncio.to_thread(self.store.set_params, job_id, params)
-        log.info(
-            "rendered sheet %s for job %s: %dx%d cells at %dpx",
-            sheet_id, source_id, layout.columns, layout.rows, layout.frame_size,
-        )
-
     async def _render_sheet_atlas(
         self: Worker,
         glb: Path,
@@ -653,26 +420,19 @@ class RigOps:
         prefix: str,
         on_progress: Any,
         pack_target: Path,
-        before_pack: Any = None,
         deform_metrics: bool = False,
     ) -> tuple[Any, Any]:
         """Render one cell per frame into a scratch directory and pack them.
 
-        The whole of what ``_sheet`` and ``_deform_qa`` share: a temporary
-        directory, ``blender_spec.sheet_spec``, one ``run_worker`` under the sheet
-        timeout, and ``sheetlib.pack`` over the frames it wrote. Blender only
-        ever renders one square transparent frame per cell into a scratch
-        directory that goes away either way; the grid and the packing are pure
-        host-side code.
+        A temporary directory, ``blender_spec.sheet_spec``, one ``run_worker``
+        under the sheet timeout, and ``sheetlib.pack`` over the frames it wrote.
+        Blender only ever renders one square transparent frame per cell into a
+        scratch directory that goes away either way; the grid and the packing
+        are pure host-side code.
 
-        The two callers differ only in what they render, where they pack it and
-        what they say while it happens, so those are the parameters.
-        ``pack_target`` is a staging name for both of them: the sidecar is the
-        completion marker, so a re-run's pack would otherwise spend a minute
-        writing over a PNG a *previous* run's sidecar still calls ready.
-        ``_sheet`` used to pass the served name on the grounds that nothing is
-        serving that atlas until its own sidecar exists, which is true of the
-        first run and of no other.
+        ``pack_target`` is a staging name: the sidecar is the completion
+        marker, so a re-run's pack would otherwise spend a minute writing over a
+        PNG a *previous* run's sidecar still calls ready.
         """
         from .kernels import sheet as sheetlib
 
@@ -696,8 +456,6 @@ class RigOps:
                     timeout=self.config.sheet_timeout,
                 )
             )
-            if before_pack is not None:
-                before_pack()
             frames = {c.index: frames_dir / f"{c.index:04d}.png" for c in layout.cells}
             trims = await asyncio.to_thread(sheetlib.pack, layout, frames, pack_target)
         return result, trims

@@ -289,7 +289,6 @@ def test_the_quit_chain_stops_at_the_first_cancel():
     from realmspinner.studio.modes.inker import mode as inker_mode
     from realmspinner.studio.modes.packwright import mode as packwright_mode
     from realmspinner.studio.modes.plotter import mode as plotter_mode
-    from realmspinner.studio.modes.poser import mode as poser_mode
     from realmspinner.studio.panes import pose_panel
 
     quit_calls: list[str] = []
@@ -299,7 +298,6 @@ def test_the_quit_chain_stops_at_the_first_cancel():
         ),
         confirms=dialogs.ConfirmQueue(),
         viewer=None,
-        poser_viewer=None,
     )
     app = SimpleNamespace(app_ctx=ctx, _quit=lambda: quit_calls.append("quit"))
     # Nothing dirty anywhere: every guard proceeds, so the chain runs to the
@@ -307,21 +305,19 @@ def test_the_quit_chain_stops_at_the_first_cancel():
     main.App._request_quit(app)
     assert quit_calls == ["quit"]
     assert ctx.confirms.pending is None
-    # And the guards are the ones this file names, in this order: painted
-    # pixels, built geometry, a map, an atlas, then the two pose editors --
-    # the inspector's and the Poser's, which read different viewers and so can
-    # never double-ask about one edit.
+    # And the guards are the ones this file names, in this order: the
+    # inspector's pose editor first (the shortest thing to lose and the quickest
+    # to answer), then painted pixels, built geometry, a map and an atlas.
     #
     # The document-mode guards come from ``mode_manifest.DOC_MODES`` (shell-73,
     # the 2026-10-03 audit; ``test_every_doc_mode_has_a_guard_in_the_quit_chain``
-    # pins the walk itself), with the inspector's pose guard slotted in just
-    # before Poser's own -- so the order is the manifest's, checked here.
+    # pins the walk itself), so the order is the manifest's, checked here.
     from realmspinner.studio import mode_manifest
 
     source = inspect.getsource(main.App._request_quit)
     assert "mode_manifest.DOC_MODES" in source and "pose_panel.guard" in source
     keys = [entry.key for entry in mode_manifest.DOC_MODES]
-    order = ["inker", "clay", "plotter", "packwright", "poser"]
+    order = ["inker", "clay", "plotter", "packwright"]
     positions = [keys.index(name) for name in order]
     assert positions == sorted(positions)
     assert all(
@@ -331,7 +327,6 @@ def test_the_quit_chain_stops_at_the_first_cancel():
             plotter_mode.guard,
             packwright_mode.guard,
             pose_panel.guard,
-            poser_mode.guard,
         )
     )
 
@@ -427,21 +422,6 @@ def test_modal_open_sees_both_queues():
     ctx.prompts.ask(dialogs.Prompt(title="A", label="name"))
     assert main.App._modal_open(app) is True
 
-    # And the fifth: the sheet-rendering question (Troupe's own "Send to
-    # Troupe" dialog, ported to Poser whole in P9, 2026-09-18). It is a real
-    # modal with its own Send and Cancel, and a shortcut leaking through it is
-    # UX-08 -- Esc would cancel the dialog *and* leave the mode behind it. The
-    # partial ctx is the point of ``poser_send.is_open``'s ``getattr``: this
-    # caller has never built a state object.
-    from types import SimpleNamespace as _NS
-
-    from realmspinner.studio.modes.poser.ui.panes import send as poser_send
-
-    ctx.prompts.dismiss()
-    assert main.App._modal_open(app) is False
-    ctx.state = _NS(poser_send=poser_send.PoserSend(job_id="abc"))
-    assert main.App._modal_open(app) is True
-
 
 def test_modal_open_sees_the_muse_derive_popup():
     """The 2026-09-16 audit: Muse's derive popup is a real
@@ -513,7 +493,6 @@ def test_the_confirm_modal_binds_enter_and_escape_and_focuses_confirm():
 
 _WORKSPACE_ARMS = {
     "clay": "modes.clay.mode",
-    "poser": "modes.poser.mode",
     "review": "modes.review.mode",
     "inker": "modes.inker.mode",
     "plotter": "modes.plotter.mode",

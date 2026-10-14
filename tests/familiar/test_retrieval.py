@@ -83,7 +83,7 @@ def test_a_regrouped_citation_never_exceeds_a_few_times_the_max_chunk_tokens(
     split chunks back into one citation, but the per-citation size check
     only ever ran for citations after the first (``if citations and ...``)
     -- the first citation, which ``search`` always returns regardless of
-    size, was never checked. The real Inker tools chapter (28-inker#tools)
+    size, was never checked. The real Inker tools chapter (25-inker#tools)
     splits into ten chunks that regrouped into one 2209-token citation this
     way (the 2026-09-18 probe, familiar-package-01.py) -- over 7x
     ``_MAX_CHUNK_TOKENS`` (300)."""

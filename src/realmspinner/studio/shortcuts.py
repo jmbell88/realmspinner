@@ -161,10 +161,15 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
                 # with a capital, one line above "Vertex / edge / face".
                 " / ".join(CLAY_KEYS.values()).capitalize(),
             ),
-            ("1 / 2 / 3 / 4", "Points / edges / faces / shape mode"),
+            ("1 / 2 / 3 / 4 / 5", "Points / edges / faces / shape / pose mode"),
+            # Pose mode's timeline keys (the 2026-10-13 Clay rig plan, Tranche 3).
+            ("Space", "Play / stop the animation (Pose mode)"),
+            ("Home / End", "Playhead to the start / the last key (Pose mode)"),
+            ("Left / Right", "Playhead one frame back / on (Pose mode)"),
+            ("Delete / X", "Remove the keys picked on the timeline (Pose mode)"),
             ("E", "Extrude, then drag it out -- along the face normal (element modes)"),
             ("Shift+R", "Repeat the last operation (an element mode)"),
-            ("I", "Inset faces -- drag, type a value, Enter (face mode)"),
+            ("I", "Inset faces (face mode); in Pose mode, key the selected bones"),
             ("Ctrl+B", "Bevel edges -- drag, type a value, Enter (edge mode)"),
             ("Ctrl+R", "Loop cut -- pick one edge, drag along it, type a value, Enter (edge mode)"),
             ("Ctrl+Shift+R", "Edge slide -- drag sideways, type a value, Enter (edge mode)"),
@@ -368,41 +373,6 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Ctrl+0 / Ctrl+1", "Fit / 100%"),
             ("Space / middle drag", "Pan (wheel zooms)"),
             ("Esc", "Cancel a drag, then the object, then the selection"),
-        ],
-    )
-    table(
-        "Poser",
-        [
-            # The pose-editing half is otherwise mouse-shaped -- joints are
-            # clicked and gizmos are dragged. The view keys and the mouse rows
-            # are Clay's, on the same chords: the 2026-09-05 pass found this
-            # table saying "two rows are the whole group" a week after six
-            # more were bound.
-            ("Ctrl+Z / Ctrl+Y", "Undo / redo (Ctrl+Shift+Z also redoes)"),
-            ("Ctrl+S / Ctrl+Shift+S", "Save / save as"),
-            ("Ctrl+1 / Ctrl+3 / Ctrl+7", "Look along front / right / top (Shift: the opposite)"),
-            ("Ctrl+5", "Toggle orthographic and perspective"),
-            ("F", "Frame the armature"),
-            ("Alt+drag", "Orbit (middle drag pans)"),
-            ("Esc", "Deselect the joint"),
-            # Below: the character-sheet section (Troupe's own rows, folded in
-            # whole by P9, 2026-09-18) -- live only while a sheet is on
-            # screen, the same way the rows above apply only while a joint
-            # editor is.
-            ("Space", "Play / pause the sheet preview"),
-            # Stepping pauses, which is why the two rows are not "step" alone:
-            # the binding does two things and a sheet that named one of them
-            # would be describing a different control.
-            ("Left / Right", "Step one frame, and pause"),
-            ("Up / Down", "Turn the character one direction, holding the frame"),
-            ("PageUp / PageDown", "Previous / next animation"),
-            ("Home / End", "First / last frame of the run, and pause"),
-            # C and P were bound in ``poser_mode.sheet_handle_key`` (Troupe's
-            # own ``handle_key``) from the start but missing from this table
-            # and chapter 38 -- the 2026-09-08 audit's troupe-01, closed here
-            # and in the manual chapter alongside it.
-            ("C", "Toggle the checkerboard"),
-            ("P", "Toggle the pivot mark"),
         ],
     )
     table(

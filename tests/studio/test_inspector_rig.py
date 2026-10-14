@@ -264,7 +264,6 @@ def test_the_library_rig_and_pose_tab_offers_game_ready_remesh(svc, monkeypatch)
         pose_panel,
         remesh_panel,
         retarget_panel,
-        sheet_panel,
         texture_panel,
     )
 
@@ -280,7 +279,6 @@ def test_the_library_rig_and_pose_tab_offers_game_ready_remesh(svc, monkeypatch)
     monkeypatch.setattr(remesh_panel, "draw", lambda *_a: calls.append("remesh"))
     monkeypatch.setattr(texture_panel, "draw", lambda *_a: calls.append("retexture"))
     monkeypatch.setattr(pose_panel, "draw", lambda *_a: calls.append("pose"))
-    monkeypatch.setattr(sheet_panel, "draw", lambda *_a: calls.append("sheet"))
 
     inspector._rig_tab(ctx, job)
 

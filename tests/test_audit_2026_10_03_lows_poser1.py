@@ -15,9 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from PIL import Image
 
-from realmspinner import doctor
 from realmspinner.characters import CharacterError, Recipe
 from realmspinner.characters import family as family_mod
 from realmspinner.characters import instantiate as instantiate_mod
@@ -25,9 +23,7 @@ from realmspinner.kernels import charsheet
 from realmspinner.kernels.rig import poses as poses_mod
 from realmspinner.kernels.rig import store
 from realmspinner.service import characters as svc_characters
-from realmspinner.service import sheets as svc_sheets
 from realmspinner.service import sprites as svc_sprites
-from realmspinner.service import troupe as svc_troupe
 from realmspinner.service.errors import Invalid
 
 REPO = Path(__file__).resolve().parents[1]
@@ -46,61 +42,6 @@ def _mesh(svc, *, rigged: bool = True, template: str = "humanoid") -> str:
         (job_dir / "rig.json").write_text(json.dumps({"template": template}), "utf-8")
     svc.store.set_status(job_id, "done")
     return job_id
-
-
-def _sheet(svc, mesh_id: str, *, mutate=None) -> str:
-    """A hand-built two-cell Troupe sheet (one movement, one direction)."""
-    sheet_id = store.new_id()
-    job_dir = svc.job_dir(mesh_id)
-    frame = 16
-    png_path = store.sheet_png_path(job_dir, sheet_id)
-    png_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGBA", (frame * 2, frame), (0, 0, 0, 255)).save(png_path, format="PNG")
-    sidecar = {
-        "version": 1,
-        "id": sheet_id,
-        "name": "lows",
-        "source_job": mesh_id,
-        "created": 0.0,
-        "image": png_path.name,
-        "frame_size": frame,
-        "columns": 2,
-        "rows": 1,
-        "width": frame * 2,
-        "height": frame,
-        "yaws": [0.0],
-        "poses": [],
-        "cells": [
-            {"index": i, "x": i * frame, "y": 0, "w": frame, "h": frame} for i in range(2)
-        ],
-        "troupe": {
-            "version": 3,
-            "columns": 8,
-            "movements": [
-                {
-                    "key": "walk", "label": "Walk", "frames": 2, "loop": True,
-                    "duration_ms": 100,
-                    "directions": [{"key": "front", "label": "Front", "yaw": 0.0}],
-                }
-            ],
-            "runs": [
-                {"movement": "walk", "direction": "front", "yaw": 0.0, "start": 0, "end": 1}
-            ],
-            "cell_count": 2,
-        },
-    }
-    if mutate is not None:
-        mutate(sidecar)
-    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(sidecar), encoding="utf-8")
-    return sheet_id
-
-
-def _blender_missing(monkeypatch) -> None:
-    monkeypatch.setattr(
-        doctor,
-        "blender_check",
-        lambda *a, **k: doctor.Check("Blender (rigging)", False, "no bpy", False),
-    )
 
 
 # --- poser-21 ---------------------------------------------------------------
@@ -188,62 +129,6 @@ def test_a_missing_or_empty_masks_file_is_refused_by_name(damage, tmp_path):
 # --- poser-25 ---------------------------------------------------------------
 
 
-def test_a_sidecar_with_a_non_numeric_frame_size_is_refused_by_the_preview_and_the_job_report(
-    svc,
-):
-    """poser-25: the "refused, not crashed" contract was applied to
-    ``export_frames``' frame_size only; ``sheet_preview_png`` still called a
-    bare ``int()`` and ``character_job`` raised for the whole report because
-    of one corrupt sidecar."""
-    mesh_id = _mesh(svc)
-    good = _sheet(svc, mesh_id)
-    bad = _sheet(svc, mesh_id, mutate=lambda s: s.__setitem__("frame_size", "big"))
-
-    with pytest.raises(Invalid) as excinfo:
-        svc_characters.sheet_preview_png(svc, mesh_id, bad, max_side=64, max_bytes=200_000)
-    assert excinfo.value.field == "sheet_id"
-
-    report = svc_characters.character_job(svc, mesh_id)
-    listed = {row["sheet_id"] for row in report["sheets"]}
-    assert good in listed, "one corrupt sidecar cost the whole report"
-    assert bad not in listed
-
-
-def test_export_frames_refuses_a_non_numeric_run_yaw_and_cell_x_by_name(svc, tmp_path):
-    """poser-25: ``float(run["yaw"])`` and the cell crop box were read bare, so
-    a hand-edited sidecar escaped ``export_frames`` as ValueError/TypeError."""
-    mesh_id = _mesh(svc)
-    bad_yaw = _sheet(
-        svc, mesh_id, mutate=lambda s: s["troupe"]["runs"][0].__setitem__("yaw", "left")
-    )
-    bad_cell = _sheet(svc, mesh_id, mutate=lambda s: s["cells"][0].__setitem__("x", "a"))
-    for sheet_id in (bad_yaw, bad_cell):
-        with pytest.raises(Invalid) as excinfo:
-            svc_characters.export_frames(svc, mesh_id, sheet_id, tmp_path / "out")
-        assert excinfo.value.field == "sheet_id", sheet_id
-
-
-def test_the_preview_refuses_a_non_numeric_cell_and_run_bound_by_name(svc):
-    mesh_id = _mesh(svc)
-    bad_cell = _sheet(svc, mesh_id, mutate=lambda s: s["cells"][0].__setitem__("y", "a"))
-    bad_end = _sheet(
-        svc, mesh_id, mutate=lambda s: s["troupe"]["runs"][0].__setitem__("end", "many")
-    )
-    # A corrupt cell is refused whatever the preview was asked for; a corrupt
-    # run bound only matters to a request that reads the run (a movement).
-    asks = {
-        bad_cell: ({}, {"movement": "walk"}),
-        bad_end: ({"movement": "walk"}, {"movement": "walk", "direction": "front"}),
-    }
-    for sheet_id, variants in asks.items():
-        for extra in variants:
-            with pytest.raises(Invalid) as excinfo:
-                svc_characters.sheet_preview_png(
-                    svc, mesh_id, sheet_id, max_side=64, max_bytes=200_000, **extra
-                )
-            assert excinfo.value.field == "sheet_id", (sheet_id, extra)
-
-
 # --- poser-26 ---------------------------------------------------------------
 
 
@@ -289,44 +174,6 @@ def test_sprite_palettes_docstring_no_longer_claims_sprite_options_reads_no_disk
 
 
 # --- poser-27 ---------------------------------------------------------------
-
-
-def test_create_charsheet_refuses_a_non_numeric_elevation_on_the_camera_field(svc):
-    """poser-27: a bad elevation reached ``charsheet.plan``, whose ValueError
-    was filed under ``field="layout"``, and a non-numeric one escaped as a
-    bare TypeError -- where ``check_troupe`` names the camera."""
-    mesh_id = _mesh(svc)
-    for bad in ("steep", [30]):
-        with pytest.raises(Invalid) as excinfo:
-            svc_troupe.create_charsheet(svc, mesh_id, elevation=bad)
-        assert excinfo.value.field == "camera"
-    with pytest.raises(Invalid) as excinfo:
-        svc_troupe.create_charsheet(svc, mesh_id, elevation=120.0)
-    assert excinfo.value.field == "camera"
-
-
-def test_create_charsheet_refuses_an_unknown_lighting_on_the_lighting_field(svc):
-    mesh_id = _mesh(svc)
-    with pytest.raises(Invalid) as excinfo:
-        svc_troupe.create_charsheet(svc, mesh_id, lighting="disco")
-    assert excinfo.value.field == "lighting"
-
-
-def test_send_to_troupe_unrigged_refuses_a_bad_elevation_on_the_camera_field(svc):
-    mesh_id = _mesh(svc, rigged=False)
-    with pytest.raises(Invalid) as excinfo:
-        svc_troupe.send_to_troupe(svc, mesh_id, elevation="steep")
-    assert excinfo.value.field == "camera"
-
-
-def test_create_sheet_refuses_a_bad_elevation_and_lighting_by_name(svc):
-    mesh_id = _mesh(svc, rigged=False)
-    with pytest.raises(Invalid) as excinfo:
-        svc_sheets.create_sheet(svc, mesh_id, elevation="steep")
-    assert excinfo.value.field == "camera"
-    with pytest.raises(Invalid) as excinfo:
-        svc_sheets.create_sheet(svc, mesh_id, lighting="disco")
-    assert excinfo.value.field == "lighting"
 
 
 # --- poser-28 ---------------------------------------------------------------
@@ -399,69 +246,7 @@ def test_recipe_from_prompt_still_takes_a_ladder_directions(svc):
 # --- poser-39 ---------------------------------------------------------------
 
 
-def test_create_charsheet_refuses_when_blender_is_not_installed(svc, monkeypatch):
-    """poser-39: the doors that queue a Blender render never asked the probe,
-    so on a host without bpy the row was queued and died in the worker."""
-    mesh_id = _mesh(svc)
-    _blender_missing(monkeypatch)
-    with pytest.raises(Invalid, match="needs Blender"):
-        svc_troupe.create_charsheet(svc, mesh_id)
-    # send_to_troupe's rigged branch delegates to it.
-    with pytest.raises(Invalid, match="needs Blender"):
-        svc_troupe.send_to_troupe(svc, mesh_id)
-    assert svc.store.list(limit=50, kind="charsheet") == []
-
-
-def test_create_sheet_refuses_when_blender_is_not_installed(svc, monkeypatch):
-    mesh_id = _mesh(svc, rigged=False)
-    _blender_missing(monkeypatch)
-    with pytest.raises(Invalid, match="needs Blender"):
-        svc_sheets.create_sheet(svc, mesh_id)
-    assert svc.store.list(limit=50, kind="sheet") == []
-
-
-def test_rerender_charsheet_refuses_when_blender_is_not_installed(svc, monkeypatch):
-    def four_directions(sidecar):
-        sidecar["troupe"] = charsheet.resolve_layout(
-            {"version": 3, "movements": [{"key": "walk", "frames": 1, "directions": 4}]}
-        ).as_dict()
-
-    mesh_id = _mesh(svc)
-    sheet_id = _sheet(svc, mesh_id, mutate=four_directions)
-    svc.store.create(
-        "charsheet", "a hooded ranger",
-        {"source_job": mesh_id, "sheet_id": sheet_id, "template": "humanoid"},
-        stage="model", status="done",
-    )
-    _blender_missing(monkeypatch)
-    with pytest.raises(Invalid, match="needs Blender"):
-        svc_troupe.rerender_charsheet(
-            svc, mesh_id, sheet_id=sheet_id, subset=[{"animation": "walk", "direction": "front"}]
-        )
-
-
 # --- poser-40 ---------------------------------------------------------------
-
-
-def test_a_directory_squatting_at_a_sheet_png_name_is_not_served(svc):
-    """poser-40: the doors tested ``.exists()`` after the readers moved to
-    ``is_file()``, so a hand-dropped directory named ``<id>.png`` was hidden
-    from the listing yet returned as a servable path."""
-    mesh_id = _mesh(svc)
-    job_dir = svc.job_dir(mesh_id)
-    sheet_id = store.new_id()
-    store.sheet_png_path(job_dir, sheet_id).mkdir(parents=True)
-    store.sheet_path(job_dir, sheet_id).write_text("{}", encoding="utf-8")
-    with pytest.raises(Exception, match="no such sheet") as excinfo:
-        svc_sheets.sheet_png(svc, mesh_id, sheet_id)
-    assert type(excinfo.value).__name__ == "NotFound"
-
-
-def test_a_directory_squatting_at_rig_glb_does_not_pass_the_is_rigged_gate(svc):
-    mesh_id = _mesh(svc, rigged=False)
-    (svc.job_dir(mesh_id) / "rig.glb").mkdir()
-    with pytest.raises(Invalid, match="rigged mesh"):
-        svc_troupe.create_charsheet(svc, mesh_id)
 
 
 def test_a_directory_squatting_at_a_sprite_draft_png_name_is_not_served(svc):
@@ -479,54 +264,10 @@ def test_a_directory_squatting_at_a_sprite_draft_png_name_is_not_served(svc):
 # --- poser-41 ---------------------------------------------------------------
 
 
-def test_the_manual_names_every_compass_folder_a_sixteen_direction_export_writes():
-    """poser-41: both chapters listed the eight compass folder names, but a
-    sixteen-direction sheet exports folders from the sixteen-point rose."""
-    folders = set(charsheet.COMPASS_16.values())
-    assert len(folders) == 16
-    for chapter in ("13-putting-it-in-a-game.md", "26-poser.md"):
-        text = (REPO / "docs" / "manual" / chapter).read_text(encoding="utf-8")
-        missing = sorted(name for name in folders if f"`{name}`" not in text)
-        assert not missing, f"{chapter} never names the folder(s) {missing}"
-
-
 # --- poser-42 ---------------------------------------------------------------
 
 
-def test_send_to_troupe_docstring_does_not_promise_a_humanoid_refusal():
-    """poser-42: the rigged case delegates to ``create_charsheet``, which no
-    longer refuses a non-humanoid rig (it refuses a clipless skeleton), and
-    the docstring never said the rigged branch drops ``template``/``bones``."""
-    doc = " ".join((inspect.getdoc(svc_troupe.send_to_troupe) or "").split())
-    assert "humanoid refusal" not in doc
-    assert "clip-library refusal" in doc
-    assert "only when this call mints the rig" in doc
-
-
 # --- poser-51 ---------------------------------------------------------------
-
-
-def test_a_remesh_and_a_promotion_drop_guide_pose_with_the_other_guide_keys(svc):
-    """poser-51: ``guide_pose`` was not in ``CONDITIONING_PARAMS``, so a
-    promotion or remesh stripped ``control``/``control_hint_source``/
-    ``guide_variant`` yet kept a ``guide_pose`` naming a guide that cannot
-    have run."""
-    from realmspinner.service import jobs as svc_jobs
-    from realmspinner.service.validation import CONDITIONING_PARAMS
-
-    assert "guide_pose" in CONDITIONING_PARAMS
-
-    made = svc_jobs.create_job(
-        svc, kind="text", prompt="a ranger", output="reference", troupe={"pose": "apose"}
-    )
-    reference = made["id"]
-    assert svc.store.get(reference)["params"]["guide_pose"] == "apose"
-    job_dir = svc.job_dir(reference)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "input.png").write_bytes(b"fake-png")
-    svc.store.set_status(reference, "done")
-    promoted = svc_jobs.promote_to_model(svc, reference)
-    assert "guide_pose" not in svc.store.get(promoted["id"])["params"]
 
 
 # --- poser-53 ---------------------------------------------------------------

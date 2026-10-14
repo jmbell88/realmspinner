@@ -92,8 +92,8 @@ moment.
 `animated.glb` (a third GLB, distinct from the two above) is derived from `rig.glb` rather than `model.glb`, and its
 freshness test is not bare existence: the host stamps a hash of the rig's clip library into the file
 itself the moment it is baked, and a later request rebakes it, rather than serving the old one,
-whenever that hash no longer matches — which is what lets a clip edited in Poser, or a clip newly
-added to a shipped library, reach a character's `animated.glb` the next time anyone asks for it.
+whenever that hash no longer matches — which is what lets a clip newly
+added to a shipped library reach a character's `animated.glb` the next time anyone asks for it.
 
 A retarget deletes every derived artifact, because each of them describes the old mesh. It does not
 delete the rig — it reports that the rig is now stale, and the retarget control warns you before the
@@ -193,51 +193,21 @@ twelve hexadecimal characters. Overwriting a pose deletes its cached GLB, becaus
 the rotations you just replaced. The bake itself is derived on demand under the same per-artifact
 lock as the mesh exports rather than being queued: it is roughly a one-second subprocess, and
 putting it behind the serial GPU queue would make it wait on a reconstruction. See
-[Posing](25-rigging-and-posing.md#posing).
+[Posing](23-generating-meshes.md#posing).
 
 ## Sheet planning
 
-A sprite sheet's grid is decided on the host and never in Blender. `kernels/sheet.py` is pure:
+A multi-view render's grid is decided on the host and never in Blender. `kernels/sheet.py` is pure:
 `plan()` works out which cells exist, `pack()` composites the rendered frames with Pillow, and
 `sidecar()` writes the JSON. Blender's only job is to render one square transparent PNG per cell
-into a scratch directory.
+into a scratch directory. Realmspinner no longer renders character sprite sheets (they left with
+Poser); the planner still serves the rig's **deformation review** sheet, a battery of test poses
+rendered as one picture.
 
-That split is what makes the grid testable without a GPU, and it is why the in-app preview, the
-renderer and the sidecar cannot disagree about what a cell contains — there is one planner and all
-three read it. The preview's own camera maths has to match the renderer's, down to the constants:
-yaw zero puts the camera on `+Z` in the exported Y-up frame, and the framing extent is
-`max(hypot(sx, sz), sy) * 1.12` — the same twelve percent margin the renderer frames with.
-
-A cell's stored `yaw` is the direction the **sprite faces**, which since 2026-09-08 is no longer
-always the direction the camera stood in. If the asset carries a front
-(see [Poser](26-poser.md#choosing-the-front)) the renderer shoots each cell from `yaw + front_yaw`
-and records `front_yaw` once, in the sidecar's `camera` block. Keeping the two apart is deliberate:
-the layout snapshot publishes canonical direction angles that `resolve_layout` refuses to let drift,
-so folding the offset into the cells would leave one sheet stating two different front directions.
-
-Three details are easy to undo by accident:
-
-- The camera is framed **once**, and it is framed from the *union* of every pose the sheet
-  contains, measured before anything renders. Reframing per pose would make the subject jump in
-  size between rows; framing from the rest pose alone clipped every pose whose apex leaves the rest
-  box — an overhead attack wind, the top of a jump — on every cell of that run. The orbit axis
-  stays the rest pose's ground origin either way, so the pivot lands on the same pixel at every
-  yaw. On a sheet with nothing but the rest pose the union *is* the rest box, and the framing is
-  unchanged.
-- The sidecar carries a flat list of cells rather than a nested grid, so an animated clip becomes
-  more cells with a frame index above zero instead of a new sidecar format.
-- Cells arrive grouped by row, so the worker re-poses once per pose rather than once per frame.
-
-Column zero is the front view. Yaw zero looks along `+Y` in Blender, and every skeleton template
-puts the subject's forward direction at `-Y`. See [The grid](27-sprite-sheets.md#the-grid) and
-[The sidecar](27-sprite-sheets.md#the-sidecar).
-
-Each movement's frame timing comes from the rig's own clip library — how many milliseconds one
-rendered frame holds — unless the request names a global frame rate, which restates every
-movement's timing at that rate instead of the library's own. The character-sheet size ladder (16 to
-256 px; the 3D sheet planner's own `FRAME_SIZES` run on to 512) tops out at 256 px,
-where the 8192 px atlas ceiling allows exactly 256 cells (eight columns by thirty-two rows) — the
-five original movements across eight directions, with no room for a sixth movement at that size. An
-HD sheet (`pixel_art: false`) skips the reduction pass altogether rather than reducing to a larger
-palette: no median cut, no dithering, no outline pass, because those are the pixel-art steps this
-render does not take.
+That split is what makes the grid testable without a GPU. The camera is framed **once**, from the
+*union* of every pose the sheet contains, measured before anything renders: reframing per pose would
+make the subject jump in size between rows, and framing from the rest pose alone clipped every pose
+whose apex leaves the rest box. The orbit axis stays the rest pose's ground origin either way, so the
+pivot lands on the same pixel at every yaw. Yaw zero puts the camera on `+Z` in the exported Y-up
+frame, and the framing extent is `max(hypot(sx, sz), sy) * 1.12`. Cells arrive grouped by row, so
+the worker re-poses once per pose rather than once per frame.

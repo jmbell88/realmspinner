@@ -153,13 +153,12 @@ does, or list every symmetric limb, as `humanoid.json` does.
 
 Two conventions are worth honouring for consistency with the templates already there. Forward is
 `-Y`, which is what makes column zero of a sprite sheet the front view by default. (A mesh that is
-not built to that convention is not stuck with it: its own front is set by orbiting it in
-[Poser](26-poser.md#choosing-the-front) or the 3D viewport, and every sheet is measured from there
-instead. Honour the convention anyway — it is one less thing for whoever uses your template to have
-to notice.) And limbs you intend to pair should be placed mirror-symmetrically about `X`, because the
+not built to that convention is not stuck with it: turn it in [Clay](27-clay.md) and export it.
+Honour the convention anyway — it is one less thing for whoever uses your template to have to
+notice.) And limbs you intend to pair should be placed mirror-symmetrically about `X`, because the
 reflection `mirror_pose` applies assumes that plane.
 
-See [Templates](25-rigging-and-posing.md#templates).
+See [Templates](23-generating-meshes.md#templates).
 
 ## Adding a clip mapping table
 
@@ -225,7 +224,7 @@ adapter that cannot have run is a lie about provenance.
 Inputs are bounded at the door rather than deep in the pipeline: an upload is size-checked before it
 is decoded and pixel-checked from its header before pixels are allocated, prompts are length-capped,
 and every service entry point that accepts a seed range-checks it. See
-[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](33-library-and-jobs.md#rerun-and-promotion).
 
 ## Pure-module boundaries
 
@@ -255,8 +254,7 @@ reach without a display.
 ## Driving Realmspinner from an AI agent
 
 Realmspinner speaks the Model Context Protocol, so an agent that already runs on your machine — Claude
-Code, Codex, anything with an MCP client — can build in Clay for you, and can also take a character
-from a species name to a rigged, animated sprite sheet on its own. It is off until you switch it
+Code, Codex, anything with an MCP client — can build in Clay for you. It is off until you switch it
 on, in Settings under Advanced. If you installed Realmspinner rather than running it from a checkout,
 point the agent at the launcher the installer staged:
 `claude mcp add realmspinner -- "%LOCALAPPDATA%\Programs\Realmspinner\bin\realmspinner-mcp.cmd"`. From a
@@ -283,9 +281,9 @@ that client negotiates — both the classic, `initialize`-first family and a new
 so Realmspinner itself only ever has to answer that one, versioned RPC rather than every MCP revision a
 client might bring.
 
-**What an agent may touch is a two-part rule, not one.** In Clay it is unchanged: it gets a tab of
-its own when it connects, which opens behind your document and never takes the front (click it to look),
-and every tool it has addresses that tab by name. A document you already
+**What an agent may touch is one tab, its own.** It gets that tab when it connects, which opens behind
+your document and never takes the front (click it to look), and every tool it has addresses that tab
+by name. A document you already
 have open is not merely unlikely to be touched; there is no request the agent can make that names
 it. What the agent does
 goes onto that document's ordinary undo stack, one step per action, so taking over means switching
@@ -296,20 +294,6 @@ arrives already knowing Realmspinner's
 units and conventions — metres, which way is up, that a generator stands on the ground rather than
 straddling it — rather than working them out by trial, which is why its first attempt at something
 now usually stands on the ground instead of floating above it or growing up out of the floor.
-
-Against the character pipeline the rule is a different shape, because a Library row is not a
-document with a tab to pin. An agent may read any row by its job id — one already there, or one it
-just made — but it can only ever add: a new mesh, a new rig, a new sprite sheet, each minted through
-the same door a pane uses, plus a copy dropped into the export folder you configured. It can never
-re-rig a mesh that already has a rig, adjust a rig's joints, save or revert a clip library, delete
-anything, rerun a job, or change the direction a preview faces, and it can never reach into a
-document or panel you already have open. It can cancel only a job it started on its own connection
-(or the sheet job a rig it started has since queued), even one sitting in the queue; any other job
-is out of its reach. There is no path anywhere in this surface — every argument it takes is an id
-you already hold or a name from a fixed list — and nothing it builds is unusual: what it leaves
-behind is an ordinary Library row with no history of having come from an agent, so the way you take
-one back is the way you take back anything else in Library, by deleting it. There is no undo for
-this half of the surface, because there is nothing here an undo stack was ever tracking.
 
 The tools are the ones you would reach for yourself, but most of them now do in one call what used
 to take several. Placing a primitive sets its size, its position, its rotation, its
@@ -407,8 +391,8 @@ and `_remove`. And `clay_export`. There is no figure, boolean, modifier, collide
 because Clay has none of those things.
 
 Exporting does what pressing the button does: it saves the model, writes a GLB, and mints a Library
-entry, so what an agent makes is an ordinary asset with no history of being unusual. Rigging,
-posing, sprite sheets and every mesh export work on it exactly as they work on anything else.
+entry, so what an agent makes is an ordinary asset with no history of being unusual. Every mesh export
+works on it exactly as it works on anything else.
 
 **A client that supports MCP Tasks never has to wait on a slow call either.** If your agent's client
 declares the `io.modelcontextprotocol/tasks` extension, every tool call it makes comes back
@@ -419,65 +403,6 @@ nothing to configure on Realmspinner's side beyond what your client already nego
 behaviour described above (a call that outran a wait is recognised, not repeated) and task polling
 are two ways of asking the same underlying question — "what became of that call?" — and a client
 using tasks simply asks it its own way.
-
-### Characters, rigs and sprite sheets
-
-The same agent can also drive the character pipeline: describe a species, get a mesh, a rig and an
-animated sprite sheet without touching a pane. Start with `character_options` to see what is on
-offer — the species Realmspinner knows, the rig templates, the movement vocabulary, the cameras, sizes
-and export formats — then call `character_create` with a prompt or an explicit species and a list
-of movements. A prompt of "swamp knight" with movements idle, walk, attack, hit and death at eight
-directions resolves to the knight — Realmspinner's only armoured humanoid — but the knight has no swamp
-look; it offers natural or blackened instead, so the swamp theme is quietly dropped and the reply
-says so, rather than either guessing or refusing the whole request over one word.
-
-`character_create` hands back a mesh job id and a `rig_job_id`, both still running (the mesh's own
-id reports the same `follow_up_sheet_job` once it exists too, so either id can be polled). Poll
-`character_job` on the `rig_job_id` until its `follow_up_sheet_job` field names a job — that is the
-sprite sheet Realmspinner queues automatically once the rig finishes — then poll `character_job` again,
-this time on that sheet job's id, until it reports done. Any terminal status other than done —
-error or cancelled — on either job ends the loop. If the rig itself ends in error or is cancelled, no
-follow-up sheet ever appears; read `follow_up_failure` (or the rig job's own error) off that same
-`character_job` reply and stop, rather than poll forever for a sheet that will not come; if the sheet
-job ends in error or is cancelled, read its own error and stop.
-`character_sheet_preview` returns a picture of the
-sheet, cropped to one movement and one facing if you ask for them, so the agent can look at what it
-made the same way it can in Clay. `character_export` writes the finished thing to your configured
-export folder: `animated_glb` for a single skinned mesh with every clip inside it, `godot_scene` for
-that same mesh alongside a scene file Godot can open directly, `frame_folders` for plain image
-sequences, one folder per movement and compass direction, `sheet_package` for the sheet and its
-sidecar together. An agent's own export is named from the character's name plus its own job id (and
-a sheet id too, for a sheet-shaped format), never the plain name a pane's export uses — the same
-character built twice would otherwise export under the same name. Nothing in the export folder is
-ever overwritten: re-exporting the same job (and sheet) a second time lands beside the first under
-the next free name (`-2`, `-3`), and there is no overwrite option over MCP.
-
-**Movements are the set.** There is no registry of named animation sets like "sword and shield" —
-asking for one just means listing the movements it implies, because a set with no different motion
-behind its name would be a label and nothing else. `character_create` and `character_sheet_create`
-both take a plain list of movement names instead.
-
-**The skeleton follows the mesh's family.** With no `template` named, `character_rig` and
-`character_sheet_create` (on a mesh that has not been rigged yet) rig on the skeleton of the mesh's
-own family when a character door built it, not on the configured default, and the reply names that
-family as `template_from_family`. A `template` you name always wins, and a mesh that is not a
-character falls back to the configured default as before.
-
-**What gets refused, and why.** `character_create` refuses before a row exists if Realmspinner cannot
-reach Blender at all, because a mesh with nowhere to be rigged is not worth minting. Naming a
-species with no matching look drops that look rather than failing the whole prompt. A theme you
-named explicitly, rather than one a prompt implied, is refused by name if the species does not
-offer it. `character_rig` refuses a mesh that is already rigged — an agent adds rigs, it never
-replaces one — and refuses again while a rig for that mesh is already running, rather than queuing
-a second one behind it. Every export needs an export folder configured first (Settings, same place
-the switch for this whole bridge lives); with none set, the refusal names that setting rather than
-writing anywhere of its own choosing. And an agent may cancel only a job it started on its own
-connection, or the sheet job a rig it started has since queued; any other job — one a human began,
-or an earlier session minted — is not reachable by `character_cancel` at all.
-
-As with Clay, nothing here is a path: every argument this surface takes is an id you already hold —
-a job id, a sheet id — or a name from a fixed list, never a filename or a folder you type out
-yourself.
 
 ### Adding a tool
 
@@ -493,14 +418,6 @@ here at all, and a test asserts that in both directions, so the two cannot drift
 So adding a *shape* or an *operation* is not an edit to the agent surface. Only a genuinely new
 verb — something Clay's own registry has no entry for — is, and it goes in beside the others as a
 function that takes the context, the session and the arguments, and returns content.
-
-A character tool is the same idea on a different thread. `studio/agent_character.py` is that
-surface's own file, its handlers take the service layer and the session — never the context — and
-they run on the character pipeline's own worker pool rather than the frame thread, because a
-service door can block for real work (a Blender probe, an `animated.glb` bake) in a way nothing on the frame thread
-is allowed to. Everything below about validating before mutating, refusing rather than raising, and
-an argument's name being checked against its own schema applies to both surfaces alike; only the
-thread a handler runs on, and what it is handed to run against, differs.
 
 Three rules bind anything you add to Clay's own surface. It runs on the frame thread, drained under
 a time budget, because
@@ -657,10 +574,10 @@ off, the same as every other tool in this file already does.
 
 ### Resources and prompts
 
-Tools are not the only thing the bridge answers over MCP. Eight **resources** — documents a client
-can fetch without spending a tool call — and three **prompts** — pre-written starting points a client
+Tools are not the only thing the bridge answers over MCP. Five **resources** — documents a client
+can fetch without spending a tool call — and two **prompts** — pre-written starting points a client
 can ask for by name, with arguments filled in — ride the same private RPC v1 pipe, in
-`studio/agent_resources.py`, `studio/agent_character_resources.py` and `studio/agent_prompts.py`.
+`studio/agent_resources.py` and `studio/agent_prompts.py`.
 
 The five Clay resources:
 
@@ -686,35 +603,12 @@ document, so a page reads like the whole answer with fewer rows. `clay_measure`
 answers a volume of `null` with `closed: false` for an open mesh, rather than a number that moves
 with where the object sits.
 
-The character pipeline adds three more:
-
-| URI | Content | Answered where |
-| --- | --- | --- |
-| `realmspinner://character/vocabulary` | Movements, directions, cameras, sizes, formats and species — the same registries `character_options` reads | Listener thread |
-| `realmspinner://character/sheet/{job id}/{sheet id}/sidecar.json` | That sheet's own layout sidecar | Character service lane |
-| `realmspinner://character/sheet/{job id}/{sheet id}/atlas.png` | That sheet's rendered atlas | Character service lane |
-
-The vocabulary resource is process-stable in the same way `character_*` tool schemas are — built
-from registries that do not change while Realmspinner is running, never from a user's own edited clip
-library — so it answers on the listener thread exactly like Clay's three static resources. The two
-sheet resources name a real job by id, and reading one needs the service doors a `character_job`
-call already uses, so they run on the character pipeline's own worker pool rather than the frame
-thread or the listener; a URI naming a job id or a sheet id that does not exist reads back not
-found rather than an error. An atlas too large to fit this bridge's own frame budget reads back
-neither the image nor a not-found — it answers with a small JSON body instead, naming the atlas's
-real size and pointing at `character_sheet_preview`, which has no such ceiling because it crops and
-resizes before answering rather than handing over the whole file.
-
-The three prompts — `model_from_description`, `model_from_reference` and
-`character_sheets_from_description` — are pure text templating: a prompt's
+The two prompts — `model_from_description` and `model_from_reference` — are pure text templating: a prompt's
 rendered message is a string built from its arguments, naming real tools by their real names.
 `model_from_reference` takes one argument, `job_id`, the Library job whose picture is the reference;
 a picture outside the Library is sent inline to `clay_reference_add`, because that tool never
 takes a file path.
 Nothing here touches a document either, so a prompt is also answered on the listener thread.
-`character_sheets_from_description` takes a description and, optionally, a comma-separated list of
-movements, and walks the same swamp-knight-shaped path described above: options, then create, then
-polling the rig job and its follow-up sheet job, then a preview, then the three export formats.
 
 **Derived, not hand-listed, the same rule the tool catalogue follows.** `agent_resources`'s
 generators and operations resources are built by walking `primitives.CLAY_GENERATORS` and `clay_ops.OPS`
@@ -726,10 +620,10 @@ regression that actually matters is `tests/mcp/test_rpc_studio.py`'s scan of eve
 quietly went stale after a rename fails there, not merely a reviewer's eye.
 
 Both are served from the RPC v1 catalogue too (`AgentHost._catalogue_payload`, and therefore the
-home directory's own `mcp.catalogue.json`), the four static resources (three Clay, one character)
+home directory's own `mcp.catalogue.json`), the three static resources
 with their own content embedded inline —
 which is what lets `realmspinner mcp` still answer `resources/list`/`resources/read` for them, and
-`prompts/list` for every prompt, with the app not even running. `resources/read` for the four dynamic
+`prompts/list` for every prompt, with the app not even running. `resources/read` for the two dynamic
 resources, and `prompts/get` for any prompt's actual rendering, still need Realmspinner reachable — there
 is no document, and no prompt text at all, in the bridge's own leaf to fall back to.
 
@@ -772,7 +666,7 @@ expose a `JOURNAL` and crash recovery sees it. The one hand-written tuple left i
 The sharp edge is the manifest row itself: it names the module before anything has checked it, so
 a row whose module does not answer `active(ctx)` is an `AttributeError` in the palette rather than
 a missing command. A pose-like mode with no file to reopen leaves the opener `None` and the export
-label empty, as Poser does.
+label empty (a mode whose document is a library record).
 
 **The workspace.** `skeletons` gets a function returning the mode's three columns, and `layout`'s
 pane tables learn its pane keys. Every interactive widget goes through `controls.py`. Every pane

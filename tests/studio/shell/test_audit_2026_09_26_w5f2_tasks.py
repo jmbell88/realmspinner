@@ -1,7 +1,7 @@
 """Regression test for the 2026-09-26 audit, finding create-brief-03.
 
 ``TasksMixin._adopt_model``'s failed-GLB-load ``except`` branch returned
-without clearing ``state.preview``'s rig side data (poses/sheets/bones/...),
+without clearing ``state.preview``'s rig side data (poses/bones/...),
 so a failed load -- or a selection that moved on before the parse landed --
 left the *previous* asset's evidence on screen. ``create.ui.stages._reached_pose``
 reads exactly that evidence (``state.preview["poses"]``) to tick the Pose
@@ -43,7 +43,6 @@ class _RigDataCtx:
         self.state = SimpleNamespace(
             preview={
                 "poses": ["stale-pose"],
-                "sheets": ["stale-sheet"],
                 "bones": ["stale-bone"],
             }
         )
@@ -86,5 +85,4 @@ def test_a_failed_glb_load_clears_the_previous_assets_rig_side_data():
         "a failed load left the previous asset's poses in state.preview, so "
         "the Pose stage still ticked as reached for an asset with no rig"
     )
-    assert "sheets" not in ctx.state.preview
     assert "bones" not in ctx.state.preview

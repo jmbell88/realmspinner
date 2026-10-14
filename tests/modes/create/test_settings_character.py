@@ -103,41 +103,39 @@ ONE_PER_ARCHETYPE = _one_per_archetype()
 def test_a_prompt_edit_fills_only_the_fields_nobody_has_touched(species):
     """The whole point of the override list, in one pass.
 
-    The user picks a size by hand; the brief then names a different species. The
-    species has to move -- it is what the words say -- and the size must not,
-    because it is a decision somebody made and a prompt edit is not a request to
-    undo it.
+    The user names the character by hand; the brief then names a different
+    species. The species has to move -- it is what the words say -- and the name
+    must not, because it is a decision somebody made and a prompt edit is not a
+    request to undo it.
     """
     fam = families()[species]
     form = _form("a wizard")
     character_engine.sync_from_prompt(form)
     assert form["character_family"] == "wizard"
 
-    form["character_pixel"] = "128"
-    character_engine.touched(form, "character_pixel")
+    form["character_name"] = "Grog"
+    character_engine.touched(form, "character_name")
 
     form["prompt"] = f"a {fam.aliases[0]}"
     assert character_engine.sync_from_prompt(form) is True
     assert form["character_family"] == species
-    assert form["character_pixel"] == "128", "a claimed control is the user's"
+    assert form["character_name"] == "Grog", "a claimed control is the user's"
 
 
 def test_a_field_the_new_brief_says_nothing_about_goes_back_to_its_default():
     """Not to whatever the *previous* brief left in it.
 
-    "a wolf" after "an attacking fire ogre" has to produce a wolf with the
-    default actions and no fire, or the form accumulates a character out of two
-    briefs the user never wrote together.
+    "a wolf" after "a fire ogre" has to produce a wolf with no fire, or the form
+    accumulates a character out of two briefs the user never wrote together.
     """
-    form = _form("an attacking fire ogre")
+    form = _form("a fire ogre")
     character_engine.sync_from_prompt(form)
-    assert (form["character_theme"], form["character_actions"]) == ("fire", "attack")
+    assert form["character_theme"] == "fire"
 
     form["prompt"] = "a wolf"
     character_engine.sync_from_prompt(form)
     assert form["character_family"] == "wolf"
     assert form["character_theme"] == character_engine.THEME_UNSET
-    assert form["character_actions"] == AppState().form_2d["character_actions"]
 
 
 def test_the_create_pane_does_not_copy_a_look_the_species_lacks():
@@ -380,8 +378,8 @@ def test_the_ring_the_footer_and_the_toast_all_say_the_same_sentence(ctx):
 # --- the escape routes --------------------------------------------------------
 
 
-def test_the_escape_routes_keep_the_brief(ctx):
-    """Both of them. A user who came here for a manticore still wants one, and
+def test_the_escape_route_keeps_the_brief(ctx):
+    """It. A user who came here for a manticore still wants one, and
     the question is only which surface can draw it -- so a route that rewrote
     the prompt on the way would send a different request than the one they were
     refused for."""
@@ -392,28 +390,6 @@ def test_the_escape_routes_keep_the_brief(ctx):
     assert form["prompt"] == "a fierce manticore"
     assert create_assets.selected(form).key == "sprite_sheet"
     assert form["output"] == "sheet"
-
-    other = _form("a fierce manticore")
-    settings_character.hand_to_poser(ctx, other)
-    assert other["prompt"] == "a fierce manticore"
-    from realmspinner.studio.modes.poser import mode as poser_mode
-
-    assert poser_mode.sheet_form(ctx)["prompt"] == "a fierce manticore"
-    assert ctx.state.mode == "poser"
-
-
-def test_the_sheet_forms_has_one_construction_and_both_callers_use_it():
-    """Troupe's own ``troupe_settings._form`` moved to ``troupe_mode.form``
-    for this: the hand-off has to reach the form the pane will draw, and two
-    constructions of one request are two defaults. P9 (2026-09-18) moved both
-    again, onto ``poser_mode.sheet_form`` and ``poser.ui.panes.sheet
-    .draw_new_character``.
-    """
-    from realmspinner.studio.modes.poser import mode as poser_mode
-    from realmspinner.studio.modes.poser.ui.panes import sheet as poser_sheet
-
-    assert "poser_mode.sheet_form(ctx)" in inspect.getsource(poser_sheet.draw_new_character)
-    assert callable(poser_mode.sheet_form)
 
 
 # --- Blender ------------------------------------------------------------------
@@ -468,11 +444,11 @@ def test_recipe_kwargs_round_trips_through_the_door_it_is_built_for(ctx, species
     recipe = Recipe.from_dict(kwargs)
 
     assert recipe.family == species
-    assert recipe.cell_count == character_engine.cell_count(form)
-    assert recipe.directions == character_engine.DIRECTIONS
-    # The camera and its angle are one fact, taken from ``troupe_options``.
-    preset = opts["troupe"]["camera_presets"][recipe.camera]
-    assert recipe.elevation == float(preset["elevation"])
+    # No sheet fields are sent: the recipe's own defaults fill them, because a
+    # character ends at its rig and the form has no control for any of them.
+    sheet_fields = ("camera", "elevation", "animations", "directions", "logical_size", "colors")
+    for sheet_field in sheet_fields:
+        assert sheet_field not in kwargs, sheet_field
     # And the sliders are the species' own defaults when nobody moved one.
     assert set(recipe.appearance) == {c["key"] for c in opts["channels"][species]}
 
@@ -533,13 +509,14 @@ def test_the_press_builds_a_character_and_never_reaches_create_job(ctx, monkeypa
     assert seen[0]["resolution"]["family"] == "ogre"
 
 
-def test_the_toast_names_the_species_and_the_cell_count(ctx):
+def test_the_toast_names_the_species_and_the_two_steps(ctx):
     form = _form("a fire ogre")
     character_engine.sync_from_prompt(form)
     message = character_engine.toast_for(form, character_engine.options(ctx))
     assert "ogre" in message
-    assert f"{character_engine.cell_count(form)}-cell sheet" in message
-    assert "Poser" in message
+    assert "mesh -> rig" in message
+    assert "sheet" not in message and "Poser" not in message
+    assert "Clay" in message
 
 
 def test_a_preview_has_its_own_key_so_it_can_never_swallow_a_press():
@@ -554,7 +531,7 @@ def test_a_preview_has_its_own_key_so_it_can_never_swallow_a_press():
 
 
 @pytest.mark.parametrize("species", ONE_PER_ARCHETYPE)
-def test_the_plan_names_the_species_the_cells_and_no_gpu(species):
+def test_the_plan_names_the_species_the_steps_and_no_gpu(species):
     form = _form("a fire ogre")
     character_engine.sync_from_prompt(form)
     form["character_family"] = species
@@ -563,7 +540,7 @@ def test_the_plan_names_the_species_the_cells_and_no_gpu(species):
 
     assert plan.generations == 0, "a character draws no images at all"
     assert families()[species].label.lower() in plan.stages
-    assert f"{character_engine.cell_count(form)}-cell sheet" in plan.stages
+    assert "rig" in plan.stages and "sheet" not in plan.stages
     assert "no GPU needed" in plan.stages
     assert plan.duration.startswith("about ")
     assert "image model" in plan.recipe
@@ -576,39 +553,21 @@ def test_the_plan_footer_prints_no_count_line_when_there_is_nothing_to_count():
     assert "widgets.muted(plan.duration)" in source
 
 
-def test_the_default_trio_is_the_recipes_own_and_makes_the_stated_sheet():
-    """Idle, walk and attack -- 18 frames over 8 directions, 144 cells. The
-    number the tooltip, the plan and the toast all print, taken from the
-    recipe's table rather than typed in three places."""
-    form = _form("a fire ogre")
-    assert character_engine.actions_of(form) == ("idle", "walk", "attack")
-    assert character_engine.cell_count(form) == 144
-
-
 # --- the ladders ---------------------------------------------------------------
 
 
-def test_a_restored_value_off_the_ladder_is_named_rather_than_snapped(ctx):
-    """Both are persisted and the ladders can move between releases, so the
-    segmented control is not on its own a gate."""
+def test_a_restored_sheet_value_is_ignored_not_refused(ctx):
+    """An older settings file may still carry the sprite size and colour count
+    the form used to hold. Neither is a control any more, so neither can be a
+    refusal: the form never reads them and a press is not blocked by them."""
     form = _form("a fire ogre")
     character_engine.sync_from_prompt(form)
     form["character_pixel"] = "17"
     form["character_colors"] = "7"
     fields = {getattr(p, "field", "") for p in character_engine.problems(ctx, form)}
-    assert {"character_pixel", "character_colors"} <= fields
-    assert form["character_pixel"] == "17", "named, never quietly snapped"
-
-
-def test_the_size_and_colour_ladders_are_the_doors_own(ctx):
-    """Read from ``troupe_options``, which is what ``create_character`` puts the
-    request through -- a second list in the pane is a form that accepts what the
-    door then refuses."""
-    from realmspinner.service import troupe as svc_troupe
-
-    opts = character_engine.options(ctx)
-    assert opts["troupe"]["logical_sizes"] == list(svc_troupe.TROUPE_LOGICAL_SIZES)
-    assert opts["troupe"]["colors"] == list(svc_troupe.TROUPE_COLOR_CHOICES)
+    assert not {"character_pixel", "character_colors"} & fields
+    kwargs = character_engine.recipe_kwargs(form, character_engine.options(ctx))
+    assert "logical_size" not in kwargs and "colors" not in kwargs
 
 
 # --- the column, and what it is not --------------------------------------------
@@ -745,10 +704,11 @@ def test_the_whole_block_draws_for_every_body_plan(ui, ctx, species):
 
     labels = [c.label for c in seen]
     assert any("character_family" in label for label in labels), labels
-    assert any("character_pixel" in label for label in labels), labels
-    # One switch per movement, one slider per channel.
-    switches = [c for c in seen if c.kind == "switch"]
-    assert len(switches) >= len(character_engine.MOVEMENTS)
+    # No sheet controls: a character ends at its rig.
+    for gone in ("character_pixel", "character_colors", "character_camera", "character_action"):
+        assert not any(gone in label for label in labels), (gone, labels)
+    assert not [c for c in seen if c.kind == "switch" and "character_action" in c.label]
+    # One slider per channel.
     channels = character_engine.channels_of(form, character_engine.options(ctx))
     sliders = [c for c in seen if "character_body_" in c.label]
     assert len(sliders) == len(channels), sorted({c.kind for c in seen})
@@ -790,4 +750,4 @@ def test_the_refusal_and_its_three_repairs_draw_under_the_plan(ui, ctx):
     labels = [c.label for c in probe.census()]
     assert any("character-offer" in label for label in labels), labels
     assert any("character-sprite" in label for label in labels), labels
-    assert any("character-poser" in label for label in labels), labels
+    assert not any("poser" in label for label in labels), "Poser is gone: two routes, not three"

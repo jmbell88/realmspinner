@@ -16,7 +16,7 @@ from realmspinner.kernels.mesh import uv as bmuv
 from realmspinner.kernels.mesh import uvtools
 from realmspinner.studio.modes.clay.ui.panes import uv as clay_uv
 
-_MANUAL = Path(__file__).resolve().parents[3] / "docs" / "manual" / "30-clay.md"
+_MANUAL = Path(__file__).resolve().parents[3] / "docs" / "manual" / "27-clay.md"
 
 
 def _texture_paragraph() -> str:

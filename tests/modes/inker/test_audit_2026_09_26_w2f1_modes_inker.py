@@ -1,12 +1,11 @@
 """Regression tests for the 2026-09-26 audit's w2f1 fixer slice.
 
-Three findings, three doors: Ctrl+V clobbering a fresh Copy with a stale OS
-screenshot (inker-mode-02, ``mode.py``'s ``paste_from_os``), "go to next
-conflict" moving the playhead by hand instead of through
-``Document.set_current_frame`` (inker-mode-03, ``ops.py``'s
-``_sheet_conflict_next``), and Edit > Filter raising a bare ``ValueError`` out
-of the canvas pane on a tilemap layer (inker-panes-02, ``ops.py``'s "filter"
-op and ``ui/panes/bridge.py``'s ``_open_filter``).
+Two findings, two doors: Ctrl+V clobbering a fresh Copy with a stale OS
+screenshot (inker-mode-02, ``mode.py``'s ``paste_from_os``), and Edit > Filter
+raising a bare ``ValueError`` out of the canvas pane on a tilemap layer
+(inker-panes-02, ``ops.py``'s "filter" op and ``ui/panes/bridge.py``'s
+``_open_filter``). A third, "go to next conflict" (inker-mode-03), went with the
+character-sheet correction loop.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from typing import Any
 import numpy as np
 
 from realmspinner.kernels import pixel as inker
-from realmspinner.kernels.pixel.sheetin import document_from_sheet
 from realmspinner.kernels.pixel.tiles import strip
 from realmspinner.studio import state as state_mod
 from realmspinner.studio.modes.inker import mode as inker_mode
@@ -25,9 +23,6 @@ from realmspinner.studio.modes.inker import ops as inker_ops
 from realmspinner.studio.modes.inker import state as inker_state
 from realmspinner.studio.modes.inker.state import InkerDoc
 from realmspinner.studio.modes.inker.ui.panes import bridge as inker_bridge
-
-CELL = 8
-FRAMES = 4
 
 
 def _session(doc: Any = None):
@@ -112,71 +107,6 @@ def test_paste_from_os_still_lands_a_genuinely_new_screenshot(monkeypatch):
     assert inker_mode.paste_from_os(ctx, tab) is True
     taken = tab.doc.clipboard.take()
     assert taken is not None and taken[0][0, 0, 0] == 2
-
-
-# --- inker-mode-03: "go to next conflict" and the frame it lands on ---------
-
-
-def _atlas(shade: int = 0) -> np.ndarray:
-    atlas = np.zeros((CELL, FRAMES * CELL, 4), dtype=np.uint8)
-    atlas[..., 3] = 255
-    for i in range(FRAMES):
-        atlas[:, i * CELL : (i + 1) * CELL, 0] = 30 + i * 40 + shade
-    return atlas
-
-
-def _sheet_cells():
-    return [{"x": i * CELL, "y": 0, "w": CELL, "h": CELL} for i in range(FRAMES)]
-
-
-def _sheet_doc():
-    anim = {
-        "tags": [{"name": "walk_front", "start": 0, "end": FRAMES - 1, "loop": True}],
-        "frames": [],
-    }
-    doc = document_from_sheet(_atlas(), _sheet_cells(), anim, source={"job": "J", "sheet": "S"})
-    doc.history.clear()
-    return doc
-
-
-def test_go_to_next_conflict_rebuilds_the_stack_for_the_new_frame():
-    """The 2026-09-26 audit, finding inker-mode-03: this set
-    ``doc.anim.current`` by hand -- never re-materialising ``stack`` for the
-    new frame and never committing a floating buffer left over on the old
-    one -- so a click landed strokes in the old frame's layers. Fixed to go
-    through ``Document.set_current_frame``.
-    """
-    doc = _sheet_doc()
-    doc.sheet_base.conflicts.add(doc.anim.frames[2].uid)
-    ctx, state, tab = _session(doc)
-    assert doc.anim.current == 0
-
-    doc.select_all()
-    assert doc.lift()
-    assert doc.floating is not None, "sanity: a floating buffer is open on frame 0"
-
-    assert inker_ops.run(ctx, inker_ops.get("sheet_conflict_next")) is True
-
-    assert doc.anim.current == 2
-    assert doc.floating is None, (
-        "the floating buffer left on frame 0 must be committed before the jump"
-    )
-    frame2_layer = doc.anim.cels[(doc.anim.tracks[0].uid, doc.anim.frames[2].uid)]
-    assert doc.stack.active is frame2_layer, (
-        "the stack must be re-materialised for the frame just switched to"
-    )
-
-
-def test_go_to_next_conflict_refuses_while_the_document_is_busy():
-    """Same finding: no busy check meant a click mid-save or mid-playback
-    still moved the playhead and committed whatever was floating."""
-    doc = _sheet_doc()
-    doc.sheet_base.conflicts.add(doc.anim.frames[2].uid)
-    ctx, state, tab = _session(doc)
-    tab.playing = True
-
-    assert inker_ops.run(ctx, inker_ops.get("sheet_conflict_next")) is False
-    assert doc.anim.current == 0
 
 
 # --- inker-panes-02: Filter on a tilemap layer -------------------------------

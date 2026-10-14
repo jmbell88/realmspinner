@@ -86,15 +86,16 @@ def draw(ctx: Any) -> None:
         ctx.submit(key, svc_rig.create_rig, ctx.svc, job["id"], template=skeleton(ctx))
     if not rigged:
         imgui.same_line()
-        if widgets.disabled_button(
-            "Rig manually", not ctx.busy(key), reason="This mesh is already being rigged."
+        if widgets.ghost_button(
+            "Rig by hand in Clay",
+            tooltip=(
+                "Open the mesh in Clay, mark the joints as bones and pose them there; "
+                "Export to the library writes the rig."
+            ),
         ):
-            # "blank" (one root bone, hidden from this stage's own skeleton
-            # picker above) fitted through the same Blender pass every
-            # automatic rig runs -- see pose_panel.py's identical button for
-            # the reason this is not host-side coordinate math instead.
-            ctx.state.clear_field_errors()
-            ctx.submit(key, svc_rig.create_rig, ctx.svc, job["id"], template="blank")
+            from ..modes.clay import mode as clay_mode
+
+            clay_mode.edit_asset_in_clay(ctx, job)
 
 
 def skeleton_field(ctx: Any, form: dict[str, Any], *, help_text: str | None = None) -> None:
@@ -131,8 +132,8 @@ def skeleton_field(ctx: Any, form: dict[str, Any], *, help_text: str | None = No
     # a rig_template refusal's ring outlived the very edit meant to answer it.
     if form["rig_template"] != before:
         ctx.state.clear_field_error("rig_template")
-    # ``settings_3d``'s reason too: ``service/rig.py`` and ``service/poses.py``
-    # both refuse on ``rig_template``, and a generic toast that leaves the
+    # ``settings_3d``'s reason too: ``service/rig.py`` refuses on
+    # ``rig_template``, and a generic toast that leaves the
     # dropdown at fault unmarked is the one failure the form cannot point at.
     widgets.field_error(ctx.state, "rig_template")
 

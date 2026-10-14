@@ -125,7 +125,7 @@ def sheet_spec(
     rotations with the cell keeps it a pure renderer.
 
     ``margin`` widens the ortho window past ``sheet.FRAME_MARGIN``. Its one
-    writer is ``_q_troupe``'s reframe retry, and it is written **only when
+    writer was the character sheet's reframe retry, and it is written **only when
     given** -- a spec without it is byte-identical to the one this function
     produced before the key existed, which is what keeps every sheet that does
     not clip rendering exactly as it did.

@@ -47,10 +47,10 @@ If you already have a picture, you can skip the first stage entirely and upload 
 
 ## The modes
 
-A rail down the left edge of the window chooses between thirteen modes, and that rail is the single
+A rail down the left edge of the window chooses between twelve modes, and that rail is the single
 thing that decides what the panes show. It is drawn in every mode, so there is no screen you cannot
 leave. There is no per-mode keyboard shortcut — the command palette (`Ctrl+K`) is the keyboard
-route, see [Keyboard shortcuts](38-shortcuts.md).
+route, see [Keyboard shortcuts](35-shortcuts.md).
 
 The rail shows glyphs by default, in a column just wide enough for them, and expands to show the
 labels beside them; **Window → Navigation labels** toggles that, and the choice is remembered.
@@ -68,7 +68,7 @@ where you are not making something.
 - **Home.** What the app opens on: what changed in this build, what the machine is doing, and a
   single list of everything you were recently working on. Returning here is never destructive.
 - **Library.** Every asset that has ever been generated, filtered, sorted and searched, with the
-  trash and the prune. Covered in [The library and jobs](36-library-and-jobs.md).
+  trash and the prune. Covered in [The library and jobs](33-library-and-jobs.md).
 - **Create.** One workspace for an asset and its attempts. The header shows the stages relevant to
   the output; 3D assets have Reference, Mesh, Rig, Pose and Export, while image outputs have
   Reference and Export. The brief is on the left, previews and attempts in the centre, and the
@@ -81,42 +81,36 @@ where you are not making something.
   drawn dimmed with the reason on hover rather than hidden. Covered in
   [Generating references](22-generating-references.md),
   [Generating meshes](23-generating-meshes.md) and
-  [Rigging and posing](25-rigging-and-posing.md).
+  [Rigging and posing](23-generating-meshes.md#rigging-and-posing).
 
-Then the eight workspaces:
+Then the seven workspaces:
 
 - **Inker.** A layered raster editor, wired into the pipeline in both directions. Covered in
-  [Inker](28-inker.md), with the timeline in [Inker: animation](29-inker-animation.md).
-- **Clay.** Modelling from primitives: transforms, a material palette, and two ways out —
-  export a `.glb` or import the document as an asset. Covered in [Clay](30-clay.md).
+  [Inker](25-inker.md), with the timeline in [Inker: animation](26-inker-animation.md).
+- **Clay.** Modelling from primitives: transforms, a material palette, bones and weights, a pose
+  mode and a timeline, and two ways out — export a `.glb` or import the document as an asset.
+  Covered in [Clay](27-clay.md).
 - **Mason.** A 3D scene editor: place library assets and primitives into a scene, group and
   duplicate them, light it, sculpt a ground, and export the arrangement as a glTF scene, an
   engine-friendly GLB-plus-manifest, or merged OBJ geometry.
-- **Poser.** Authoring reusable poses against a skeleton template, kept in a global pose library
-  rather than belonging to any one asset, plus (once a rigged asset is bound) a character-sheet
-  section: a prompt becomes a reference, a mesh, a fitted rig and then a rendered, pixelised sprite
-  sheet of the clips a character walks and swings through. The sheet keyframes are still
-  provisional and the prompt-to-character half does not currently produce usable humanoids
-  (measured 2026-08-30), so the route worth using there is a mesh you supply. Covered in
-  [Poser](26-poser.md).
 - **Plotter.** A tile-map editor: a grid, a layer stack, one or more tilesets, and the objects an
   engine reads as spawn points and trigger volumes — where a sheet of tiles becomes a level. It
-  speaks Tiled's formats in both directions. Covered in [Plotter](32-plotter.md).
+  speaks Tiled's formats in both directions. Covered in [Plotter](29-plotter.md).
 - **Packwright.** A sprite-atlas packer: many images in, one atlas out, with a sidecar that says
-  where everything landed. Covered in [Packwright](33-packwright.md).
+  where everything landed. Covered in [Packwright](30-packwright.md).
 - **Muse.** Generated music: a comma-separated style-tag string and an optional lyric block become a
   finished track, one job row per take, auditioned in the mode and openable in Sirens as a sample
-  instrument. Covered in [Muse](35-muse.md).
+  instrument. Covered in [Muse](32-muse.md).
 - **Sirens.** A chiptune tracker: NES-era pulse, triangle, noise and sample voices written into a
   pattern grid, stitched into a song by an order list, and saved as a `.rsng`. Instruments carry
   four envelope sequences you drag into shape, a `.wav` dropped on the window becomes a sample, and
   the whole thing exports as a mix, one WAV per channel and one per sound effect. Covered in
-  [Sirens](34-sirens.md).
+  [Sirens](31-sirens.md).
 
 And in the footer:
 
 - **Review.** Judging finished meshes — one at a time or as a parameter sweep — and the "what
-  works" findings the verdicts add up to. Covered in [Review](37-review.md).
+  works" findings the verdicts add up to. Covered in [Review](34-review.md).
 - **Settings.** The app's own preferences — UI scale, the frame-rate readout, layout resets, and the
   list of models it loaded, from which a missing one can be downloaded. See
   [In-app settings](41-configuration.md#in-app-settings).
@@ -188,25 +182,24 @@ Above the columns is the menu bar and to their right is the Familiar dock, and b
 
 ## What is the same in every workspace
 
-Eight workspaces are eight editors, and they are deliberately one program eight times. Six of them
+Seven workspaces are seven editors, and they are deliberately one program seven times. Six of them
 — **Inker**, **Clay**, **Mason**, **Plotter**, **Packwright** and **Sirens** — edit a saved
-document, and those six share the file panel and the tab chords below. The other two
-do not: **Poser** keeps a pose library and **Muse** produces a job row in the Library, so neither has
-a file panel, the four file verbs or document tabs, and `Ctrl+Tab` and `Ctrl+W` have nothing to cycle
-or close there. Everything else below holds in all eight.
+document, and those six share the file panel and the tab chords below. The seventh,
+**Muse**, produces a job row in the Library, so it has no file panel, no file verbs and no document tabs, and
+`Ctrl+Tab` and `Ctrl+W` have nothing to cycle or close there. Everything else below holds in all seven.
 
 - **The file panel** of a document workspace, in the right column, carries the same four verbs —
   **New**, **Open**, **Save**, **Save As** — over one sentence saying where the document stands, then
   **Undo** and **Redo** with the step count, which is a button onto the history when the mode has
   one. Under **Take it somewhere** are the ways out of the mode: the library, and whichever
   workspaces read what this one makes. Each panel has exactly one accented button, and it is the
-  mode's own commit — export to the library, send to Poser, export the audio.
+  mode's own commit — export to the library, export the audio.
   **Clay is the exception**: it has no separate file pane. The same verbs and its exports are in its **File** menu
   and on the Inspector's **Model** card, and **Undo** and **Redo** are also buttons in its toolbar.
 - **The same gestures.** The wheel zooms, in 5% steps, in every canvas; `Shift` and the wheel scrolls
   sideways; the middle button pans. In a 3D view, `Alt`+drag orbits and the middle button pans.
-  `Ctrl+1`, `Ctrl+3` and `Ctrl+7` look along an axis and `Ctrl+5` toggles perspective, in Clay, in
-  Poser and in Mason alike.
+  `Ctrl+1`, `Ctrl+3` and `Ctrl+7` look along an axis and `Ctrl+5` toggles perspective, in Clay and in
+  Mason alike.
 - **The same chords.** `Ctrl+S` and `Ctrl+Shift+S` save; `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z` walk
   the history; in the six document workspaces `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle the tabs and
   `Ctrl+W` closes one; `Ctrl+Shift+E` is the file export and `Ctrl+E` the library export wherever
@@ -355,4 +348,4 @@ reading the scene's own numbers. An attach you typed yourself always wins over t
 runs entirely on this machine either way — an attached picture never leaves it.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
-the command palette, and it is reproduced in [Keyboard shortcuts](38-shortcuts.md).
+the command palette, and it is reproduced in [Keyboard shortcuts](35-shortcuts.md).

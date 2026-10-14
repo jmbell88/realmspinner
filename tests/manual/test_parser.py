@@ -100,7 +100,7 @@ def test_error_carries_line_number():
 # --- the search reads the manual, not its table of contents -------------------
 
 
-def _chapter(key: str = "28-inker", title: str = "Inker"):
+def _chapter(key: str = "25-inker", title: str = "Inker"):
     from types import SimpleNamespace
 
     return SimpleNamespace(key=key, title=title, part="Editors")
@@ -115,7 +115,7 @@ def test_a_phrase_that_appears_only_in_prose_finds_its_chapter(monkeypatch):
     from realmspinner.kernels.manual import loader
     from realmspinner.studio.manual import render
 
-    blocks = render._blocks("28-inker")
+    blocks = render._blocks("25-inker")
     monkeypatch.setattr(render, "_blocks", lambda key: blocks)
     prose = " ".join(loader.block_text(b) for b in blocks if not _is_heading(b))
     word = next(w for w in prose.split() if len(w) > 9 and w.isalpha())

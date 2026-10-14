@@ -110,21 +110,6 @@ def test_a_remesh_form_survives_a_look_at_another_asset():
     assert again["custom_faces"] == 12345
 
 
-def test_a_sheet_form_survives_a_look_at_another_asset():
-    from realmspinner.studio.panes import sheet_panel
-
-    ctx = SimpleNamespace(state=AppState(), sheet_options={"defaults": {}})
-    first = sheet_panel._form(ctx, "aaaaaaaaaaaa")
-    first["poses"].add("deadbeefcafe")
-    first["name"] = "walk cycle"
-
-    sheet_panel._form(ctx, "bbbbbbbbbbbb")
-    again = sheet_panel._form(ctx, "aaaaaaaaaaaa")
-    assert again is first
-    assert again["poses"] == {"deadbeefcafe"}
-    assert again["name"] == "walk cycle"
-
-
 def test_a_sprite_form_survives_a_look_at_another_asset():
     from realmspinner.studio.panes import sprite_panel
 

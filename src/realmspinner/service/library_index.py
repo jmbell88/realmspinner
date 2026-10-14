@@ -116,8 +116,11 @@ MAX_FACET_CHARS = 80
 #: deliberately does not import: it is a studio module and this is the service).
 _KIND_WORDS = {
     "rig": "rigged character",
+    # The retired sheet kinds (``retired.py``) stay described: their rows
+    # outlive the feature, and one that came up as "3D model" would be a lie.
     "sheet": "sprite sheet",
     "charsheet": "character sprite sheet",
+    "pixel_sheet": "pixel sprite sheet",
     "music": "music track",
     "separate": "separated music stems",
     "sprite_synthesis": "pixel sprite",

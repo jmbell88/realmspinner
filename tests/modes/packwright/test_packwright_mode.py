@@ -1006,40 +1006,6 @@ def test_dropping_several_files_adds_every_one(tmp_path):
     assert not any(str(tmp_path) in s.key for s in tab.doc.sprites())
 
 
-def test_a_rendered_sheet_handoff_is_not_silently_dropped_while_a_manual_tileset_pick_is_open(
-    tmp_path, monkeypatch
-):
-    """packwright-02: ``ask_add_tileset`` and ``add_rendered_sheet`` used to
-    submit under the identical bare key ``packwright-tileset:{uid}``, and
-    neither call site inspects ``ctx.submit``'s return -- so a Troupe handoff
-    landing while the manual picker's OS dialog task was still "in flight"
-    under that key was refused, silently: manual submit True, handoff False,
-    no toast. Reproduced with ``_DedupingCtx``, the only fake here that can
-    see a refusal at all."""
-    from PIL import Image
-
-    from realmspinner.studio import dialogs
-
-    png = tmp_path / "sheet.png"
-    Image.new("RGBA", (4, 4), (255, 0, 0, 255)).save(png)
-    monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: png)
-    monkeypatch.setattr(
-        "realmspinner.service.sheets.get_sheet", lambda svc, job_id, sheet_id: {"name": "walk"}
-    )
-    monkeypatch.setattr("realmspinner.service.sheets.sheet_png", lambda svc, job_id, sheet_id: png)
-    monkeypatch.setattr(
-        "realmspinner.studio.modes.inker.mode.sheet_grid", lambda record: ((4, 4), 1)
-    )
-
-    ctx = _DedupingCtx()
-    packwright_mode.new_document(ctx)
-
-    packwright_mode.ask_add_tileset(ctx)  # the manual picker's task, still "in flight"
-    packwright_mode.add_rendered_sheet(ctx, "j1", "sheet1")  # the handoff
-
-    assert ctx.refused == [], "the handoff must not collide with the manual picker's key"
-
-
 def test_a_second_tileset_landing_does_not_silently_replace_one_already_parked_under_an_open_popup():  # noqa: E501
     """packwright-01, the 2026-09-08 audit: ``on_task_done``'s
     ``"packwright-tileset"`` branch used to adopt whatever landed

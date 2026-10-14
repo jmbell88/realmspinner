@@ -1,11 +1,10 @@
-"""The unsaved-pose question, once, over two viewers.
+"""The unsaved-pose question, once.
 
 ``poser_mode.guard`` and ``pose_panel.guard`` were two byte-identical copies of
-one rule differing only in which viewer they read and what they call the work.
-This is :func:`docmodes.viewer_guard` and the two delegating callers: what is
-pinned is that the wording stays one sentence, and that each caller still reads
-its *own* viewer -- which is the entire reason the two sessions can be open at
-once without either discarding the other.
+one rule differing only in which viewer they read and what they call the work;
+the first left with Poser. This is :func:`docmodes.viewer_guard` and its one
+remaining caller: what is pinned is that the wording stays one sentence and
+that ``pose_panel.guard`` delegates rather than keeping a copy.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from realmspinner.studio import docmodes
-from realmspinner.studio.modes.poser import mode as poser_mode
 from realmspinner.studio.panes import pose_panel
 
 
@@ -26,8 +24,8 @@ class _Confirms:
         self.asked.append(confirm)
 
 
-def _ctx(*, viewer=None, poser_viewer=None) -> SimpleNamespace:
-    return SimpleNamespace(viewer=viewer, poser_viewer=poser_viewer, confirms=_Confirms())
+def _ctx(*, viewer=None) -> SimpleNamespace:
+    return SimpleNamespace(viewer=viewer, confirms=_Confirms())
 
 
 def _viewer(*, pose_mode=True, dirty=True, mode="pose") -> SimpleNamespace:
@@ -90,7 +88,7 @@ def test_the_noun_is_the_callers_and_reaches_the_sentence():
     )
 
 
-# --- the two callers ----------------------------------------------------------
+# --- the caller ---------------------------------------------------------------
 
 
 def test_the_inspector_guard_names_a_joint_in_joints_mode():
@@ -106,92 +104,11 @@ def test_the_inspector_guard_names_a_joint_in_joints_mode():
     assert "Unsaved pose changes" in ctx.confirms.asked[0].message
 
 
-def test_each_guard_reads_its_own_viewer_and_only_its_own():
-    """The mutual exclusion, from both sides. A dirty Poser session must not
-    make the inspector ask, and a dirty inspector session must not make the
-    Poser ask -- no edit can live in both, and one question per act is the
-    whole doctrine."""
-    ctx = _ctx(viewer=_viewer(), poser_viewer=None)
-    ran: list[str] = []
-    assert poser_mode.guard(ctx, "quit", lambda: ran.append("poser")) is True
-    assert pose_panel.guard(ctx, "quit", lambda: ran.append("pose")) is False
-    assert ran == ["poser"]
-
-    ctx = _ctx(viewer=None, poser_viewer=_viewer())
-    ran = []
-    assert pose_panel.guard(ctx, "quit", lambda: ran.append("pose")) is True
-    assert poser_mode.guard(ctx, "quit", lambda: ran.append("poser")) is False
-    assert ran == ["pose"]
-
-
-def test_both_panes_delegate_rather_than_keeping_a_copy():
-    """The docmodes-pin idiom: a fourth copy that happens to agree today is
+def test_the_pane_delegates_rather_than_keeping_a_copy():
+    """The docmodes-pin idiom: a second copy that happens to agree today is
     what this replaced."""
     import inspect
 
-    for source in (
-        inspect.getsource(poser_mode.guard),
-        inspect.getsource(pose_panel.guard),
-    ):
-        assert "viewer_guard" in source
-        assert "dialogs.Confirm" not in source
-
-
-# --- the way across to the Poser (the UI redesign, wave 5.5) -----------------------
-
-
-def _cross_ctx(*, dirty: bool):
-    """Enough for ``open_in_poser``: a shared viewer that records leaving, a
-    state with a mode, and a service whose rig read fails -- which is the case
-    the trip has to survive, because the Poser has a picker of its own.
-    ``submit``/``busy`` are stubs that decline every submit -- ``open_asset``
-    asks the Poser library/clips/asset-poses to refresh on arrival, and this
-    test cares only that the trip lands, not that the refresh completes."""
-    from realmspinner.studio.state import AppState
-
-    viewer = _viewer(dirty=dirty)
-    viewer.exit_pose_mode = lambda: setattr(viewer, "pose_mode", False)
-    ctx = _ctx(viewer=viewer)
-    ctx.state = AppState()
-    ctx.state.mode = "create"
-    ctx.state.create.stage = "pose"
-    ctx.svc = SimpleNamespace(job_dir=lambda _id: (_ for _ in ()).throw(OSError))
-    ctx.rig_default = ""
-    ctx.submit = lambda *args, **kwargs: False
-    ctx.busy = lambda *args, **kwargs: False
-    return ctx
-
-
-def test_the_poser_link_asks_before_discarding_a_pose():
-    ctx = _cross_ctx(dirty=True)
-    pose_panel.open_in_poser(ctx, {"id": "a" * 12})
-    assert ctx.state.mode == "create", "it left before the question was answered"
-    assert ctx.confirms.asked
-
-    ctx.confirms.asked[0].on_confirm()
-    assert ctx.state.mode == "poser"
-
-
-def test_the_poser_link_leaves_the_shared_viewer_behind():
-    """The Poser has its own viewer; a shared one left in pose mode keeps
-    ``_sync_viewer`` returning early for the rest of the session."""
-    ctx = _cross_ctx(dirty=False)
-    pose_panel.open_in_poser(ctx, {"id": "a" * 12})
-    assert ctx.state.mode == "poser"
-    assert ctx.viewer.pose_mode is False
-
-
-# --- re-rigging an already-open asset -----------------------------------------
-
-
-def test_rerig_goes_through_poser_mode_s_own_guard():
-    """A re-rig discards unsaved edits in Poser's *own* session -- it must ask
-    through ``poser_mode.guard``, never ``pose_panel``'s, for the same reason
-    every other Poser door does: the two guards read different viewers, and
-    reading the wrong one would let a re-rig sail past a dirty Poser session
-    because the shared (inspector) viewer happened to be clean."""
-    import inspect
-
-    source = inspect.getsource(poser_mode.rerig)
-    assert 'guard(ctx, "re-rig this asset"' in source
-    assert "pose_panel" not in source
+    source = inspect.getsource(pose_panel.guard)
+    assert "viewer_guard" in source
+    assert "dialogs.Confirm" not in source

@@ -2021,71 +2021,6 @@ def _onion(ctx: Any, state: Any, tab: Any, draw_list, view, origin, size) -> Non
         )
 
 
-#: Above this many differing pixels the mirror preview draws a count and no
-#: squares: a 128 px cell can differ everywhere, and thirty thousand rects a
-#: frame is a stall in the one place the user is trying to look.
-MIRROR_PREVIEW_MAX = 4096
-
-
-def _runs(xs: list[int], ys: list[int], box) -> list[tuple[int, int, int, bool]]:
-    """``(x, y, width, inside)`` spans over the marked pixels, row by row.
-
-    ``np.nonzero`` yields row-major order, so consecutive entries on one row
-    with consecutive x are one span; the face box splits a span because the two
-    sides are drawn in different colours.
-    """
-
-    out: list[tuple[int, int, int, bool]] = []
-    start = last = None
-    row = inside_run = None
-    for x, y in zip(xs, ys, strict=True):
-        inside = box is not None and box[0] <= x < box[2] and box[1] <= y < box[3]
-        if start is not None and y == row and x == last + 1 and inside is inside_run:
-            last = x
-            continue
-        if start is not None:
-            out.append((start, row, last - start + 1, bool(inside_run)))
-        start = last = x
-        row, inside_run = y, inside
-    if start is not None:
-        out.append((start, row, last - start + 1, bool(inside_run)))
-    return out
-
-
-def _mirror_preview(tab: Any, draw_list, view, origin) -> None:
-    """What a mirror onto the counterpart would change, over the live cell.
-
-    Squares over the pixels the counterpart would take (accent), fainter over
-    the ones the face box holds back, and the face box itself in dashes. Read
-    from ``inker_sheet.mirror_report``, which caches on the document revision,
-    so a frame with nothing changed costs a tuple compare. Touches no pixels:
-    this is the offer, and the strip's button is the acceptance.
-    """
-    from ... import sheet as inker_sheet
-    from . import slices as inker_slices
-
-    report = inker_sheet.mirror_report(tab)
-    if report is None:
-        return
-    _outside, _inside, changed, box = report
-    ys, xs = np.nonzero(changed)
-    if 0 < len(xs) <= MIRROR_PREVIEW_MAX:
-        open_ = _u32(theme.ACCENT, 0.7)
-        held = _u32(theme.WARN, 0.35)
-        # **Runs, not pixels.** Differences come in horizontal runs -- a limb,
-        # an outline, an edge of a shape -- so one rect per *span* draws the
-        # same picture for a fraction of the calls: the cap is 4,096 pixels and
-        # 4,096 ``add_rect_filled`` a frame is a stall in the one place the
-        # user is trying to look. A run is broken by a gap and by the face box,
-        # since the two halves are different colours.
-        for x0, y, width, inside in _runs(xs.tolist(), ys.tolist(), box):
-            a, b = _box(view, origin, x0, y, x0 + width, y + 1)
-            draw_list.add_rect_filled(a, b, held if inside else open_)
-    if box is not None:
-        a, b = _box(view, origin, box[0], box[1], box[2], box[3])
-        inker_slices._dashed_rect(draw_list, a, b, _u32(theme.WARN, 0.9))
-
-
 def _playback_frame(ctx: Any, tab: Any, draw_list, view, origin, size) -> None:
     anim = tab.doc.anim
     if anim is None or not anim.frames:
@@ -2153,8 +2088,6 @@ def _paint(ctx: Any, state: Any, tab: Any, origin, *, hovered: bool) -> None:
         uv1=(x1 / width, y1 / height),
     )
     _floating(ctx, tab, draw_list, origin)
-    if getattr(tab, "mirror_preview", False):
-        _mirror_preview(tab, draw_list, view, origin)
     if state.onion and not tab.playing and state.onion_in_front:
         # **Over the drawing** (6.7). After the composite and the floating
         # buffer, so what is checked against the ghosts is what is actually on

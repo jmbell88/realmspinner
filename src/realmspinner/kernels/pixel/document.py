@@ -57,7 +57,6 @@ from ._doc_paint import (
 )
 from ._doc_ranges import RangeOps
 from ._doc_selection import SelectionOps
-from ._doc_sheet import SheetOps
 from ._doc_slices import SliceOps
 from ._doc_tiles import TileOps
 from .anim_edits import CelSetEdit
@@ -138,7 +137,6 @@ class Document(
     SliceOps,
     TileOps,
     RangeOps,
-    SheetOps,
     FlourishOps,
 ):
     stack: LayerStack
@@ -201,20 +199,12 @@ class Document(
     #: :mod:`.groups`.
     groups: dict[int, Any] = field(default_factory=dict)
     group_of: dict[int, int] = field(default_factory=dict)
-    #: What the renderer last gave this document, per cell, when it came in
-    #: from a Troupe character sheet -- plus the cells a merge flagged as
-    #: conflicts. ``None`` on every document that did not arrive that way,
-    #: which is what keeps the whole feature out of the ordinary paths and out
-    #: of an ordinary ``animation.json``. Typed ``Any`` for ``groups``' reason:
-    #: it keeps :mod:`.sheetmerge`'s import out of this module. See
-    #: :mod:`.sheetmerge` for what a digest is over and why the merge needs a
-    #: third picture at all.
-    sheet_base: Any | None = None
     #: Every Flourish effect this document holds, keyed by the uid of the layer
     #: group that *is* the effect: the recipe, which track each recipe layer
     #: became, and a digest per cel of what the last render put there. Empty on
-    #: every ordinary document, for ``sheet_base``'s reason. Typed ``Any`` so
-    #: :mod:`._doc_flourish`'s import stays out of this module.
+    #: every ordinary document, which keeps the whole feature out of the
+    #: ordinary paths and out of an ordinary ``animation.json``. Typed ``Any``
+    #: so :mod:`._doc_flourish`'s import stays out of this module.
     flourish: dict[int, Any] = field(default_factory=dict)
     #: Every tileset this document owns, in insertion order. Document-level
     #: rather than per-track because tilesets are shared -- two tracks may

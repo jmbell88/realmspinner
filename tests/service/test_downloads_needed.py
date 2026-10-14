@@ -15,7 +15,6 @@ import pytest
 from realmspinner import config as config_module
 from realmspinner import fetch
 from realmspinner.service import downloads as svc_downloads
-from realmspinner.service import sheets as svc_sheets
 from realmspinner.service import sprites as svc_sprites
 from realmspinner.service.errors import Invalid, NotFound
 
@@ -42,7 +41,6 @@ def _unlink_row(svc, row_key: str) -> None:
 
 def test_a_materialised_host_needs_nothing(svc):
     assert svc_downloads.needed_rows(svc, svc_sprites.SPRITE_ROWS) == []
-    assert svc_downloads.needed_rows(svc, svc_sheets.PIXEL_SHEET_ROWS) == []
     assert svc_downloads.needed_keys(svc, svc_sprites.SPRITE_ROWS) == ()
     assert svc_downloads.needed_gib(svc, svc_sprites.SPRITE_ROWS) == 0.0
 
@@ -140,7 +138,7 @@ def test_an_optional_selection_refusal_carries_its_row(svc):
 def test_the_exported_row_tuples_are_all_real_registry_rows():
     """The drift guard: a constant renamed in ``models.py`` must not leave a
     feature quoting a row key nothing resolves."""
-    for row_key in (*svc_sprites.SPRITE_ROWS, *svc_sheets.PIXEL_SHEET_ROWS):
+    for row_key in svc_sprites.SPRITE_ROWS:
         assert fetch.find(row_key) is not None, row_key
 
 

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .. import vectors
+from ..retired import is_retired
 from . import asset_open, verbs
 
 # The prompt history the 2D pane offers. Twenty is what the browser kept: long
@@ -195,24 +196,6 @@ def default_form_2d() -> dict[str, Any]:
         # keeps the choice honest instead of carrying a fire palette onto a
         # creature that has no fire.
         "character_theme": "none",
-        # Empty means the door's default preset. Deliberately *not* the preset
-        # key spelled out: ``tests/modes/poser/test_camera_presets.py`` pins
-        # the default camera key to exactly two homes in the package
-        # (``charsheet.py`` and ``characters/resolve.py``), because an angle
-        # copied into a third module is a form offering a framing nothing
-        # renders. The pane reads it from ``poser_mode.sheet_options``.
-        "character_camera": "",
-        # Strings, for ``tile_size``'s reason two dozen lines up: the segmented
-        # controls that carry them hand back strings, and an int default here
-        # would make every persisted value fail ``restore_form``'s type gate
-        # silently. Converted at the submit boundary, once.
-        "character_pixel": "64",
-        "character_colors": "32",
-        # The movements this sheet carries, comma separated. A string rather
-        # than a list because it is three switches whose set is small and
-        # ordered, and because a comma-joined value diffs readably in the
-        # settings file; ``character_engine.actions_of`` splits it once.
-        "character_actions": "idle,walk,attack",
         # The appearance sliders, as JSON: the channel *set* belongs to the
         # species' archetype, so this cannot be a fixed group of float fields
         # the way ``ip_scale`` is.
@@ -1054,12 +1037,18 @@ def card_kind(job: dict[str, Any]) -> str:
     Not simply job["kind"]: a text job that stops at a reference, one that
     stops at a tile and one that goes on to a mesh are all the same kind and
     three different things to look for.
+
+    A row of a retired kind (``retired.RETIRED_KINDS``) is filed under one
+    word, ``"retired"``, whatever it was: what the filter is for is "show me
+    what I can still use", and the three removed sheet kinds share one answer.
     """
-    if job.get("kind") in ("rig", "sheet"):
-        return job["kind"]
+    if is_retired(job.get("kind")):
+        return "retired"
+    if job.get("kind") == "rig":
+        return "rig"
     if job.get("kind") == "separate":
         # Filed under "music" with the take it belongs to, rather than given a
-        # kind of its own -- the charsheet-under-"sheet" argument: what the
+        # kind of its own: what the
         # filter is for is "show me the tracks", and a split *is* one, in the
         # same directory, played by the same mode. What makes it a split is a
         # property of its artifacts, not of the row.
@@ -1069,15 +1058,6 @@ def card_kind(job: dict[str, Any]) -> str:
         # did until now: a take is neither 2D nor a mesh, and a workshop
         # filtered to meshes was listing every track the user had ever made.
         return "music"
-    if job.get("kind") == "charsheet":
-        # Filed under "sheet" with the pose sheets rather than given a kind of
-        # its own: what the filter is for is "show me the sprite sheets this
-        # mesh has", and a character sheet is one -- it lands in the same
-        # ``sheets/`` directory, opens in the same viewer and exports through
-        # the same writers. The thing that makes it a Troupe sheet is the
-        # frame table it was laid out on, which is a property of the artifact
-        # and not of the row.
-        return "sheet"
     if job.get("kind") == "sprite_synthesis":
         # A kind of its own rather than the "model" every other follow-up job
         # falls through to: a sprite draft is 2D and its next step is Inker, so
@@ -1554,15 +1534,6 @@ class AppState:
     # are -- and, like Troupe's, holding no document: a take is a job row a
     # worker wrote, so the store owns it and there is nothing here to lose.
     muse: Any = None
-    # Poser's authoring session -- which template, what the library holds,
-    # and (since P9, 2026-09-18) the character-sheet stage Troupe folded into
-    # it -- built on first use by ``poser_mode.ensure``. Untyped and None for
-    # the reason the four above are. Its Viewer lives on the App/Ctx, not
-    # here: AppState carries no GL objects. The ``sheet_*`` fields on
-    # ``PoserState`` are Troupe's own selection-and-clock state, carried
-    # whole: a sheet is a selection over files a worker published, so there
-    # is nothing there for a crash to lose either.
-    poser: Any = None
     # Mason's own state, built on first use once a later stage gives the mode
     # something to hold. Untyped and None for the reason the others are: this
     # first stage's workspace has no document, no engine and no selection, so
@@ -1605,13 +1576,6 @@ class AppState:
     # ``clay``/``review`` are, and never persisted: a stored cutout would be a
     # claim about a file that has had a whole session to change.
     matte: Any = None
-    # The open sheet-rendering question (Troupe's own "Send to Troupe" dialog,
-    # ported to Poser whole in P9, 2026-09-18), built by
-    # ``modes.poser.ui.panes.send.ask`` and drawn at top level -- the
-    # library's door is inside a context popup, where ``imgui.open_popup``
-    # cannot be called. One slot, because at most one send is in flight;
-    # untyped and None here for ``matte``'s reason.
-    poser_send: Any = None
     manual: ManualState = field(default_factory=ManualState)
     tour: TourState = field(default_factory=TourState)
     # The selected asset's parsed manifest.json, held as ((job id, mtime), data)
@@ -1809,11 +1773,6 @@ ACTIONS = {
     "inker": verbs.open_in("inker"),
     "clay": verbs.open_in("clay"),
     "plotter": verbs.add_to("plotter"),
-    # A rigged character mesh's own next step: Poser is where its sheet gets
-    # made (Troupe's own stage, folded in whole by P9, 2026-09-18) -- this
-    # simply opens the asset there, so it reads ``open_in`` rather than the
-    # "Send to" a fresh render from this card would need.
-    "poser": verbs.open_in("poser"),
     # **Missing since Muse shipped, and it was a crash rather than a gap.**
     # ``primary_action`` returns ``"muse"`` for a finished take and for a
     # separate row, and the library's result card labels its button with
@@ -1833,9 +1792,9 @@ def result_actions(job: dict[str, Any], *, rigging_available: bool = True) -> tu
 
     This is intentionally a pure policy function.  The card and a future
     result viewer can render the same actions without each inventing a subtly
-    different set of valid follow-ups.
+    different set of valid follow-ups. A retired row is offered none.
     """
-    if job.get("status") != "done":
+    if job.get("status") != "done" or is_retired(job.get("kind")):
         return ()
     files = set(job.get("files") or ())
     params = job.get("params") if isinstance(job.get("params"), dict) else {}
@@ -1852,7 +1811,15 @@ def result_actions(job: dict[str, Any], *, rigging_available: bool = True) -> tu
 
 
 def primary_action(job: dict[str, Any], *, rigging_available: bool = True) -> str | None:
-    """The one action a job's card offers, or None."""
+    """The one action a job's card offers, or None.
+
+    **None for a retired row, whatever its status.** Its pipeline is gone, so
+    a stuck row cannot be cancelled into anything, an errored one cannot be
+    retried and a finished one has nothing to open or promote: the card shows
+    the "retired" badge and ``asset_open`` explains itself when it is clicked.
+    """
+    if is_retired(job.get("kind")):
+        return None
     status = job.get("status")
     if status in ("queued", "running"):
         return "cancel"
@@ -1883,8 +1850,8 @@ def primary_action(job: dict[str, Any], *, rigging_available: bool = True) -> st
         return None
     files = job.get("files") or []
     if asset_open.opens_elsewhere(job):
-        # A follow-up row (rig, sheet, sprite draft, retexture, remesh, character
-        # sheet) and a LoRA run hold none of the files the ladder below reads --
+        # A follow-up row (rig, sprite draft, retexture, remesh) and a LoRA run
+        # hold none of the files the ladder below reads --
         # a follow-up writes into its source's directory, ``lora_train`` into an
         # adapter -- so every arm below answered ``None`` and the card drew no
         # button at all: a finished sprite sheet could only be opened by pressing
@@ -1909,15 +1876,14 @@ def primary_action(job: dict[str, Any], *, rigging_available: bool = True) -> st
     if intent == "character":
         # A character is minted finished and its rig is queued in the same
         # press, so the interesting question on the card is which half has
-        # landed. Once ``rig.glb`` exists the sheet is what this asset is
-        # *for*, and Poser is where it gets made (Troupe's own stage, folded
-        # in whole by P9, 2026-09-18); until then the body is all there is,
-        # and Clay is where a body is edited. Deliberately never "rig": the
+        # landed. Either way Clay is where a character goes next -- the body
+        # before the rig lands, and (opening its ``rig.glb``) the bones, weights
+        # and animations after. Deliberately never "rig": the
         # rig row already exists, and offering to make a second one is how a
         # user spends Blender twice on one character. The ladder below would
         # answer "rig" for exactly that window, which is why this arm sits
         # above it rather than beside it.
-        return "poser" if "rig.glb" in files else "clay"
+        return "clay"
     if intent == "tileset" and "input.png" in files:
         return "plotter"
     if intent in ("refine_2d", "sprite") and "input.png" in files:

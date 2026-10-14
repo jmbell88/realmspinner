@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 # The 2026-09-23 audit (second run, docs-01 item 4): every busy
 # refusal in this file used to return silently -- the shape ``remove_source``/
 # ``rename_source``/``set_settings`` set and ``add_source_paths``/
-# ``add_job_source``/``add_rendered_sheet`` copied when packwright-01 (first
+# ``add_job_source`` copied when packwright-01 (first
 # run) gave them a ``tab.busy`` check but no way to tell the caller why
 # nothing happened. One sentence for the whole file, the same one the sources
 # pane's own greyed buttons already show (``widgets.DOCUMENT_SAVING_WHY``), so
@@ -174,67 +174,6 @@ def ask_add_tileset(ctx: Any) -> None:
         return {"tileset": (str(path), path.stem, _decode(path)), "uid": uid}
 
     ctx.submit(f"packwright-tileset:{uid}", run)
-
-
-def add_rendered_sheet(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = False) -> None:
-    """A rendered 8-direction sheet onto the open atlas, through the usual door.
-
-    The house pattern is confirm-at-the-door, so this parks the sheet on the
-    existing ``tileset_import``/``tileset_import_open``/``tileset_cell`` trio
-    rather than importing anything: the popup opens with the cell size the
-    sidecar recorded already filled in, shows what that answer keeps and drops,
-    and the existing occupancy/import path does the rest. Nothing new is
-    imported and nothing new is refused.
-    """
-    tab = active(ctx)
-    if tab is None:
-        # ``add_job_source``'s rule: this is offered from *outside* Packwright,
-        # so refusing is an offer taken back -- and an atlas has no numbers
-        # that cannot be taken back later, so one is simply made.
-        tab = new_document(ctx)
-        set_mode(ctx.state, "packwright")
-    elif tab.busy:
-        # The 2026-09-23 audit, packwright-01: the sources pane's own Add
-        # buttons are greyed (``editable = not tab.busy``) while a save is
-        # writing, but a hand-off from outside the pane -- Poser's sheet
-        # export lands here -- went straight through with no such guard, so a
-        # sheet could be spliced into a document mid-encode. Toasted rather
-        # than silent (the 2026-09-23 audit, second run, docs-01): the sender has no
-        # other way to learn a busy tab did not already know.
-        docmodes.refuse(ctx, _BUSY_WHY)
-        return
-    uid = tab.uid
-
-    def run() -> dict[str, Any] | None:
-        import numpy as np
-        from PIL import Image
-
-        from ....service import sheets as svc_sheets
-        from ..inker.mode import sheet_grid
-
-        if pixel:
-            record = svc_sheets.get_pixel_sheet(ctx.svc, job_id, sheet_id)
-            png = svc_sheets.sheet_pixel_png(ctx.svc, job_id, sheet_id)
-        else:
-            record = svc_sheets.get_sheet(ctx.svc, job_id, sheet_id)
-            png = svc_sheets.sheet_png(ctx.svc, job_id, sheet_id)
-        cell, _count = sheet_grid(record)
-        with Image.open(png) as opened:
-            opened.load()
-            pixels = np.asarray(opened.convert("RGBA"), dtype=np.uint8).copy()
-        name = str(record.get("name") or sheet_id)
-        return {"tileset": (str(png), name, pixels), "cell": cell, "uid": uid}
-
-    # Keyed on the request's own identity, not the bare tab uid
-    # ``ask_add_tileset`` submits under. The 2026-09-07 audit's packwright-02:
-    # both call sites shared ``packwright-tileset:{uid}`` and neither inspects
-    # ``ctx.submit``'s return, so a character-sheet handoff (Poser's own
-    # since P9, 2026-09-18; Troupe's before it) landing while the manual
-    # picker's OS dialog was still open -- the same tab, same key, already in
-    # flight -- was refused with nothing to say so: manual submit ``True``,
-    # handoff ``False``, no toast. ``job_id``/``sheet_id`` make this handoff
-    # its own request, the ``add_job_source``/``add_source_paths`` shape.
-    ctx.submit(f"packwright-tileset:{uid}:{job_id}:{sheet_id}", run)
 
 
 def import_tileset(ctx: Any) -> bool:
@@ -498,7 +437,7 @@ def add_inker_document(ctx: Any, inker_tab: Any) -> None:
         # Packwright" is gated only on the Inker tab's own menu -- it does not
         # know whether the *target* atlas is mid-save -- and this is the one
         # add door among its siblings (``add_source_paths``,
-        # ``add_job_source``, ``add_rendered_sheet``, all fixed by the first
+        # ``add_job_source``, all fixed by the first
         # run of this finding) that never checked ``tab.busy`` at all, so
         # frames were spliced into a document mid-encode with no guard and no
         # word about it.
@@ -909,12 +848,6 @@ def on_task_done(ctx: Any, done: Any) -> None:
             # identity any further than that check.
             state.tileset_import_uid = tab.uid
             state.tileset_import_open = False
-            cell = result.get("cell")
-            if cell is not None:
-                # Only when the door knew the answer. A picked file does not,
-                # and overwriting the last typed cell size for it would throw
-                # away the number the user is cutting a folder of sheets with.
-                state.tileset_cell = (int(cell[0]), int(cell[1]))
         return
 
     if name == "packwright-add":

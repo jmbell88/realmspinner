@@ -2,7 +2,7 @@
 regression each, named as the audit row names it.
 
 create-31: a saved pose applied from the Pose column (``pose_panel._apply_saved_pose``)
-or the Poser's asset list (``poser_mode.apply_asset_pose``) ran ``reset_all`` as one
+(and, then, the Poser's asset list) ran ``reset_all`` as one
 undo step and the folded ``set_pose`` + ``set_root_translation`` as a second, so the
 first Ctrl+Z landed on the rest pose instead of the pose the user had before pressing
 Apply.
@@ -13,7 +13,6 @@ the texture decode -- synchronously on the frame thread.
 
 from __future__ import annotations
 
-import importlib.util
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,21 +23,10 @@ import pytest
 
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.studio._viewer_pose import PoseOps
-from realmspinner.studio.modes.poser import mode as poser_mode
 from realmspinner.studio.panes import pose_panel
 from realmspinner.studio.viewer.pose import PoseEditor
 
 WORKER = "realmspinner-task-test"
-_HERE = Path(__file__).resolve().parent
-
-
-def _load(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 # --- create-31 ---------------------------------------------------------------
 
 
@@ -120,45 +108,6 @@ def test_applying_a_saved_pose_undoes_back_to_the_previous_pose_in_one_step():
     assert viewer.editor.redo()
     assert _pose_of(viewer) == [round(v, 4) for v in _SAVED["bones"]["hip"]]
     assert viewer.editor.root_translation() == pytest.approx([0.1, 0.0, 0.25])
-
-
-def test_applying_a_saved_asset_pose_in_the_poser_undoes_back_in_one_step(svc):
-    """The same defect in ``poser_mode.apply_asset_pose``, which the audit names as
-    the second site. The Poser's test viewer routes ``set_pose``/``reset_all``/
-    ``set_root_translation`` straight to the editor, which would never push the
-    second step, so this one binds the real ``PoseOps`` methods."""
-    pm = _load(_HERE / "modes" / "poser" / "test_poser_mode.py", "_poser_mode_helpers_pose")
-
-    class PoserViewer(pm.FakeViewer):
-        set_pose = PoseOps.set_pose
-        reset_all = PoseOps.reset_all
-        set_root_translation = PoseOps.set_root_translation
-        _after_pose_change = PoseOps._after_pose_change
-        _notify_pose_dirty = PoseOps._notify_pose_dirty
-        gpu = None
-        on_pose_dirty = None
-        _render_dirty = False
-
-    ctx = pm.FakeCtx(svc)
-    state = poser_mode.ensure(ctx)
-    state.job_id = "job"
-    names = ["hips"]
-    viewer = ctx.poser_viewer = PoserViewer(_Model(names), names)
-    viewer.pose_job_id = "job"
-    viewer.editor.root = "hips"
-    with viewer.editor.record():
-        viewer.editor.apply({"hips": list(m3.quat_from_axis_angle(m3.vec3(1, 0, 0), 0.4))})
-    viewer.editor.dirty = False
-    before = [round(v, 4) for v in viewer.editor.pose()["hips"]]
-    state.asset_poses = [
-        {"id": "p1", "name": "Crouch", "bones": {"hips": _SAVED["bones"]["hip"]}}
-    ]
-
-    poser_mode.apply_asset_pose(ctx, "p1")
-    assert [round(v, 4) for v in viewer.editor.pose()["hips"]] != before
-
-    assert viewer.editor.undo()
-    assert [round(v, 4) for v in viewer.editor.pose()["hips"]] == before
 
 
 # --- create-50 ---------------------------------------------------------------
@@ -364,36 +313,3 @@ def test_apply_from_outside_pose_mode_waits_for_the_rig_then_applies_in_one_undo
     assert _pose_of(viewer) == [round(v, 4) for v in _SAVED["bones"]["hip"]]
     assert len(viewer.editor.history) == steps + 1
 
-
-def test_applying_a_library_pose_in_the_poser_undoes_back_in_one_step(svc):
-    """F19-1: ``poser_mode.apply_pose`` (the library door) kept the two-step shape
-    create-31 closed in ``apply_asset_pose``."""
-    pm = _load(_HERE / "modes" / "poser" / "test_poser_mode.py", "_poser_mode_helpers_lib")
-
-    class PoserViewer(pm.FakeViewer):
-        set_pose = PoseOps.set_pose
-        reset_all = PoseOps.reset_all
-        set_root_translation = PoseOps.set_root_translation
-        _after_pose_change = PoseOps._after_pose_change
-        _notify_pose_dirty = PoseOps._notify_pose_dirty
-        gpu = None
-        on_pose_dirty = None
-        _render_dirty = False
-
-    ctx = pm.FakeCtx(svc)
-    state = poser_mode.ensure(ctx)
-    names = ["hips"]
-    viewer = ctx.poser_viewer = PoserViewer(_Model(names), names)
-    viewer.pose_job_id = "job"
-    viewer.editor.root = "hips"
-    with viewer.editor.record():
-        viewer.editor.apply({"hips": list(m3.quat_from_axis_angle(m3.vec3(1, 0, 0), 0.4))})
-    viewer.editor.dirty = False
-    before = [round(v, 4) for v in viewer.editor.pose()["hips"]]
-    state.poses = [{"id": "p1", "name": "Crouch", "bones": {"hips": _SAVED["bones"]["hip"]}}]
-
-    poser_mode.apply_pose(ctx, "p1")
-    assert [round(v, 4) for v in viewer.editor.pose()["hips"]] != before
-
-    assert viewer.editor.undo()
-    assert [round(v, 4) for v in viewer.editor.pose()["hips"]] == before

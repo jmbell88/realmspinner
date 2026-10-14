@@ -5,7 +5,7 @@ of refusing, and a species swap re-validated the old species' answers.
 docstring) but ``int(raw)`` alone clamped a bool to 0/1, truncated a fraction,
 and let ``int(float("inf"))``'s raw ``OverflowError`` escape this module's
 ``CharacterError`` vocabulary entirely. ``dither=bool(raw.get("dither", False))``
-had the sibling bug ``service.troupe._check_options`` already named for its own
+had the sibling bug the retired Troupe door already named for its own
 ``pixel_art`` switch: ``bool("false")`` is ``True`` in Python. ``Recipe.replace``
 re-validated a species swap's *old* appearance/theme against the *new*
 species' registry row, which either raised a confusing "no such slider" (an

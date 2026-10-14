@@ -57,7 +57,7 @@ else:  # pragma: no cover - runtime alias
 
 #: Bumped when anything below changes what a given form produces: the grid, the
 #: guide, the subject clauses or the reduction. Recorded in the sidecar so a
-#: sheet can say which compiler drew it, the way ``PIXEL_SHEET_VERSION`` does.
+#: sheet can say which compiler drew it, the way ``SPRITE_DRAFT_VERSION`` does.
 #: The *layout* clauses live in ``prompt.TILESHEET_TEMPLATE`` under
 #: ``PROMPT_VERSION`` instead -- that template serves the prompt preview as well
 #: as this path, and the two numbers answer different questions.
@@ -626,7 +626,7 @@ def sheet_sidecar(
     """The sheet's own record: what was asked for, and what actually ran.
 
     Written last, after the PNG, because it is this job's completion marker --
-    the rule ``_pixel_sheet`` follows about its own sidecar. The
+    the rule every sidecar-writing worker follows. The
     recipe records what ran rather than what was requested, so a style the base
     could not take is simply absent instead of being claimed.
 

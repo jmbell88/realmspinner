@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 
 import numpy as np
@@ -13,7 +12,6 @@ from test_cliptransfer import (
     _make_sample,
     _rest_frame_bones,
 )
-from test_rerender_door import _published, _rigged_mesh, _runs
 
 from realmspinner import cliptransfer
 from realmspinner.godotscene import scene_text
@@ -21,7 +19,6 @@ from realmspinner.kernels.rig import cliplib, poses
 from realmspinner.pipelines import pixelize
 from realmspinner.service import Invalid
 from realmspinner.service import clips as svc_clips
-from realmspinner.service import troupe as svc_troupe
 
 # -- poser-13: a clip name written bare into a .tscn property-path key ---------
 
@@ -54,36 +51,7 @@ def test_the_godot_refusal_names_the_clip_and_an_ordinary_name_is_still_written(
     assert "states/Dodge-Roll/node" in text
 
 
-# -- poser-14: a re-render reads the mesh's current rig ------------------------
 
-
-def test_a_re_render_is_refused_when_the_mesh_has_been_re_rigged_on_another_template(svc):
-    job_id = _rigged_mesh(svc)
-    _row, sheet_id = _published(svc, job_id)
-    (svc.job_dir(job_id) / "rig.json").write_text(
-        json.dumps({"template": "quadruped"}), "utf-8"
-    )
-    with pytest.raises(Invalid) as caught:
-        svc_troupe.rerender_charsheet(svc, job_id, sheet_id=sheet_id, subset=_runs(1))
-    assert caught.value.field == "sheet_id"
-    assert "quadruped" in str(caught.value)
-
-
-def test_a_re_render_is_refused_at_the_door_when_the_rig_is_gone(svc):
-    job_id = _rigged_mesh(svc)
-    _row, sheet_id = _published(svc, job_id)
-    (svc.job_dir(job_id) / "rig.glb").unlink()
-    with pytest.raises(Invalid) as caught:
-        svc_troupe.rerender_charsheet(svc, job_id, sheet_id=sheet_id, subset=_runs(1))
-    assert caught.value.field == "sheet_id"
-    assert "no longer rigged" in str(caught.value)
-
-
-def test_a_re_render_on_the_same_rig_is_still_accepted(svc):
-    job_id = _rigged_mesh(svc)
-    _row, sheet_id = _published(svc, job_id)
-    made = svc_troupe.rerender_charsheet(svc, job_id, sheet_id=sheet_id, subset=_runs(1))
-    assert made["sheet_id"] != sheet_id
 
 
 # -- poser-15: a static action is a rest clip, not a refusal at Save -----------

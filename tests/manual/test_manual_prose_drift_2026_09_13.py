@@ -114,30 +114,12 @@ def test_manual_chapter_12_places_the_images_control_under_the_brief():
     brief = Path(create_brief.__file__).read_text(encoding="utf-8")
     assert "def _count(" in brief
 
-    text = _chapter("12-tuning-what-you-get.md")
+    text = _chapter("11-tuning-what-you-get.md")
     assert "beside the seed field" not in text
     # The Count pills are **Images** since 2026-10-11 and live in the column,
     # under the brief, not in a command bar (which is the stage rail now).
     assert "**Images** control under the brief" in text
     assert "**Count**" not in text
-
-
-# --- packwright-02: Add to Packwright parks a pending tileset import -------
-
-
-def test_manual_add_to_packwright_from_troupe_describes_the_tileset_popup_step():
-    packwright_mode = (STUDIO / "modes/packwright/mode.py").read_text(encoding="utf-8")
-    assert "def add_rendered_sheet(" in packwright_mode
-    assert "tileset_import" in packwright_mode
-
-    for chapter, forbidden in (
-        ("33-packwright.md", "contributes one sprite per cell to whatever atlas is open"),
-        ("10-packing-an-atlas.md", "a rendered character sheet contributes one sprite per cell"),
-        ("26-poser.md", "contributes one sprite per cell to an open atlas"),
-    ):
-        text = _flat(_chapter(chapter))
-        assert forbidden not in text, f"{chapter} still claims a direct contribution"
-        assert "Import" in text
 
 
 # --- tour-01: chapter 21 names every tour in TOURS -------------------------
@@ -162,7 +144,7 @@ def test_manual_lock_paragraph_matches_pick_not_being_gated_by_locked():
     view = (STUDIO / "modes/mason/ui/view.py").read_text(encoding="utf-8")
     # The engine still selects a locked node like any other -- the claim this
     # test pins is that the manual no longer says otherwise.
-    text = _flat(_chapter("31-mason.md"))
+    text = _flat(_chapter("28-mason.md"))
     assert "keeps a node from being picked in the viewport" not in text
     assert "stops a drag in the viewport" in text
     assert view  # source read for the record; behaviour itself is untouched
@@ -199,7 +181,7 @@ def test_chapter_17_radius_label_matches_the_sculpt_pane():
     palette = (STUDIO / "modes/mason/ui/panes/palette.py").read_text(encoding="utf-8")
     assert 'widgets.field_label("radius (cells)")' in palette
 
-    text = _flat(_chapter("17-dressing-a-scene.md"))
+    text = _flat(_chapter("16-dressing-a-scene.md"))
     assert "radius (cells)" in text
     assert "set **Radius** to" not in text
 
@@ -212,33 +194,9 @@ def test_manual_shift_c_sentence_does_not_claim_slice_has_a_paired_tool():
     assert 'Binding("slice", "Shift+C", "tool", priority=10)' in inker_ops
     assert 'Binding("slice", "C", "tool")' in inker_ops
 
-    text = _chapter("28-inker.md")
+    text = _chapter("25-inker.md")
     assert "Shift+B/G/L/U/D/M/C" not in text
     assert "Shift+B/G/L/U/D/M" in text
-
-
-# --- docs-07: chapter 08's Save as label ------------------------------------
-
-
-def test_manual_poser_save_as_label_matches_button():
-    controls = (STUDIO / "modes/poser/ui/panes/controls.py").read_text(encoding="utf-8")
-    assert '"Save as reusable pose..."' in controls
-
-    text = _chapter("08-rigging-and-posing.md")
-    assert "Save as reusable pose..." in text
-    assert re.search(r"\*\*Save as\*\*(?! reusable)", text) is None
-
-
-# --- docs-08: chapter 08's Revert label --------------------------------------
-
-
-def test_manual_poser_revert_label_matches_button():
-    clips = (STUDIO / "modes/poser/ui/panes/clips.py").read_text(encoding="utf-8")
-    assert '"Revert to shipped clips"' in clips
-
-    text = _flat(_chapter("08-rigging-and-posing.md"))
-    assert "Revert to shipped clips" in text
-    assert re.search(r"\*\*Revert\*\*(?! to)", text) is None
 
 
 # --- docs-09: chapter 37's Start from current settings label ----------------
@@ -248,7 +206,7 @@ def test_manual_review_start_from_current_settings_label():
     review_panes = (STUDIO / "modes/review/ui/workspace.py").read_text(encoding="utf-8")
     assert '"Start from current 2D/3D settings"' in review_panes
 
-    text = _chapter("37-review.md")
+    text = _chapter("34-review.md")
     assert "Start from current 2D/3D settings" in text
     assert re.search(r"\*\*Start from current settings\*\*", text) is None
 

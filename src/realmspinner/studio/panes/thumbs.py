@@ -39,7 +39,7 @@ def thumb_glyph(job: Any) -> str:
         "tile": icons.GRID,
         "model": icons.BOX,
         "rig": icons.BONE,
-        "sheet": icons.FILM,
+        "retired": icons.SQUARE_DASHED,
         "sprite": icons.LAYERS,
         # The badge's glyph, so a card's placeholder and its chip agree.
         "tilesheet": icons.LAYERS,

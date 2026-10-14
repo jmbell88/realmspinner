@@ -154,11 +154,6 @@ class Ctx:
     tasks: Any
     settings: Any
     viewer: Any = None
-    # Poser's own Viewer instance, attached by the App when the mode is first
-    # entered. Separate from ``viewer`` on purpose: ``adopt_model`` there exits
-    # pose mode unconditionally, so sharing one instance would let loading the
-    # Poser preview silently discard unsaved inspector pose edits.
-    poser_viewer: Any = None
     # Clay's live viewport, attached by the App when the mode's viewport is
     # first built and cleared again at teardown. The App owns the instance;
     # this is how clay_mode and the panes reach it -- the drag keyboard, the
@@ -215,7 +210,6 @@ class Ctx:
     # a headless caller does nothing instead of leaving a half-cleared viewer.
     clear_viewport: Any = None
     guidance: dict[str, Any] = field(default_factory=dict)
-    sheet_options: dict[str, Any] = field(default_factory=dict)
     # The monitor scale sampled at startup, kept apart from tokens.SCALE so the
     # settings pane can multiply a user preference onto it without compounding
     # its own previous answer.

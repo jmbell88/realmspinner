@@ -186,8 +186,9 @@ def _main_source() -> str:
     """Every file that builds a hand-composed split, as source.
 
     **One file since 2026-09-04, now six since the P4 restructure -- five
-    since P9 (2026-09-18) folded Troupe into Poser as a stage, which draws no
-    split of its own.** Review's nine hundred lines of pane drawing moved to
+    since P9 (2026-09-18) folded Troupe into Poser as a stage, which drew no
+    split of its own (and Poser itself left in the 2026-10-13 rig plan).**
+    Review's nine hundred lines of pane drawing moved to
     ``studio/review_panes.py`` as a mixin on ``App`` (T7 of the 2026-09-02
     review), and it draws splits and handles like every other workspace. The
     P4 restructure (``dev/RESTRUCTURE.md``) then moved
@@ -440,7 +441,6 @@ _WORKSPACES = {
     "mason": "modes/mason/ui/viewport.py",
     "plotter": "modes/plotter/ui/workspace.py",
     "sirens": "modes/sirens/ui/workspace.py",
-    "poser": "modes/poser/ui/viewport.py",
     "packwright": "modes/packwright/ui/workspace.py",
     "review": "modes/review/ui/workspace.py",
     "muse": "modes/muse/ui/workspace.py",

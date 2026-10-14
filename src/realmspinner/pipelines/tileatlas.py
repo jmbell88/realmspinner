@@ -711,7 +711,7 @@ def atlas_sidecar(
     still see in it.
 
     Written last, after the PNG, because it is the job's completion marker --
-    ``sheet_sidecar``'s rule and ``_pixel_sheet``'s before it.
+    ``sheet_sidecar``'s rule.
 
     ``grids`` is ``pixel.lattice``'s two numbers per generated material,
     measured once on each whole frame and never per cell. Additive, written

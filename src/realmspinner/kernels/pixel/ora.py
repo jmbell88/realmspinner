@@ -816,22 +816,10 @@ def _animation_json(doc, names: dict[int, str]) -> bytes:
         # groups existed. Written only when there is a group, so an ungrouped
         # document's ``animation.json`` is byte-identical to what it was.
         payload["groups"] = grouping
-    base = getattr(doc, "sheet_base", None)
-    if base is not None:
-        # Additive and the version stays 1, for ``groups``' reason exactly: the
-        # reader is guarded on its own, and a build that does not know this key
-        # opens the file as the document it was before the key existed. Written
-        # only when a sheet base is actually held, so an ordinary document's
-        # ``animation.json`` stays byte-identical to what it was.
-        # ``frames`` is already uid -> index, built at the top of this
-        # function; a second copy here is a second thing to keep in step.
-        block = base.payload(frames)
-        if block is not None:
-            payload["sheet"] = block
     effects = _flourish_payload(doc, tracks, frames)
     if effects:
-        # Additive, version stays 1, written only when held: ``sheet``'s
-        # reason a third time. Groups are numbered as ``_groups_payload``
+        # Additive, version stays 1, written only when held: ``groups``'
+        # reason. Groups are numbered as ``_groups_payload``
         # numbers them, so the reader pairs a recipe with its folder by the
         # same walk and never by a uid.
         payload["flourish"] = effects
@@ -1768,56 +1756,6 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
     ), payload
 
 
-def _read_sheet_base(doc, payload: dict) -> None:
-    """Rebuild the recorded render digests, or leave the document without one.
-
-    ``_read_groups``' guard, one key over and for a stronger version of its
-    reason: a base digest is metadata about a picture that is already whole, so
-    a block we cannot use costs the document its *merge* and never its pixels.
-
-    ``sheetmerge.base_from_payload`` does the validating and answers ``None``
-    for everything it does not recognise -- including an algorithm it cannot
-    recompute, which is deliberately in that class. Digests that cannot be
-    reproduced are worse than none: every cell would classify as edited and the
-    merge would refuse to take anything, silently and for a reason nothing on
-    screen could explain.
-    """
-    from . import sheetmerge
-
-    raw = payload.get("sheet")
-    if raw is None:
-        return
-    try:
-        # The 2026-09-19 audit, finding inker-05: ``sheetmerge.base_from_
-        # payload`` walks "cells" and "conflicts" with no ceiling of its own,
-        # unlike every sibling list this module already bounds --
-        # ``sheetmerge`` may not import ``ora`` (layering), so the refusal
-        # lives here, before the call, rather than inside that function. The
-        # audit's probe walked 4,000,000 "cells" in ~1s to keep one digest.
-        if isinstance(raw, dict):
-            cells = raw.get("cells")
-            if isinstance(cells, list) and len(cells) > MAX_ORA_METADATA_ENTRIES:
-                raise ValueError(
-                    f"this drawing's sheet block names more than "
-                    f"{MAX_ORA_METADATA_ENTRIES} cells"
-                )
-            conflicts = raw.get("conflicts")
-            if isinstance(conflicts, list) and len(conflicts) > MAX_ORA_METADATA_ENTRIES:
-                raise ValueError(
-                    f"this drawing's sheet block names more than "
-                    f"{MAX_ORA_METADATA_ENTRIES} conflicts"
-                )
-        uid_at = [frame.uid for frame in doc.anim.frames] if doc.anim else []
-        base = sheetmerge.base_from_payload(raw, uid_at)
-    except (AttributeError, KeyError, TypeError, ValueError):
-        log.warning("could not read this sheet's recorded render; merging is off")
-        return
-    if base is None:
-        log.warning("this sheet's recorded render is not one we can use; merging is off")
-        return
-    doc.sheet_base = base
-
-
 def _read_groups(doc, payload: dict) -> None:
     """Rebuild the layer-group tree from ``animation.json``, or leave it empty.
 
@@ -1891,7 +1829,7 @@ def _read_groups(doc, payload: dict) -> None:
 def _read_flourish(doc, payload: dict, nodes: list) -> None:
     """Rebuild the effect records, or leave the document with none.
 
-    Guarded like ``sheet``: a recipe is metadata about cels that are already
+    Guarded like ``layout`` and ``groups``: a recipe is metadata about cels that are already
     whole, so a block we cannot read costs the document its *regenerate* --
     the layers stay, as if the effect had been detached -- and never a pixel.
     A recipe of a newer schema, a group index off the end, a track that is
@@ -2573,7 +2511,6 @@ def read_ora(path: Path, *, budget: int | None = None):
             )
             _read_groups(doc, grid_payload)
             _read_flourish_assets(doc, zf)
-            _read_sheet_base(doc, grid_payload)
             _read_matte(doc, root)
             doc.file_format = "ora"
             doc.dpi = found_dpi

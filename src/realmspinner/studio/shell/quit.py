@@ -27,21 +27,17 @@ log = logging.getLogger(__name__)
 
 # shell-01 (2026-09-20 audit): a queue key follows "<mode>-<action>:<uid>",
 # and "<action>" itself is not always the bare word "export" or "save" --
-# Clay's file export is "clay-exportfile:", Mason's two export buttons are
-# "mason-exportglb:"/"mason-exportobj:", and the asset session's save is
-# "poser-asset-save:". Matching the literal substring "-export:" (as the
+# Clay's file export is "clay-exportfile:" and Mason's two export buttons are
+# "mason-exportglb:"/"mason-exportobj:". Matching the literal substring "-export:" (as the
 # muse-05 fix did) or a bare "save:" prefix caught none of those, so quitting
 # mid-write through any of them raised no warning at all. This matches any
 # "-<word starting with export or save>:" run anywhere in the key, so a
 # future mode's own spelling of the convention is covered without adding a
 # case here.
 #
-# shell-74 (2026-10-03 audit): Poser's own write keys carry no colon at all --
-# "poser-save", "poser-clips-save" -- so a colon was never going to follow the
-# word; a run that *ends the key* counts as well. "poser-rename" and
-# "poser-duplicate" write the same pose library and spell neither word, so they
-# are named.
-_EXPORT_OR_SAVE_KEY = re.compile(r"-(?:export|save)\w*(?::|$)|^poser-(?:rename|duplicate)$")
+# shell-74 (2026-10-03 audit): a write key can carry no colon at all, so a colon
+# was never going to follow the word; a run that *ends the key* counts as well.
+_EXPORT_OR_SAVE_KEY = re.compile(r"-(?:export|save)\w*(?::|$)")
 
 #: The title of the one confirm ``_ask_quit`` raises, named so a second press of
 #: the window's X can recognise the question already waiting.
@@ -148,22 +144,6 @@ class QuitMixin:
         # all, unlike every other in-flight rewrite this method already names.
         if any(k.startswith(("retarget:", "model-revert:", "reorient:")) for k in busy):
             lines.append("The mesh is still being reworked and will be interrupted.")
-        # agents-01 (2026-09-23, second run, audit): a character-pipeline
-        # tool call (``character_export`` and the rest) runs on AgentHost's
-        # own service-lane ``TaskRunner``, never on ``ctx.tasks`` -- so this
-        # summary warned about nothing while quitting mid ``character_export``
-        # would have interrupted it, unlike every other in-flight write named
-        # above. ``AgentHost.busy_tools`` is the read-only door onto that
-        # lane's occupancy; ``getattr`` because a headless app stub (most
-        # tests here, and a setup that failed before the host was built)
-        # carries no ``agent_host`` attribute at all.
-        agent_host = getattr(self, "agent_host", None)
-        busy_tools = agent_host.busy_tools if agent_host is not None else ()
-        if busy_tools:
-            lines.append(
-                f"An agent tool call ({', '.join(busy_tools)}) is still running "
-                "and will be interrupted."
-            )
         return "\n".join(lines)
 
     def _quit_to_install(self, installer: str) -> None:
@@ -287,14 +267,10 @@ class QuitMixin:
         # which modes are documents, so a mode added to the manifest was
         # journalled and counted in the caption but never asked about on quit.
         #
-        # The two pose guards are mutually exclusive by construction: the
-        # inspector's asks about the shared viewer's editor, the Poser's about
-        # its own instance, so no press ever answers one question twice. The
-        # inspector's goes immediately before Poser's own, as it always did.
-        guards = []
+        # The inspector's pose guard (the shared viewer's editor) comes first:
+        # an unsaved pose is the shortest thing to lose and the quickest to answer.
+        guards = [pose_panel.guard]
         for entry in mode_manifest.DOC_MODES:
-            if entry.key == "poser":
-                guards.append(pose_panel.guard)
             guards.append(mode_manifest.module_of(entry).guard)
 
         def step(index: int) -> None:
@@ -351,16 +327,6 @@ class QuitMixin:
             _step("write settings", ctx.settings.flush)
             if ctx.textures is not None:
                 _step("release textures", ctx.textures.release)
-            from ..modes.poser import mode as poser_mode
-            from ..panes import sheet_panel
-
-            _step("release sheet strip", lambda: sheet_panel.release_strip_texture(ctx))
-            # The character-sheet section's atlas texture (Troupe's own,
-            # folded into Poser in P9, 2026-09-18), for the same reason and by
-            # the same rule: it is registered with the imgui backend by
-            # ``widgets.texture_ref``, so it must be forgotten before it is
-            # released.
-            _step("release poser sheet atlas", lambda: poser_mode.release_texture(ctx))
             from ..modes.inker import mode as inker_mode
             from ..modes.packwright import mode as packwright_mode
             from ..modes.plotter import mode as plotter_mode
@@ -396,9 +362,6 @@ class QuitMixin:
             from ..modes.mason import mode as mason_mode
 
             _step("release mason", lambda: mason_mode.release_all(ctx))
-        poser_viewer = getattr(self, "poser_viewer", None)
-        if poser_viewer is not None:
-            _step("release poser viewer", poser_viewer.release)
         # ``getattr``, for ``clay_view``'s own reason above: a setup that
         # failed before ``setup_context`` built this must not skip
         # ``runtime.shutdown`` over an ``AttributeError``. Stopped before its
@@ -475,17 +438,15 @@ class QuitMixin:
         ctx = self.app_ctx
         if ctx is None:
             return
-        # Two viewers report into this one mirror (the shared one and Poser's
-        # own), and each reports only its *own* answer -- so the shared viewer
-        # adopting any model, which reports "clean", used to clear the mark over
-        # a Poser pose still unsaved, and an inspector edit marked Poser's status
-        # label dirty (the 2026-10-03 audit, finding poser-46). The mirror is the
-        # OR of both editors, read where they are, with the reporter's answer
-        # kept for callers that have no viewer to ask.
+        # The mirror is the OR of the editor and the reporter's own answer: the
+        # shared viewer adopting any model reports "clean", which must not clear
+        # the mark over a pose that is still unsaved, so the editor is read
+        # where it is, with the reporter's answer kept for callers that have no
+        # viewer to ask.
         dirty = bool(dirty)
-        for viewer in (getattr(self, "viewer", None), getattr(self, "poser_viewer", None)):
-            if viewer is not None and viewer.pose_mode and viewer.editor.has_unsaved_edits():
-                dirty = True
+        viewer = getattr(self, "viewer", None)
+        if viewer is not None and viewer.pose_mode and viewer.editor.has_unsaved_edits():
+            dirty = True
         if dirty == ctx.state.pose_dirty:
             return
         ctx.state.pose_dirty = dirty
@@ -517,9 +478,6 @@ class QuitMixin:
             and (
                 state.pose_dirty
                 or docmodes.any_unsaved(ctx)
-                # Poser's clip working copy is not a document mode, so
-                # ``any_unsaved`` cannot see it (poser-07, 2026-10-03).
-                or bool(getattr(getattr(state, "poser", None), "clips_unsaved", False))
             )
         )
         # Called once a frame now that it tracks five more things; setting the

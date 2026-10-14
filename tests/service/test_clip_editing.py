@@ -145,7 +145,7 @@ def test_reverting_an_unedited_library_is_not_found(svc):
 def test_reverting_a_locked_clip_file_reports_as_a_failure_not_a_traceback(svc, monkeypatch):
     """poser-06, the 2026-09-11 audit: revert()'s path.unlink() was not
     wrapped in except OSError, unlike its sibling delete doors
-    (service.poses.delete_library_pose, service.rig.delete_pose) -- so a
+    (the retired pose-library door, service.rig.delete_pose) -- so a
     locked file (antivirus, another program holding it open) raised a raw
     PermissionError out of the service layer instead of the same
     Failed("...locked by another program...") every other file-delete door

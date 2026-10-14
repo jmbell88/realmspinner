@@ -23,7 +23,7 @@ def test_manual_41_boolean_vocabulary_matches_env_bool(monkeypatch):
 def test_manual_12_budget_paragraph_describes_the_budget_combo_the_mesh_stage_draws():
     from realmspinner.studio.modes.create.ui.panes import settings_3d
 
-    text = (MANUAL / "12-tuning-what-you-get.md").read_text(encoding="utf-8")
+    text = (MANUAL / "11-tuning-what-you-get.md").read_text(encoding="utf-8")
     assert "currently offers only one tier" not in text
     assert "zero of twenty" not in text
     assert "**Triangle budget**" in text and "23-generating-meshes.md" in text

@@ -71,7 +71,7 @@ def test_picking_flux_clears_the_structure_control_and_keeps_the_avoid_text_as_m
     assert form["control"] == ""
     assert form["negative_prompt"] == "blurry, watermark"
 
-    para = _section(_chapter("12-tuning-what-you-get"), "Models and LoRAs")
+    para = _section(_chapter("11-tuning-what-you-get"), "Models and LoRAs")
     assert "picking one clears both" not in para
     assert "clears the structure control" in para
     # The kept text is named by the box it lives in, as chapter 22 names it.

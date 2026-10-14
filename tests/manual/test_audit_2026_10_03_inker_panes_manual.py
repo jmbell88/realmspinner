@@ -9,7 +9,7 @@ MANUAL = Path(__file__).resolve().parents[2] / "docs" / "manual"
 
 
 def _text() -> str:
-    return (MANUAL / "28-inker.md").read_text(encoding="utf-8")
+    return (MANUAL / "25-inker.md").read_text(encoding="utf-8")
 
 
 def test_manual_layers_section_names_only_controls_the_timeline_draws():

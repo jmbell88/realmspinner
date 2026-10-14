@@ -27,7 +27,7 @@ def _flat(text: str) -> str:
 
 def _section(heading: str) -> str:
     """The chapter's section under *heading*: down to the next ``## `` heading."""
-    text = loader.load("30-clay").replace("\r\n", "\n")
+    text = loader.load("27-clay").replace("\r\n", "\n")
     start = text.index(heading)
     end = text.find("\n## ", start + 1)
     return _flat(text[start : end if end != -1 else len(text)])
@@ -58,7 +58,7 @@ def test_the_texturing_section_counts_the_pico8_colours_the_code_ships() -> None
 def test_the_manual_names_a_texture_png_the_way_the_obj_exporter_does() -> None:
     example = objexport.texture_name("barrel", 2)
     assert example == "barrel_2.png"
-    assert f"`{example}`" in _flat(loader.load("30-clay")), (
+    assert f"`{example}`" in _flat(loader.load("27-clay")), (
         "chapter 30 shows an example texture file name that objexport.texture_name no "
         "longer produces"
     )
@@ -69,7 +69,7 @@ def test_the_operation_added_for_painting_faces_is_in_the_chapter_and_the_count(
     label: str,
 ) -> None:
     assert any(op.label == label for op in ops.OPS), f"no operation is labelled {label!r}"
-    text = _flat(loader.load("30-clay"))
+    text = _flat(loader.load("27-clay"))
     assert label in text
     count = len(ops.OPS)
     assert count in _WORDS, f"teach this test the word for {count}"

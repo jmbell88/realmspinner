@@ -42,12 +42,6 @@ Along the top of the viewport, over the view rather than beside it:
   [mesh report](23-generating-meshes.md#mesh-audit-and-mesh-report) numbers describe.
 - **Turntable** (`S`) — rotate the asset slowly and continuously. It runs at one orbit per thirty
   seconds, which is slow enough to look at and fast enough not to need waiting for.
-- **Set front** — record the direction you are currently looking from as this asset's front, so
-  every directional sprite sheet built from it is measured from there rather than from whatever way
-  the mesh happened to come out. Once set the button reads the angle back (**Front 137°**) and a
-  **Reset front** appears beside it. Only on a finished mesh. Poser has the same control for rigged
-  characters ([Choosing the front](26-poser.md#choosing-the-front)); this one is the door for props,
-  which Poser cannot open.
 - **Screenshot** — save exactly what is on screen as a PNG, at the viewport's own resolution. It
   asks where to put it. Disabled when there is no model.
 - **Zoom in / out** — the wheel already does this; the buttons exist so the control is findable.
@@ -55,7 +49,7 @@ Along the top of the viewport, over the view rather than beside it:
 - **Clear** — only when there is something in the view. It empties the viewport; reselecting the
   asset brings it back, so nothing is lost.
 
-The toolbar **wraps** rather than running off the edge. It carries up to twelve controls over a column
+The toolbar **wraps** rather than running off the edge. It carries up to eleven controls over a column
 whose width is whatever the side panes have left, so widening the inspector moves the last few
 controls onto a second row instead of clipping them away.
 
@@ -67,7 +61,7 @@ carries:
 - **The grid**, which is what makes the asset's scale legible at all — a mesh
   floating in an empty view has no size.
 - **The skeleton**, once an asset is rigged: bone lines through the mesh, and a marker at each joint
-  you can click. See [Rigging and posing](25-rigging-and-posing.md).
+  you can click. See [Rigging and posing](23-generating-meshes.md#rigging-and-posing).
 - **The comparison split**, when two assets are being compared from the library.
 
 The lighting is a generated sky/horizon/ground gradient rather than an imported HDRI, because

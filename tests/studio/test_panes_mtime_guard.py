@@ -1,7 +1,7 @@
 """Git's racily-clean rule, at the three pane caches that were missing it.
 
 ``inspector.rig_meta`` has applied it since it was written; ``palette_names``,
-``_manifest`` and ``sheet_panel.pixel_record`` stamped a path's mtime and
+``_manifest`` and the (since removed) ``sheet_panel.pixel_record`` stamped a path's mtime and
 remembered it unconditionally, which is the exact documented Windows hazard:
 adding a file left a directory's mtime unchanged 155 times in 200 on this
 machine (``dev/measurements/2026-08-07-directory-mtime-granularity.md``),
@@ -29,7 +29,7 @@ import types
 from typing import Any
 
 from realmspinner.service.files import MTIME_RACE_NS
-from realmspinner.studio.panes import inspector, sheet_panel, stamps
+from realmspinner.studio.panes import inspector, stamps
 from realmspinner.studio.state import AppState
 
 
@@ -224,72 +224,6 @@ def test_a_manifest_written_a_moment_ago_is_not_remembered(tmp_path, monkeypatch
 
     assert _await_manifest(ctx, "abc123abc123") is not None
     assert ctx.state.manifest is None
-
-
-# --- the pixel sheet's sidecar ------------------------------------------------
-
-
-SHEET_ID = "abc123abc123"
-
-
-class _SheetCtx:
-    def __init__(self, root):
-        self._root = root
-        self.state = AppState()
-
-    def job_dir(self, job_id):
-        return self._root
-
-
-def _write_sidecar(root, frame_size):
-    from realmspinner.kernels.rig import store
-
-    path = store.sheet_pixel_path(root, SHEET_ID)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({"frame_size": frame_size, "palette": ["000000"]}), encoding="utf-8"
-    )
-    return path
-
-
-def test_a_re_pixelated_sheet_inside_the_mtime_tick_is_still_read(tmp_path, monkeypatch):
-    """"Pixelate" pressed twice rewrites this sidecar in place, so the panel
-    would otherwise report the first restyle's cell size against the second
-    restyle's PNG."""
-    ctx = _SheetCtx(tmp_path)
-    path = _write_sidecar(tmp_path, 64)
-    _frozen(monkeypatch, path)
-
-    assert sheet_panel.pixel_record(ctx, "job", SHEET_ID)["frame_size"] == 64
-
-    _write_sidecar(tmp_path, 32)
-
-    assert sheet_panel.pixel_record(ctx, "job", SHEET_ID)["frame_size"] == 32
-
-
-def test_a_sidecar_written_a_moment_ago_is_not_remembered(tmp_path, monkeypatch):
-    ctx = _SheetCtx(tmp_path)
-    path = _write_sidecar(tmp_path, 64)
-    _frozen(monkeypatch, path)
-
-    assert sheet_panel.pixel_record(ctx, "job", SHEET_ID) is not None
-    assert ctx.state.preview.get("pixel_sidecars") == {}
-
-
-def test_a_settled_sidecar_is_parsed_once(tmp_path, monkeypatch):
-    ctx = _SheetCtx(tmp_path)
-    path = _write_sidecar(tmp_path, 64)
-    _settled(monkeypatch, path)
-
-    first = sheet_panel.pixel_record(ctx, "job", SHEET_ID)
-    for _ in range(4):
-        # Identity, not equality: a second parse produces an equal dict, and
-        # parsing a file sixty times a second is what the cache exists to stop.
-        assert sheet_panel.pixel_record(ctx, "job", SHEET_ID) is first
-
-
-def test_a_missing_sidecar_is_no_record(tmp_path):
-    assert sheet_panel.pixel_record(_SheetCtx(tmp_path), "job", SHEET_ID) is None
 
 
 # --- the deformation QA sheet -------------------------------------------------

@@ -65,7 +65,6 @@ from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as inker_mode
 from . import flourish as inker_flourish_pane
-from . import sheet as inker_sheet_pane
 
 #: The strip's height in design pixels, reserved out of the centre column.
 STRIP_H = 150.0
@@ -495,12 +494,8 @@ def draw(ctx: Any) -> None:
     if tab.doc.anim is not None:
         _transport(ctx, tab)
         widgets.divider()
-        # Between the transport and the grid, and only on a sheet document:
-        # the strip is about the cells the grid shows, and an ordinary
-        # animation has no scope for it to offer.
-        inker_sheet_pane.draw_strip(ctx, tab)
-        # And, only on an effect group: the recipe's inspector. Same reason,
-        # one door over -- an ordinary animation has no recipe to show.
+        # Between the transport and the grid, and only on an effect group: the
+        # recipe's inspector. An ordinary animation has no recipe to show.
         inker_flourish_pane.draw_inspector(ctx, tab)
     _grid(ctx, tab)
 

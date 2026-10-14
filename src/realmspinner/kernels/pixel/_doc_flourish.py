@@ -8,19 +8,18 @@ tag per phase, and the recipe kept beside the group in ``Document.flourish``
 so a later change to a slider can render the cels again.
 
 **Nothing painted is overwritten silently.** Every render records a digest of
-what it put in each cel (``sheetmerge.cell_digest``, the same function the
-character-sheet merge uses). A regenerate replaces a cel only when the cel
-still holds what the last render gave it; a cel the user painted on keeps the
-paint and is *flagged*, and a person decides per cel. That is
-``merge_render``'s rule, and the reason is the same: a cel wrongly kept is one
-click to re-take, and a cel wrongly taken is an afternoon gone.
+what it put in each cel (:func:`cell_digest`). A regenerate replaces a cel only
+when the cel still holds what the last render gave it; a cel the user painted
+on keeps the paint and is *flagged*, and a person decides per cel. The reason:
+a cel wrongly kept is one click to re-take, and a cel wrongly taken is an
+afternoon gone.
 
 **One gesture, one step.** Inserting an effect is one ``one_step`` of every
 edit it makes -- animating the document, the frames it adds, the tracks, the
 tags, the group, and the recipe itself (``FlourishEdit``). A regenerate is one
-step of its cel patches plus the recipe-and-digests it advances to, which is
-``SheetBaseEdit``'s argument: a render undone without its digests would leave
-the document's idea of "what the renderer last gave us" in the future.
+step of its cel patches plus the recipe-and-digests it advances to: a render
+undone without its digests would leave the document's idea of "what the
+renderer last gave us" in the future.
 
 Tracks are matched to recipe layers by the recipe layer's uid, recorded at
 insert time; the composite in pixel mode uses ``COMPOSITE`` as its key. The
@@ -128,10 +127,33 @@ class FlourishCounts:
         return ", ".join(parts) + "." if parts else "Nothing to render."
 
 
-def _digest(pixels: np.ndarray) -> str:
-    from . import sheetmerge
+def cell_digest(pixels: Any) -> str:
+    """A stable fingerprint of one cel's pixels.
 
-    return sheetmerge.cell_digest(pixels)
+    ``blake2b`` at 16 bytes. **The algorithm is stored data**: every ``.ora``
+    an effect has been saved into carries these digests (``flourish`` block,
+    ``digests``), so changing the hash would read every saved cel as painted
+    over and flag it a conflict. It moved here, byte for byte, when the
+    character-sheet merge it was shared with was retired.
+
+    **The shape is hashed with the bytes**, so a canvas resized between two
+    renders produces a *different* digest rather than one that might coincide.
+
+    ``ascontiguousarray`` because a cel's plane can be a view after a geometry
+    op, and a view's ``tobytes`` is its base's buffer.
+    """
+    import hashlib
+
+    array = np.ascontiguousarray(pixels, dtype=np.uint8)
+    shaped = "x".join(str(n) for n in array.shape)
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(f"{shaped}|".encode("ascii"))
+    digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+def _digest(pixels: np.ndarray) -> str:
+    return cell_digest(pixels)
 
 
 def _place(cel: np.ndarray, size: tuple[int, int], offset: tuple[int, int]) -> np.ndarray:
@@ -230,6 +252,15 @@ class FlourishOps:
 
     # -- queries -------------------------------------------------------------
 
+    def _track_by_uid(self: Document, track_uid: int) -> Any:
+        anim = self.anim
+        if anim is None:
+            raise ValueError("this document has no timeline")
+        for track in anim.tracks:
+            if track.uid == int(track_uid):
+                return track
+        raise ValueError("that track is no longer in the document")
+
     def flourish_state(self: Document, group_uid: int) -> FlourishState | None:
         return self.flourish.get(int(group_uid))
 
@@ -253,7 +284,7 @@ class FlourishOps:
         this two or three times per frame while it is open, and it used to
         rebuild a frame-uid -> index dict over the whole animation on every
         call. ``state.conflicts`` is replaced wholesale (never mutated in
-        place -- see ``merge_render`` and ``resolve_flourish``, which both
+        place -- see ``apply_flourish`` and ``resolve_flourish``, which both
         build the next state via ``.copy()`` or a fresh ``FlourishState``) by
         every edit that could change the answer, so a signature of it plus
         the frame count is enough to know nothing has changed since the last

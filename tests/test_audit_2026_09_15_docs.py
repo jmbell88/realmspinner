@@ -3,7 +3,7 @@
 Six small documentation drifts, each a stale fact left behind by a code
 change that moved on without it:
 
-* docs-01 -- ``docs/manual/28-inker.md``'s seam ×N paragraph still described
+* docs-01 -- ``docs/manual/25-inker.md``'s seam ×N paragraph still described
   the retired ``seam_ratio``/``SEAM_MAX`` statistic ("against the picture's
   own grain", amber above 3.5) after the 2026-09-07 fix moved
   ``inker_canvas.seam_text`` onto ``seam_dominance``/``SEAM_DOMINANCE_MAX``
@@ -70,19 +70,19 @@ def test_manual_ch28_seam_threshold_matches_seam_dominance_max():
     """
     from realmspinner.kernels.pixel.tiling import SEAM_DOMINANCE_MAX
 
-    chapter = (MANUAL / "28-inker.md").read_text(encoding="utf-8")
+    chapter = (MANUAL / "25-inker.md").read_text(encoding="utf-8")
     match = re.search(r"turning amber above ([\d.]+)", chapter)
     assert match, (
-        "docs/manual/28-inker.md no longer has a 'turning amber above N' sentence to check"
+        "docs/manual/25-inker.md no longer has a 'turning amber above N' sentence to check"
     )
     threshold = float(match.group(1))
     assert threshold == SEAM_DOMINANCE_MAX, (
-        f"docs/manual/28-inker.md's seam paragraph says 'turning amber above "
+        f"docs/manual/25-inker.md's seam paragraph says 'turning amber above "
         f"{match.group(1)}', but inker_canvas.seam_text has used "
         f"SEAM_DOMINANCE_MAX ({SEAM_DOMINANCE_MAX}) since the 2026-09-07 fix"
     )
     assert "own grain" not in chapter, (
-        "docs/manual/28-inker.md still describes the seam figure as measured "
+        "docs/manual/25-inker.md still describes the seam figure as measured "
         "'against the picture's own grain' -- that is the retired "
         "seam_ratio/SEAM_MAX statistic's description, not seam_dominance's "
         "(the picture's own worst interior join)"
@@ -170,22 +170,3 @@ def test_installation_chapter_sdxl_recipe_count_matches_the_registry():
         "ch. 40's SDXL entry-count paragraph still names the retired Lightning tier"
     )
 
-
-def test_the_sheet_form_draws_the_fps_control_the_invariant_says_it_lacks():
-    """docs-06, source half: the character-sheet form must still draw the fps
-    control that INVARIANTS.md's fps-refusal paragraph (checked in
-    ``dev/tests/test_audit_2026_09_15_docs.py``) says it lacks --
-    ``_frame_rate`` (added in fa2fee2a, on Troupe's own ``troupe_settings.py``
-    before P9, 2026-09-18 folded that mode into Poser) draws one, a
-    ``form_ui.combo("fps", "Frame rate", ...)``.
-    """
-    sheet_path = (
-        ROOT / "src" / "realmspinner" / "studio" / "modes/poser/ui/panes/sheet.py"
-    )
-    sheet_source = sheet_path.read_text(encoding="utf-8")
-    assert 'form_ui.combo(\n        "fps",' in sheet_source or re.search(
-        r'form_ui\.combo\(\s*"fps"', sheet_source
-    ), (
-        "the sheet form no longer draws an 'fps' combo -- re-check docs-06 "
-        "against the current source"
-    )

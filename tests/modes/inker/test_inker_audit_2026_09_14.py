@@ -1,5 +1,6 @@
-"""Regression tests for the 2026-09-14 audit's Inker findings: inker-07,
-inker-12, inker-13, inker-14.
+"""Regression tests for the 2026-09-14 audit's Inker findings: inker-12,
+inker-13, inker-14. (inker-07, the sheet mirror's double toast, went with the
+character-sheet correction loop.)
 
 Each test's name is the claim; each failed against the code as the audit
 found it before the fix beside it landed.
@@ -14,7 +15,6 @@ import numpy as np
 
 from realmspinner.studio.modes.inker import opening as inker_open
 from realmspinner.studio.modes.inker import palette_io as inker_palette_io
-from realmspinner.studio.modes.inker import sheet as inker_sheet
 from realmspinner.studio.modes.inker.state import InkerState
 from realmspinner.studio.modes.inker.ui.panes import colors as inker_colors
 from realmspinner.studio.modes.inker.ui.panes import tools as inker_tools
@@ -82,9 +82,9 @@ def test_pressing_open_twice_while_the_picker_is_up_says_something():
     task discarded ``ctx.submit``'s ``False`` -- "a task with this key is
     already running" -- so a second press while the first was still in flight
     did nothing a user could see (the 2026-09-14 audit, inker-12; widened on
-    2026-09-14 to ``import_aseprite_path``, ``open_sprite_draft``,
-    ``open_rendered_sheet`` and ``open_pixel_artifact``, the four doors this
-    finding's stated line range had not reached).
+    2026-09-14 to ``import_aseprite_path``, ``open_sprite_draft``
+    and ``open_pixel_artifact``, the doors this finding's stated line range had
+    not reached).
 
     Before the fix every one of these left ``ctx.toasts`` empty.
     """
@@ -109,10 +109,6 @@ def test_pressing_open_twice_while_the_picker_is_up_says_something():
         (
             "inker-open:sprite:draft1:N",
             lambda ctx: inker_open.open_sprite_draft(ctx, "job1", "draft1", "N"),
-        ),
-        (
-            "inker-open:sheet:sheet1:render",
-            lambda ctx: inker_open.open_rendered_sheet(ctx, "job1", "sheet1"),
         ),
         (
             "inker-open:pixel:job1:pixel_001.png",
@@ -157,107 +153,6 @@ def test_pressing_open_twice_while_the_picker_is_up_says_something():
         press(ctx)
         assert ctx.submitted == [expected_key], expected_key
         assert ctx.toasts, f"{expected_key} refused a second press in silence"
-
-
-# --- inker-07: a refusal toast must not be followed by a no-op toast --------
-
-
-class _MirrorAnim:
-    current = 0
-
-
-class _MirrorDoc:
-    """Just enough of ``Document`` for ``inker_sheet.mirror_to``: an ``anim``
-    with a ``current`` frame, and the one engine call under test."""
-
-    def __init__(self, *, raises: bool = False, applied: bool = True) -> None:
-        self.anim = _MirrorAnim()
-        self._raises = raises
-        self._applied = applied
-
-    def mirror_to(self, track_uid: int, current: int, target: int, fraction: float) -> bool:
-        if self._raises:
-            raise ValueError("the face box is empty")
-        return self._applied
-
-
-class _MirrorTab:
-    def __init__(self, doc: _MirrorDoc) -> None:
-        self.doc = doc
-
-
-class _ToastCtx:
-    def __init__(self) -> None:
-        self.toasts: list[tuple[str, str]] = []
-
-    def toast(self, text: str, level: str = "info", **_kw: Any) -> None:
-        self.toasts.append((text, level))
-
-
-def test_mirror_to_does_not_follow_a_refusal_toast_with_an_already_matches_toast(
-    monkeypatch: Any,
-) -> None:
-    """A raised refusal and a plain no-op used to look identical to
-    ``mirror_to``, which is why a refused mirror was followed by "The mirror
-    already matches outside the face." for the same press (the 2026-09-14
-    audit, inker-07). Before the fix this saw two toasts, not one."""
-    monkeypatch.setattr(inker_sheet, "active_track_uid", lambda tab: 1)
-    monkeypatch.setattr(inker_sheet, "counterpart", lambda tab: 2)
-
-    ctx = _ToastCtx()
-    result = inker_sheet.mirror_to(ctx, _MirrorTab(_MirrorDoc(raises=True)))
-    assert result is False
-    assert len(ctx.toasts) == 1, ctx.toasts
-    assert "was not applied" in ctx.toasts[0][0]
-
-    # The plain no-op still gets its own, different toast.
-    ctx2 = _ToastCtx()
-    result2 = inker_sheet.mirror_to(
-        ctx2, _MirrorTab(_MirrorDoc(raises=False, applied=False))
-    )
-    assert result2 is False
-    assert len(ctx2.toasts) == 1, ctx2.toasts
-    assert "already matches" in ctx2.toasts[0][0]
-
-
-def test_mirror_run_does_not_follow_a_refusal_toast_with_an_already_matches_toast(
-    monkeypatch: Any,
-) -> None:
-    """``mirror_run`` goes through the same ``_framed`` as ``mirror_to`` and
-    carried the identical bug: a raised refusal was followed by "Every cell of
-    that run already matches its mirror outside the face." for the same
-    press. Found alongside ``mirror_to`` on 2026-09-14 and widened into
-    inker-07 the same day."""
-    monkeypatch.setattr(inker_sheet, "active_track_uid", lambda tab: 1)
-    monkeypatch.setattr(inker_sheet, "run_of", lambda tab: (object(), 0))
-
-    ctx = _ToastCtx()
-    result = inker_sheet.mirror_run(ctx, _MirrorTab(_MirrorRunDoc(raises=True)))
-    assert result is False
-    assert len(ctx.toasts) == 1, ctx.toasts
-    assert "was not applied" in ctx.toasts[0][0]
-
-    # The plain no-op still gets its own, different toast.
-    ctx2 = _ToastCtx()
-    result2 = inker_sheet.mirror_run(
-        ctx2, _MirrorTab(_MirrorRunDoc(raises=False, applied=False))
-    )
-    assert result2 is False
-    assert len(ctx2.toasts) == 1, ctx2.toasts
-    assert "already matches" in ctx2.toasts[0][0]
-
-
-class _MirrorRunDoc:
-    """``mirror_run``'s half of ``_MirrorDoc``: only the engine call differs."""
-
-    def __init__(self, *, raises: bool = False, applied: bool = True) -> None:
-        self._raises = raises
-        self._applied = applied
-
-    def mirror_run(self, track_uid: int, run: Any, fraction: float) -> bool:
-        if self._raises:
-            raise ValueError("the run's face box is empty")
-        return self._applied
 
 
 # --- inker-13: sorting or ramping an indexed palette is not free ------------

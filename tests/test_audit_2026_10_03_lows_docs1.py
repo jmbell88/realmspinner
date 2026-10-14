@@ -233,16 +233,6 @@ def test_service_docstring_counts_match_their_registries():
     attach = _docstring_of(service / "files.py", "attach_files")
     assert "One stat per row" not in attach and "Two stats per row" in attach
 
-    # queued_sheets: the number of doors that reserve through check_sheet_cap.
-    doors = 0
-    for path in service.glob("*.py"):
-        for node in ast.walk(ast.parse(_text(path))):
-            if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "check_sheet_cap":
-                doors += 1
-    queued = _docstring_of(service / "sheets.py", "queued_sheets")
-    words = {3: "Three", 4: "Four", 5: "Five", 6: "Six"}
-    assert f"{words[doors]} doors reserve" in " ".join(queued.split())
-
     chars = _docstring_of(service / "characters.py")
     assert "four ordinary rows" not in chars
 

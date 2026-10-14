@@ -122,10 +122,9 @@ Quite a lot, which is worth knowing if you are reading this while 24 GB arrives.
 | Works right now | Needs weights, a GPU, or both |
 | --- | --- |
 | Inker — drawing and animation | Generating a reference image from a prompt |
-| Clay — modelling from primitives | Reconstructing a 3D model from a reference |
+| Clay — modelling, bones and animation | Reconstructing a 3D model from a reference |
 | Plotter — tile maps | Re-texturing a finished model |
-| Packwright — atlas packing | Starting a character in Poser from a prompt |
-| Poser, if Blender installed | Rigging, if Blender did not install |
+| Packwright — atlas packing | Rigging a generated mesh, if Blender did not install |
 | The Library, and every form in Create | |
 
 The pattern is that the *editors* are yours immediately and the *generators* are what the weights

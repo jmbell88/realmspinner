@@ -12,7 +12,7 @@ network at all.
 
 **The build was the cheap half of that bug.** The same default agent was in
 ``pack_worker``, which downloads those same three wheels *on the user's
-machine* when they choose Create, Poser or Muse from Settings -> Packs -- so
+machine* when they choose Create or Muse from Settings -> Packs -- so
 the shipped installer's pack flow was one Cloudflare rule away from refusing
 every heavy pack, with a traceback rather than an explanation. ``fetch_worker``
 downloads model weights from hosts that are not affected today, and is here

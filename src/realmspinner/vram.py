@@ -298,7 +298,7 @@ def estimate_parts(
     ``queue._check_resources`` must credit back so the same weights are not
     charged twice. It is returned from here rather than recomputed there on
     purpose: the caller used to decide by kind (``kind == "text"``), and three
-    kinds whose estimate does carry a checkpoint term -- ``pixel_sheet``,
+    kinds whose estimate does carry a checkpoint term --
     ``sprite_synthesis``, ``retexture`` -- were missing from that list, so on
     the flagship 32 GiB coexist card the natural flow (a reference stage that
     fails -- FAILED jobs ``trim()`` rather than ``unload()`` at
@@ -346,28 +346,6 @@ def estimate_parts(
         # here goes near it. Under coexist a warm trellis is still holding its
         # memory, which is what the reference stage below accounts for too.
         return (pass_gib if exclusive else pass_gib + TRELLIS_GIB), image
-    if kind == "pixel_sheet":
-        # An img2img restyle: the same resident pipe as a text job, plus a
-        # ControlNet *when the worker actually opens one*, and never trellis --
-        # the mesh was reconstructed long before. Under coexist a warm trellis
-        # is still holding its memory, exactly as the reference stage below
-        # accounts for.
-        #
-        # Priced from the registry like every other checkpoint-loading kind:
-        # `queue._pixel_sheet` reads params["base_model"], so charging a flat
-        # SDXL_GIB was correct only for as long as the one caller kept writing
-        # "sdxl_cfg" into it.
-        #
-        # The 2026-09-18 audit, finding service-02: this used to charge
-        # CONTROLNET_GIB unconditionally, though `_q_sprite._pixel_sheet` only
-        # attaches one when `structure_lock` is on and the base supports it
-        # (`structure and spec.controlnet`). Gated on `params["control"]` now,
-        # the same key `sheets.create_pixel_sheet` writes and every sibling
-        # kind (`retexture`, `sprite_synthesis`, `tile_sheet`'s grid mode)
-        # already gates on here.
-        image = _image_model_cost(params)
-        pixel = image + (CONTROLNET_GIB if params.get("control") else 0.0)
-        return (pixel if exclusive else pixel + TRELLIS_GIB), image
     if kind == "sprite_synthesis":
         # Two txt2img passes, one after the other through the same resident
         # pipe, each carrying both adapters at once -- so the peak is one pass
@@ -480,10 +458,8 @@ def estimate_parts(
         cost = spec.vram_gib if spec is not None else 4.0
         return (cost if exclusive else cost + TRELLIS_GIB), 0.0
     if kind not in ("text", "image"):
-        # rig / pose / sheet / charsheet are Blender, out of process and
-        # CPU-side -- and the character sheet's pixel-art pass after it is
-        # numpy and Pillow in this process, which costs this budget nothing
-        # for the same reason the tile sheet's reduction does not.
+        # rig / pose are Blender, out of process and CPU-side. A row of a
+        # retired sheet kind lands here too and costs nothing: it never runs.
         return 0.0, 0.0
 
     sdxl = 0.0
@@ -521,7 +497,7 @@ def trellis_charge(kind: str, stage: str, params: dict[str, Any] | None = None) 
     """
     if kind == "lora_train":
         return 0.0  # priced alone, and the trainer stops trellis first
-    if kind in ("retexture", "pixel_sheet", "sprite_synthesis", "tile_sheet", "music", "separate"):
+    if kind in ("retexture", "sprite_synthesis", "tile_sheet", "music", "separate"):
         return TRELLIS_GIB
     if kind not in ("text", "image"):
         return 0.0

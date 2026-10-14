@@ -53,7 +53,7 @@ def test_manual_does_not_describe_the_retired_distilled_model_entries() -> None:
 
 
 def test_chapter_12_names_the_one_refusal_the_three_models_have() -> None:
-    text = _flat(_chapter("12-tuning-what-you-get.md"))
+    text = _flat(_chapter("11-tuning-what-you-get.md"))
     assert "FLUX.2" in text and "ControlNet" in text, (
         "chapter 12's Conditioning passage does not say FLUX.2 klein cannot take a "
         "structure control"
@@ -117,7 +117,7 @@ def test_chapter_07_does_not_deny_the_simplify_operation_exists() -> None:
 
 
 def test_the_simplify_section_states_the_ceiling_the_target_and_the_triangle_result() -> None:
-    section = _section(_chapter("30-clay.md"), "## Simplifying a mesh")
+    section = _section(_chapter("27-clay.md"), "## Simplifying a mesh")
     assert f"{ops_simplify.MAX_SIMPLIFY_CORNERS:,} corners" in section, (
         "the Simplify section does not state the per-press corner ceiling"
     )
@@ -143,7 +143,7 @@ def test_the_simplify_section_states_the_ceiling_the_target_and_the_triangle_res
 
 
 def test_the_manual_quotes_the_headers_mode_words_not_object_mode() -> None:
-    for name in ("30-clay.md", "46-extending.md"):
+    for name in ("27-clay.md", "46-extending.md"):
         text = _flat(_chapter(name))
         for stale in ('"Switch to object mode first', '"Switch to face mode first'):
             assert stale not in text, f"{name} quotes {stale!r}, words the interface never uses"
@@ -152,14 +152,14 @@ def test_the_manual_quotes_the_headers_mode_words_not_object_mode() -> None:
 
 
 def test_the_recalculate_normals_paragraph_says_a_flat_sheet_is_left_alone() -> None:
-    section = _section(_chapter("30-clay.md"), "## Recalculating normals")
+    section = _section(_chapter("27-clay.md"), "## Recalculating normals")
     assert "has no outside to point to" in section
     assert "leaves it exactly as it is" in section
     assert "bowl or a half-pipe" in section
 
 
 def test_the_parenting_paragraphs_say_a_sheared_shape_carries_its_children() -> None:
-    section = _flat(_section(_chapter("30-clay.md"), "## Parents and groups"))
+    section = _flat(_section(_chapter("27-clay.md"), "## Parents and groups"))
     assert "carries the shape's children with it" in section
     assert "is refused when the move would shear it" not in section, (
         "a sheared shape with children is carried now (F20-3), not refused"
@@ -168,7 +168,7 @@ def test_the_parenting_paragraphs_say_a_sheared_shape_carries_its_children() -> 
 
 
 def test_merge_faces_paragraph_says_which_material_a_mixed_block_keeps() -> None:
-    text = _flat(_chapter("30-clay.md"))
+    text = _flat(_chapter("27-clay.md"))
     assert (
         "the merged face takes the material and smooth/flat setting of the lowest-numbered of them"
         in text
@@ -176,7 +176,7 @@ def test_merge_faces_paragraph_says_which_material_a_mixed_block_keeps() -> None
 
 
 def test_the_uv_view_paragraph_names_the_slot_the_colours_page_edits() -> None:
-    section = _section(_chapter("30-clay.md"), "### The UV view")
+    section = _section(_chapter("27-clay.md"), "### The UV view")
     assert "the object's default slot otherwise" not in section, (
         "the UV view backdrop is the slot the Colours & textures page edits, not the default slot"
     )
@@ -185,7 +185,7 @@ def test_the_uv_view_paragraph_names_the_slot_the_colours_page_edits() -> None:
 
 
 def test_the_manual_names_every_parameter_of_the_pack_islands_dialog() -> None:
-    section = _section(_chapter("30-clay.md"), "### The UV view")
+    section = _section(_chapter("27-clay.md"), "### The UV view")
     pack = ops.get("pack-uv")
     assert [p.label for p in pack.params] == ["margin", "rotate islands"]
     for param in pack.params:
@@ -196,18 +196,18 @@ def test_the_manual_names_every_parameter_of_the_pack_islands_dialog() -> None:
 
 
 def test_the_manual_defines_uv_seam_once_and_uses_it_consistently() -> None:
-    text = _flat(_chapter("30-clay.md"))
+    text = _flat(_chapter("27-clay.md"))
     assert "there are no seams" not in text, (
         "a box unwrap makes a seam on every edge between faces of different axes"
     )
     definition = "any edge whose two faces disagree about their texture coordinates"
     assert text.count(definition) == 1, "the chapter must define a UV seam exactly once"
     assert "Clay has no seam marking" in text
-    assert "a seam" in _section(_chapter("30-clay.md"), "## Simplifying a mesh")
+    assert "a seam" in _section(_chapter("27-clay.md"), "## Simplifying a mesh")
 
 
 def test_the_manual_says_a_live_gesture_refuses_the_buttons_that_would_land_in_it() -> None:
-    text = _flat(_chapter("30-clay.md"))
+    text = _flat(_chapter("27-clay.md"))
     assert "Finish the drag in progress first" in text
     assert "Inker texture pull waits for a live Clay gesture" in text
     assert "the first of" in text and "selected shapes" in text

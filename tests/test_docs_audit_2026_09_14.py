@@ -76,7 +76,7 @@ def test_manual_says_a_prefab_instance_carries_its_own_transform_not_only_positi
     assert prefab_fields - node_fields == {"template"}
     assert {"translation", "rotation", "scale"} <= node_fields
 
-    text = _normalize_ws(_read("docs/manual/17-dressing-a-scene.md"))
+    text = _normalize_ws(_read("docs/manual/16-dressing-a-scene.md"))
     assert "holds nothing of its own but a position" not in text
     # The fixed sentence must say the instance carries its own transform,
     # naming the pieces PrefabNode/Node actually carry.
@@ -101,7 +101,7 @@ def test_manual_29_reference_layer_claim_matches_asein_visibility_behaviour():
     )
     assert warn_match, "asein.py's reference-layer warning text moved or changed"
 
-    text = _normalize_ws(_read("docs/manual/29-inker-animation.md"))
+    text = _normalize_ws(_read("docs/manual/26-inker-animation.md"))
     assert "opens hidden" not in text
     assert "underlay" in text
     assert "flattened export" in text
@@ -183,7 +183,7 @@ def test_manual_packwright_chapter_names_the_document_wide_pixel_ceiling():
     assert width * width == rpack.MAX_DOCUMENT_PIXELS
     million = round(rpack.MAX_DOCUMENT_PIXELS / 1_000_000)
 
-    text = _read("docs/manual/33-packwright.md")
+    text = _read("docs/manual/30-packwright.md")
     start = text.index("## Starting an atlas")
     end = text.index("\n## ", start + 1)
     section = _normalize_ws(text[start:end])
@@ -231,7 +231,7 @@ def test_manual_12_names_the_bg_removal_control_by_its_pane_label():
     label = _combo_label(pane_src, "bg_removal")
     assert label == "Background"
 
-    text = _read("docs/manual/12-tuning-what-you-get.md")
+    text = _read("docs/manual/11-tuning-what-you-get.md")
     assert f"**{label}**" in text
     assert "**Background removal**" not in text
 
@@ -309,25 +309,6 @@ def test_viewport_toolbar_control_count_matches_manual_claim():
 
     assert manual_claim == real_count, (manual_claim, real_count)
     assert code_claim == real_count, (code_claim, real_count)
-
-
-# --- docs-12: chapter 34 lists sprite sizes to 128 then Custom 8-256; 256 is
-# itself a preset in charsheet.SIZES. ---------------------------------------
-
-
-def test_troupe_manual_lists_256_as_a_preset_sprite_size_not_custom_only():
-    from realmspinner.kernels import charsheet
-
-    assert 256 in charsheet.SIZES
-
-    text = _normalize_ws(_read("docs/manual/26-poser.md"))
-    row_match = re.search(r"How many pixels tall one cell is\. (.*?) or \*\*Custom", text)
-    assert row_match, "could not find the Sprite size row"
-    preset_text = row_match.group(1)
-    for size in charsheet.SIZES:
-        assert re.search(rf"\b{size}\b", preset_text), (size, preset_text)
-    # And it must not be relegated to "Custom" only.
-    assert "128 or 256" in preset_text or re.search(r"128,? or 256", preset_text)
 
 
 # --- tour-01: chapter 21 lists tours in a different order from TOURS'

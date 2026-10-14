@@ -45,7 +45,7 @@ the promotion inherit whatever the reference happened to record.
 Derived values never carry across. Anything the worker recorded about the *source* run's artifacts
 — the composed prompt, the mesh report, the applied transform — is stripped, so a new job never
 wears a quality verdict about a mesh that does not exist yet. See
-[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](33-library-and-jobs.md#rerun-and-promotion).
 
 ## Checking the cutout
 
@@ -82,7 +82,7 @@ Three buttons:
   edit the image and the composition rules apply again.
 - **Fix matte** does not re-remove the background. It opens the reference in Inker with the cutout
   already folded into its alpha, as one undoable step, and the eraser and the brush then edit the
-  matte directly; see [Inker](28-inker.md#fixing-a-matte). Save, then press **Make 3D** again.
+  matte directly; see [Inker](25-inker.md#fixing-a-matte). Save, then press **Make 3D** again.
 - **Cancel** leaves everything as it was.
 
 A matte you edited and saved travels to the engine as the image's own alpha, and the job records
@@ -260,7 +260,7 @@ doing it twice helps or hurts has not been measured. Treat it as an experiment r
 The **Rig** section holds **Rig when the mesh lands** and a skeleton picker. Without Blender it stays on
 screen, greyed, and its tooltip gives the same reason as the Rig segment in the stage rail. Without
 Blender, Make 3D also never requests a rig, even if the setting was on when it was saved.
-See [Rigging and posing](25-rigging-and-posing.md).
+See [Rigging and posing](#rigging-and-posing).
 
 ## Advanced
 
@@ -288,7 +288,7 @@ run. It exists for measurement work: sweeping the token budget or the atlas size
 default should move, the way earlier measurement passes on this same axis
 already did through Review's sweep form. See
 [Configuration](41-configuration.md#environment-variables) for what each flag does and the environment
-variable that sets the same thing app-wide, and [Review](37-review.md#what-works) for how a findings
+variable that sets the same thing app-wide, and [Review](34-review.md#what-works) for how a findings
 hint next to one of these controls is read.
 
 ## Triangle budget
@@ -472,14 +472,14 @@ size at what it already is just re-grounds. It is allowed on a rigged asset, bec
 geometry rather than turning it, and the panel and the result both say that the rig, its poses and
 its sheets now describe the old mesh.
 
-**Make current front the model's front** is for the front you set in the viewport with **Set front**.
-Sheets and Poser already honour that angle as a record, but a record is not the mesh: an engine
-imports `model.glb` and sees whichever way it was built. This turns the mesh so the direction you
-pointed at faces +Z, the way glTF and every engine's "forward" expect, and then clears the angle,
-since the model now faces front by itself. It is off, with the reason on the button, until a front is
-set, and off for good while the asset has a rig: a rig and its poses were fitted to the mesh as it
-stood, and turning only the mesh would leave them describing a different one. Bake the front before
-you rig.
+**Make current front the model's front** appears only on an asset that already carries a recorded front
+(one set in an earlier version of the app; the viewport control that set it is gone, and a new front
+can no longer be recorded). A record is not the mesh: an engine imports `model.glb` and sees whichever
+way it was built. This turns the mesh so the recorded direction faces +Z, the way glTF and every
+engine's "forward" expect, and then clears the angle, since the model now faces front by itself. It is
+off for good while the asset has a rig: a rig and its poses were fitted to the mesh as it stood, and
+turning only the mesh would leave them describing a different one. To face a model forward now, turn
+it in [Clay](27-clay.md) and export it.
 
 Every press keeps the mesh it replaces under [Earlier meshes](#earlier-meshes), so any of it can be
 undone, and every export derived from the old mesh is dropped and rebuilt on the next request. A
@@ -554,16 +554,208 @@ scores this too" underneath it.
 Neither measurement can fail your job. If either cannot be computed, the failure is logged and the
 job still completes: the GLB is already on disk, and a missing verdict is better than a lost mesh.
 
+## Rigging and posing
+
+Rigging fits a skeleton to a finished mesh and skins it, so the mesh can be posed. Posing sets each
+joint's rotation and saves the result under a name. Both are optional, both need Blender, and both
+are covered here.
+
+This section is about rigging and posing **a generated asset** — the mesh in front of you, with its
+own saved poses. A rig you build yourself, from shapes, bone by bone, with a timeline to animate it,
+is [Clay's](27-clay.md#bones-and-rigs).
+
+### Templates
+
+Realmspinner does not invent a skeleton for your mesh. It fits one of eight shipped **templates**:
+
+| Template | For |
+| --- | --- |
+| humanoid | Two arms, two legs, upright. |
+| quadruped | Four legs, horizontal spine. |
+| bird | Wings and a two-legged stance. |
+| fish | A spine and fins, no limbs. |
+| insect | Six legs. |
+| serpent | A long chain of spine joints, no limbs. |
+| tailed biped | A humanoid with a tail. |
+| blob | No limbs — a body that bulges and sinks instead: slime, ooze, elemental, cloud. |
+
+Each template is a small JSON file listing named joints at normalised positions inside a unit
+bounding box. Fitting scales those positions onto the measured bounding box of your mesh — nothing
+is learned and nothing is detected. That makes it fast and completely predictable, and it also makes
+it **approximate on purpose**: a subject whose proportions differ from the template's will get
+joints that are close rather than correct.
+
+Because the fitted positions are approximate, they are written into `rig.json` alongside the rig, so
+they can be corrected later without starting over. That is what **Adjust joints** does, described
+under [Posing](#posing).
+
+### Rigging a mesh
+
+There are three ways to rig:
+
+- Select a finished mesh in Create and press **Rig** on the stage rail. The stage's column holds
+  the skeleton picker and **Rig this mesh**; the inspector beside it shows what the rig produced.
+- Press **Rig** on a finished mesh's card in the library.
+- Tick **Rig when the mesh lands** at the **Mesh** stage before generating, and pick a skeleton.
+  The rig is then queued automatically as soon as the mesh finishes.
+
+All three use the same skeleton — the one the picker is showing — and the same queue slot, so a
+second press while one is running is refused rather than queueing a second rig of the same mesh.
+
+### Rigging a mesh by hand
+
+For a mesh none of the eight templates fit — a shape none of them was built for, or one you would
+simply rather build yourself — the **Rig** stage, the **Pose** stage and a library card's right-click
+menu each offer **Rig by hand in Clay**. It opens the mesh in [Clay](27-clay.md), where you add bones
+(**Add Bone**, or mark any shape as a bone), place them where the joints are, and either bind the
+shapes under them or have Blender weight the mesh to them: see
+[Bones and rigs](27-clay.md#bones-and-rigs) and
+[Rigging with Blender weights](27-clay.md#rigging-with-blender-weights). **Export to the library** from
+Clay writes the finished rig beside the mesh it makes, as a new library entry.
+
+Nothing about the rig changes because you built it by hand: it is the same `rig.glb` and `rig.json`
+every other rig is, with `"skeleton": "custom"`, and Create's Pose stage, the exports and the
+animated GLB all work on it.
+
+### The A-pose trap
+
+Here is the failure that catches nearly everyone, and it looks like a bug.
+
+**The shipped humanoid template is an A-pose** — arms angled down. If your mesh is standing in a
+T-pose with arms straight out, fitting that template runs the arm chain diagonally down through the
+ribcage. Automatic weights then bind the arms to the chest, and every animation you play barely
+moves them.
+
+The symptom is "the arms are welded to the body". There is no "Measured joints" control here to
+reach for — fitting the arm and leg lines to a mesh's own vertex cloud, and, with the ViTPose
+weights installed, to the reference image's own landmarks, is something the character pipeline
+does **automatically** for a T-posed reference, before the rig ever reaches this stage. It never
+appears as a button you press.
+
+If you rigged the mesh directly in this stage and hit the trap anyway, the fix is **Adjust joints**
+(under [Posing](#posing)): move joints by hand. A hand correction always wins over the template's
+guess.
+
+### Where the joints come from
+
+By default a skeleton is fitted by proportion: the template's landmarks are scaled onto the mesh's
+bounding box, so a shoulder lands where the template says a shoulder is in a body of that height.
+That is right for a subject standing in the template's own A-pose (arms angled down) and increasingly
+wrong the further from one it is — a T-posed mesh is the case it fits worst; see
+[the A-pose trap](#the-a-pose-trap).
+
+For **humanoid** rigs there is a better first guess, and it is on by default when the pose model is
+installed. Realmspinner measures the subject's joints off the reference image the mesh was reconstructed
+from — the premise being that the mesh *is* that picture in three dimensions — and uses those as
+the template. They are still scaled onto the mesh by the same fitter, so nothing else about rigging
+changes; what changes is where the fitter starts from.
+
+Two things about it are worth knowing:
+
+- **It is all or nothing.** If any landmark is unconvincing — low confidence, missing, outside the
+  subject's silhouette, or a figure whose knees came out above its hips — the whole measurement is
+  discarded and the template is used. A skeleton with a measured arm and an assumed shoulder is not
+  half-right; it is inconsistent in a way nothing later can detect.
+- **Depth is always the template's.** One image fixes left–right and up–down and says nothing about
+  front–back.
+
+`rig.json` records which was used, so a rig can be told apart afterwards. Without the pose model the
+bbox fit is used and nothing about your rigs changes — see
+[Model weights](40-installation.md#model-weights) for the download. Set `REALMSPINNER_POSE_FIT=off` to
+force the template everywhere, whatever is installed; it is a kill switch rather than an opt-in,
+because the measurement already refuses itself whenever it is unsure.
+
+Joints you have corrected by hand always win over both. See **Adjust joints** under
+[Posing](#posing).
+
+### Posing
+
+Once a mesh is rigged, the **Pose** stage offers **Edit pose**. Pressing it swaps the viewport from
+the mesh to the rig and enters pose mode.
+
+Leaving the stage while a pose is unsaved asks first, and every way out asks — the rail, a library
+card, the palette. A pose lives in the viewer until it is saved.
+
+In pose mode:
+
+- **Click a joint** to select it. A rotation gizmo appears on it; drag the gizmo to rotate.
+- **Reset joint** returns the selected joint to its rest rotation; **Reset all** resets every joint.
+- **Mirror** copies the pose across the body's centre line. Over unsaved edits it asks first,
+  because it rewrites every rotation at once — one press can undo it, but the confirm is there so a
+  whole pose is never replaced by a misclick. It is hidden for a skeleton with no mirror pairs —
+  the serpent, whose chain of spine joints has no left and right — where it could only do nothing.
+- A **preset** picker offers the shipped pose library for this skeleton, when one exists. Because
+  fitting puts a template's joints in the same relative place on every mesh, a pose authored against
+  one humanoid applies to every other humanoid.
+
+`Ctrl+Z` undoes and `Ctrl+Y` — or `Ctrl+Shift+Z` — redoes. The unit is the **gesture** — one whole
+gizmo drag is one step, and so is a preset, a mirror or a reset.
+
+Poses are **forward-kinematic only**. A pose is exactly a map of joint names to local rotations —
+there is no inverse kinematics, no translation, and no scaling. That is the whole contract, and it
+is what lets a pose be a small file that applies to any mesh sharing the skeleton. A pose with a
+moving root, and an animation, are what [Clay's Pose mode and timeline](27-clay.md#pose-mode) are for.
+
+**Save pose...** asks for a name and stores it. Saving while a saved pose is loaded **replaces**
+that pose rather than adding a near-duplicate, so refining an "idle" leaves you with one idle rather
+than two that differ by a shoulder.
+
+Saved poses are listed below, each with three actions:
+
+- **Apply** loads it into the viewport.
+- **Save GLB...** writes a posed GLB — the mesh frozen in that pose — wherever you choose. It is
+  baked by Blender the first time you ask and cached afterwards, so the first request takes about a
+  second and later ones are immediate. It runs off the job queue deliberately: a one-second job
+  should not have to wait behind a two-minute reconstruction.
+- **Delete** removes the pose, and its cached GLB with it.
+
+A pose lives only in the viewer until it is saved. Every route out of pose mode — leaving edit mode,
+switching to another asset, starting a comparison, closing the window — asks before discarding
+unsaved changes. The banner at the top of the panel says "unsaved changes" whenever there are any.
+
+**Adjust joints** is the second mode over the same markers, and it exists because fitting is
+approximate. It shows the rest skeleton, lets you drag joints to where they should actually be,
+counts how many you have moved, and **Apply joint positions** re-rigs the mesh with the corrected
+skeleton. That is a real re-rig — minutes of CPU, queued like the first one — not an edit of the
+existing rig. **Revert** undoes your unapplied moves; **Back to posing** returns. Entering joints
+mode asks first if you have an unsaved pose, since a leftover rotation would put the markers where
+the posed bones are rather than where the rest skeleton is.
+
+Changing the skeleton's actual *shape* — adding or removing bones — is Clay's job: open the
+rigged mesh there (**Edit in Clay** opens its rig, with the bones, the weights and any animations),
+and see [Bones and rigs](27-clay.md#bones-and-rigs).
+
+### When rigging is unavailable
+
+Rigging, posing, FBX export and Clay's **Weight with Blender...** all need Blender, which the app
+installs as an optional extra.
+
+Blender's Python module ships **CPython 3.13 wheels only**. On any other Python version the extra
+installs nothing at all. When that happens:
+
+- `realmspinner doctor` reports rigging as unavailable.
+- Some controls stay on screen, greyed, with the reason in their tooltip, so you can see the app
+  can rig and what it is missing: the **Rig** and **Pose** segments of the stage rail ("Rigging needs
+  Blender, which is not installed" and its Posing twin) and the **Rig when the mesh lands** checkbox
+  on the Mesh stage, which gives the rail's own sentence — see
+  [Mesh parameters](#mesh-parameters).
+- Others are replaced by a sentence rather than greyed: the Rig stage's column says "Rigging needs
+  Blender, which is not installed", and the **Pose** panel says "Posing needs Blender, which is not
+  installed" instead of telling you to press a button that is not on screen. The Rig rows in a
+  Library card's right-click menu are simply absent.
+- The FBX export button explains itself with "needs Blender".
+
+Everything else in the app works unchanged. Nothing about generating references or meshes depends
+on Blender.
+
 ## Exports
 
-The **Rig**, **Pose** and **Export** stages each carry the same **Take it somewhere** section
-Reference and Mesh do. In Create it sits behind an **Open in...** header at the top of the
-inspector that starts closed and stays however you last left it, so open the header to see it.
-Clay, Poser and Mason stay reachable for a rigged mesh however far through
-the pipeline you have taken it, rather than only from the Mesh stage it started on, and Poser's own
-door renders a character sheet directly. See [The library and jobs](36-library-and-jobs.md) for what
-the list offers and how a destination one
-step away (a mesh with no rig yet, and so on) is shown rather than hidden.
+The **Rig**, **Pose** and **Export** stages each carry the same **Take it somewhere** section Reference and Mesh do.
+In Create it sits behind an **Open in...** header at the top of the inspector that starts closed and stays however
+you last left it, so open the header to see it. Clay and Mason stay reachable for a rigged mesh however far through
+the pipeline you have taken it, rather than only from the Mesh stage it started on. See
+[The library and jobs](33-library-and-jobs.md) for what the list offers and how a destination one step away (a mesh
+with no rig yet, and so on) is shown rather than hidden.
 
 Standing on the Export stage, above the grid of buttons, is **Ready for an engine?** — a checklist
 built from measurements the app already took, so it costs nothing new to look at and nothing here is
@@ -630,4 +822,4 @@ the pixel-art reductions and the manifest — see
 [2D exports](22-generating-references.md#2d-exports).
 
 For bulk export of several assets at once, and for the storage those files occupy, see
-[The library and jobs](36-library-and-jobs.md#storage-and-pruning).
+[The library and jobs](33-library-and-jobs.md#storage-and-pruning).

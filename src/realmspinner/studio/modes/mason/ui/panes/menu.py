@@ -117,7 +117,7 @@ def _drop_to_ground(ctx: Any, tab: Any) -> None:
     )
     # The 2026-09-14 audit's mason-02: this pushed one TransformEdit per node
     # with no mark/collapse_since, so dropping several selected nodes to the
-    # ground cost one Ctrl+Z per node -- docs/manual/31-mason.md promises "Each
+    # ground cost one Ctrl+Z per node -- docs/manual/28-mason.md promises "Each
     # of these lands as a single undo step". Fixed then by hand-copying
     # ``mason_tools._apply_deltas``'s own loop rather than calling it, which is
     # exactly what let the two drift apart again: the 2026-09-26 audit's

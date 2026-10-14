@@ -8,7 +8,7 @@ methods and five unrelated subjects, and the loop core -- which is the part
 with the invariants -- was buried among them.
 
 ``_discard_artifacts`` is the one with teeth. It deletes files in *another*
-job's directory (a rig, a sheet and a re-texture all write into the mesh's
+job's directory (a rig and a re-texture both write into the mesh's
 row), so every id it takes from params is validated before it is joined onto a
 path, and the deletion list is stated per kind rather than derived from a
 glob.
@@ -26,7 +26,7 @@ import logging
 import shutil
 from typing import TYPE_CHECKING, Any
 
-from . import followups, models
+from . import followups, models, retired
 from .kernels.rig import store
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -148,16 +148,15 @@ class JobOps:
         """
         params = job["params"]
         # The stage guard is not defensive; it is the only thing keeping this
-        # off a reference. Troupe's door sets ``rig`` on the *reference* row --
-        # it describes the mesh the gate will promote that reference into, not
-        # the reference itself -- so without it this runs on every Troupe
+        # off a reference. A character door sets ``rig`` on the *reference* row
+        # -- it describes the mesh the gate will promote that reference into,
+        # not the reference itself -- so without it this runs on every such
         # reference completion, where a ``model.glb`` cannot exist because the
         # mesh does not exist until the user approves the drawing. That was a
         # silent no-op until the failure record below was added, and then it
         # became a permanent, false "the generated mesh artifact is missing" on
-        # every character anyone started. ``_maybe_queue_sprite_sheet`` and
-        # ``_maybe_queue_charsheet`` have carried this guard from the start;
-        # this is the third of the three.
+        # every character anyone started. ``_maybe_queue_sprite_sheet`` has
+        # carried this guard from the start.
         if job["kind"] == "rig" or job["stage"] != "model" or not params.get("rig"):
             return
         if not (self.config.job_dir(job["id"]) / "model.glb").exists():
@@ -172,7 +171,7 @@ class JobOps:
         }
         if params.get("rig_joints"):
             # Only where the job asked for it, so an ordinary auto-rig is the
-            # byte-identical rig it always was. Troupe asks: its reference is a
+            # byte-identical rig it always was. A character reference asks: it is a
             # constrained T-pose, and measuring joints off the vertex cloud is
             # what stops the A-pose template mis-fitting one.
             rig_params["joints"] = params["rig_joints"]
@@ -292,183 +291,6 @@ class JobOps:
             return
         log.info("queued follow-up sprite sheet %s for job %s", sheet_id, job["id"])
 
-    async def _maybe_queue_charsheet(self: Worker, job: dict[str, Any]) -> None:
-        """Honour a Troupe request, once the character's mesh exists.
-
-        ``_maybe_queue_rig``'s shape and its reasons, one link further down the
-        chain. The block rides on the *reference* job and survives the promote
-        gate (``promote_to_model`` copies everything that is not derived or
-        conditioning), so this fires on the model-stage job the gate produced
-        -- which is the job that has a ``model.glb`` for the sheet to depict.
-
-        **Queued behind the rig, not instead of it.** ``_maybe_queue_rig`` runs
-        immediately before this one on the same finished job, and the queue is
-        serial and FIFO, so the rig row is claimed and finished before the
-        charsheet row is claimed. That ordering is the whole reason this method
-        does not rig anything itself: a character sheet needs a rig, the app
-        already has a rig job with its own progress and its own cancel, and
-        chaining a second rigger inside here would be a second implementation
-        of the thing that failed.
-
-        A missing rig is still refused in ``_charsheet`` rather than assumed:
-        the user can cancel the rig row on its own, which is exactly what the
-        two-row shape is for.
-        """
-        params = job["params"]
-        block = params.get("troupe")
-        if not block or job["kind"] in ("charsheet", "rig") or job["stage"] != "model":
-            return
-        if not (self.config.job_dir(job["id"]) / "model.glb").exists():
-            await self._record_followup_failure(
-                job["id"], "charsheet", "The generated mesh artifact is missing."
-            )
-            return
-        if not params.get("rig"):
-            # The door sets it, so this is a row whose rig flag was edited
-            # away between the reference and the promotion. Saying so beats
-            # queueing a sheet that will refuse an hour later.
-            log.warning(
-                "job %s asks for a character sheet but not a rig; skipping the sheet",
-                job["id"],
-            )
-            await self._record_followup_failure(
-                job["id"], "charsheet", "The character sheet requires an automatic rig."
-            )
-            return
-        sheet_params = {
-            "source_job": job["id"],
-            # Minted here because the door that normally mints it is not on
-            # this path -- ``_maybe_queue_sprite_sheet``'s draft id, exactly.
-            # ``_discard_artifacts`` names this job's atlas by it, so a cancel
-            # deletes its own sheet and no earlier one of the same character.
-            "sheet_id": store.new_id(),
-            "template": params.get("rig_template") or self.config.rig_template,
-            "logical_size": block.get("logical_size"),
-            # Carried explicitly (poser-jobs-01, the 2026-09-26 audit): an HD
-            # block (``service.troupe._check_options``, D5 HD mode) pops
-            # ``colors``/``outline`` and writes ``pixel_art: False``, but this
-            # row never used to copy ``pixel_art`` at all, so
-            # ``_q_troupe``'s ``params.get("pixel_art") is not False`` read an
-            # absent key as *True* -- the ordinary pixel-art path -- for a
-            # sheet whose block said HD, and that path's
-            # ``int(params.get("colors", 64))`` then met the ``None`` two
-            # lines below and raised ``TypeError`` after the whole render.
-            "pixel_art": block.get("pixel_art") is not False,
-            "reduce_mode": block.get("reduce_mode"),
-            "dither": bool(block.get("dither")),
-            "palette": block.get("palette") or "",
-            "name": "",
-            # Resolved at the reference door and snapshotted there. Copy the
-            # value, not today's defaults, so approval/rerun cannot silently
-            # change what an older request means.
-            "layout": block.get("layout"),
-        }
-        if block.get("colors") is not None:
-            # Present only when the block actually named one -- an HD block's
-            # ``colors`` key is absent, and writing ``None`` for it here (as
-            # this used to) is a key that *exists* and is not a number, which
-            # defeats ``_q_troupe``'s ``params.get("colors", 64)`` default the
-            # same way a present ``None`` elevation would (see below).
-            sheet_params["colors"] = block["colors"]
-        if block.get("outline") is not None:
-            sheet_params["outline"] = block["outline"]
-        if block.get("elevation") is not None:
-            # The camera preset the form chose, resolved to an angle and
-            # validated at the reference door. Copied only when the request
-            # named one: an absent key means ``sheet.DEFAULT_ELEVATION``, and
-            # writing ``None`` instead would be a key that exists and is not a
-            # number -- ``_charsheet`` reads it with a default, which a present
-            # ``None`` defeats. So a row queued before the control existed
-            # stays byte-identical.
-            sheet_params["elevation"] = block["elevation"]
-        if params.get("front_yaw"):
-            # ``params`` is the model-stage row's own params -- the mesh this
-            # sheet depicts -- so this reads the front the user set on the
-            # viewport button, the same way ``troupe.create_charsheet`` reads
-            # it off the source row it already has. Absent-key discipline,
-            # exactly as ``elevation`` above: a present ``None`` would defeat
-            # ``.get(k, default)`` downstream.
-            sheet_params["front_yaw"] = params["front_yaw"]
-        try:
-            sheet_id = await asyncio.to_thread(
-                self.store.create, "charsheet", job["prompt"], sheet_params, None
-            )
-        except Exception as exc:
-            # The mesh is finished and on disk. A failure to queue the optional
-            # follow-up must not retroactively fail the job that produced it --
-            # the rig's rule, verbatim.
-            log.exception("could not queue follow-up character sheet for job %s", job["id"])
-            await self._record_followup_failure(job["id"], "charsheet", exc)
-            return
-        log.info("queued follow-up character sheet %s for job %s", sheet_id, job["id"])
-
-    async def _maybe_queue_sheet_after_rig(self: Worker, job: dict[str, Any]) -> None:
-        """The second half of "send this mesh to Troupe".
-
-        ``service.troupe.send_to_troupe`` mints one rig row carrying a nested
-        ``troupe_sheet`` block when the mesh it was handed is not rigged yet;
-        this is what mints the sheet on the finished rig. The fourth
-        ``_maybe_queue_*`` and the same shape as the three above -- one press
-        mints one row, and the follow-up is minted by the mechanism that
-        already mints rigs and sheets, so both rows cancel independently and
-        the worker stays four ordinary jobs rather than an orchestrator.
-
-        Guarded on ``kind == "rig"``, which is what keeps it off
-        ``_maybe_queue_charsheet``'s path: that one fires on a *model*-stage
-        row carrying ``troupe``, and this on a rig row carrying
-        ``troupe_sheet``. Two markers because they are two claims -- see
-        ``send_to_troupe``.
-
-        The rig is re-checked rather than assumed: a user can cancel the rig
-        row on its own, which is exactly what the two-row shape is for.
-        Everything else was refused at the door, and the block is a snapshot
-        of the settings that were on screen when the button was pressed.
-        """
-        if job["kind"] != "rig":
-            return
-        params = job["params"]
-        block = params.get("troupe_sheet")
-        if not block:
-            return
-        # Validated, not merely non-empty -- the rule every source_job that
-        # becomes a path in this file follows (see the two branches in
-        # ``_discard_artifacts`` below). This was the one site that skipped
-        # it: params outlive the door that wrote them, and an unvalidated
-        # string reaches ``config.job_dir()`` -- a bare ``data_dir / job_id``
-        # with no containment check -- as a live filesystem probe, then gets
-        # written into a newly minted charsheet job's own params (the
-        # 2026-09-11 audit, finding service-04).
-        source_job = str(params.get("source_job") or "")
-        if not store.is_valid_id(source_job):
-            return
-        source_dir = self.config.job_dir(source_job)
-        if not (source_dir / "rig.glb").exists():
-            await self._record_followup_failure(
-                source_job, "charsheet", "The rig artifact is missing."
-            )
-            return
-        sheet_params = {
-            "source_job": source_job,
-            # Minted here for ``_maybe_queue_charsheet``'s reason: the door
-            # that normally mints it is not on this path, and
-            # ``_discard_artifacts`` names this job's atlas by it, so a cancel
-            # deletes its own sheet and no earlier one of the same character.
-            "sheet_id": store.new_id(),
-            **{key: value for key, value in block.items() if key != "sheet_id"},
-        }
-        try:
-            sheet_id = await asyncio.to_thread(
-                self.store.create, "charsheet", job["prompt"], sheet_params, None
-            )
-        except Exception as exc:
-            # The rig is finished and on disk. A failure to queue the optional
-            # follow-up must not retroactively fail the job that produced it --
-            # the rule the three above share, verbatim.
-            log.exception("could not queue character sheet after rig %s", job["id"])
-            await self._record_followup_failure(source_job, "charsheet", exc)
-            return
-        log.info("queued character sheet %s after rig %s", sheet_id, job["id"])
-
     def _discard_artifacts(self: Worker, job: dict[str, Any]) -> None:
         """Remove what a cancelled job half-wrote -- and only that.
 
@@ -478,6 +300,12 @@ class JobOps:
         successful job because the user cancelled a rig.
         """
         params = job["params"]
+        if retired.is_retired(job["kind"]):
+            # Nothing: a retired row never ran here, and its files -- whatever
+            # an earlier build wrote -- are the user's until they trash the
+            # row. Without this it would fall through to the generic mesh-name
+            # arm at the bottom.
+            return
         if job["kind"] == "separate":
             # This job's stems in the *source take's* directory, and only
             # those. Safe because the names are fixed and the set is this run's
@@ -527,16 +355,12 @@ class JobOps:
                 with contextlib.suppress(OSError):
                     path.unlink(missing_ok=True)
             return
-        if job["kind"] in (
-            "rig", "sheet", "charsheet", "pixel_sheet", "retexture", "sprite_synthesis",
-            "remesh",
-        ):
-            # Both write into the *source* job's directory, not their own --
-            # see _rig and _sheet. Without a source_job there is nothing they
+        if job["kind"] in ("rig", "retexture", "sprite_synthesis", "remesh"):
+            # All write into the *source* job's directory, not their own --
+            # see _rig. Without a source_job there is nothing they
             # could have written, so there is nothing to undo.
-            # Validated, not merely non-empty: this string becomes a path, and
-            # the sibling sheet branch below has always checked its own id the
-            # same way. An empty or malformed source_job makes job_dir() return
+            # Validated, not merely non-empty: this string becomes a path. An
+            # empty or malformed source_job makes job_dir() return
             # the assets root, so the cleanup would go looking for temps in the
             # directory that holds every job.
             source = str(params.get("source_job") or "")
@@ -568,7 +392,8 @@ class JobOps:
                 # The re-texture's rule, one temp: the served model.glb is a
                 # different job's mesh until the rename that a cancel precedes.
                 paths = [job_dir / store.REMESH_GLB_TMP]
-            elif job["kind"] == "sprite_synthesis":
+            else:
+                # sprite_synthesis, the one kind left in the tuple above.
                 # Only *this* job's trio, named by the draft id it minted at
                 # the door. The directory holds every earlier draft of the same
                 # reference, each from a different, successful job -- a cancel
@@ -582,52 +407,8 @@ class JobOps:
                     store.sprite_draft_png_path(job_dir, draft_id, c)
                     for c in store.SPRITE_CANDIDATES
                 ]
-            else:
-                sheet_id = str(params.get("sheet_id") or "")
-                if not store.is_valid_id(sheet_id):
-                    return
-                if job["kind"] == "pixel_sheet":
-                    # Only the staging names, for the rig's reason exactly.
-                    # The served pair is *not* this run's by construction:
-                    # ``sheets.create_pixel_sheet`` deliberately allows
-                    # restyling the same sheet again under the same sheet_id,
-                    # so those two names may hold an earlier, successful
-                    # restyle's result -- and a cancelled re-restyle must not
-                    # destroy the result it was trying to improve on. The
-                    # worker never writes them in place either: it stages both
-                    # and renames, and commits the cancel token once the
-                    # sidecar lands, so a cancel can only ever arrive with the
-                    # served pair belonging to somebody else.
-                    png = store.sheet_pixel_png_path(job_dir, sheet_id)
-                    doc = store.sheet_pixel_path(job_dir, sheet_id)
-                    paths = [
-                        png.with_name(f".{png.name}.tmp"),
-                        doc.with_name(f".{doc.name}.tmp"),
-                    ]
-                else:
-                    # The *served* pair, and safe only because every door mints
-                    # a fresh id -- so these two names can hold nothing but
-                    # this run's work. ``_q_rig._sheet`` and
-                    # ``_q_troupe._charsheet`` now refuse a row that arrives
-                    # without one rather than minting a replacement, which is
-                    # what turns that from an observation into an invariant.
-                    png = store.sheet_png_path(job_dir, sheet_id)
-                    paths = [
-                        store.sheet_path(job_dir, sheet_id),
-                        png,
-                        # Both kinds pack to a staging name and rename in, so a
-                        # cancel or a kill mid-pack leaves one of these.
-                        png.with_name(f".{png.name}.tmp"),
-                    ]
-                    if job["kind"] == "charsheet":
-                        # The un-quantised render the pixel-art pass reads
-                        # between the pack and the publish. A cancel lands
-                        # between them often -- it is the longest gap in the
-                        # job -- and it is this run's leftover by construction,
-                        # named off the sheet id it minted at the door.
-                        paths.append(png.with_name(f".{png.name}.render"))
         elif job["kind"] == "tile_sheet":
-            # This job's own directory, unlike the five above -- a tile sheet is
+            # This job's own directory, unlike the kinds above -- a tile sheet is
             # not a derivation of anything on disk, and ``input.png`` here *is*
             # the finished sheet. A half-published one is sixty-four tiles of
             # nothing that ``use_as_tileset`` would happily slice. Both staging

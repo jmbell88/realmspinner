@@ -117,10 +117,9 @@ DERIVED_PARAMS = (
     # Which battery was rendered against this rig's artifacts. A rerun would
     # otherwise claim a QA sheet of a mesh it has not bound yet.
     "deform_qa",
-    # Recorded by the *sheet* render worker about the atlas it produced. For
-    # the ``pixel_sheet`` kind the same key is an input -- which sheet the
-    # restyle depicts, written at the door -- so ``rerun_job`` re-seeds it
-    # from the source row for that kind after this strip.
+    # Recorded by the *sheet* render worker about the atlas it produced. The
+    # sheet kinds are retired (``retired.py``) and no worker writes it now; it
+    # stays so a row an earlier build wrote is still stripped.
     "sheet_id",
     "cells",
     # How many of a re-render's cells were actually rendered rather than copied
@@ -540,19 +539,18 @@ _KIND_MODE: dict[str, str] = {
     # the same pack a missing music model is, even though it is reached from
     # a *finished* take rather than from Muse's generate door.
     "separate": "muse",
-    # The 2026-09-13 audit (service-01): these four doors run SDXL directly --
-    # a sprite sheet, a guided tile sheet, a pixel-sheet restyle and a LoRA
+    # The 2026-09-13 audit (service-01): these three doors run SDXL directly --
+    # a sprite sheet, a guided tile sheet and a LoRA
     # training run all load ``torch``/``diffusers`` themselves, the same import
     # a missing ``text2image`` pack breaks for a plain ``text`` job. None of
     # them is reached through Create's own submit path, but the pack they are
     # short is Create's, so that is the mode named here -- the alternative was
     # a second kind -> pack table next to ``packs.PACKS[*].modes``, which is
     # exactly the drift this function exists to avoid. Before this, a host
-    # with weights present but the pack removed queued each of the four and
+    # with weights present but the pack removed queued each of the three and
     # died in the worker on the import instead of refusing at the door.
     "sprite_synthesis": "create",
     "tile_sheet": "create",
-    "pixel_sheet": "create",
     "lora_train": "create",
 }
 
@@ -665,7 +663,7 @@ def check_base_model_weights(
     ``rows`` overrides what the refusal carries for an "install what this needs"
     button. Defaulted, it is this checkpoint's own row, which is the whole
     answer for a text job. A door standing in front of a *feature* -- sprites,
-    pixel sheets -- passes the feature's whole missing set instead, so the user
+    tile sheets -- passes the feature's whole missing set instead, so the user
     installs once rather than being refused three times running.
     """
     if base is None:
@@ -840,54 +838,6 @@ def random_seed() -> int:
     return secrets.randbelow(2**31)
 
 
-def check_view(elevation: Any, lighting: Any) -> float | None:
-    """A sheet request's camera angle and lighting, refused by control.
-
-    The 2026-10-03 audit, finding poser-27: ``create_charsheet``,
-    ``_charsheet_spec`` and ``create_sheet`` handed both straight to ``plan``
-    and filed its ``ValueError`` under ``field="layout"`` (or no field), so a
-    bad angle rang the layout table where ``check_troupe`` -- which names the
-    control the angle comes from -- says ``camera``; and a non-numeric one
-    escaped as a bare ``TypeError``. -> the angle as a float (``None`` when
-    absent); ``plan`` still owns the same limits, this just gets there first
-    with an address.
-    """
-    from ..kernels import sheet as sheetlib
-
-    value: float | None = None
-    if elevation is not None:
-        try:
-            value = float(elevation)
-        except (TypeError, ValueError):
-            raise Invalid("that camera angle is not a number", field="camera") from None
-        if not -89.0 <= value <= 89.0:
-            raise Invalid(
-                "a camera angle must be between -89 and 89 degrees above the horizon",
-                field="camera",
-            )
-    if lighting is not None and lighting != "" and lighting not in sheetlib.LIGHTING:
-        raise Invalid(f"lighting must be one of {list(sheetlib.LIGHTING)}", field="lighting")
-    return value
-
-
-def check_blender_known() -> None:
-    """Refuse a Blender render when the probe has already said Blender is absent.
-
-    The 2026-10-03 audit, finding poser-39: the doors that queue a Blender
-    render (``create_sheet``, ``create_charsheet``, ``rerender_charsheet`` and
-    ``send_to_troupe``'s rigged branch) never asked, where every rig door
-    refuses "Rigging needs Blender" -- so on a host without bpy the request was
-    queued and died in the worker. ``probe=False`` on purpose: this never
-    blocks (the probe imports bpy in a child process and costs seconds), it
-    refuses only on an answer the startup probe already cached, the rule
-    ``_jobs_create`` follows for the same question.
-    """
-    from .. import doctor
-
-    if not doctor.blender_check(probe=False).ok:
-        raise Invalid("Rigging needs Blender, which is not installed.")
-
-
 def check_job_id(job_id: str) -> None:
     """Reject anything that isn't a generated job id, before it reaches the FS.
 
@@ -912,11 +862,6 @@ def check_pose_id(pose_id: str) -> None:
     """Same guard, same reasoning, for the ids that name files inside a job dir."""
     if not store.is_valid_id(pose_id):
         raise NotFound("no such pose")
-
-
-def check_sheet_id(sheet_id: str) -> None:
-    if not store.is_valid_id(sheet_id):
-        raise NotFound("no such sheet")
 
 
 def check_sprite_draft_id(draft_id: str) -> None:

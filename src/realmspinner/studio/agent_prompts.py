@@ -9,19 +9,16 @@ answered, and for the same reason.
 
 **Every tool a prompt's rendered text names is checked against the real
 tool list**, not assumed to still exist: ``tests/mcp/test_rpc_studio.py``
-scans every prompt's rendered text for ``clay_\\w+``/``realmspinner_\\w+``/
-``character_\\w+`` tokens and asserts each one is a real tool name from
-``agent_clay.tools()`` plus ``agent_character.tools()`` plus
-``agent_host.STATUS_TOOL``. The constants below (``_ADD_PRIMITIVE`` and the
-rest, plus the ``_CHARACTER_*`` ones the one character-pipeline prompt
-uses) exist so a rename of the underlying tool is a one-line fix here
-instead of a search-and-replace across every prompt's prose, but the
-regression that actually matters is the scan, not the constants -- a prompt
-that hand-typed a stale name would still be caught."""
+scans every prompt's rendered text for ``clay_\\w+``/``realmspinner_\\w+``
+tokens and asserts each one is a real tool name from ``agent_clay.tools()``
+plus ``agent_host.STATUS_TOOL``. The constants below exist so a rename of the
+underlying tool is a one-line fix here instead of a search-and-replace across
+every prompt's prose, but the regression that actually matters is the scan,
+not the constants -- a prompt that hand-typed a stale name would still be
+caught."""
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
@@ -41,14 +38,6 @@ _RENDER = "clay_render"
 _EXPORT = "clay_export"
 _ELEMENTS = "clay_elements"
 _REFERENCE_ADD = "clay_reference_add"
-
-# The character pipeline's own tools, named here for the identical reason
-# the Clay constants above are -- see the module docstring.
-_CHARACTER_OPTIONS = "character_options"
-_CHARACTER_CREATE = "character_create"
-_CHARACTER_JOB = "character_job"
-_CHARACTER_SHEET_PREVIEW = "character_sheet_preview"
-_CHARACTER_EXPORT = "character_export"
 
 
 def _model_from_description(args: dict[str, Any]) -> str:
@@ -79,43 +68,6 @@ def _model_from_reference(args: dict[str, Any]) -> str:
         f"'beside' first, then 'overlay' once the silhouette is close). Iterate with "
         f"{_TRANSFORM}/{_SET_PARAMS}/{_MATERIAL} until the two line up, "
         f"then {_EXPORT}."
-    )
-
-
-def _character_sheets_from_description(args: dict[str, Any]) -> str:
-    description = args["description"]
-    movements = args.get("movements")
-    # The 2026-10-03 audit's agents-31: this rendered the comma-separated
-    # string as bare names ("movements: [walk, idle]"), and character_create
-    # takes an array of {"name": ...} objects and refuses a bare name -- a
-    # model following the text literally sent a refused first call.
-    names = [n.strip() for n in movements.split(",") if n.strip()] if movements else []
-    movements_clause = (
-        "movements: [" + ", ".join(json.dumps({"name": n}) for n in names) + "]"
-        if names
-        else "movements omitted, so the resolved species' own default set is used"
-    )
-    return (
-        f"Build a character sheet matching this description: {description}\n\n"
-        f"Call {_CHARACTER_OPTIONS} first to see the live vocabulary this "
-        f"build ships, then {_CHARACTER_CREATE} with prompt={description!r}, "
-        f"{movements_clause}, and directions: 8. It queues both the mesh "
-        f"and its rig in one call and returns mesh_job_id and rig_job_id.\n\n"
-        f"Poll {_CHARACTER_JOB} on the returned rig_job_id (the mesh's own "
-        f"job id reports the same thing too) until its follow_up_sheet_job "
-        f"names a job, then poll {_CHARACTER_JOB} on that job until it is "
-        f"done. Any terminal status other than done -- error or cancelled -- "
-        f"on either job ends the loop. If the rig itself ends in error or is "
-        f"cancelled, follow_up_sheet_job never appears -- read "
-        f"follow_up_failure (or the rig job's own error) off that same "
-        f"{_CHARACTER_JOB} reply and stop, rather than poll forever for a "
-        f"sheet that will not come; if the sheet job ends in error or is "
-        f"cancelled, read its own error and stop. Look at the finished "
-        f"sheet with {_CHARACTER_SHEET_PREVIEW}, then hand it off with "
-        f"{_CHARACTER_EXPORT} in each of animated_glb, godot_scene and "
-        f"frame_folders. A movement named as part of a 'set' means nothing "
-        f"beyond appearing in that movements list -- there is no other "
-        f"bookkeeping to it."
     )
 
 
@@ -167,26 +119,6 @@ _PROMPTS: dict[str, _Prompt] = {
                 }
             ],
             _model_from_reference,
-        ),
-        _Prompt(
-            "character_sheets_from_description",
-            "Character sheet from a description",
-            "Build a character and export it as a sprite sheet from a plain-text "
-            "description.",
-            [
-                {
-                    "name": "description",
-                    "description": "What to build, in plain language.",
-                    "required": True,
-                },
-                {
-                    "name": "movements",
-                    "description": "A comma-separated list of movements to render. "
-                    "Omit to use the resolved species' own default set.",
-                    "required": False,
-                },
-            ],
-            _character_sheets_from_description,
         ),
     )
 }
