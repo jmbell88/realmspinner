@@ -2992,7 +2992,13 @@ def kept_objects(doc: ClayDoc) -> list[Obj]:
     return [obj for obj in doc.objects if keep.get(obj.uid, False)]
 
 
-def to_model(doc: ClayDoc) -> gltf.Model:
+def to_model(
+    doc: ClayDoc,
+    *,
+    skinned: bool = True,
+    place: np.ndarray | None = None,
+    bone_names: Mapping[int, str] | None = None,
+) -> gltf.Model:
     """The document as a :class:`~gltf.Model`: real glTF hierarchy.
 
     The GLB writer goes through here. **The viewport and the trellis render
@@ -3033,13 +3039,31 @@ def to_model(doc: ClayDoc) -> gltf.Model:
     other node's world matrix are exactly what they were; the new nodes come after the
     ``kept_objects`` ones, so a caller that lines the two up still can. A document with no
     bones takes none of these branches and its bytes do not change.
+
+    ``skinned=False`` is the static model: every shape on its own node at its own place,
+    bones as plain nodes, no skin -- what the library's ``model.glb`` is, because rigging,
+    retargeting and every mesh export are pure functions of a mesh that is not skinned.
+
+    ``place`` is a 4x4 applied to the whole scene from outside (uniform scale and a
+    translation: ``postprocess.normalize_glb``'s grounding, so a rig written beside a
+    normalised ``model.glb`` stands where that mesh stands). It is folded into each root
+    node's transform and into the baked vertices and inverse bind matrices of the skinned
+    meshes, because nothing above a skinned mesh's joints could carry it for them.
+    ``bone_names`` renames bones (and the geometry bound to them) for a record that wants
+    legal names; both default to the document as it is.
     """
     kept = kept_objects(doc)
     by_uid = doc._uid_map()
-    marked = [obj for obj in doc.objects if obj.bone]
-    problems = doc.rig_problems()
+    marked = [obj for obj in doc.objects if obj.bone] if skinned else []
+    problems = doc.rig_problems() if skinned else []
     if problems:
         raise ValueError("this document's rig is not consistent: " + "; ".join(problems))
+    names = dict(bone_names or {})
+    if place is not None:
+        place = np.asarray(place, dtype="f8")
+        t, r, s = m3.decompose(place)
+        if not gltf.recomposes_without_shear(m3.compose(t, r, s), place):
+            raise ValueError("to_model's place must be a scale and a translation, with no shear")
     if marked:
         wanted = {obj.uid for obj in kept}
         for bone in marked:
@@ -3050,7 +3074,7 @@ def to_model(doc: ClayDoc) -> gltf.Model:
         kept = [obj for obj in doc.objects if obj.uid in wanted]
     index_of_uid = {obj.uid: i for i, obj in enumerate(kept)}
     joint_of_bone = {bone.uid: j for j, bone in enumerate(marked)}
-    skinned: list[tuple[Obj, bm.Mesh]] = []
+    skinned_meshes: list[tuple[Obj, bm.Mesh]] = []
 
     nodes: list[gltf.Node] = []
     meshes: list[list[gltf.Primitive]] = []
@@ -3059,16 +3083,25 @@ def to_model(doc: ClayDoc) -> gltf.Model:
         if obj.visible:
             home = rig.nearest_bone(by_uid, obj.uid) if marked else None
             if (obj.skin is not None or home is not None) and bm.face_count(obj.mesh):
-                skinned.append((obj, _skin_mesh(doc, by_uid, obj, home, joint_of_bone)))
+                skinned_meshes.append(
+                    (obj, _skin_mesh(doc, by_uid, obj, home, joint_of_bone, place))
+                )
             else:
                 meshes.append(to_primitives(obj, doc.materials))
                 mesh_index = len(meshes) - 1
+        translation = np.array(obj.translation, dtype="f8", copy=True)
+        rotation = np.array(obj.rotation, dtype="f8", copy=True)
+        scale = np.array(obj.scale, dtype="f8", copy=True)
+        if place is not None and (obj.parent is None or obj.parent not in index_of_uid):
+            translation, rotation, scale = m3.decompose(
+                place @ m3.compose(translation, rotation, scale)
+            )
         nodes.append(
             gltf.Node(
-                name=obj.name,
-                translation=np.array(obj.translation, dtype="f8", copy=True),
-                rotation=np.array(obj.rotation, dtype="f8", copy=True),
-                scale=np.array(obj.scale, dtype="f8", copy=True),
+                name=names.get(obj.uid, obj.name),
+                translation=translation,
+                rotation=rotation,
+                scale=scale,
                 mesh=mesh_index,
             )
         )
@@ -3083,13 +3116,16 @@ def to_model(doc: ClayDoc) -> gltf.Model:
     ]
     skins: list[gltf.Skin] = []
     if marked:
-        inverse = np.array([np.linalg.inv(doc._world_in(b.uid, by_uid)) for b in marked])
+        lift = np.eye(4) if place is None else place
+        inverse = np.array([np.linalg.inv(lift @ doc._world_in(b.uid, by_uid)) for b in marked])
         skins.append(
             gltf.Skin(joints=[index_of_uid[bone.uid] for bone in marked], inverse_bind=inverse)
         )
-        for obj, mesh in skinned:
+        for obj, mesh in skinned_meshes:
             meshes.append(to_primitives(obj, doc.materials, mesh, skin_data=True))
-            nodes.append(gltf.Node(name=obj.name, mesh=len(meshes) - 1, skin=0))
+            nodes.append(
+                gltf.Node(name=names.get(obj.uid, obj.name), mesh=len(meshes) - 1, skin=0)
+            )
             roots.append(len(nodes) - 1)
     return gltf.Model(nodes, roots, meshes, skins)
 
@@ -3100,6 +3136,7 @@ def _skin_mesh(
     obj: Obj,
     home: int | None,
     joint_of_bone: Mapping[int, int],
+    place: np.ndarray | None = None,
 ) -> bm.Mesh:
     """*obj*'s mesh in world rest space with every vertex's joints and weights on it.
 
@@ -3107,7 +3144,8 @@ def _skin_mesh(
     own joint indices are looked up through its skin's bone uids, a rigidly bound one gets
     ``(home, 0, 0, 0)`` at ``(1, 0, 0, 0)``.
     """
-    world = bm.transformed(obj.mesh, doc._world_in(obj.uid, by_uid))
+    matrix = doc._world_in(obj.uid, by_uid)
+    world = bm.transformed(obj.mesh, matrix if place is None else place @ matrix)
     n = len(world.positions)
     if obj.skin is not None:
         table = np.array([joint_of_bone[uid] for uid in obj.skin.joints], dtype="i4")

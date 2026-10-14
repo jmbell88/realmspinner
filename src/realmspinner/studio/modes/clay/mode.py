@@ -1071,7 +1071,10 @@ def build_asset(
     from ....service import files as svc_files
     from ....service import jobs as svc_jobs
 
-    model = bd.to_model(doc)
+    # The static model: a library row's ``model.glb`` is the mesh, unskinned, because
+    # retargeting, rigging and every mesh export are pure functions of one. A document with
+    # bones writes its skinned twin as ``rig.glb`` below.
+    model = bd.to_model(doc, skinned=False)
     snap = serialize.snapshot(doc, view=view)
     glb = glbwrite.write_glb(model)
     # Encoded *before* the row is minted (the 2026-10-07 audit's clay-13):
@@ -1081,8 +1084,41 @@ def build_asset(
     source = (encode or serialize.snapshot_bytes)(snap)
     result = svc_jobs.import_mesh(svc, glb, name=title, prompt=prompt or title)
     job_id = result["id"]
+    if any(obj.bone for obj in doc.objects):
+        _publish_rig(svc, doc, job_id)
     svc_files.save_clay_source(svc, job_id, source)
     return job_id
+
+
+def _publish_rig(svc: Any, doc: Any, job_id: str) -> None:
+    """Write the document's skinned GLB and its record as the row's ``rig.glb`` and
+    ``rig.json``, placed where ``import_mesh`` grounded the mesh.
+
+    ``import_mesh`` centres and grounds ``model.glb`` (``normalize_glb``) and records the
+    scale and translation it applied; the rig is built through the same placement, folded
+    into ``to_model`` itself, so the skeleton stands where the mesh stands. (Running
+    ``normalize_glb`` over the skinned file instead would empty its root joints.) A
+    document whose bones cannot be a library rig -- one that ``save_clay_rig`` refuses --
+    raises here, after the mesh row exists: the row is a good mesh and says so, and the
+    refusal tells the user why it has no rig.
+    """
+    import numpy as np
+
+    from ....kernels.geom3d import glbwrite
+    from ....kernels.mesh import document as bd
+    from ....kernels.mesh import rig
+    from ....kernels.rig import clayrig
+    from ....service import files as svc_files
+
+    transform = ((svc.store.get(job_id) or {}).get("params") or {}).get("transform")
+    place = None
+    if isinstance(transform, dict):
+        factor = float(transform.get("scale") or 1.0)
+        place = np.diag([factor, factor, factor, 1.0])
+        place[:3, 3] = [float(v) for v in (transform.get("translation") or (0.0, 0.0, 0.0))]
+    names = rig.export_names(doc.objects)
+    glb = glbwrite.write_glb(bd.to_model(doc, place=place, bone_names=names))
+    svc_files.save_clay_rig(svc, job_id, glb, clayrig.rig_record(doc, place=place))
 
 
 def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:

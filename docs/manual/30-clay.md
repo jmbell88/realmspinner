@@ -1429,6 +1429,13 @@ the mesh as `build.rblk` (the on-disk name predates the rename). That copy is ne
 downloadable — it exists so that reopening a built asset brings its objects back instead of one
 frozen mesh — and it goes away with the job when the job is deleted.
 
+A document with bones adds a rig beside the mesh. The library's mesh is unskinned, as every asset's is, and the
+skinned GLB is written next to it as **Rigged GLB** with its record, so the row counts as rigged. The rig is placed
+where the library grounded the mesh. Bone names are made legal for the record (letters, digits, `_`, `.` and `-`,
+63 at most, a repeat gets `.001`), and bones named like `Arm.L` and `Arm.R`, `Leg_L` and `Leg_R` or
+`LeftArm` and `RightArm` are recorded as mirror pairs. The record names the skeleton **custom** with no authored
+clips, so the library offers no baked animation for it.
+
 Dropping a `.rblk` on the window while Clay is on screen opens it, and dropping a `.glb` imports it
 — see [Importing an asset](#importing-an-asset).
 

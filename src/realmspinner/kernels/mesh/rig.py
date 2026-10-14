@@ -29,6 +29,7 @@ per vertex glTF's ``JOINTS_0``/``WEIGHTS_0`` carry.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -36,14 +37,24 @@ from typing import Any
 import numpy as np
 
 __all__ = [
+    "BONE_NAME_RE",
     "MAX_BONES",
     "MAX_SKIN_INFLUENCES",
     "Skin",
     "bone_parent",
     "bones",
+    "export_names",
+    "mirror_pairs",
     "nearest_bone",
     "skin_problems",
 ]
+
+#: What a library rig's bone name may be -- ``kernels.rig.skeleton.BONE_NAME_RE``, which
+#: this package may not import (``kernels/rig`` imports ``kernels/mesh``, never the
+#: reverse); ``tests/modes/clay/test_rig_caps.py`` pins the two equal. Blender truncates a
+#: name at 63 bytes and renames a duplicate, so the name a rig record holds must already be
+#: one it would keep.
+BONE_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,63}$")
 
 MAX_BONES = 64
 MAX_SKIN_INFLUENCES = 4
@@ -81,6 +92,65 @@ class Skin:
         matrices.setflags(write=False)
         object.__setattr__(self, "joints", joints)
         object.__setattr__(self, "inverse_bind", matrices)
+
+
+def export_names(objects: Iterable[Any]) -> dict[int, str]:
+    """``uid -> bone name`` for the library's rig record: each bone's object name made a
+    legal, unique bone name (:data:`BONE_NAME_RE`), in document order.
+
+    An object may be called "Left Arm" or "Ünïcode" or carry the same name as another;
+    a rig record may not (Blender would silently rename it, and the record would then
+    name a bone the rig does not have). Illegal characters become ``_``, an empty or
+    over-long name is trimmed, and a repeat gets ``.001``, ``.002`` as Blender would.
+    """
+    taken: set[str] = set()
+    names: dict[int, str] = {}
+    for obj in bones(objects):
+        base = re.sub(r"[^A-Za-z0-9_.\-]", "_", str(obj.name))[:63].strip() or "Bone"
+        name, n = base, 0
+        while name in taken:
+            n += 1
+            suffix = f".{n:03d}"
+            name = base[: 63 - len(suffix)] + suffix
+        taken.add(name)
+        names[obj.uid] = name
+    return names
+
+
+#: Name pairs that read as the two sides of one limb: ``(left marker, right marker)``,
+#: tried as a separated suffix (``.L``, ``_L``, ``-L``) or as a word inside the name.
+_SIDE_MARKERS = (("L", "R"), ("l", "r"), ("Left", "Right"), ("left", "right"))
+
+
+def mirror_pairs(names: Iterable[str]) -> list[list[str]]:
+    """The left/right partners among *names*, as ``[[left, right], ...]``.
+
+    Derived from the names alone (``Arm.L``/``Arm.R``, ``Arm_L``/``Arm_R``, ``LeftArm``/
+    ``RightArm``): Clay has no mirror field on a bone, and a library rig's pose mirroring
+    only needs to know which bones are each other's. A name with no partner is simply
+    unpaired.
+    """
+    names = list(names)
+    present = set(names)
+    pairs: list[list[str]] = []
+    used: set[str] = set()
+    for name in names:
+        if name in used:
+            continue
+        for left, right in _SIDE_MARKERS:
+            partner = None
+            for sep in (".", "_", "-"):
+                if name.endswith(sep + left):
+                    partner = name[: -len(left)] + right
+            if partner is None and left in ("Left", "left") and name.startswith(left):
+                partner = right + name[len(left) :]
+            if partner is None and left in ("Left", "left") and left in name:
+                partner = name.replace(left, right, 1)
+            if partner is not None and partner != name and partner in present:
+                pairs.append([name, partner])
+                used.update((name, partner))
+                break
+    return pairs
 
 
 def bones(objects: Iterable[Any]) -> list[Any]:

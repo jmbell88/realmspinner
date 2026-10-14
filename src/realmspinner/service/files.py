@@ -13,8 +13,10 @@ from typing import Any
 from .errors import Conflict, Invalid, NotFound, TooLarge
 from .validation import (
     MAX_IMAGE_PIXELS,
+    MAX_MESH_BYTES,
     MAX_THUMB_BYTES,
     MAX_UPLOAD_BYTES,
+    check_glb,
     check_job_id,
     not_done_message,
 )
@@ -343,6 +345,52 @@ def save_clay_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
     dest = svc.job_dir(job_id) / CLAY_SOURCE
     dest.parent.mkdir(parents=True, exist_ok=True)
     _staged_write(dest, data)
+    return {"ok": True}
+
+
+def save_clay_rig(svc: Any, job_id: str, glb: bytes, record: dict[str, Any]) -> dict[str, Any]:
+    """Publish a Clay document's rig beside the mesh it exported with: ``rig.glb`` and
+    ``rig.json``, through the one door every other rig goes through.
+
+    The skinned GLB and its record are written to the rig's own temp names and renamed onto
+    the served ones by ``store.finalize_rig`` -- GLB first, JSON second, so ``rig.json`` is
+    the completion marker (``ready("rig.glb")`` keys on it) and a reader never meets a
+    ``rig.glb`` whose record is not there yet. ``finalize_rig`` also sweeps the artifacts
+    derived from a *previous* skeleton, which a freshly minted row has none of and a future
+    re-export onto an existing row would.
+
+    The caller (``studio.modes.clay.mode.build_asset``) writes the mesh first and this
+    second, the ``save_clay_source`` ordering: a crash between them leaves a row that is
+    simply not rigged, never a rig advertising a mesh it did not come with. A refused or
+    failed write removes its temps and leaves the row as it was.
+    """
+    import json
+
+    from ..kernels.rig import store
+
+    check_job_id(job_id)
+    if svc.store.get(job_id) is None:
+        raise NotFound("no such job")
+    if len(glb) > MAX_MESH_BYTES:
+        raise TooLarge("rig is over 100 MB")
+    check_glb(glb, field="rig_glb")
+    if not isinstance(record, dict) or not record.get("bones"):
+        raise Invalid("a rig record needs bones", field="bones")
+    try:
+        store.validate_rig_bones(record["bones"])
+    except store.RigError as exc:
+        raise Invalid(str(exc), field="bones") from exc
+    job_dir = svc.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        (job_dir / store.RIG_GLB_TMP).write_bytes(glb)
+        (job_dir / store.RIG_JSON_TMP).write_text(
+            json.dumps(record, indent=2, sort_keys=True), encoding="utf-8"
+        )
+        store.finalize_rig(job_dir)
+    except BaseException:
+        store.discard_rig_temps(job_dir)
+        raise
     return {"ok": True}
 
 
