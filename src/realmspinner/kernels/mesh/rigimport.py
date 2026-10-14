@@ -38,6 +38,17 @@ carried.
 that share a position but are weighted differently stay two points.
 
 More than :data:`~.rig.MAX_BONES` joints across the file's skins is refused by name.
+
+**Animations come in as keys on the bones** (:func:`import_animations`). A channel on a joint
+becomes a channel on that bone; a channel on anything else is counted and dropped. glTF keys are
+local to the joint's glTF parent, and a bone here is local to its parent *bone*, so when a
+non-joint node (Blender's Armature empty) sits between them the keys are carried across it:
+sampled at the union of the joint's key times, composed, multiplied by the fixed matrix between
+the two frames and decomposed again. A ``CUBICSPLINE`` channel is resampled to linear keys and
+the notice says so; ``STEP`` and ``LINEAR`` import as they are. The frame rate is guessed from
+the smallest gap between keys and rounded to the nearest of 12, 24, 30 and 60. More than 64
+animations, a channel past 4,096 keys or a clip longer than 600 seconds is refused by name: the
+caps are Clay's, and trimming a clip silently would be worse than saying so.
 """
 
 from __future__ import annotations
@@ -49,12 +60,12 @@ import numpy as np
 
 from ..geom3d import gltf
 from ..geom3d import math3d as m3
+from . import anim, rig, topo
 from . import mesh as bm
-from . import rig, topo
 from .document import Obj, _empty_mesh, new_uid
 from .elements import OpError
 
-__all__ = ["import_rigged"]
+__all__ = ["import_animations", "import_rigged"]
 
 #: How near the identity a joint's ``world @ inverse_bind`` must be for a file to count as
 #: being at its bind pose, so the positions can be used as they are.
@@ -79,8 +90,9 @@ def import_rigged(
     material_index: Callable[..., int],
     unique: Callable[[str, set[str]], str],
     plain_object: Callable[..., Obj | None],
-) -> list[Obj]:
-    """The objects of a model that has skins: bones first, then every placed mesh.
+) -> tuple[list[Obj], anim.RigState, tuple[str, ...]]:
+    """``(objects, animations, notices)`` of a model that has skins: bones first, then every
+    placed mesh, then the keys.
 
     The three callables are :mod:`.glbimport`'s own (its palette lookup, its unique-name rule
     and its unskinned object builder), passed in so this module owes that one nothing at
@@ -93,7 +105,8 @@ def import_rigged(
             made = importer.geometry(node, prim)
             if made is not None:
                 objects.append(made)
-    return objects
+    state, notices = import_animations(importer)
+    return objects, state, notices
 
 
 class _Importer:
@@ -140,6 +153,19 @@ class _Importer:
             self.bone_of_node[index] = bone
             self.world_of[bone.uid] = np.asarray(node.world, dtype="f8")
             self.bones.append(bone)
+
+    def frame_change(self, node_index: int) -> np.ndarray | None:
+        """The fixed matrix from a joint's glTF parent frame to its bone's parent frame, or
+        ``None`` when they are the same (the joint's parent in the file is its parent bone, or
+        both are the world)."""
+        bone = self.bone_of_node[node_index]
+        above = self.parents.get(node_index)
+        gltf_parent = (
+            np.eye(4) if above is None else np.asarray(self.model.nodes[above].world, dtype="f8")
+        )
+        clay_parent = np.eye(4) if bone.parent is None else self.world_of[bone.parent]
+        change = np.linalg.inv(clay_parent) @ gltf_parent
+        return None if np.allclose(change, np.eye(4), atol=1e-9) else change
 
     def _chain_length(self, index: int, joint_set: set[int]) -> int:
         """How many joints sit above *index*, so bones are created parents first."""
@@ -218,6 +244,178 @@ class _Importer:
             material=slot,
             skin=skin_data,
         )
+
+
+# -- animations -----------------------------------------------------------------------------
+
+
+def _guess_fps(model: gltf.Model) -> int:
+    """The nearest of Clay's frame rates to the smallest gap between any two keys."""
+    smallest = np.inf
+    for animation in model.animations:
+        for channel in animation.channels:
+            if len(channel.times) > 1:
+                gap = float(np.diff(np.sort(channel.times)).min()) if len(channel.times) > 1 else 0
+                if gap > 1e-6:
+                    smallest = min(smallest, gap)
+    if not np.isfinite(smallest):
+        return 24
+    wanted = 1.0 / smallest
+    return min(anim.FPS_CHOICES, key=lambda fps: abs(np.log(fps / wanted)))
+
+
+def _linear_keys(channel: gltf.AnimChannel, fps: int) -> tuple[np.ndarray, np.ndarray, bool]:
+    """``(times, values, was_cubic)``: the channel as keys Clay can hold, ascending and unique."""
+    width = 4 if channel.path == "rotation" else 3
+    cubic = channel.interpolation == "CUBICSPLINE"
+    if cubic:
+        times, values = anim.resample_cubic(channel.times, channel.values, fps=fps, width=width)
+    else:
+        times, values = np.asarray(channel.times), np.asarray(channel.values)
+    order = np.argsort(times, kind="stable")
+    times, values = times[order], values[order]
+    keep = np.ones(len(times), dtype=bool)
+    keep[:-1] = np.diff(times) > anim.TIME_EPSILON  # a repeated time keeps its last key
+    return times[keep], values[keep], cubic
+
+
+def _fresh_name(name: str, taken: set[str]) -> str:
+    base = name.strip() or "Animation"
+    candidate, n = base, 0
+    while candidate in taken:
+        n += 1
+        candidate = f"{base}.{n:03d}"
+    taken.add(candidate)
+    return candidate
+
+
+def import_animations(importer: _Importer) -> tuple[anim.RigState, tuple[str, ...]]:
+    """The file's animations as Clay's, on the bones :class:`_Importer` made. See the module
+    docstring for what is carried, what is resampled and what is refused."""
+    model = importer.model
+    if not model.animations:
+        return anim.RigState(), ()
+    if len(model.animations) > anim.MAX_ANIMATIONS:
+        raise OpError(
+            f"This GLB has {len(model.animations)} animations, past the {anim.MAX_ANIMATIONS} a "
+            "Clay rig holds. Delete the ones you do not need in Blender first."
+        )
+    fps = _guess_fps(model)
+    taken: set[str] = set()
+    animations: list[anim.Animation] = []
+    cubic = dropped = mixed = 0
+    for source in model.animations:
+        label = f"The animation {source.name!r}" if source.name else "An animation"
+        by_node: dict[int, dict[str, gltf.AnimChannel]] = {}
+        interpolations: set[str] = set()
+        for channel in source.channels:
+            if channel.node not in importer.bone_of_node:
+                dropped += 1
+                continue
+            by_node.setdefault(channel.node, {})[channel.path] = channel
+            interpolations.add("step" if channel.interpolation == "STEP" else "linear")
+        channels: dict[int, dict[str, anim.Channel]] = {}
+        for node_index, props in by_node.items():
+            made, resampled = _bone_channels(importer, node_index, props, fps, label)
+            cubic += resampled
+            channels[importer.bone_of_node[node_index].uid] = made
+        if len(interpolations) > 1:
+            mixed += 1
+        loop = source.extras.get("loop", True) if isinstance(source.extras, dict) else True
+        try:
+            animations.append(
+                anim.Animation(
+                    _fresh_name(source.name, taken),
+                    bool(loop),
+                    "step" if interpolations == {"step"} else "linear",
+                    channels,
+                )
+            )
+        except ValueError as exc:
+            raise OpError(f"{label} cannot be imported: {exc}") from exc
+    notices: list[str] = []
+    if cubic:
+        notices.append(
+            f"{cubic} smoothed (CUBICSPLINE) channel{'s' if cubic != 1 else ''} came in as "
+            "linear keys, sampled at the frame rate: Clay keeps no tangent handles."
+        )
+    if dropped or model.skipped_animation_channels:
+        n = dropped + model.skipped_animation_channels
+        notices.append(
+            f"{n} animation channel{'s' if n != 1 else ''} drove something that is not a bone "
+            "(or morph weights) and were left out."
+        )
+    if mixed:
+        notices.append(
+            f"{mixed} animation{'s' if mixed != 1 else ''} mixed step and linear keys and came "
+            "in as linear."
+        )
+    return anim.RigState(tuple(animations), fps), tuple(notices)
+
+
+def _bone_channels(
+    importer: _Importer,
+    node_index: int,
+    props: dict[str, gltf.AnimChannel],
+    fps: int,
+    label: str,
+) -> tuple[dict[str, anim.Channel], int]:
+    """One joint's channels, carried into its bone's frame. -> ``(channels, cubic count)``."""
+    model = importer.model
+    bone = importer.bone_of_node[node_index]
+    keys: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    resampled = 0
+    for path, channel in props.items():
+        times, values, was_cubic = _linear_keys(channel, fps)
+        resampled += int(was_cubic)
+        keys[path] = (times, values)
+        if len(times) > anim.MAX_KEYS_PER_CHANNEL:
+            raise OpError(
+                f"{label} has {len(times):,} keys on {bone.name!r}'s {path}, past the "
+                f"{anim.MAX_KEYS_PER_CHANNEL:,} a Clay channel holds. Bake it to fewer keys "
+                "in Blender first."
+            )
+        if len(times) and times[-1] > anim.MAX_ANIMATION_SECONDS:
+            raise OpError(
+                f"{label} runs {times[-1]:.0f} seconds, past the {anim.MAX_ANIMATION_SECONDS:.0f} "
+                "a Clay clip holds."
+            )
+    fold = importer.frame_change(node_index)
+    if fold is None:
+        return {path: anim.Channel(t, v) for path, (t, v) in keys.items()}, resampled
+
+    # A non-joint node sits between this joint and its parent bone, so every key crosses a
+    # fixed matrix: sample all three properties at the union of the key times, multiply, and
+    # decompose back. The ones the file does not animate hold the node's own value.
+    node = model.nodes[node_index]
+    union = np.unique(np.concatenate([t for t, _ in keys.values()]))
+    if len(union) > anim.MAX_KEYS_PER_CHANNEL:
+        raise OpError(
+            f"{label} has {len(union):,} key times on {bone.name!r}, past the "
+            f"{anim.MAX_KEYS_PER_CHANNEL:,} a Clay channel holds."
+        )
+    rest = {"translation": node.translation, "rotation": node.rotation, "scale": node.scale}
+    out = {"translation": [], "rotation": [], "scale": []}
+    interpolation = "step" if all(p.interpolation == "STEP" for p in props.values()) else "linear"
+    for time in union:
+        local = {
+            path: (
+                anim.sample(anim.Channel(*keys[path]), float(time), interpolation)
+                if path in keys
+                else np.asarray(rest[path], dtype="f8")
+            )
+            for path in rest
+        }
+        matrix = fold @ m3.compose(local["translation"], local["rotation"], local["scale"])
+        t, r, s = m3.decompose(matrix)
+        if not gltf.recomposes_without_shear(m3.compose(t, r, s), matrix):
+            raise OpError(
+                f"{label} moves {bone.name!r} through a non-uniform scale above it, which "
+                "shears the keys; a Clay bone cannot hold that."
+            )
+        for path, value in (("translation", t), ("rotation", r), ("scale", s)):
+            out[path].append(value)
+    return {path: anim.Channel(union, np.array(rows)) for path, rows in out.items()}, resampled
 
 
 # -- the skeleton's questions ---------------------------------------------------------------

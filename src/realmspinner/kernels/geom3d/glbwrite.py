@@ -140,6 +140,9 @@ class _Writer:
         # key, bytes unchanged) until a material asks for it.
         self.samplers: list[dict[str, Any]] = []
         self._texture_keep: list[Any] = []
+        # Arrays an ``id`` key names while a call is in flight (animation key times), for the
+        # reason ``material`` keeps its materials alive.
+        self._keep: list[Any] = []
 
     # -- accessors ---------------------------------------------------------
 
@@ -398,6 +401,67 @@ class _Writer:
         return doc
 
 
+def _animation(writer: _Writer, animation: gltf.Animation, node_count: int) -> dict[str, Any]:
+    """One glTF animation: a sampler and a channel per entry, key times shared where equal.
+
+    Every refusal is by name, because a half-written clip plays as a model that jitters rather
+    than as a file that failed: a channel on a node the model does not have, a path or
+    interpolation outside the spec's, key counts that do not match their values, and any
+    non-finite number. Key times are written once per distinct array (the importer's channels
+    for one bone share them) with the ``min``/``max`` the spec requires of an animation input.
+    """
+    label = f"the animation {animation.name!r}" if animation.name else "an animation"
+    samplers: list[dict[str, Any]] = []
+    channels: list[dict[str, Any]] = []
+    inputs: dict[int, int] = {}
+    for channel in animation.channels:
+        if not 0 <= channel.node < node_count:
+            raise ValueError(
+                f"write_glb: {label} animates node {channel.node}, but the model has "
+                f"{node_count} node(s)"
+            )
+        if channel.path not in gltf.ANIMATION_PATHS:
+            raise ValueError(f"write_glb: {label} animates {channel.path!r}")
+        if channel.interpolation not in gltf.ANIMATION_INTERPOLATIONS:
+            raise ValueError(f"write_glb: {label} uses the interpolation {channel.interpolation!r}")
+        times = np.asarray(channel.times, dtype="f8").reshape(-1)
+        width = 4 if channel.path == "rotation" else 3
+        values = np.asarray(channel.values, dtype="f8")
+        rows = len(times) * (3 if channel.interpolation == "CUBICSPLINE" else 1)
+        if len(times) == 0 or values.shape != (rows, width):
+            raise ValueError(
+                f"write_glb: {label} has {len(times)} key time(s) and {channel.path} values "
+                f"of shape {values.shape}"
+            )
+        if not (np.isfinite(times).all() and np.isfinite(values).all()):
+            raise ValueError(f"write_glb: {label} has a key that is not a finite number")
+        source = inputs.get(id(channel.times))
+        if source is None:
+            source = writer.accessor(times.astype("<f4"), "SCALAR", _FLOAT)
+            writer.accessors[source]["min"] = [float(times.min())]
+            writer.accessors[source]["max"] = [float(times.max())]
+            inputs[id(channel.times)] = source
+            writer._keep.append(channel.times)
+        output = writer.accessor(
+            values.astype("<f4"), "VEC4" if width == 4 else "VEC3", _FLOAT
+        )
+        samplers.append(
+            {"input": source, "output": output, "interpolation": channel.interpolation}
+        )
+        channels.append(
+            {
+                "sampler": len(samplers) - 1,
+                "target": {"node": int(channel.node), "path": channel.path},
+            }
+        )
+    doc: dict[str, Any] = {"samplers": samplers, "channels": channels}
+    if animation.name:
+        doc["name"] = animation.name
+    if animation.extras:
+        doc["extras"] = dict(animation.extras)
+    return doc
+
+
 def _skin(writer: _Writer, skin: gltf.Skin, node_count: int) -> dict[str, Any]:
     """One glTF skin: its joint node indices and its column-major inverse bind matrices."""
     joints = [int(j) for j in skin.joints]
@@ -495,6 +559,7 @@ def write_glb(model: gltf.Model) -> bytes:
     """
     writer = _Writer()
     skins = [_skin(writer, skin, len(model.nodes)) for skin in model.skins]
+    animations = [_animation(writer, a, len(model.nodes)) for a in model.animations]
     meshes = []
     # ``primitives`` has a minimum length of one in the spec, so a mesh that
     # wrote nothing -- an object whose geometry is empty, or whose every
@@ -541,6 +606,8 @@ def write_glb(model: gltf.Model) -> bytes:
         doc["meshes"] = meshes
     if skins:
         doc["skins"] = skins
+    if animations:
+        doc["animations"] = animations
     if writer.materials:
         doc["materials"] = writer.materials
     if writer.textures:

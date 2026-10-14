@@ -3177,6 +3177,7 @@ def to_model(
     skinned: bool = True,
     place: np.ndarray | None = None,
     bone_names: Mapping[int, str] | None = None,
+    at_time: float | None = None,
 ) -> gltf.Model:
     """The document as a :class:`~gltf.Model`: real glTF hierarchy.
 
@@ -3230,6 +3231,14 @@ def to_model(
     meshes, because nothing above a skinned mesh's joints could carry it for them.
     ``bone_names`` renames bones (and the geometry bound to them) for a record that wants
     legal names; both default to the document as it is.
+
+    **Animation.** A rigged document writes its animations: one glTF animation each, a channel
+    per animated property of a bone, ``STEP`` or ``LINEAR`` as the animation says, with a
+    non-looping one marked ``{"loop": false}`` in its extras (glTF has no field for it). A root
+    bone's translation and scale keys carry ``place`` as its node does. ``at_time`` instead
+    writes the pose of the selected animation at that moment into the nodes and *no* animations
+    -- "Export Posed": the meshes stay in the rest pose they were baked in and the joint nodes
+    carry the pose, which is how a skinned file shows one.
     """
     kept = kept_objects(doc)
     by_uid = doc._uid_map()
@@ -3238,11 +3247,14 @@ def to_model(
     if problems:
         raise ValueError("this document's rig is not consistent: " + "; ".join(problems))
     names = dict(bone_names or {})
+    place_t, place_s = np.zeros(3), 1.0
     if place is not None:
         place = np.asarray(place, dtype="f8")
-        t, r, s = m3.decompose(place)
-        if not gltf.recomposes_without_shear(m3.compose(t, r, s), place):
+        place_t, place_q, place_scale = m3.decompose(place)
+        if not gltf.recomposes_without_shear(m3.compose(place_t, place_q, place_scale), place):
             raise ValueError("to_model's place must be a scale and a translation, with no shear")
+        place_s = float(place_scale[0])
+    posed = anim.pose(doc.animation(), at_time) if marked and at_time is not None else {}
     if marked:
         wanted = {obj.uid for obj in kept}
         for bone in marked:
@@ -3271,6 +3283,13 @@ def to_model(
         translation = np.array(obj.translation, dtype="f8", copy=True)
         rotation = np.array(obj.rotation, dtype="f8", copy=True)
         scale = np.array(obj.scale, dtype="f8", copy=True)
+        override = posed.get(obj.uid, {})
+        if "translation" in override:
+            translation = np.array(override["translation"], dtype="f8")
+        if "rotation" in override:
+            rotation = np.array(override["rotation"], dtype="f8")
+        if "scale" in override:
+            scale = np.array(override["scale"], dtype="f8")
         if place is not None and (obj.parent is None or obj.parent not in index_of_uid):
             translation, rotation, scale = m3.decompose(
                 place @ m3.compose(translation, rotation, scale)
@@ -3306,7 +3325,34 @@ def to_model(
                 gltf.Node(name=names.get(obj.uid, obj.name), mesh=len(meshes) - 1, skin=0)
             )
             roots.append(len(nodes) - 1)
-    return gltf.Model(nodes, roots, meshes, skins)
+    animations: list[gltf.Animation] = []
+    if marked and at_time is None:
+        topmost = {obj.uid for obj in kept if obj.parent is None or obj.parent not in index_of_uid}
+        for source in doc.rig_state.animations:
+            channels: list[gltf.AnimChannel] = []
+            for uid, props in source.channels.items():
+                for prop, channel in props.items():
+                    values = np.array(channel.values, dtype="f8", copy=True)
+                    if place is not None and uid in topmost:
+                        if prop == "translation":
+                            values = values * place_s + place_t
+                        elif prop == "scale":
+                            values = values * place_s
+                    channels.append(
+                        gltf.AnimChannel(
+                            index_of_uid[uid],
+                            prop,
+                            channel.times,
+                            values,
+                            "STEP" if source.interpolation == "step" else "LINEAR",
+                        )
+                    )
+            animations.append(
+                gltf.Animation(
+                    source.name, channels, {} if source.loop else {"loop": False}
+                )
+            )
+    return gltf.Model(nodes, roots, meshes, skins, animations=animations)
 
 
 def _skin_mesh(

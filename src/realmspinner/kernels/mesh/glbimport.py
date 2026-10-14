@@ -488,7 +488,7 @@ def glb_to_claydoc_report(data: bytes, name: str = "Imported") -> tuple[ClayDoc,
         # (``rigimport``), where this module used to refuse it for dropping the rig.
         from .rigimport import import_rigged
 
-        objects = import_rigged(
+        objects, rig_state, rig_notices = import_rigged(
             model,
             name,
             materials,
@@ -507,6 +507,7 @@ def glb_to_claydoc_report(data: bytes, name: str = "Imported") -> tuple[ClayDoc,
                 "import the part you mean to edit."
             )
     else:
+        rig_state, rig_notices = None, ()
         for node in _placed_nodes(model):
             for prim in model.meshes[node.mesh]:
                 obj = _object_for(prim, node, name, materials, palette, taken, built)
@@ -515,7 +516,12 @@ def glb_to_claydoc_report(data: bytes, name: str = "Imported") -> tuple[ClayDoc,
 
     if not objects:
         raise OpError("This GLB has no meshes in it.")
-    return ClayDoc(objects=objects, materials=materials or None), int(model.skipped_textures)
+    doc = ClayDoc(objects=objects, materials=materials or None)
+    if rig_state is not None:
+        doc.rig_state = rig_state
+        doc.set_active_animation(0 if rig_state.animations else None)
+        doc.notices = tuple(rig_notices)
+    return doc, int(model.skipped_textures)
 
 
 def _object_for(

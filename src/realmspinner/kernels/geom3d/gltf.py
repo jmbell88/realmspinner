@@ -142,6 +142,13 @@ def child_reference_count(nodes: Any) -> int:
 #: naming more than a node's-worth of them is a hang and a blowup before it
 #: is a scene.
 MAX_SKIN_JOINTS = 100_000
+
+#: How many animations, and how many channels across all of them, a file may declare. Counted
+#: from the JSON before any accessor is decoded, the way ``MAX_SKINS`` is: an animation is a few
+#: dozen bytes of JSON and each channel names two accessors, so the declared count is what a
+#: small file can inflate. The keys themselves are charged to ``MAX_TOTAL_BYTES`` as they decode.
+MAX_ANIMATIONS = 10_000
+MAX_ANIMATION_CHANNELS = 100_000
 #: The 2026-10-03 audit, finding create-12: ``skins`` was the one eagerly
 #: iterated top-level array with no entry-count ceiling of its own, and a skin
 #: entry whose ``joints`` array is empty decodes no accessor, so ``_charge``
@@ -298,6 +305,38 @@ class Skin:
     inverse_bind: np.ndarray  # (n, 4, 4)
 
 
+#: What a glTF animation channel may drive that this loader reads. ``weights`` (morph targets)
+#: and the ``KHR_animation_pointer`` extension are counted in ``Model.skipped_animation_channels``
+#: and otherwise ignored.
+ANIMATION_PATHS = ("translation", "rotation", "scale")
+ANIMATION_INTERPOLATIONS = ("LINEAR", "STEP", "CUBICSPLINE")
+
+
+@dataclass
+class AnimChannel:
+    """One property of one node over time, exactly as the file has it.
+
+    ``values`` is ``(K, 3|4)``, or ``(3 * K, 3|4)`` for ``CUBICSPLINE`` (in-tangent, value,
+    out-tangent per key, as the spec orders them). Rotation is XYZW, like everything here. Times
+    and values are float64 copies, normalised if the file stored them as normalised integers.
+    """
+
+    node: int
+    path: str
+    times: np.ndarray
+    values: np.ndarray
+    interpolation: str = "LINEAR"
+
+
+@dataclass
+class Animation:
+    name: str
+    channels: list[AnimChannel] = field(default_factory=list)
+    #: The animation's ``extras`` object, verbatim, for the one thing glTF has no field for:
+    #: Clay writes ``{"loop": false}`` here and reads it back.
+    extras: dict[str, Any] = field(default_factory=dict)
+
+
 #: KHR_lights_punctual's three kinds, verbatim. There is no fourth, and no
 #: second name for any of these three: Mason's ``LightNode`` carries the same
 #: strings, because the export *is* the definition and a parallel vocabulary
@@ -389,11 +428,19 @@ class Model:
         skipped_textures: int = 0,
         cameras: list[Camera] | None = None,
         lights: list[Light] | None = None,
+        animations: list[Animation] | None = None,
     ) -> None:
         self.nodes = nodes
         self.roots = roots
         self.meshes = meshes
         self.skins = skins
+        # Keyword and defaulted, after ``lights``, for the reason those two are: every
+        # existing caller builds a model without any, and nothing here animates it -- the
+        # viewer's poses are bone->rotation maps, and a file's own keys are for the editors
+        # that import or export them.
+        self.animations: list[Animation] = list(animations or [])
+        #: Channels the loader did not read (morph weights, pointer targets).
+        self.skipped_animation_channels = 0
         # Keyword, defaulted, and after ``skipped_textures``: every existing
         # caller builds a Model positionally out of the first four arguments
         # (``Model(nodes, roots, meshes, skins)``), and a document with
@@ -747,6 +794,24 @@ def load(
         raise ValueError(
             f"this GLB declares {declared_skins} skins, more than this viewer will load"
         )
+    declared_animations = _check_list_field(
+        gltf.get("animations", []), "this GLB's \"animations\""
+    )
+    if len(declared_animations) > MAX_ANIMATIONS:
+        raise ValueError(
+            f"this GLB declares {len(declared_animations)} animations, more than this viewer "
+            "will load"
+        )
+    declared_channels = sum(
+        len(a["channels"])
+        for a in declared_animations
+        if isinstance(a, dict) and isinstance(a.get("channels"), list)
+    )
+    if declared_channels > MAX_ANIMATION_CHANNELS:
+        raise ValueError(
+            f"this GLB declares {declared_channels} animation channels, more than this viewer "
+            "will load"
+        )
     punctual = _punctual(gltf)
     if len(punctual) > MAX_LIGHTS:
         raise ValueError(
@@ -800,7 +865,8 @@ def load(
     for material, lost_here in zip(materials, reader.lost_by_material, strict=True):
         if id(material) in placed:
             lost |= lost_here
-    return Model(
+    animations = [reader.animation(a, len(nodes)) for a in declared_animations]
+    model = Model(
         nodes,
         _roots(gltf, nodes),
         meshes,
@@ -808,7 +874,10 @@ def load(
         skipped_textures=len(lost),
         cameras=[reader.camera(c) for c in gltf.get("cameras", [])],
         lights=[reader.light(light) for light in punctual],
+        animations=animations,
     )
+    model.skipped_animation_channels = reader.skipped_animation_channels
+    return model
 
 
 def _texture_slot_set(slots: Iterable[str] | None) -> frozenset[str]:
@@ -1173,6 +1242,7 @@ class _Reader:
         # one unreadable atlas shared by six primitives is one loss, and
         # counting references would report six.
         self.skipped = 0
+        self.skipped_animation_channels = 0
         # The 2026-10-09 second audit's clay-112: ``skipped`` counts a lost
         # image wherever it is first met, which is every declared material --
         # including one no primitive uses -- and a base-colour reference on
@@ -2203,6 +2273,73 @@ class _Reader:
         if isinstance(uri, str) and uri.startswith("data:"):
             return ("uri", uri)
         return None
+
+    def animation(self, entry: Any, n_nodes: int) -> Animation:
+        """One animation: every translation, rotation and scale channel it drives.
+
+        A channel that drives something else (morph ``weights``, a ``KHR_animation_pointer``
+        target) is counted and left out rather than refusing the file. A channel whose sampler,
+        node or accessors do not hold together is a refusal naming the animation, because
+        playing half a clip is worse than saying so.
+        """
+        _check_dict_entry(entry, "an animation in this GLB's \"animations\" array")
+        name = str(entry.get("name") or "")
+        label = f"the animation {name!r}" if name else "an animation"
+        samplers = _check_list_field(
+            [] if entry.get("samplers") is None else entry["samplers"], f"{label}'s \"samplers\""
+        )
+        channels: list[AnimChannel] = []
+        listed = [] if entry.get("channels") is None else entry["channels"]
+        for channel in _check_list_field(listed, f"{label}'s \"channels\""):
+            _check_dict_entry(channel, f"a channel of {label}")
+            target = channel.get("target")
+            _check_dict_entry(target, f"a channel target of {label}")
+            path = target.get("path")
+            if "node" not in target or path not in ANIMATION_PATHS:
+                self.skipped_animation_channels += 1
+                continue
+            _check_int_index(target["node"], f"a channel target node of {label}")
+            if not 0 <= target["node"] < n_nodes:
+                raise ValueError(f"{label} animates node {target['node']}, which does not exist")
+            _check_int_index(channel.get("sampler"), f"a channel sampler of {label}")
+            if not 0 <= channel["sampler"] < len(samplers):
+                raise ValueError(f"{label} names a sampler it does not have")
+            sampler = samplers[channel["sampler"]]
+            _check_dict_entry(sampler, f"a sampler of {label}")
+            interpolation = sampler.get("interpolation", "LINEAR")
+            if interpolation not in ANIMATION_INTERPOLATIONS:
+                raise ValueError(f"{label} uses the interpolation {interpolation!r}")
+            times = self._astype(self.accessor(sampler.get("input")), "f8").reshape(-1)
+            output = self._animation_values(sampler.get("output"), label)
+            width = 4 if path == "rotation" else 3
+            if output.size % width:
+                raise ValueError(f"{label} has {path} values that are not {width} numbers each")
+            values = output.reshape(-1, width)
+            rows = len(times) * (3 if interpolation == "CUBICSPLINE" else 1)
+            if len(values) != rows or len(times) == 0:
+                raise ValueError(
+                    f"{label} has {len(times)} key time(s) but {len(values)} {path} value(s)"
+                )
+            if not (np.isfinite(times).all() and np.isfinite(values).all()):
+                raise ValueError(f"{label} has a key that is not a finite number")
+            channels.append(
+                AnimChannel(int(target["node"]), path, times, values, interpolation)
+            )
+        extras = entry.get("extras")
+        return Animation(name, channels, dict(extras) if isinstance(extras, dict) else {})
+
+    def _animation_values(self, index: Any, label: str) -> np.ndarray:
+        """An animation output accessor as float64, un-normalising integer storage."""
+        raw = self.accessor(index)
+        if raw.dtype.kind == "f":
+            return self._astype(raw, "f8")
+        entry = self._accessor_entry(index, f"an animation output of {label}")
+        if not entry.get("normalized"):
+            raise ValueError(f"{label} stores keys as integers without normalising them")
+        info = np.iinfo(raw.dtype)
+        out = self._astype(raw, "f8")
+        out /= float(info.max)
+        return np.maximum(out, -1.0) if info.min < 0 else out
 
     def skin(self, skin: dict) -> Skin:
         _check_dict_entry(skin, "a skin in this GLB's \"skins\" array")

@@ -905,6 +905,15 @@ hidden bone is still a joint, and a hidden shape is not exported. A GLB with a s
 joint becomes a bone, a mesh that follows one joint alone becomes that bone's child, and any other skinned mesh
 keeps its weights. Clay's own rigid export reopens as the structure it was.
 
+Animations travel with a rig. A document's animations export as glTF animations (a channel per animated
+property of a bone, step or linear as each animation says; glTF has no loop flag, so a one-shot animation says
+so in the animation's extras, which Clay reads back), and a GLB's animations open as keys on its bones. Keys on
+a joint whose parent in the file is a helper node, not a bone, are carried across that node, so they land in the
+bone's own frame. A smoothed (cubic spline) channel is turned into linear keys at the frame rate, which Clay
+says on opening; channels that drive anything but a bone are left out and counted. The frame rate is guessed
+from the smallest gap between keys and rounded to 12, 24, 30 or 60. A clip past 64 animations, 4,096 keys on
+one channel or 600 seconds is refused by name rather than trimmed.
+
 ## Mirroring
 
 **Mirror X / Y / Z** reflects the object across a plane through its own origin, in place — the object
