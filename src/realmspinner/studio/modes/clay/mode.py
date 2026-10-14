@@ -1330,6 +1330,23 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
             atomic.write_bytes(path, data)
             return {"path": str(path), "exported_file": True}
 
+    elif kind == "posed":
+        # The pose of the selected animation at the playhead, read now: the task runs later
+        # and the playhead is session state a frame can move.
+        at = float(doc.rig_time)
+
+        def run() -> dict[str, Any] | None:
+            from ....kernels.geom3d import glbwrite
+            from ....kernels.mesh import document as bd
+
+            data = glbwrite.write_glb(bd.to_model(doc, at_time=at))
+            path = dialogs.save_file("Export posed mesh", f"{title}-posed.glb", dialogs.GLB_FILTER)
+            if path is None:
+                return None
+            path = _with_extension(path, ".glb")
+            atomic.write_bytes(path, data)
+            return {"path": str(path), "exported_file": True}
+
     elif kind == "obj":
 
         def run() -> dict[str, Any] | None:

@@ -731,6 +731,18 @@ def _export_menu(ctx: Any, tab: Any) -> None:
                 doc_io.EXPORT_OBJ_TOOLTIP,
                 lambda: clay_mode.export_mesh_file(ctx, tab, "obj"),
             ),
+            *(
+                (
+                    (
+                        "Export Posed GLB...",
+                        "posed",
+                        doc_io.EXPORT_POSED_TOOLTIP,
+                        lambda: clay_mode.export_mesh_file(ctx, tab, "posed"),
+                    ),
+                )
+                if tab.doc.animation() is not None and any(o.bone for o in tab.doc.objects)
+                else ()
+            ),
             (
                 f"{icons.CAMERA} Save screenshot...",
                 "screenshot",

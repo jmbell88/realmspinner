@@ -79,6 +79,86 @@ class PoseOps:
                 return posed
         return link.translation, link.rotation, link.scale
 
+    # -- posing a bone with the gizmo or G / R / S ----------------------------------------------
+
+    def _pose_centre(self: ClayView, doc: Any) -> np.ndarray | None:
+        """Where the gizmo goes in Pose mode: the median of the selected bones' *pivots*, not of
+        their boxes -- a joint turns about its own origin."""
+        index = self._uid_index(doc)
+        pivots = [
+            self._world(doc, o, index)[:3, 3]
+            for o in doc.objects
+            if o.bone and o.visible and o.uid in doc.selection
+        ]
+        return np.mean(pivots, axis=0) if pivots else None
+
+    def _pose_drag_begin(self: ClayView, doc: Any, uids: list[int], index: dict[int, Any]) -> None:
+        """Snapshot what a pose drag starts from: each bone's *posed* local transform, and the
+        unkeyed pose the drag will put back on Esc."""
+        overrides = doc.pose_overrides()
+        self._drag_start = {
+            uid: tuple(
+                np.array(v, dtype="f8", copy=True) for v in doc.posed_trs(index[uid], overrides)
+            )
+            for uid in uids
+        }
+        self._pose_was = {
+            uid: {prop: np.array(v, copy=True) for prop, v in props.items()}
+            for uid, props in doc.live_pose.items()
+        }
+
+    def _pose_drag_write(self: ClayView, doc: Any, uid: int, trs: tuple[Any, Any, Any]) -> None:
+        """A live pose drag's frame: the bone's three properties held unkeyed. Nothing is keyed
+        until release, so a drag is one step however long it runs."""
+        t, r, s = (np.array(v, dtype="f8", copy=True) for v in trs)
+        doc.live_pose[uid] = {"translation": t, "rotation": r, "scale": s}
+        doc.pose_rev += 1
+
+    def _pose_drag_restore(self: ClayView, doc: Any) -> None:
+        """Esc, or a refused drag: the unkeyed pose the press found."""
+        doc.live_pose = {
+            uid: {prop: np.array(v, copy=True) for prop, v in props.items()}
+            for uid, props in self._pose_was.items()
+        }
+        doc.pose_rev += 1
+
+    def _pose_drag_commit(self: ClayView, doc: Any) -> None:
+        """Release: pose only the properties the drag changed, keyed or held as the auto-key
+        switch says, as one step."""
+        from .....kernels.mesh.elements import OpError
+
+        order = {"translation": 0, "rotation": 1, "scale": 2}
+        poses: dict[int, dict[str, Any]] = {}
+        for uid, was in self._drag_start.items():
+            held = doc.live_pose.pop(uid, None)
+            if held:
+                changed = {
+                    prop: value
+                    for prop, value in held.items()
+                    if not np.allclose(value, was[order[prop]], atol=1e-9)
+                }
+                if changed:
+                    poses[uid] = changed
+        for uid, props in self._pose_was.items():
+            # Held values the drag did not change are still held.
+            kept = poses.get(uid, {})
+            for prop, value in props.items():
+                if prop not in kept and uid in self._drag_start:
+                    doc.live_pose.setdefault(uid, {})[prop] = np.array(value, copy=True)
+        self._pose_was = {}
+        doc.pose_rev += 1
+        history = doc.history
+        head = history.head
+        if poses:
+            try:
+                doc.pose_bones(poses)
+            except OpError as error:
+                self._toast(str(error))
+        if history.top is not None and history.head != head:
+            history.top.label = "Pose"
+        self._drag_uids = []
+        self._drag_start = {}
+
     # -- weighted meshes -----------------------------------------------------------------------
 
     def _pose_evict(self: ClayView, doc: Any) -> None:

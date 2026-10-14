@@ -56,7 +56,8 @@ def _boxes(n: int, **kw) -> tuple[bd.ClayDoc, list[int]]:
 
 
 def test_the_three_rows_are_object_mode_ops_in_a_rig_group_of_the_object_menu_only() -> None:
-    assert menutree.GROUPS["rig"].ops == NAMES
+    # The pose ops share the group (Tranche 3); the first three are the rig-building rows.
+    assert menutree.GROUPS["rig"].ops[: len(NAMES)] == NAMES
     assert all(clay_ops.get(name).modes == ("object",) for name in NAMES)
     assert "rig" in [e.name for e in menutree.BARS["object"][1].entries]
     for mode in ("vertex", "edge", "face"):

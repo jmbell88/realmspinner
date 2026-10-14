@@ -1946,6 +1946,164 @@ class ClayDoc:
         self.live_pose.setdefault(uid, {})[prop] = np.array(value, dtype="f8", copy=True)
         self.pose_rev += 1
 
+    # -- keying the pose: these are the edits ----------------------------------------------------
+
+    def _pose_values(self, obj: Obj, props: Iterable[str] = anim.PROPS) -> dict[str, Any]:
+        """*obj*'s transform as posed now, for *props*, as fresh arrays."""
+        posed = dict(
+            zip(("translation", "rotation", "scale"), self.posed_trs(obj, self.pose_overrides()),
+                strict=True)
+        )
+        return {prop: np.array(posed[prop], dtype="f8", copy=True) for prop in props}
+
+    def key_pose(self, poses: Mapping[int, Mapping[str, Any]]) -> bool:
+        """Key ``{bone uid: {prop: value}}`` at the playhead, as **one** step.
+
+        -> whether anything changed. With no animation selected one is created and selected
+        first, inside the same step, so a first key from nothing is one Ctrl+Z. A value equal
+        to the key already there costs nothing; keyed properties stop being held as a live
+        pose, since the animation now says what they are.
+        """
+        wanted: dict[int, dict[str, np.ndarray]] = {}
+        for uid, props in poses.items():
+            self._require_bone(int(uid))
+            for prop, value in props.items():
+                if prop not in anim.PROPS:
+                    raise ValueError(f"unknown animated property {prop!r}")
+                wanted.setdefault(int(uid), {})[prop] = np.array(value, dtype="f8", copy=True)
+        if not wanted:
+            return False
+        time = self.rig_time
+        mark = self.history.mark()
+        try:
+            if self.animation() is None:
+                self.add_animation("Animation")
+
+            def make(a: anim.Animation) -> anim.Animation:
+                for uid, props in wanted.items():
+                    for prop, value in props.items():
+                        old = a.channels.get(uid, {}).get(prop)
+                        if old is not None:
+                            near = np.flatnonzero(np.abs(old.times - time) <= anim.TIME_EPSILON)
+                            row = value.reshape(-1)
+                            if prop == "rotation" and np.linalg.norm(row) > 0:
+                                row = row / np.linalg.norm(row)
+                            if len(near) and np.array_equal(old.values[near[0]], row):
+                                continue
+                        a = a.with_key(uid, prop, time, value)
+                return a
+
+            changed = self._edit_animation(None, make)
+        finally:
+            self.history.collapse_since(mark)
+        for uid, props in wanted.items():
+            held = self.live_pose.get(uid)
+            if held:
+                for prop in props:
+                    held.pop(prop, None)
+                if not held:
+                    del self.live_pose[uid]
+        self.pose_rev += 1
+        return changed
+
+    def pose_bones(self, poses: Mapping[int, Mapping[str, Any]]) -> bool:
+        """Pose ``{bone uid: {prop: value}}`` the way the user's setting says: keyed at the
+        playhead with auto-key on, otherwise held unkeyed until keyed or the playhead moves."""
+        if self.auto_key:
+            return self.key_pose(poses)
+        for uid, props in poses.items():
+            self._require_bone(int(uid))
+            for prop, value in props.items():
+                self.set_live_pose(int(uid), prop, value)
+        return bool(poses)
+
+    def insert_key(self, uids: Iterable[int]) -> bool:
+        """Key every property of each bone as it is posed at the playhead (Blender's ``I``)."""
+        by_uid = self._uid_map()
+        return self.key_pose(
+            {u: self._pose_values(by_uid[u]) for u in dict.fromkeys(int(u) for u in uids)
+             if u in by_uid and by_uid[u].bone}
+        )
+
+    def delete_keys_at(self, uids: Iterable[int], time: float | None = None) -> bool:
+        """Remove every key the bones have at *time* (the playhead), as one step."""
+        at = self.rig_time if time is None else float(time)
+        wanted = [int(u) for u in uids]
+        if self.animation() is None:
+            return False
+
+        def make(a: anim.Animation) -> anim.Animation:
+            for uid in wanted:
+                for prop in list(a.channels.get(uid, {})):
+                    a = a.without_key(uid, prop, at)
+            return a
+
+        changed = self._edit_animation(None, make)
+        self.live_pose = {u: p for u, p in self.live_pose.items() if u not in wanted}
+        self.pose_rev += 1
+        return changed
+
+    def reset_pose(self, uids: Iterable[int]) -> bool:
+        """Pose the bones at their rest transform (Blender's Alt+G / R / S together)."""
+        by_uid = self._uid_map()
+        return self.pose_bones(
+            {
+                u: {
+                    "translation": by_uid[u].translation,
+                    "rotation": by_uid[u].rotation,
+                    "scale": by_uid[u].scale,
+                }
+                for u in dict.fromkeys(int(u) for u in uids)
+                if u in by_uid and by_uid[u].bone
+            }
+        )
+
+    def apply_pose_as_rest(self) -> bool:
+        """Make the pose the new rest pose, as **one** step. -> whether anything changed.
+
+        Every bone the pose drives takes its posed transform as its rest transform, and every
+        weighted mesh is re-shaped to where the pose carries it, so nothing on screen moves
+        and the pose now *is* the rest. A shape that sits under a bone needs nothing: its
+        transform is relative to the bone. Keys are absolute local transforms and are left as
+        they are; an animation that returns to the old rest will now move the model.
+        """
+        overrides = self.pose_overrides()
+        by_uid = self._uid_map()
+        driven = [by_uid[u] for u in overrides if u in by_uid and by_uid[u].bone]
+        if not driven:
+            return False
+        reshaped: list[tuple[int, bm.Mesh]] = []
+        for obj in self.objects:
+            if obj.skin is None or obj.mesh.joints is None:
+                continue
+            if not any(j in overrides for j in obj.skin.joints):
+                continue
+            positions = rig.skin_positions(
+                obj.mesh.positions,
+                obj.mesh.joints,
+                obj.mesh.weights,
+                self.skin_palette(obj, overrides, by_uid),
+                self._world_in(obj.uid, by_uid),
+            )
+            reshaped.append((obj.uid, replace(obj.mesh, positions=positions)))
+        targets = {
+            bone.uid: tuple(
+                np.array(v, dtype="f8", copy=True) for v in self.posed_trs(bone, overrides)
+            )
+            for bone in driven
+        }
+        mark = self.history.mark()
+        try:
+            for uid, mesh in reshaped:
+                self.set_mesh(uid, mesh)
+            for uid, (t, r, s) in targets.items():
+                self.set_transform(uid, translation=t, rotation=r, scale=s)
+        finally:
+            self.history.collapse_since(mark)
+        self.live_pose = {}
+        self.pose_rev += 1
+        return True
+
     def pose_overrides(self) -> dict[int, dict[str, Any]]:
         """Every animated or unkeyed bone's local transform now: the selected animation at the
         playhead with the live pose over it. Only the properties that are driven appear."""

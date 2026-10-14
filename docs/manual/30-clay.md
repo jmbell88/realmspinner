@@ -152,7 +152,7 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has fifty-three operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has fifty-seven operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
@@ -163,7 +163,7 @@ Selection included (it is also in the toolbar's View popover):
 | Object ▸ Set Origin | Origin to Bounds, Origin to Base, Origin to World; Origin to Selection in an element mode |
 | Object ▸ Mirror | Mirror X, Mirror Y, Mirror Z, Mirror Copy... |
 | Object ▸ Parent | Group Selected, Ungroup, Parent to Last, Clear Parent |
-| Object ▸ Rig | Mark as Bone, Unmark Bone, Unbind Skin |
+| Object ▸ Rig | Mark as Bone, Unmark Bone, Unbind Skin; in Pose mode Insert Key (`I`), Delete Key, Reset Pose, Apply Pose as Rest |
 | Object ▸ Shading | Shade Smooth, Shade Flat (also in face mode) |
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
 | Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`), Loop Cut... (`Ctrl+R`), Edge Slide... (`Ctrl+Shift+R`); in vertex mode Weld... |
@@ -930,6 +930,27 @@ joint hidden inside a body is a joint nobody can pick: a small cross at each piv
 and, for a bone with nothing below it, a short tick along its own Y. A selected bone is drawn in the accent
 colour. In Pose mode a click picks the nearest bone within a few pixels of the pointer; a click on a shape picks
 the bone that moves it, so a leg is grabbed by the leg.
+
+**Posing a bone** is the ordinary Move, Turn and Resize: the gizmo, or `G`, `R` and `S`. The gizmo sits on the
+bone's pivot, not the middle of its shape, because a joint turns about its own origin, and a bone under a posed
+parent is moved in the parent's frame. Nothing about the bone's rest transform is written. With **auto-key** on
+(the default) the drag keys the playhead, for only what you changed (a Move keys position, a Turn rotation), and
+creates an animation first if there is none; the whole drag is one undo step, **Pose**. With it off, the pose is
+held without a key until you key it or move the playhead, and `Esc` during a drag puts back whatever was held
+before it. Selecting something that is not a bone, and dragging it, says so rather than doing nothing.
+
+Four operations in the Rig group work on the selected bones in Pose mode:
+
+- **Insert Key** (`I`) keys position, rotation and size as they are posed at the playhead.
+- **Delete Key** removes the selected bones' keys at the playhead.
+- **Reset Pose** poses each bone at its rest transform, keyed or held like any other pose.
+- **Apply Pose as Rest** makes the pose the rest pose: each posed bone takes its posed transform, every weighted
+  mesh is re-shaped to where the pose carries it, and nothing on screen moves. Keys are absolute transforms and
+  are left as they are, so an animation that returned to the old rest will now move the model.
+
+**Export Posed GLB...** (in the Export menu once there is a rig and an animation) writes the pose the viewport is
+showing, the selected animation at the playhead, with no animation in the file: the joints carry the pose and the
+meshes stay as they were bound, which is how a skinned file shows one.
 
 ## Mirroring
 

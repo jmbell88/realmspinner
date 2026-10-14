@@ -53,6 +53,8 @@ class BoundsOps:
         """
         if doc.element_mode != "object":
             return self.element_centre(doc)
+        if doc.pose_mode:
+            return self._pose_centre(doc)
         lo, hi = self.world_bounds(doc, selected_only=True)
         return None if lo is None else (lo + hi) * 0.5
 
@@ -176,7 +178,7 @@ class BoundsOps:
         # the old parent until some unrelated transform edit invalidated the memo.
         # The parent's own entry carries its transform ids, and a grandparent's
         # reparent shows up as the parent's ``parent`` changing.
-        key = (id(doc), tuple(
+        key = (id(doc), doc.pose_mode, doc.pose_rev if doc.pose_mode else 0, tuple(
             (
                 obj.uid, obj.visible, obj.uid in doc.selection, obj.parent,
                 id(obj.mesh), id(obj.translation), id(obj.rotation), id(obj.scale),

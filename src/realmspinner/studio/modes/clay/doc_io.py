@@ -36,6 +36,11 @@ EXPORT_OBJ_TOOLTIP = (
     "name beside it, and a PNG next to that for each textured material."
 )
 
+EXPORT_POSED_TOOLTIP = (
+    "Saves the pose the viewport shows -- the selected animation at the playhead -- as a "
+    "GLB with no animation in it: the joints carry the pose, the meshes stay as they were bound."
+)
+
 EXPORT_GLB_TOOLTIP = (
     "Saves the document as a plain mesh file on disk, for handing straight "
     "to another tool. The library never sees it."

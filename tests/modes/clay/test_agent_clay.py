@@ -4569,11 +4569,15 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     restored ops add ten names to ``clay_op``'s enum (a name each in the tools/list
     JSON and nothing else -- ``Op.hint`` is not in the catalogue), and the whole
     growth is those 100-odd characters. Deliberate: the ops are the point.
+
+    Raised 2026-10-13 to 52,200 (surface 52,138) by Tranche 3 of the same plan: the four pose
+    ops (``insert-key``, ``delete-key``, ``reset-pose``, ``apply-pose-as-rest``) are four more
+    names in the enum, 38 characters in all. Deliberate for the same reason.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 52_100
+    CEILING = 52_200
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

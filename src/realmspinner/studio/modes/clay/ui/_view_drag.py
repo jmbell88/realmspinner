@@ -356,6 +356,13 @@ class DragOps:
             # parent is not moved, so it carries nothing and its visible
             # child has to move itself.
             uids = [uid for uid in uids if index[uid].visible]
+            if doc.pose_mode:
+                # Pose mode moves bones and nothing else: a shape is posed through the
+                # bone that carries it, and picking one selects that bone.
+                uids = [uid for uid in uids if index[uid].bone]
+                if not uids:
+                    self._toast(gestures.POSE_NEEDS_BONE)
+                    return False
             # A weighted mesh's own transform is ignored when it is exported, so a drag
             # that moved it would show a placement no file keeps: its bones are what move
             # it. Dropped with a sentence, the way a hidden object is dropped silently
@@ -377,10 +384,13 @@ class DragOps:
                 if selected.isdisjoint(self._ancestor_uids(index, index[uid]))
             ]
         self._drag_uids = uids
-        self._drag_start = {
-            uid: tuple(np.array(v, copy=True) for v in index[uid].trs())
-            for uid in self._drag_uids
-        }
+        if doc.pose_mode:
+            self._pose_drag_begin(doc, uids, index)
+        else:
+            self._drag_start = {
+                uid: tuple(np.array(v, copy=True) for v in index[uid].trs())
+                for uid in self._drag_uids
+            }
         self._drag_quat = m3.quat_identity()
         self._scale_axis_refused = False
         gizmo = self.active_gizmo(doc)
@@ -437,6 +447,10 @@ class DragOps:
         if self._grab is not None or not doc.selection:
             return False
         if doc.element_mode != "object" and not doc.element_sel:
+            return False
+        if doc.pose_mode and not any(o.bone and o.uid in doc.selection for o in doc.objects):
+            # No bone, so no pivot to turn about: say so rather than do nothing.
+            self._toast(gestures.POSE_NEEDS_BONE)
             return False
         centre = self.selection_centre(doc)
         if centre is None:
@@ -621,9 +635,11 @@ class DragOps:
             # turned off-axis is a document the user never asked for. Put
             # every object back where the press found it, and say why once
             # per drag rather than on every mouse-move.
+            if doc.pose_mode:
+                self._pose_drag_restore(doc)
             for uid, was in self._drag_start.items():
                 obj = index.get(uid)
-                if obj is not None:
+                if obj is not None and not doc.pose_mode:
                     obj.translation, obj.rotation, obj.scale = (
                         np.array(v, copy=True) for v in was
                     )
@@ -887,7 +903,11 @@ class DragOps:
         # The abandoned transform's newest position must not be drawn over the
         # zero-delta preview below.
         self._drop_pending_preview()
+        if doc.pose_mode:
+            self._pose_drag_restore(doc)
         for uid, was in self._drag_start.items():
+            if doc.pose_mode:
+                break
             try:
                 obj = doc.by_uid(uid)
             except KeyError:
@@ -971,6 +991,11 @@ class DragOps:
                     entry.gpu.release()
             self._restore_overlays(doc, drags)
             self._fold_extrude(doc, commit=False)
+        elif doc.pose_mode:
+            self._pose_drag_restore(doc)
+            self._pose_was = {}
+            self._drag_uids = []
+            self._drag_start = {}
         else:
             for uid, was in self._drag_start.items():
                 try:
@@ -1066,6 +1091,9 @@ class DragOps:
         """
         from .....kernels.mesh.elements import OpError
 
+        if doc.pose_mode:
+            self._pose_drag_commit(doc)
+            return
         history = getattr(doc, "history", None)
         head = None if history is None else history.head
         mark = 0 if history is None else history.mark()
@@ -1697,6 +1725,8 @@ class DragOps:
         pivot = np.asarray(self._drag_origin, dtype="f8")
         parent = obj.parent
         parent_world = m3.identity()
+        if doc.pose_mode and index is None:
+            index = self._uid_index(doc)
         if parent is not None:
             parent_obj = None if index is None else index.get(parent)
             parent_world = (
@@ -1752,6 +1782,10 @@ class DragOps:
                 t, r, s = doc.local_from_world(obj.uid, world_target)
             else:
                 t, r, s = m3.decompose(inverse @ world_target)
+        if doc.pose_mode and obj.bone:
+            # Held unkeyed for the length of the drag; release keys or holds it.
+            self._pose_drag_write(doc, obj.uid, (t, r, s))
+            return True
         obj.translation, obj.rotation, obj.scale = t, r, s
         return True
 

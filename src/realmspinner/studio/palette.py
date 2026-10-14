@@ -744,6 +744,9 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
     def export_obj(ctx: Any, _state: Any, live: Any) -> None:
         clay_mode.export_mesh_file(ctx, live, "obj")
 
+    def export_posed(ctx: Any, _state: Any, live: Any) -> None:
+        clay_mode.export_mesh_file(ctx, live, "posed")
+
     def screenshot(ctx: Any, _state: Any, live: Any) -> None:
         clay_mode.save_screenshot(ctx, live)
 
@@ -751,6 +754,11 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
         ("library", verbs.EXPORT_TO_LIBRARY, export_library, "Ctrl+E"),
         ("glb", "Export GLB...", export_glb, ""),
         ("obj", "Export OBJ...", export_obj, ""),
+        *(
+            (("posed", "Export Posed GLB...", export_posed, ""),)
+            if doc.animation() is not None and any(o.bone for o in doc.objects)
+            else ()
+        ),
         ("screenshot", "Save screenshot...", screenshot, ""),
     ):
         out.append(

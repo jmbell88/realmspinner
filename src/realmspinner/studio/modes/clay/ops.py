@@ -1729,6 +1729,66 @@ def _unbind_skin(ctx: Any, doc: Any, **_: Any) -> bool:
     return run_object_op(ctx, doc, one)
 
 
+def _posed_bones(doc: Any) -> list[int]:
+    """The visible selected bones: what the pose ops act on."""
+    return [o.uid for o in doc.objects if o.bone and o.visible and o.uid in doc.selection]
+
+
+def can_pose_selected(doc: Any) -> bool:
+    """The pose ops' shared gate: Pose mode, with a bone selected."""
+    return bool(doc.pose_mode and _posed_bones(doc))
+
+
+def _can_pose_selected_reason(doc: Any) -> str:
+    if not doc.pose_mode:
+        return "Switch to Pose mode first."
+    return "" if _posed_bones(doc) else "Select a bone first."
+
+
+def _can_delete_key(doc: Any) -> bool:
+    return can_pose_selected(doc) and doc.animation() is not None
+
+
+def _can_delete_key_reason(doc: Any) -> str:
+    return _can_pose_selected_reason(doc) or (
+        "" if doc.animation() is not None else "There is no animation to take a key from."
+    )
+
+
+def _can_apply_pose(doc: Any) -> bool:
+    return bool(doc.pose_mode and doc.pose_overrides())
+
+
+def _can_apply_pose_reason(doc: Any) -> str:
+    if not doc.pose_mode:
+        return "Switch to Pose mode first."
+    return "" if doc.pose_overrides() else "Nothing is posed: the bones are at rest."
+
+
+def _insert_key(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Key every property of each selected bone as it is posed at the playhead."""
+    del ctx
+    return doc.insert_key(_posed_bones(doc))
+
+
+def _delete_key(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Remove the selected bones' keys at the playhead."""
+    del ctx
+    return doc.delete_keys_at(_posed_bones(doc))
+
+
+def _reset_pose(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Pose each selected bone at its rest transform (keyed with auto-key on)."""
+    del ctx
+    return doc.reset_pose(_posed_bones(doc))
+
+
+def _apply_pose_as_rest(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Make the pose the rest pose, re-shaping every weighted mesh to match."""
+    del ctx
+    return doc.apply_pose_as_rest()
+
+
 def _group(ctx: Any, doc: Any, **_: Any) -> None:
     """Group the selection under one new empty, and select the empty.
 
@@ -2848,6 +2908,55 @@ def _register_defaults() -> None:
             "rigidly to the bone above it instead, if it sits under one. This is also the "
             "way out of the edits a weighted mesh refuses (changing its points' number, "
             "joining, separating).",
+        )
+    )
+    register(
+        Op(
+            name="insert-key",
+            label="Insert Key",
+            modes=("object",),
+            run=_insert_key,
+            enabled=can_pose_selected,
+            reason=_can_pose_selected_reason,
+            key="I",
+            hint="Keys the selected bones' position, rotation and size as they are posed at "
+            "the playhead. Posing a bone with auto-key on does this for what you changed.",
+        )
+    )
+    register(
+        Op(
+            name="delete-key",
+            label="Delete Key",
+            modes=("object",),
+            run=_delete_key,
+            enabled=_can_delete_key,
+            reason=_can_delete_key_reason,
+            hint="Removes the selected bones' keys at the playhead.",
+        )
+    )
+    register(
+        Op(
+            name="reset-pose",
+            label="Reset Pose",
+            modes=("object",),
+            run=_reset_pose,
+            enabled=can_pose_selected,
+            reason=_can_pose_selected_reason,
+            hint="Poses each selected bone at its rest transform: keyed at the playhead with "
+            "auto-key on, otherwise held until you key it or move the playhead.",
+        )
+    )
+    register(
+        Op(
+            name="apply-pose-as-rest",
+            label="Apply Pose as Rest",
+            modes=("object",),
+            run=_apply_pose_as_rest,
+            enabled=_can_apply_pose,
+            reason=_can_apply_pose_reason,
+            hint="Makes the current pose the rest pose: each posed bone takes its posed "
+            "transform and every weighted mesh is re-shaped to where the pose carries it. "
+            "Keys are absolute and are left as they are.",
         )
     )
     register(

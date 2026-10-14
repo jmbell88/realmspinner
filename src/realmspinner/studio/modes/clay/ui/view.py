@@ -436,6 +436,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Pos
         # bone glyphs' two line buffers (idle, selected).
         self._pose_arrays: tuple[Any, Any, dict[int, tuple[Any, Any, Any]]] | None = None
         self._skin_stamps: dict[int, tuple[Any, ...]] = {}
+        self._pose_was: dict[int, dict[str, Any]] = {}
         self._bone_lines: tuple[Any, Any] | None = None
         # element_centre / selection_centre / world_bounds memos (B25/B27),
         # each ``(key, answer, pins)`` -- the pins hold what the key's ids name.

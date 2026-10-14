@@ -110,3 +110,7 @@ def classify_press(
 def is_click(travel: float) -> bool:
     """Whether a press whose pointer got at most *travel* pixels away is a click."""
     return travel < CLICK_SLOP
+
+
+#: What a pose drag says when nothing it could move is selected.
+POSE_NEEDS_BONE = "Select a bone to pose it. Click a bone, or the shape that moves with it."
