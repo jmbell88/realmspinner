@@ -1015,6 +1015,11 @@ pressing the button again weights the new shapes). If the run fails or is cancel
 merged mesh stays in the Library for you to delete. A weighted mesh cannot have points added or taken away (see
 [Bones and rigs](#bones-and-rigs)); **Unbind Skin** is the way back to a plain mesh.
 
+A library asset that has a rig opens in Clay with it. **Edit in Clay** on a rigged row opens the document you
+built it from if there is one; failing that it opens the row's rig file, so its joints are bones, its weighted
+meshes keep their weights and any animations come across; failing that, the bare mesh. A rig that cannot be held
+here (more than 64 joints) opens the bare mesh and says why.
+
 ## Importing an animation
 
 **Import Animation...** (in the File menu, in `Ctrl`+`K` and as **Import** on the timeline strip) lays the motion of

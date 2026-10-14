@@ -857,6 +857,13 @@ def edit_asset_in_clay(ctx: Any, job: Any) -> None:
     *optimized* ``model.glb`` is imported: it is the mesh that is served,
     grounded and exported, and ``source.glb`` is the raw reconstruction that
     nothing downstream uses.
+
+    **A rigged asset opens with its skeleton.** Between the two, a row with a ``rig.glb`` (a
+    Create rig, a Blender weighting run, a Clay export that had bones) is opened from that
+    file: its joints become bones, its weighted meshes keep their weights and its animations
+    come across, so the character can be posed and animated here. A rig that cannot be opened
+    (more joints than a document holds, a sheared bone) falls back to ``model.glb`` and says
+    why rather than refusing to open the asset at all.
     """
     ensure(ctx)
     job_id = job["id"] if isinstance(job, dict) else str(job)
@@ -882,10 +889,25 @@ def edit_asset_in_clay(ctx: Any, job: Any) -> None:
             loaded = _load(sidecar)
             loaded["title"] = name
             return loaded
+        from ....kernels.mesh.elements import OpError
+
+        rig_file = ctx.svc.config.job_dir(job_id) / "rig.glb"
+        refused = ""
+        if rig_file.is_file():
+            try:
+                return _parse_glb(_within_mesh_ceiling(rig_file), name)
+            except (ValueError, OpError) as error:
+                refused = (
+                    f"This asset's rig could not be opened ({error}), so its mesh opened "
+                    "without it."
+                )
         mesh = ctx.svc.config.job_dir(job_id) / "model.glb"
         if not mesh.is_file():
             raise FileNotFoundError(f"{job_id} has no mesh to edit")
-        return _parse_glb(_within_mesh_ceiling(mesh), name)
+        opened = _parse_glb(_within_mesh_ceiling(mesh), name)
+        if refused:
+            opened["notice"] = refused
+        return opened
 
     ctx.submit(f"clay-import:{job_id}", run)
 
@@ -1763,6 +1785,8 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # No path: an imported document has no file of its own, so Ctrl+S asks
         # where to put it rather than overwriting the asset it came from.
         if isinstance(result, dict):
+            if result.get("notice"):
+                ctx.toast(str(result["notice"]), "warn")
             _adopt_import(ctx, result)
         return
 

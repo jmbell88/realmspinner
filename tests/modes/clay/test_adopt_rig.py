@@ -13,13 +13,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from realmspinner.kernels.geom3d import gltf
+from realmspinner.kernels.geom3d import glbwrite, gltf
 from realmspinner.kernels.mesh import document as bd
 from realmspinner.kernels.mesh import elements as el
 from realmspinner.kernels.mesh import primitives as bp
 from realmspinner.kernels.mesh import rig
 
 from ._rigkit import skin_for, weighted
+from .test_clay_mode import _ImportSvc
 
 Q90 = np.array([0.0, 0.0, np.sin(np.pi / 4), np.cos(np.pi / 4)])
 
@@ -202,3 +203,63 @@ def test_a_refusal_after_the_bones_moved_takes_them_back_and_leaves_no_step(monk
     assert len(doc.history) == steps and not doc.history.can_redo
     assert np.allclose(doc.by_uid(ids["hip"]).translation, hip_before)
     assert [o.name for o in doc.objects] == names
+
+
+# -- opening a rigged library asset --------------------------------------------------------------
+
+
+
+
+def _asset(tmp_path, *, rig: bytes | None, sidecar: bool = False):
+    from realmspinner.kernels.mesh import serialize
+
+    job = tmp_path / "0123456789ab"
+    job.mkdir(parents=True)
+    plain = bd.ClayDoc()
+    _add(plain, "Plain")
+    (job / "model.glb").write_bytes(glbwrite.write_glb(bd.to_model(plain)))
+    if rig is not None:
+        (job / "rig.glb").write_bytes(rig)
+    if sidecar:
+        authored = bd.ClayDoc()
+        _add(authored, "Authored")
+        (job / "build.rblk").write_bytes(serialize.rblk_bytes(authored))
+    return _ImportSvc(tmp_path)
+
+
+def test_a_rigged_asset_opens_with_its_bones_and_weights_instead_of_the_bare_mesh(tmp_path):
+    from realmspinner.studio.modes.clay import mode as clay_mode
+
+    from .test_clay_mode import FakeCtx
+
+    rigged = glbwrite.write_glb(bd.to_model(_blender_result()))
+    ctx = FakeCtx(_asset(tmp_path, rig=rigged))
+    clay_mode.edit_asset_in_clay(ctx, {"id": "0123456789ab", "name": "Hero"})
+    doc = ctx.result["doc"]
+    assert {o.name for o in doc.objects if o.bone} >= {"Hip", "Arm"}
+    assert any(o.skin is not None for o in doc.objects), "the weights came across"
+    assert "Plain" not in {o.name for o in doc.objects}
+
+
+def test_the_authored_document_still_beats_the_rig(tmp_path):
+    from realmspinner.studio.modes.clay import mode as clay_mode
+
+    from .test_clay_mode import FakeCtx
+
+    rigged = glbwrite.write_glb(bd.to_model(_blender_result()))
+    ctx = FakeCtx(_asset(tmp_path, rig=rigged, sidecar=True))
+    clay_mode.edit_asset_in_clay(ctx, {"id": "0123456789ab", "name": "Hero"})
+    assert [o.name for o in ctx.result["doc"].objects] == ["Authored"]
+
+
+def test_a_rig_that_cannot_be_opened_falls_back_to_the_mesh_and_says_why(tmp_path):
+    from realmspinner.studio.modes.clay import mode as clay_mode
+
+    from .test_clay_mode import FakeCtx
+
+    ctx = FakeCtx(_asset(tmp_path, rig=b"not a glb"))
+    clay_mode.edit_asset_in_clay(ctx, {"id": "0123456789ab", "name": "Hero"})
+    assert [o.name for o in ctx.result["doc"].objects] == ["Plain"]
+    assert "rig could not be opened" in ctx.result["notice"]
+    clay_mode.on_task_done(ctx, type("D", (), {"key": "clay-import", "result": ctx.result})())
+    assert any("rig could not be opened" in m and lvl == "warn" for m, lvl in ctx.toasts)
