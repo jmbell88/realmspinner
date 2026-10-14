@@ -88,6 +88,7 @@ GROUPS: dict[str, Group] = {
     "rig": Group(
         "Rig",
         (
+            "add-bone",
             "mark-bone",
             "unmark-bone",
             "unbind-skin",

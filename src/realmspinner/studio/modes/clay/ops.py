@@ -1716,6 +1716,18 @@ def _mark_bone(flag: bool) -> Callable[..., bool]:
     return run
 
 
+def _add_bone(ctx: Any, doc: Any, **_: Any) -> None:
+    """Add a bone: under the one bone selected (a chain grows upward from it), else at the origin.
+
+    The new bone is left selected, so the next Add Bone continues the chain and the gizmo is on
+    the joint just made.
+    """
+    del ctx
+    chosen = [o.uid for o in doc.objects if o.bone and o.visible and o.uid in doc.selection]
+    made = doc.add_bone(chosen[0] if len(chosen) == 1 else None)
+    doc.select([made.uid])
+
+
 def _unbind_skin(ctx: Any, doc: Any, **_: Any) -> bool:
     """Drop the weights and the skin of every selected weighted mesh.
 
@@ -2869,6 +2881,16 @@ def _register_defaults() -> None:
             reason=_has_objects_reason,
             hint="Every selected object becomes a root, keeping its world "
             "placement.",
+        )
+    )
+    register(
+        Op(
+            name="add-bone",
+            label="Add Bone",
+            modes=("object",),
+            run=_add_bone,
+            hint="Adds an empty bone: under the bone you have selected, a step above it, so a "
+            "chain grows upward; otherwise at the origin. Move it into place and name it.",
         )
     )
     register(

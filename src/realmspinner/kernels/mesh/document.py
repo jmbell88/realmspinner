@@ -2569,6 +2569,42 @@ class ClayDoc:
             kept.discard(uid)
         return kept
 
+    #: How far above its parent bone a new bone is placed, in the parent's own units (metres of
+    #: the parent's frame): far enough to see and pick, short enough not to leave the model.
+    NEW_BONE_STEP = 0.3
+
+    def add_bone(self, parent: int | None = None, name: str = "Bone") -> Obj:
+        """A new, mesh-less bone, as **one** step. -> the object.
+
+        Under *parent* (a bone) it sits :data:`NEW_BONE_STEP` along that bone's own +Y, so a chain
+        grows upward the way a spine does and the new joint is not on top of the old one; with no
+        parent it sits at the world origin. The name is made unique among the objects. Refused
+        (:class:`~.elements.OpError`, nothing pushed) past :data:`~.rig.MAX_BONES`.
+        """
+        if parent is not None:
+            self._require_bone(int(parent))
+        if sum(1 for o in self.objects if o.bone) >= rig.MAX_BONES:
+            raise el.OpError(
+                f"A document holds at most {rig.MAX_BONES} bones, the number a game engine's "
+                "skinning takes. Delete one first."
+            )
+        taken = {o.name for o in self.objects}
+        label, n = name, 0
+        while label in taken:
+            n += 1
+            label = f"{name}.{n:03d}"
+        offset = (0.0, self.NEW_BONE_STEP, 0.0) if parent is not None else (0.0, 0.0, 0.0)
+        return self.add_object(
+            Obj(
+                uid=new_uid(),
+                name=label,
+                mesh=_empty_mesh(),
+                bone=True,
+                parent=None if parent is None else int(parent),
+                translation=np.array(offset, dtype="f8"),
+            )
+        )
+
     def set_bone(self, uids: Iterable[int], flag: bool) -> bool:
         """Mark objects as bones, or clear the mark, as **one** step. -> whether anything changed.
 

@@ -58,8 +58,11 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
     Re-frozen 2026-10-13 (Tranche 3 of the Clay rig plan) when ``clay_op`` gained ``insert-key``,
     ``delete-key``, ``reset-pose`` and ``apply-pose-as-rest``:
     ``6501c59b...9058`` -> ``455f34fa...6a17``.
+
+    Re-frozen 2026-10-13 (Tranche 3, Add Bone) when ``clay_op`` gained ``add-bone``:
+    ``455f34fa...6a17`` -> ``207a75c0...661a``.
     """
-    expected = "455f34faaf1a7239b2989afe7075c046609522ea027eb154e97ef6b34ea06a17"
+    expected = "207a75c07669e333cec76d140331ba08aeb4a6d89662eaa3cdf4e0221f8d661a"
     assert contract.card_sha("clay") == expected
 
 

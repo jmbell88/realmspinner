@@ -152,7 +152,7 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has fifty-seven operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has fifty-eight operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
@@ -163,7 +163,7 @@ Selection included (it is also in the toolbar's View popover):
 | Object ▸ Set Origin | Origin to Bounds, Origin to Base, Origin to World; Origin to Selection in an element mode |
 | Object ▸ Mirror | Mirror X, Mirror Y, Mirror Z, Mirror Copy... |
 | Object ▸ Parent | Group Selected, Ungroup, Parent to Last, Clear Parent |
-| Object ▸ Rig | Mark as Bone, Unmark Bone, Unbind Skin; in Pose mode Insert Key (`I`), Delete Key, Reset Pose, Apply Pose as Rest |
+| Object ▸ Rig | Add Bone, Mark as Bone, Unmark Bone, Unbind Skin; in Pose mode Insert Key (`I`), Delete Key, Reset Pose, Apply Pose as Rest |
 | Object ▸ Shading | Shade Smooth, Shade Flat (also in face mode) |
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
 | Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`), Loop Cut... (`Ctrl+R`), Edge Slide... (`Ctrl+Shift+R`); in vertex mode Weld... |
@@ -884,6 +884,11 @@ object changes, and an empty group is as good a bone as a box is.
 palette and on the Inspector's **Bone & rig** card, whose **bone** checkbox does the same. A bone wears a bone
 glyph in the outliner and the Model card counts them ("2 bones"). A document holds at most 64 bones, the number
 the viewer's skinning and the skeleton editor already hold; marking a 65th is refused.
+
+**Add Bone** makes a bone with no shape of its own, for a joint that is only a joint. With one bone selected the new
+one is added under it, a step above, so repeating it grows a chain upward like a spine; otherwise it is added at the
+origin. Move it into place with the gizmo, and give it a name that says what it is: the names are what an imported
+animation is matched on. Bones are drawn in every mode, so an empty one is still there to pick.
 
 There are two ways a shape is bound to a bone, and only one of them is stored.
 

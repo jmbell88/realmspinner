@@ -247,12 +247,12 @@ def test_every_disabled_clay_op_names_the_gate_that_refused_it() -> None:
     """A fresh, empty document refuses every op that has a non-default
     ``enabled`` at once -- no objects, object mode, nothing selected -- which
     is what makes this a sweep across the whole registry rather than one test
-    per op. The three ops with no gate at all (``select-all``,
-    ``select-invert``, ``frame``) are the only ones this document does not
-    refuse, and are checked for that instead.
+    per op. The four ops with no gate at all (``select-all``,
+    ``select-invert``, ``frame`` and ``add-bone``, which makes something from nothing)
+    are the only ones this document does not refuse, and are checked for that instead.
     """
     doc = bd.ClayDoc()
-    always_enabled = {"select-all", "select-invert", "frame"}
+    always_enabled = {"select-all", "select-invert", "frame", "add-bone"}
     gated = 0
     for op in clay_ops.OPS:
         if op.name in always_enabled:

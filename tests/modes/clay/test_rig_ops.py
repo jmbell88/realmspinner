@@ -52,12 +52,12 @@ def _boxes(n: int, **kw) -> tuple[bd.ClayDoc, list[int]]:
     return doc, uids
 
 
-# -- the rows -------------------------------------------------------------------------------
+# -- the rows ------------------------------------------------------------------------------------
 
 
 def test_the_three_rows_are_object_mode_ops_in_a_rig_group_of_the_object_menu_only() -> None:
     # The pose ops share the group (Tranche 3); the first three are the rig-building rows.
-    assert menutree.GROUPS["rig"].ops[: len(NAMES)] == NAMES
+    assert menutree.GROUPS["rig"].ops[1 : 1 + len(NAMES)] == NAMES  # after Add Bone
     assert all(clay_ops.get(name).modes == ("object",) for name in NAMES)
     assert "rig" in [e.name for e in menutree.BARS["object"][1].entries]
     for mode in ("vertex", "edge", "face"):
@@ -86,7 +86,7 @@ def test_each_row_is_enabled_only_when_it_could_change_something_and_says_why_ot
     assert unbind.enabled(rigged) and clay_ops.reason_for(unbind, rigged) == ""
 
 
-# -- running them ---------------------------------------------------------------------------
+# -- running them --------------------------------------------------------------------------------
 
 
 def test_mark_bone_marks_every_selected_object_as_one_undo_step_and_unmark_reverses_it() -> None:
@@ -144,7 +144,7 @@ def test_unbind_skin_unbinds_every_selected_weighted_mesh_as_one_undo_step() -> 
     assert doc.undo() and all(doc.by_uid(u).skin is not None for u in bodies)
 
 
-# -- a weighted mesh does not move on its own -------------------------------------------------
+# -- a weighted mesh does not move on its own ----------------------------------------------------
 
 
 def test_the_document_refuses_to_move_a_weighted_mesh_and_names_the_way_out() -> None:
@@ -185,7 +185,7 @@ def test_a_keyboard_drag_skips_a_weighted_mesh_with_a_sentence_and_still_moves_t
     view.release()
 
 
-# -- the Rig card ---------------------------------------------------------------------------
+# -- the Rig card --------------------------------------------------------------------------------
 
 
 def test_the_card_sentences_name_what_each_kind_of_object_is_bound_to() -> None:
@@ -266,7 +266,7 @@ def test_the_outliner_draws_the_bone_glyph_on_a_bone_row_and_the_link_glyph_on_a
     assert f"{icons.LINK} Body##row" in labels
 
 
-# -- the doors that are not the panes -------------------------------------------------------
+# -- the doors that are not the panes ------------------------------------------------------------
 
 
 def test_ctrl_k_lists_the_three_rows_and_mark_bone_runs() -> None:
@@ -296,3 +296,62 @@ def test_the_agents_clay_op_can_mark_a_bone() -> None:
     assert result["isError"] is False, result
     assert _payload(result)["ran"] is True
     assert tab.doc.by_uid(uid).bone is True
+
+
+# -- Add Bone ------------------------------------------------------------------------------------
+
+
+def test_add_bone_makes_an_empty_bone_at_the_origin_and_selects_it() -> None:
+    doc = bd.ClayDoc()
+    ctx = _Ctx()
+    steps = len(doc.history)
+    assert clay_ops.run(ctx, doc, clay_ops.get("add-bone"))
+    [made] = doc.objects
+    assert made.bone and made.name == "Bone" and made.parent is None
+    assert made.mesh.positions.shape[0] == 0, "a bone with no shape of its own"
+    assert np.allclose(made.translation, 0) and doc.selection == {made.uid}
+    assert len(doc.history) == steps + 1 and doc.history.top.label == "Add Bone"
+    doc.undo()
+    assert doc.objects == []
+
+
+def test_add_bone_under_one_selected_bone_grows_a_chain_upward() -> None:
+    doc = bd.ClayDoc()
+    ctx = _Ctx()
+    clay_ops.run(ctx, doc, clay_ops.get("add-bone"))
+    clay_ops.run(ctx, doc, clay_ops.get("add-bone"))
+    clay_ops.run(ctx, doc, clay_ops.get("add-bone"))
+    names = [o.name for o in doc.objects]
+    assert names == ["Bone", "Bone.001", "Bone.002"]
+    first, second, third = doc.objects
+    assert second.parent == first.uid and third.parent == second.uid
+    assert np.allclose(doc.world_matrix(third.uid)[:3, 3], [0.0, 2 * bd.ClayDoc.NEW_BONE_STEP, 0.0])
+    assert doc.selection == {third.uid}
+
+
+def test_add_bone_with_two_bones_selected_or_a_shape_selected_starts_a_new_root() -> None:
+    doc, uids = _boxes(2)
+    ctx = _Ctx()
+    clay_ops.run(ctx, doc, clay_ops.get("add-bone"))
+    [shape_a, shape_b, bone] = doc.objects
+    assert bone.parent is None, "a selected shape is not a bone to grow from"
+    doc.set_bone(uids, True)
+    doc.select(uids)
+    clay_ops.run(ctx, doc, clay_ops.get("add-bone"))
+    assert doc.objects[-1].parent is None, "two bones selected: no single parent to choose"
+
+
+def test_the_sixty_fifth_bone_is_refused() -> None:
+    doc = bd.ClayDoc()
+    ctx = _Ctx()
+    for _ in range(rig.MAX_BONES):
+        doc.add_bone()
+    steps = len(doc.history)
+    assert clay_ops.run(ctx, doc, clay_ops.get("add-bone")) is False
+    assert any("at most 64" in message for message, _ in ctx.toasts) and len(doc.history) == steps
+
+
+def test_add_bone_is_a_bone_in_the_rig_group_of_the_object_menu() -> None:
+    assert menutree.GROUPS["rig"].ops[0] == "add-bone"
+    assert clay_ops.get("add-bone").modes == ("object",)
+    assert clay_ops.get("add-bone").label == "Add Bone"
