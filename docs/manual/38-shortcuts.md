@@ -184,6 +184,8 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | --- | --- |
 | Q / G / R / S | Select / move / rotate / scale — G, R and S also start a keyboard drag of that kind when something is selected |
 | 1 / 2 / 3 / 4 / 5 | Points / edges / faces / shape / pose mode (the toolbar's Shape, Points, Edges, Faces, Pose) |
+| Space / Home / End / Left / Right | In Pose mode: play or stop, go to the start, go to the last key, step one frame back, step one frame on |
+| Delete / X | In Pose mode, remove the diamonds picked on the timeline |
 | E | Extrude, then drag it out at once — along the face normal in face mode, free in edge and vertex mode; click or `Enter` commits, `Esc` undoes the extrude too. Element modes only: in object mode it does nothing |
 | I | Inset faces — move the pointer, or type a value, then `Enter` (face mode); in Pose mode, insert a key on the selected bones |
 | Ctrl+B | Bevel edges — move the pointer, or type a value, then `Enter` (edge mode) |

@@ -100,10 +100,12 @@ class ClayViewport:
         from ....main import TARGET_FPS
         from ....panes import overlay
         from .. import texture_link
+        from .. import timeline as clay_timeline
         from .panes import header as clay_header
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
         from .panes import rail as clay_rail
+        from .panes import timeline as clay_timeline_pane
 
         # One tick per drawn frame, before anything below can return: the UV pane
         # stamps its hover against this count and ``clay_mode.handle_key`` reads it
@@ -126,7 +128,10 @@ class ClayViewport:
         # has gone wrong at least once. (The palette strip that used to sit above
         # it is the Inspector's Colour card now, so the render owns that height.)
         hint_h = float(tokens.sp(clay_hud.HINT_H))
-        body_h = max(avail.y - hint_h, 1.0)
+        # The timeline strip's height, which is nothing outside Pose mode: reserved the way the
+        # hint line is, so the render is sized from what the strip leaves.
+        timeline_h = clay_timeline_pane.height(tab.doc)
+        body_h = max(avail.y - hint_h - timeline_h, 1.0)
         origin = imgui.get_cursor_screen_pos()
         # The tool rail, to the left of the render and as tall as it: a child of
         # this pane rather than a docked one, so it costs the model its width and
@@ -190,6 +195,10 @@ class ClayViewport:
         view.show_grid = state.grid
         view.grid_size = float(state.grid_size)
         view.god_light = bool(state.god_light)
+        # Playback advances the playhead by the time since the last frame, before the view
+        # draws it. ``delta_time`` for the reason Inker's playback uses it: a stalled frame
+        # stalls the clip by the same amount it stalls everything else on screen.
+        clay_timeline.tick(tab.doc, imgui.get_io().delta_time)
         texture = view.draw(tab.doc, rect, 1.0 / TARGET_FPS)
         imgui.image(widgets.texture_ref(texture), (rect[2], rect[3]), (0, 1), (1, 0))
         self._build_hovered = imgui.is_item_hovered()
@@ -228,7 +237,10 @@ class ClayViewport:
             view.clear_hover(tab.doc)
         # Last, under the render and the rail both: read when you are stuck, and a
         # line over the model covers the thing you are stuck on.
-        imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3]))
+        if timeline_h:
+            imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3]))
+            clay_timeline_pane.draw(ctx, tab, avail.x, timeline_h)
+        imgui.set_cursor_screen_pos((origin.x, rect[1] + rect[3] + timeline_h))
         clay_hud.hint_line(ctx)
 
     def _clay_tabs(self, ctx: Any, clay_mode: Any) -> None:

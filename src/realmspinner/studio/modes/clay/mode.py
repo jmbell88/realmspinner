@@ -1915,6 +1915,33 @@ def _hide_keys(tab: ClayTab, doc: Any, *, shift: bool, alt: bool) -> None:
             doc.clear_element_sel()
 
 
+def _pose_key(tab: Any, doc: Any, name: str) -> bool:
+    """The timeline's bare keys in Pose mode: Space plays, Home / End / Left / Right move the
+    playhead, Delete or X removes the diamonds picked on the strip. -> whether one was used.
+
+    Deleting keys edits the document, so it waits for a save; moving the playhead does not.
+    """
+    from . import timeline
+
+    if name == "space":
+        timeline.toggle_play(doc)
+    elif name == "home":
+        timeline.go_start(doc)
+    elif name == "end":
+        timeline.go_end(doc)
+    elif name == "left":
+        timeline.step(doc, -1)
+    elif name == "right":
+        timeline.step(doc, 1)
+    elif name in ("delete", "x") and tab.key_sel:
+        if not tab.saving:
+            doc.delete_bone_keys(tab.key_sel)
+            tab.key_sel = []
+    else:
+        return False
+    return True
+
+
 def handle_key(ctx: Any, event: Any) -> bool:
     """Clay's shortcuts. -> whether the key was consumed.
 
@@ -2051,6 +2078,9 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # mode -- chords the manual never gives a meaning (Alt is the mode switch's
         # modifier). Consumed, not acted on: falling through would let the bare
         # binding below fire, and returning False would hand the key to a pane.
+        return True
+
+    if doc.pose_mode and not shift and _pose_key(tab, doc, name):
         return True
 
     if name in MODE_KEYS and not shift:

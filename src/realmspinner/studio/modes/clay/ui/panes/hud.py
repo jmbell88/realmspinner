@@ -185,6 +185,8 @@ def hint_line(ctx: Any) -> None:
         # they are not.
         line = clay_hints.resolve_hint(
             measure=clay_hints.measure_line(tab.doc),
-            default=clay_hints.hint(tab.doc.element_mode, state.tool),
+            default=clay_hints.hint(
+                "pose" if tab.doc.pose_mode else tab.doc.element_mode, state.tool
+            ),
         )
     widgets.muted(line)

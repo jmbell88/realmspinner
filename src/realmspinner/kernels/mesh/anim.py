@@ -333,13 +333,17 @@ def sample(channel: Channel, time: float, interpolation: str = "linear") -> np.n
 
 
 def wrap(animation: Animation, time: float) -> float:
-    """*time* folded into the animation: wrapped at its duration when it loops, clamped to
-    ``0..duration`` when it does not."""
+    """*time* folded into the animation: wrapped past its duration when it loops, clamped to
+    ``0..duration`` when it does not.
+
+    A time *at* the duration is the last key, not the first: the key just authored there has to
+    be what the viewport shows, loop or not. Only a time beyond it wraps.
+    """
     duration = animation.duration
     if duration <= 0.0:
         return 0.0
     if animation.loop:
-        return float(time % duration)
+        return float(time) if 0.0 <= time <= duration else float(time % duration)
     return float(min(max(time, 0.0), duration))
 
 

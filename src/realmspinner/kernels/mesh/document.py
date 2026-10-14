@@ -2043,6 +2043,49 @@ class ClayDoc:
         self.pose_rev += 1
         return changed
 
+    def move_bone_keys(self, keys: Iterable[tuple[int, float]], delta: float) -> bool:
+        """Slide every key of each ``(bone, time)`` by *delta* seconds, as **one** step.
+
+        All three properties move together (a key on the timeline is a bone's key at a time),
+        the nearest ones first so a key never lands on one that has not moved yet, and a key
+        landing on an untouched one replaces it. Times stay within ``0..600`` s: a slide that
+        would leave is clamped so the earliest key lands on 0.
+        """
+        picked = sorted({(int(u), round(float(t), 6)) for u, t in keys})
+        if not picked or self.animation() is None:
+            return False
+        low = min(t for _u, t in picked)
+        delta = max(float(delta), -low)
+        if abs(delta) <= anim.TIME_EPSILON:
+            return False
+        order = sorted(picked, key=lambda k: k[1], reverse=delta > 0)
+
+        def make(a: anim.Animation) -> anim.Animation:
+            for uid, time in order:
+                for prop in list(a.channels.get(uid, {})):
+                    a = a.moved(uid, prop, time, time + delta)
+            return a
+
+        changed = self._edit_animation(None, make)
+        self.pose_rev += 1
+        return changed
+
+    def delete_bone_keys(self, keys: Iterable[tuple[int, float]]) -> bool:
+        """Remove every key of each ``(bone, time)``, as **one** step."""
+        picked = sorted({(int(u), round(float(t), 6)) for u, t in keys})
+        if not picked or self.animation() is None:
+            return False
+
+        def make(a: anim.Animation) -> anim.Animation:
+            for uid, time in picked:
+                for prop in list(a.channels.get(uid, {})):
+                    a = a.without_key(uid, prop, time)
+            return a
+
+        changed = self._edit_animation(None, make)
+        self.pose_rev += 1
+        return changed
+
     def reset_pose(self, uids: Iterable[int]) -> bool:
         """Pose the bones at their rest transform (Blender's Alt+G / R / S together)."""
         by_uid = self._uid_map()

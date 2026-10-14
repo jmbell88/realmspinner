@@ -165,6 +165,13 @@ class ClayTab(docmodes.HistoryTab):
     # test does that); read clamped, as ``last_slot`` is.
     edit_slots: dict[int, int] = field(default_factory=dict)
     edit_bases: dict[int, tuple[int, int]] = field(default_factory=dict)
+    # The timeline strip's own state (``ui/panes/timeline``): the diamonds picked as
+    # ``(bone uid, time)``, the gesture in hand (a scrub, or a diamond drag previewed as ghosts
+    # until release), and how many bone rows the strip is scrolled. Session state like the
+    # playhead: a saved ``.rblk`` carries none of it.
+    key_sel: list[tuple[int, float]] = field(default_factory=list)
+    key_drag: dict[str, Any] | None = None
+    timeline_scroll: int = 0
 
     def choose_edit_slot(self, doc: Any, obj: Any, index: int) -> None:
         """Make *index* the slot the page edits for *obj*, until what it wears moves."""

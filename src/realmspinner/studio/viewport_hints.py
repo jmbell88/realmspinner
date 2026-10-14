@@ -139,6 +139,10 @@ _PICK = {
     "vertex": "Click to pick . drag empty space to look around . L linked . 4 object",
     "edge": "Click to pick . drag empty space to look around . L linked . 4 object",
     "face": "Click to pick . drag empty space to look around . L linked . 4 object",
+    "pose": (
+        "Click a bone or its shape . G/R/S pose it . I keys it . Space plays . "
+        "drag empty space to look around . 4 object"
+    ),
 }
 
 #: The element modes' box-select clause, under every tool: since the 2026-10-08
@@ -186,7 +190,7 @@ def hint(mode: str, tool: str) -> str:
     """
 
     pick = _PICK.get(mode, _PICK["object"])
-    if mode in _PICK and mode != "object":
+    if mode in _PICK and mode not in ("object", "pose"):
         head, look, rest = pick.split(" . ", 2)
         pick = f"{head} . {look} . {_MARQUEE} . {rest}"
     parts = [pick]

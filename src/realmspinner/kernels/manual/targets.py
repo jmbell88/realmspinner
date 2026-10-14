@@ -107,6 +107,8 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # and Texel Density actually set -- are answered in one section, "The UV
     # view" under "Texture coordinates".
     "clay-uv": ("30-clay", "the-uv-view"),
+    # The timeline strip under the viewport in Pose mode.
+    "clay-timeline": ("30-clay", "the-timeline"),
     # Mason's seven, pointed at its own chapter. They were interim from Stage E
     # until ``31-mason.md`` landed: Part II was full at 20-38, so giving Mason a
     # slot was a fifteen-file renumbering, and until that was taken these rows

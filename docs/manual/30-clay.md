@@ -952,6 +952,44 @@ Four operations in the Rig group work on the selected bones in Pose mode:
 showing, the selected animation at the playhead, with no animation in the file: the joints carry the pose and the
 meshes stay as they were bound, which is how a skinned file shows one.
 
+## The timeline
+
+In Pose mode a strip opens under the viewport for the animation being authored; it closes with the mode. It has
+three parts.
+
+The **top row** is the transport, then the animation list, then the playhead's position. The transport is
+**|<** (to the start, `Home`), **<** and **>** (one frame back and on, `Left` and `Right`), **Play** (`Space`) and
+**>|** (to the last key, `End`); Play is greyed until some bone has a key, and a one-shot animation that has
+reached its end starts again from the beginning when you press it. **New**, **Copy**, **Rename** and **Delete**
+are the animation list: a document holds up to 64 animations, each with its own keys, and the one named in the
+combo below is the one the strip edits, the viewport shows and Export GLB writes first. Deleting an animation, like
+every other change here, is one undo step.
+
+The **second row** is the animation's own settings. The combo picks which animation is selected. **fps** is the
+frame rate the strip counts in and the file is written at: 12, 24, 30 or 60. **Loop** plays the animation round
+and round; with it off the animation is a one-shot, which stops on its last key and is exported marked as one.
+The interpolation is **Linear**, which blends between keys (rotation takes the shorter way round), or **Step**,
+which holds each key until the next. **Auto-key** is the switch the section on posing describes: on, a posed bone
+is keyed at the playhead; off, the pose is held until you press `I`. The (?) opens this section.
+
+Below is the **dope sheet**: a ruler in seconds, and a row for every bone that has a key or is selected, with a
+diamond at each time that bone is keyed. A diamond stands for all of the bone's keys at that time, whichever of
+position, rotation and size they are, so moving or deleting it takes them together. The line through it is the
+playhead.
+
+- Click or drag on the ruler, or on empty track, to scrub the playhead. It lands on whole frames.
+- Click a diamond to pick it and move the playhead to it; `Shift`+click adds it to the pick or takes it away.
+  Clicking empty track clears the pick.
+- Drag a picked diamond sideways to slide it: a ghost shows where it will land and the keys move when you let go,
+  as one undo step. A key that lands on another replaces it, and none can go before 0.
+- `Delete` or `X` removes the diamonds that are picked. **Delete Key** in the Rig group removes the selected
+  bones' keys at the playhead instead.
+- Click a bone's name to select it, and roll the wheel over the track to scroll when there are more bones than rows.
+
+Playing moves the playhead and nothing else: it is never an undo step, and an unkeyed pose does not survive it.
+The strip shows up to the animation's length rounded up to a whole second, with at least one second to put a first
+key in.
+
 ## Mirroring
 
 **Mirror X / Y / Z** reflects the object across a plane through its own origin, in place — the object
