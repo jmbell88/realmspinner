@@ -648,7 +648,6 @@ def run_mesh_op(
     (``"ops_topo.inset_faces"``) so :func:`localise` can divide its metre-labelled
     numbers by each object's own world scale, per object.
     """
-    from ....kernels.mesh import document as bd
     from ....kernels.mesh import selection
     from ....kernels.mesh.elements import OpError
 
@@ -683,6 +682,21 @@ def run_mesh_op(
         built.append((uid, obj, mesh, sel))
     if not built:
         return False
+    return _commit_built(ctx, doc, built)
+
+
+def _commit_built(ctx: Any, doc: Any, built: list[tuple[int, Any, Any, Any]]) -> bool:
+    """Phase two of a mesh run: check *built* against the document, then write it.
+
+    *built* is ``(uid, obj, new mesh, new element selection or None)`` per object,
+    computed with nothing written. Shared by :func:`run_mesh_op` and the object-level
+    ops that rewrite meshes (Smooth), so every one of them is all-or-nothing against
+    the triangle ceilings and the 2026-10-10 audit's clay-22 cannot return by the
+    door that did not use the loop above.
+    """
+    from ....kernels.mesh import document as bd
+    from ....kernels.mesh.elements import OpError
+
     # Only a run that adds triangles can cross the ceiling; one that shrinks or
     # holds a document somehow already over the line stays possible, as in
     # ``ClayDoc._refuse_past_triangle_ceiling``.
@@ -2117,6 +2131,57 @@ def _simplify(ctx: Any, doc: Any, target: int = 100, **_: Any) -> bool:
     return ran
 
 
+def _smooth(ctx: Any, doc: Any, levels: int = 1, **_: Any) -> bool:
+    """Catmull-Clark every selected object, *levels* times -- all of them or none.
+
+    **Object mode only, and whole objects**, for :func:`_simplify`'s reason: a smoothing
+    subdivision moves the original points, so a face selection would tear the surface
+    along its edge (``ops_subdiv.catmull_clark`` ignores one for the same reason).
+
+    **Charged per press, not per object.** The kernel refuses an object whose own result
+    passes ``MAX_SUBDIVIDED_FACES``, but the frame thread pays for the whole selection:
+    ten objects each inside the ceiling would still stall it together. Level one turns
+    every corner of every face into a quad, and each further level multiplies by four, so
+    the press builds ``sum(corners) * 4 ** (levels - 1)`` faces -- summed over the
+    objects, against the same ceiling. (``MAX_CLEAN_CORNERS``'s lesson, the 2026-10-09
+    second audit's clay-96.)
+
+    **Two phases**, through :func:`_commit_built`: every result is computed first and
+    checked against the document's triangle ceilings, and only then written, so an object
+    that refuses, or a run that crosses a ceiling, changes nothing.
+    """
+    from ....kernels.mesh import mesh as bm
+    from ....kernels.mesh import ops_subdiv
+    from ....kernels.mesh.elements import OpError, empty
+
+    levels = int(levels)
+    batch = [doc.by_uid(uid) for uid in list(doc.selection) if uid in doc._uid_map()]
+    if refuse_if_no_geometry(ctx, doc, [obj.uid for obj in batch]):
+        return False
+    shapes = [obj for obj in batch if bm.face_count(obj.mesh)]
+    grown = sum(len(obj.mesh.loops) for obj in shapes) * 4 ** (levels - 1)
+    if grown > ops_subdiv.MAX_SUBDIVIDED_FACES:
+        raise OpError(
+            f"Smoothing {len(shapes)} object{'s' if len(shapes) != 1 else ''} "
+            f"{levels} time{'s' if levels != 1 else ''} would build {grown:,} faces, past the "
+            f"{ops_subdiv.MAX_SUBDIVIDED_FACES:,} Clay works with. Smooth fewer objects or "
+            "fewer levels."
+        )
+    built: list[tuple[int, Any, Any, Any]] = []
+    for obj in shapes:
+        try:
+            mesh, _sel = ops_subdiv.catmull_clark(obj.mesh, empty(), levels=levels)
+            doc._refuse_invalid(obj.name, mesh)
+            doc._refuse_unstorable(obj.name, mesh)
+        except OpError as error:
+            _toast_refused(ctx, obj.uid, str(error))
+            continue
+        built.append((obj.uid, obj, mesh, None))
+    if not built:
+        return False
+    return _commit_built(ctx, doc, built)
+
+
 # --- shading, selection, frame ------------------------------------------------
 
 
@@ -2418,6 +2483,24 @@ def _register_defaults() -> None:
                     integer=True,
                     refuse_below=True,
                 ),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="smooth",
+            label="Smooth...",
+            modes=("object",),
+            run=_smooth,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Rounds the whole shape (Catmull-Clark): every face splits into quads "
+            "and the points move toward the smooth surface, so a box becomes a "
+            "pillow. Each level has four times the faces of the one before, 1 to 4. "
+            "Whole objects only; Subdivide, in face mode, adds faces without "
+            "changing the shape.",
+            params=(
+                Param("levels", "levels", 1.0, 1.0, low=1.0, high=4.0, integer=True),
             ),
         )
     )

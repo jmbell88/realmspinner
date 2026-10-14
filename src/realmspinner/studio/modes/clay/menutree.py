@@ -88,6 +88,7 @@ GROUPS: dict[str, Group] = {
     "join": Group("Join", ("join",)),
     "shading": Group("Shading", ("shade-smooth", "shade-flat")),
     "cleanup": Group("Clean Up", ("recalc-normals", "simplify")),
+    "smooth": Group("Smooth", ("smooth",)),
     "separate": Group("Separate", ("separate-loose", "separate-selection")),
     "uv": Group("UV", ("unwrap", "pack-uv")),
     "mesh": Group(
@@ -185,6 +186,7 @@ BARS: dict[str, tuple[Menu, ...]] = {
                 _inline("join"),
                 _sub("shading"),
                 _inline("cleanup"),
+                _inline("smooth"),
                 _sub("separate"),
                 _inline("delete"),
             ),

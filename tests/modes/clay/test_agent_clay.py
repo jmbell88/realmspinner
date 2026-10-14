@@ -4704,3 +4704,18 @@ def test_clay_op_dissolve_is_in_the_enum_and_merges_a_picked_box_edge() -> None:
     assert _payload(result)["ran"] is True
     assert len(tab.doc.by_uid(uid).mesh.starts) == faces - 1
     assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"
+
+
+def test_clay_op_smooth_runs_on_the_agents_tab_with_a_levels_param_as_one_undo_step() -> None:
+    """Tranche 1 landing 2 restored Smooth, so ``clay_op``'s enum gains ``smooth``. Fails
+    before the restore: the enum has no ``smooth`` and the call is a schema refusal."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    steps = _history_len(ctx, session)
+    result = agent_clay.call(ctx, session, "clay_op", {"name": "smooth", "params": {"levels": 2}})
+    assert result["isError"] is False, result
+    assert _payload(result)["ran"] is True
+    assert len(tab.doc.by_uid(uid).mesh.starts) - 1 == 96
+    assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"

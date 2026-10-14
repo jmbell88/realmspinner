@@ -133,7 +133,7 @@ Every operation Clay has is in three places, and all three are drawn from one ta
 greyed-out reason or a dialog of numbers cannot differ between them:
 
 - **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in
-  groups — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Separate, UV — with **Duplicate**
+  groups — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth, Separate, UV — with **Duplicate**
   and **Delete** as rows of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None,
   Invert Selection and Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset,
   bevel, merge faces, weld, flip, triangulate, subdivide and Delete, with Topology (dissolve, bridge, fill hole,
@@ -152,13 +152,13 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has forty-four operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has forty-five operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
 | --- | --- |
 | Select | Select All (`Ctrl+A`), Select None, Invert Selection (`Ctrl+Shift+I`), Select Linked (`L`, element modes) |
-| Object | Duplicate (`Ctrl+J`), Merge Objects... (`Ctrl+M`), Recalculate Normals, Simplify..., Delete (`Delete`) |
+| Object | Duplicate (`Ctrl+J`), Merge Objects... (`Ctrl+M`), Recalculate Normals, Simplify..., Smooth..., Delete (`Delete`) |
 | Object ▸ Transform | Drop to Ground, Snap to Grid... |
 | Object ▸ Set Origin | Origin to Bounds, Origin to Base, Origin to World; Origin to Selection in an element mode |
 | Object ▸ Mirror | Mirror X, Mirror Y, Mirror Z, Mirror Copy... |
@@ -318,8 +318,8 @@ mode has no box select.
 Right-click opens the context menu, listing exactly the operations that apply in the current mode
 with the ones that cannot run greyed out. The same table drives the Inspector's action buttons and the
 palette's rows, so none of them can offer something another refuses. Operations that take a number — inset, bevel,
-weld, assign material, merge objects, snap to grid, mirror copy, pack islands, simplify — open a small dialog with
-the fields and an **Apply** button, and remember what you last used.
+weld, assign material, merge objects, snap to grid, mirror copy, pack islands, simplify, smooth — open a small dialog
+with the fields and an **Apply** button, and remember what you last used.
 
 Distances in the Inset, Weld and Bevel fields are world metres. Clay divides them by the object's own
 scale before applying them, so `0.1 m` is 10 cm on screen whatever the object's scale. For a non-uniform scale the
@@ -681,10 +681,10 @@ Then three folds, closed until you open them (the Inspector remembers which are 
   scale -- the shape compared with the mesh as first made, which Size makes unnecessary for nearly everything.
 - **Group & parent** holds the parent choice and **Clear parent**; see [Parents and groups](#parents-and-groups).
 - **More actions** lists every whole-object operation, generated from the same table as the right-click menu,
-  in groups: Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Separate and UV. Each button
+  in groups: Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth, Separate and UV. Each button
   says what it does on hover, with its key, and is greyed with the plain reason when it cannot run. An
-  operation that takes numbers (Snap to Grid, Mirror Copy, Pack islands, Simplify) opens its fields right below the
-  group with an **Apply** button, and remembers the values for next time; the same fields open from the
+  operation that takes numbers (Snap to Grid, Mirror Copy, Pack islands, Simplify, Smooth) opens its fields right
+  below the group with an **Apply** button, and remembers the values for next time; the same fields open from the
   right-click menu. **Texture mapping** opens the Unwrap page.
 
 **With several shapes selected** the panel says so in its heading and offers the Colour card (one click paints them
@@ -763,8 +763,8 @@ what you selected, with everything parented to it. If you select an object and s
 parented to it, only the topmost of them is parented to the empty, so the hierarchy below it stays as
 it was. The empty has no geometry of its own — it draws
 nothing and exports as a bare node — so it is purely a handle for moving a set of things as one. Drop to Ground,
-Mirror, Origin to Bounds or Base, Box Unwrap, Pack UV Islands, Separate Loose Parts, Recalculate Normals, Simplify
-and Shade Smooth or Flat tell you so when only groups
+Mirror, Origin to Bounds or Base, Box Unwrap, Pack UV Islands, Separate Loose Parts, Recalculate Normals, Simplify,
+Smooth and Shade Smooth or Flat tell you so when only groups
 are selected. **Ungroup** dissolves it and leaves the children where they stand. Duplicate and Delete are greyed out,
 with a reason, when the only objects selected are hidden.
 
@@ -993,6 +993,20 @@ corner ceiling applies to the whole selection, not each object. For a
 few faces that are wrong, **Flip Normals** in face mode is the sharper tool.
 
 ![The Colours & textures page: the Stone slot with its base colour, flags and texture](img/30-clay-material.png)
+
+## Smoothing a mesh
+
+**Smooth...** (object mode) rounds a whole shape. Every face is split into quads and the points move toward the
+smooth surface the new faces describe (the Catmull-Clark rule), so a box becomes a pillow and a rounded box rounder
+still. Its one field is **levels**, 1 to 4, and each level has four times the faces of the one before: a box is 24
+faces at one level, 96 at two and 384 at three. It always acts on the whole object, never on a face selection,
+because moving only some of the points would tear the surface along the edge of the selection. **Subdivide**, in
+face mode, is the other one: it adds the same faces without moving anything.
+
+The faces a press would build are counted across every selected object before anything is touched, and past 500,000
+the press is refused and nothing changes; smooth fewer objects or fewer levels. A smooth is one undo step, and it
+freezes the object's generator like any other edit to the mesh, so the Shape settings stop offering the size fields.
+Texture coordinates are split linearly, not smoothed, so a painted texture stays where it was.
 
 ## Simplifying a mesh
 
